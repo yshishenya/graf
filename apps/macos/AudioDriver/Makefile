@@ -30,6 +30,7 @@ proof-plugin-build: $(PLUGIN_BINARY)
 proof-plugin-install: proof-plugin-build
 	sudo rm -rf "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
 	sudo cp -R "$(PLUGIN_BUNDLE)" "$(PLUGIN_INSTALL_DIR)/"
+	sudo xattr -cr "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
 	sudo killall coreaudiod
 
 proof-plugin-uninstall:

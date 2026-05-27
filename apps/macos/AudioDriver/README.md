@@ -90,8 +90,10 @@ make -C apps/macos/AudioDriver proof-plugin-install
 ```
 
 This command requires an admin password because Apple's AudioServerPlugIn header
-documents `/Library/Audio/Plug-Ins/HAL` as the HAL plug-in location. After
-installation, rerun:
+documents `/Library/Audio/Plug-Ins/HAL` as the HAL plug-in location. The proof
+installer also clears extended attributes after copying the bundle so local
+provenance metadata does not interfere with HAL discovery. After installation,
+rerun:
 
 ```sh
 make -C apps/macos/AudioDriver proof-runtime-probe-run

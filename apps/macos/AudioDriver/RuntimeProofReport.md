@@ -73,6 +73,12 @@ devices are currently published to Core Audio.
   is root-owned and local passwordless sudo is unavailable, so installing the
   proof bundle and restarting `coreaudiod` requires an interactive admin
   password.
+- Follow-up after first manual install: the bundle installed successfully, but
+  Core Audio still did not list the proof devices. The installed bundle was
+  structurally present and signed, but discovery logs did not show the proof
+  bundle being loaded. The proof package now includes an
+  `IOPlatformExpertDevice` loading condition and clears extended attributes
+  during install before restarting `coreaudiod`.
 - Current decision: still BLOCKED until the proof bundle is installed by an
   admin user, Core Audio reloads it, and `proof-runtime-probe-run` observes both
   MVP virtual devices.
