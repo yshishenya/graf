@@ -8,6 +8,16 @@
 
 **Input**: User description: "macOS virtual audio driver MVP"
 
+## Clarifications
+
+### Session 2026-05-27
+
+- Q: What assisted auto-start scope belongs in this driver MVP? → A: Include only readiness/hooks: state, policy snapshot, trigger evidence fields, and eligible-state reporting; full meeting-like activity detection is a separate feature.
+- Q: What validation approach is required for route and capture readiness? → A: Require both synthetic route tests and real browser meeting tests on approved targets.
+- Q: What installer scope belongs in the MVP? → A: Interactive signed/notarized installer only; silent install, MDM, and enterprise deployment are out of scope.
+- Q: Which physical audio devices are officially supported in MVP? → A: MVP must fully support built-in, wired, USB, Bluetooth, and AirPods-class devices.
+- Q: Which responsibilities belong in the driver versus desktop software? → A: Keep the driver/audio component thin and limited to audio-device, passthrough, routing, mirroring, timing, and dropout responsibilities; desktop software owns buffer policy, upload, retention, purge, UI state, diagnostics, and audit hooks.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Complete Driver Setup And Route Verification (Priority: P1)
@@ -165,6 +175,9 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   where a 2brain Rec virtual device is selected as its own source or output.
 - **FR-005**: The system MUST verify both local microphone route and remote
   speaker route before showing fully ready.
+- **FR-005a**: Route verification MUST support synthetic test signals for both
+  mic and speaker paths and MUST also be validated through real browser meeting
+  scenarios on approved MVP targets.
 - **FR-006**: The system MUST distinguish driver failure, routing failure,
   permission failure, physical device failure, server failure, and network
   failure in user-visible states.
@@ -172,38 +185,45 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   separate tracks in audio-recording mode.
 - **FR-008**: The system MUST support transcript-only mode with the same route
   validation requirements as audio-recording mode.
-- **FR-009**: The system MUST continue live audio passthrough when upload,
-  transcription, server connectivity, or network connectivity fails.
-- **FR-010**: The system MUST buffer capture locally in encrypted form when
-  upload cannot complete.
-- **FR-011**: The system MUST show warning before local buffering reaches the
-  point where capture is at risk.
-- **FR-012**: The system MUST stop new capture or mark capture degraded before
-  data loss if local buffer limits or disk reserve would be violated.
-- **FR-013**: The system MUST never silently drop audio.
-- **FR-014**: The system MUST add dropout markers when audio discontinuities are
-  detected.
+- **FR-009**: The driver/audio component MUST continue live audio passthrough
+  independently of upload, transcription, server connectivity, or network
+  connectivity.
+- **FR-010**: The desktop software MUST buffer capture locally in encrypted form
+  when upload cannot complete; this policy MUST NOT live in the driver/audio
+  component.
+- **FR-011**: The desktop software MUST show warning before local buffering
+  reaches the point where capture is at risk.
+- **FR-012**: The desktop software MUST stop new capture or mark capture
+  degraded before data loss if local buffer limits or disk reserve would be
+  violated.
+- **FR-013**: The driver/audio component and desktop software together MUST
+  never silently drop audio.
+- **FR-014**: The driver/audio component MUST surface enough timing/continuity
+  information for the desktop software to add dropout markers when audio
+  discontinuities are detected.
 - **FR-015**: The system MUST provide visible local capture indication whenever
   recording or transcript-only capture is active.
 - **FR-016**: The system MUST provide one-action stop from a local visible
   surface during active capture.
 - **FR-017**: The system MUST support manual start, pause/resume, and stop when
   workspace policy permits recording.
-- **FR-018**: The system MUST represent assisted auto-start only as a
-  policy-gated internal MVP capability and MUST keep manual start/stop
-  available.
-- **FR-019**: Assisted auto-start MUST NOT trigger from arbitrary system audio,
-  media playback, notification sounds, music, videos, or non-approved apps.
-- **FR-020**: The system MUST show `detecting` rather than starting capture when
-  meeting-like activity is uncertain.
-- **FR-021**: The system MUST record trigger evidence and policy snapshot for
-  assisted auto-start sessions.
+- **FR-018**: The system MUST keep manual start/stop available and MUST NOT
+  require assisted auto-start to complete the driver MVP.
+- **FR-019**: The system MUST expose readiness/hooks needed by a later assisted
+  auto-start feature, including route validation state, source-app eligibility
+  state where available, policy snapshot reference, and trigger evidence fields.
+- **FR-020**: The system MUST NOT implement full meeting-like activity detection
+  in this feature; that detection belongs to a separate feature specification.
+- **FR-021**: The system MUST provide a `detecting` or eligible-readiness state
+  that can be used by a later assisted auto-start feature without starting
+  capture by itself.
 - **FR-022**: The system MUST provide Audio Health diagnostics for physical mic,
   physical output, virtual mic, virtual speaker, route graph, live meters,
   route verification, driver status, permissions, test recording, and test
   playback.
-- **FR-023**: The system MUST provide install, update, repair, rollback, and
-  uninstall flows with explicit user-visible outcomes.
+- **FR-023**: The system MUST provide an interactive signed/notarized installer
+  for MVP install, update, repair, rollback, and uninstall flows with explicit
+  user-visible outcomes.
 - **FR-024**: Updates MUST NOT interrupt an active call; if an update is needed
   during active capture, it MUST defer or require explicit safe timing.
 - **FR-025**: Uninstall MUST remove app-managed virtual devices and background
@@ -223,6 +243,19 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   unless a later release decision adds it to the full QA matrix.
 - **FR-032**: The system MUST label unsupported or unverified meeting targets as
   best-effort rather than officially supported.
+- **FR-033**: The QA matrix MUST include both synthetic route tests and real
+  browser meeting tests for every officially supported MVP meeting target.
+- **FR-034**: The MVP MUST NOT require silent install, MDM, fleet deployment, or
+  enterprise deployment support.
+- **FR-035**: The MVP MUST officially support built-in microphone/speakers,
+  wired headsets, USB microphones, USB headsets, Bluetooth headsets, and
+  AirPods-class devices across the full driver QA matrix.
+- **FR-036**: The driver/audio component MUST remain thin: it owns virtual audio
+  device behavior, real-time passthrough, routing, mirroring, track timing, and
+  continuity signals only.
+- **FR-037**: Desktop software MUST own non-real-time product behavior,
+  including local buffer policy, upload coordination, retention deadlines,
+  purge state, user-visible state, diagnostics packaging, and audit hooks.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -234,7 +267,8 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   signal state, muted/silent/noisy state, and last verification result.
 - **Route Verification**: A readiness check that proves the mic path and remote
   speaker path are both usable. Key attributes include path, status, failure
-  reason, timestamp, and recovery action.
+  reason, timestamp, recovery action, validation type, and meeting target when
+  applicable.
 - **Capture Session**: A local capture attempt for audio-recording or
   transcript-only mode. Key attributes include mode, source app if detected,
   start trigger, policy snapshot, track states, buffer state, and visible
@@ -242,9 +276,10 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
 - **Audio Track**: A captured stream such as local mic or remote speaker. Key
   attributes include track role, continuity state, timing metadata, dropout
   markers, and finalization state.
-- **Local Buffer Item**: Encrypted local capture data awaiting upload or purge.
-  Key attributes include meeting/session association, size, age, retention
-  deadline, upload state, and purge state.
+- **Local Buffer Item**: Encrypted local capture data managed by desktop
+  software while awaiting upload or purge. Key attributes include
+  meeting/session association, size, age, retention deadline, upload state, and
+  purge state.
 - **Driver Health Report**: A diagnostic summary of install, permissions,
   version, route, passthrough, and recovery status. It must not contain raw
   audio or secrets by default.
@@ -254,13 +289,13 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
 - **Capture/Driver Impact**: This feature directly defines the macOS driver MVP.
   It requires separate local mic and remote speaker tracks, no remote-to-mic
   loopback, local passthrough during upload/server failure, explicit degraded
-  states, installer/update/uninstall recovery, and Phase 0 approval of driver
-  decisions before coding.
+  states, installer/update/uninstall recovery, a thin driver/audio component
+  boundary, and Phase 0 approval of driver decisions before coding.
 - **Visible Control Impact**: This feature touches capture state, onboarding,
-  tray/widget, Audio Health, manual start/stop, and assisted auto-start. It
-  requires persistent visible active-capture indication, one-action stop,
-  manual control, no invisible recording, and `detecting` state when auto-start
-  confidence is uncertain.
+  tray/widget, Audio Health, manual start/stop, and readiness hooks for later
+  assisted auto-start. It requires persistent visible active-capture indication,
+  one-action stop, manual control, no invisible recording, and readiness states
+  that do not start capture by themselves.
 - **Data Boundary Impact**: This feature creates local capture data and upload
   readiness, but the desktop app must not send audio directly to MediaScribe.
   Audio must go through the self-hosted 2brain Rec ingest path once backend
@@ -270,9 +305,10 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   diagnostics free of credentials, tokens, signed URLs, raw audio, and
   transcript text by default.
 - **Retention/Deletion Impact**: Local buffer items created by this feature must
-  have retention deadlines, upload states, purge states, and deletion reporting
-  hooks. A server purge must not be represented as local purge unless the
-  desktop acknowledges purge or the local expiry window passes.
+  be owned by desktop software and have retention deadlines, upload states,
+  purge states, and deletion reporting hooks. A server purge must not be
+  represented as local purge unless the desktop acknowledges purge or the local
+  expiry window passes.
 - **Audit Impact**: The feature must define audit-relevant events for driver
   installed, updated, repaired, uninstalled, permission changed, route verified,
   capture started, capture stopped, assisted auto-start triggered, local buffer
@@ -290,14 +326,14 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   permissions, mic route verification, and speaker route verification without
   engineering assistance on supported Macs.
 - **SC-002**: Fully ready state is never shown unless both mic and speaker routes
-  have passed verification in the current setup.
+  have passed verification in the current setup through synthetic route tests
+  and at least one approved browser meeting validation path.
 - **SC-003**: In supported wired-audio 60-minute calls, local mic and remote
   speaker tracks remain aligned within 100 ms.
 - **SC-004**: In supported wired-audio 60-minute calls, dropped frames remain
   below 0.1%.
-- **SC-005**: In supported Bluetooth 60-minute calls, dropped frames remain
-  below 0.5% or the unsupported/limited profile condition is documented
-  in-product before capture.
+- **SC-005**: In supported Bluetooth and AirPods-class 60-minute calls, dropped
+  frames remain below 0.5% while passthrough remains usable.
 - **SC-006**: A 5-minute network or server outage during active capture does not
   interrupt live mic or speaker passthrough.
 - **SC-007**: Active capture state is identifiable without opening the desktop
@@ -319,10 +355,20 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   Yandex Browser, plus Yandex Telemost in browser after QA.
 - Other apps that can select `2brain Rec Microphone` and `2brain Rec Speaker`
   may work but are best-effort unless added to the QA matrix.
+- Official MVP physical audio support includes built-in microphone/speakers,
+  wired headsets, USB microphones, USB headsets, Bluetooth headsets, and
+  AirPods-class devices.
 - The desktop app will authenticate to the 2brain Rec server in a later or
   adjacent feature; this feature defines local driver/capture readiness and
   local buffer behavior.
 - MediaScribe submission is out of scope for the desktop driver feature because
   desktop clients must upload to 2brain Rec server-side ingest first.
+- Resumable upload protocol is out of scope for this feature; this feature only
+  defines the desktop-owned local buffer states needed to survive upload/server
+  unavailability.
+- Full assisted auto-start meeting detection is out of scope; this feature only
+  provides readiness/hooks for a later auto-start feature.
 - Screen/video recording, bot mode, live transcription, Windows support, and
   noise suppression are out of scope for this feature.
+- Silent install, MDM, fleet deployment, and enterprise deployment support are
+  out of scope for this feature.

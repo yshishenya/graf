@@ -31,5 +31,5 @@
 
 ## Notes
 
-- This spec is ready for `$speckit-clarify`.
-- Clarification is still recommended because this is a high-risk driver/audio feature under the project constitution.
+- `$speckit-clarify` completed on 2026-05-27 with five accepted clarifications.
+- This spec is ready for `$speckit-plan`.
