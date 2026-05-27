@@ -68,7 +68,7 @@ The spec must describe what and why, not implementation details. It should inclu
 - explicit out-of-scope items;
 - dependencies and assumptions.
 
-Spec files live under `specs/<number>-<short-name>/spec.md`. The active feature path is tracked by `.specify/feature.json`.
+Spec files live under `specs/<number>-<short-name>/spec.md`. The active feature path is stored locally in `.specify/feature.json`; this file is intentionally ignored because it is per-worktree state.
 
 ### 2. Clarify
 

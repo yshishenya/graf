@@ -20,7 +20,7 @@ Primary wedge:
 
 Primary promise:
 
-- Capture meetings from the user's computer, across meeting apps, without sending meeting audio to third-party SaaS by default.
+- Capture meetings from the user's computer across meeting apps while keeping audio, transcripts, and notes inside owner-controlled storage and explicitly configured processing dependencies by default.
 
 Differentiation:
 
