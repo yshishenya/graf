@@ -54,17 +54,18 @@
 
 **Purpose**: Close review findings before the first user-story implementation. IDs continue after the generated task list to preserve traceability for existing T019-T067 references.
 
-**CRITICAL**: US1 implementation tasks T023-T030 MUST NOT start until T068-T072 are complete. Execution order follows document order, not numeric ID order.
+**CRITICAL**: US1 implementation tasks T023-T030 MUST NOT start until T068-T077 are complete and `apps/macos/AudioDriver/RuntimeProofReport.md` records `**Status**: ACCEPTED`. Execution order follows document order, not numeric ID order.
 
 - [X] T068 Add an executable SwiftPM contract validation command in `apps/macos/Shared/Tools/ContractValidation/main.swift`.
 - [X] T069 Complete desktop-driver fixture coverage for all required events in `tests/macos/contract/desktop-driver-events.json`.
 - [X] T070 Add a reproducible proof-only C++ build/run command in `apps/macos/AudioDriver/Makefile`.
 - [X] T071 Add an explicit macOS 14.5 Apple Silicon support gate model in `apps/macos/Shared/Sources/Models/PlatformSupport.swift`.
-- [ ] T072 Run the runtime Core Audio proof on Apple Silicon macOS and record the observed result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T072 Run the runtime Core Audio visibility probe on Apple Silicon macOS and record the observed BLOCKED result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
 - [X] T073 Add a capture visibility and one-action stop invariant validator in `apps/macos/Shared/Sources/Models/CaptureSessionSafetyValidator.swift`.
 - [X] T074 Add baseline key/value forbidden-pattern diagnostic redaction coverage in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
-- [ ] T075 Extend diagnostic redaction to recursive/schema allowlist behavior before diagnostic bundle implementation in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T075 Extend diagnostic redaction to recursive/schema allowlist behavior before diagnostic bundle implementation in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 - [X] T076 Add local validation scripts for foundation and US1 readiness gates in `apps/macos/Scripts/validate-foundation.sh` and `apps/macos/Scripts/validate-us1-gate.sh`.
+- [ ] T077 Produce an ACCEPTED runtime Core Audio publication proof with both MVP virtual devices visible to macOS in `apps/macos/AudioDriver/RuntimeProofReport.md`.
 
 ---
 
@@ -194,7 +195,7 @@
 
 - **Setup (Phase 1)**: No dependencies.
 - **Foundational (Phase 2)**: Depends on Setup completion and blocks all user stories.
-- **Blocking Remediation Gate (Phase 2.5)**: Depends on Foundational and blocks US1 implementation tasks T023-T030 until T068-T072 are complete.
+- **Blocking Remediation Gate (Phase 2.5)**: Depends on Foundational and blocks US1 implementation tasks T023-T030 until T068-T077 are complete and `apps/macos/Scripts/validate-us1-gate.sh` passes.
 - **User Story 1 (Phase 3)**: Depends on Foundational plus the Blocking Remediation Gate and is the MVP setup/readiness slice.
 - **User Story 2 (Phase 4)**: Depends on Foundational; can start after US1 interfaces exist, but remains independently testable through browser meeting validation.
 - **User Story 3 (Phase 5)**: Depends on Foundational and can run in parallel with US2 after shared state models exist.
@@ -212,7 +213,7 @@
 
 - Setup tasks T003-T006 can run in parallel after T001.
 - Foundational fixture/model tasks T008-T010 can run in parallel after T007.
-- Blocking remediation tasks T068-T071 can run in parallel after T018; T072 depends on T070 and an available Apple Silicon runtime environment. T023-T030 remain blocked until `apps/macos/Scripts/validate-us1-gate.sh` passes.
+- Blocking remediation tasks T068-T071 can run in parallel after T018; T072 depends on T070 and an available Apple Silicon runtime environment; T077 depends on a working Core Audio publication implementation or installed proof component. T023-T030 remain blocked until `apps/macos/Scripts/validate-us1-gate.sh` passes.
 - US1 test tasks T019-T022 can run in parallel.
 - US2 test tasks T031-T034 can run in parallel.
 - US3 test tasks T043-T046 can run in parallel.
@@ -237,7 +238,7 @@ Task: "T034 [US2] Add network/server outage acceptance scenario in tests/macos/b
 ### MVP First
 
 1. Complete Setup and Foundational phases.
-2. Complete Blocking Remediation Gate tasks T068-T072.
+2. Complete Blocking Remediation Gate tasks T068-T077.
 3. Complete US1 and validate install plus route readiness.
 4. Complete US2 and validate separate tracks plus passthrough integrity.
 5. Stop before private-alpha RC if US1 or US2 fails route, loopback, visible-control, or diagnostic redaction gates.

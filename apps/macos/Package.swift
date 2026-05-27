@@ -12,6 +12,10 @@ let package = Package(
             name: "TwoBrainRecShared",
             targets: ["TwoBrainRecShared"]
         ),
+        .library(
+            name: "TwoBrainRecAppCore",
+            targets: ["TwoBrainRecAppCore"]
+        ),
         .executable(
             name: "ContractValidation",
             targets: ["ContractValidation"]
@@ -22,9 +26,14 @@ let package = Package(
             name: "TwoBrainRecShared",
             path: "Shared/Sources"
         ),
+        .target(
+            name: "TwoBrainRecAppCore",
+            dependencies: ["TwoBrainRecShared"],
+            path: "RecApp/Sources"
+        ),
         .executableTarget(
             name: "ContractValidation",
-            dependencies: ["TwoBrainRecShared"],
+            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
             path: "Shared/Tools/ContractValidation"
         )
     ]

@@ -1,4 +1,5 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 struct ValidationError: Error, CustomStringConvertible {
@@ -176,6 +177,49 @@ func validateDiagnosticForbiddenFixtures() throws {
         redactionResult.manifest["safeStatus"] == "route_failed",
         "DiagnosticRedactor must keep allowed manifest fields"
     )
+
+    let recursiveResult = redactor.redact([
+        "appVersion": .string("0.1.0"),
+        "routeVerificationResults": .object([
+            "failureCode": .string("speaker_missing"),
+            "sessionToken": .string("nested-secret"),
+            "samples": .array([
+                .object([
+                    "path": .string("speaker_passthrough"),
+                    "temporaryUploadUrl": .string("https://example.presigned/upload")
+                ]),
+                .object([
+                    "path": .string("mic_to_virtual_input"),
+                    "status": .string("failed")
+                ])
+            ])
+        ]),
+        "contactName": .string("Not allowed in default diagnostics")
+    ])
+
+    try require(
+        recursiveResult.status == .blockedSensitiveContent,
+        "Recursive DiagnosticRedactor must report blocked nested or non-allowlisted content"
+    )
+    try require(
+        recursiveResult.manifest["contactName"] == nil,
+        "Recursive DiagnosticRedactor must drop non-allowlisted top-level fields"
+    )
+    guard case .object(let routeResults)? = recursiveResult.manifest["routeVerificationResults"] else {
+        throw ValidationError(description: "Recursive DiagnosticRedactor must preserve allowed object fields")
+    }
+    try require(
+        routeResults["sessionToken"] == nil,
+        "Recursive DiagnosticRedactor must remove nested forbidden keys"
+    )
+    guard case .array(let samples)? = routeResults["samples"],
+          case .object(let firstSample)? = samples.first else {
+        throw ValidationError(description: "Recursive DiagnosticRedactor must preserve safe array objects")
+    }
+    try require(
+        firstSample["temporaryUploadUrl"] == nil,
+        "Recursive DiagnosticRedactor must remove forbidden keys inside arrays"
+    )
 }
 
 func validatePlatformGate() throws {
@@ -213,11 +257,53 @@ func validateCaptureSafetyInvariant() throws {
     )
 }
 
+func validateDiagnosticBundleService() throws {
+    let bundle = try DiagnosticBundleService().buildBundle(
+        DiagnosticBundleInput(
+            schemaVersion: "0.1.0",
+            createdAt: Date(timeIntervalSince1970: 1_777_777_777),
+            manifest: [
+                "appVersion": .string("0.1.0"),
+                "routeVerificationResults": .object([
+                    "failureCode": .string("route_failed"),
+                    "password": .string("should-be-removed")
+                ]),
+                "meetingTitle": .string("should-be-removed")
+            ]
+        )
+    )
+
+    try require(
+        bundle.redactionState == .blockedSensitiveContent,
+        "DiagnosticBundleService must record blocked_sensitive_content when redaction removes fields"
+    )
+    try require(
+        bundle.manifest["schemaVersion"] == .string("0.1.0"),
+        "DiagnosticBundleService must include schemaVersion"
+    )
+    try require(
+        bundle.manifest["contentHash"] != nil,
+        "DiagnosticBundleService must include contentHash"
+    )
+    try require(
+        bundle.manifest["meetingTitle"] == nil,
+        "DiagnosticBundleService must remove non-allowlisted top-level content"
+    )
+    guard case .object(let routeResults)? = bundle.manifest["routeVerificationResults"] else {
+        throw ValidationError(description: "DiagnosticBundleService must preserve safe route verification object")
+    }
+    try require(
+        routeResults["password"] == nil,
+        "DiagnosticBundleService must remove nested forbidden fields"
+    )
+}
+
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
+    try validateDiagnosticBundleService()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

@@ -1,6 +1,6 @@
 # Runtime Core Audio Proof Report
 
-**Status**: NOT RUN
+**Status**: BLOCKED
 
 This report is the required evidence gate before any US1 implementation task
 that publishes real virtual devices or installer behavior.
@@ -31,5 +31,45 @@ Required evidence:
 
 ## Current Result
 
-Runtime Core Audio publication has not yet been proven. The current C++ proof
-command validates only scaffold expectations and does not publish macOS devices.
+Runtime Core Audio publication is not yet proven. The runtime visibility probe
+was added and executed on an Apple Silicon Mac, but no `2brain Rec` virtual
+devices are currently published to Core Audio.
+
+- Date: 2026-05-27 15:26:00 MSK
+- Machine: MacBook-Pro-7.local
+- CPU architecture: arm64
+- macOS version: 26.2 (25C56)
+- Proof command: `make -C apps/macos/AudioDriver proof-runtime-probe-run`
+- Build artifact: `apps/macos/AudioDriver/.build/proof/runtime-device-probe`
+- Virtual device publication result: BLOCKED; the probe enumerated Core Audio
+  devices visible to the current user but did not find the required virtual
+  devices.
+- `2brain Rec Microphone` visible to macOS: No
+- `2brain Rec Speaker` visible to macOS: No
+- Self-routing rejection baseline: Not exercised because the virtual devices
+  are not present.
+- Passthrough/mirror exercised: Not exercised because the virtual devices are
+  not present.
+- Continuity signal exercised: Not exercised because the virtual devices are
+  not present.
+- Permissions/signing/notarization assumptions: No signed AudioServerPlugIn or
+  installer package was installed for this probe. This result validates only
+  runtime visibility of currently installed Core Audio devices.
+- Known limitations: The current implementation still contains a scaffold proof
+  and a runtime visibility probe, not a device-publication implementation.
+- Decision: Core Audio path is still blocked. US1 implementation must not start
+  until an ACCEPTED runtime proof shows both `2brain Rec Microphone` and
+  `2brain Rec Speaker` visible to macOS.
+
+Observed device list:
+
+```text
+Core Audio devices visible to this user:
+- Микрофон MacBook Pro
+- Динамики MacBook Pro
+- Многовыходное устройство
+Expected device visibility:
+- 2brain Rec Microphone: MISSING
+- 2brain Rec Speaker: MISSING
+Runtime Core Audio publication proof: BLOCKED
+```

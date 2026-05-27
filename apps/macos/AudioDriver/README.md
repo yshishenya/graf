@@ -24,7 +24,8 @@ The current planning decision favors a Core Audio virtual-device approach. Audio
 
 ## Current Proof Status
 
-Status: scaffolded, not yet proven against macOS Core Audio runtime.
+Status: scaffolded; runtime visibility probe executed and blocked because the
+MVP virtual devices are not yet published to macOS Core Audio.
 
 Created proof harnesses:
 
@@ -33,9 +34,9 @@ Created proof harnesses:
 - `Sources/Proof/ProofRunner.cpp`
 
 The selected implementation path remains Core Audio virtual-device proof first.
-No user-story driver implementation should proceed until this proof is replaced
-with a working Apple Silicon validation result and this section records the
-observed outcome.
+No user-story driver implementation should proceed until the blocked runtime
+result in `RuntimeProofReport.md` is replaced with an ACCEPTED Apple Silicon
+validation result.
 
 ## Proof Commands
 
@@ -55,6 +56,19 @@ Runtime Core Audio publication proof: NOT RUN
 This command is not sufficient to start real US1 virtual-device publication.
 Before US1 driver implementation, record the Apple Silicon runtime proof in
 `RuntimeProofReport.md`.
+
+The runtime visibility probe is:
+
+```sh
+make -C apps/macos/AudioDriver proof-runtime-probe-run
+```
+
+It enumerates devices visible through Core Audio and succeeds only when both
+`2brain Rec Microphone` and `2brain Rec Speaker` are present.
+
+Current observed result: BLOCKED. The command builds and runs, but the expected
+virtual devices are missing because no publication implementation has been
+installed yet.
 
 The broader local foundation validation command is:
 
