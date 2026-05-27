@@ -256,6 +256,9 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
 - **FR-037**: Desktop software MUST own non-real-time product behavior,
   including local buffer policy, upload coordination, retention deadlines,
   purge state, user-visible state, diagnostics packaging, and audit hooks.
+- **FR-038**: User-visible surfaces MUST handle long physical device names,
+  browser names, meeting target names, and recovery labels without hiding active
+  capture state, degraded/error reason, or the one-action stop control.
 
 ### Key Entities *(include if feature involves data)*
 
