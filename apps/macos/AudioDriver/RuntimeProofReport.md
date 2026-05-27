@@ -1,6 +1,6 @@
 # Runtime Core Audio Proof Report
 
-**Status**: BLOCKED
+**Status**: ACCEPTED
 
 This report is the required evidence gate before any US1 implementation task
 that publishes real virtual devices or installer behavior.
@@ -31,35 +31,40 @@ Required evidence:
 
 ## Current Result
 
-Runtime Core Audio publication is not yet proven. The runtime visibility probe
-was added and executed on an Apple Silicon Mac, but no `2brain Rec` virtual
-devices are currently published to Core Audio.
+Runtime Core Audio publication is accepted for the Phase 0 architecture gate.
+The proof AudioServerPlugIn bundle was installed into the HAL plug-in directory,
+Core Audio loaded it, and the runtime visibility probe observed both required
+MVP virtual devices.
 
-- Date: 2026-05-27 15:26:00 MSK
+- Date: 2026-05-27 16:10:10 MSK
 - Machine: MacBook-Pro-7.local
 - CPU architecture: arm64
 - macOS version: 26.2 (25C56)
+- Build command: `make -C apps/macos/AudioDriver proof-plugin-build`
+- Install command: direct equivalent of `make -C apps/macos/AudioDriver proof-plugin-install`
 - Proof command: `make -C apps/macos/AudioDriver proof-runtime-probe-run`
-- Build artifact: `apps/macos/AudioDriver/.build/proof/runtime-device-probe`
-- Virtual device publication result: BLOCKED; the probe enumerated Core Audio
-  devices visible to the current user but did not find the required virtual
-  devices.
-- `2brain Rec Microphone` visible to macOS: No
-- `2brain Rec Speaker` visible to macOS: No
-- Self-routing rejection baseline: Not exercised because the virtual devices
-  are not present.
-- Passthrough/mirror exercised: Not exercised because the virtual devices are
-  not present.
-- Continuity signal exercised: Not exercised because the virtual devices are
-  not present.
-- Permissions/signing/notarization assumptions: No signed AudioServerPlugIn or
-  installer package was installed for this probe. This result validates only
-  runtime visibility of currently installed Core Audio devices.
-- Known limitations: The current implementation still contains a scaffold proof
-  and a runtime visibility probe, not a device-publication implementation.
-- Decision: Core Audio path is still blocked. US1 implementation must not start
-  until an ACCEPTED runtime proof shows both `2brain Rec Microphone` and
-  `2brain Rec Speaker` visible to macOS.
+- Build artifact: `apps/macos/AudioDriver/.build/proof/2brainRecProof.driver`
+- Runtime probe artifact: `apps/macos/AudioDriver/.build/proof/runtime-device-probe`
+- Virtual device publication result: ACCEPTED; the probe enumerated Core Audio
+  devices visible to the current user and found both required virtual devices.
+- `2brain Rec Microphone` visible to macOS: Yes
+- `2brain Rec Speaker` visible to macOS: Yes
+- Self-routing rejection baseline: Not exercised by this publication proof;
+  remains a US1 implementation and route-verification task.
+- Passthrough/mirror exercised: Not exercised by this publication proof;
+  remains a US1/US2 implementation task.
+- Continuity signal exercised: Not exercised by this publication proof; remains
+  a US2 timing implementation task.
+- Permissions/signing/notarization assumptions: The proof bundle was ad-hoc
+  signed for local validation only and installed into
+  `/Library/Audio/Plug-Ins/HAL`. It is not a release installer, Developer ID
+  signature, or notarized package.
+- Known limitations: This proof publishes visible devices with minimal silent
+  streams. It does not implement production routing, passthrough, buffering,
+  self-routing rejection, installer UX, notarization, or track capture.
+- Decision: Core Audio publication path is accepted for architecture work. US1
+  implementation may start, but production tasks must replace the proof bundle
+  with the real signed/notarized driver and route-verification implementation.
 
 ## Publication Spike Attempt
 
@@ -79,9 +84,10 @@ devices are currently published to Core Audio.
   bundle being loaded. The proof package now includes an
   `IOPlatformExpertDevice` loading condition and clears extended attributes
   during install before restarting `coreaudiod`.
-- Current decision: still BLOCKED until the proof bundle is installed by an
-  admin user, Core Audio reloads it, and `proof-runtime-probe-run` observes both
-  MVP virtual devices.
+- Final follow-up: after fixing the AudioServerPlugIn driver reference shape,
+  adding empty device control lists, and adding `kAudioDevicePropertyClockDomain`
+  responses, Core Audio loaded the proof bundle and published both MVP devices.
+- Current decision: ACCEPTED for the Phase 0 Core Audio publication gate.
 
 Observed device list:
 
@@ -89,9 +95,11 @@ Observed device list:
 Core Audio devices visible to this user:
 - Микрофон MacBook Pro
 - Динамики MacBook Pro
+- 2brain Rec Microphone
+- 2brain Rec Speaker
 - Многовыходное устройство
 Expected device visibility:
-- 2brain Rec Microphone: MISSING
-- 2brain Rec Speaker: MISSING
-Runtime Core Audio publication proof: BLOCKED
+- 2brain Rec Microphone: FOUND
+- 2brain Rec Speaker: FOUND
+Runtime Core Audio publication proof: ACCEPTED
 ```

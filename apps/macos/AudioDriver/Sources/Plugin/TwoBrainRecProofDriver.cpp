@@ -267,6 +267,7 @@ bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddr
         case kAudioDevicePropertyDeviceUID:
         case kAudioDevicePropertyModelUID:
         case kAudioDevicePropertyTransportType:
+        case kAudioDevicePropertyClockDomain:
         case kAudioDevicePropertyDeviceIsAlive:
         case kAudioDevicePropertyDeviceIsRunning:
         case kAudioDevicePropertyDeviceCanBeDefaultDevice:
@@ -402,6 +403,7 @@ OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object
     case kAudioObjectPropertyClass:
     case kAudioObjectPropertyOwner:
     case kAudioDevicePropertyTransportType:
+    case kAudioDevicePropertyClockDomain:
     case kAudioDevicePropertyDeviceIsAlive:
     case kAudioDevicePropertyDeviceIsRunning:
     case kAudioDevicePropertyDeviceCanBeDefaultDevice:
@@ -539,6 +541,8 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.rec.proof.model"));
     case kAudioDevicePropertyTransportType:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(kAudioDeviceTransportTypeVirtual));
+    case kAudioDevicePropertyClockDomain:
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioDevicePropertyDeviceIsAlive:
     case kAudioDevicePropertyDeviceCanBeDefaultDevice:
     case kAudioDevicePropertyClockIsStable:

@@ -65,7 +65,7 @@
 - [X] T074 Add baseline key/value forbidden-pattern diagnostic redaction coverage in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
 - [X] T075 Extend diagnostic redaction to recursive/schema allowlist behavior before diagnostic bundle implementation in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 - [X] T076 Add local validation scripts for foundation and US1 readiness gates in `apps/macos/Scripts/validate-foundation.sh` and `apps/macos/Scripts/validate-us1-gate.sh`.
-- [ ] T077 Produce an ACCEPTED runtime Core Audio publication proof with both MVP virtual devices visible to macOS in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T077 Produce an ACCEPTED runtime Core Audio publication proof with both MVP virtual devices visible to macOS in `apps/macos/AudioDriver/RuntimeProofReport.md`.
 
 ---
 
