@@ -2,8 +2,12 @@
 #include <CoreAudio/AudioServerPlugIn.h>
 #include <CoreFoundation/CoreFoundation.h>
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <cstring>
+#include <ctime>
 
 extern AudioServerPlugInDriverInterface gDriverInterface;
 
@@ -20,6 +24,25 @@ constexpr UInt32 kZeroTimeStampPeriod = 24000;
 
 std::atomic<UInt32> gReferenceCount{1};
 AudioServerPlugInHostRef gHost = nullptr;
+
+void Trace(const char* message) {
+    const int fd = open("/tmp/2brain-rec-proof-driver.trace", O_CREAT | O_WRONLY | O_APPEND, 0644);
+    if (fd < 0) {
+        return;
+    }
+
+    std::time_t now = std::time(nullptr);
+    char buffer[512];
+    const int count = snprintf(buffer, sizeof(buffer), "%lld %s\n", static_cast<long long>(now), message);
+    if (count > 0) {
+        write(fd, buffer, static_cast<size_t>(count));
+    }
+    close(fd);
+}
+
+__attribute__((constructor)) void TraceBundleLoaded() {
+    Trace("bundle constructor loaded");
+}
 
 bool IsDevice(AudioObjectID object_id) {
     return object_id == kMicDevice || object_id == kSpeakerDevice;
@@ -248,6 +271,7 @@ bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddr
 }
 
 OSStatus QueryInterface(void*, REFIID in_uuid, LPVOID* out_interface) {
+    Trace("QueryInterface called");
     if (out_interface == nullptr) {
         return E_POINTER;
     }
@@ -276,6 +300,7 @@ ULONG Release(void*) {
 }
 
 OSStatus Initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef in_host) {
+    Trace("Initialize called");
     gHost = in_host;
     return kAudioHardwareNoError;
 }
@@ -305,6 +330,7 @@ OSStatus AbortDeviceConfigurationChange(AudioServerPlugInDriverRef, AudioObjectI
 }
 
 Boolean HasProperty(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address) {
+    Trace("HasProperty called");
     return HasPropertyForObject(in_object_id, in_address);
 }
 
@@ -320,6 +346,7 @@ OSStatus IsPropertySettable(AudioServerPlugInDriverRef, AudioObjectID in_object_
 }
 
 OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address, UInt32, const void*, UInt32* out_data_size) {
+    Trace("GetPropertyDataSize called");
     if (out_data_size == nullptr || in_address == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
@@ -403,6 +430,7 @@ OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object
 }
 
 OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address, UInt32 in_qualifier_data_size, const void* in_qualifier_data, UInt32 in_data_size, UInt32* out_data_size, void* out_data) {
+    Trace("GetPropertyData called");
     if (out_data_size == nullptr || out_data == nullptr || in_address == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
@@ -597,6 +625,7 @@ AudioServerPlugInDriverInterface gDriverInterface = {
 };
 
 extern "C" __attribute__((visibility("default"))) void* TwoBrainRecProofDriverFactory(CFAllocatorRef, CFUUIDRef in_type_uuid) {
+    Trace("factory called");
     if (CFEqual(in_type_uuid, kAudioServerPlugInTypeUUID)) {
         gReferenceCount.fetch_add(1);
         return &gDriverInterface;

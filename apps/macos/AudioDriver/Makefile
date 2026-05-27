@@ -13,7 +13,7 @@ PROOF_SOURCES := \
 RUNTIME_PROBE_SOURCES := Sources/Proof/RuntimeDeviceProbe.cpp
 PLUGIN_SOURCES := Sources/Plugin/TwoBrainRecProofDriver.cpp
 
-.PHONY: proof-scaffold-build proof-scaffold-run proof-runtime-probe-build proof-runtime-probe-run proof-plugin-build proof-plugin-install proof-plugin-uninstall clean
+.PHONY: proof-scaffold-build proof-scaffold-run proof-runtime-probe-build proof-runtime-probe-run proof-plugin-build proof-plugin-install proof-plugin-uninstall proof-plugin-trace-reset proof-plugin-trace-read clean
 
 proof-scaffold-build: $(PROOF_BIN)
 
@@ -36,6 +36,12 @@ proof-plugin-install: proof-plugin-build
 proof-plugin-uninstall:
 	sudo rm -rf "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
 	sudo killall coreaudiod || true
+
+proof-plugin-trace-reset:
+	rm -f /tmp/2brain-rec-proof-driver.trace
+
+proof-plugin-trace-read:
+	@test -f /tmp/2brain-rec-proof-driver.trace && cat /tmp/2brain-rec-proof-driver.trace || true
 
 $(PROOF_BIN): $(PROOF_SOURCES)
 	@mkdir -p $(BUILD_DIR)
