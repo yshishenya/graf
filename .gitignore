@@ -1,0 +1,25 @@
+.DS_Store
+*.log
+*.tmp
+*.swp
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+
+# Common build/cache outputs
+node_modules/
+dist/
+build/
+coverage/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Spec Kit local runtime state that should not contain project source
+.specify/feature.json
