@@ -13,13 +13,32 @@ Before US1 driver implementation, run and record the proof gate.
    make -C apps/macos/AudioDriver proof-scaffold-run
    ```
 
-2. Record the runtime proof result in:
+2. Build the minimal publication proof bundle:
+
+   ```sh
+   make -C apps/macos/AudioDriver proof-plugin-build
+   ```
+
+3. Install the proof bundle into the HAL plug-in directory and restart Core
+   Audio from an interactive admin shell:
+
+   ```sh
+   make -C apps/macos/AudioDriver proof-plugin-install
+   ```
+
+4. Run the runtime visibility probe:
+
+   ```sh
+   make -C apps/macos/AudioDriver proof-runtime-probe-run
+   ```
+
+5. Record the runtime proof result in:
 
    ```text
    apps/macos/AudioDriver/RuntimeProofReport.md
    ```
 
-3. The report must include OS version, CPU architecture, command used, whether
+6. The report must include OS version, CPU architecture, command used, whether
    both virtual devices are visible to macOS, self-routing rejection status,
    passthrough/mirror status, continuity signal status, permissions/signing
    assumptions, limitations, and the Core Audio path decision.

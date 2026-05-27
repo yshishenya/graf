@@ -61,6 +61,22 @@ devices are currently published to Core Audio.
   until an ACCEPTED runtime proof shows both `2brain Rec Microphone` and
   `2brain Rec Speaker` visible to macOS.
 
+## Publication Spike Attempt
+
+- Date: 2026-05-27
+- Build command: `make -C apps/macos/AudioDriver proof-plugin-build`
+- Build artifact: `apps/macos/AudioDriver/.build/proof/2brainRecProof.driver`
+- Artifact status: Builds as a Mach-O arm64 bundle and passes ad-hoc code-sign
+  verification.
+- Exported factory symbol: `_TwoBrainRecProofDriverFactory`
+- Installation status: Not installed by the agent. `/Library/Audio/Plug-Ins/HAL`
+  is root-owned and local passwordless sudo is unavailable, so installing the
+  proof bundle and restarting `coreaudiod` requires an interactive admin
+  password.
+- Current decision: still BLOCKED until the proof bundle is installed by an
+  admin user, Core Audio reloads it, and `proof-runtime-probe-run` observes both
+  MVP virtual devices.
+
 Observed device list:
 
 ```text

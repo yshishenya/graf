@@ -70,6 +70,40 @@ Current observed result: BLOCKED. The command builds and runs, but the expected
 virtual devices are missing because no publication implementation has been
 installed yet.
 
+The minimal publication proof bundle is built with:
+
+```sh
+make -C apps/macos/AudioDriver proof-plugin-build
+```
+
+The generated bundle is:
+
+```text
+apps/macos/AudioDriver/.build/proof/2brainRecProof.driver
+```
+
+For local proof only, install it into the system HAL plug-in directory and
+restart Core Audio:
+
+```sh
+make -C apps/macos/AudioDriver proof-plugin-install
+```
+
+This command requires an admin password because Apple's AudioServerPlugIn header
+documents `/Library/Audio/Plug-Ins/HAL` as the HAL plug-in location. After
+installation, rerun:
+
+```sh
+make -C apps/macos/AudioDriver proof-runtime-probe-run
+```
+
+If the probe reports both MVP devices as found, update `RuntimeProofReport.md`
+to `**Status**: ACCEPTED` and complete T077. Remove the proof plug-in with:
+
+```sh
+make -C apps/macos/AudioDriver proof-plugin-uninstall
+```
+
 The broader local foundation validation command is:
 
 ```sh
