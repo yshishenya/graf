@@ -273,6 +273,7 @@ bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddr
         case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
         case kAudioDevicePropertyLatency:
         case kAudioDevicePropertyStreams:
+        case kAudioObjectPropertyControlList:
         case kAudioDevicePropertySafetyOffset:
         case kAudioDevicePropertyNominalSampleRate:
         case kAudioDevicePropertyAvailableNominalSampleRates:
@@ -443,6 +444,9 @@ OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object
     case kAudioPlugInPropertyTranslateUIDToDevice:
         *out_data_size = sizeof(AudioObjectID);
         return kAudioHardwareNoError;
+    case kAudioObjectPropertyControlList:
+        *out_data_size = 0;
+        return kAudioHardwareNoError;
     case kAudioDevicePropertyStreams:
         *out_data_size = sizeof(AudioObjectID) * DeviceStreamCount(in_object_id, in_address->mScope);
         return kAudioHardwareNoError;
@@ -527,6 +531,8 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         }
         return WriteScalar(in_data_size, out_data_size, out_data, translated);
     }
+    case kAudioObjectPropertyControlList:
+        return WriteEmptyList(out_data_size);
     case kAudioDevicePropertyDeviceUID:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString(DeviceUID(in_object_id)));
     case kAudioDevicePropertyModelUID:
