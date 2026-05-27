@@ -21,5 +21,28 @@ __pycache__/
 .venv/
 venv/
 
+# Swift / Xcode local outputs
+.build/
+DerivedData/
+*.swiftpm/
+Packages/
+*.xcuserstate
+xcuserdata/
+
+# C / C++ local outputs
+bin/
+obj/
+out/
+*.o
+*.a
+*.so
+*.dylib
+*.prof*
+*.dSYM/
+
+# Local editor metadata
+.idea/
+.vscode/
+
 # Spec Kit local runtime state that should not contain project source
 .specify/feature.json
