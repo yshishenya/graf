@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "0.1.0",
+  "events": [
+    {
+      "name": "driver.status_changed",
+      "requiredFields": [
+        "driverInstallationState",
+        "driverVersion",
+        "macOSVersion",
+        "appleSilicon",
+        "requiresRestart",
+        "recoveryAction"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    },
+    {
+      "name": "route.verification_result",
+      "requiredFields": [
+        "path",
+        "validationType",
+        "target",
+        "status",
+        "failureReason",
+        "recoveryAction",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    },
+    {
+      "name": "audio.continuity_event",
+      "requiredFields": [
+        "trackRole",
+        "eventType",
+        "monotonicTime",
+        "durationMs",
+        "driftEstimateMs",
+        "severity"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    }
+  ]
+}

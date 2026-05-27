@@ -18,12 +18,12 @@
 
 **Purpose**: Create the macOS workspace, shared conventions, and QA folders used by all stories.
 
-- [ ] T001 Create macOS workspace directories from the plan in `apps/macos/RecApp/`, `apps/macos/AudioDriver/`, `apps/macos/Shared/`, `apps/macos/Installer/`, `tests/macos/`, and `qa/macos/`.
-- [ ] T002 Create the initial Swift package/workspace manifest for shared app code in `apps/macos/Package.swift`.
-- [ ] T003 [P] Add shared Swift lint and formatting configuration in `apps/macos/.swiftlint.yml`.
-- [ ] T004 [P] Add audio component build notes and required Apple signing/notarization prerequisites in `apps/macos/AudioDriver/README.md`.
-- [ ] T005 [P] Add installer packaging notes and local signing placeholder policy in `apps/macos/Installer/README.md`.
-- [ ] T006 [P] Add QA matrix placeholders for OS, browsers, and physical devices in `qa/macos/device-matrix.md` and `qa/macos/browser-targets.md`.
+- [X] T001 Create macOS workspace directories from the plan in `apps/macos/RecApp/`, `apps/macos/AudioDriver/`, `apps/macos/Shared/`, `apps/macos/Installer/`, `tests/macos/`, and `qa/macos/`.
+- [X] T002 Create the initial Swift package/workspace manifest for shared app code in `apps/macos/Package.swift`.
+- [X] T003 [P] Add shared Swift lint and formatting configuration in `apps/macos/.swiftlint.yml`.
+- [X] T004 [P] Add audio component build notes and required Apple signing/notarization prerequisites in `apps/macos/AudioDriver/README.md`.
+- [X] T005 [P] Add installer packaging notes and local signing placeholder policy in `apps/macos/Installer/README.md`.
+- [X] T006 [P] Add QA matrix placeholders for OS, browsers, and physical devices in `qa/macos/device-matrix.md` and `qa/macos/browser-targets.md`.
 
 ---
 
@@ -33,18 +33,18 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T007 Create shared value types for `VirtualAudioDevice`, `PhysicalAudioDevice`, `RouteVerification`, `CaptureSession`, `AudioTrack`, `LocalBufferItem`, `DriverHealthReport`, and `InstallerState` in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
-- [ ] T008 [P] Create shared enums for route, capture, installer, passthrough, continuity, and redaction states in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
-- [ ] T009 [P] Create contract fixtures for desktop-driver events in `tests/macos/contract/desktop-driver-events.json`.
-- [ ] T010 [P] Create diagnostic redaction forbidden-field fixtures in `tests/macos/contract/diagnostic-forbidden-fields.json`.
-- [ ] T011 Create the desktop-driver contract validator skeleton in `apps/macos/Shared/Tests/ContractTests/DesktopDriverContractTests.swift`.
-- [ ] T012 Create the diagnostics redaction validator skeleton in `apps/macos/Shared/Tests/ContractTests/DiagnosticsRedactionTests.swift`.
-- [ ] T013 Create a Phase 0 virtual-device proof harness for publishing `2brain Rec Microphone` and `2brain Rec Speaker` in `apps/macos/AudioDriver/Sources/Proof/VirtualDeviceProof.cpp`.
-- [ ] T014 Create a passthrough and mirror timing proof harness in `apps/macos/AudioDriver/Sources/Proof/PassthroughTimingProof.cpp`.
-- [ ] T015 Document the Phase 0 proof result, selected implementation path, and rejected alternatives in `apps/macos/AudioDriver/README.md`.
-- [ ] T016 Create local diagnostic redaction utilities in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
-- [ ] T017 Create local encrypted buffer interface definitions without upload implementation in `apps/macos/Shared/Sources/Buffering/LocalBufferContracts.swift`.
-- [ ] T018 Create audit event name definitions for driver and capture lifecycle events in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
+- [X] T007 Create shared value types for `VirtualAudioDevice`, `PhysicalAudioDevice`, `RouteVerification`, `CaptureSession`, `AudioTrack`, `LocalBufferItem`, `DriverHealthReport`, and `InstallerState` in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
+- [X] T008 [P] Create shared enums for route, capture, installer, passthrough, continuity, and redaction states in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
+- [X] T009 [P] Create contract fixtures for desktop-driver events in `tests/macos/contract/desktop-driver-events.json`.
+- [X] T010 [P] Create diagnostic redaction forbidden-field fixtures in `tests/macos/contract/diagnostic-forbidden-fields.json`.
+- [X] T011 Create the desktop-driver contract validator skeleton in `apps/macos/Shared/Tests/ContractTests/DesktopDriverContractTests.swift`.
+- [X] T012 Create the diagnostics redaction validator skeleton in `apps/macos/Shared/Tests/ContractTests/DiagnosticsRedactionTests.swift`.
+- [X] T013 Create a Phase 0 virtual-device proof harness for publishing `2brain Rec Microphone` and `2brain Rec Speaker` in `apps/macos/AudioDriver/Sources/Proof/VirtualDeviceProof.cpp`.
+- [X] T014 Create a passthrough and mirror timing proof harness in `apps/macos/AudioDriver/Sources/Proof/PassthroughTimingProof.cpp`.
+- [X] T015 Document the Phase 0 proof result, selected implementation path, and rejected alternatives in `apps/macos/AudioDriver/README.md`.
+- [X] T016 Create local diagnostic redaction utilities in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
+- [X] T017 Create local encrypted buffer interface definitions without upload implementation in `apps/macos/Shared/Sources/Buffering/LocalBufferContracts.swift`.
+- [X] T018 Create audit event name definitions for driver and capture lifecycle events in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
 
 **Checkpoint**: Foundation ready - contracts, shared models, redaction policy, local buffer boundaries, and virtual-device proof are ready for story implementation.
 

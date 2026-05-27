@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "0.1.0",
+  "forbiddenKeys": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingNotes",
+    "mediaScribeApiKey",
+    "apiKey",
+    "password",
+    "sessionToken",
+    "refreshToken",
+    "deviceToken",
+    "signedUrl",
+    "temporaryUploadUrl",
+    "temporaryDownloadUrl"
+  ],
+  "forbiddenPatterns": [
+    "-----BEGIN PRIVATE KEY-----",
+    "X-API-Key:",
+    "Authorization: Bearer ",
+    "https://*.presigned*"
+  ]
+}
