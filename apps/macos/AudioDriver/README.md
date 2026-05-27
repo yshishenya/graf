@@ -30,11 +30,51 @@ Created proof harnesses:
 
 - `Sources/Proof/VirtualDeviceProof.cpp`
 - `Sources/Proof/PassthroughTimingProof.cpp`
+- `Sources/Proof/ProofRunner.cpp`
 
 The selected implementation path remains Core Audio virtual-device proof first.
 No user-story driver implementation should proceed until this proof is replaced
 with a working Apple Silicon validation result and this section records the
 observed outcome.
+
+## Proof Commands
+
+The current reproducible scaffold check is:
+
+```sh
+make -C apps/macos/AudioDriver proof-scaffold-run
+```
+
+Expected current output includes:
+
+```text
+AudioDriver proof scaffold: PASS
+Runtime Core Audio publication proof: NOT RUN
+```
+
+This command is not sufficient to start real US1 virtual-device publication.
+Before US1 driver implementation, record the Apple Silicon runtime proof in
+`RuntimeProofReport.md`.
+
+The broader local foundation validation command is:
+
+```sh
+sh apps/macos/Scripts/validate-foundation.sh
+```
+
+This runs the Swift build, contract validation executable, and proof scaffold.
+The local Swift toolchain used during this remediation does not provide
+`XCTest` or Swift `Testing`, so `ContractValidation` is the executable validation
+gate until a full Xcode test target is introduced.
+
+The implementation-ready US1 gate is intentionally stricter:
+
+```sh
+sh apps/macos/Scripts/validate-us1-gate.sh
+```
+
+It fails until `RuntimeProofReport.md` records `**Status**: ACCEPTED` with
+observed Apple Silicon Core Audio runtime evidence.
 
 ## Signing And Distribution Prerequisites
 

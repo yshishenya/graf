@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-27
 
-**Status**: Draft
+**Status**: Implementation started; Phase 0 runtime proof gate open
 
 **Input**: User description: "macOS virtual audio driver MVP"
 
@@ -314,8 +314,8 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   expiry window passes.
 - **Audit Impact**: The feature must define audit-relevant events for driver
   installed, updated, repaired, uninstalled, permission changed, route verified,
-  capture started, capture stopped, assisted auto-start triggered, local buffer
-  entered, upload failed, and local purge acknowledged.
+  capture started, capture stopped, assisted auto-start readiness recorded,
+  local buffer entered, upload failed, and local purge acknowledged.
 - **UX/Brand/Accessibility Impact**: This feature changes onboarding, Audio
   Health, tray/widget state, and capture indicators. It requires accessible
   state labels, non-color cues, keyboard-reachable stop, localization-safe

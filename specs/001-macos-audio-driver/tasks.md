@@ -37,16 +37,34 @@
 - [X] T008 [P] Create shared enums for route, capture, installer, passthrough, continuity, and redaction states in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
 - [X] T009 [P] Create contract fixtures for desktop-driver events in `tests/macos/contract/desktop-driver-events.json`.
 - [X] T010 [P] Create diagnostic redaction forbidden-field fixtures in `tests/macos/contract/diagnostic-forbidden-fields.json`.
-- [X] T011 Create the desktop-driver contract validator skeleton in `apps/macos/Shared/Tests/ContractTests/DesktopDriverContractTests.swift`.
-- [X] T012 Create the diagnostics redaction validator skeleton in `apps/macos/Shared/Tests/ContractTests/DiagnosticsRedactionTests.swift`.
-- [X] T013 Create a Phase 0 virtual-device proof harness for publishing `2brain Rec Microphone` and `2brain Rec Speaker` in `apps/macos/AudioDriver/Sources/Proof/VirtualDeviceProof.cpp`.
-- [X] T014 Create a passthrough and mirror timing proof harness in `apps/macos/AudioDriver/Sources/Proof/PassthroughTimingProof.cpp`.
-- [X] T015 Document the Phase 0 proof result, selected implementation path, and rejected alternatives in `apps/macos/AudioDriver/README.md`.
+- [X] T011 Create the desktop-driver contract validator scaffold in `apps/macos/Shared/TestPlans/ContractValidationPlan.swift`.
+- [X] T012 Create the diagnostics redaction validator scaffold in `apps/macos/Shared/TestPlans/ContractValidationPlan.swift`.
+- [X] T013 Create a scaffold for the Phase 0 virtual-device proof harness for `2brain Rec Microphone` and `2brain Rec Speaker` in `apps/macos/AudioDriver/Sources/Proof/VirtualDeviceProof.cpp`.
+- [X] T014 Create a scaffold for the passthrough and mirror timing proof harness in `apps/macos/AudioDriver/Sources/Proof/PassthroughTimingProof.cpp`.
+- [X] T015 Document the current scaffolded Phase 0 proof status, selected implementation path, and remaining runtime proof gate in `apps/macos/AudioDriver/README.md`.
 - [X] T016 Create local diagnostic redaction utilities in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
 - [X] T017 Create local encrypted buffer interface definitions without upload implementation in `apps/macos/Shared/Sources/Buffering/LocalBufferContracts.swift`.
 - [X] T018 Create audit event name definitions for driver and capture lifecycle events in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
 
-**Checkpoint**: Foundation ready - contracts, shared models, redaction policy, local buffer boundaries, and virtual-device proof are ready for story implementation.
+**Checkpoint**: Foundation scaffold ready - contracts, shared models, redaction policy, local buffer boundaries, and proof scaffolds exist. Runtime Core Audio proof remains blocking before any US1 task that publishes real virtual devices or installer behavior.
+
+---
+
+## Phase 2.5: Blocking Remediation Gate Before US1
+
+**Purpose**: Close review findings before the first user-story implementation. IDs continue after the generated task list to preserve traceability for existing T019-T067 references.
+
+**CRITICAL**: US1 implementation tasks T023-T030 MUST NOT start until T068-T072 are complete. Execution order follows document order, not numeric ID order.
+
+- [X] T068 Add an executable SwiftPM contract validation command in `apps/macos/Shared/Tools/ContractValidation/main.swift`.
+- [X] T069 Complete desktop-driver fixture coverage for all required events in `tests/macos/contract/desktop-driver-events.json`.
+- [X] T070 Add a reproducible proof-only C++ build/run command in `apps/macos/AudioDriver/Makefile`.
+- [X] T071 Add an explicit macOS 14.5 Apple Silicon support gate model in `apps/macos/Shared/Sources/Models/PlatformSupport.swift`.
+- [ ] T072 Run the runtime Core Audio proof on Apple Silicon macOS and record the observed result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T073 Add a capture visibility and one-action stop invariant validator in `apps/macos/Shared/Sources/Models/CaptureSessionSafetyValidator.swift`.
+- [X] T074 Add baseline key/value forbidden-pattern diagnostic redaction coverage in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
+- [ ] T075 Extend diagnostic redaction to recursive/schema allowlist behavior before diagnostic bundle implementation in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T076 Add local validation scripts for foundation and US1 readiness gates in `apps/macos/Scripts/validate-foundation.sh` and `apps/macos/Scripts/validate-us1-gate.sh`.
 
 ---
 
@@ -176,7 +194,8 @@
 
 - **Setup (Phase 1)**: No dependencies.
 - **Foundational (Phase 2)**: Depends on Setup completion and blocks all user stories.
-- **User Story 1 (Phase 3)**: Depends on Foundational and is the MVP setup/readiness slice.
+- **Blocking Remediation Gate (Phase 2.5)**: Depends on Foundational and blocks US1 implementation tasks T023-T030 until T068-T072 are complete.
+- **User Story 1 (Phase 3)**: Depends on Foundational plus the Blocking Remediation Gate and is the MVP setup/readiness slice.
 - **User Story 2 (Phase 4)**: Depends on Foundational; can start after US1 interfaces exist, but remains independently testable through browser meeting validation.
 - **User Story 3 (Phase 5)**: Depends on Foundational and can run in parallel with US2 after shared state models exist.
 - **User Story 4 (Phase 6)**: Depends on installer foundations and can run after US1 installer skeleton exists.
@@ -193,6 +212,7 @@
 
 - Setup tasks T003-T006 can run in parallel after T001.
 - Foundational fixture/model tasks T008-T010 can run in parallel after T007.
+- Blocking remediation tasks T068-T071 can run in parallel after T018; T072 depends on T070 and an available Apple Silicon runtime environment. T023-T030 remain blocked until `apps/macos/Scripts/validate-us1-gate.sh` passes.
 - US1 test tasks T019-T022 can run in parallel.
 - US2 test tasks T031-T034 can run in parallel.
 - US3 test tasks T043-T046 can run in parallel.
@@ -217,16 +237,18 @@ Task: "T034 [US2] Add network/server outage acceptance scenario in tests/macos/b
 ### MVP First
 
 1. Complete Setup and Foundational phases.
-2. Complete US1 and validate install plus route readiness.
-3. Complete US2 and validate separate tracks plus passthrough integrity.
-4. Stop before private-alpha RC if US1 or US2 fails route, loopback, visible-control, or diagnostic redaction gates.
+2. Complete Blocking Remediation Gate tasks T068-T072.
+3. Complete US1 and validate install plus route readiness.
+4. Complete US2 and validate separate tracks plus passthrough integrity.
+5. Stop before private-alpha RC if US1 or US2 fails route, loopback, visible-control, or diagnostic redaction gates.
 
 ### Incremental Delivery
 
-1. US1 proves installation and readiness.
-2. US2 proves capture integrity.
-3. US3 makes failures recoverable.
-4. US4 makes removal and rollback trustworthy.
+1. Blocking Remediation Gate proves the foundation is honest enough to start US1.
+2. US1 proves installation and readiness.
+3. US2 proves capture integrity.
+4. US3 makes failures recoverable.
+5. US4 makes removal and rollback trustworthy.
 
 ### Required Gates Before Implementation Is Considered Complete
 

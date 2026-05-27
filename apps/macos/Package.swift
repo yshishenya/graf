@@ -11,12 +11,21 @@ let package = Package(
         .library(
             name: "TwoBrainRecShared",
             targets: ["TwoBrainRecShared"]
+        ),
+        .executable(
+            name: "ContractValidation",
+            targets: ["ContractValidation"]
         )
     ],
     targets: [
         .target(
             name: "TwoBrainRecShared",
             path: "Shared/Sources"
+        ),
+        .executableTarget(
+            name: "ContractValidation",
+            dependencies: ["TwoBrainRecShared"],
+            path: "Shared/Tools/ContractValidation"
         )
     ]
 )

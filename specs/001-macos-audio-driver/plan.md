@@ -108,6 +108,10 @@ boundary, visible-control requirements, local artifact lifecycle, diagnostic
 redaction, and installer/QA gates. Implementation must not begin until the
 virtual-device Phase 0 spike confirms the selected Core Audio approach can
 publish both MVP devices and sustain passthrough on supported macOS versions.
+The scaffold build is not sufficient evidence; the proof gate requires a
+recorded Apple Silicon runtime result in
+`apps/macos/AudioDriver/RuntimeProofReport.md` before any US1 task that
+publishes real virtual devices or installer behavior.
 
 ## Project Structure
 

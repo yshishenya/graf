@@ -3,6 +3,45 @@
 This quickstart defines the validation path for the feature before implementation
 is accepted. It is not an end-user setup guide.
 
+## 0. Phase 0 Runtime Proof Gate
+
+Before US1 driver implementation, run and record the proof gate.
+
+1. Build and run the current scaffold check:
+
+   ```sh
+   make -C apps/macos/AudioDriver proof-scaffold-run
+   ```
+
+2. Record the runtime proof result in:
+
+   ```text
+   apps/macos/AudioDriver/RuntimeProofReport.md
+   ```
+
+3. The report must include OS version, CPU architecture, command used, whether
+   both virtual devices are visible to macOS, self-routing rejection status,
+   passthrough/mirror status, continuity signal status, permissions/signing
+   assumptions, limitations, and the Core Audio path decision.
+
+Pass criteria: the scaffold command passes and the runtime report contains an
+observed Apple Silicon result. A one-machine runtime result unlocks architecture
+work only; it is not release-candidate matrix coverage.
+
+The local foundation validation command is:
+
+```sh
+sh apps/macos/Scripts/validate-foundation.sh
+```
+
+The US1 readiness gate is:
+
+```sh
+sh apps/macos/Scripts/validate-us1-gate.sh
+```
+
+It must fail until the runtime report status is `ACCEPTED`.
+
 ## 1. Fresh Install
 
 1. Start on Apple Silicon macOS 14.5 or latest stable macOS at RC time.

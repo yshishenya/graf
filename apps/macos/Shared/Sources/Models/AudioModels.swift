@@ -62,6 +62,32 @@ public struct CaptureSession: Codable, Equatable, Sendable {
     public var bufferSummaryId: String?
     public var startedAt: Date?
     public var stoppedAt: Date?
+
+    public init(
+        id: String,
+        mode: CaptureMode,
+        state: CaptureSessionState,
+        sourceAppEligibility: SourceAppEligibility,
+        policySnapshotRef: String?,
+        triggerEvidence: [String: String],
+        visibleIndicatorState: VisibleIndicatorState,
+        stopActionAvailable: Bool,
+        bufferSummaryId: String?,
+        startedAt: Date?,
+        stoppedAt: Date?
+    ) {
+        self.id = id
+        self.mode = mode
+        self.state = state
+        self.sourceAppEligibility = sourceAppEligibility
+        self.policySnapshotRef = policySnapshotRef
+        self.triggerEvidence = triggerEvidence
+        self.visibleIndicatorState = visibleIndicatorState
+        self.stopActionAvailable = stopActionAvailable
+        self.bufferSummaryId = bufferSummaryId
+        self.startedAt = startedAt
+        self.stoppedAt = stoppedAt
+    }
 }
 
 public struct AudioTrack: Codable, Equatable, Sendable {

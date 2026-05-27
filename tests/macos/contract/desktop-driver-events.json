@@ -27,6 +27,18 @@
       "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
     },
     {
+      "name": "audio.passthrough_changed",
+      "requiredFields": [
+        "path",
+        "passthroughStatus",
+        "physicalDeviceClass",
+        "sampleRate",
+        "channelLayout",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    },
+    {
       "name": "audio.continuity_event",
       "requiredFields": [
         "trackRole",
@@ -35,6 +47,18 @@
         "durationMs",
         "driftEstimateMs",
         "severity"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    },
+    {
+      "name": "capture.frame_available",
+      "requiredFields": [
+        "trackRole",
+        "monotonicTimestamp",
+        "sampleRate",
+        "channelLayout",
+        "frameCount",
+        "continuitySequence"
       ],
       "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
     }

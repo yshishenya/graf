@@ -7,7 +7,7 @@ public enum AuditEventName: String, Codable, Sendable {
     case routeVerified = "route.verified"
     case captureStarted = "capture.started"
     case captureStopped = "capture.stopped"
-    case assistedAutoStartTriggered = "assisted_auto_start.triggered"
+    case assistedAutoStartReadinessRecorded = "assisted_auto_start.readiness_recorded"
     case localBufferEntered = "local_buffer.entered"
     case uploadFailed = "upload.failed"
     case localPurgeAcknowledged = "local_purge.acknowledged"
