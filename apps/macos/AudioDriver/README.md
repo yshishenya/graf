@@ -24,8 +24,9 @@ The current planning decision favors a Core Audio virtual-device approach. Audio
 
 ## Current Proof Status
 
-Status: scaffolded; runtime visibility probe executed and blocked because the
-MVP virtual devices are not yet published to macOS Core Audio.
+Status: Phase 0 Core Audio publication proof accepted. The local proof
+AudioServerPlugIn publishes both MVP virtual devices and the runtime probe sees
+them in macOS Core Audio.
 
 Created proof harnesses:
 
@@ -34,9 +35,9 @@ Created proof harnesses:
 - `Sources/Proof/ProofRunner.cpp`
 
 The selected implementation path remains Core Audio virtual-device proof first.
-No user-story driver implementation should proceed until the blocked runtime
-result in `RuntimeProofReport.md` is replaced with an ACCEPTED Apple Silicon
-validation result.
+US1 implementation may proceed because `RuntimeProofReport.md` records an
+ACCEPTED Apple Silicon validation result. The proof bundle is not production
+routing, passthrough, capture, signing, notarization, or installer UX.
 
 ## Proof Commands
 
@@ -66,9 +67,8 @@ make -C apps/macos/AudioDriver proof-runtime-probe-run
 It enumerates devices visible through Core Audio and succeeds only when both
 `2brain Rec Microphone` and `2brain Rec Speaker` are present.
 
-Current observed result: BLOCKED. The command builds and runs, but the expected
-virtual devices are missing because no publication implementation has been
-installed yet.
+Current observed result: ACCEPTED after installing the proof HAL bundle. The
+probe finds both `2brain Rec Microphone` and `2brain Rec Speaker`.
 
 The minimal publication proof bundle is built with:
 
@@ -99,8 +99,8 @@ rerun:
 make -C apps/macos/AudioDriver proof-runtime-probe-run
 ```
 
-If the probe reports both MVP devices as found, update `RuntimeProofReport.md`
-to `**Status**: ACCEPTED` and complete T077. Remove the proof plug-in with:
+The probe reports both MVP devices as found in the current local proof state.
+Remove the proof plug-in with:
 
 ```sh
 make -C apps/macos/AudioDriver proof-plugin-uninstall

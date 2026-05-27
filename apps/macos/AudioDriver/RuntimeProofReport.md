@@ -74,10 +74,9 @@ MVP virtual devices.
 - Artifact status: Builds as a Mach-O arm64 bundle and passes ad-hoc code-sign
   verification.
 - Exported factory symbol: `_TwoBrainRecProofDriverFactory`
-- Installation status: Not installed by the agent. `/Library/Audio/Plug-Ins/HAL`
-  is root-owned and local passwordless sudo is unavailable, so installing the
-  proof bundle and restarting `coreaudiod` requires an interactive admin
-  password.
+- Initial installation status: `/Library/Audio/Plug-Ins/HAL` is root-owned, so
+  installing the proof bundle and restarting `coreaudiod` requires admin
+  privileges.
 - Follow-up after first manual install: the bundle installed successfully, but
   Core Audio still did not list the proof devices. The installed bundle was
   structurally present and signed, but discovery logs did not show the proof

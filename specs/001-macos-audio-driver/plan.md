@@ -113,6 +113,12 @@ recorded Apple Silicon runtime result in
 `apps/macos/AudioDriver/RuntimeProofReport.md` before any US1 task that
 publishes real virtual devices or installer behavior.
 
+**Phase 0 Runtime Gate Result**: PASS. `RuntimeProofReport.md` records
+`**Status**: ACCEPTED`; the local Core Audio proof bundle publishes
+`2brain Rec Microphone` and `2brain Rec Speaker` on Apple Silicon macOS.
+This unlocks US1 route-verification work. It does not prove production routing,
+passthrough, capture, signing, notarization, or installer UX.
+
 ## Project Structure
 
 ### Documentation (this feature)

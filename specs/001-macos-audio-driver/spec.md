@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-27
 
-**Status**: Implementation started; Phase 0 runtime proof gate open
+**Status**: Implementation started; Phase 0 Core Audio publication proof accepted; US1 route verification next
 
 **Input**: User description: "macOS virtual audio driver MVP"
 
