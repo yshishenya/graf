@@ -10,6 +10,7 @@
 #include <ctime>
 
 extern AudioServerPlugInDriverInterface gDriverInterface;
+extern AudioServerPlugInDriverInterface* gDriverInterfacePointer;
 
 namespace {
 
@@ -284,7 +285,7 @@ OSStatus QueryInterface(void*, REFIID in_uuid, LPVOID* out_interface) {
 
     if (matches_driver || matches_unknown) {
         gReferenceCount.fetch_add(1);
-        *out_interface = &::gDriverInterface;
+        *out_interface = &::gDriverInterfacePointer;
         return S_OK;
     }
     return E_NOINTERFACE;
@@ -624,11 +625,13 @@ AudioServerPlugInDriverInterface gDriverInterface = {
     EndIOOperation
 };
 
+AudioServerPlugInDriverInterface* gDriverInterfacePointer = &gDriverInterface;
+
 extern "C" __attribute__((visibility("default"))) void* TwoBrainRecProofDriverFactory(CFAllocatorRef, CFUUIDRef in_type_uuid) {
     Trace("factory called");
     if (CFEqual(in_type_uuid, kAudioServerPlugInTypeUUID)) {
         gReferenceCount.fetch_add(1);
-        return &gDriverInterface;
+        return &gDriverInterfacePointer;
     }
     return nullptr;
 }
