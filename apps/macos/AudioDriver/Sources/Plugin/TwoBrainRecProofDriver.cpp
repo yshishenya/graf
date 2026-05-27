@@ -41,6 +41,44 @@ void Trace(const char* message) {
     close(fd);
 }
 
+void FourCC(UInt32 value, char out[5]) {
+    out[0] = static_cast<char>((value >> 24) & 0xFF);
+    out[1] = static_cast<char>((value >> 16) & 0xFF);
+    out[2] = static_cast<char>((value >> 8) & 0xFF);
+    out[3] = static_cast<char>(value & 0xFF);
+    out[4] = '\0';
+    for (int index = 0; index < 4; ++index) {
+        if (out[index] < 32 || out[index] > 126) {
+            out[index] = '?';
+        }
+    }
+}
+
+void TraceProperty(const char* operation, AudioObjectID object_id, const AudioObjectPropertyAddress* address) {
+    if (address == nullptr) {
+        Trace(operation);
+        return;
+    }
+
+    char selector[5];
+    char scope[5];
+    FourCC(address->mSelector, selector);
+    FourCC(address->mScope, scope);
+
+    char buffer[256];
+    snprintf(
+        buffer,
+        sizeof(buffer),
+        "%s object=%u selector=%s scope=%s element=%u",
+        operation,
+        object_id,
+        selector,
+        scope,
+        address->mElement
+    );
+    Trace(buffer);
+}
+
 __attribute__((constructor)) void TraceBundleLoaded() {
     Trace("bundle constructor loaded");
 }
@@ -331,11 +369,14 @@ OSStatus AbortDeviceConfigurationChange(AudioServerPlugInDriverRef, AudioObjectI
 }
 
 Boolean HasProperty(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address) {
-    Trace("HasProperty called");
-    return HasPropertyForObject(in_object_id, in_address);
+    TraceProperty("HasProperty called", in_object_id, in_address);
+    const Boolean has_property = HasPropertyForObject(in_object_id, in_address);
+    Trace(has_property ? "HasProperty result=true" : "HasProperty result=false");
+    return has_property;
 }
 
 OSStatus IsPropertySettable(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address, Boolean* out_is_settable) {
+    TraceProperty("IsPropertySettable called", in_object_id, in_address);
     if (out_is_settable == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
@@ -347,7 +388,7 @@ OSStatus IsPropertySettable(AudioServerPlugInDriverRef, AudioObjectID in_object_
 }
 
 OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address, UInt32, const void*, UInt32* out_data_size) {
-    Trace("GetPropertyDataSize called");
+    TraceProperty("GetPropertyDataSize called", in_object_id, in_address);
     if (out_data_size == nullptr || in_address == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
@@ -431,7 +472,7 @@ OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object
 }
 
 OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address, UInt32 in_qualifier_data_size, const void* in_qualifier_data, UInt32 in_data_size, UInt32* out_data_size, void* out_data) {
-    Trace("GetPropertyData called");
+    TraceProperty("GetPropertyData called", in_object_id, in_address);
     if (out_data_size == nullptr || out_data == nullptr || in_address == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }

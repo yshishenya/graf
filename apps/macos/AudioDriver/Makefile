@@ -38,7 +38,7 @@ proof-plugin-uninstall:
 	sudo killall coreaudiod || true
 
 proof-plugin-trace-reset:
-	rm -f /tmp/2brain-rec-proof-driver.trace
+	sudo rm -f /tmp/2brain-rec-proof-driver.trace
 
 proof-plugin-trace-read:
 	@test -f /tmp/2brain-rec-proof-driver.trace && cat /tmp/2brain-rec-proof-driver.trace || true
