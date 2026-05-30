@@ -14,6 +14,7 @@
 
 - Q: How should the app prove the speaker path during readiness check? → A: Use a short audible test sound after the user explicitly presses `Run Check`.
 - Q: How should the app prove the microphone path during readiness check? → A: Ask the user to speak or tap the microphone for about 3 seconds during `Run Check`.
+- Q: May readiness checks save audio evidence during development? → A: Development builds may temporarily save short local debug clips for verification, but release builds must disable and clean this behavior before acceptance.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -188,6 +189,10 @@ and guides recovery before claiming ready again.
   speaker path, loopback rejection, track separation, and device-change failures.
 - **FR-015**: Diagnostics MUST NOT include raw audio, transcript text,
   credentials, tokens, signed URLs, or hidden recording artifacts by default.
+- **FR-015a**: Development builds MAY temporarily save short local debug clips
+  from explicit readiness checks for verification, but these clips MUST be
+  visibly marked as development-only, stored locally, excluded from diagnostic
+  export by default, and disabled plus removed before release acceptance.
 - **FR-016**: Browser meeting validation MUST include Chrome, Opera, Yandex
   Browser, and Yandex Telemost-in-browser before the feature is considered
   release-ready.
@@ -204,6 +209,8 @@ and guides recovery before claiming ready again.
   specific microphone or speaker path.
 - **Capture Track Evidence**: The local record that a local or remote track was
   present, separate, aligned, and continuous enough to trust.
+- **Development Debug Clip**: A temporary local audio snippet created only by an
+  explicit development readiness check to verify the audio path before release.
 - **Degraded Audio State**: A visible state explaining why the app is not safe to
   use for calls or why an active capture is incomplete.
 - **Device Change Event**: A route-affecting change that invalidates prior
@@ -225,8 +232,10 @@ and guides recovery before claiming ready again.
   diagnostic bundle must preserve redaction for credentials, tokens, signed URLs,
   raw audio, and transcript text.
 - **Retention/Deletion Impact**: The feature may create local capture and
-  diagnostic metadata. Any created artifact must be registered as app-managed
-  local data and be eligible for the existing local deletion/reporting rules.
+  diagnostic metadata. Development builds may also create temporary local debug
+  clips from explicit checks. Any created artifact must be registered as
+  app-managed local data, clearly marked, and eligible for local cleanup and the
+  existing local deletion/reporting rules.
 - **Audit Impact**: Readiness pass/fail, capture start/stop, degraded state,
   device-change invalidation, and diagnostic export must be auditable without
   storing raw audio or transcripts in audit payloads.
@@ -257,6 +266,8 @@ and guides recovery before claiming ready again.
 - **SC-008**: Diagnostic output for route failures contains actionable status
   categories and contains no raw audio, transcript text, credentials, tokens, or
   signed URLs by default.
+- **SC-009**: Before release acceptance, development debug clips are disabled by
+  default and no local debug audio remains after running the cleanup path.
 
 ## Assumptions
 
