@@ -31,4 +31,6 @@
 
 ## Notes
 
-- Ready for `$speckit-clarify`.
+- Clarification completed for clean-room Krisp-like audio-route behavior,
+  including latency, AEC/reference leakage, fail-closed app I/O, managed route
+  setup, and stream-health semantics.

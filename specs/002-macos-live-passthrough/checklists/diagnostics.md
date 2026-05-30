@@ -11,8 +11,11 @@ meeting content or secrets.
 - [x] CHK006 Is diagnostic output local-only for this feature?
 - [x] CHK007 Are browser validation failures represented without storing meeting content?
 - [x] CHK008 Does the spec avoid Langfuse, MediaScribe, or server egress in this feature?
+- [x] CHK009 Are stream-health counters represented without storing raw audio?
+- [x] CHK010 Are loopback leakage and speaker-reference metrics represented as metadata only?
 
 ## Notes
 
 Diagnostics requirements are complete enough for task generation. Implementation
-must keep logs status-first and content-free.
+must keep logs status-first and content-free, including capturability, frame,
+empty-buffer, dropout, and leakage metrics.

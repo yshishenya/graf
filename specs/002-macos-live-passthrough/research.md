@@ -80,3 +80,63 @@ explicit gate.
   browser integration.
 - Delay browser QA to backend transcription slice: rejected because audio route
   correctness is a macOS client responsibility.
+
+## Decision 6: Use Clean-Room Krisp-Like App I/O, AEC Reference, And Stream Health
+
+**Decision**: 2brain Rec should follow the observed Krisp architectural pattern
+without copying closed implementation: public meeting-facing virtual microphone
+and speaker devices, private app I/O between the HAL driver and desktop audio
+engine, speaker audio as an AEC/reference stream, fail-closed public-device
+availability, and periodic stream-health checks.
+
+**Observed Krisp basis**:
+
+- Krisp exposes public `krisp microphone` and `krisp speaker` Core Audio devices
+  while also using hidden/private app I/O between its driver and app engine.
+- The observed virtual devices use a 48 kHz Core Audio-facing format, while the
+  app engine logs show low-latency frame processing, bounded caches, and separate
+  microphone and speaker graphs.
+- Krisp separates outbound microphone processing from inbound speaker processing
+  and uses an AEC-style reference path: microphone graph entries are marked as
+  AEC processing, speaker graph entries as AEC monitor/reference.
+- When the user-space Krisp app engine is killed, the Core Audio driver remains
+  installed but the public devices become unavailable; relaunching the app
+  restores them after route recovery. This is the desired fail-closed behavior.
+- Krisp logs show capturability monitoring at a 3000 ms interval. All-zero
+  checks exist in strings/log messages, but the observed configuration has the
+  all-zero interval set to `0`, so natural user silence should not be treated as
+  failure by itself.
+- Krisp logs track frame/cache counters such as stored/retrieved/processed and
+  dropped frames. This supports route-health evidence based on frame continuity
+  rather than speech detection alone.
+- Krisp app configuration includes longer audio-degradation windows, including a
+  30-second call-start or alert window, which should be treated separately from
+  hard route/capturability failure.
+
+**Rationale**: This gives the MVP a proven shape for low-latency calls: meeting
+apps see stable public devices, real-time app/driver transport stays private,
+speaker audio is available as an echo/leakage reference, and broken app I/O
+does not leave a fake-ready route behind. Distinguishing capturability from
+speech prevents the app from marking a quiet user as broken.
+
+**Requirements derived from the observation**:
+
+- Built-in and wired release-ready routes must keep added 2brain Rec route
+  latency at or below 30 ms.
+- Remote speaker leakage in the virtual microphone must be at least 45 dB below
+  the speaker reference and not intelligible.
+- Expected streams must be marked degraded when they are not capturable or have
+  no valid frames for one 3-second health interval.
+- Ordinary user silence with valid frames must not mark capture degraded.
+- Non-critical audio-quality warnings should use a longer 30-second observation
+  window, while hard route failures still fail fast.
+
+**Alternatives considered**:
+
+- Copy Krisp binaries, private protocols, or model behavior directly: rejected
+  because the project must stay clean-room and brand-distant.
+- Treat absence of speech as a degraded microphone: rejected because it confuses
+  ordinary silence with route failure.
+- Keep public virtual devices visible after private app I/O is gone: rejected
+  because it can leave meeting apps connected to a route that cannot actually
+  pass audio.

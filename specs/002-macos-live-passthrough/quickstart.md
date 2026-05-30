@@ -38,6 +38,10 @@ Pass criteria:
 - `2brain Rec Microphone` receives physical microphone audio.
 - `2brain Rec Speaker` renders to the selected physical speaker.
 - Device visibility alone never passes readiness.
+- Missing capturability or no valid frames for one 3-second health interval
+  fails readiness.
+- Natural user silence with valid microphone frames does not fail readiness by
+  itself outside the explicit speak-or-tap readiness stimulus.
 - Failure states identify microphone, speaker, self-routing, loopback, or device
   change separately.
 
@@ -57,16 +61,24 @@ For each target:
 3. Speak locally and play remote audio.
 4. Confirm the user can hear and speak normally.
 5. Confirm remote audio does not appear in the virtual microphone path.
+6. Measure remote speaker leakage against the speaker reference on release-ready
+   built-in and wired routes.
 
 Pass criteria: each supported target either passes or remains explicitly
-best-effort and not release-ready.
+best-effort and not release-ready. Built-in and wired release-ready routes keep
+remote speaker leakage in the virtual microphone at least 45 dB below the
+speaker reference and not intelligible.
 
 ## 3. Capture Evidence Check
 
 1. Start capture only after readiness passes.
 2. Record a controlled local/remote audio sample.
 3. Verify separate local microphone and remote speaker track evidence.
-4. Verify missing or silent expected tracks mark the session degraded.
+4. Verify missing expected tracks, no valid frames for one 3-second health
+   interval, or repeated empty buffers during expected active stimulus mark the
+   session degraded.
+5. Verify ordinary local user silence with valid input frames does not mark the
+   session degraded solely because speech is absent.
 
 Pass criteria: local and remote evidence exists separately and does not hide
 missing-track conditions.

@@ -11,8 +11,13 @@ release-testable before implementation.
 - [x] CHK006 Are backend/network failures separated from local passthrough failures?
 - [x] CHK007 Are Bluetooth and AirPods-class profile changes represented as failure/recovery cases?
 - [x] CHK008 Does the release gate require real browser meeting evidence, not only synthetic checks?
+- [x] CHK009 Does the spec distinguish ordinary user silence from missing valid audio frames?
+- [x] CHK010 Are 3-second hard stream-health failures and 30-second non-critical quality warnings represented separately?
+- [x] CHK011 Is Krisp-like private app I/O fail-closed behavior represented without copying closed implementation?
 
 ## Notes
 
-Requirements are ready for tasks. Implementation must still decide exact probe
-mechanics without weakening the ready rule.
+Requirements are ready for tasks. Implementation must keep the clean-room
+Krisp-like behavior: private app I/O, AEC/reference separation, fast
+capturability failure, and no degraded state for ordinary silence with valid
+frames.

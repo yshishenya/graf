@@ -15,7 +15,12 @@ exporting meeting content or secrets.
 - device class
 - virtual device visibility
 - route invalidation reason
+- capturability status
+- valid frame count
+- empty buffer count
 - dropout count
+- last valid frame timing
+- reference leakage metric
 - alignment metric
 - redaction status
 - recovery action
@@ -43,6 +48,8 @@ exporting meeting content or secrets.
 - `passthrough_stopped`
 - `track_evidence_created`
 - `track_evidence_degraded`
+- `stream_health_failed`
+- `loopback_leakage_exceeded`
 - `diagnostic_bundle_created`
 
 ## Redaction Rule

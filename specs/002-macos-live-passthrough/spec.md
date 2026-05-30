@@ -22,6 +22,8 @@
 - Q: Should the architecture include a private app I/O transport like Krisp? → A: Yes; use public `2brain Rec Microphone` and `2brain Rec Speaker` devices for meeting apps, plus a private app I/O transport between the HAL driver and desktop audio engine.
 - Q: How should public devices behave when private app I/O or the desktop audio engine is gone? → A: Use Krisp-like fail-closed behavior: stop claiming ready immediately, make public devices hidden or unavailable when app I/O is gone, and show/recover them only after the desktop audio engine restores the route.
 - Q: Should 2brain Rec manage system/default audio devices like Krisp? → A: Use Krisp-like guided device management only after explicit user action, with visible route-active state, reversible setup, working-device tracking, volume mapping, and recovery assistance.
+- Q: What loopback leakage standard should virtual microphone output meet? → A: Use Krisp-like AEC/reference-stream separation; release-ready built-in and wired routes must keep remote speaker leakage in the virtual microphone at least 45 dB below speaker reference and not intelligible.
+- Q: When should an expected local or remote track count as missing or silent? → A: Use Krisp-like stream-health monitoring: natural user silence is not a failure by itself; an expected route becomes degraded when it is not capturable or has no valid frames for a full 3-second health interval, while longer non-critical audio-quality warnings use a 30-second observation window.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -86,16 +88,20 @@ confirming live call audio stays usable while capture is active.
 2. **Given** remote participants speak while the local user is silent, **When**
    capture is active, **Then** remote audio is not fed into the virtual
    microphone path.
-3. **Given** the desktop app or backend-facing workflow is degraded, **When** the
+3. **Given** remote speaker audio is present and the local user is silent,
+   **When** the virtual microphone output is measured on a release-ready built-in
+   or wired route, **Then** remote speaker leakage remains at least 45 dB below
+   the speaker reference and is not intelligible.
+4. **Given** the desktop app or backend-facing workflow is degraded, **When** the
    meeting continues, **Then** live call audio remains usable or the app tells
    the user to stop using the route before audio loss occurs.
-4. **Given** a real passthrough check fails during a call, **When** the app
+5. **Given** a real passthrough check fails during a call, **When** the app
    detects the failure, **Then** it shows a visible degraded state and a safe
    recovery path instead of claiming ready.
-5. **Given** a supported built-in or wired route is active, **When** 2brain Rec
+6. **Given** a supported built-in or wired route is active, **When** 2brain Rec
    added route latency exceeds 30 ms, **Then** the app marks the route degraded
    and blocks release readiness instead of claiming Krisp-like call quality.
-6. **Given** private app I/O or the desktop audio engine exits, crashes, or is
+7. **Given** private app I/O or the desktop audio engine exits, crashes, or is
    otherwise unavailable, **When** the HAL driver detects the loss, **Then** the
    route fails closed by stopping ready claims and making public devices hidden
    or unavailable until the app engine recovers and revalidates the route.
@@ -120,10 +126,14 @@ alignment, and dropout state.
 1. **Given** the user records a controlled meeting, **When** local and remote
    audio are both present, **Then** the session records separate local and remote
    track evidence.
-2. **Given** one audio side is missing during capture, **When** the session is
-   finalized, **Then** the app marks the session degraded instead of presenting a
-   complete capture.
-3. **Given** a 30-minute pilot call completes, **When** track evidence is
+2. **Given** an expected local or remote route is active during readiness, a
+   pilot stimulus, or capture, **When** the route is not capturable or has no
+   valid frames for a full 3-second health interval, **Then** the app marks that
+   track route degraded instead of presenting a complete capture.
+3. **Given** the local user is naturally silent while valid input frames continue
+   to arrive, **When** capture health is evaluated, **Then** the app does not
+   mark the local track degraded solely because speech is absent.
+4. **Given** a 30-minute pilot call completes, **When** track evidence is
    reviewed, **Then** local/remote timing remains within the accepted alignment
    threshold and dropout status is visible.
 
@@ -181,6 +191,10 @@ and guides recovery before claiming ready again.
   selected physical devices.
 - Audio movement becomes delayed, distorted, one-sided, or intermittently
   missing during a long call.
+- A user is naturally silent while the selected input route continues to deliver
+  valid frames.
+- A selected stream client remains present but stops delivering valid frames or
+  repeatedly produces empty buffers.
 
 ## Requirements *(mandatory)*
 
@@ -202,6 +216,11 @@ and guides recovery before claiming ready again.
   app I/O or the desktop audio engine is unavailable: they MUST stop claiming
   ready, become hidden or unavailable to meeting apps, and return only after the
   app engine recovers and revalidates the route.
+- **FR-004c**: The system MUST use Krisp-like AEC/reference-stream separation:
+  speaker audio MUST be available as a reference stream for echo and leakage
+  monitoring, and release-ready built-in or wired routes MUST keep remote speaker
+  leakage in the virtual microphone at least 45 dB below the speaker reference
+  and not intelligible.
 - **FR-005**: The system MUST block ready when either physical path is missing,
   silent, muted, self-routed, disconnected, or otherwise unproven.
 - **FR-006**: The system MUST provide a user-triggered readiness check that is
@@ -245,8 +264,15 @@ and guides recovery before claiming ready again.
 - **FR-010**: The system MUST register local and remote track evidence separately
   when audio-recording mode is active.
 - **FR-011**: The system MUST mark capture degraded when an expected local or
-  remote track is missing, silent beyond the accepted threshold, or loses
-  continuity.
+  remote track is not capturable or has no valid frames for a full 3-second
+  health interval, repeatedly produces empty buffers during expected active
+  stimulus, exceeds dropout thresholds, or loses continuity.
+- **FR-011a**: Ordinary user silence with valid input frames MUST NOT by itself
+  mark capture degraded.
+- **FR-011b**: The system MUST maintain Krisp-like stream-health evidence for
+  each expected track, including capturability status, captured/stored/retrieved
+  or processed frame counts, dropped frame counts, empty-buffer events, and last
+  valid frame timing.
 - **FR-012**: The system MUST expose enough timing and dropout information for
   the app to explain alignment and continuity health to the user or operator.
 - **FR-013**: The system MUST require readiness to be rechecked after physical
@@ -282,6 +308,9 @@ and guides recovery before claiming ready again.
   devices.
 - **Capture Track Evidence**: The local record that a local or remote track was
   present, separate, aligned, and continuous enough to trust.
+- **Stream Health Evidence**: Per-track capturability and continuity metadata
+  used to distinguish ordinary user silence from route failure, empty buffers,
+  dropped frames, or missing valid audio frames.
 - **Development Debug Clip**: A temporary local audio snippet created only by an
   explicit development readiness check to verify the audio path before release.
 - **Degraded Audio State**: A visible state explaining why the app is not safe to
@@ -346,9 +375,17 @@ and guides recovery before claiming ready again.
   relaunching the app restores the devices only after route recovery and
   revalidation.
 - **SC-003**: Remote meeting audio remains absent from the virtual microphone
-  path at or below the accepted loopback threshold.
+  path except for non-intelligible leakage at least 45 dB below the speaker
+  reference on release-ready built-in and wired routes.
 - **SC-004**: Local and remote track evidence stays aligned within 100 ms during
   a 30-minute wired or built-in-device pilot call.
+- **SC-004a**: During readiness and controlled pilot stimulus, an expected route
+  that stops delivering valid frames is marked degraded within 3 seconds, while
+  a naturally silent user with valid input frames is not marked degraded solely
+  because no speech is detected.
+- **SC-004b**: Non-critical audio-quality warnings use a 30-second observation
+  window before warning the user, while hard route or capturability failures
+  still fail within the 3-second health interval.
 - **SC-005**: Wired or built-in-device pilot calls stay below 0.1% dropped audio
   frames; Bluetooth and AirPods-class pilot calls stay below 0.5% dropped audio
   frames.

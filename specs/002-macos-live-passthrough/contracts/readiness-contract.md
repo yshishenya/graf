@@ -49,10 +49,22 @@ The app MUST show `ready` only when all are true:
 - `self_routing_rejected`
 - `microphone_silent_or_unavailable`
 - `speaker_silent_or_unavailable`
+- `microphone_not_capturable`
+- `speaker_not_capturable`
+- `stream_health_interval_failed`
 - `passthrough_not_running`
 - `loopback_threshold_exceeded`
 - `device_changed_recheck_required`
 - `browser_target_not_validated`
+
+## Stream Health Rule
+
+An expected microphone or speaker route fails readiness when it is not
+capturable or has no valid frames for a full 3-second health interval. Natural
+user silence with valid input frames is not a failure by itself.
+
+Non-critical audio-quality warnings may use a 30-second observation window, but
+that window must not delay hard route or capturability failure.
 
 ## Logging
 

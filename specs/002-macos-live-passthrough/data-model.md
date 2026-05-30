@@ -43,6 +43,8 @@ Fields:
 - `latency_ms`: optional measured latency
 - `dropout_count`: optional count
 - `loopback_db`: optional remote-to-mic loopback estimate
+- `reference_leakage_db`: optional remote speaker leakage measured against the
+  speaker reference stream
 - `failure_reason`
 - `created_at`
 
@@ -52,6 +54,8 @@ Validation:
 - Speaker evidence must prove physical output movement or an explicit verified
   render path, not just virtual speaker input.
 - Microphone evidence must reject any remote-to-mic loopback above threshold.
+- Built-in and wired release-ready evidence must show remote speaker leakage at
+  least 45 dB below the speaker reference and not intelligible.
 
 ## PassthroughSession
 
@@ -85,14 +89,51 @@ Fields:
 - `track`: `local_microphone` or `remote_speaker`
 - `first_frame_at`, `last_frame_at`
 - `frames_recorded`
+- `capturability_status`: `capturable`, `not_capturable`, `unknown`
+- `captured_frame_count`
+- `stored_frame_count`
+- `retrieved_or_processed_frame_count`
 - `dropout_count`
+- `empty_buffer_count`
 - `alignment_offset_ms`
-- `status`: `present`, `missing`, `silent`, `degraded`
+- `last_valid_frame_at`
+- `status`: `present`, `missing`, `degraded`
 
 Validation:
 
 - Local and remote tracks must be recorded separately.
-- Missing or silent expected tracks force degraded finalization.
+- Missing expected tracks force degraded finalization.
+- An expected track with no valid frames for a full 3-second health interval
+  forces degraded finalization.
+- Ordinary user silence with valid input frames must not force degraded
+  finalization.
+
+## StreamHealthEvidence
+
+Represents Krisp-like per-stream health metadata for readiness, passthrough, and
+capture.
+
+Fields:
+
+- `id`
+- `session_id`
+- `track`: `local_microphone` or `remote_speaker`
+- `checked_at`
+- `health_interval_ms`: normally `3000`
+- `capturability_status`: `capturable`, `not_capturable`, `unknown`
+- `valid_frame_count`
+- `empty_buffer_count`
+- `dropped_frame_count`
+- `last_valid_frame_at`
+- `hard_failure`: boolean
+- `warning_window_ms`: normally `30000` for non-critical quality warnings
+
+Validation:
+
+- `hard_failure` becomes true when an expected stream is not capturable or has
+  no valid frames for one full health interval.
+- `warning_window_ms` must not delay hard route or capturability failure.
+- Stream health evidence must not store raw audio.
 
 ## DeviceChangeEvent
 

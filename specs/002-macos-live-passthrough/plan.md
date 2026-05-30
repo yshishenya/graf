@@ -18,6 +18,12 @@ prompts, diagnostics, and capture state. The existing proof driver remains the
 publication baseline, but it must not claim readiness or steal system defaults
 until live passthrough is accepted.
 
+Clean-room Krisp observations shape the audio-route design: public
+meeting-facing virtual devices, private app I/O between driver and desktop audio
+engine, speaker audio as an AEC/reference stream, fail-closed public-device
+availability when app I/O is gone, and stream-health checks that distinguish
+ordinary user silence from missing valid audio frames.
+
 ## Technical Context
 
 **Language/Version**: Swift 6 for macOS app, Audio Unit bridge, UI, state, and
@@ -47,6 +53,13 @@ installer scripts, and QA harnesses.
 - readiness invalidates within 5 seconds after route/device change;
 - built-in/wired pilot calls keep local/remote alignment within 100 ms over 30
   minutes;
+- supported built-in/wired routes keep added 2brain Rec route latency at or
+  below 30 ms;
+- supported built-in/wired routes keep remote speaker leakage in the virtual
+  microphone at least 45 dB below the speaker reference and not intelligible;
+- expected streams fail hard when they are not capturable or have no valid
+  frames for one 3-second health interval;
+- ordinary user silence with valid input frames does not mark capture degraded;
 - built-in/wired dropped-frame rate stays below 0.1%;
 - Bluetooth/AirPods-class dropped-frame rate stays below 0.5%;
 - 5-minute backend/network outage does not interrupt live audio passthrough;
@@ -56,7 +69,10 @@ installer scripts, and QA harnesses.
 
 - no no-driver fallback;
 - no invisible recording or hidden capture during readiness checks;
-- virtual speaker audio must never enter the virtual microphone path;
+- virtual speaker audio must never enter the virtual microphone path above the
+  accepted non-intelligible leakage threshold;
+- public virtual devices must fail closed when private app I/O or the desktop
+  audio engine is unavailable;
 - the app must keep one-action stop visible for active capture;
 - diagnostics must exclude raw audio, transcript text, credentials, tokens, and
   signed URLs by default;

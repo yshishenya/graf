@@ -17,7 +17,7 @@ publication proof.
 
 - [X] T001 [P] Harden app-side bridge startup errors and microphone render buffer allocation in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
 - [ ] T002 [P] Add live readiness and route evidence value types in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
-- [ ] T003 [P] Add diagnostic event names for readiness and passthrough lifecycle in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
+- [ ] T003 [P] Add diagnostic event names for readiness, passthrough lifecycle, stream-health failure, and loopback leakage in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
 - [ ] T004 [P] Add route evidence contract fixtures in `tests/macos/contract/desktop-driver-events.json`.
 
 ---
@@ -27,9 +27,9 @@ publication proof.
 **Purpose**: Build shared route evidence and safe probe foundations required by
 all stories.
 
-- [ ] T005 Add shared memory read/write counters and bounded availability snapshots in `apps/macos/Shared/Sources/SharedAudioMemory.swift`.
-- [ ] T006 Add matching driver-side shared memory counters for microphone, speaker, and capture buffers in `apps/macos/AudioDriver/Sources/Bridge/SharedAudioBuffer.hpp`.
-- [ ] T007 Add route evidence state transition tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
+- [ ] T005 Add shared memory read/write counters, 3-second capturability snapshots, empty-buffer counters, and bounded availability snapshots in `apps/macos/Shared/Sources/SharedAudioMemory.swift`.
+- [ ] T006 Add matching driver-side shared memory counters for microphone, speaker, capture buffers, empty buffers, dropped frames, and last valid frame timing in `apps/macos/AudioDriver/Sources/Bridge/SharedAudioBuffer.hpp`.
+- [ ] T007 Add route evidence and stream-health state transition tests, including natural silence with valid frames, in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
 - [ ] T008 Add a local readiness validation script that does not require browser QA in `apps/macos/Scripts/validate-live-passthrough-foundation.sh`.
 
 **Checkpoint**: Foundations exist, but the app still must not show ready.
@@ -70,14 +70,14 @@ does not enter the mic path.
 
 ### Tests for User Story 2
 
-- [ ] T015 [P] [US2] Add no-loopback live evidence expectations in `tests/macos/route-synthetic/no-loopback-check.swift`.
+- [ ] T015 [P] [US2] Add no-loopback live evidence expectations, including 45 dB speaker-reference leakage threshold, in `tests/macos/route-synthetic/no-loopback-check.swift`.
 - [ ] T016 [P] [US2] Add browser meeting passthrough checklist updates in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 
 ### Implementation for User Story 2
 
 - [ ] T017 [US2] Complete microphone-to-virtual-microphone bridge movement in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
 - [ ] T018 [US2] Complete virtual-speaker-to-physical-speaker bridge movement in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
-- [ ] T019 [US2] Add loopback rejection metrics and degraded state mapping in `apps/macos/Shared/Sources/Routing/SelfRoutingGuard.swift` and `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
+- [ ] T019 [US2] Add AEC/reference-stream loopback rejection metrics and degraded state mapping in `apps/macos/Shared/Sources/Routing/SelfRoutingGuard.swift` and `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
 - [ ] T020 [US2] Update release checklist with real browser passthrough evidence requirements in `qa/macos/release-candidate-checklist.md`.
 
 **Checkpoint**: Browser meeting audio remains usable with no remote-to-mic loop.
@@ -98,7 +98,7 @@ evidence for presence, separation, alignment, and degraded finalization.
 ### Implementation for User Story 3
 
 - [ ] T022 [US3] Add capture track evidence records in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`.
-- [ ] T023 [US3] Add missing/silent track degraded finalization in `apps/macos/RecApp/Sources/Capture/CaptureFinalizationService.swift`.
+- [ ] T023 [US3] Add stream-health degraded finalization for missing tracks, no valid frames for one 3-second health interval, repeated empty buffers, and ordinary silence with valid frames in `apps/macos/RecApp/Sources/Capture/CaptureFinalizationService.swift`.
 - [ ] T024 [US3] Add local diagnostic summaries for track evidence without raw audio in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
 **Checkpoint**: Track evidence is separate and truthful.
