@@ -1,0 +1,134 @@
+import Foundation
+import CShmHelpers
+
+public let kShmName = "/2brain-rec-audio-bridge"
+public let kSharedRingCapacity = 16384
+
+public final class SharedAudioMemory {
+
+    public struct Layout {
+        public let micReadIdx: UnsafeMutablePointer<UInt64>
+        public let micWriteIdx: UnsafeMutablePointer<UInt64>
+        public let speakerReadIdx: UnsafeMutablePointer<UInt64>
+        public let speakerWriteIdx: UnsafeMutablePointer<UInt64>
+        public let captureReadIdx: UnsafeMutablePointer<UInt64>
+        public let captureWriteIdx: UnsafeMutablePointer<UInt64>
+        public let micBuffer: UnsafeMutablePointer<Float>
+        public let speakerBuffer: UnsafeMutablePointer<Float>
+        public let captureBuffer: UnsafeMutablePointer<Float>
+
+        public init(base: UnsafeMutableRawPointer) {
+            var offset = 0
+            micReadIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            micWriteIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            speakerReadIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            speakerWriteIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            captureReadIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            captureWriteIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            offset += 16
+            micBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
+            speakerBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
+            captureBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self)
+        }
+    }
+
+    private let fd: Int32
+    private let mapped: UnsafeMutableRawPointer
+    public let layout: Layout
+    public let isOwner: Bool
+
+    public var isValid: Bool { true }
+
+    private let shmSize: Int
+
+    public init?() {
+        let fd = shm_open_fixed(kShmName, O_RDWR, 0)
+        guard fd >= 0 else { return nil }
+        self.fd = fd
+
+        shmSize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
+
+        var isOwner = false
+        var st = stat()
+        if fstat_fixed(fd, &st) == 0, st.st_size == 0 {
+            ftruncate(fd, off_t(shmSize))
+            isOwner = true
+        }
+
+        guard let ptr = mmap(nil, shmSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0),
+              ptr != MAP_FAILED else {
+            close(fd)
+            return nil
+        }
+        self.mapped = ptr
+        self.isOwner = isOwner
+        self.layout = Layout(base: ptr)
+    }
+
+    deinit {
+        munmap(mapped, shmSize)
+        close(fd)
+    }
+
+    @discardableResult
+    public func writeMic(src: UnsafePointer<Float>, count: Int) -> Bool {
+        let l = layout
+        let w = l.micWriteIdx.pointee
+        let r = l.micReadIdx.pointee
+        let avail = UInt64(kSharedRingCapacity) - (w &- r)
+        guard count <= avail else { return false }
+        for i in 0..<count {
+            l.micBuffer[Int(w &+ UInt64(i)) & (kSharedRingCapacity - 1)] = src[i]
+        }
+        OSMemoryBarrier()
+        l.micWriteIdx.pointee = w &+ UInt64(count)
+        return true
+    }
+
+    @discardableResult
+    public func readSpeaker(dst: UnsafeMutablePointer<Float>, count: Int) -> Int {
+        let l = layout
+        OSMemoryBarrier()
+        let w = l.speakerWriteIdx.pointee
+        let r = l.speakerReadIdx.pointee
+        let avail = w &- r
+        let n = min(count, Int(avail))
+        for i in 0..<n {
+            dst[i] = l.speakerBuffer[Int(r &+ UInt64(i)) & (kSharedRingCapacity - 1)]
+        }
+        OSMemoryBarrier()
+        l.speakerReadIdx.pointee = r &+ UInt64(n)
+        return n
+    }
+
+    @discardableResult
+    public func readCapture(dst: UnsafeMutablePointer<Float>, count: Int) -> Int {
+        let l = layout
+        OSMemoryBarrier()
+        let w = l.captureWriteIdx.pointee
+        let r = l.captureReadIdx.pointee
+        let avail = w &- r
+        let n = min(count, Int(avail))
+        for i in 0..<n {
+            dst[i] = l.captureBuffer[Int(r &+ UInt64(i)) & (kSharedRingCapacity - 1)]
+        }
+        OSMemoryBarrier()
+        l.captureReadIdx.pointee = r &+ UInt64(n)
+        return n
+    }
+
+    public func micAvailable() -> UInt64 {
+        OSMemoryBarrier()
+        return layout.micWriteIdx.pointee - layout.micReadIdx.pointee
+    }
+
+    public func speakerAvailable() -> UInt64 {
+        OSMemoryBarrier()
+        return layout.speakerWriteIdx.pointee - layout.speakerReadIdx.pointee
+    }
+
+    public func captureAvailable() -> UInt64 {
+        OSMemoryBarrier()
+        return layout.captureWriteIdx.pointee - layout.captureReadIdx.pointee
+    }
+}

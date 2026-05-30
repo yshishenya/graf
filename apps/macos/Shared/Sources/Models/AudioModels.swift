@@ -36,6 +36,24 @@ public struct PhysicalAudioDevice: Codable, Equatable, Sendable {
     public var availabilityState: PhysicalDeviceAvailabilityState
     public var lastVerificationId: String?
     public var lastChangedAt: Date?
+
+    public init(
+        id: String,
+        displayName: String,
+        direction: AudioDirection,
+        deviceClass: PhysicalDeviceClass,
+        availabilityState: PhysicalDeviceAvailabilityState,
+        lastVerificationId: String? = nil,
+        lastChangedAt: Date? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.direction = direction
+        self.deviceClass = deviceClass
+        self.availabilityState = availabilityState
+        self.lastVerificationId = lastVerificationId
+        self.lastChangedAt = lastChangedAt
+    }
 }
 
 public struct RouteVerification: Codable, Equatable, Sendable {
@@ -48,6 +66,28 @@ public struct RouteVerification: Codable, Equatable, Sendable {
     public var recoveryAction: String?
     public var startedAt: Date
     public var finishedAt: Date?
+
+    public init(
+        id: String,
+        path: RoutePath,
+        validationType: RouteValidationType,
+        target: String?,
+        status: RouteVerificationStatus,
+        failureReason: String?,
+        recoveryAction: String?,
+        startedAt: Date,
+        finishedAt: Date?
+    ) {
+        self.id = id
+        self.path = path
+        self.validationType = validationType
+        self.target = target
+        self.status = status
+        self.failureReason = failureReason
+        self.recoveryAction = recoveryAction
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+    }
 }
 
 public struct CaptureSession: Codable, Equatable, Sendable {
@@ -114,6 +154,30 @@ public struct LocalBufferItem: Codable, Equatable, Sendable {
     public var uploadState: UploadState
     public var purgeState: PurgeState
     public var deletionReportState: DeletionReportState
+
+    public init(
+        id: String,
+        sessionId: String,
+        trackId: String?,
+        artifactType: LocalBufferArtifactType,
+        encryptedSizeBytes: Int64,
+        createdAt: Date,
+        retentionDeadline: Date,
+        uploadState: UploadState,
+        purgeState: PurgeState,
+        deletionReportState: DeletionReportState
+    ) {
+        self.id = id
+        self.sessionId = sessionId
+        self.trackId = trackId
+        self.artifactType = artifactType
+        self.encryptedSizeBytes = encryptedSizeBytes
+        self.createdAt = createdAt
+        self.retentionDeadline = retentionDeadline
+        self.uploadState = uploadState
+        self.purgeState = purgeState
+        self.deletionReportState = deletionReportState
+    }
 }
 
 public struct DriverHealthReport: Codable, Equatable, Sendable {

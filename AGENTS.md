@@ -241,6 +241,9 @@ Keep generated build/cache/secret files out of git through `.gitignore`.
 Any feature touching `2brain Rec` capture, transcription, storage, or AI must preserve these gates:
 
 - macOS driver-first MVP; no no-driver fallback.
+- Capture and driver implementation is platform-native by default: macOS feature slice
+  uses macOS-native languages and APIs, with future platforms handled by separate
+  native stacks and separate architecture decisions.
 - Manual start/stop remains available.
 - Assisted auto-start is internal-MVP only unless customer policy explicitly enables it.
 - Active capture must always have a visible local indicator and one-action stop.

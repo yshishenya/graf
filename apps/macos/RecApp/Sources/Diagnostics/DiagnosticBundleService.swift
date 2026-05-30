@@ -29,9 +29,53 @@ public struct DiagnosticBundle: Sendable {
 
 public struct DiagnosticBundleService: Sendable {
     private let redactor: DiagnosticRedactor
+    private static let defaultFailureFamily = "general"
 
     public init(redactor: DiagnosticRedactor = DiagnosticRedactor()) {
         self.redactor = redactor
+    }
+
+    public func buildFailureBundle(
+        failureFamily: String,
+        failureReason: String? = nil,
+        relatedSessionId: String? = nil,
+        manifestOverrides: [String: DiagnosticFieldValue] = [:]
+    ) throws -> DiagnosticBundle {
+        var manifest = manifestOverrides
+        manifest["failureFamily"] = .string(failureFamily)
+        manifest["failureReason"] = .string(failureReason ?? "unknown")
+
+        if let relatedSessionId {
+            manifest["sessionId"] = .string(relatedSessionId)
+        }
+
+        return try buildBundle(
+            DiagnosticBundleInput(
+                schemaVersion: "1",
+                createdAt: Date(),
+                manifest: manifest
+            )
+        )
+    }
+
+    public func buildBundle(
+        schemaVersion: String,
+        createdAt: Date = Date(),
+        manifest: [String: DiagnosticFieldValue],
+        failureFamily: String? = nil
+    ) throws -> DiagnosticBundle {
+        var inputManifest = manifest
+        inputManifest["schemaVersion"] = .string(schemaVersion)
+        inputManifest["createdAt"] = .string(Self.formatDate(createdAt))
+        inputManifest["failureFamily"] = .string(failureFamily ?? Self.defaultFailureFamily)
+
+        return try buildBundle(
+            DiagnosticBundleInput(
+                schemaVersion: schemaVersion,
+                createdAt: createdAt,
+                manifest: inputManifest
+            )
+        )
     }
 
     public func buildBundle(_ input: DiagnosticBundleInput) throws -> DiagnosticBundle {

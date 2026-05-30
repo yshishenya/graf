@@ -53,13 +53,72 @@ The local foundation validation command is:
 sh apps/macos/Scripts/validate-foundation.sh
 ```
 
+By default, regression automation skips live Core Audio probes so local/headless
+runs do not hang on a busy `coreaudiod`. For a live probe run with timeouts,
+execute:
+
+```sh
+TWO_BRAIN_RUN_COREAUDIO_PROBES=1 sh apps/macos/Scripts/validate-us1-regression.sh
+```
+
+For stricter pre-release automation where runtime probe output must be present
+in the same run, execute:
+
+```sh
+TWO_BRAIN_REQUIRE_RUNTIME_PROOF=1 sh apps/macos/Scripts/validate-us1-regression.sh
+```
+
+These modes require an environment that can execute HAL/Core Audio runtime
+queries without blocking.
+
 The US1 readiness gate is:
 
 ```sh
 sh apps/macos/Scripts/validate-us1-gate.sh
 ```
 
-It must fail until the runtime report status is `ACCEPTED`.
+It must fail until the runtime report status starts with `ACCEPTED`.
+
+### Local Development Launch Prerequisite
+
+Ad-hoc local builds require Developer Tools Security before the app can launch
+reliably outside Xcode:
+
+```sh
+sudo DevToolsSecurity -enable
+spctl developer-mode enable-terminal
+```
+
+Then build the local installer:
+
+```sh
+sh apps/macos/Installer/Scripts/build-local-installer.sh
+open apps/macos/.build/installer/2brain-rec-local.pkg
+```
+
+Developer Tools Security is only a local development convenience. Pre-release
+and production builds still require Apple signing and notarization.
+
+### Current Accepted Scope (2026-05-31)
+
+The current build is accepted only for driver publication and truthful readiness
+blocking. The expected result after install is:
+
+- app launches;
+- driver package is installed;
+- both virtual devices are visible in macOS;
+- app reports `not ready for calls yet` until real audio passthrough is proven.
+
+Do not treat device visibility alone as route readiness.
+Until live passthrough is accepted, proof devices should not be selected as the
+normal macOS system input or output.
+
+When driver source changes, reinstall the proof HAL bundle before rechecking
+runtime behavior:
+
+```sh
+make -C apps/macos/AudioDriver proof-plugin-install
+```
 
 ## 1. Fresh Install
 

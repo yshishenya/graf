@@ -1,6 +1,6 @@
 # Runtime Core Audio Proof Report
 
-**Status**: ACCEPTED
+**Status**: ACCEPTED (Core Audio publication only; real passthrough pending)
 
 This report is the required evidence gate before any US1 implementation task
 that publishes real virtual devices or installer behavior.
@@ -65,6 +65,61 @@ MVP virtual devices.
 - Decision: Core Audio publication path is accepted for architecture work. US1
   implementation may start, but production tasks must replace the proof bundle
   with the real signed/notarized driver and route-verification implementation.
+
+## Current Runtime Alignment (2026-05-31)
+
+The desktop app now launches locally when Developer Tools Security is enabled for
+ad-hoc development builds. The installed driver package and both virtual devices
+are visible to macOS.
+
+The app must still report **not ready for calls** because real bidirectional
+audio passthrough has not been implemented and verified end to end. Current
+readiness checks are intentionally strict:
+
+- virtual microphone visible in macOS: accepted
+- virtual speaker visible in macOS: accepted
+- physical microphone to virtual microphone audio path: pending
+- virtual speaker to physical speaker audio path: pending
+- browser/meeting end-to-end call validation: pending
+
+Any UI state, checklist item, or task that suggests production passthrough is
+complete is obsolete and must be corrected before release readiness review.
+
+Safety correction added on 2026-05-31:
+
+- high-frequency HAL callback trace is disabled by default and can only be
+  enabled through the explicit verbose trace flag;
+- proof devices report that they cannot become the system default device while
+  passthrough is pending, so a local install should not steal normal system
+  input/output.
+
+## Passthrough Prototype Scope (2026-05-28 to 2026-05-31)
+
+- Decision: Passthrough scaffolding exists, but production passthrough is not yet
+  accepted.
+- Implemented/prototyped pieces:
+  - shared memory ring buffer bridge between the HAL driver and desktop app:
+    `apps/macos/Shared/Sources/SharedAudioMemory.swift` and
+    `apps/macos/Shared/CShmHelpers/shm_helpers.c`
+  - app-side Core Audio bridge scaffolding:
+    `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`
+  - driver-side shared memory reads/writes in
+    `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`
+  - route status model updates in `AudioModels.swift`
+- Not accepted yet:
+  - `StartIO`/`StopIO` do not yet prove a live physical-device bridge for normal
+    calls.
+  - The app does not yet run a safe user-visible readiness flow that proves real
+    microphone and speaker audio movement.
+  - Browser meeting targets have not been validated against the virtual
+    microphone and virtual speaker paths.
+- Validation completed so far:
+  - `swift build --package-path apps/macos -c release --product TwoBrainRecApp`
+  - `make -C apps/macos/AudioDriver proof-plugin-build`
+  - `sh apps/macos/Scripts/validate-us1-regression.sh`
+
+These commands validate buildability, model behavior, and Core Audio publication
+regression coverage. They do not prove production passthrough.
 
 ## Publication Spike Attempt
 

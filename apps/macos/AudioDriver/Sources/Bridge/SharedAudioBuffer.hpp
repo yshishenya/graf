@@ -1,0 +1,59 @@
+#pragma once
+
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+
+namespace TwoBrainRec {
+
+constexpr size_t kSharedRingCapacity = 16384;
+constexpr const char* kShmName = "/2brain-rec-audio-bridge";
+
+struct SharedAudioBuffer {
+    std::atomic<size_t> mic_read_idx{0};
+    std::atomic<size_t> mic_write_idx{0};
+    std::atomic<size_t> speaker_read_idx{0};
+    std::atomic<size_t> speaker_write_idx{0};
+    std::atomic<size_t> capture_read_idx{0};
+    std::atomic<size_t> capture_write_idx{0};
+    uint8_t _pad[16];
+
+    float mic_buffer[kSharedRingCapacity];
+    float speaker_buffer[kSharedRingCapacity];
+    float capture_buffer[kSharedRingCapacity];
+
+    bool Write(float* buf, std::atomic<size_t>& w_idx, std::atomic<size_t>& r_idx, const float* src, size_t count) {
+        size_t w = w_idx.load(std::memory_order_relaxed);
+        size_t r = r_idx.load(std::memory_order_acquire);
+        size_t avail = kSharedRingCapacity - (w - r);
+        if (count > avail) return false;
+        for (size_t i = 0; i < count; ++i)
+            buf[(w + i) & (kSharedRingCapacity - 1)] = src[i];
+        w_idx.store(w + count, std::memory_order_release);
+        return true;
+    }
+
+    size_t Read(float* buf, std::atomic<size_t>& w_idx, std::atomic<size_t>& r_idx, float* dst, size_t count) {
+        size_t w = w_idx.load(std::memory_order_acquire);
+        size_t r = r_idx.load(std::memory_order_relaxed);
+        size_t avail = w - r;
+        size_t n = count < avail ? count : avail;
+        for (size_t i = 0; i < n; ++i)
+            dst[i] = buf[(r + i) & (kSharedRingCapacity - 1)];
+        r_idx.store(r + n, std::memory_order_release);
+        return n;
+    }
+
+    size_t MicAvailable() {
+        return mic_write_idx.load(std::memory_order_acquire) - mic_read_idx.load(std::memory_order_relaxed);
+    }
+
+    size_t SpeakerAvailable() {
+        return speaker_write_idx.load(std::memory_order_acquire) - speaker_read_idx.load(std::memory_order_relaxed);
+    }
+};
+
+static_assert(sizeof(SharedAudioBuffer) == 3 * kSharedRingCapacity * sizeof(float) + 6 * sizeof(std::atomic<size_t>) + 16,
+              "Unexpected SharedAudioBuffer layout");
+
+} // namespace TwoBrainRec

@@ -52,7 +52,7 @@ Forbidden by default:
 
 ## Review Gate
 
-Before private alpha release candidate, create at least one diagnostic bundle
+Before production-ready release candidate, create at least one diagnostic bundle
 from each failure family:
 
 - install failure

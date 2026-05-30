@@ -9,11 +9,20 @@ PLUGIN_INSTALL_DIR := /Library/Audio/Plug-Ins/HAL
 PROOF_SOURCES := \
 	Sources/Proof/ProofRunner.cpp \
 	Sources/Proof/VirtualDeviceProof.cpp \
-	Sources/Proof/PassthroughTimingProof.cpp
+	Sources/Proof/PassthroughTimingProof.cpp \
+	Sources/Routing/MicrophoneRoute.cpp \
+	Sources/Routing/SpeakerRoute.cpp \
+	Sources/Timing/TrackClock.cpp
 RUNTIME_PROBE_SOURCES := Sources/Proof/RuntimeDeviceProbe.cpp
-PLUGIN_SOURCES := Sources/Plugin/TwoBrainRecProofDriver.cpp
+PLUGIN_SOURCES := \
+	Sources/Plugin/TwoBrainRecProofDriver.cpp \
+	Sources/Device/VirtualDeviceRegistry.cpp \
+	Sources/Bridge/AudioBridge.cpp
+PLUGIN_HEADERS := \
+	Sources/Device/VirtualDeviceRegistry.hpp \
+	Sources/Bridge/SharedAudioBuffer.hpp
 
-.PHONY: proof-scaffold-build proof-scaffold-run proof-runtime-probe-build proof-runtime-probe-run proof-plugin-build proof-plugin-install proof-plugin-uninstall proof-plugin-trace-reset proof-plugin-trace-read clean
+.PHONY: proof-scaffold-build proof-scaffold-run proof-runtime-probe-build proof-runtime-probe-run proof-plugin-build proof-plugin-install proof-plugin-uninstall proof-plugin-trace-reset proof-plugin-trace-enable proof-plugin-trace-disable proof-plugin-trace-read clean
 
 proof-scaffold-build: $(PROOF_BIN)
 
@@ -40,8 +49,15 @@ proof-plugin-uninstall:
 proof-plugin-trace-reset:
 	sudo rm -f /tmp/2brain-rec-proof-driver.trace
 
+proof-plugin-trace-enable:
+	touch /tmp/2brain-rec-proof-driver.verbose
+	@echo "Verbose plugin trace enabled for next coreaudiod/plugin restart."
+
+proof-plugin-trace-disable:
+	rm -f /tmp/2brain-rec-proof-driver.verbose
+
 proof-plugin-trace-read:
-	@test -f /tmp/2brain-rec-proof-driver.trace && cat /tmp/2brain-rec-proof-driver.trace || true
+	@test -f /tmp/2brain-rec-proof-driver.trace && tail -n 200 /tmp/2brain-rec-proof-driver.trace || true
 
 $(PROOF_BIN): $(PROOF_SOURCES)
 	@mkdir -p $(BUILD_DIR)
@@ -51,7 +67,7 @@ $(RUNTIME_PROBE_BIN): $(RUNTIME_PROBE_SOURCES)
 	@mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(RUNTIME_PROBE_SOURCES) -framework CoreAudio -framework CoreFoundation -o $(RUNTIME_PROBE_BIN)
 
-$(PLUGIN_BINARY): $(PLUGIN_SOURCES) Resources/ProofPlugin/Info.plist
+$(PLUGIN_BINARY): $(PLUGIN_SOURCES) $(PLUGIN_HEADERS) Resources/ProofPlugin/Info.plist
 	@mkdir -p "$(PLUGIN_BUNDLE)/Contents/MacOS"
 	@cp Resources/ProofPlugin/Info.plist "$(PLUGIN_BUNDLE)/Contents/Info.plist"
 	$(CXX) $(CXXFLAGS) -fvisibility=hidden -bundle $(PLUGIN_SOURCES) -framework CoreAudio -framework CoreFoundation -o $(PLUGIN_BINARY)
