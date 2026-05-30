@@ -8,6 +8,13 @@
 
 **Input**: User description: "Continue macOS development after the publication proof: implement real live audio passthrough and capture readiness so 2brain Rec becomes usable for calls, not only visible in macOS."
 
+## Clarifications
+
+### Session 2026-05-31
+
+- Q: How should the app prove the speaker path during readiness check? → A: Use a short audible test sound after the user explicitly presses `Run Check`.
+- Q: How should the app prove the microphone path during readiness check? → A: Ask the user to speak or tap the microphone for about 3 seconds during `Run Check`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Prove Call-Ready Audio Routes (Priority: P1)
@@ -28,8 +35,10 @@ confirming the app reaches ready only after both real audio paths are detected.
 **Acceptance Scenarios**:
 
 1. **Given** both 2brain Rec virtual devices are visible and physical devices are
-   selected, **When** the user runs the readiness check, **Then** the app proves
-   microphone and speaker audio movement before showing ready.
+   selected, **When** the user runs the readiness check, **Then** the app plays a
+   short audible test sound, asks the user to speak or tap the microphone for
+   about 3 seconds, and proves microphone and speaker audio movement before
+   showing ready.
 2. **Given** the physical microphone is muted, unavailable, or silent, **When**
    the user runs the readiness check, **Then** the app reports microphone path
    failure and does not show ready.
@@ -155,7 +164,10 @@ and guides recovery before claiming ready again.
 - **FR-005**: The system MUST block ready when either physical path is missing,
   silent, muted, self-routed, disconnected, or otherwise unproven.
 - **FR-006**: The system MUST provide a user-triggered readiness check that is
-  safe to run before a call and does not start hidden recording.
+  safe to run before a call, does not start hidden recording, uses a short
+  audible test sound after the user explicitly starts the check, and asks the
+  user to speak or tap the microphone for about 3 seconds to prove the physical
+  microphone path.
 - **FR-007**: The system MUST keep live microphone and speaker passthrough usable
   during capture when backend, upload, or transcription workflows are unavailable.
 - **FR-008**: The system MUST surface a degraded state when live passthrough is

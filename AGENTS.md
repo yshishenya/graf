@@ -103,13 +103,13 @@ The plan must:
 Planning must stop if constitution gates fail or important clarifications remain unresolved.
 
 <!-- SPECKIT START -->
-Current Spec Kit plan: `specs/001-macos-audio-driver/plan.md`
+Current Spec Kit plan: `specs/002-macos-live-passthrough/plan.md`
 
-Active feature: `001-macos-audio-driver`
+Active feature: `002-macos-live-passthrough`
 
 Use the plan, research, data model, contracts, and quickstart in
-`specs/001-macos-audio-driver/` as the authoritative context for macOS virtual
-audio driver MVP planning until a later Spec Kit feature supersedes this slice.
+`specs/002-macos-live-passthrough/` as the authoritative context for macOS live
+audio passthrough planning until a later Spec Kit feature supersedes this slice.
 <!-- SPECKIT END -->
 
 ### 4. Checklist
