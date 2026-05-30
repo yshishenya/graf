@@ -15,6 +15,13 @@
 - Q: How should the app prove the speaker path during readiness check? → A: Use a short audible test sound after the user explicitly presses `Run Check`.
 - Q: How should the app prove the microphone path during readiness check? → A: Ask the user to speak or tap the microphone for about 3 seconds during `Run Check`.
 - Q: May readiness checks save audio evidence during development? → A: Development builds may temporarily save short local debug clips for verification, but release builds must disable and clean this behavior before acceptance.
+- Q: When should live passthrough become active? → A: After a successful `Run Check`, passthrough remains active for calls until the user disables it, the app exits, selected devices change, or the route becomes degraded; recording must not start automatically.
+- Q: Where should the active audio route indicator be visible? → A: For now, show `Audio route active` in the macOS menu bar and in the main app window, distinct from the stronger recording indicator.
+- Q: What latency standard should live passthrough meet? → A: Use a clean-room Krisp-like near-zero perceived-latency target; supported built-in and wired routes become degraded above 30 ms added 2brain Rec route latency.
+- Q: How should Bluetooth and AirPods-class routes be treated? → A: Use a clean-room Krisp-like managed-route policy: built-in and wired routes are strict release-quality paths, while Bluetooth and AirPods-class routes are supported only with profile detection, warning/degraded states, and separate pilot acceptance.
+- Q: Should the architecture include a private app I/O transport like Krisp? → A: Yes; use public `2brain Rec Microphone` and `2brain Rec Speaker` devices for meeting apps, plus a private app I/O transport between the HAL driver and desktop audio engine.
+- Q: How should public devices behave when private app I/O or the desktop audio engine is gone? → A: Use Krisp-like fail-closed behavior: stop claiming ready immediately, make public devices hidden or unavailable when app I/O is gone, and show/recover them only after the desktop audio engine restores the route.
+- Q: Should 2brain Rec manage system/default audio devices like Krisp? → A: Use Krisp-like guided device management only after explicit user action, with visible route-active state, reversible setup, working-device tracking, volume mapping, and recovery assistance.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -48,6 +55,13 @@ confirming the app reaches ready only after both real audio paths are detected.
    does not show ready.
 4. **Given** only virtual-device visibility is confirmed, **When** no real audio
    movement has been proven, **Then** the app continues to show not ready.
+5. **Given** readiness has passed, **When** the user joins a browser call before
+   starting capture, **Then** the user can speak and hear through 2brain Rec
+   devices without starting recording.
+6. **Given** the user explicitly enables or runs route setup, **When** 2brain
+   Rec needs the meeting app or macOS default route to use 2brain Rec devices,
+   **Then** the app may guide or apply the change visibly, track the selected
+   physical working devices, and provide a reversible recovery path.
 
 ---
 
@@ -78,6 +92,13 @@ confirming live call audio stays usable while capture is active.
 4. **Given** a real passthrough check fails during a call, **When** the app
    detects the failure, **Then** it shows a visible degraded state and a safe
    recovery path instead of claiming ready.
+5. **Given** a supported built-in or wired route is active, **When** 2brain Rec
+   added route latency exceeds 30 ms, **Then** the app marks the route degraded
+   and blocks release readiness instead of claiming Krisp-like call quality.
+6. **Given** private app I/O or the desktop audio engine exits, crashes, or is
+   otherwise unavailable, **When** the HAL driver detects the loss, **Then** the
+   route fails closed by stopping ready claims and making public devices hidden
+   or unavailable until the app engine recovers and revalidates the route.
 
 ---
 
@@ -133,6 +154,11 @@ and guides recovery before claiming ready again.
 3. **Given** a Bluetooth or AirPods-class device changes profile, **When** the
    route no longer satisfies the supported call path, **Then** the app reports
    the profile problem and offers a safe recovery action.
+4. **Given** a Bluetooth or AirPods-class device is selected, **When** the route
+   uses a profile with materially worse latency, quality, or one-sided audio,
+   **Then** the app applies the managed-route policy by showing warning or
+   degraded state instead of treating the route as equivalent to built-in or
+   wired devices.
 
 ### Edge Cases
 
@@ -141,10 +167,16 @@ and guides recovery before claiming ready again.
 - A physical microphone or speaker is visible but silent, muted, permission
   blocked, or unavailable to the current user.
 - A meeting target changes audio devices after readiness passes.
+- macOS or a meeting app changes the default microphone or speaker after the
+  user has enabled the 2brain Rec route.
 - A browser restarts or drops remote audio while capture is active.
 - Bluetooth or AirPods-class devices switch between high-quality output and
   call-oriented input/output profiles.
+- Bluetooth or AirPods-class routes add latency or quality loss outside 2brain
+  Rec control even when the 2brain Rec route itself is functioning.
 - The app restarts while the virtual devices remain selected in a meeting.
+- Private app I/O or the desktop audio engine exits while a meeting app still
+  has 2brain Rec devices selected.
 - The user starts readiness checks while another app is already using the
   selected physical devices.
 - Audio movement becomes delayed, distorted, one-sided, or intermittently
@@ -162,6 +194,14 @@ and guides recovery before claiming ready again.
   physical speaker path before showing ready.
 - **FR-004**: The system MUST keep remote speaker audio out of the virtual
   microphone path.
+- **FR-004a**: The system MUST separate meeting-facing virtual devices from
+  internal audio transport by using public `2brain Rec Microphone` and
+  `2brain Rec Speaker` devices for meeting apps plus a private app I/O transport
+  between the HAL driver and desktop audio engine.
+- **FR-004b**: Public 2brain Rec virtual devices MUST fail closed when private
+  app I/O or the desktop audio engine is unavailable: they MUST stop claiming
+  ready, become hidden or unavailable to meeting apps, and return only after the
+  app engine recovers and revalidates the route.
 - **FR-005**: The system MUST block ready when either physical path is missing,
   silent, muted, self-routed, disconnected, or otherwise unproven.
 - **FR-006**: The system MUST provide a user-triggered readiness check that is
@@ -169,12 +209,39 @@ and guides recovery before claiming ready again.
   audible test sound after the user explicitly starts the check, and asks the
   user to speak or tap the microphone for about 3 seconds to prove the physical
   microphone path.
+- **FR-006a**: The system MAY manage or restore 2brain Rec microphone and
+  speaker selection using Krisp-like guided device management only after explicit
+  user action such as `Run Check`, `Enable route`, or an accepted recovery
+  prompt.
+- **FR-006b**: Guided device management MUST remain visible and reversible,
+  track the selected physical working microphone and speaker, distinguish 2brain
+  Rec virtual devices from physical devices, and avoid changing system or
+  meeting audio routes silently in the background.
+- **FR-006c**: When guided device management maps volume or mute state between a
+  physical working device and a 2brain Rec virtual device, the app MUST keep the
+  user-visible route state accurate and MUST NOT use volume or mute changes as a
+  hidden recording or capture signal.
 - **FR-007**: The system MUST keep live microphone and speaker passthrough usable
   during capture when backend, upload, or transcription workflows are unavailable.
+- **FR-007a**: After a successful readiness check, the system MUST keep live
+  passthrough active for calls without starting recording until the user disables
+  the route, the app exits, selected devices change, or the route becomes
+  degraded.
 - **FR-008**: The system MUST surface a degraded state when live passthrough is
   no longer proven during a call.
+- **FR-008a**: Live passthrough MUST target clean-room Krisp-like near-zero
+  perceived latency, use bounded low-latency buffering, and mark supported
+  built-in or wired routes degraded when added 2brain Rec route latency exceeds
+  30 ms.
+- **FR-008b**: Bluetooth and AirPods-class routes MUST follow a clean-room
+  Krisp-like managed-route policy: detect profile changes, distinguish them from
+  built-in and wired release-quality routes, and show warning or degraded states
+  when latency, quality, or one-sided audio risk increases.
 - **FR-009**: The system MUST provide a one-action way to stop active capture
   from a visible local surface whenever capture is active.
+- **FR-009a**: The system MUST show active non-recording passthrough as
+  `Audio route active` in the macOS menu bar and main app window, visually and
+  semantically distinct from `Recording`.
 - **FR-010**: The system MUST register local and remote track evidence separately
   when audio-recording mode is active.
 - **FR-011**: The system MUST mark capture degraded when an expected local or
@@ -205,8 +272,14 @@ and guides recovery before claiming ready again.
 
 - **Readiness Check**: A user-visible verification attempt for microphone path,
   speaker path, self-routing, loopback rejection, and current device state.
+- **Active Audio Route**: A ready, non-recording state where 2brain Rec
+  passthrough is active for calls but no meeting audio is being saved.
 - **Audio Route Evidence**: The result that proves or rejects real movement on a
   specific microphone or speaker path.
+- **Private App I/O Transport**: An internal, non-user-selectable audio path
+  between the HAL driver and desktop audio engine used for live passthrough,
+  processing, capture evidence, and route health without exposing extra meeting
+  devices.
 - **Capture Track Evidence**: The local record that a local or remote track was
   present, separate, aligned, and continuous enough to trust.
 - **Development Debug Clip**: A temporary local audio snippet created only by an
@@ -221,9 +294,13 @@ and guides recovery before claiming ready again.
 - **Capture/Driver Impact**: This feature directly touches macOS audio routing,
   passthrough, capture readiness, degraded states, and diagnostics. It must prove
   real audio movement before ready, keep the driver-first model, and block
-  release when only publication is proven.
+  release when only publication is proven. The public virtual devices must remain
+  meeting-facing surfaces, while internal audio movement uses private app I/O
+  transport rather than extra user-selectable meeting devices.
 - **Visible Control Impact**: The feature must not start hidden recording during
-  readiness checks. Any active capture must keep visible local indication and
+  readiness checks or active audio route use. Active non-recording passthrough
+  must be visible in the menu bar and main window as route activity, not as
+  recording. Any active capture must keep visible local indication and
   one-action stop.
 - **Data Boundary Impact**: The feature is local macOS audio readiness and local
   capture evidence only. It must not add MediaScribe upload, Langfuse traces, LLM
@@ -237,8 +314,9 @@ and guides recovery before claiming ready again.
   app-managed local data, clearly marked, and eligible for local cleanup and the
   existing local deletion/reporting rules.
 - **Audit Impact**: Readiness pass/fail, capture start/stop, degraded state,
-  device-change invalidation, and diagnostic export must be auditable without
-  storing raw audio or transcripts in audit payloads.
+  guided device-management actions, device-change invalidation, and diagnostic
+  export must be auditable without storing raw audio or transcripts in audit
+  payloads.
 - **UX/Brand/Accessibility Impact**: UI changes must use original 2brain Rec
   language, accessible non-color-only states, localization-safe copy, and clear
   brand distance from Krisp.
@@ -250,8 +328,23 @@ and guides recovery before claiming ready again.
 - **SC-001**: In a fresh local install, an internal user can move from
   `not ready for calls yet` to ready only after microphone and speaker path
   checks both pass.
+- **SC-001a**: After readiness passes, the user can join a supported browser call
+  and use 2brain Rec devices for live audio without starting capture.
+- **SC-001b**: While non-recording passthrough is active, the user can identify
+  that state from the menu bar and the main app window without confusing it with
+  recording.
+- **SC-001c**: After explicit user approval, guided device management can set or
+  restore the required 2brain Rec route and can reverse the change without
+  leaving the user unsure which physical microphone and speaker are active.
 - **SC-002**: In a supported browser meeting, the user can speak and hear remote
   audio for at least 30 minutes while 2brain Rec devices remain selected.
+- **SC-002a**: Supported built-in and wired pilot routes keep added 2brain Rec
+  route latency at or below 30 ms during live passthrough; any route above that
+  threshold is visibly degraded and is not release-ready.
+- **SC-002b**: Killing or crashing the desktop audio engine during an active
+  route makes public 2brain Rec devices hidden or unavailable within 5 seconds;
+  relaunching the app restores the devices only after route recovery and
+  revalidation.
 - **SC-003**: Remote meeting audio remains absent from the virtual microphone
   path at or below the accepted loopback threshold.
 - **SC-004**: Local and remote track evidence stays aligned within 100 ms during
@@ -259,6 +352,10 @@ and guides recovery before claiming ready again.
 - **SC-005**: Wired or built-in-device pilot calls stay below 0.1% dropped audio
   frames; Bluetooth and AirPods-class pilot calls stay below 0.5% dropped audio
   frames.
+- **SC-005a**: Bluetooth and AirPods-class pilot calls are not considered
+  equivalent to built-in or wired release-quality routes unless profile,
+  latency, quality, and dropout evidence meet their separate managed-route
+  acceptance criteria.
 - **SC-006**: A 5-minute backend or network outage does not interrupt live call
   passthrough.
 - **SC-007**: Device disconnect or route change invalidates readiness within 5

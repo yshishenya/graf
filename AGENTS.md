@@ -214,11 +214,19 @@ Behavior:
 
 - before `$speckit-specify`, the git hook creates a feature branch;
 - before/after many commands, optional git commit hooks may be offered;
-- auto-commit is disabled by default unless configured in `.specify/extensions/git/git-config.yml`.
+- auto-commit is disabled by default unless configured in `.specify/extensions/git/git-config.yml`;
+- this repo may enable auto-commit for completed Spec Kit documentation artifacts
+  such as constitution, specification, clarification, plan, checklist, tasks, and
+  analysis outputs.
 
 Agent rules:
 
-- do not auto-commit unless the user asks or explicitly approves a Spec Kit git hook;
+- auto-commit may run only for user-approved Spec Kit hooks that produce
+  documentation artifacts;
+- do not auto-commit implementation code, generated build outputs, secrets, or
+  unrelated working tree changes;
+- for implementation changes, commit only after explicit user approval and
+  validation;
 - never reset or discard user changes;
 - use feature branches created by Spec Kit for feature work;
 - preserve generated Spec Kit artifacts in review.
