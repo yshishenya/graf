@@ -42,7 +42,7 @@ public final class PassthroughBridge {
 
     public func start() throws {
         bridgeLog("start: called")
-        queue.sync {
+        try queue.sync {
             guard !isRunning else { bridgeLog("start: already running"); return }
             do {
                 try setupMicCapture()
@@ -54,7 +54,7 @@ public final class PassthroughBridge {
                 guard err == noErr else {
                     bridgeLog("start: AudioOutputUnitStart(mic) failed: \(err)")
                     cleanupAudioUnits()
-                    return
+                    throw PassthroughBridgeError.audioUnitSetupFailed(err)
                 }
                 bridgeLog("start: mic AU started")
 
@@ -63,7 +63,7 @@ public final class PassthroughBridge {
                     bridgeLog("start: AudioOutputUnitStart(speaker) failed: \(err)")
                     AudioOutputUnitStop(micAU!)
                     cleanupAudioUnits()
-                    return
+                    throw PassthroughBridgeError.audioUnitSetupFailed(err)
                 }
                 bridgeLog("start: speaker AU started")
 
@@ -73,6 +73,7 @@ public final class PassthroughBridge {
                 bridgeLog("start: error: \(error)")
                 cleanupAudioUnits()
                 isRunning = false
+                throw error
             }
         }
     }
@@ -279,37 +280,31 @@ private let micInputCallback: AURenderCallback = { (inRefCon, ioActionFlags, inT
     guard let au = bridge.micAU else { bridgeLog("micCB: no micAU"); return noErr }
 
     let frameCount = Int(inNumberFrames)
-    var bufferList = AudioBufferList(
-        mNumberBuffers: 1,
-        mBuffers: AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(inNumberFrames * 8), mData: nil)
-    )
-
-    let err = AudioUnitRender(au, ioActionFlags, inTimeStamp, 1, inNumberFrames, &bufferList)
+    var samples = [Float](repeating: 0, count: frameCount * 2)
+    let err = samples.withUnsafeMutableBufferPointer { sampleBuffer -> OSStatus in
+        var bufferList = AudioBufferList(
+            mNumberBuffers: 1,
+            mBuffers: AudioBuffer(
+                mNumberChannels: 2,
+                mDataByteSize: UInt32(frameCount * 2 * MemoryLayout<Float>.stride),
+                mData: sampleBuffer.baseAddress
+            )
+        )
+        return AudioUnitRender(au, ioActionFlags, inTimeStamp, 1, inNumberFrames, &bufferList)
+    }
     guard err == noErr else {
         bridgeLog("micCB: AudioUnitRender failed: \(err)")
         return err
     }
 
-    let abl = UnsafeMutableAudioBufferListPointer(&bufferList)
-    if abl.count == 1 {
-        guard let data = bufferList.mBuffers.mData else {
-            bridgeLog("micCB: nil data after render")
-            return noErr
+    let ok = samples.withUnsafeBufferPointer { sampleBuffer -> Bool in
+        guard let baseAddress = sampleBuffer.baseAddress else {
+            return false
         }
-        let samples = data.assumingMemoryBound(to: Float.self)
-        let ok = bridge.shm.writeMic(src: samples, count: frameCount * 2)
-        if !ok { bridgeLog("micCB: writeMic failed (buffer full)") }
-    } else {
-        var interleaved = [Float](repeating: 0, count: frameCount * 2)
-        for ch in 0..<min(abl.count, 2) {
-            guard let data = abl[ch].mData else { continue }
-            let src = data.assumingMemoryBound(to: Float.self)
-            for f in 0..<frameCount {
-                interleaved[f * 2 + ch] = src[f]
-            }
-        }
-        let ok = bridge.shm.writeMic(src: &interleaved, count: frameCount * 2)
-        if !ok { bridgeLog("micCB: writeMic failed (buffer full)") }
+        return bridge.shm.writeMic(src: baseAddress, count: frameCount * 2)
+    }
+    if !ok {
+        bridgeLog("micCB: writeMic failed (buffer full)")
     }
     return noErr
 }
