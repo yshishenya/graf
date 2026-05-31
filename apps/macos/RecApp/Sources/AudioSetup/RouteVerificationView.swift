@@ -127,6 +127,18 @@ public struct RouteVerificationView: View {
             return "Not checked yet"
         }
         let label = AdaptiveStatusText.routeStatusLabel(verification.status)
+        if verification.status == .passed {
+            switch verification.path {
+            case .micToVirtualInput:
+                return "Active: physical microphone reaches 2brain Rec Microphone"
+            case .remoteOutputToVirtualSpeaker:
+                return "Active: 2brain Rec Speaker routes to physical output"
+            case .speakerPassthrough:
+                return "Active: speaker passthrough is usable"
+            case .captureMirror:
+                return "Active: capture mirror is usable"
+            }
+        }
         if let failureReason = verification.failureReason {
             return "\(label): \(humanReason(failureReason))"
         }
@@ -146,6 +158,30 @@ public struct RouteVerificationView: View {
             return "macOS input is not a physical microphone."
         case "physical_speaker_not_selected":
             return "macOS output is not a physical speaker."
+        case "physical_input_missing":
+            return "select a physical microphone."
+        case "physical_output_missing":
+            return "select a physical speaker."
+        case "physical_microphone_muted":
+            return "physical microphone is muted."
+        case "physical_microphone_silent":
+            return "physical microphone is silent."
+        case "physical_microphone_unavailable":
+            return "physical microphone is unavailable."
+        case "physical_microphone_unsupported":
+            return "select a built-in or wired microphone for release readiness."
+        case "physical_speaker_muted":
+            return "physical speaker is muted."
+        case "physical_speaker_silent":
+            return "physical speaker is silent."
+        case "physical_speaker_unavailable":
+            return "physical speaker is unavailable."
+        case "physical_speaker_unsupported":
+            return "select a built-in or wired speaker for release readiness."
+        case "aggregate_output_unmanaged":
+            return "aggregate or multi-output speaker route is not managed for release readiness."
+        case "bluetooth_profile_switching":
+            return "Bluetooth profile is switching; recheck after it is stable."
         case "virtual_device_visible_but_audio_path_not_implemented":
             return "device is visible, but real audio passthrough is not implemented yet."
         default:

@@ -59,7 +59,7 @@ stays non-recording.
 - [X] T017 [P] [US1] Add microphone passthrough synthetic test in `tests/macos/route-synthetic/live-mic-passthrough-check.swift`.
 - [X] T018 [P] [US1] Add microphone silence/empty-frame test in `tests/macos/route-synthetic/live-mic-silence-check.swift`.
 - [X] T019 [P] [US1] Add microphone self-routing rejection test in `tests/macos/route-synthetic/live-mic-self-routing-check.swift`.
-- [ ] T020 [P] [US1] Add physical microphone selection tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
+- [X] T020 [P] [US1] Add physical microphone selection tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
 
 ### Implementation for User Story 1
 
@@ -67,9 +67,9 @@ stays non-recording.
 - [X] T022 [US1] Implement physical microphone capture format negotiation and mono/stereo normalization in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
 - [X] T023 [US1] Write microphone frames into the virtual microphone ring buffer without recording side effects in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
 - [X] T024 [US1] Read microphone ring buffer from `2brain Rec Microphone` driver callbacks in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
-- [ ] T025 [US1] Map microphone permission, silence, unavailable, and self-routing failures to route state in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
-- [ ] T026 [US1] Render microphone passthrough active/failed states in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
-- [ ] T027 [US1] Record microphone passthrough diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T025 [US1] Map microphone permission, silence, unavailable, and self-routing failures to route state in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [X] T026 [US1] Render microphone passthrough active/failed states in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
+- [X] T027 [US1] Record microphone passthrough diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
 **Checkpoint**: US1 proves local mic audio can feed the virtual microphone
 without starting recording.
@@ -89,7 +89,7 @@ output without leaking it into the virtual microphone.
 - [X] T028 [P] [US2] Add speaker passthrough synthetic test in `tests/macos/route-synthetic/live-speaker-passthrough-check.swift`.
 - [X] T029 [P] [US2] Add speaker unavailable/muted route test in `tests/macos/route-synthetic/live-speaker-failure-check.swift`.
 - [X] T030 [P] [US2] Add remote-to-mic loopback regression test in `tests/macos/route-synthetic/live-passthrough-no-loopback-check.swift`.
-- [ ] T031 [P] [US2] Add speaker output selection policy tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
+- [X] T031 [P] [US2] Add speaker output selection policy tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
 
 ### Implementation for User Story 2
 
@@ -98,9 +98,9 @@ output without leaking it into the virtual microphone.
 - [X] T034 [US2] Implement physical speaker playback format negotiation and stereo normalization in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
 - [X] T035 [US2] Drain the virtual speaker ring buffer to selected physical output without blocking Core Audio callbacks in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
 - [X] T036 [US2] Enforce no-loopback, leakage, and latency policy in `apps/macos/Shared/Sources/Routing/SelfRoutingGuard.swift` and `apps/macos/Shared/Sources/Routing/LatencyMonitor.swift`.
-- [ ] T037 [US2] Map speaker unavailable, muted, aggregate, and self-routing failures to route state in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
-- [ ] T038 [US2] Render speaker passthrough active/failed states in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
-- [ ] T039 [US2] Record speaker passthrough diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T037 [US2] Map speaker unavailable, muted, aggregate, and self-routing failures to route state in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [X] T038 [US2] Render speaker passthrough active/failed states in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
+- [X] T039 [US2] Record speaker passthrough diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
 **Checkpoint**: US1 and US2 together prove bidirectional local passthrough.
 

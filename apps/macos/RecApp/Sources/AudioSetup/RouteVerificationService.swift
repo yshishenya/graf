@@ -84,21 +84,36 @@ public struct RouteVerificationService: Sendable {
             )
         }
 
-        async let micStatus = probe(.micToVirtualInput, physicalInput)
-        async let speakerStatus = probe(.remoteOutputToVirtualSpeaker, physicalOutput)
+        let microphonePreflightFailure = microphoneFailure(for: physicalInput)
+        let speakerPreflightFailure = speakerFailure(for: physicalOutput)
+
+        let micStatus: RouteVerificationStatus = if microphonePreflightFailure == nil {
+            await probe(.micToVirtualInput, physicalInput)
+        } else {
+            .failed
+        }
+        let speakerStatus: RouteVerificationStatus = if speakerPreflightFailure == nil {
+            await probe(.remoteOutputToVirtualSpeaker, physicalOutput)
+        } else {
+            .failed
+        }
 
         return RouteVerificationSnapshot(
             mic: verification(
                 path: .micToVirtualInput,
                 target: physicalInput.displayName,
-                status: await micStatus,
-                startedAt: startedAt
+                status: micStatus,
+                startedAt: startedAt,
+                failureReason: microphonePreflightFailure?.reason,
+                recoveryAction: microphonePreflightFailure?.recoveryAction
             ),
             speaker: verification(
                 path: .remoteOutputToVirtualSpeaker,
                 target: physicalOutput.displayName,
-                status: await speakerStatus,
-                startedAt: startedAt
+                status: speakerStatus,
+                startedAt: startedAt,
+                failureReason: speakerPreflightFailure?.reason,
+                recoveryAction: speakerPreflightFailure?.recoveryAction
             )
         )
     }
@@ -216,6 +231,45 @@ public struct RouteVerificationService: Sendable {
 
     private func defaultRecoveryAction(for status: RouteVerificationStatus) -> String? {
         status == .failed ? "retry_route_verification" : nil
+    }
+
+    private func microphoneFailure(for device: PhysicalAudioDevice) -> (reason: String, recoveryAction: String)? {
+        switch device.availabilityState {
+        case .available, .noisy:
+            return nil
+        case .muted:
+            return ("physical_microphone_muted", "unmute_physical_microphone")
+        case .silent:
+            return ("physical_microphone_silent", "select_working_physical_microphone")
+        case .disconnected:
+            return ("physical_microphone_unavailable", "select_physical_microphone")
+        case .profileSwitching:
+            return ("bluetooth_profile_switching", "wait_for_stable_audio_profile")
+        case .unsupported:
+            return ("physical_microphone_unsupported", "select_built_in_or_wired_microphone")
+        }
+    }
+
+    private func speakerFailure(for device: PhysicalAudioDevice) -> (reason: String, recoveryAction: String)? {
+        if device.displayName.localizedCaseInsensitiveContains("Aggregate") ||
+            device.displayName.localizedCaseInsensitiveContains("Многовыходное") {
+            return ("aggregate_output_unmanaged", "select_single_physical_speaker")
+        }
+
+        switch device.availabilityState {
+        case .available, .noisy:
+            return nil
+        case .muted:
+            return ("physical_speaker_muted", "unmute_physical_speaker")
+        case .silent:
+            return ("physical_speaker_silent", "select_working_physical_speaker")
+        case .disconnected:
+            return ("physical_speaker_unavailable", "select_physical_speaker")
+        case .profileSwitching:
+            return ("bluetooth_profile_switching", "wait_for_stable_audio_profile")
+        case .unsupported:
+            return ("physical_speaker_unsupported", "select_built_in_or_wired_speaker")
+        }
     }
 
     private func routeEvidenceStatus(from status: RouteVerificationStatus) -> RouteEvidenceStatus {

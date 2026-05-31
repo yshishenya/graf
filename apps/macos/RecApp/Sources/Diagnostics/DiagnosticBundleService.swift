@@ -110,6 +110,12 @@ public struct DiagnosticBundleService: Sendable {
                 "failureReason": .string(result.speakerEvidence.failureReason ?? "none")
             ]),
             "routeStatus": .string(result.status.rawValue),
+            "routeVerificationResults": .object([
+                "microphoneStatus": .string(result.microphoneEvidence.status.rawValue),
+                "microphoneFailureReason": .string(result.microphoneEvidence.failureReason ?? "none"),
+                "speakerStatus": .string(result.speakerEvidence.status.rawValue),
+                "speakerFailureReason": .string(result.speakerEvidence.failureReason ?? "none")
+            ]),
             "recoveryActionId": .string(result.recoveryAction ?? "none")
         ]
 

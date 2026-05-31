@@ -249,6 +249,50 @@ final class RouteVerificationTests: XCTestCase {
         XCTAssertTrue(passingSnapshot.canShowReady)
     }
 
+    func testRouteVerificationServiceMapsPhysicalMicrophoneFailures() async {
+        let input = physicalDevice(
+            id: "muted-input",
+            displayName: "MacBook Pro Microphone",
+            direction: .input,
+            availabilityState: .muted
+        )
+        let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
+        let service = RouteVerificationService(
+            clock: fixedClock,
+            idFactory: fixedID,
+            probe: { _, _ in .passed }
+        )
+
+        let snapshot = await service.verify(physicalInput: input, physicalOutput: output)
+
+        XCTAssertEqual(snapshot.mic.status, .failed)
+        XCTAssertEqual(snapshot.mic.failureReason, "physical_microphone_muted")
+        XCTAssertEqual(snapshot.mic.recoveryAction, "unmute_physical_microphone")
+        XCTAssertEqual(snapshot.speaker.status, .passed)
+    }
+
+    func testRouteVerificationServiceMapsPhysicalSpeakerFailures() async {
+        let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
+        let output = physicalDevice(
+            id: "aggregate-output",
+            displayName: "Многовыходное устройство",
+            direction: .output,
+            availabilityState: .available
+        )
+        let service = RouteVerificationService(
+            clock: fixedClock,
+            idFactory: fixedID,
+            probe: { _, _ in .passed }
+        )
+
+        let snapshot = await service.verify(physicalInput: input, physicalOutput: output)
+
+        XCTAssertEqual(snapshot.mic.status, .passed)
+        XCTAssertEqual(snapshot.speaker.status, .failed)
+        XCTAssertEqual(snapshot.speaker.failureReason, "aggregate_output_unmanaged")
+        XCTAssertEqual(snapshot.speaker.recoveryAction, "select_single_physical_speaker")
+    }
+
     func testRouteVerificationServiceProducesLiveReadinessResult() async {
         let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
@@ -417,14 +461,15 @@ final class RouteVerificationTests: XCTestCase {
     private func physicalDevice(
         id: String,
         displayName: String,
-        direction: AudioDirection
+        direction: AudioDirection,
+        availabilityState: PhysicalDeviceAvailabilityState = .available
     ) -> PhysicalAudioDevice {
         PhysicalAudioDevice(
             id: id,
             displayName: displayName,
             direction: direction,
             deviceClass: .builtIn,
-            availabilityState: .available
+            availabilityState: availabilityState
         )
     }
 
