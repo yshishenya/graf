@@ -1,4 +1,4 @@
-# Feature Specification: macOS Live Audio Passthrough
+# Feature Specification: macOS Live Audio Passthrough Foundation
 
 **Feature Branch**: `002-macos-live-passthrough`
 
@@ -7,6 +7,14 @@
 **Status**: Draft
 
 **Input**: User description: "Continue macOS development after the publication proof: implement real live audio passthrough and capture readiness so 2brain Rec becomes usable for calls, not only visible in macOS."
+
+**Implementation Slice Note**: During implementation, this feature was narrowed
+to the safe foundation required before release-ready passthrough: private app
+I/O, fail-closed public devices, readiness-blocking UI, diagnostics, evidence
+models, lifecycle gates, and synthetic validation. Real browser-call readiness
+and release-ready bidirectional audio movement are intentionally deferred to the
+next Spec Kit feature so the product does not claim `ready` from incomplete
+evidence.
 
 ## Clarifications
 

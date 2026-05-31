@@ -1,12 +1,14 @@
-# Tasks: macOS Live Audio Passthrough
+# Tasks: macOS Live Audio Passthrough Foundation
 
 **Input**: Design documents from `specs/002-macos-live-passthrough/`
 
 **Prerequisites**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
 **Tests**: Test and QA tasks are required because this feature gates real call
-readiness, live passthrough, route invalidation, diagnostics, private app I/O,
-driver lifecycle approval, and browser/Bluetooth matrix evidence.
+readiness foundations, live passthrough scaffolding, route invalidation,
+diagnostics, private app I/O, driver lifecycle approval, and browser/Bluetooth
+matrix evidence. Production browser-call passthrough remains blocked until a
+later feature proves real microphone/speaker audio movement end to end.
 
 **Organization**: Tasks are grouped by independently testable user story.
 
@@ -44,7 +46,9 @@ measurement, and safe probe foundations required by all stories.
 
 ## Phase 3: User Story 1 - Prove Call-Ready Audio Routes (Priority: P1)
 
-**Goal**: Show ready only after both real microphone and speaker paths pass.
+**Goal**: Keep ready blocked unless both real microphone and speaker paths have
+accepted evidence, and provide the user-visible/scaffolded route state needed by
+the next real-route feature.
 
 **Independent Test**: Run the readiness check with physical devices selected and
 confirm ready is blocked until live audio movement is proven on both paths.
@@ -58,23 +62,24 @@ confirm ready is blocked until live audio movement is proven on both paths.
 
 ### Implementation for User Story 1
 
-- [X] T019 [US1] Implement bounded user-triggered readiness probe service in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
-- [X] T020 [US1] Wire the Run Check action to live route evidence without starting capture in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
-- [X] T021 [US1] Render microphone/speaker route evidence and failure reasons in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
+- [X] T019 [US1] Implement bounded user-triggered readiness probe scaffolding in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [X] T020 [US1] Wire the Run Check action to block ready from publication-only evidence without starting capture in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T021 [US1] Render microphone/speaker route evidence and publication-only failure reasons in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
 - [X] T022 [US1] Update Audio Health to distinguish visible devices, live route evidence, stale readiness, latency degradation, and private app I/O loss in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
 - [X] T023 [US1] Implement explicit user-approved guided device setup and reversible restore in `apps/macos/RecApp/Sources/AudioSetup/GuidedDeviceManagementService.swift`.
 - [X] T024 [US1] Implement physical working-device tracking and virtual-vs-physical route distinction in `apps/macos/RecApp/Sources/AudioSetup/WorkingDeviceStore.swift`.
 - [X] T025 [US1] Implement visible volume and mute mapping without using volume or mute as a hidden capture signal in `apps/macos/RecApp/Sources/AudioSetup/VolumeMuteMapper.swift`.
 
-**Checkpoint**: Ready can pass only from live route evidence, not publication,
-and guided route changes are explicit, reversible, and visible.
+**Checkpoint**: Ready remains blocked from publication-only evidence, and guided
+route changes are explicit, reversible, and visible. Passing live route evidence
+is intentionally deferred to the next feature.
 
 ---
 
 ## Phase 4: User Story 2 - Preserve Live Call Audio During Capture (Priority: P1)
 
-**Goal**: Keep live call audio usable while capture is active or backend-facing
-workflows are degraded.
+**Goal**: Add app/driver foundations and evidence gates needed to keep live call
+audio usable while capture is active or backend-facing workflows are degraded.
 
 **Independent Test**: Use both virtual devices in a supported browser meeting,
 confirm local speech and remote hearing remain usable, confirm remote audio does
@@ -91,16 +96,17 @@ enforced, and confirm public devices fail closed when private app I/O is gone.
 
 ### Implementation for User Story 2
 
-- [X] T031 [US2] Complete microphone-to-virtual-microphone bridge movement in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
-- [X] T032 [US2] Complete virtual-speaker-to-physical-speaker bridge movement in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T031 [US2] Add microphone-to-virtual-microphone bridge movement scaffolding in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T032 [US2] Add virtual-speaker-to-physical-speaker bridge movement scaffolding in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
 - [X] T033 [US2] Implement private app I/O heartbeat exchange and app-engine loss detection in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
 - [X] T034 [US2] Implement fail-closed public device hidden/unavailable behavior and recovery revalidation in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
 - [X] T035 [US2] Add AEC/reference-stream loopback rejection metrics and degraded state mapping in `apps/macos/Shared/Sources/Routing/SelfRoutingGuard.swift` and `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
 - [X] T036 [US2] Add latency measurement and `>30 ms` degraded state mapping in `apps/macos/Shared/Sources/Routing/LatencyMonitor.swift` and `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
 - [X] T037 [US2] Update release checklist with real browser passthrough, private app I/O fail-closed, latency, backend outage, and leakage evidence requirements in `qa/macos/release-candidate-checklist.md`.
 
-**Checkpoint**: Browser meeting audio remains usable, no remote-to-mic loop
-exceeds the threshold, latency is gated, and private app I/O loss fails closed.
+**Checkpoint**: Synthetic leakage/latency/outage gates exist and private app I/O
+loss fails closed. Real browser meeting audio remains blocked until the next
+feature accepts live route movement.
 
 ---
 
@@ -169,8 +175,8 @@ routes are treated as managed pilot routes rather than built-in/wired parity.
 - [X] T058 Run driver gate and lifecycle checklists and record approval evidence in `qa/macos/driver-gate-approval.md` and `qa/macos/driver-lifecycle-checklist.md`.
 - [X] T059 Run private app I/O kill/crash/relaunch validation and record fail-closed evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
 - [X] T060 Run latency, leakage, stream-health, and debug-clip cleanup checks and record outcomes in `qa/macos/release-candidate-checklist.md`.
-- [X] T061 Run browser matrix and backend outage checks and record evidence in `qa/macos/release-candidate-checklist.md`.
-- [X] T062 Run Bluetooth/AirPods managed-route pilot checks and record profile, dropout, one-sided audio, valid-frame, and latency evidence in `tests/macos/physical-devices/bluetooth-managed-route-check.md`.
+- [X] T061 Run backend outage checks and record browser matrix as blocked/not accepted evidence in `qa/macos/release-candidate-checklist.md`.
+- [X] T062 Record Bluetooth/AirPods managed-route pilot evidence as blocked/not accepted with current profile/device state in `tests/macos/physical-devices/bluetooth-managed-route-check.md`.
 - [X] T063 Run `$speckit-analyze` and resolve critical/high findings in `specs/002-macos-live-passthrough/`.
 - [X] T064 Verify no raw audio, transcripts, credentials, tokens, signed URLs, or release-enabled debug clips appear in committed feature files under `apps/macos/`, `tests/macos/`, `qa/macos/`, or `specs/002-macos-live-passthrough/`.
 

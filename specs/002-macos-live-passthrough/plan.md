@@ -6,11 +6,12 @@
 
 ## Summary
 
-Turn the accepted macOS publication proof into a call-usable audio route. The
-feature must prove real microphone and speaker audio movement before the app
-shows ready, keep live passthrough usable while capture/backend workflows are
-degraded, and produce local route/track evidence that later backend upload and
-transcription slices can trust.
+Turn the accepted macOS publication proof into the safe foundation for a
+call-usable audio route. This feature establishes private app I/O,
+fail-closed public devices, readiness-blocking UI, diagnostics, route/track
+evidence models, lifecycle gates, and synthetic validation. It must not claim
+release-ready browser-call passthrough until the next feature proves real
+microphone and speaker audio movement end to end.
 
 The technical approach keeps the HAL component thin and real-time safe while the
 desktop app owns user-visible readiness, physical-device selection, permission
