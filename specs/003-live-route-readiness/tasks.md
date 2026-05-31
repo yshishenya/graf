@@ -53,20 +53,20 @@ devices selected and confirm ready appears only after both live paths pass.
 
 ### Tests for User Story 1
 
-- [ ] T017 [P] [US1] Add microphone live path synthetic test in `tests/macos/route-synthetic/live-mic-readiness-check.swift`.
-- [ ] T018 [P] [US1] Add speaker live path synthetic test in `tests/macos/route-synthetic/live-speaker-readiness-check.swift`.
-- [ ] T019 [P] [US1] Add self-routing rejection test for live readiness in `tests/macos/route-synthetic/live-self-routing-check.swift`.
-- [ ] T020 [P] [US1] Add readiness UI state tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
+- [X] T017 [P] [US1] Add microphone live path synthetic test in `tests/macos/route-synthetic/live-mic-readiness-check.swift`.
+- [X] T018 [P] [US1] Add speaker live path synthetic test in `tests/macos/route-synthetic/live-speaker-readiness-check.swift`.
+- [X] T019 [P] [US1] Add self-routing rejection test for live readiness in `tests/macos/route-synthetic/live-self-routing-check.swift`.
+- [X] T020 [P] [US1] Add readiness UI state tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] Implement physical microphone live evidence collection and self-routing rejection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
-- [ ] T022 [US1] Implement physical speaker stimulus, aggregate/multi-output handling, and self-routing rejection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
-- [ ] T023 [US1] Prevent publication-only checks from producing ready in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
-- [ ] T024 [US1] Render checking/ready/stale/degraded/failed states with path-specific failure reasons in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
-- [ ] T025 [US1] Update Audio Health route summary for live readiness in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
-- [ ] T026 [US1] Add metadata-only readiness diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T027 [US1] Record readiness pass/fail audit events in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [X] T021 [US1] Implement physical microphone live evidence collection and self-routing rejection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [X] T022 [US1] Implement physical speaker stimulus, aggregate/multi-output handling, and self-routing rejection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [X] T023 [US1] Prevent publication-only checks from producing ready in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T024 [US1] Render checking/ready/stale/degraded/failed states with path-specific failure reasons in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
+- [X] T025 [US1] Update Audio Health route summary for live readiness in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
+- [X] T026 [US1] Add metadata-only readiness diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T027 [US1] Record readiness pass/fail audit events in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
 
 **Checkpoint**: US1 alone delivers a trustworthy ready state for selected
 physical devices without starting recording.

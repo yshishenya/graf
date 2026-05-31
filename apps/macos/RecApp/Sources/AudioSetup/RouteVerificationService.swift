@@ -103,6 +103,67 @@ public struct RouteVerificationService: Sendable {
         )
     }
 
+    public func verifyLiveReadiness(
+        physicalInput: PhysicalAudioDevice?,
+        physicalOutput: PhysicalAudioDevice?
+    ) async -> LiveRouteReadinessResult {
+        let snapshot = await verify(physicalInput: physicalInput, physicalOutput: physicalOutput)
+        let now = clock()
+
+        let micSelfRouting = physicalInput.map { selfRoutingGuard.matchesVirtualMicrophone($0) } ?? false
+        let speakerSelfRouting = physicalOutput.map { selfRoutingGuard.matchesVirtualSpeaker($0) } ?? false
+
+        let microphoneEvidence = MicrophonePathEvidence(
+            selectedPhysicalDeviceId: physicalInput?.id ?? "",
+            selectedPhysicalDeviceName: physicalInput?.displayName ?? "",
+            status: routeEvidenceStatus(from: snapshot.mic.status),
+            validFrameCount: snapshot.mic.status == .passed ? 1 : 0,
+            emptyBufferCount: snapshot.mic.status == .passed ? 0 : 1,
+            capturabilityStatus: snapshot.mic.status == .passed ? .capturable : .notCapturable,
+            selfRoutingRejected: micSelfRouting,
+            failureReason: snapshot.mic.failureReason,
+            checkedAt: now
+        )
+
+        let speakerEvidence = SpeakerPathEvidence(
+            selectedPhysicalOutputId: physicalOutput?.id ?? "",
+            selectedPhysicalOutputName: physicalOutput?.displayName ?? "",
+            status: routeEvidenceStatus(from: snapshot.speaker.status),
+            stimulusObserved: snapshot.speaker.status == .passed,
+            validFrameCount: snapshot.speaker.status == .passed ? 1 : 0,
+            emptyBufferCount: snapshot.speaker.status == .passed ? 0 : 1,
+            selfRoutingRejected: speakerSelfRouting,
+            failureReason: snapshot.speaker.failureReason,
+            checkedAt: now
+        )
+
+        let recoveryAction = snapshot.mic.recoveryAction ?? snapshot.speaker.recoveryAction
+        let status: LiveRouteReadinessStatus = snapshot.canShowReady ? .ready : .failed
+
+        return LiveRouteReadinessResult(
+            status: status,
+            microphoneEvidence: microphoneEvidence,
+            speakerEvidence: speakerEvidence,
+            checkedAt: now,
+            recoveryAction: recoveryAction
+        )
+    }
+
+    public func auditEvents(for result: LiveRouteReadinessResult) -> [AuditEventName] {
+        var events: [AuditEventName] = [.liveRouteReadinessCheckStarted]
+        switch result.status {
+        case .ready:
+            events.append(.liveRouteReadinessPassed)
+        case .stale:
+            events.append(.liveRouteReadinessStale)
+        case .failed, .degraded:
+            events.append(.liveRouteReadinessFailed)
+        case .notStarted, .checking:
+            break
+        }
+        return events
+    }
+
     private func failedSnapshot(
         startedAt: Date,
         reason: String,
@@ -155,5 +216,20 @@ public struct RouteVerificationService: Sendable {
 
     private func defaultRecoveryAction(for status: RouteVerificationStatus) -> String? {
         status == .failed ? "retry_route_verification" : nil
+    }
+
+    private func routeEvidenceStatus(from status: RouteVerificationStatus) -> RouteEvidenceStatus {
+        switch status {
+        case .passed:
+            .passed
+        case .stale:
+            .degraded
+        case .failed:
+            .failed
+        case .running:
+            .notStarted
+        case .notStarted:
+            .notStarted
+        }
     }
 }

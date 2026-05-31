@@ -46,6 +46,23 @@ public extension AdaptiveStatusText {
         }
     }
 
+    static func liveReadinessStatusLabel(_ status: LiveRouteReadinessStatus) -> String {
+        switch status {
+        case .notStarted:
+            return "Not checked"
+        case .checking:
+            return "Checking"
+        case .ready:
+            return "Ready"
+        case .stale:
+            return "Needs audio check"
+        case .degraded:
+            return "Degraded"
+        case .failed:
+            return "Failed"
+        }
+    }
+
     static func routeStatusIcon(_ status: RouteVerificationStatus) -> String {
         switch status {
         case .notStarted:
@@ -161,6 +178,8 @@ public extension AdaptiveStatusText {
             return "Run the readiness check"
         case "implement_passthrough":
             return "Passthrough implementation is still required"
+        case "rerun_readiness_check":
+            return "Run the readiness check again"
         case "retry_route_verification":
             return "Retry route verification"
         case "update_driver":

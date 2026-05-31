@@ -249,6 +249,60 @@ final class RouteVerificationTests: XCTestCase {
         XCTAssertTrue(passingSnapshot.canShowReady)
     }
 
+    func testRouteVerificationServiceProducesLiveReadinessResult() async {
+        let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
+        let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
+        let service = RouteVerificationService(
+            clock: fixedClock,
+            idFactory: fixedID,
+            probe: { _, _ in .passed }
+        )
+
+        let result = await service.verifyLiveReadiness(physicalInput: input, physicalOutput: output)
+
+        XCTAssertTrue(result.canShowReady)
+        XCTAssertEqual(result.status, .ready)
+        XCTAssertEqual(result.microphoneEvidence.validFrameCount, 1)
+        XCTAssertEqual(result.speakerEvidence.stimulusObserved, true)
+    }
+
+    func testRouteVerificationServiceLiveReadinessRejectsSelfRouting() async {
+        let input = physicalDevice(
+            id: SelfRoutingGuard.microphoneUID,
+            displayName: "2brain Rec Microphone",
+            direction: .input
+        )
+        let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
+        let service = RouteVerificationService(
+            clock: fixedClock,
+            idFactory: fixedID,
+            probe: { _, _ in .passed }
+        )
+
+        let result = await service.verifyLiveReadiness(physicalInput: input, physicalOutput: output)
+
+        XCTAssertFalse(result.canShowReady)
+        XCTAssertEqual(result.status, .failed)
+        XCTAssertTrue(result.microphoneEvidence.selfRoutingRejected)
+        XCTAssertEqual(result.recoveryAction, "select_physical_microphone")
+    }
+
+    func testRouteVerificationServiceRecordsReadinessAuditEvents() async {
+        let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
+        let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
+        let service = RouteVerificationService(
+            clock: fixedClock,
+            idFactory: fixedID,
+            probe: { _, _ in .passed }
+        )
+        let result = await service.verifyLiveReadiness(physicalInput: input, physicalOutput: output)
+
+        XCTAssertEqual(
+            service.auditEvents(for: result),
+            [.liveRouteReadinessCheckStarted, .liveRouteReadinessPassed]
+        )
+    }
+
     func testStreamHealthDoesNotTreatNaturalSilenceAsFailureWhenFramesAreValid() {
         let snapshot = SharedAudioMemory.StreamCounterSnapshot(
             capturedFrameCount: 48000,

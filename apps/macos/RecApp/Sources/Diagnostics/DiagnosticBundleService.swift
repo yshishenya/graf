@@ -83,6 +83,62 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildLiveRouteReadinessBundle(
+        result: LiveRouteReadinessResult
+    ) throws -> DiagnosticBundle {
+        var manifest: [String: DiagnosticFieldValue] = [
+            "liveRouteReadiness": .object([
+                "status": .string(result.status.rawValue),
+                "checkedAt": .string(Self.formatDate(result.checkedAt)),
+                "recoveryAction": .string(result.recoveryAction ?? "none")
+            ]),
+            "microphonePathEvidence": .object([
+                "selectedPhysicalDeviceName": .string(result.microphoneEvidence.selectedPhysicalDeviceName),
+                "status": .string(result.microphoneEvidence.status.rawValue),
+                "validFrameCount": .int(Int(result.microphoneEvidence.validFrameCount)),
+                "emptyBufferCount": .int(Int(result.microphoneEvidence.emptyBufferCount)),
+                "selfRoutingRejected": .bool(result.microphoneEvidence.selfRoutingRejected),
+                "failureReason": .string(result.microphoneEvidence.failureReason ?? "none")
+            ]),
+            "speakerPathEvidence": .object([
+                "selectedPhysicalOutputName": .string(result.speakerEvidence.selectedPhysicalOutputName),
+                "status": .string(result.speakerEvidence.status.rawValue),
+                "stimulusObserved": .bool(result.speakerEvidence.stimulusObserved),
+                "validFrameCount": .int(Int(result.speakerEvidence.validFrameCount)),
+                "emptyBufferCount": .int(Int(result.speakerEvidence.emptyBufferCount)),
+                "selfRoutingRejected": .bool(result.speakerEvidence.selfRoutingRejected),
+                "failureReason": .string(result.speakerEvidence.failureReason ?? "none")
+            ]),
+            "routeStatus": .string(result.status.rawValue),
+            "recoveryActionId": .string(result.recoveryAction ?? "none")
+        ]
+
+        if let latency = result.latencyMeasurement {
+            manifest["latencyMeasurement"] = .object([
+                "routeClass": .string(latency.routeClass.rawValue),
+                "addedLatencyMs": .double(latency.addedLatencyMs),
+                "thresholdMs": .double(latency.thresholdMs),
+                "status": .string(latency.status.rawValue)
+            ])
+        }
+
+        if let leakage = result.leakageMeasurement {
+            manifest["leakageMeasurement"] = .object([
+                "speakerReferenceDb": .double(leakage.speakerReferenceDb),
+                "virtualMicLeakageDb": .double(leakage.virtualMicLeakageDb),
+                "relativeLeakageDb": .double(leakage.relativeLeakageDb),
+                "intelligibilityStatus": .string(leakage.intelligibilityStatus.rawValue),
+                "status": .string(leakage.status.rawValue)
+            ])
+        }
+
+        return try buildBundle(
+            schemaVersion: "1",
+            manifest: manifest,
+            failureFamily: "live_route_readiness"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),
@@ -133,7 +189,7 @@ public struct DiagnosticBundleService: Sendable {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func formatDate(_ date: Date) -> String {
+    static func formatDate(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)

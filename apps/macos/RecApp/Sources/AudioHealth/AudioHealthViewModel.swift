@@ -125,6 +125,22 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
         routeVerification?.canShowReady ?? false
     }
 
+    public var routeReadinessSummary: String {
+        guard let routeVerification else {
+            return "not_started"
+        }
+        if routeVerification.canShowReady {
+            return "ready"
+        }
+        if routeVerification.mic.status == .stale || routeVerification.speaker.status == .stale {
+            return "stale"
+        }
+        if routeVerification.mic.status == .failed || routeVerification.speaker.status == .failed {
+            return "failed"
+        }
+        return "not_started"
+    }
+
     public var canRecord: Bool {
         if isPermissionBlocked { return false }
         if !isRouteReady { return false }

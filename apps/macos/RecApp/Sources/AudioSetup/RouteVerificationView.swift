@@ -56,6 +56,14 @@ public struct RouteVerificationView: View {
                 Label("Ready", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .accessibilityLabel("Audio routes ready")
+            } else if isVerifying {
+                Label("Checking", systemImage: "waveform")
+                    .foregroundStyle(.blue)
+                    .accessibilityLabel("Audio route check is running")
+            } else if let snapshot, snapshot.hasDegradedOrStaleRoute {
+                Label("Needs audio check", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Audio routes need another check")
             } else {
                 Label("Not ready for calls yet", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
@@ -143,5 +151,11 @@ public struct RouteVerificationView: View {
         default:
             return reason.replacingOccurrences(of: "_", with: " ")
         }
+    }
+}
+
+private extension RouteVerificationSnapshot {
+    var hasDegradedOrStaleRoute: Bool {
+        mic.status == .stale || speaker.status == .stale
     }
 }
