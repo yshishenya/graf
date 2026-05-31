@@ -164,24 +164,31 @@ invalidates within 5 seconds with a clear recovery action.
 - **FR-008**: Built-in and wired routes MUST be marked degraded when remote
   speaker leakage into the virtual microphone is less than 45 dB below the
   speaker reference or is intelligible.
-- **FR-009**: Browser-call validation MUST record evidence for Chrome, Opera,
+- **FR-009**: Aggregate and multi-output speaker routes MUST be recorded as
+  managed/blocked unless the selected physical output path can be measured with
+  the same speaker evidence, latency, and leakage criteria as a direct built-in
+  or wired route.
+- **FR-010**: Browser-call validation MUST record evidence for Chrome, Opera,
   Yandex Browser, and Yandex Telemost-in-browser before release readiness.
-- **FR-010**: Private app I/O fail-closed behavior MUST remain active during
+- **FR-011**: Private app I/O fail-closed behavior MUST remain active during
   route readiness and browser-call validation.
-- **FR-011**: Backend, upload, transcription, and network failure MUST NOT be
+- **FR-012**: Backend, upload, transcription, and network failure MUST NOT be
   allowed to interrupt live call passthrough after readiness passes.
-- **FR-012**: Readiness MUST become stale within 5 seconds after physical device,
+- **FR-013**: Readiness MUST become stale within 5 seconds after physical device,
   output route, Bluetooth profile, app heartbeat, or browser target device
   changes.
-- **FR-013**: Bluetooth and AirPods-class routes MUST remain managed pilot routes
+- **FR-014**: Bluetooth and AirPods-class routes MUST remain managed pilot routes
   with profile, dropout, one-sided-audio, valid-frame, and measured-latency
   evidence; they MUST NOT be treated as built-in/wired release-quality routes.
-- **FR-014**: Diagnostics MUST include route status, failure category, recovery
+- **FR-015**: Diagnostics MUST include route status, failure category, recovery
   action, latency/leakage measurements, and browser target evidence without raw
   audio, transcript text, credentials, tokens, or signed URLs.
-- **FR-015**: Active non-recording route state MUST be visible and distinct from
+- **FR-016**: Browser target evidence MUST be metadata-only by default and MUST
+  NOT include raw audio, transcript text, credentials, tokens, signed URLs, or
+  meeting content.
+- **FR-017**: Active non-recording route state MUST be visible and distinct from
   recording; active capture, when later enabled, MUST still have one-action stop.
-- **FR-016**: The feature MUST NOT add no-driver fallback, invisible recording,
+- **FR-018**: The feature MUST NOT add no-driver fallback, invisible recording,
   silent capture, direct desktop-to-MediaScribe upload, or new network egress.
 
 ### Key Entities
