@@ -419,7 +419,7 @@ feature state.
 
 ## Real Bidirectional Passthrough Scope (004)
 
-Status: **PLANNED / NOT YET ACCEPTED**.
+Status: **PARTIALLY ACCEPTED / BROWSER CALL EVIDENCE PENDING**.
 
 Feature 004 moves beyond publication and readiness evidence into real
 non-recording bidirectional audio movement:
@@ -432,9 +432,61 @@ non-recording bidirectional audio movement:
   egress remain out of scope;
 - private app I/O fail-closed behavior accepted in 003 must remain intact.
 
-Acceptance evidence must be added only after local package install, runtime
-probe, microphone passthrough, speaker passthrough, no-loopback, latency,
-leakage, browser matrix, and fail-closed recovery checks pass.
+Accepted on 2026-05-31 for local package install, runtime publication,
+fail-closed driver heartbeat gating, and synthetic passthrough checks.
+Physical browser-call evidence remains pending and must not be marketed as
+passed until Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser are
+run against the installed app.
+
+Validation commands executed:
+
+```text
+swift build --package-path apps/macos -c release --product TwoBrainRecApp
+swift test --package-path apps/macos
+make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build
+sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh
+TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh
+installer -pkg apps/macos/.build/installer/2brain-rec-local.pkg -target /
+killall coreaudiod
+make -C apps/macos/AudioDriver proof-runtime-probe-run
+```
+
+Runtime proof after reinstall and `coreaudiod` restart:
+
+```text
+Core Audio devices visible to this user:
+- Микрофон MacBook Pro
+- Динамики MacBook Pro
+- 2brain Rec Microphone
+- 2brain Rec Speaker
+- Многовыходное устройство
+Runtime passthrough evidence: publication and fail-closed state only; live audio path checks run separately.
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+Synthetic passthrough checks accepted:
+
+```text
+live-mic-readiness-check: ACCEPTED
+live-mic-passthrough-check: ACCEPTED
+live-mic-silence-check: ACCEPTED
+live-mic-self-routing-check: ACCEPTED
+live-speaker-readiness-check: ACCEPTED
+live-speaker-passthrough-check: ACCEPTED
+live-speaker-failure-check: ACCEPTED
+live-passthrough-no-loopback-check: ACCEPTED
+live-self-routing-check: ACCEPTED
+live-latency-check: ACCEPTED
+live-leakage-check: ACCEPTED
+live-route-outage-check: ACCEPTED
+live-passthrough-outage-check: ACCEPTED
+live-passthrough-fail-closed-check: ACCEPTED
+```
 
 ## Publication Spike Attempt
 

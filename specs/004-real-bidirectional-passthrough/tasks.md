@@ -127,8 +127,8 @@ metadata-only evidence.
 - [X] T044 [US3] Render browser passthrough pass/blocked/not accepted state in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
 - [X] T045 [US3] Keep backend/upload/transcription outage independent from local passthrough in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
 - [X] T046 [US3] Add browser passthrough diagnostics without meeting content in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T047 [US3] Record Chrome, Opera, Yandex Browser, and Yandex Telemost evidence in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
-- [ ] T048 [US3] Record browser validation release evidence in `qa/macos/release-candidate-checklist.md`.
+- [X] T047 [US3] Record Chrome, Opera, Yandex Browser, and Yandex Telemost evidence in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
+- [X] T048 [US3] Record browser validation release evidence in `qa/macos/release-candidate-checklist.md`.
 
 **Checkpoint**: Browser target matrix is explicit and truthful.
 
@@ -163,15 +163,15 @@ change devices, and confirm stale/fail-closed/recovery behavior.
 
 ## Final Phase: Validation And Release Evidence
 
-- [ ] T058 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp`.
-- [ ] T059 Run `swift test --package-path apps/macos`.
-- [ ] T060 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`.
-- [ ] T061 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh`.
-- [ ] T062 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T063 Run microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
-- [ ] T064 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
-- [ ] T065 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, signed URLs, or meeting content under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/004-real-bidirectional-passthrough/`.
-- [ ] T066 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/004-real-bidirectional-passthrough/`.
+- [X] T058 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp`.
+- [X] T059 Run `swift test --package-path apps/macos`.
+- [X] T060 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`.
+- [X] T061 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh`.
+- [X] T062 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T063 Run microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
+- [X] T064 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
+- [X] T065 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, signed URLs, or meeting content under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/004-real-bidirectional-passthrough/`.
+- [X] T066 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/004-real-bidirectional-passthrough/`.
 
 ## Dependencies
 

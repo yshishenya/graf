@@ -215,5 +215,10 @@
 - [x] 2026-05-31 04:16 MSK: App I/O fail-closed proof is accepted, but browser
   and Bluetooth release-candidate checks remain blocked by the larger real
   passthrough/capture gate.
+- [x] 2026-05-31: Feature 004 local package install, `coreaudiod` restart,
+  runtime publication probe, driver heartbeat fail-closed gate, and synthetic
+  live passthrough checks are accepted. Chrome, Opera, Yandex Browser, and
+  Yandex Telemost browser-call evidence is recorded as not accepted until
+  physical browser calls are run.
 - [ ] Fill remaining observations with run date + artifact reference before release
 - [ ] Update this checklist after each quickstart run

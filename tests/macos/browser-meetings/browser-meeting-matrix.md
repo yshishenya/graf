@@ -21,10 +21,10 @@ through the 2brain Rec virtual devices without starting recording.
 
 | Target | 004 Status | Required Evidence |
 |---|---|---|
-| Chrome browser meetings | Pending 004 passthrough evidence | Local speech usable, remote audio usable, no recording started, no loopback above threshold |
-| Opera browser meetings | Pending 004 passthrough evidence | Pass or blocked/not accepted reason with metadata-only evidence |
-| Yandex Browser meetings | Pending 004 passthrough evidence | Pass or blocked/not accepted reason with metadata-only evidence |
-| Yandex Telemost in browser | Pending 004 passthrough evidence | Pass or blocked/not accepted reason with metadata-only evidence |
+| Chrome browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
+| Opera browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
+| Yandex Browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
+| Yandex Telemost in browser | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
 
 ## 004 Evidence Fields
 
@@ -51,8 +51,10 @@ Backend/network outage synthetic coverage was executed:
 live-passthrough-outage-check: ACCEPTED
 ```
 
-Real browser meeting validation is still pending for 004. Until physical
-browser calls are run, the targets above remain pending rather than passed.
+Real browser meeting validation is not accepted for this cycle. Until physical
+browser calls are run, the targets above remain not accepted rather than
+passed. This is metadata-only release evidence: the local passthrough stack may
+be validated synthetically, but browser target support is still pending.
 
 ## Per-Target Steps
 
