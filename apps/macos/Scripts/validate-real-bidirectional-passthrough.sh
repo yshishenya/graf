@@ -19,7 +19,13 @@ make -C "$MACOS_DIR/AudioDriver" proof-plugin-build proof-runtime-probe-build
 
 for check in \
   tests/macos/route-synthetic/live-mic-readiness-check.swift \
+  tests/macos/route-synthetic/live-mic-passthrough-check.swift \
+  tests/macos/route-synthetic/live-mic-silence-check.swift \
+  tests/macos/route-synthetic/live-mic-self-routing-check.swift \
   tests/macos/route-synthetic/live-speaker-readiness-check.swift \
+  tests/macos/route-synthetic/live-speaker-passthrough-check.swift \
+  tests/macos/route-synthetic/live-speaker-failure-check.swift \
+  tests/macos/route-synthetic/live-passthrough-no-loopback-check.swift \
   tests/macos/route-synthetic/live-self-routing-check.swift \
   tests/macos/route-synthetic/live-latency-check.swift \
   tests/macos/route-synthetic/live-leakage-check.swift \

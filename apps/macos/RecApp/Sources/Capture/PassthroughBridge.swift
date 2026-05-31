@@ -6,6 +6,7 @@ import TwoBrainRecShared
 public enum PassthroughBridgeError: Error {
     case noPhysicalMicFound
     case noPhysicalSpeakerFound
+    case selfRoutingDeviceSelected(String)
     case audioUnitSetupFailed(OSStatus)
     case sharedMemoryUnavailable
 }
@@ -25,14 +26,21 @@ public final class PassthroughBridge {
     fileprivate var speakerAU: AudioComponentInstance?
     private var isRunning = false
     private var lastHeartbeatAt: Date?
+    private let selectedPhysicalInputId: String?
+    private let selectedPhysicalOutputId: String?
     private let queue = DispatchQueue(label: "com.2brainrec.passthrough", qos: .userInitiated)
 
-    public init() throws {
+    public init(
+        selectedPhysicalInputId: String? = nil,
+        selectedPhysicalOutputId: String? = nil
+    ) throws {
         guard let shm = SharedAudioMemory() else {
             bridgeLog("init: sharedMemoryUnavailable")
             throw PassthroughBridgeError.sharedMemoryUnavailable
         }
         self.shm = shm
+        self.selectedPhysicalInputId = selectedPhysicalInputId
+        self.selectedPhysicalOutputId = selectedPhysicalOutputId
         bridgeLog("init: OK")
     }
 
@@ -111,12 +119,32 @@ public final class PassthroughBridge {
         if let au = speakerAU { AudioComponentInstanceDispose(au); speakerAU = nil; bridgeLog("cleanup: speaker disposed") }
     }
 
-    private func findPhysicalDevice(scope: AudioObjectPropertyScope) -> AudioDeviceID? {
-        let isInput = scope == kAudioDevicePropertyScopeInput
-        let keywords: [String] = isInput
-            ? ["Microphone", "Mic", "Input", "Built-in Microphone", "Микрофон"]
-            : ["Speaker", "Output", "Built-in Output", "Динамики"]
+    private func deviceName(_ id: AudioDeviceID) -> String? {
+        var nameAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: CFString = "" as CFString
+        var size = UInt32(MemoryLayout<CFString>.size)
+        let status = withUnsafeMutableBytes(of: &name) { rawName in
+            AudioObjectGetPropertyData(id, &nameAddr, 0, nil, &size, rawName.baseAddress!)
+        }
+        guard status == noErr else { return nil }
+        return name as String
+    }
 
+    private func hasStreams(_ id: AudioDeviceID, scope: AudioObjectPropertyScope) -> Bool {
+        var streamAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: scope,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var streamSize: UInt32 = 0
+        return AudioObjectGetPropertyDataSize(id, &streamAddr, 0, nil, &streamSize) == noErr && streamSize > 0
+    }
+
+    private func allDeviceIDs() -> [AudioDeviceID] {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -124,40 +152,50 @@ public final class PassthroughBridge {
         )
         var dataSize: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &dataSize) == noErr,
-              dataSize > 0 else { bridgeLog("findPhysicalDevice: cannot get device count"); return nil }
+              dataSize > 0 else { bridgeLog("allDeviceIDs: cannot get device count"); return [] }
         let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
         var ids = [AudioDeviceID](repeating: 0, count: count)
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &dataSize, &ids) == noErr
-        else { bridgeLog("findPhysicalDevice: cannot get device list"); return nil }
-        for id in ids {
-            var nameAddr = AudioObjectPropertyAddress(
-                mSelector: kAudioObjectPropertyName,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var name: CFString = "" as CFString
-            var sz = UInt32(MemoryLayout<CFString>.size)
-            let nameStatus = withUnsafeMutableBytes(of: &name) { rawName in
-                AudioObjectGetPropertyData(id, &nameAddr, 0, nil, &sz, rawName.baseAddress!)
+        else { bridgeLog("allDeviceIDs: cannot get device list"); return [] }
+        return ids
+    }
+
+    private func selectedDeviceID(_ selectedId: String?, scope: AudioObjectPropertyScope) throws -> AudioDeviceID? {
+        guard let selectedId, !selectedId.isEmpty else { return nil }
+        let ids = allDeviceIDs()
+        let numericId = UInt32(selectedId)
+        for id in ids where numericId == id || deviceName(id) == selectedId {
+            guard let devName = deviceName(id) else { continue }
+            if devName.localizedCaseInsensitiveContains("2brain Rec") {
+                throw PassthroughBridgeError.selfRoutingDeviceSelected(devName)
             }
-            guard nameStatus == noErr else { continue }
-            let devName = name as String
+            guard hasStreams(id, scope: scope) else { continue }
+            bridgeLog("selectedDeviceID: FOUND \(id) '\(devName)' scope=\(scope)")
+            return id
+        }
+        bridgeLog("selectedDeviceID: selected device not found id=\(selectedId) scope=\(scope)")
+        return nil
+    }
+
+    private func findPhysicalDevice(scope: AudioObjectPropertyScope, selectedId: String?) throws -> AudioDeviceID? {
+        if let selected = try selectedDeviceID(selectedId, scope: scope) {
+            return selected
+        }
+
+        let isInput = scope == kAudioDevicePropertyScopeInput
+        let keywords: [String] = isInput
+            ? ["Microphone", "Mic", "Input", "Built-in Microphone", "Микрофон"]
+            : ["Speaker", "Output", "Built-in Output", "Динамики"]
+
+        for id in allDeviceIDs() {
+            guard let devName = deviceName(id) else { continue }
 
             if devName.contains("2brain Rec") { continue }
 
             let nameMatches = keywords.contains { devName.localizedCaseInsensitiveContains($0) }
             if !nameMatches { continue }
 
-            var streamAddr = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyStreamConfiguration,
-                mScope: scope,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var streamSize: UInt32 = 0
-            guard AudioObjectGetPropertyDataSize(id, &streamAddr, 0, nil, &streamSize) == noErr,
-                  streamSize > 0 else {
-                continue
-            }
+            guard hasStreams(id, scope: scope) else { continue }
 
             bridgeLog("findPhysicalDevice: FOUND \(id) '\(devName)' scope=\(scope)")
             return id
@@ -167,7 +205,7 @@ public final class PassthroughBridge {
     }
 
     private func setupMicCapture() throws {
-        guard var micID = findPhysicalDevice(scope: kAudioDevicePropertyScopeInput),
+        guard var micID = try findPhysicalDevice(scope: kAudioDevicePropertyScopeInput, selectedId: selectedPhysicalInputId),
               micID != kAudioDeviceUnknown else {
             bridgeLog("setupMicCapture: no physical mic found")
             throw PassthroughBridgeError.noPhysicalMicFound
@@ -233,7 +271,7 @@ public final class PassthroughBridge {
     }
 
     private func setupSpeakerPlayback() throws {
-        guard var speakerID = findPhysicalDevice(scope: kAudioDevicePropertyScopeOutput),
+        guard var speakerID = try findPhysicalDevice(scope: kAudioDevicePropertyScopeOutput, selectedId: selectedPhysicalOutputId),
               speakerID != kAudioDeviceUnknown else {
             bridgeLog("setupSpeakerPlayback: no physical speaker found")
             throw PassthroughBridgeError.noPhysicalSpeakerFound
