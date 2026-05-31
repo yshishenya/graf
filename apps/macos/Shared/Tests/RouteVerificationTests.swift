@@ -80,6 +80,34 @@ final class RouteVerificationTests: XCTestCase {
         ))
     }
 
+    func testLiveRouteReadinessRequiresBothLivePathEvidence() {
+        let now = fixedClock()
+        let result = LiveRouteReadinessResult(
+            status: .ready,
+            microphoneEvidence: microphoneEvidence(status: .passed, checkedAt: now),
+            speakerEvidence: speakerEvidence(status: .passed, checkedAt: now),
+            checkedAt: now
+        )
+
+        XCTAssertTrue(result.canShowReady)
+
+        let failedSpeaker = LiveRouteReadinessResult(
+            status: .ready,
+            microphoneEvidence: microphoneEvidence(status: .passed, checkedAt: now),
+            speakerEvidence: speakerEvidence(status: .failed, checkedAt: now),
+            checkedAt: now
+        )
+        XCTAssertFalse(failedSpeaker.canShowReady)
+    }
+
+    func testLiveRouteReadinessRawValuesMatchContract() {
+        XCTAssertEqual(LiveRouteReadinessStatus.checking.rawValue, "checking")
+        XCTAssertEqual(LiveRouteReadinessStatus.ready.rawValue, "ready")
+        XCTAssertEqual(LiveRouteReadinessStatus.stale.rawValue, "stale")
+        XCTAssertEqual(LiveRouteReadinessStatus.degraded.rawValue, "degraded")
+        XCTAssertEqual(RouteEvidenceStatus.blocked.rawValue, "blocked")
+    }
+
     func testSelfRoutingRejectsVirtualInputAsPhysicalInput() {
         let decision = SelfRoutingGuard().evaluate(
             physicalInput: physicalDevice(
@@ -301,6 +329,34 @@ final class RouteVerificationTests: XCTestCase {
             recoveryAction: status == .failed ? "retry_route_verification" : nil,
             startedAt: startedAt,
             finishedAt: status == .running ? nil : startedAt.addingTimeInterval(1)
+        )
+    }
+
+    private func microphoneEvidence(status: RouteEvidenceStatus, checkedAt: Date) -> MicrophonePathEvidence {
+        MicrophonePathEvidence(
+            selectedPhysicalDeviceId: "built-in-input",
+            selectedPhysicalDeviceName: "MacBook Pro Microphone",
+            status: status,
+            validFrameCount: status == .passed ? 48000 : 0,
+            emptyBufferCount: status == .passed ? 0 : 1,
+            capturabilityStatus: status == .passed ? .capturable : .notCapturable,
+            selfRoutingRejected: false,
+            failureReason: status == .passed ? nil : "missing_valid_frames",
+            checkedAt: checkedAt
+        )
+    }
+
+    private func speakerEvidence(status: RouteEvidenceStatus, checkedAt: Date) -> SpeakerPathEvidence {
+        SpeakerPathEvidence(
+            selectedPhysicalOutputId: "built-in-output",
+            selectedPhysicalOutputName: "MacBook Pro Speakers",
+            status: status,
+            stimulusObserved: status == .passed,
+            validFrameCount: status == .passed ? 48000 : 0,
+            emptyBufferCount: status == .passed ? 0 : 1,
+            selfRoutingRejected: false,
+            failureReason: status == .passed ? nil : "stimulus_missing",
+            checkedAt: checkedAt
         )
     }
 

@@ -18,6 +18,10 @@ struct SharedAudioBuffer {
     std::atomic<size_t> capture_write_idx{0};
     std::atomic<uint64_t> app_heartbeat_nanos{0};
     std::atomic<uint64_t> app_io_state{0};
+    std::atomic<uint64_t> mic_valid_frame_count{0};
+    std::atomic<uint64_t> speaker_stimulus_frame_count{0};
+    std::atomic<uint64_t> route_invalidation_count{0};
+    std::atomic<uint64_t> readiness_generation{0};
 
     float mic_buffer[kSharedRingCapacity];
     float speaker_buffer[kSharedRingCapacity];
@@ -86,7 +90,7 @@ struct SharedAudioBuffer {
     }
 };
 
-static_assert(sizeof(SharedAudioBuffer) == 3 * kSharedRingCapacity * sizeof(float) + 6 * sizeof(std::atomic<size_t>) + 2 * sizeof(std::atomic<uint64_t>),
+static_assert(sizeof(SharedAudioBuffer) == 3 * kSharedRingCapacity * sizeof(float) + 6 * sizeof(std::atomic<size_t>) + 6 * sizeof(std::atomic<uint64_t>),
               "Unexpected SharedAudioBuffer layout");
 
 } // namespace TwoBrainRec

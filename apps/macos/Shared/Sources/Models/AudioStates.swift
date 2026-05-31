@@ -60,6 +60,50 @@ public enum RouteVerificationStatus: String, Codable, Sendable {
     case stale
 }
 
+public enum LiveRouteReadinessStatus: String, Codable, Sendable {
+    case notStarted = "not_started"
+    case checking
+    case ready
+    case stale
+    case degraded
+    case failed
+}
+
+public enum RouteEvidenceStatus: String, Codable, Sendable {
+    case notStarted = "not_started"
+    case passed
+    case blocked
+    case degraded
+    case failed
+}
+
+public enum BrowserTargetEvidenceStatus: String, Codable, Sendable {
+    case passed
+    case blocked
+    case notAccepted = "not_accepted"
+}
+
+public enum MeasurementStatus: String, Codable, Sendable {
+    case passed
+    case degraded
+    case blocked
+}
+
+public enum IntelligibilityStatus: String, Codable, Sendable {
+    case notIntelligible = "not_intelligible"
+    case intelligible
+    case unknown
+}
+
+public enum RouteInvalidationSource: String, Codable, Sendable {
+    case physicalDevice = "physical_device"
+    case outputRoute = "output_route"
+    case browserTarget = "browser_target"
+    case bluetoothProfile = "bluetooth_profile"
+    case appIO = "app_io"
+    case coreaudiod
+}
+
 public enum CaptureMode: String, Codable, Sendable {
     case audioRecording = "audio_recording"
     case transcriptOnly = "transcript_only"

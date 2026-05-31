@@ -5,6 +5,26 @@
 This report is the required evidence gate before any US1 implementation task
 that publishes real virtual devices or installer behavior.
 
+## Live Route Readiness Proof Requirements (003)
+
+The 003 feature does not accept publication alone as route readiness. Runtime
+proof must include metadata-only evidence for:
+
+- current private app I/O heartbeat state and public device hidden state;
+- microphone valid-frame counters for the selected physical microphone path;
+- speaker stimulus counters for the selected physical output path;
+- self-routing rejection for virtual devices selected as physical working
+  devices;
+- aggregate/multi-output routes recorded as managed/blocked unless measurable;
+- built-in/wired added latency `<= 30 ms` before release-ready status;
+- built-in/wired remote-to-mic leakage `<= -45 dB` and not intelligible before
+  release-ready status;
+- route invalidation within 5 seconds after physical device, output route,
+  browser target, Bluetooth profile, app heartbeat, or `coreaudiod` changes.
+
+Accepted runtime evidence must not include raw audio, transcript text,
+credentials, tokens, signed URLs, or meeting content.
+
 ## Evidence Requirements
 
 Fill this report only after running the runtime proof on an Apple Silicon Mac.

@@ -15,11 +15,11 @@ diagnostics redaction, and visible non-recording route state.
 **Purpose**: Prepare live-route readiness without weakening the accepted 002
 foundation.
 
-- [ ] T001 [P] Add live route readiness evidence contract fixtures in `tests/macos/contract/live-route-readiness-events.json`.
-- [ ] T002 [P] Add browser target evidence fixture schema in `tests/macos/contract/browser-target-evidence.json`.
-- [ ] T003 [P] Add route readiness QA evidence sections in `qa/macos/release-candidate-checklist.md`.
-- [ ] T004 [P] Add live route readiness runtime proof notes in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T005 [P] Add quick validation wrapper for this feature in `apps/macos/Scripts/validate-live-route-readiness.sh`.
+- [X] T001 [P] Add live route readiness evidence contract fixtures in `tests/macos/contract/live-route-readiness-events.json`.
+- [X] T002 [P] Add browser target evidence fixture schema in `tests/macos/contract/browser-target-evidence.json`.
+- [X] T003 [P] Add route readiness QA evidence sections in `qa/macos/release-candidate-checklist.md`.
+- [X] T004 [P] Add live route readiness runtime proof notes in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T005 [P] Add quick validation wrapper for this feature in `apps/macos/Scripts/validate-live-route-readiness.sh`.
 
 ---
 
@@ -28,17 +28,17 @@ foundation.
 **Purpose**: Add shared models, measurement contracts, and safe evidence storage
 used by all stories.
 
-- [ ] T006 Add live route readiness models in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
-- [ ] T007 Add readiness state values for checking/ready/stale/degraded/failed in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
-- [ ] T008 Add audit event names for live route readiness, browser target evidence, latency/leakage measurement, and route invalidation in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
-- [ ] T009 Add route readiness policy tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
-- [ ] T010 [P] Add latency and leakage policy tests in `apps/macos/Shared/Tests/LatencyGateTests.swift`.
-- [ ] T011 [P] Add browser target evidence tests in `apps/macos/Shared/Tests/BrowserTargetEvidenceTests.swift`.
-- [ ] T012 [P] Add route invalidation state transition tests in `apps/macos/Shared/Tests/RouteInvalidationTests.swift`.
-- [ ] T013 Add metadata-only diagnostics tests for readiness evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
-- [ ] T014 Add shared-memory route evidence counters for readiness proof in `apps/macos/Shared/Sources/SharedAudioMemory.swift`.
-- [ ] T015 Add matching driver-side route evidence counters in `apps/macos/AudioDriver/Sources/Bridge/SharedAudioBuffer.hpp`.
-- [ ] T016 Add runtime probe output for readiness heartbeat, hidden state, and route counters in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
+- [X] T006 Add live route readiness models in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
+- [X] T007 Add readiness state values for checking/ready/stale/degraded/failed in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
+- [X] T008 Add audit event names for live route readiness, browser target evidence, latency/leakage measurement, and route invalidation in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
+- [X] T009 Add route readiness policy tests in `apps/macos/Shared/Tests/RouteVerificationTests.swift`.
+- [X] T010 [P] Add latency and leakage policy tests in `apps/macos/Shared/Tests/LatencyGateTests.swift`.
+- [X] T011 [P] Add browser target evidence tests in `apps/macos/Shared/Tests/BrowserTargetEvidenceTests.swift`.
+- [X] T012 [P] Add route invalidation state transition tests in `apps/macos/Shared/Tests/RouteInvalidationTests.swift`.
+- [X] T013 Add metadata-only diagnostics tests for readiness evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
+- [X] T014 Add shared-memory route evidence counters for readiness proof in `apps/macos/Shared/Sources/SharedAudioMemory.swift`.
+- [X] T015 Add matching driver-side route evidence counters in `apps/macos/AudioDriver/Sources/Bridge/SharedAudioBuffer.hpp`.
+- [X] T016 Add runtime probe output for readiness heartbeat, hidden state, and route counters in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
 
 **Checkpoint**: Shared evidence exists, but the app still must not show ready.
 

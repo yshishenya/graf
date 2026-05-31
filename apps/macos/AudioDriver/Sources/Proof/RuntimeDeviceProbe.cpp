@@ -1,6 +1,12 @@
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
 
+#include "../Bridge/SharedAudioBuffer.hpp"
+
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -161,6 +167,40 @@ std::string TriState(bool read, bool value) {
     return value ? "1" : "0";
 }
 
+void PrintRouteCounters() {
+    int fd = shm_open(TwoBrainRec::kShmName, O_RDONLY, 0);
+    if (fd < 0) {
+        std::cout << "Route readiness counters: unavailable\n";
+        return;
+    }
+
+    void* mapped = mmap(
+        nullptr,
+        sizeof(TwoBrainRec::SharedAudioBuffer),
+        PROT_READ,
+        MAP_SHARED,
+        fd,
+        0
+    );
+    close(fd);
+
+    if (mapped == MAP_FAILED) {
+        std::cout << "Route readiness counters: unreadable\n";
+        return;
+    }
+
+    auto* buffer = static_cast<TwoBrainRec::SharedAudioBuffer*>(mapped);
+    std::cout << "Route readiness counters:\n";
+    std::cout << "- appHeartbeatNanos: " << buffer->app_heartbeat_nanos.load() << "\n";
+    std::cout << "- appIOState: " << buffer->app_io_state.load() << "\n";
+    std::cout << "- micValidFrameCount: " << buffer->mic_valid_frame_count.load() << "\n";
+    std::cout << "- speakerStimulusFrameCount: " << buffer->speaker_stimulus_frame_count.load() << "\n";
+    std::cout << "- routeInvalidationCount: " << buffer->route_invalidation_count.load() << "\n";
+    std::cout << "- readinessGeneration: " << buffer->readiness_generation.load() << "\n";
+
+    munmap(mapped, sizeof(TwoBrainRec::SharedAudioBuffer));
+}
+
 }  // namespace
 
 int main() {
@@ -190,6 +230,7 @@ int main() {
     std::cout << "  hidden=" << TriState(speaker.hidden_read, speaker.hidden)
               << " alive=" << TriState(speaker.alive_read, speaker.alive)
               << " running=" << TriState(speaker.running_read, speaker.running) << "\n";
+    PrintRouteCounters();
 
     if (!microphone.found || !speaker.found) {
         std::cerr << "Runtime Core Audio publication proof: BLOCKED\n";

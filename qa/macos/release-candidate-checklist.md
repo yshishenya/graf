@@ -1,5 +1,31 @@
 # macOS Release Candidate Checklist (MVP)
 
+## Live Route Readiness Evidence (003)
+
+- [ ] Fresh local install moves from `not ready for calls yet` to ready only
+  after microphone and speaker live route evidence pass.
+- [ ] Publication-only evidence never produces ready state in app UI,
+  diagnostics, or release evidence.
+- [ ] Self-routing is rejected when a 2brain Rec virtual device is selected as a
+  physical working device.
+- [ ] Aggregate and multi-output speaker routes are marked managed/blocked
+  unless the selected physical output can be measured by the same criteria as a
+  direct built-in or wired route.
+- [ ] Built-in/wired added route latency is `<= 30 ms` before release-ready
+  status is accepted.
+- [ ] Built-in/wired remote-to-mic leakage is `<= -45 dB` and not intelligible
+  before release-ready status is accepted.
+- [ ] Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser each have
+  pass or blocked/not accepted metadata-only evidence.
+- [ ] A 5-minute backend/network outage does not interrupt live route
+  passthrough after readiness passes.
+- [ ] Physical device, browser target, Bluetooth profile, app heartbeat, and
+  `coreaudiod` changes make readiness stale within 5 seconds and show a
+  recovery action.
+- [ ] Diagnostics contain route status, failure category, recovery action,
+  latency/leakage values, and browser evidence without raw audio, transcript
+  text, credentials, tokens, signed URLs, or meeting content.
+
 ## Validation Log (2026-05-31 04:16 MSK)
 
 - [x] Updated local package installed with admin privileges: `installer`

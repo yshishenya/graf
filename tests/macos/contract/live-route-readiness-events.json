@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "0.1.0",
+  "events": [
+    {
+      "name": "live_route_readiness.check_started",
+      "requiredFields": [
+        "selectedPhysicalMicrophone",
+        "selectedPhysicalOutput",
+        "virtualMicrophone",
+        "virtualSpeaker",
+        "triggeredBy",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "audioSnippet", "transcriptText", "credentials", "tokens", "signedUrls", "meetingContent"]
+    },
+    {
+      "name": "live_route_readiness.path_result",
+      "requiredFields": [
+        "path",
+        "status",
+        "validFrameCount",
+        "emptyBufferCount",
+        "selfRoutingRejected",
+        "failureReason",
+        "recoveryAction",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "audioSnippet", "transcriptText", "credentials", "tokens", "signedUrls", "meetingContent"]
+    },
+    {
+      "name": "live_route_readiness.state_changed",
+      "requiredFields": [
+        "previousStatus",
+        "newStatus",
+        "reason",
+        "recoveryAction",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "audioSnippet", "transcriptText", "credentials", "tokens", "signedUrls", "meetingContent"]
+    },
+    {
+      "name": "live_route_readiness.measurement_result",
+      "requiredFields": [
+        "measurementType",
+        "routeClass",
+        "value",
+        "threshold",
+        "status",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "audioSnippet", "transcriptText", "credentials", "tokens", "signedUrls", "meetingContent"]
+    }
+  ]
+}
