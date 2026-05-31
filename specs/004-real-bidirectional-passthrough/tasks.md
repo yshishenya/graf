@@ -144,10 +144,10 @@ change devices, and confirm stale/fail-closed/recovery behavior.
 
 ### Tests for User Story 4
 
-- [ ] T049 [P] [US4] Add app kill fail-closed live passthrough test in `tests/macos/route-synthetic/live-passthrough-fail-closed-check.swift`.
-- [ ] T050 [P] [US4] Add `coreaudiod` restart passthrough recovery checklist in `tests/macos/installer-recovery/coreaudiod-passthrough-recovery.md`.
-- [ ] T051 [P] [US4] Add physical device change passthrough recovery checklist in `tests/macos/physical-devices/live-passthrough-device-change.md`.
-- [ ] T052 [P] [US4] Add Bluetooth managed passthrough route tests in `apps/macos/Shared/Tests/BluetoothRoutePolicyTests.swift`.
+- [X] T049 [P] [US4] Add app kill fail-closed live passthrough test in `tests/macos/route-synthetic/live-passthrough-fail-closed-check.swift`.
+- [X] T050 [P] [US4] Add `coreaudiod` restart passthrough recovery checklist in `tests/macos/installer-recovery/coreaudiod-passthrough-recovery.md`.
+- [X] T051 [P] [US4] Add physical device change passthrough recovery checklist in `tests/macos/physical-devices/live-passthrough-device-change.md`.
+- [X] T052 [P] [US4] Add Bluetooth managed passthrough route tests in `apps/macos/Shared/Tests/BluetoothRoutePolicyTests.swift`.
 
 ### Implementation for User Story 4
 

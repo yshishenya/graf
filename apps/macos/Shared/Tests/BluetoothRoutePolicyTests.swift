@@ -36,5 +36,24 @@ final class BluetoothRoutePolicyTests: XCTestCase {
         XCTAssertEqual(BluetoothRoutePolicy().passthroughStatus(for: evidence), .degraded)
         XCTAssertFalse(BluetoothRoutePolicy().recoveryActions(for: evidence).isEmpty)
     }
+
+    func testBluetoothPassthroughPilotNeverBecomesReleaseReady() {
+        let evidence = BluetoothRouteEvidence(
+            profileName: "AirPods Pro Hands-Free",
+            profileState: .stable,
+            inputAvailable: true,
+            outputAvailable: true,
+            validFrameIntervalsPassed: true,
+            oneSidedAudioEvent: false,
+            dropoutRate: 0,
+            measuredLatencyMs: 18
+        )
+
+        let policy = BluetoothRoutePolicy()
+
+        XCTAssertEqual(policy.passthroughStatus(for: evidence), .healthy)
+        XCTAssertEqual(policy.releaseReadinessStatus(for: evidence), .blocked)
+        XCTAssertTrue(policy.recoveryActions(for: evidence).isEmpty)
+    }
 }
 #endif

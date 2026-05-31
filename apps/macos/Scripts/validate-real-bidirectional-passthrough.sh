@@ -30,7 +30,8 @@ for check in \
   tests/macos/route-synthetic/live-latency-check.swift \
   tests/macos/route-synthetic/live-leakage-check.swift \
   tests/macos/route-synthetic/live-route-outage-check.swift \
-  tests/macos/route-synthetic/live-passthrough-outage-check.swift
+  tests/macos/route-synthetic/live-passthrough-outage-check.swift \
+  tests/macos/route-synthetic/live-passthrough-fail-closed-check.swift
 do
   if [ -f "$REPO_ROOT/$check" ]; then
     (cd "$REPO_ROOT" && swift "$check")
