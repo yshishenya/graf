@@ -165,6 +165,29 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildRouteInvalidationBundle(
+        events: [RouteInvalidationEvent]
+    ) throws -> DiagnosticBundle {
+        let values = events.map { event in
+            DiagnosticFieldValue.object([
+                "source": .string(event.source.rawValue),
+                "previousReadinessStatus": .string(event.previousReadinessStatus.rawValue),
+                "newReadinessStatus": .string(event.newReadinessStatus.rawValue),
+                "detectedAt": .string(Self.formatDate(event.detectedAt)),
+                "recoveryAction": .string(event.recoveryAction)
+            ])
+        }
+
+        return try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "routeInvalidationEvents": .array(values),
+                "recoveryActionId": .string("rerun_readiness_check")
+            ],
+            failureFamily: "route_invalidation"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),

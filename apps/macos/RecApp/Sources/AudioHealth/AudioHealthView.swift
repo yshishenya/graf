@@ -123,6 +123,11 @@ public struct AudioHealthView: View {
             }
             if !state.recoveryActions.isEmpty {
                 Section("Recovery", icon: "wrench.and.screwdriver") {
+                    line(
+                        label: "Recheck",
+                        detail: AdaptiveStatusText.recoveryActionLabel("rerun_readiness_check"),
+                        icon: "arrow.clockwise"
+                    )
                     ForEach(state.recoveryActions, id: \.self) { action in
                         line(label: "Action", detail: AdaptiveStatusText.safeLabel(action), icon: "exclamationmark.triangle.fill")
                     }

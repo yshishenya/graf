@@ -15,6 +15,12 @@ public struct BluetoothRoutePolicy: Sendable {
         return .healthy
     }
 
+    public func releaseReadinessStatus(for evidence: BluetoothRouteEvidence) -> MeasurementStatus {
+        // Bluetooth/AirPods-class routes can be piloted, but they are not
+        // equivalent to built-in/wired release-quality routes in this feature.
+        passthroughStatus(for: evidence) == .healthy ? .blocked : .degraded
+    }
+
     public func recoveryActions(for evidence: BluetoothRouteEvidence) -> [String] {
         var actions: [String] = []
         if evidence.profileState != .stable {

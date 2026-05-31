@@ -121,6 +121,23 @@ public final class AudioEnvironmentMonitor {
         )
     }
 
+    public func routeInvalidationEvents(
+        for changes: [AudioEnvironmentChange],
+        previousStatus: LiveRouteReadinessStatus
+    ) -> [RouteInvalidationEvent] {
+        let sources = Set(changes.compactMap(Self.invalidationSource(for:)))
+        return sources.map { source in
+            RouteInvalidationEvent(
+                source: source,
+                previousReadinessStatus: previousStatus,
+                newReadinessStatus: source == .bluetoothProfile ? .degraded : .stale,
+                detectedAt: now(),
+                recoveryAction: "rerun_readiness_check"
+            )
+        }
+        .sorted { $0.source.rawValue < $1.source.rawValue }
+    }
+
     public func monitorPermission(
         microphonePermission: PermissionStatus,
         outputPermission: PermissionStatus
@@ -229,5 +246,20 @@ public final class AudioEnvironmentMonitor {
         }
 
         return Array(Set(actions))
+    }
+
+    private static func invalidationSource(for change: AudioEnvironmentChange) -> RouteInvalidationSource? {
+        switch change {
+        case .deviceChanged:
+            return .physicalDevice
+        case .activeMeetingContextChanged, .browserTargetEvidenceChanged:
+            return .browserTarget
+        case .bluetoothProfileChanged:
+            return .bluetoothProfile
+        case .virtualInputStateChanged, .virtualOutputStateChanged, .driverStateChanged:
+            return .appIO
+        case .routeVerificationChanged, .permissionChanged, .passthroughChanged, .bufferRiskChanged, .unsupportedTargetAdded:
+            return nil
+        }
     }
 }

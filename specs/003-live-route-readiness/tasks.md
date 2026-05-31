@@ -137,16 +137,16 @@ readiness becomes stale within 5 seconds with a recovery action.
 
 ### Tests for User Story 4
 
-- [ ] T044 [P] [US4] Add route invalidation synthetic test in `tests/macos/physical-devices/live-route-invalidation-check.md`.
-- [ ] T045 [P] [US4] Add Bluetooth managed route readiness tests in `apps/macos/Shared/Tests/BluetoothRoutePolicyTests.swift`.
-- [ ] T046 [P] [US4] Add `coreaudiod` restart recovery checklist in `tests/macos/installer-recovery/coreaudiod-route-recovery.md`.
+- [X] T044 [P] [US4] Add route invalidation synthetic test in `tests/macos/physical-devices/live-route-invalidation-check.md`.
+- [X] T045 [P] [US4] Add Bluetooth managed route readiness tests in `apps/macos/Shared/Tests/BluetoothRoutePolicyTests.swift`.
+- [X] T046 [P] [US4] Add `coreaudiod` restart recovery checklist in `tests/macos/installer-recovery/coreaudiod-route-recovery.md`.
 
 ### Implementation for User Story 4
 
-- [ ] T047 [US4] Implement live route invalidation events in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
-- [ ] T048 [US4] Add stale/recheck recovery actions in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
-- [ ] T049 [US4] Extend Bluetooth profile policy for live readiness in `apps/macos/RecApp/Sources/AudioHealth/BluetoothRoutePolicy.swift`.
-- [ ] T050 [US4] Record route invalidation diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T047 [US4] Implement live route invalidation events in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
+- [X] T048 [US4] Add stale/recheck recovery actions in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
+- [X] T049 [US4] Extend Bluetooth profile policy for live readiness in `apps/macos/RecApp/Sources/AudioHealth/BluetoothRoutePolicy.swift`.
+- [X] T050 [US4] Record route invalidation diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
 **Checkpoint**: Ready state becomes stale after route-changing events and
 recovery is visible.
