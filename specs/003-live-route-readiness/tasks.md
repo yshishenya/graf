@@ -60,8 +60,8 @@ devices selected and confirm ready appears only after both live paths pass.
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] Implement physical microphone live evidence collection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
-- [ ] T022 [US1] Implement physical speaker stimulus and evidence collection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [ ] T021 [US1] Implement physical microphone live evidence collection and self-routing rejection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [ ] T022 [US1] Implement physical speaker stimulus, aggregate/multi-output handling, and self-routing rejection in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
 - [ ] T023 [US1] Prevent publication-only checks from producing ready in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
 - [ ] T024 [US1] Render checking/ready/stale/degraded/failed states with path-specific failure reasons in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
 - [ ] T025 [US1] Update Audio Health route summary for live readiness in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
@@ -163,7 +163,7 @@ recovery is visible.
 - [ ] T056 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
 - [ ] T057 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 - [ ] T058 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, or signed URLs under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/003-live-route-readiness/`.
-- [ ] T059 Run `$speckit-analyze` and resolve critical/high findings in `specs/003-live-route-readiness/`.
+- [ ] T059 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/003-live-route-readiness/`.
 
 ## Dependencies
 
