@@ -37,26 +37,27 @@ evidence.
 
 ### User Story 1 - Prove Call-Ready Audio Routes (Priority: P1)
 
-As an internal macOS user, I want 2brain Rec to prove that my selected physical
-microphone reaches the meeting through `2brain Rec Microphone` and that meeting
-audio reaches my selected physical speaker through `2brain Rec Speaker`, so that
-the app only says it is ready when a real call can work.
+As an internal macOS user, I want 2brain Rec to keep publication-only devices
+separate from call readiness, so that the app does not say it is ready until a
+later real-route check proves the selected microphone and speaker paths.
 
 **Why this priority**: Device publication is already proven, but the product is
-not useful until real bidirectional audio movement is proven. This story turns
-the current `not ready for calls yet` state into a trustworthy ready state.
+not useful until real bidirectional audio movement is proven. This foundation
+story keeps the current `not ready for calls yet` state truthful and prepares
+the evidence gates that a later feature must satisfy.
 
 **Independent Test**: Can be tested by installing the current macOS build,
 selecting physical input/output devices, running the readiness check, and
-confirming the app reaches ready only after both real audio paths are detected.
+confirming the app blocks ready when only publication or scaffolded route
+evidence exists.
 
 **Acceptance Scenarios**:
 
 1. **Given** both 2brain Rec virtual devices are visible and physical devices are
    selected, **When** the user runs the readiness check, **Then** the app plays a
    short audible test sound, asks the user to speak or tap the microphone for
-   about 3 seconds, and proves microphone and speaker audio movement before
-   showing ready.
+   about 3 seconds, and keeps ready blocked until a later real-route feature
+   accepts microphone and speaker audio movement evidence.
 2. **Given** the physical microphone is muted, unavailable, or silent, **When**
    the user runs the readiness check, **Then** the app reports microphone path
    failure and does not show ready.
@@ -65,9 +66,9 @@ confirming the app reaches ready only after both real audio paths are detected.
    does not show ready.
 4. **Given** only virtual-device visibility is confirmed, **When** no real audio
    movement has been proven, **Then** the app continues to show not ready.
-5. **Given** readiness has passed, **When** the user joins a browser call before
-   starting capture, **Then** the user can speak and hear through 2brain Rec
-   devices without starting recording.
+5. **Given** readiness has not yet been accepted by a real-route feature,
+   **When** the user joins a browser call before starting capture, **Then** this
+   foundation slice does not claim browser-call readiness.
 6. **Given** the user explicitly enables or runs route setup, **When** 2brain
    Rec needs the meeting app or macOS default route to use 2brain Rec devices,
    **Then** the app may guide or apply the change visibly, track the selected
@@ -97,9 +98,10 @@ confirming live call audio stays usable while capture is active.
    capture is active, **Then** remote audio is not fed into the virtual
    microphone path.
 3. **Given** remote speaker audio is present and the local user is silent,
-   **When** the virtual microphone output is measured on a release-ready built-in
-   or wired route, **Then** remote speaker leakage remains at least 45 dB below
-   the speaker reference and is not intelligible.
+   **When** the virtual microphone output is evaluated in this foundation slice,
+   **Then** synthetic leakage policy and release evidence requirements are
+   recorded; real browser-meeting leakage acceptance remains blocked until live
+   route movement is accepted.
 4. **Given** the desktop app or backend-facing workflow is degraded, **When** the
    meeting continues, **Then** live call audio remains usable or the app tells
    the user to stop using the route before audio loss occurs.
@@ -126,9 +128,9 @@ and transcription slices can rely on clean source separation.
 **Why this priority**: Backend transcription quality depends on track separation,
 but readiness and live call safety must come first.
 
-**Independent Test**: Can be tested by recording a short controlled meeting and
-inspecting the resulting local/remote track evidence for presence, separation,
-alignment, and dropout state.
+**Independent Test**: Can be tested by producing synthetic/local track evidence
+and confirming diagnostics/finalization models can represent presence,
+separation, alignment, dropout state, missing frames, and ordinary silence.
 
 **Acceptance Scenarios**:
 
@@ -212,10 +214,12 @@ and guides recovery before claiming ready again.
 
 - **FR-001**: The system MUST distinguish virtual-device visibility from real
   call readiness in all user-facing states.
-- **FR-002**: The system MUST prove selected physical microphone audio reaches
-  the virtual microphone path before showing ready.
-- **FR-003**: The system MUST prove virtual speaker audio reaches the selected
-  physical speaker path before showing ready.
+- **FR-002**: The system MUST define and enforce the evidence gate requiring
+  selected physical microphone audio to reach the virtual microphone path before
+  any future ready state can be shown.
+- **FR-003**: The system MUST define and enforce the evidence gate requiring
+  virtual speaker audio to reach the selected physical speaker path before any
+  future ready state can be shown.
 - **FR-004**: The system MUST keep remote speaker audio out of the virtual
   microphone path.
 - **FR-004a**: The system MUST separate meeting-facing virtual devices from
@@ -250,12 +254,12 @@ and guides recovery before claiming ready again.
   physical working device and a 2brain Rec virtual device, the app MUST keep the
   user-visible route state accurate and MUST NOT use volume or mute changes as a
   hidden recording or capture signal.
-- **FR-007**: The system MUST keep live microphone and speaker passthrough usable
-  during capture when backend, upload, or transcription workflows are unavailable.
-- **FR-007a**: After a successful readiness check, the system MUST keep live
-  passthrough active for calls without starting recording until the user disables
-  the route, the app exits, selected devices change, or the route becomes
-  degraded.
+- **FR-007**: The system MUST add local outage and degradation gates so live
+  microphone and speaker passthrough can remain independent from backend,
+  upload, or transcription workflows in the later real-route feature.
+- **FR-007a**: The system MUST model active non-recording passthrough separately
+  from recording so a later successful readiness check can keep call routing
+  active without starting capture.
 - **FR-008**: The system MUST surface a degraded state when live passthrough is
   no longer proven during a call.
 - **FR-008a**: Live passthrough MUST target clean-room Krisp-like near-zero
@@ -275,8 +279,8 @@ and guides recovery before claiming ready again.
 - **FR-009a**: The system MUST show active non-recording passthrough as
   `Audio route active` in the macOS menu bar and main app window, visually and
   semantically distinct from `Recording`.
-- **FR-010**: The system MUST register local and remote track evidence separately
-  when audio-recording mode is active.
+- **FR-010**: The system MUST define local and remote track evidence separately
+  for use when audio-recording mode becomes active.
 - **FR-011**: The system MUST mark capture degraded when an expected local or
   remote track is not capturable or has no valid frames for a full 3-second
   health interval, repeatedly produces empty buffers during expected active
@@ -300,9 +304,9 @@ and guides recovery before claiming ready again.
   from explicit readiness checks for verification, but these clips MUST be
   visibly marked as development-only, stored locally, excluded from diagnostic
   export by default, and disabled plus removed before release acceptance.
-- **FR-016**: Browser meeting validation MUST include Chrome, Opera, Yandex
-  Browser, and Yandex Telemost-in-browser before the feature is considered
-  release-ready.
+- **FR-016**: Browser meeting validation evidence MUST list Chrome, Opera,
+  Yandex Browser, and Yandex Telemost-in-browser as blocked/not accepted until a
+  later feature proves real browser-call passthrough.
 - **FR-017**: The feature MUST NOT introduce a no-driver fallback, silent
   recording, invisible capture, or direct desktop-to-MediaScribe upload.
 - **FR-018**: The system MUST keep the existing publication proof valid while
@@ -335,11 +339,12 @@ and guides recovery before claiming ready again.
 ### Constitutional Requirements *(mandatory for 2brain Rec)*
 
 - **Capture/Driver Impact**: This feature directly touches macOS audio routing,
-  passthrough, capture readiness, degraded states, and diagnostics. It must prove
-  real audio movement before ready, keep the driver-first model, and block
-  release when only publication is proven. The public virtual devices must remain
-  meeting-facing surfaces, while internal audio movement uses private app I/O
-  transport rather than extra user-selectable meeting devices.
+  passthrough foundations, capture readiness gates, degraded states, and
+  diagnostics. It must block ready when only publication is proven, keep the
+  driver-first model, and defer release-ready audio movement to the next feature.
+  The public virtual devices must remain meeting-facing surfaces, while internal
+  audio movement uses private app I/O transport rather than extra user-selectable
+  meeting devices.
 - **Visible Control Impact**: The feature must not start hidden recording during
   readiness checks or active audio route use. Active non-recording passthrough
   must be visible in the menu bar and main window as route activity, not as
@@ -368,19 +373,20 @@ and guides recovery before claiming ready again.
 
 ### Measurable Outcomes
 
-- **SC-001**: In a fresh local install, an internal user can move from
-  `not ready for calls yet` to ready only after microphone and speaker path
-  checks both pass.
-- **SC-001a**: After readiness passes, the user can join a supported browser call
-  and use 2brain Rec devices for live audio without starting capture.
-- **SC-001b**: While non-recording passthrough is active, the user can identify
-  that state from the menu bar and the main app window without confusing it with
-  recording.
+- **SC-001**: In a fresh local install, an internal user sees both virtual
+  devices published while the app remains `not ready for calls yet` until real
+  microphone and speaker path checks are implemented and accepted by a later
+  feature.
+- **SC-001a**: Publication-only readiness checks never show ready; they record
+  explicit failure reasons and recovery actions.
+- **SC-001b**: Active non-recording passthrough has a distinct model and UI copy
+  from recording, but release acceptance remains blocked until real route
+  movement is proven.
 - **SC-001c**: After explicit user approval, guided device management can set or
   restore the required 2brain Rec route and can reverse the change without
   leaving the user unsure which physical microphone and speaker are active.
-- **SC-002**: In a supported browser meeting, the user can speak and hear remote
-  audio for at least 30 minutes while 2brain Rec devices remain selected.
+- **SC-002**: Supported browser meeting validation is recorded as blocked/not
+  accepted for this foundation slice, with the required future matrix preserved.
 - **SC-002a**: Supported built-in and wired pilot routes keep added 2brain Rec
   route latency at or below 30 ms during live passthrough; any route above that
   threshold is visibly degraded and is not release-ready.
@@ -388,11 +394,10 @@ and guides recovery before claiming ready again.
   route makes public 2brain Rec devices hidden or unavailable within 5 seconds;
   relaunching the app restores the devices only after route recovery and
   revalidation.
-- **SC-003**: Remote meeting audio remains absent from the virtual microphone
-  path except for non-intelligible leakage at least 45 dB below the speaker
-  reference on release-ready built-in and wired routes.
-- **SC-004**: Local and remote track evidence stays aligned within 100 ms during
-  a 30-minute wired or built-in-device pilot call.
+- **SC-003**: Synthetic remote-to-mic leakage validation records the `<= -45 dB`
+  policy, while real browser-meeting leakage remains blocked/not accepted.
+- **SC-004**: Local and remote track evidence models can represent alignment,
+  dropout, missing valid frames, and ordinary silence without storing raw audio.
 - **SC-004a**: During readiness and controlled pilot stimulus, an expected route
   that stops delivering valid frames is marked degraded within 3 seconds, while
   a naturally silent user with valid input frames is not marked degraded solely
@@ -400,16 +405,12 @@ and guides recovery before claiming ready again.
 - **SC-004b**: Non-critical audio-quality warnings use a 30-second observation
   window before warning the user, while hard route or capturability failures
   still fail within the 3-second health interval.
-- **SC-005**: Wired or built-in-device pilot calls stay below 0.1% dropped audio
-  frames; Bluetooth and AirPods-class pilot calls stay below 0.5% dropped audio
-  frames.
-- **SC-005a**: Bluetooth and AirPods-class pilot calls are not considered
-  equivalent to built-in or wired release-quality routes unless the selected
-  profile remains stable for the full 30-minute pilot, both local and remote
-  directions deliver valid frames in every 3-second health interval, no
-  one-sided audio event occurs, dropped frames stay below 0.5%, measured latency
-  evidence is recorded, and profile-switch recovery shows warning or degraded
-  state instead of claiming release-quality parity.
+- **SC-005**: Wired/built-in and Bluetooth/AirPods-class dropout thresholds are
+  represented in policy and evidence, but physical pilot acceptance remains
+  blocked/not accepted until real route movement exists.
+- **SC-005a**: Bluetooth and AirPods-class pilot evidence is recorded as a
+  separate managed-route gate and must not be marked equivalent to built-in or
+  wired release-quality routes in this foundation slice.
 - **SC-006**: A 5-minute backend or network outage does not interrupt live call
   passthrough.
 - **SC-007**: Device disconnect or route change invalidates readiness within 5
