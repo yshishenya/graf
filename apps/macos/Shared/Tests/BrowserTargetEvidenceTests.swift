@@ -104,5 +104,33 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence.status, .notAccepted)
         XCTAssertFalse(evidence.failureReason?.isEmpty ?? true)
     }
+
+    func testPassthroughBrowserEvidenceTravelsThroughAudioEnvironmentState() {
+        let evidence = PassthroughBrowserCallEvidence(
+            targetName: "Chrome",
+            targetVersion: "125",
+            selectedMicrophone: "2brain Rec Microphone",
+            selectedSpeaker: "2brain Rec Speaker",
+            localSpeechUsable: true,
+            remoteAudioUsable: true,
+            status: .passed,
+            checkedAt: Date(timeIntervalSince1970: 1_779_887_120)
+        )
+        let monitor = AudioEnvironmentMonitor()
+        let (_, state) = monitor.refresh(with: AudioEnvironmentSnapshot(
+            driverState: .installed,
+            virtualMicState: .available,
+            virtualSpeakerState: .available,
+            microphonePermission: .granted,
+            outputPermission: .granted,
+            passthroughStatus: .healthy,
+            bufferRisk: .healthy,
+            livePassthroughStatus: .active,
+            passthroughBrowserEvidence: [evidence]
+        ))
+
+        XCTAssertEqual(state.livePassthroughStatus, .active)
+        XCTAssertEqual(state.passthroughBrowserEvidence, [evidence])
+    }
 }
 #endif

@@ -78,6 +78,8 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
     public var activeBrowserName: String?
     public var activeMeetingTitle: String?
     public var browserTargetEvidence: [BrowserTargetEvidence]
+    public var livePassthroughStatus: LivePassthroughStatus?
+    public var passthroughBrowserEvidence: [PassthroughBrowserCallEvidence]
     public var unsupportedTargets: [String]
     public var recoveryActions: [String]
     public var lastUpdatedAt: Date
@@ -99,6 +101,8 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
         activeBrowserName: String? = nil,
         activeMeetingTitle: String? = nil,
         browserTargetEvidence: [BrowserTargetEvidence] = [],
+        livePassthroughStatus: LivePassthroughStatus? = nil,
+        passthroughBrowserEvidence: [PassthroughBrowserCallEvidence] = [],
         unsupportedTargets: [String] = [],
         recoveryActions: [String] = [],
         lastUpdatedAt: Date = Date()
@@ -119,6 +123,8 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
         self.activeBrowserName = activeBrowserName
         self.activeMeetingTitle = activeMeetingTitle
         self.browserTargetEvidence = browserTargetEvidence
+        self.livePassthroughStatus = livePassthroughStatus
+        self.passthroughBrowserEvidence = passthroughBrowserEvidence
         self.unsupportedTargets = unsupportedTargets
         self.recoveryActions = recoveryActions
         self.lastUpdatedAt = lastUpdatedAt
@@ -200,6 +206,8 @@ public final class AudioHealthViewModel {
         activeBrowserName: String? = nil,
         activeMeetingTitle: String? = nil,
         browserTargetEvidence: [BrowserTargetEvidence]? = nil,
+        livePassthroughStatus: LivePassthroughStatus? = nil,
+        passthroughBrowserEvidence: [PassthroughBrowserCallEvidence]? = nil,
         unsupportedTargets: [String]? = nil,
         recoveryActions: [String]? = nil
     ) {
@@ -244,6 +252,12 @@ public final class AudioHealthViewModel {
         }
         if let browserTargetEvidence {
             state.browserTargetEvidence = browserTargetEvidence
+        }
+        if let livePassthroughStatus {
+            state.livePassthroughStatus = livePassthroughStatus
+        }
+        if let passthroughBrowserEvidence {
+            state.passthroughBrowserEvidence = passthroughBrowserEvidence
         }
         if let unsupportedTargets {
             state.unsupportedTargets = unsupportedTargets

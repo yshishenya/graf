@@ -871,6 +871,12 @@ OSStatus DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, A
 
     if (in_device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID &&
         in_operation_id == kAudioServerPlugInIOOperationReadInput) {
+        if (!PrivateAppIOAvailable()) {
+            std::memset(io_main_buffer, 0, sample_count * sizeof(Float32));
+            TraceVerbose("MicReadInput: app IO unavailable, fail-closed zero-fill");
+            return kAudioHardwareNoError;
+        }
+
         auto avail = gShared->MicAvailable();
         snprintf(buf, sizeof(buf), "MicReadInput: avail=%zu sample_count=%zu", avail, sample_count);
         TraceVerbose(buf);
@@ -886,6 +892,11 @@ OSStatus DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, A
     }
     else if (in_device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID &&
              in_operation_id == kAudioServerPlugInIOOperationWriteMix) {
+        if (!PrivateAppIOAvailable()) {
+            TraceVerbose("SpeakerWriteMix: app IO unavailable, fail-closed drop");
+            return kAudioHardwareNoError;
+        }
+
         float* src = static_cast<float*>(io_main_buffer);
         gShared->Write(gShared->speaker_buffer, gShared->speaker_write_idx, gShared->speaker_read_idx,
                        src, sample_count);

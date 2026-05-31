@@ -123,10 +123,10 @@ metadata-only evidence.
 
 ### Implementation for User Story 3
 
-- [ ] T043 [US3] Add live passthrough browser target status to `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
-- [ ] T044 [US3] Render browser passthrough pass/blocked/not accepted state in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
-- [ ] T045 [US3] Keep backend/upload/transcription outage independent from local passthrough in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
-- [ ] T046 [US3] Add browser passthrough diagnostics without meeting content in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T043 [US3] Add live passthrough browser target status to `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
+- [X] T044 [US3] Render browser passthrough pass/blocked/not accepted state in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
+- [X] T045 [US3] Keep backend/upload/transcription outage independent from local passthrough in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
+- [X] T046 [US3] Add browser passthrough diagnostics without meeting content in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 - [ ] T047 [US3] Record Chrome, Opera, Yandex Browser, and Yandex Telemost evidence in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 - [ ] T048 [US3] Record browser validation release evidence in `qa/macos/release-candidate-checklist.md`.
 
@@ -151,11 +151,11 @@ change devices, and confirm stale/fail-closed/recovery behavior.
 
 ### Implementation for User Story 4
 
-- [ ] T053 [US4] Invalidate active passthrough on route changes in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
-- [ ] T054 [US4] Stop or degrade app-side bridge safely when heartbeat or physical device path fails in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
-- [ ] T055 [US4] Preserve driver fail-closed behavior during active passthrough in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
-- [ ] T056 [US4] Add stale/recheck recovery UI for active passthrough in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
-- [ ] T057 [US4] Record route recovery diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T053 [US4] Invalidate active passthrough on route changes in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
+- [X] T054 [US4] Stop or degrade app-side bridge safely when heartbeat or physical device path fails in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
+- [X] T055 [US4] Preserve driver fail-closed behavior during active passthrough in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T056 [US4] Add stale/recheck recovery UI for active passthrough in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
+- [X] T057 [US4] Record route recovery diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
 **Checkpoint**: Live passthrough fails closed and recovers visibly.
 

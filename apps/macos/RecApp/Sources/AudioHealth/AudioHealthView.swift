@@ -75,6 +75,14 @@ public struct AudioHealthView: View {
                     detail: AdaptiveStatusText.passthroughLabel(state.passthroughStatus),
                     icon: passthroughIcon
                 )
+                if let liveStatus = state.livePassthroughStatus {
+                    line(
+                        label: "Call audio",
+                        detail: livePassthroughLine(liveStatus),
+                        icon: livePassthroughIcon(liveStatus),
+                        emphasis: liveStatus == .active || liveStatus == .ready ? .normal : .warning
+                    )
+                }
                 if let continuity = state.continuityStatus {
                     line(
                         label: "Continuity",
@@ -98,6 +106,13 @@ public struct AudioHealthView: View {
                             icon: browserEvidenceIcon(evidence.status)
                         )
                     }
+                }
+                ForEach(state.passthroughBrowserEvidence, id: \.targetName) { evidence in
+                    line(
+                        label: AdaptiveStatusText.safeLabel(evidence.targetName),
+                        detail: passthroughBrowserEvidenceLine(evidence),
+                        icon: browserEvidenceIcon(evidence.status)
+                    )
                 }
             }
             Section("Buffer", icon: "internaldrive") {
@@ -169,6 +184,42 @@ public struct AudioHealthView: View {
         case .warning:
             return "exclamationmark.triangle.fill"
         case .critical, .mustDegradeOrStop:
+            return "xmark.octagon.fill"
+        }
+    }
+
+    private func livePassthroughLine(_ status: LivePassthroughStatus) -> String {
+        switch status {
+        case .inactive:
+            return "Inactive"
+        case .checking:
+            return "Checking"
+        case .ready:
+            return "Ready for calls"
+        case .active:
+            return "Active, not recording"
+        case .stale:
+            return "Stale: recheck required"
+        case .degraded:
+            return "Degraded: recheck route"
+        case .failed:
+            return "Failed: audio path unavailable"
+        case .blocked:
+            return "Blocked: fix route before calls"
+        }
+    }
+
+    private func livePassthroughIcon(_ status: LivePassthroughStatus) -> String {
+        switch status {
+        case .ready, .active:
+            return "checkmark.circle.fill"
+        case .checking:
+            return "arrow.triangle.2.circlepath"
+        case .inactive:
+            return "circle"
+        case .stale, .degraded:
+            return "exclamationmark.triangle.fill"
+        case .failed, .blocked:
             return "xmark.octagon.fill"
         }
     }
@@ -258,6 +309,17 @@ public struct AudioHealthView: View {
         switch evidence.status {
         case .passed:
             return "Passed: mic and speaker usable"
+        case .blocked:
+            return "Blocked: \(AdaptiveStatusText.safeLabel(evidence.failureReason, fallback: "Reason required"))"
+        case .notAccepted:
+            return "Not accepted: \(AdaptiveStatusText.safeLabel(evidence.failureReason, fallback: "Reason required"))"
+        }
+    }
+
+    private func passthroughBrowserEvidenceLine(_ evidence: PassthroughBrowserCallEvidence) -> String {
+        switch evidence.status {
+        case .passed:
+            return "Passed: local speech and remote audio usable"
         case .blocked:
             return "Blocked: \(AdaptiveStatusText.safeLabel(evidence.failureReason, fallback: "Reason required"))"
         case .notAccepted:

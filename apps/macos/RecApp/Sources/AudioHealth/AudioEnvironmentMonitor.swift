@@ -31,6 +31,8 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
     public var activeBrowserName: String?
     public var activeMeetingTitle: String?
     public var browserTargetEvidence: [BrowserTargetEvidence]
+    public var livePassthroughStatus: LivePassthroughStatus?
+    public var passthroughBrowserEvidence: [PassthroughBrowserCallEvidence]
     public var unsupportedTargets: [String]
     public var bluetoothRouteEvidence: BluetoothRouteEvidence?
 
@@ -49,6 +51,8 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
         activeBrowserName: String? = nil,
         activeMeetingTitle: String? = nil,
         browserTargetEvidence: [BrowserTargetEvidence] = [],
+        livePassthroughStatus: LivePassthroughStatus? = nil,
+        passthroughBrowserEvidence: [PassthroughBrowserCallEvidence] = [],
         unsupportedTargets: [String] = [],
         bluetoothRouteEvidence: BluetoothRouteEvidence? = nil
     ) {
@@ -66,6 +70,8 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
         self.activeBrowserName = activeBrowserName
         self.activeMeetingTitle = activeMeetingTitle
         self.browserTargetEvidence = browserTargetEvidence
+        self.livePassthroughStatus = livePassthroughStatus
+        self.passthroughBrowserEvidence = passthroughBrowserEvidence
         self.unsupportedTargets = unsupportedTargets
         self.bluetoothRouteEvidence = bluetoothRouteEvidence
     }
@@ -115,6 +121,8 @@ public final class AudioEnvironmentMonitor {
             activeBrowserName: snapshot.activeBrowserName,
             activeMeetingTitle: snapshot.activeMeetingTitle,
             browserTargetEvidence: snapshot.browserTargetEvidence,
+            livePassthroughStatus: snapshot.livePassthroughStatus,
+            passthroughBrowserEvidence: snapshot.passthroughBrowserEvidence,
             unsupportedTargets: snapshot.unsupportedTargets,
             recoveryActions: recoveryActions,
             lastUpdatedAt: now()
@@ -136,6 +144,22 @@ public final class AudioEnvironmentMonitor {
             )
         }
         .sorted { $0.source.rawValue < $1.source.rawValue }
+    }
+
+    public func livePassthroughRecoveryEvents(
+        for changes: [AudioEnvironmentChange],
+        previousStatus: LivePassthroughStatus
+    ) -> [PassthroughRouteRecoveryEvent] {
+        Set(changes.compactMap(Self.recoveryEventType(for:))).map { eventType in
+            PassthroughRouteRecoveryEvent(
+                eventType: eventType,
+                detectedAt: now(),
+                previousStatus: previousStatus,
+                newStatus: eventType == .appHeartbeatLost ? .degraded : .stale,
+                recoveryAction: "rerun_live_passthrough_check"
+            )
+        }
+        .sorted { $0.eventType.rawValue < $1.eventType.rawValue }
     }
 
     public func monitorPermission(
@@ -204,6 +228,11 @@ public final class AudioEnvironmentMonitor {
             result.append(.browserTargetEvidenceChanged)
         }
 
+        if previous.livePassthroughStatus != current.livePassthroughStatus ||
+            previous.passthroughBrowserEvidence != current.passthroughBrowserEvidence {
+            result.append(.browserTargetEvidenceChanged)
+        }
+
         if Set(current.unsupportedTargets).subtracting(previous.unsupportedTargets).count > 0 {
             result.append(.unsupportedTargetAdded)
         }
@@ -235,6 +264,10 @@ public final class AudioEnvironmentMonitor {
         if snapshot.passthroughStatus == .failed {
             actions.append("Repair driver path before restarting capture")
         }
+        if let livePassthroughStatus = snapshot.livePassthroughStatus,
+           [.stale, .degraded, .failed, .blocked].contains(livePassthroughStatus) {
+            actions.append("Rerun live passthrough check")
+        }
         if snapshot.passthroughStatus == .mutedByPhysicalDevice {
             actions.append("Select a working output speaker profile")
         }
@@ -259,6 +292,23 @@ public final class AudioEnvironmentMonitor {
         case .virtualInputStateChanged, .virtualOutputStateChanged, .driverStateChanged:
             return .appIO
         case .routeVerificationChanged, .permissionChanged, .passthroughChanged, .bufferRiskChanged, .unsupportedTargetAdded:
+            return nil
+        }
+    }
+
+    private static func recoveryEventType(for change: AudioEnvironmentChange) -> RouteRecoveryEventType? {
+        switch change {
+        case .deviceChanged:
+            return .physicalInputChanged
+        case .activeMeetingContextChanged, .browserTargetEvidenceChanged:
+            return .browserTargetChanged
+        case .bluetoothProfileChanged:
+            return .bluetoothProfileChanged
+        case .driverStateChanged, .virtualInputStateChanged, .virtualOutputStateChanged:
+            return .driverReloaded
+        case .passthroughChanged:
+            return .appHeartbeatLost
+        case .routeVerificationChanged, .permissionChanged, .bufferRiskChanged, .unsupportedTargetAdded:
             return nil
         }
     }

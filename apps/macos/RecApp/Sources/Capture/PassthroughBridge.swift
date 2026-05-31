@@ -109,6 +109,28 @@ public final class PassthroughBridge {
         AppIOHealthPolicy().evaluate(lastHeartbeatAt: lastHeartbeatAt, now: now)
     }
 
+    public func livePassthroughStatusDuringServiceOutage(
+        backendAvailable: Bool,
+        uploadAvailable: Bool,
+        transcriptionAvailable: Bool,
+        now: Date = Date()
+    ) -> LivePassthroughStatus {
+        let health = appIOHealth(now: now)
+        guard isRunning else { return .inactive }
+        guard health.state == .connected else { return .degraded }
+        return .active
+    }
+
+    @discardableResult
+    public func stopIfHeartbeatLost(now: Date = Date()) -> LivePassthroughStatus {
+        let health = appIOHealth(now: now)
+        guard health.state == .heartbeatLost else {
+            return isRunning ? .active : .inactive
+        }
+        stop()
+        return .degraded
+    }
+
     fileprivate func recordAppIOHeartbeat(at date: Date = Date()) {
         lastHeartbeatAt = date
         shm.writeAppHeartbeat(at: date)

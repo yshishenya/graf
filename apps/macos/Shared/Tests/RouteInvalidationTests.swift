@@ -57,5 +57,20 @@ final class RouteInvalidationTests: XCTestCase {
         XCTAssertNil(bundle.manifest["rawAudio"])
         XCTAssertNil(bundle.manifest["transcriptText"])
     }
+
+    func testLivePassthroughRecoveryEventsFollowRouteChanges() {
+        let monitor = AudioEnvironmentMonitor(now: { Date(timeIntervalSince1970: 1_779_887_120) })
+
+        let events = monitor.livePassthroughRecoveryEvents(
+            for: [.deviceChanged, .browserTargetEvidenceChanged, .passthroughChanged],
+            previousStatus: .active
+        )
+
+        XCTAssertEqual(events.map(\.eventType), [.appHeartbeatLost, .browserTargetChanged, .physicalInputChanged])
+        XCTAssertTrue(events.allSatisfy { $0.previousStatus == .active })
+        XCTAssertTrue(events.allSatisfy { $0.recoveryAction == "rerun_live_passthrough_check" })
+        XCTAssertTrue(events.contains { $0.newStatus == .degraded })
+        XCTAssertTrue(events.contains { $0.newStatus == .stale })
+    }
 }
 #endif
