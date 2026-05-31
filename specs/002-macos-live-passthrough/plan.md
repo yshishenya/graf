@@ -62,6 +62,9 @@ installer scripts, and QA harnesses.
 - ordinary user silence with valid input frames does not mark capture degraded;
 - built-in/wired dropped-frame rate stays below 0.1%;
 - Bluetooth/AirPods-class dropped-frame rate stays below 0.5%;
+- Bluetooth/AirPods-class pilot calls record profile stability, bidirectional
+  valid-frame evidence for every 3-second health interval, one-sided-audio
+  events, and measured latency evidence for the full 30-minute pilot;
 - 5-minute backend/network outage does not interrupt live audio passthrough;
 - readiness check must never show ready from device visibility alone.
 

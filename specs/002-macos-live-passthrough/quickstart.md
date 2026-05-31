@@ -104,6 +104,10 @@ Pass criteria:
 - built-in/wired alignment stays within 100 ms;
 - built-in/wired dropped frames stay below 0.1%;
 - Bluetooth/AirPods dropped frames stay below 0.5%;
+- Bluetooth/AirPods profile remains stable or shows warning/degraded recovery;
+- Bluetooth/AirPods local and remote directions deliver valid frames in every
+  3-second health interval with no one-sided audio event;
+- Bluetooth/AirPods measured latency evidence is recorded for the pilot;
 - backend/network outage for 5 minutes does not interrupt live passthrough.
 
 ## 5. Recovery Check

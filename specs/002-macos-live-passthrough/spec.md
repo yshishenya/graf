@@ -100,7 +100,8 @@ confirming live call audio stays usable while capture is active.
    recovery path instead of claiming ready.
 6. **Given** a supported built-in or wired route is active, **When** 2brain Rec
    added route latency exceeds 30 ms, **Then** the app marks the route degraded
-   and blocks release readiness instead of claiming Krisp-like call quality.
+   and blocks release readiness instead of claiming the Krisp-like latency
+   target.
 7. **Given** private app I/O or the desktop audio engine exits, crashes, or is
    otherwise unavailable, **When** the HAL driver detects the loss, **Then** the
    route fails closed by stopping ready claims and making public devices hidden
@@ -165,10 +166,10 @@ and guides recovery before claiming ready again.
    route no longer satisfies the supported call path, **Then** the app reports
    the profile problem and offers a safe recovery action.
 4. **Given** a Bluetooth or AirPods-class device is selected, **When** the route
-   uses a profile with materially worse latency, quality, or one-sided audio,
-   **Then** the app applies the managed-route policy by showing warning or
-   degraded state instead of treating the route as equivalent to built-in or
-   wired devices.
+   uses a profile with materially worse latency, dropout rate, valid-frame
+   continuity, profile stability, or one-sided audio, **Then** the app applies
+   the managed-route policy by showing warning or degraded state instead of
+   treating the route as equivalent to built-in or wired devices.
 
 ### Edge Cases
 
@@ -182,8 +183,9 @@ and guides recovery before claiming ready again.
 - A browser restarts or drops remote audio while capture is active.
 - Bluetooth or AirPods-class devices switch between high-quality output and
   call-oriented input/output profiles.
-- Bluetooth or AirPods-class routes add latency or quality loss outside 2brain
-  Rec control even when the 2brain Rec route itself is functioning.
+- Bluetooth or AirPods-class routes add latency, dropped frames, profile
+  switches, or one-sided audio outside 2brain Rec control even when the 2brain
+  Rec route itself is functioning.
 - The app restarts while the virtual devices remain selected in a meeting.
 - Private app I/O or the desktop audio engine exits while a meeting app still
   has 2brain Rec devices selected.
@@ -254,8 +256,12 @@ and guides recovery before claiming ready again.
   30 ms.
 - **FR-008b**: Bluetooth and AirPods-class routes MUST follow a clean-room
   Krisp-like managed-route policy: detect profile changes, distinguish them from
-  built-in and wired release-quality routes, and show warning or degraded states
-  when latency, quality, or one-sided audio risk increases.
+  built-in and wired release-quality routes, record profile class and
+  bidirectional input/output availability, and show warning or degraded states
+  when the profile switches mid-call, either direction stops delivering valid
+  frames for a full 3-second health interval, dropped frames exceed the
+  Bluetooth pilot threshold, or measured latency evidence fails the separate
+  Bluetooth pilot acceptance criteria.
 - **FR-009**: The system MUST provide a one-action way to stop active capture
   from a visible local surface whenever capture is active.
 - **FR-009a**: The system MUST show active non-recording passthrough as
@@ -390,9 +396,12 @@ and guides recovery before claiming ready again.
   frames; Bluetooth and AirPods-class pilot calls stay below 0.5% dropped audio
   frames.
 - **SC-005a**: Bluetooth and AirPods-class pilot calls are not considered
-  equivalent to built-in or wired release-quality routes unless profile,
-  latency, quality, and dropout evidence meet their separate managed-route
-  acceptance criteria.
+  equivalent to built-in or wired release-quality routes unless the selected
+  profile remains stable for the full 30-minute pilot, both local and remote
+  directions deliver valid frames in every 3-second health interval, no
+  one-sided audio event occurs, dropped frames stay below 0.5%, measured latency
+  evidence is recorded, and profile-switch recovery shows warning or degraded
+  state instead of claiming release-quality parity.
 - **SC-006**: A 5-minute backend or network outage does not interrupt live call
   passthrough.
 - **SC-007**: Device disconnect or route change invalidates readiness within 5
