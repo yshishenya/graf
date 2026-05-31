@@ -2,37 +2,38 @@
 
 ## Scope
 
-Validate US2 in real browser meetings after passthrough and capture routing are
-implemented. These scenarios are not satisfied by the current publication proof;
-they become release-candidate evidence only after real capture artifacts are
-produced by the driver/app stack.
+Validate real browser meetings after bidirectional passthrough is implemented.
+These scenarios are not satisfied by publication proof alone; they become
+release-candidate evidence only after local speech and remote audio both move
+through the 2brain Rec virtual devices without starting recording.
 
 ## Required Setup
 
 - `2brain Rec Microphone` selected as the meeting microphone.
 - `2brain Rec Speaker` selected as the meeting speaker.
 - A real physical microphone and physical output selected inside 2brain Rec.
-- Manual capture start; no assisted auto-start required for this feature.
-- Visible local capture indicator and one-action stop available before capture.
+- Live passthrough is active and visibly non-recording.
+- Recording, transcript generation, upload, and assisted auto-start remain off
+  for this feature.
 - Diagnostics stay redacted and must not include raw audio or transcript text.
 
 ## Target Matrix
 
-| Target | US2 Status | Required Evidence |
+| Target | 004 Status | Required Evidence |
 |---|---|---|
-| Chrome browser meetings | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
-| Opera browser meetings | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
-| Yandex Browser meetings | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
-| Yandex Telemost in browser | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
+| Chrome browser meetings | Pending 004 passthrough evidence | Local speech usable, remote audio usable, no recording started, no loopback above threshold |
+| Opera browser meetings | Pending 004 passthrough evidence | Pass or blocked/not accepted reason with metadata-only evidence |
+| Yandex Browser meetings | Pending 004 passthrough evidence | Pass or blocked/not accepted reason with metadata-only evidence |
+| Yandex Telemost in browser | Pending 004 passthrough evidence | Pass or blocked/not accepted reason with metadata-only evidence |
 
-## 003 Evidence Fields
+## 004 Evidence Fields
 
 Each target must record:
 
 - target name and version if available;
 - selected meeting microphone;
 - selected meeting speaker;
-- readiness state before joining;
+- live passthrough state before joining;
 - route state after joining;
 - local speech usability;
 - remote audio usability;
@@ -42,42 +43,34 @@ Each target must record:
 Evidence must remain metadata-only and must not include raw audio, transcript
 text, credentials, tokens, signed URLs, or meeting content.
 
-## Evidence Recorded 2026-05-31
+## 004 Evidence Recorded 2026-05-31
 
 Backend/network outage synthetic coverage was executed:
 
 ```text
-passthrough-outage-check: ACCEPTED
+live-passthrough-outage-check: ACCEPTED
 ```
 
-Real browser meeting validation was not accepted for this feature state. The app
-correctly remains `not ready for calls yet` until real bidirectional
-passthrough, manual capture, and separate local/remote capture artifacts are
-implemented and accepted. Running a browser meeting now would only prove browser
-device selection against publication, not the required US2 track separation,
-leakage, latency, or finalization behavior.
-
-The four required browser targets are therefore recorded as blocked/not accepted
-for 003 release evidence, rather than passed.
+Real browser meeting validation is still pending for 004. Until physical
+browser calls are run, the targets above remain pending rather than passed.
 
 ## Per-Target Steps
 
 - [ ] Join a meeting with one local speaker and at least one remote speaker.
 - [ ] Confirm browser uses `2brain Rec Microphone` and `2brain Rec Speaker`.
-- [ ] Start capture manually from visible 2brain Rec UI.
+- [ ] Confirm 2brain Rec shows visible non-recording live passthrough state.
 - [ ] Speak locally and play remote speech.
-- [ ] Confirm local mic audio appears only on the local mic track.
-- [ ] Confirm remote speaker audio appears only on the remote speaker track.
+- [ ] Confirm local speech reaches the remote/control side.
+- [ ] Confirm remote speaker audio is heard locally through the selected
+      physical output.
 - [ ] Confirm remote speaker audio is absent from the virtual microphone path.
 - [ ] Run `tests/macos/route-synthetic/no-loopback-check.swift` against
       exported/fixture route data when real capture export exists.
-- [ ] Confirm stopping capture takes one local action.
+- [ ] Confirm no recording or transcript generation starts during validation.
 
 ## Pass Criteria
 
-- Live call audio remains usable during capture.
+- Live call audio remains usable during passthrough.
 - No remote-to-mic loopback is detected.
-- Local and remote tracks are separate and timestamped.
-- Any missing or degraded track marks the session degraded before finalization.
 - Unsupported/browser-specific failures are recorded without marketing the
   target as supported.

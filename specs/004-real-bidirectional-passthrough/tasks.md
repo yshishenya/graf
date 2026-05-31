@@ -117,9 +117,9 @@ metadata-only evidence.
 
 ### Tests for User Story 3
 
-- [ ] T040 [P] [US3] Add browser passthrough evidence contract tests in `apps/macos/Shared/Tests/BrowserTargetEvidenceTests.swift`.
-- [ ] T041 [P] [US3] Add backend outage non-interference test in `tests/macos/route-synthetic/live-passthrough-outage-check.swift`.
-- [ ] T042 [P] [US3] Update browser meeting matrix for real passthrough evidence in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
+- [X] T040 [P] [US3] Add browser passthrough evidence contract tests in `apps/macos/Shared/Tests/BrowserTargetEvidenceTests.swift`.
+- [X] T041 [P] [US3] Add backend outage non-interference test in `tests/macos/route-synthetic/live-passthrough-outage-check.swift`.
+- [X] T042 [P] [US3] Update browser meeting matrix for real passthrough evidence in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 
 ### Implementation for User Story 3
 

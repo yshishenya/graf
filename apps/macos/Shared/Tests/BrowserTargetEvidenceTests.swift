@@ -87,5 +87,22 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         XCTAssertNil(bundle.manifest["rawAudio"])
         XCTAssertNil(bundle.manifest["transcriptText"])
     }
+
+    func testPassthroughBrowserEvidenceRequiresConcreteBlockedReason() {
+        let evidence = PassthroughBrowserCallEvidence(
+            targetName: "Yandex Telemost",
+            targetVersion: "browser",
+            selectedMicrophone: "2brain Rec Microphone",
+            selectedSpeaker: "2brain Rec Speaker",
+            localSpeechUsable: false,
+            remoteAudioUsable: false,
+            status: .notAccepted,
+            failureReason: "manual_validation_unavailable",
+            checkedAt: Date(timeIntervalSince1970: 1_779_887_120)
+        )
+
+        XCTAssertEqual(evidence.status, .notAccepted)
+        XCTAssertFalse(evidence.failureReason?.isEmpty ?? true)
+    }
 }
 #endif
