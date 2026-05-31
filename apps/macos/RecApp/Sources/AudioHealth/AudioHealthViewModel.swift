@@ -144,6 +144,21 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
         return "not_started"
     }
 
+    public mutating func applyLatencyAndLeakage(
+        latency: LatencyMeasurement?,
+        leakage: LeakageMeasurement?
+    ) {
+        if latency?.status == .degraded || leakage?.status == .degraded {
+            passthroughStatus = .degraded
+            if latency?.status == .degraded {
+                recoveryActions.append("Reduce route latency before release readiness")
+            }
+            if leakage?.status == .degraded {
+                recoveryActions.append("Reduce remote-to-mic leakage before release readiness")
+            }
+        }
+    }
+
     public var canRecord: Bool {
         if isPermissionBlocked { return false }
         if !isRouteReady { return false }

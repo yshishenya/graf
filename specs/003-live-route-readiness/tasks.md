@@ -110,17 +110,17 @@ threshold failures produce degraded state.
 
 ### Tests for User Story 3
 
-- [ ] T036 [P] [US3] Add live latency measurement synthetic test in `tests/macos/route-synthetic/live-latency-check.swift`.
-- [ ] T037 [P] [US3] Add live leakage measurement synthetic test in `tests/macos/route-synthetic/live-leakage-check.swift`.
-- [ ] T038 [P] [US3] Add latency/leakage degraded state tests in `apps/macos/Shared/Tests/LatencyGateTests.swift`.
+- [X] T036 [P] [US3] Add live latency measurement synthetic test in `tests/macos/route-synthetic/live-latency-check.swift`.
+- [X] T037 [P] [US3] Add live leakage measurement synthetic test in `tests/macos/route-synthetic/live-leakage-check.swift`.
+- [X] T038 [P] [US3] Add latency/leakage degraded state tests in `apps/macos/Shared/Tests/LatencyGateTests.swift`.
 
 ### Implementation for User Story 3
 
-- [ ] T039 [US3] Implement added route latency evidence in `apps/macos/Shared/Sources/Routing/LatencyMonitor.swift`.
-- [ ] T040 [US3] Implement leakage evidence model and policy in `apps/macos/Shared/Sources/Routing/SelfRoutingGuard.swift`.
-- [ ] T041 [US3] Map latency/leakage failures to degraded route state in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
-- [ ] T042 [US3] Add latency/leakage evidence to diagnostics without raw audio in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T043 [US3] Record live latency/leakage evidence in `qa/macos/release-candidate-checklist.md`.
+- [X] T039 [US3] Implement added route latency evidence in `apps/macos/Shared/Sources/Routing/LatencyMonitor.swift`.
+- [X] T040 [US3] Implement leakage evidence model and policy in `apps/macos/Shared/Sources/Routing/SelfRoutingGuard.swift`.
+- [X] T041 [US3] Map latency/leakage failures to degraded route state in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthViewModel.swift`.
+- [X] T042 [US3] Add latency/leakage evidence to diagnostics without raw audio in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T043 [US3] Record live latency/leakage evidence in `qa/macos/release-candidate-checklist.md`.
 
 **Checkpoint**: Built-in/wired release readiness is blocked unless latency and
 leakage gates pass.

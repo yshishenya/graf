@@ -17,4 +17,13 @@ public struct LatencyMonitor: Sendable {
             return .unknown
         }
     }
+
+    public func measurementStatus(for measurement: LatencyMeasurement) -> MeasurementStatus {
+        switch measurement.routeClass {
+        case .builtIn, .wired, .usb:
+            return measurement.addedLatencyMs <= builtInWiredThresholdMs ? .passed : .degraded
+        case .bluetooth, .airpodsClass, .unknown:
+            return .blocked
+        }
+    }
 }

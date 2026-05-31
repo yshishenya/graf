@@ -37,6 +37,13 @@ public struct SelfRoutingGuard: Sendable {
 
     public init() {}
 
+    public func leakageStatus(for measurement: LeakageMeasurement) -> MeasurementStatus {
+        measurement.relativeLeakageDb <= -45
+            && measurement.intelligibilityStatus == .notIntelligible
+            ? .passed
+            : .degraded
+    }
+
     public func evaluate(
         physicalInput: PhysicalAudioDevice?,
         physicalOutput: PhysicalAudioDevice?

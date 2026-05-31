@@ -15,6 +15,8 @@
   status is accepted.
 - [ ] Built-in/wired remote-to-mic leakage is `<= -45 dB` and not intelligible
   before release-ready status is accepted.
+- [ ] Latency/leakage failures map to degraded route state and block
+  release-ready status while preserving live-route diagnostics.
 - [ ] Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser each have
   pass or blocked/not accepted metadata-only evidence.
 - [ ] Browser evidence records selected meeting microphone/speaker, readiness
