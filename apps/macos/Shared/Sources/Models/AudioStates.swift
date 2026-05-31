@@ -69,6 +69,44 @@ public enum LiveRouteReadinessStatus: String, Codable, Sendable {
     case failed
 }
 
+public enum LivePassthroughStatus: String, Codable, Sendable {
+    case inactive
+    case checking
+    case ready
+    case active
+    case stale
+    case degraded
+    case failed
+    case blocked
+}
+
+public enum PassthroughFailureReason: String, Codable, Sendable {
+    case none
+    case permissionDenied = "permission_denied"
+    case muted
+    case silent
+    case unavailable
+    case selfRouted = "self_routed"
+    case aggregateUnmanaged = "aggregate_unmanaged"
+    case deviceChanged = "device_changed"
+    case appHeartbeatMissing = "app_heartbeat_missing"
+    case coreaudiodRestarted = "coreaudiod_restarted"
+    case latencyExceeded = "latency_exceeded"
+    case leakageExceeded = "leakage_exceeded"
+    case unknown
+}
+
+public enum RouteRecoveryEventType: String, Codable, Sendable {
+    case physicalInputChanged = "physical_input_changed"
+    case physicalOutputChanged = "physical_output_changed"
+    case browserTargetChanged = "browser_target_changed"
+    case bluetoothProfileChanged = "bluetooth_profile_changed"
+    case appHeartbeatLost = "app_heartbeat_lost"
+    case appHeartbeatRestored = "app_heartbeat_restored"
+    case driverReloaded = "driver_reloaded"
+    case coreaudiodRestarted = "coreaudiod_restarted"
+}
+
 public enum RouteEvidenceStatus: String, Codable, Sendable {
     case notStarted = "not_started"
     case passed

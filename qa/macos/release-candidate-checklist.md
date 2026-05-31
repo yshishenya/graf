@@ -31,6 +31,25 @@
   latency/leakage values, and browser evidence without raw audio, transcript
   text, credentials, tokens, signed URLs, or meeting content.
 
+## Real Bidirectional Passthrough Evidence (004)
+
+- [ ] Selected physical microphone audio reaches `2brain Rec Microphone`
+  without starting recording.
+- [ ] Audio sent to `2brain Rec Speaker` plays through the selected physical
+  output without starting recording.
+- [ ] Built-in/wired added route latency remains `<= 30 ms` while marked ready.
+- [ ] Remote-to-mic leakage remains `<= -45 dB` relative to speaker reference
+  and is not intelligible while marked ready.
+- [ ] App/route-engine loss makes public virtual devices hidden or unavailable
+  within 5 seconds.
+- [ ] `coreaudiod` restart marks passthrough stale and requires revalidation.
+- [ ] Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser each have
+  pass or blocked/not accepted metadata-only passthrough evidence.
+- [ ] Diagnostics contain passthrough state, selected device identifiers,
+  heartbeat status, latency/leakage values, browser evidence, and recovery
+  action without raw audio, transcript text, credentials, tokens, signed URLs, or
+  meeting content.
+
 ## Validation Log (2026-05-31 04:16 MSK)
 
 - [x] Updated local package installed with admin privileges: `installer`

@@ -5,6 +5,7 @@ public let kShmName = "/2brain-rec-audio-bridge"
 public let kSharedRingCapacity = 16384
 
 public final class SharedAudioMemory {
+    public static let expectedSharedMemorySize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
 
     public struct AvailabilitySnapshot: Codable, Equatable, Sendable {
         public var micAvailableFrames: UInt64
@@ -84,7 +85,7 @@ public final class SharedAudioMemory {
         guard fd >= 0 else { return nil }
         self.fd = fd
 
-        shmSize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
+        shmSize = Self.expectedSharedMemorySize
 
         var isOwner = false
         var st = stat()

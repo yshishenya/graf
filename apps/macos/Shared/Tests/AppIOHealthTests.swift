@@ -36,5 +36,17 @@ final class AppIOHealthTests: XCTestCase {
         XCTAssertEqual(health.publicDeviceAvailability, .available)
         XCTAssertNil(health.recoveryAction)
     }
+
+    func testActivePassthroughUsesSameFailClosedHeartbeatPolicy() {
+        let policy = AppIOHealthPolicy(heartbeatTimeoutMs: 5000)
+        let health = policy.evaluate(
+            lastHeartbeatAt: Date(timeIntervalSince1970: 10),
+            now: Date(timeIntervalSince1970: 16)
+        )
+
+        XCTAssertEqual(health.state, .heartbeatLost)
+        XCTAssertEqual(health.publicDeviceAvailability, .hidden)
+        XCTAssertEqual(health.recoveryAction, "restart_desktop_audio_engine")
+    }
 }
 #endif

@@ -181,6 +181,7 @@ int main() {
         CaptureExpectedState(device_id, name, &speaker);
     }
 
+    std::cout << "Runtime passthrough evidence: publication and fail-closed state only; live audio path checks run separately.\n";
     std::cout << "Expected device visibility:\n";
     std::cout << "- " << kExpectedMicrophone << ": " << (microphone.found ? "FOUND" : "MISSING") << "\n";
     std::cout << "  hidden=" << TriState(microphone.hidden_read, microphone.hidden)

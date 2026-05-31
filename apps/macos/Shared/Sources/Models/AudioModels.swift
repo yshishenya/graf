@@ -137,6 +137,198 @@ public struct LiveRouteReadinessResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct LivePassthroughSession: Codable, Equatable, Sendable {
+    public var sessionId: String
+    public var status: LivePassthroughStatus
+    public var microphonePath: MicrophonePassthroughPath
+    public var speakerPath: SpeakerPassthroughPath
+    public var healthEvidence: PassthroughHealthEvidence
+    public var browserEvidence: [PassthroughBrowserCallEvidence]
+    public var startedAt: Date?
+    public var endedAt: Date?
+    public var recordingState: String
+    public var lastRecoveryAction: String?
+
+    public init(
+        sessionId: String,
+        status: LivePassthroughStatus,
+        microphonePath: MicrophonePassthroughPath,
+        speakerPath: SpeakerPassthroughPath,
+        healthEvidence: PassthroughHealthEvidence,
+        browserEvidence: [PassthroughBrowserCallEvidence] = [],
+        startedAt: Date? = nil,
+        endedAt: Date? = nil,
+        recordingState: String = "not_recording",
+        lastRecoveryAction: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.status = status
+        self.microphonePath = microphonePath
+        self.speakerPath = speakerPath
+        self.healthEvidence = healthEvidence
+        self.browserEvidence = browserEvidence
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.recordingState = recordingState
+        self.lastRecoveryAction = lastRecoveryAction
+    }
+
+    public var canActivate: Bool {
+        recordingState == "not_recording" &&
+            status == .ready &&
+            microphonePath.status == .ready &&
+            speakerPath.status == .ready &&
+            healthEvidence.appHeartbeatStatus == .connected
+    }
+}
+
+public struct MicrophonePassthroughPath: Codable, Equatable, Sendable {
+    public var physicalInputId: String
+    public var physicalInputName: String
+    public var virtualInputName: String
+    public var status: LivePassthroughStatus
+    public var validFrameObserved: Bool
+    public var lastFrameAt: Date?
+    public var failureReason: PassthroughFailureReason
+
+    public init(
+        physicalInputId: String,
+        physicalInputName: String,
+        virtualInputName: String = "2brain Rec Microphone",
+        status: LivePassthroughStatus,
+        validFrameObserved: Bool,
+        lastFrameAt: Date? = nil,
+        failureReason: PassthroughFailureReason = .none
+    ) {
+        self.physicalInputId = physicalInputId
+        self.physicalInputName = physicalInputName
+        self.virtualInputName = virtualInputName
+        self.status = status
+        self.validFrameObserved = validFrameObserved
+        self.lastFrameAt = lastFrameAt
+        self.failureReason = failureReason
+    }
+}
+
+public struct SpeakerPassthroughPath: Codable, Equatable, Sendable {
+    public var virtualOutputName: String
+    public var physicalOutputId: String
+    public var physicalOutputName: String
+    public var status: LivePassthroughStatus
+    public var stimulusObserved: Bool
+    public var playbackConfirmedAt: Date?
+    public var failureReason: PassthroughFailureReason
+
+    public init(
+        virtualOutputName: String = "2brain Rec Speaker",
+        physicalOutputId: String,
+        physicalOutputName: String,
+        status: LivePassthroughStatus,
+        stimulusObserved: Bool,
+        playbackConfirmedAt: Date? = nil,
+        failureReason: PassthroughFailureReason = .none
+    ) {
+        self.virtualOutputName = virtualOutputName
+        self.physicalOutputId = physicalOutputId
+        self.physicalOutputName = physicalOutputName
+        self.status = status
+        self.stimulusObserved = stimulusObserved
+        self.playbackConfirmedAt = playbackConfirmedAt
+        self.failureReason = failureReason
+    }
+}
+
+public struct PassthroughHealthEvidence: Codable, Equatable, Sendable {
+    public var appHeartbeatStatus: AppIOState
+    public var latencyMs: Double?
+    public var leakageDbBelowReference: Double?
+    public var notIntelligible: Bool
+    public var dropoutFraction: Double?
+    public var routeInvalidatedAt: Date?
+    public var diagnosticSafe: Bool
+
+    public init(
+        appHeartbeatStatus: AppIOState,
+        latencyMs: Double? = nil,
+        leakageDbBelowReference: Double? = nil,
+        notIntelligible: Bool = true,
+        dropoutFraction: Double? = nil,
+        routeInvalidatedAt: Date? = nil,
+        diagnosticSafe: Bool = true
+    ) {
+        self.appHeartbeatStatus = appHeartbeatStatus
+        self.latencyMs = latencyMs
+        self.leakageDbBelowReference = leakageDbBelowReference
+        self.notIntelligible = notIntelligible
+        self.dropoutFraction = dropoutFraction
+        self.routeInvalidatedAt = routeInvalidatedAt
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public var passesBuiltInWiredGate: Bool {
+        guard diagnosticSafe else { return false }
+        guard let latencyMs, latencyMs <= RouteLatencyEvidence.builtInWiredThresholdMs else { return false }
+        guard let leakageDbBelowReference, leakageDbBelowReference >= 45 else { return false }
+        return notIntelligible
+    }
+}
+
+public struct PassthroughBrowserCallEvidence: Codable, Equatable, Sendable {
+    public var targetName: String
+    public var targetVersion: String?
+    public var selectedMicrophone: String
+    public var selectedSpeaker: String
+    public var localSpeechUsable: Bool
+    public var remoteAudioUsable: Bool
+    public var status: BrowserTargetEvidenceStatus
+    public var failureReason: String?
+    public var checkedAt: Date
+
+    public init(
+        targetName: String,
+        targetVersion: String? = nil,
+        selectedMicrophone: String,
+        selectedSpeaker: String,
+        localSpeechUsable: Bool,
+        remoteAudioUsable: Bool,
+        status: BrowserTargetEvidenceStatus,
+        failureReason: String? = nil,
+        checkedAt: Date
+    ) {
+        self.targetName = targetName
+        self.targetVersion = targetVersion
+        self.selectedMicrophone = selectedMicrophone
+        self.selectedSpeaker = selectedSpeaker
+        self.localSpeechUsable = localSpeechUsable
+        self.remoteAudioUsable = remoteAudioUsable
+        self.status = status
+        self.failureReason = failureReason
+        self.checkedAt = checkedAt
+    }
+}
+
+public struct PassthroughRouteRecoveryEvent: Codable, Equatable, Sendable {
+    public var eventType: RouteRecoveryEventType
+    public var detectedAt: Date
+    public var previousStatus: LivePassthroughStatus
+    public var newStatus: LivePassthroughStatus
+    public var recoveryAction: String
+
+    public init(
+        eventType: RouteRecoveryEventType,
+        detectedAt: Date,
+        previousStatus: LivePassthroughStatus,
+        newStatus: LivePassthroughStatus,
+        recoveryAction: String
+    ) {
+        self.eventType = eventType
+        self.detectedAt = detectedAt
+        self.previousStatus = previousStatus
+        self.newStatus = newStatus
+        self.recoveryAction = recoveryAction
+    }
+}
+
 public struct MicrophonePathEvidence: Codable, Equatable, Sendable {
     public var selectedPhysicalDeviceId: String
     public var selectedPhysicalDeviceName: String

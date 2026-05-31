@@ -103,13 +103,14 @@ The plan must:
 Planning must stop if constitution gates fail or important clarifications remain unresolved.
 
 <!-- SPECKIT START -->
-Current Spec Kit plan: `specs/003-live-route-readiness/plan.md`
+Current Spec Kit plan: `specs/004-real-bidirectional-passthrough/plan.md`
 
-Active feature: `003-live-route-readiness`
+Active feature: `004-real-bidirectional-passthrough`
 
 Use the plan, research, data model, contracts, and quickstart in
-`specs/003-live-route-readiness/` as the authoritative context for macOS live
-route readiness planning until a later Spec Kit feature supersedes this slice.
+`specs/004-real-bidirectional-passthrough/` as the authoritative context for
+macOS real bidirectional passthrough planning until a later Spec Kit feature
+supersedes this slice.
 <!-- SPECKIT END -->
 
 ### 4. Checklist

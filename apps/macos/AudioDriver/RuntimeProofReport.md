@@ -417,6 +417,25 @@ microphone-to-virtual-microphone passthrough, and real
 virtual-speaker-to-physical-speaker passthrough remain out of scope for this
 feature state.
 
+## Real Bidirectional Passthrough Scope (004)
+
+Status: **PLANNED / NOT YET ACCEPTED**.
+
+Feature 004 moves beyond publication and readiness evidence into real
+non-recording bidirectional audio movement:
+
+- selected physical microphone audio must feed `2brain Rec Microphone`;
+- audio sent to `2brain Rec Speaker` must play through the selected physical
+  output;
+- browser calls must remain usable through the two virtual devices;
+- recording, upload, transcription, MediaScribe, Langfuse, and new network
+  egress remain out of scope;
+- private app I/O fail-closed behavior accepted in 003 must remain intact.
+
+Acceptance evidence must be added only after local package install, runtime
+probe, microphone passthrough, speaker passthrough, no-loopback, latency,
+leakage, browser matrix, and fail-closed recovery checks pass.
+
 ## Publication Spike Attempt
 
 - Date: 2026-05-27

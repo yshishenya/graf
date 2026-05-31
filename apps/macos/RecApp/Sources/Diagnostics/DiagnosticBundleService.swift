@@ -188,6 +188,76 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildLivePassthroughBundle(
+        session: LivePassthroughSession,
+        recoveryEvents: [PassthroughRouteRecoveryEvent] = []
+    ) throws -> DiagnosticBundle {
+        let browserValues = session.browserEvidence.map { item in
+            DiagnosticFieldValue.object([
+                "targetName": .string(item.targetName),
+                "targetVersion": .string(item.targetVersion ?? "unknown"),
+                "selectedMicrophone": .string(item.selectedMicrophone),
+                "selectedSpeaker": .string(item.selectedSpeaker),
+                "localSpeechUsable": .bool(item.localSpeechUsable),
+                "remoteAudioUsable": .bool(item.remoteAudioUsable),
+                "status": .string(item.status.rawValue),
+                "failureReason": .string(item.failureReason ?? "none"),
+                "checkedAt": .string(Self.formatDate(item.checkedAt))
+            ])
+        }
+
+        let recoveryValues = recoveryEvents.map { event in
+            DiagnosticFieldValue.object([
+                "eventType": .string(event.eventType.rawValue),
+                "detectedAt": .string(Self.formatDate(event.detectedAt)),
+                "previousStatus": .string(event.previousStatus.rawValue),
+                "newStatus": .string(event.newStatus.rawValue),
+                "recoveryAction": .string(event.recoveryAction)
+            ])
+        }
+
+        return try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "livePassthrough": .object([
+                    "sessionId": .string(session.sessionId),
+                    "status": .string(session.status.rawValue),
+                    "recordingState": .string(session.recordingState),
+                    "startedAt": .string(session.startedAt.map(Self.formatDate) ?? "none"),
+                    "endedAt": .string(session.endedAt.map(Self.formatDate) ?? "none"),
+                    "lastRecoveryAction": .string(session.lastRecoveryAction ?? "none")
+                ]),
+                "microphonePassthroughPath": .object([
+                    "physicalInputName": .string(session.microphonePath.physicalInputName),
+                    "virtualInputName": .string(session.microphonePath.virtualInputName),
+                    "status": .string(session.microphonePath.status.rawValue),
+                    "validFrameObserved": .bool(session.microphonePath.validFrameObserved),
+                    "failureReason": .string(session.microphonePath.failureReason.rawValue)
+                ]),
+                "speakerPassthroughPath": .object([
+                    "virtualOutputName": .string(session.speakerPath.virtualOutputName),
+                    "physicalOutputName": .string(session.speakerPath.physicalOutputName),
+                    "status": .string(session.speakerPath.status.rawValue),
+                    "stimulusObserved": .bool(session.speakerPath.stimulusObserved),
+                    "failureReason": .string(session.speakerPath.failureReason.rawValue)
+                ]),
+                "passthroughHealth": .object([
+                    "appHeartbeatStatus": .string(session.healthEvidence.appHeartbeatStatus.rawValue),
+                    "latencyMs": .double(session.healthEvidence.latencyMs ?? -1),
+                    "leakageDbBelowReference": .double(session.healthEvidence.leakageDbBelowReference ?? -1),
+                    "notIntelligible": .bool(session.healthEvidence.notIntelligible),
+                    "diagnosticSafe": .bool(session.healthEvidence.diagnosticSafe)
+                ]),
+                "passthroughBrowserEvidence": .array(browserValues),
+                "passthroughRecoveryEvents": .array(recoveryValues),
+                "appHeartbeatStatus": .string(session.healthEvidence.appHeartbeatStatus.rawValue),
+                "routeStatus": .string(session.status.rawValue),
+                "recoveryActionId": .string(session.lastRecoveryAction ?? "none")
+            ],
+            failureFamily: "live_passthrough"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),

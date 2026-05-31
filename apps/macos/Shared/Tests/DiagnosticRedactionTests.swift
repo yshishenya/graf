@@ -72,5 +72,53 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertNil(bundle.manifest["rawAudio"])
         XCTAssertNil(bundle.manifest["transcriptText"])
     }
+
+    func testLivePassthroughBundleKeepsOnlyMetadata() throws {
+        let now = Date(timeIntervalSince1970: 1_779_887_120)
+        let session = LivePassthroughSession(
+            sessionId: "passthrough-1",
+            status: .active,
+            microphonePath: MicrophonePassthroughPath(
+                physicalInputId: "built-in-input",
+                physicalInputName: "MacBook Pro Microphone",
+                status: .ready,
+                validFrameObserved: true
+            ),
+            speakerPath: SpeakerPassthroughPath(
+                physicalOutputId: "built-in-output",
+                physicalOutputName: "MacBook Pro Speakers",
+                status: .ready,
+                stimulusObserved: true
+            ),
+            healthEvidence: PassthroughHealthEvidence(
+                appHeartbeatStatus: .connected,
+                latencyMs: 21,
+                leakageDbBelowReference: 49
+            ),
+            browserEvidence: [
+                PassthroughBrowserCallEvidence(
+                    targetName: "Chrome",
+                    targetVersion: "local",
+                    selectedMicrophone: "2brain Rec Microphone",
+                    selectedSpeaker: "2brain Rec Speaker",
+                    localSpeechUsable: true,
+                    remoteAudioUsable: true,
+                    status: .passed,
+                    checkedAt: now
+                )
+            ],
+            startedAt: now
+        )
+
+        let bundle = try DiagnosticBundleService().buildLivePassthroughBundle(session: session)
+
+        XCTAssertEqual(bundle.redactionState, .redacted)
+        XCTAssertNotNil(bundle.manifest["livePassthrough"])
+        XCTAssertNotNil(bundle.manifest["microphonePassthroughPath"])
+        XCTAssertNotNil(bundle.manifest["speakerPassthroughPath"])
+        XCTAssertNotNil(bundle.manifest["passthroughHealth"])
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+    }
 }
 #endif
