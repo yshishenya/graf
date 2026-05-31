@@ -16,11 +16,22 @@ struct SharedAudioBuffer {
     std::atomic<size_t> speaker_write_idx{0};
     std::atomic<size_t> capture_read_idx{0};
     std::atomic<size_t> capture_write_idx{0};
-    uint8_t _pad[16];
+    std::atomic<uint64_t> app_heartbeat_nanos{0};
+    std::atomic<uint64_t> app_io_state{0};
 
     float mic_buffer[kSharedRingCapacity];
     float speaker_buffer[kSharedRingCapacity];
     float capture_buffer[kSharedRingCapacity];
+
+    struct CounterSnapshot {
+        size_t captured_frame_count;
+        size_t stored_frame_count;
+        size_t retrieved_or_processed_frame_count;
+        size_t dropped_frame_count;
+        size_t empty_buffer_count;
+        uint64_t last_valid_frame_nanos;
+        uint64_t latency_timestamp_nanos;
+    };
 
     bool Write(float* buf, std::atomic<size_t>& w_idx, std::atomic<size_t>& r_idx, const float* src, size_t count) {
         size_t w = w_idx.load(std::memory_order_relaxed);
@@ -51,9 +62,31 @@ struct SharedAudioBuffer {
     size_t SpeakerAvailable() {
         return speaker_write_idx.load(std::memory_order_acquire) - speaker_read_idx.load(std::memory_order_relaxed);
     }
+
+    size_t CaptureAvailable() {
+        return capture_write_idx.load(std::memory_order_acquire) - capture_read_idx.load(std::memory_order_relaxed);
+    }
+
+    CounterSnapshot MicCounterSnapshot() {
+        const size_t written = mic_write_idx.load(std::memory_order_acquire);
+        const size_t read = mic_read_idx.load(std::memory_order_relaxed);
+        return CounterSnapshot{written, written, read, 0, written == read ? 1u : 0u, 0, 0};
+    }
+
+    CounterSnapshot SpeakerCounterSnapshot() {
+        const size_t written = speaker_write_idx.load(std::memory_order_acquire);
+        const size_t read = speaker_read_idx.load(std::memory_order_relaxed);
+        return CounterSnapshot{written, written, read, 0, written == read ? 1u : 0u, 0, 0};
+    }
+
+    CounterSnapshot CaptureCounterSnapshot() {
+        const size_t written = capture_write_idx.load(std::memory_order_acquire);
+        const size_t read = capture_read_idx.load(std::memory_order_relaxed);
+        return CounterSnapshot{written, written, read, 0, written == read ? 1u : 0u, 0, 0};
+    }
 };
 
-static_assert(sizeof(SharedAudioBuffer) == 3 * kSharedRingCapacity * sizeof(float) + 6 * sizeof(std::atomic<size_t>) + 16,
+static_assert(sizeof(SharedAudioBuffer) == 3 * kSharedRingCapacity * sizeof(float) + 6 * sizeof(std::atomic<size_t>) + 2 * sizeof(std::atomic<uint64_t>),
               "Unexpected SharedAudioBuffer layout");
 
 } // namespace TwoBrainRec

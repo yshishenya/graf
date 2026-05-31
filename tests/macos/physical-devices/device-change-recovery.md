@@ -1,4 +1,4 @@
-# Device Change Recovery Scenarios (US3)
+# Device Change Recovery Scenarios (US4)
 
 ## Purpose
 
@@ -22,7 +22,12 @@ Validate recovery from physical device disconnect, Bluetooth profile changes, an
    - Verify route graph and passthrough state reflect actual selection.
    - Verify active-capture stop remains available.
 
+6. Kill or crash the desktop audio engine while 2brain Rec devices are selected.
+   - Verify public devices become hidden or unavailable within 5 seconds.
+   - Verify readiness is stale until app I/O heartbeat and route validation recover.
+
 ## Expected Outcome
 
 - All changes map to distinct recovery families: device disconnect, profile switch, unsupported profile.
 - No automatic silent retry without explicit user action.
+- App I/O loss maps to fail-closed recovery, not fake-ready virtual devices.

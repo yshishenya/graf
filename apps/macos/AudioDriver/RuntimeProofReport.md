@@ -72,6 +72,23 @@ The desktop app now launches locally when Developer Tools Security is enabled fo
 ad-hoc development builds. The installed driver package and both virtual devices
 are visible to macOS.
 
+Interactive runtime probe evidence from 2026-05-31:
+
+```text
+Core Audio devices visible to this user:
+- Микрофон MacBook Pro
+- Динамики MacBook Pro
+- krisp microphone
+- krisp speaker
+- 2brain Rec Microphone
+- 2brain Rec Speaker
+- Многовыходное устройство
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+- 2brain Rec Speaker: FOUND
+Runtime Core Audio publication proof: ACCEPTED
+```
+
 The app must still report **not ready for calls** because real bidirectional
 audio passthrough has not been implemented and verified end to end. Current
 readiness checks are intentionally strict:
@@ -92,6 +109,205 @@ Safety correction added on 2026-05-31:
 - proof devices report that they cannot become the system default device while
   passthrough is pending, so a local install should not steal normal system
   input/output.
+
+## Private App I/O Fail-Closed Attempt (2026-05-31 03:43 MSK)
+
+Status: **NOT ACCEPTED for T059**.
+
+The desktop app process was present before the test (`59877`), the runtime
+publication probe accepted both virtual devices, the app was terminated, and the
+probe was run again after a 6-second wait. The app process was gone, but the
+publication probe still found both public virtual devices:
+
+```text
+=== after kill: app process ===
+=== after kill: runtime probe ===
+Core Audio devices visible to this user:
+- Микрофон MacBook Pro
+- Динамики MacBook Pro
+- krisp microphone
+- krisp speaker
+- 2brain Rec Microphone
+- 2brain Rec Speaker
+- Многовыходное устройство
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+- 2brain Rec Speaker: FOUND
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+After relaunch, the app process returned (`60450`) and the publication probe
+again accepted both devices.
+
+Decision: this attempt records useful lifecycle evidence, but it does **not**
+prove private app I/O fail-closed behavior. Two reasons make it insufficient:
+
+- the command used here proves only Core Audio publication by device name; it
+  does not prove that the driver reports the devices hidden or unavailable when
+  the app engine heartbeat is gone;
+- the locally built package from 2026-05-31 was built but this evidence does not
+  show that the updated package was installed before the kill/relaunch test.
+
+Required follow-up: install the freshly built local package, restart Core Audio,
+then run a fail-closed probe that checks app I/O availability or hidden state,
+not just device-name publication. `T059` remains open until that evidence is
+accepted.
+
+## Private App I/O Fail-Closed Attempt (2026-05-31, Updated Package)
+
+Status: **NOT ACCEPTED for T059**.
+
+The local package was rebuilt, installed successfully with `installer`, and
+`coreaudiod` was restarted. The app was launched and the strengthened runtime
+probe reported both devices as visible, unhidden, and alive:
+
+```text
+=== before kill ===
+71878
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+After terminating the app and waiting 6 seconds, the app process was gone, but
+the strengthened probe still reported both public devices as unhidden:
+
+```text
+=== after kill ===
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+Decision: this confirmed a real fail-closed defect. The installed driver was
+using shared-memory existence as the private app I/O availability signal, so the
+devices stayed public after the desktop app exited. The implementation was
+changed after this attempt so the app writes a shared-memory heartbeat and the
+driver treats app I/O as unavailable when that heartbeat is missing or older
+than 5 seconds.
+
+Required follow-up: rebuild and reinstall the package containing the heartbeat
+fix, then rerun the kill/relaunch proof. `T059` remains open until the post-fix
+probe shows either `MISSING` or `hidden=1` after app termination.
+
+## Private App I/O Fail-Closed Attempt (2026-05-31, Heartbeat Fix)
+
+Status: **NOT ACCEPTED for T059**.
+
+The package containing the shared-memory heartbeat was rebuilt and installed.
+After `coreaudiod` restart, the probe reported both devices as missing even
+before the app was killed:
+
+```text
+=== before kill ===
+- 2brain Rec Microphone: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+- 2brain Rec Speaker: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+Runtime Core Audio publication proof: BLOCKED
+```
+
+After app termination and relaunch the devices remained missing. The app process
+was present after relaunch (`86902`), but the driver still did not republish the
+public devices.
+
+Decision: this attempt confirmed that the fail-closed side is now strict enough,
+but recovery is blocked because the app cannot establish or refresh private app
+I/O. The likely cause is shared-memory permissions: `coreaudiod` creates the
+POSIX shared memory object as root, and umask can leave it not writable by the
+desktop app. The driver was updated after this attempt to call `fchmod(...,
+0666)` immediately after `shm_open`, so the desktop app can write the heartbeat
+needed for recovery.
+
+Required follow-up: rebuild and reinstall the package containing the shared
+memory permission fix, then rerun the same kill/relaunch proof. `T059` remains
+open until the post-fix probe shows devices available before kill, unavailable
+after kill, and available again after relaunch.
+
+## Private App I/O Fail-Closed Attempt (2026-05-31, Permission Fix)
+
+Status: **NOT ACCEPTED for T059**.
+
+The package containing the shared-memory permission fix was rebuilt and
+installed. The app launched (`18251` before kill, `18681` after relaunch), but
+the runtime probe still reported both public devices as missing before kill,
+after kill, and after relaunch:
+
+```text
+- 2brain Rec Microphone: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+- 2brain Rec Speaker: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+Runtime Core Audio publication proof: BLOCKED
+```
+
+Decision: fail-closed was still implemented at the wrong Core Audio boundary.
+The driver removed devices from `kAudioPlugInPropertyDeviceList` when the app
+heartbeat was missing. Core Audio can cache that empty device list and therefore
+cannot reliably recover by observing a later heartbeat. The driver was updated
+after this attempt so `kAudioPlugInPropertyDeviceList` always returns the stable
+virtual device objects, while app I/O availability is expressed through
+`kAudioDevicePropertyIsHidden`. This keeps the objects recoverable and lets the
+probe observe `FOUND hidden=0` before kill, `FOUND hidden=1` or `MISSING` after
+kill, and `FOUND hidden=0` after relaunch.
+
+Required follow-up: rebuild and reinstall the package containing the stable
+device-list fix, then rerun the same kill/relaunch proof. `T059` remains open
+until that post-fix evidence is accepted.
+
+## Private App I/O Fail-Closed Acceptance (2026-05-31 04:16 MSK)
+
+Status: **ACCEPTED for T059**.
+
+The package containing the stable device-list, shared-memory heartbeat, and
+shared-memory permission fixes was installed successfully. `coreaudiod` was
+restarted and the app was launched. Before app termination, both virtual devices
+were published, visible, unhidden, and alive:
+
+```text
+=== before kill ===
+29497
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+After terminating the desktop app and waiting beyond the 5-second heartbeat
+timeout, both public virtual devices were absent from the current Core Audio
+device list:
+
+```text
+=== after kill ===
+- 2brain Rec Microphone: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+- 2brain Rec Speaker: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+Runtime Core Audio publication proof: BLOCKED
+```
+
+After relaunching the app, both virtual devices returned and were again
+unhidden and alive:
+
+```text
+=== after relaunch ===
+30123
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+Decision: private app I/O fail-closed behavior is accepted for this feature
+gate. App-engine loss removes the public devices from normal Core Audio
+publication, and app relaunch restores publication only after the app can write
+a fresh heartbeat into shared memory.
 
 ## Passthrough Prototype Scope (2026-05-28 to 2026-05-31)
 

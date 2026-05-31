@@ -238,6 +238,27 @@ public final class CaptureSessionController {
         return current
     }
 
+    public func makeTrackEvidence(
+        role: AudioTrackRole,
+        sampleRate: Double = 48000,
+        channelLayout: String = "stereo",
+        state: AudioTrackState = .capturing
+    ) throws -> AudioTrack {
+        let current = try requireSession()
+        return AudioTrack(
+            id: idFactory(),
+            sessionId: current.id,
+            role: role,
+            state: state,
+            sampleRate: sampleRate,
+            channelLayout: channelLayout,
+            timebase: "host_time",
+            clockDriftMs: nil,
+            dropoutMarkerIds: [],
+            finalizedAt: nil
+        )
+    }
+
     private func requireSession() throws -> CaptureSession {
         guard let current = session else {
             throw CaptureSessionControllerError.missingSession

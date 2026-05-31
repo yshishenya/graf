@@ -13,6 +13,7 @@
 #include <mach/mach_time.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <ctime>
 
@@ -31,6 +32,7 @@ constexpr UInt32 kPrivateSingleInputSingleOutputSelector = 'siso';
 constexpr UInt32 kPrivateAggregateRelatedSelector = 'aerE';
 constexpr UInt32 kPrivateDataSourceOrderingSelector = 'dsOr';
 constexpr const char* kVerboseTraceFlagPath = "/tmp/2brain-rec-proof-driver.verbose";
+constexpr uint64_t kAppIOHeartbeatTimeoutNanos = 5ULL * 1000ULL * 1000ULL * 1000ULL;
 
 std::atomic<UInt32> gReferenceCount{1};
 AudioServerPlugInHostRef gHost = nullptr;
@@ -254,6 +256,26 @@ bool HasObject(AudioObjectID object_id) {
     return object_id == kPlugInObject || IsDevice(object_id) || IsStream(object_id);
 }
 
+bool PrivateAppIOAvailable() {
+    if (gShared == nullptr) {
+        return false;
+    }
+    if (gShared->app_io_state.load(std::memory_order_acquire) == 0) {
+        return false;
+    }
+
+    const uint64_t heartbeat = gShared->app_heartbeat_nanos.load(std::memory_order_acquire);
+    if (heartbeat == 0) {
+        return false;
+    }
+
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const uint64_t now_nanos = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now).count()
+    );
+    return now_nanos >= heartbeat && (now_nanos - heartbeat) <= kAppIOHeartbeatTimeoutNanos;
+}
+
 bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddress* address) {
     if (!HasObject(object_id) || address == nullptr) {
         return false;
@@ -386,6 +408,7 @@ OSStatus Initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef in_host
         Trace("Initialize: shm_open failed");
         return kAudioHardwareUnspecifiedError;
     }
+    fchmod(gShmFD, 0666);
 
     // Check if we created it (file size will be 0 on fresh creation)
     struct stat st;
@@ -635,7 +658,7 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.rec.proof.driver"));
     case kAudioPlugInPropertyResourceBundle:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("."));
-    case kAudioPlugInPropertyDeviceList: {
+    case kAudioPlugInPropertyDeviceList:
         return WriteObjectList(
             in_data_size,
             out_data_size,
@@ -643,7 +666,6 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
             TwoBrainRec::AudioDriver::VirtualDeviceObjectIDs(),
             TwoBrainRec::AudioDriver::VirtualDeviceCount()
         );
-    }
     case kAudioPlugInPropertyBoxList:
         return WriteEmptyList(out_data_size);
     case kAudioPlugInPropertyTranslateUIDToDevice: {
@@ -683,8 +705,9 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
     case kAudioDevicePropertyLatency:
     case kAudioDevicePropertySafetyOffset:
-    case kAudioDevicePropertyIsHidden:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
+    case kAudioDevicePropertyIsHidden:
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(PrivateAppIOAvailable() ? 0 : 1));
     case kAudioDevicePropertyStreams:
         if (DeviceStreamCount(in_object_id, in_address->mScope) == 0) {
             return WriteEmptyList(out_data_size);

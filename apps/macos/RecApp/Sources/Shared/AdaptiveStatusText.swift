@@ -113,6 +113,10 @@ public extension AdaptiveStatusText {
             return "Degraded"
         case .failed:
             return "Failed"
+        case .appIOMissing:
+            return "App audio route unavailable"
+        case .latencyExceeded:
+            return "Latency limit exceeded"
         case .mutedByPhysicalDevice:
             return "Physical device muted"
         case .physicalDeviceMissing:

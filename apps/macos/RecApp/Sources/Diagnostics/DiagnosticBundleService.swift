@@ -58,6 +58,31 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildTrackEvidenceBundle(
+        sessionId: String,
+        tracks: [AudioTrack],
+        streamHealth: [StreamHealthEvidence] = []
+    ) throws -> DiagnosticBundle {
+        var manifest: [String: DiagnosticFieldValue] = [
+            "sessionId": .string(sessionId),
+            "trackCount": .int(tracks.count),
+            "trackRoles": .array(tracks.map { .string($0.role.rawValue) }),
+            "trackStates": .array(tracks.map { .string($0.state.rawValue) }),
+            "hardFailureCount": .int(streamHealth.filter(\.hardFailure).count)
+        ]
+
+        let emptyBuffers = streamHealth.reduce(UInt64(0)) { $0 + $1.emptyBufferCount }
+        let droppedFrames = streamHealth.reduce(UInt64(0)) { $0 + $1.droppedFrameCount }
+        manifest["emptyBufferCount"] = .int(Int(emptyBuffers))
+        manifest["droppedFrameCount"] = .int(Int(droppedFrames))
+
+        return try buildBundle(
+            schemaVersion: "1",
+            manifest: manifest,
+            failureFamily: "track_evidence"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),

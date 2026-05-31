@@ -20,10 +20,25 @@ produced by the driver/app stack.
 
 | Target | US2 Status | Required Evidence |
 |---|---|---|
-| Chrome browser meetings | Planned | 30-minute call, separate local/remote tracks, no-loopback harness pass |
-| Opera browser meetings | Planned | 30-minute call, separate local/remote tracks, no-loopback harness pass |
-| Yandex Browser meetings | Planned | 30-minute call, separate local/remote tracks, no-loopback harness pass |
-| Yandex Telemost in browser | Planned after QA | 30-minute call, separate local/remote tracks, no-loopback harness pass |
+| Chrome browser meetings | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
+| Opera browser meetings | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
+| Yandex Browser meetings | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
+| Yandex Telemost in browser | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
+
+## Evidence Recorded 2026-05-31
+
+Backend/network outage synthetic coverage was executed:
+
+```text
+passthrough-outage-check: ACCEPTED
+```
+
+Real browser meeting validation was not accepted for this feature state. The app
+correctly remains `not ready for calls yet` until real bidirectional
+passthrough, manual capture, and separate local/remote capture artifacts are
+implemented and accepted. Running a browser meeting now would only prove browser
+device selection against publication, not the required US2 track separation,
+leakage, latency, or finalization behavior.
 
 ## Per-Target Steps
 

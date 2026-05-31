@@ -20,6 +20,7 @@ public enum VirtualDeviceAvailabilityState: String, Codable, Sendable {
     case installed
     case available
     case unavailable
+    case hidden
     case incompatible
     case requiresRestart = "requires_restart"
 }
@@ -46,6 +47,9 @@ public enum RouteValidationType: String, Codable, Sendable {
     case browserMeeting = "browser_meeting"
     case testRecording = "test_recording"
     case testPlayback = "test_playback"
+    case appIOHeartbeat = "app_io_heartbeat"
+    case latencyProbe = "latency_probe"
+    case bluetoothPilot = "bluetooth_pilot"
 }
 
 public enum RouteVerificationStatus: String, Codable, Sendable {
@@ -150,8 +154,32 @@ public enum PassthroughStatus: String, Codable, Sendable {
     case healthy
     case degraded
     case failed
+    case appIOMissing = "app_io_missing"
+    case latencyExceeded = "latency_exceeded"
     case mutedByPhysicalDevice = "muted_by_physical_device"
     case physicalDeviceMissing = "physical_device_missing"
+    case unknown
+}
+
+public enum AppIOState: String, Codable, Sendable {
+    case unavailable
+    case waitingForApp = "waiting_for_app"
+    case connected
+    case heartbeatLost = "heartbeat_lost"
+    case recovering
+}
+
+public enum CapturabilityStatus: String, Codable, Sendable {
+    case capturable
+    case notCapturable = "not_capturable"
+    case unknown
+}
+
+public enum BluetoothProfileState: String, Codable, Sendable {
+    case stable
+    case switching
+    case oneSidedAudio = "one_sided_audio"
+    case unsupported
     case unknown
 }
 

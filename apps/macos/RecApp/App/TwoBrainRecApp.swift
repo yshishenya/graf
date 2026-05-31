@@ -5,6 +5,7 @@ import TwoBrainRecShared
 
 @main
 struct TwoBrainRecApp: App {
+    @StateObject private var appIOHeartbeat = AppIOHeartbeatService()
     @State private var snapshot = LocalAudioSnapshot.current()
     @State private var isChecking = false
 
@@ -29,6 +30,24 @@ struct TwoBrainRecApp: App {
             .frame(minWidth: 720, minHeight: 620)
         }
         .windowResizability(.contentMinSize)
+    }
+}
+
+private final class AppIOHeartbeatService: ObservableObject, @unchecked Sendable {
+    private let sharedMemory: SharedAudioMemory?
+    private var timer: Timer?
+
+    init() {
+        sharedMemory = SharedAudioMemory()
+        sharedMemory?.writeAppHeartbeat()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.sharedMemory?.writeAppHeartbeat()
+        }
+    }
+
+    deinit {
+        timer?.invalidate()
+        sharedMemory?.clearAppHeartbeat()
     }
 }
 

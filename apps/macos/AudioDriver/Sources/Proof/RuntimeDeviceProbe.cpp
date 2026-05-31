@@ -11,6 +11,17 @@ constexpr AudioObjectPropertyElement kMainElement = 0;
 constexpr const char* kExpectedMicrophone = "2brain Rec Microphone";
 constexpr const char* kExpectedSpeaker = "2brain Rec Speaker";
 
+struct ExpectedDeviceState {
+    std::string name;
+    bool found = false;
+    bool hidden = false;
+    bool hidden_read = false;
+    bool alive = false;
+    bool alive_read = false;
+    bool running = false;
+    bool running_read = false;
+};
+
 std::string StatusToString(OSStatus status) {
     return std::to_string(static_cast<int>(status));
 }
@@ -94,6 +105,62 @@ std::string GetDeviceName(AudioDeviceID device_id) {
     return std::string(buffer);
 }
 
+bool ReadUInt32Property(
+    AudioDeviceID device_id,
+    AudioObjectPropertySelector selector,
+    UInt32* value
+) {
+    AudioObjectPropertyAddress address{
+        selector,
+        kAudioObjectPropertyScopeGlobal,
+        kMainElement
+    };
+
+    UInt32 byte_count = sizeof(*value);
+    const OSStatus status = AudioObjectGetPropertyData(
+        device_id,
+        &address,
+        0,
+        nullptr,
+        &byte_count,
+        value
+    );
+    return status == noErr && byte_count == sizeof(*value);
+}
+
+void CaptureExpectedState(
+    AudioDeviceID device_id,
+    const std::string& name,
+    ExpectedDeviceState* state
+) {
+    if (state == nullptr || name != state->name) {
+        return;
+    }
+
+    state->found = true;
+
+    UInt32 value = 0;
+    if (ReadUInt32Property(device_id, kAudioDevicePropertyIsHidden, &value)) {
+        state->hidden_read = true;
+        state->hidden = value != 0;
+    }
+    if (ReadUInt32Property(device_id, kAudioDevicePropertyDeviceIsAlive, &value)) {
+        state->alive_read = true;
+        state->alive = value != 0;
+    }
+    if (ReadUInt32Property(device_id, kAudioDevicePropertyDeviceIsRunning, &value)) {
+        state->running_read = true;
+        state->running = value != 0;
+    }
+}
+
+std::string TriState(bool read, bool value) {
+    if (!read) {
+        return "unreadable";
+    }
+    return value ? "1" : "0";
+}
+
 }  // namespace
 
 int main() {
@@ -102,27 +169,29 @@ int main() {
         return 1;
     }
 
-    bool microphone_found = false;
-    bool speaker_found = false;
+    ExpectedDeviceState microphone{kExpectedMicrophone};
+    ExpectedDeviceState speaker{kExpectedSpeaker};
 
     std::cout << "Core Audio devices visible to this user:\n";
     for (const AudioDeviceID device_id : devices) {
         const std::string name = GetDeviceName(device_id);
         std::cout << "- " << name << "\n";
 
-        if (name == kExpectedMicrophone) {
-            microphone_found = true;
-        }
-        if (name == kExpectedSpeaker) {
-            speaker_found = true;
-        }
+        CaptureExpectedState(device_id, name, &microphone);
+        CaptureExpectedState(device_id, name, &speaker);
     }
 
     std::cout << "Expected device visibility:\n";
-    std::cout << "- " << kExpectedMicrophone << ": " << (microphone_found ? "FOUND" : "MISSING") << "\n";
-    std::cout << "- " << kExpectedSpeaker << ": " << (speaker_found ? "FOUND" : "MISSING") << "\n";
+    std::cout << "- " << kExpectedMicrophone << ": " << (microphone.found ? "FOUND" : "MISSING") << "\n";
+    std::cout << "  hidden=" << TriState(microphone.hidden_read, microphone.hidden)
+              << " alive=" << TriState(microphone.alive_read, microphone.alive)
+              << " running=" << TriState(microphone.running_read, microphone.running) << "\n";
+    std::cout << "- " << kExpectedSpeaker << ": " << (speaker.found ? "FOUND" : "MISSING") << "\n";
+    std::cout << "  hidden=" << TriState(speaker.hidden_read, speaker.hidden)
+              << " alive=" << TriState(speaker.alive_read, speaker.alive)
+              << " running=" << TriState(speaker.running_read, speaker.running) << "\n";
 
-    if (!microphone_found || !speaker_found) {
+    if (!microphone.found || !speaker.found) {
         std::cerr << "Runtime Core Audio publication proof: BLOCKED\n";
         return 2;
     }

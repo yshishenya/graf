@@ -14,17 +14,19 @@ let remoteSpeaker = sineWave(frequency: 1_000, frameCount: frameCount, sampleRat
 let virtualMicCapture = localMic
 let remoteCorrelation = normalizedCorrelation(virtualMicCapture, remoteSpeaker)
 let localCorrelation = normalizedCorrelation(virtualMicCapture, localMic)
+let remoteLeakageDb = leakageDb(fromCorrelation: remoteCorrelation)
 
 print("No-loopback synthetic route check:")
 print("- local mic correlation: \(format(localCorrelation))")
 print("- remote-to-mic correlation: \(format(remoteCorrelation))")
+print("- remote-to-mic leakage dB: \(format(remoteLeakageDb))")
 
 guard localCorrelation > 0.98 else {
     fail("Virtual microphone path does not preserve the local microphone signal.")
 }
 
-guard abs(remoteCorrelation) < 0.02 else {
-    fail("Remote speaker signal leaked into the virtual microphone path.")
+guard remoteLeakageDb <= -45 else {
+    fail("Remote speaker leakage must remain at least 45 dB below the speaker reference.")
 }
 
 print("No-loopback synthetic route check: ACCEPTED")
@@ -62,6 +64,11 @@ func normalizedCorrelation(_ lhs: [StereoFrame], _ rhs: [StereoFrame]) -> Double
 
 func format(_ value: Double) -> String {
     String(format: "%.6f", value)
+}
+
+func leakageDb(fromCorrelation correlation: Double) -> Double {
+    let magnitude = max(abs(correlation), 0.000_001)
+    return 20.0 * log10(magnitude)
 }
 
 func fail(_ message: String) -> Never {

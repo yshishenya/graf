@@ -10,6 +10,7 @@ public enum AudioEnvironmentChange: String, Codable, Sendable, Hashable {
     case passthroughChanged
     case bufferRiskChanged
     case deviceChanged
+    case bluetoothProfileChanged
     case activeMeetingContextChanged
     case unsupportedTargetAdded
 }
@@ -29,6 +30,7 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
     public var activeBrowserName: String?
     public var activeMeetingTitle: String?
     public var unsupportedTargets: [String]
+    public var bluetoothRouteEvidence: BluetoothRouteEvidence?
 
     public init(
         driverState: DriverInstallationState,
@@ -44,7 +46,8 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
         bufferRisk: LocalBufferRiskState,
         activeBrowserName: String? = nil,
         activeMeetingTitle: String? = nil,
-        unsupportedTargets: [String] = []
+        unsupportedTargets: [String] = [],
+        bluetoothRouteEvidence: BluetoothRouteEvidence? = nil
     ) {
         self.driverState = driverState
         self.virtualMicState = virtualMicState
@@ -60,6 +63,7 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
         self.activeBrowserName = activeBrowserName
         self.activeMeetingTitle = activeMeetingTitle
         self.unsupportedTargets = unsupportedTargets
+        self.bluetoothRouteEvidence = bluetoothRouteEvidence
     }
 }
 
@@ -165,6 +169,10 @@ public final class AudioEnvironmentMonitor {
             result.append(.deviceChanged)
         }
 
+        if previous.bluetoothRouteEvidence != current.bluetoothRouteEvidence {
+            result.append(.bluetoothProfileChanged)
+        }
+
         if previous.activeBrowserName != current.activeBrowserName ||
             previous.activeMeetingTitle != current.activeMeetingTitle {
             result.append(.activeMeetingContextChanged)
@@ -203,6 +211,9 @@ public final class AudioEnvironmentMonitor {
         }
         if snapshot.passthroughStatus == .mutedByPhysicalDevice {
             actions.append("Select a working output speaker profile")
+        }
+        if let bluetoothEvidence = snapshot.bluetoothRouteEvidence {
+            actions.append(contentsOf: BluetoothRoutePolicy().recoveryActions(for: bluetoothEvidence))
         }
         if snapshot.bufferRisk == .mustDegradeOrStop || snapshot.bufferRisk == .critical {
             actions.append("Pause or stop capture and reduce local cache pressure")

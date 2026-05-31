@@ -1,7 +1,37 @@
 # macOS Release Candidate Checklist (MVP)
 
+## Validation Log (2026-05-31 04:16 MSK)
+
+- [x] Updated local package installed with admin privileges: `installer`
+  reported `The upgrade was successful`.
+- [x] `coreaudiod` restarted after package installation.
+- [x] Runtime probe before app kill: `2brain Rec Microphone` and
+  `2brain Rec Speaker` were `FOUND hidden=0 alive=1`.
+- [x] Runtime probe after app kill and heartbeat timeout: both public virtual
+  devices were absent from the current Core Audio device list.
+- [x] Runtime probe after app relaunch: both public virtual devices returned as
+  `FOUND hidden=0 alive=1`.
+- [x] Private app I/O fail-closed validation accepted in
+  `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [x] Backend/network outage synthetic check executed:
+  `swift tests/macos/route-synthetic/passthrough-outage-check.swift` returned
+  `passthrough-outage-check: ACCEPTED`.
+- [x] Browser meeting matrix evidence recorded as blocked/not accepted for this
+  feature state because the app truthfully remains `not ready for calls yet`
+  until real bidirectional passthrough and capture artifacts exist.
+- [x] Bluetooth/AirPods managed-route pilot evidence recorded as blocked/not
+  accepted for this feature state because no Bluetooth headset route is
+  currently connected and real passthrough/capture is not accepted.
+
 ## Validation Log (2026-05-31)
 
+- [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp` executed after live passthrough task expansion: PASS.
+- [x] `swift test --package-path apps/macos` executed after live passthrough task expansion: PASS.
+- [x] `make -C apps/macos/AudioDriver proof-plugin-build` executed after private app I/O/fail-closed updates: PASS.
+- [x] `sh apps/macos/Scripts/validate-foundation.sh` executed: `ContractValidation: PASS`, `AudioDriver proof scaffold: PASS`.
+- [x] `sh apps/macos/Scripts/validate-live-passthrough-foundation.sh` executed: PASS.
+- [x] Synthetic checks executed: no-loopback `-120 dB`, app I/O fail-closed, latency, backend outage, debug clip cleanup, and track integrity all accepted.
+- [x] Secret/raw-content scan executed; matches were policy text or deliberate forbidden-field fixtures, not committed credentials or raw audio artifacts.
 - [x] Local Developer Tools Security recovery executed: app launches from `/Applications/2brain Rec.app` in local ad-hoc development mode.
 - [x] Local installer build executed: `sh apps/macos/Installer/Scripts/build-local-installer.sh` created `apps/macos/.build/installer/2brain-rec-local.pkg`.
 - [x] App UI confirms the driver package is installed and both virtual devices are visible in macOS.
@@ -10,11 +40,18 @@
 - [x] `swift test --package-path apps/macos` executed: PASS.
 - [x] `make -C apps/macos/AudioDriver proof-plugin-build` executed after safety correction: PASS.
 - [x] `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh` executed in packaging-only shell validation: PASS.
-- [ ] Updated proof driver not installed/restarted from this agent shell because admin `sudo` is unavailable in the Codex execution environment.
-- [ ] CLI runtime probe in this shell currently returns an empty Core Audio device list; rerun from the user's interactive Terminal after installing the updated proof driver.
+- [x] Updated proof driver installed/restarted with admin privileges on
+  2026-05-31 04:16 MSK; earlier sudo limitation is superseded.
+- [x] CLI runtime probe from this shell now sees both virtual devices while the
+  app heartbeat is alive.
 - [ ] Real microphone-to-virtual-microphone passthrough not accepted.
 - [ ] Real virtual-speaker-to-physical-speaker passthrough not accepted.
-- [ ] Browser meeting end-to-end validation not run.
+- [x] Private app I/O fail-closed validation accepted for app kill/relaunch.
+- [x] Built-in/wired `<=30 ms` added route latency validation accepted in
+  synthetic harness.
+- [ ] Remote speaker leakage `<= -45 dB` against speaker reference not run in a real browser meeting.
+- [ ] Browser meeting end-to-end validation blocked by current product gate:
+  real passthrough/capture is not accepted.
 - [ ] Separate local/remote track capture not accepted.
 
 ## Validation Log (2026-05-27)
@@ -58,8 +95,11 @@
 - [ ] Wired tracks alignment for 60-minute calls remains under **100 ms**
 - [ ] Wired track dropouts stay below **0.1%**
 - [ ] Bluetooth/AirPods-class track dropouts stay below **0.5%**
-- [x] Local-to-remote loopback remains below **-35 dB** in synthetic check
-- [ ] Local-to-remote loopback remains below **-35 dB** in a real browser meeting
+- [x] Remote speaker leakage remains below **-45 dB** in synthetic check
+- [ ] Remote speaker leakage remains below **-45 dB** in a real browser meeting
+- [x] Private app I/O loss hides or makes public devices unavailable within 5 seconds
+- [x] Built-in/wired added route latency stays at or below **30 ms** in
+  synthetic validation
 - [ ] Remote meeting audio does not appear in microphone track
 - [ ] Server/network outage for 5 minutes does not stop passthrough
 - [ ] Missing-track finalization marks session as degraded before finalization event
@@ -94,12 +134,16 @@
 - Wired alignment threshold: **≤ 100 ms**
 - Wired dropout threshold: **≤ 0.1 %**
 - Bluetooth/AirPods dropout threshold: **≤ 0.5 %**
-- Loopback signal correlation target: `remote_to_mic <= -35 dB`
+- Loopback signal correlation target: `remote_to_mic <= -45 dB`
+- Built-in/wired added route latency threshold: `<= 30 ms`
 - Local buffer warning: policy warning fraction / critical fraction and reserve policy must prevent silent loss
 - Disk reserve safety: stop capture or degrade before reserve is breached
 
 ## Known Deviation Log
 
 - [x] 2026-05-31: Current build is a driver publication and readiness UI build, not a production passthrough build. The expected app state is `not ready for calls yet`.
+- [x] 2026-05-31 04:16 MSK: App I/O fail-closed proof is accepted, but browser
+  and Bluetooth release-candidate checks remain blocked by the larger real
+  passthrough/capture gate.
 - [ ] Fill remaining observations with run date + artifact reference before release
 - [ ] Update this checklist after each quickstart run

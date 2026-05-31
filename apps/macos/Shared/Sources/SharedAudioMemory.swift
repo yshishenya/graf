@@ -6,6 +6,41 @@ public let kSharedRingCapacity = 16384
 
 public final class SharedAudioMemory {
 
+    public struct AvailabilitySnapshot: Codable, Equatable, Sendable {
+        public var micAvailableFrames: UInt64
+        public var speakerAvailableFrames: UInt64
+        public var captureAvailableFrames: UInt64
+        public var checkedAt: Date
+    }
+
+    public struct StreamCounterSnapshot: Codable, Equatable, Sendable {
+        public var capturedFrameCount: UInt64
+        public var storedFrameCount: UInt64
+        public var retrievedOrProcessedFrameCount: UInt64
+        public var droppedFrameCount: UInt64
+        public var emptyBufferCount: UInt64
+        public var lastValidFrameAt: Date?
+        public var latencyTimestampNanos: UInt64?
+
+        public init(
+            capturedFrameCount: UInt64,
+            storedFrameCount: UInt64,
+            retrievedOrProcessedFrameCount: UInt64,
+            droppedFrameCount: UInt64,
+            emptyBufferCount: UInt64,
+            lastValidFrameAt: Date?,
+            latencyTimestampNanos: UInt64?
+        ) {
+            self.capturedFrameCount = capturedFrameCount
+            self.storedFrameCount = storedFrameCount
+            self.retrievedOrProcessedFrameCount = retrievedOrProcessedFrameCount
+            self.droppedFrameCount = droppedFrameCount
+            self.emptyBufferCount = emptyBufferCount
+            self.lastValidFrameAt = lastValidFrameAt
+            self.latencyTimestampNanos = latencyTimestampNanos
+        }
+    }
+
     public struct Layout {
         public let micReadIdx: UnsafeMutablePointer<UInt64>
         public let micWriteIdx: UnsafeMutablePointer<UInt64>
@@ -13,6 +48,8 @@ public final class SharedAudioMemory {
         public let speakerWriteIdx: UnsafeMutablePointer<UInt64>
         public let captureReadIdx: UnsafeMutablePointer<UInt64>
         public let captureWriteIdx: UnsafeMutablePointer<UInt64>
+        public let appHeartbeatNanos: UnsafeMutablePointer<UInt64>
+        public let appIOState: UnsafeMutablePointer<UInt64>
         public let micBuffer: UnsafeMutablePointer<Float>
         public let speakerBuffer: UnsafeMutablePointer<Float>
         public let captureBuffer: UnsafeMutablePointer<Float>
@@ -25,7 +62,8 @@ public final class SharedAudioMemory {
             speakerWriteIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             captureReadIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             captureWriteIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
-            offset += 16
+            appHeartbeatNanos = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            appIOState = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             micBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
             speakerBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
             captureBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self)
@@ -130,5 +168,52 @@ public final class SharedAudioMemory {
     public func captureAvailable() -> UInt64 {
         OSMemoryBarrier()
         return layout.captureWriteIdx.pointee - layout.captureReadIdx.pointee
+    }
+
+    public func availabilitySnapshot(checkedAt: Date = Date()) -> AvailabilitySnapshot {
+        AvailabilitySnapshot(
+            micAvailableFrames: micAvailable(),
+            speakerAvailableFrames: speakerAvailable(),
+            captureAvailableFrames: captureAvailable(),
+            checkedAt: checkedAt
+        )
+    }
+
+    public func writeAppHeartbeat(at date: Date = Date()) {
+        let nanos = UInt64(max(date.timeIntervalSince1970, 0) * 1_000_000_000)
+        OSMemoryBarrier()
+        layout.appHeartbeatNanos.pointee = nanos
+        layout.appIOState.pointee = 1
+        OSMemoryBarrier()
+    }
+
+    public func clearAppHeartbeat() {
+        OSMemoryBarrier()
+        layout.appIOState.pointee = 0
+        layout.appHeartbeatNanos.pointee = 0
+        OSMemoryBarrier()
+    }
+
+    public static func streamHealthEvidence(
+        track: AudioTrackRole,
+        snapshot: StreamCounterSnapshot,
+        checkedAt: Date,
+        healthIntervalMs: Int = 3000
+    ) -> StreamHealthEvidence {
+        let hasValidFrames = snapshot.capturedFrameCount > 0
+            || snapshot.storedFrameCount > 0
+            || snapshot.retrievedOrProcessedFrameCount > 0
+        return StreamHealthEvidence(
+            track: track,
+            checkedAt: checkedAt,
+            healthIntervalMs: healthIntervalMs,
+            capturabilityStatus: hasValidFrames ? .capturable : .notCapturable,
+            validFrameCount: snapshot.retrievedOrProcessedFrameCount,
+            emptyBufferCount: snapshot.emptyBufferCount,
+            droppedFrameCount: snapshot.droppedFrameCount,
+            lastValidFrameAt: snapshot.lastValidFrameAt,
+            hardFailure: !hasValidFrames,
+            warningWindowMs: 30000
+        )
     }
 }

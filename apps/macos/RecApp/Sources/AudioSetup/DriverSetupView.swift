@@ -104,6 +104,8 @@ public struct DriverSetupView: View {
             return "Restart Core Audio"
         case .missing:
             return "Missing"
+        case .hidden:
+            return "Hidden until app route recovers"
         case .unavailable:
             return "Unavailable"
         case .incompatible:
@@ -130,7 +132,7 @@ public struct DriverSetupView: View {
             "checkmark.circle.fill"
         case .installed, .requiresRestart:
             "arrow.clockwise.circle"
-        case .missing, .unavailable, .incompatible:
+        case .missing, .hidden, .unavailable, .incompatible:
             "exclamationmark.circle.fill"
         }
     }

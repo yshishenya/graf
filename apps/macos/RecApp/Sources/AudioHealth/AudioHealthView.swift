@@ -133,7 +133,7 @@ public struct AudioHealthView: View {
             return "checkmark.circle.fill"
         case .degraded:
             return "exclamationmark.triangle.fill"
-        case .failed, .mutedByPhysicalDevice, .physicalDeviceMissing:
+        case .failed, .appIOMissing, .latencyExceeded, .mutedByPhysicalDevice, .physicalDeviceMissing:
             return "xmark.octagon.fill"
         case .unknown:
             return "questionmark.circle"
@@ -204,6 +204,8 @@ public struct AudioHealthView: View {
             return "\(name) · restart Core Audio"
         case .missing:
             return "\(name) · missing"
+        case .hidden:
+            return "\(name) · hidden until app route recovers"
         case .installed:
             return "\(name) · installed"
         case .unavailable:

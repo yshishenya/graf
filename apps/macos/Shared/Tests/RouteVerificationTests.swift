@@ -221,6 +221,48 @@ final class RouteVerificationTests: XCTestCase {
         XCTAssertTrue(passingSnapshot.canShowReady)
     }
 
+    func testStreamHealthDoesNotTreatNaturalSilenceAsFailureWhenFramesAreValid() {
+        let snapshot = SharedAudioMemory.StreamCounterSnapshot(
+            capturedFrameCount: 48000,
+            storedFrameCount: 48000,
+            retrievedOrProcessedFrameCount: 48000,
+            droppedFrameCount: 0,
+            emptyBufferCount: 0,
+            lastValidFrameAt: fixedClock(),
+            latencyTimestampNanos: nil
+        )
+
+        let evidence = SharedAudioMemory.streamHealthEvidence(
+            track: .localMic,
+            snapshot: snapshot,
+            checkedAt: fixedClock()
+        )
+
+        XCTAssertEqual(evidence.capturabilityStatus, .capturable)
+        XCTAssertFalse(evidence.hardFailure)
+    }
+
+    func testStreamHealthFailsWhenNoValidFramesArrive() {
+        let snapshot = SharedAudioMemory.StreamCounterSnapshot(
+            capturedFrameCount: 0,
+            storedFrameCount: 0,
+            retrievedOrProcessedFrameCount: 0,
+            droppedFrameCount: 0,
+            emptyBufferCount: 1,
+            lastValidFrameAt: nil,
+            latencyTimestampNanos: nil
+        )
+
+        let evidence = SharedAudioMemory.streamHealthEvidence(
+            track: .remoteSpeaker,
+            snapshot: snapshot,
+            checkedAt: fixedClock()
+        )
+
+        XCTAssertEqual(evidence.capturabilityStatus, .notCapturable)
+        XCTAssertTrue(evidence.hardFailure)
+    }
+
     private func allowsTransition(from: RouteVerificationStatus, to: RouteVerificationStatus) -> Bool {
         switch (from, to) {
         case (.notStarted, .running),

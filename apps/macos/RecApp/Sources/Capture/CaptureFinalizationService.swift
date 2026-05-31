@@ -5,6 +5,7 @@ public struct CaptureTrackFinalizationResult: Sendable {
     public let session: CaptureSession
     public let finalizedTracks: [AudioTrack]
     public let missingRoles: Set<AudioTrackRole>
+    public let degradedRoles: Set<AudioTrackRole>
     public let requiresReview: Bool
 }
 
@@ -25,7 +26,11 @@ public final class CaptureFinalizationService {
         self.requiredRolesByMode = requiredRolesByMode
     }
 
-    public func finalize(session: CaptureSession, tracks: [AudioTrack]) -> CaptureTrackFinalizationResult {
+    public func finalize(
+        session: CaptureSession,
+        tracks: [AudioTrack],
+        streamHealth: [StreamHealthEvidence] = []
+    ) -> CaptureTrackFinalizationResult {
         let requiredRoles = requiredRolesByMode[session.mode] ?? [.localMic, .remoteSpeaker]
         let finalizeAt = clock()
 
@@ -37,6 +42,11 @@ public final class CaptureFinalizationService {
                 .map { $0.role }
         )
         let missingRoles = requiredRoles.subtracting(presentRoles)
+        let degradedRoles = Set(
+            streamHealth
+                .filter { requiredRoles.contains($0.track) && $0.hardFailure }
+                .map(\.track)
+        )
 
         var updatedTracks: [AudioTrack] = tracks
 
@@ -44,7 +54,11 @@ public final class CaptureFinalizationService {
             var track = updatedTracks[index]
             switch track.state {
             case .pending, .capturing, .degraded:
-                track.state = requiredRoles.contains(track.role) ? .finalized : track.state
+                if degradedRoles.contains(track.role) {
+                    track.state = .degraded
+                } else {
+                    track.state = requiredRoles.contains(track.role) ? .finalized : track.state
+                }
             case .missing, .finalized:
                 break
             }
@@ -52,7 +66,7 @@ public final class CaptureFinalizationService {
             updatedTracks[index] = track
         }
 
-        if !missingRoles.isEmpty {
+        if !missingRoles.isEmpty || !degradedRoles.isEmpty {
             current.state = .degraded
             current.visibleIndicatorState = .degraded
             current.stopActionAvailable = false
@@ -66,7 +80,8 @@ public final class CaptureFinalizationService {
             session: current,
             finalizedTracks: updatedTracks,
             missingRoles: missingRoles,
-            requiresReview: !missingRoles.isEmpty
+            degradedRoles: degradedRoles,
+            requiresReview: !missingRoles.isEmpty || !degradedRoles.isEmpty
         )
     }
 

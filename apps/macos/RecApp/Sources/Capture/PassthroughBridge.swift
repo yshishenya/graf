@@ -24,6 +24,7 @@ public final class PassthroughBridge {
     fileprivate var micAU: AudioComponentInstance?
     fileprivate var speakerAU: AudioComponentInstance?
     private var isRunning = false
+    private var lastHeartbeatAt: Date?
     private let queue = DispatchQueue(label: "com.2brainrec.passthrough", qos: .userInitiated)
 
     public init() throws {
@@ -68,6 +69,8 @@ public final class PassthroughBridge {
                 bridgeLog("start: speaker AU started")
 
                 isRunning = true
+                lastHeartbeatAt = Date()
+                shm.writeAppHeartbeat(at: lastHeartbeatAt!)
                 bridgeLog("start: OK, experimental bridge started")
             } catch {
                 bridgeLog("start: error: \(error)")
@@ -86,11 +89,22 @@ public final class PassthroughBridge {
             if let au = speakerAU { AudioOutputUnitStop(au); bridgeLog("stop: speaker stopped") }
             cleanupAudioUnits()
             isRunning = false
+            lastHeartbeatAt = nil
+            shm.clearAppHeartbeat()
             bridgeLog("stop: OK")
         }
     }
 
     public var passthroughActive: Bool { isRunning }
+
+    public func appIOHealth(now: Date = Date()) -> PrivateAppIOHealth {
+        AppIOHealthPolicy().evaluate(lastHeartbeatAt: lastHeartbeatAt, now: now)
+    }
+
+    fileprivate func recordAppIOHeartbeat(at date: Date = Date()) {
+        lastHeartbeatAt = date
+        shm.writeAppHeartbeat(at: date)
+    }
 
     private func cleanupAudioUnits() {
         if let au = micAU { AudioComponentInstanceDispose(au); micAU = nil; bridgeLog("cleanup: mic disposed") }
@@ -306,6 +320,7 @@ private let micInputCallback: AURenderCallback = { (inRefCon, ioActionFlags, inT
     if !ok {
         bridgeLog("micCB: writeMic failed (buffer full)")
     }
+    bridge.recordAppIOHeartbeat()
     return noErr
 }
 
@@ -318,6 +333,9 @@ private let speakerRenderCallback: AURenderCallback = { (inRefCon, ioActionFlags
     var temp = [Float](repeating: 0, count: frameCount * 2)
 
     let read = bridge.shm.readSpeaker(dst: &temp, count: frameCount * 2)
+    if read > 0 {
+        bridge.recordAppIOHeartbeat()
+    }
 
     let abl = UnsafeMutableAudioBufferListPointer(ioData)
     if abl.count == 1 {
