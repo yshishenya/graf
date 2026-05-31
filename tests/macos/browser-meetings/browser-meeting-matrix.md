@@ -20,10 +20,10 @@ produced by the driver/app stack.
 
 | Target | US2 Status | Required Evidence |
 |---|---|---|
-| Chrome browser meetings | Pending 003 evidence | Ready state before join, `2brain Rec Microphone` selected, `2brain Rec Speaker` selected, local speech usable, remote audio usable |
-| Opera browser meetings | Pending 003 evidence | Pass or blocked/not accepted reason with the same metadata-only evidence fields |
-| Yandex Browser meetings | Pending 003 evidence | Pass or blocked/not accepted reason with the same metadata-only evidence fields |
-| Yandex Telemost in browser | Pending 003 evidence | Pass or blocked/not accepted reason with the same metadata-only evidence fields |
+| Chrome browser meetings | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
+| Opera browser meetings | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
+| Yandex Browser meetings | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
+| Yandex Telemost in browser | Blocked/not accepted for current feature state | App remains `not ready for calls yet`; real bidirectional passthrough/capture artifacts are not accepted yet |
 
 ## 003 Evidence Fields
 
@@ -56,6 +56,9 @@ passthrough, manual capture, and separate local/remote capture artifacts are
 implemented and accepted. Running a browser meeting now would only prove browser
 device selection against publication, not the required US2 track separation,
 leakage, latency, or finalization behavior.
+
+The four required browser targets are therefore recorded as blocked/not accepted
+for 003 release evidence, rather than passed.
 
 ## Per-Target Steps
 

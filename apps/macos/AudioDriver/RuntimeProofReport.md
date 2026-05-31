@@ -357,6 +357,66 @@ a fresh heartbeat into shared memory.
 These commands validate buildability, model behavior, and Core Audio publication
 regression coverage. They do not prove production passthrough.
 
+## Local Installer Runtime Acceptance (2026-05-31 06:07 MSK)
+
+Status: **ACCEPTED for 003 runtime publication and fail-closed release
+evidence**.
+
+The local package was rebuilt and installed through `installer`. The installer
+postinstall path now clears local HAL loading blockers before restarting
+`coreaudiod`; no manual postinstall repair was required before running the
+runtime probe.
+
+```text
+installer: The upgrade was successful.
+Core Audio devices visible to this user:
+- Микрофон MacBook Pro
+- Динамики MacBook Pro
+- 2brain Rec Microphone
+- 2brain Rec Speaker
+- Многовыходное устройство
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+Lifecycle proof after the same install:
+
+```text
+=== before kill ===
+27762 /Applications/2brain Rec.app/Contents/MacOS/2brain Rec
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+
+=== after kill ===
+- 2brain Rec Microphone: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+- 2brain Rec Speaker: MISSING
+  hidden=unreadable alive=unreadable running=unreadable
+Runtime Core Audio publication proof: BLOCKED
+
+=== after relaunch ===
+33368 /Applications/2brain Rec.app/Contents/MacOS/2brain Rec
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+Decision: the local installer path, runtime publication proof, and private app
+I/O fail-closed lifecycle are accepted for the 003 implementation gate. This is
+not production passthrough acceptance: real browser meeting audio, real
+microphone-to-virtual-microphone passthrough, and real
+virtual-speaker-to-physical-speaker passthrough remain out of scope for this
+feature state.
+
 ## Publication Spike Attempt
 
 - Date: 2026-05-27

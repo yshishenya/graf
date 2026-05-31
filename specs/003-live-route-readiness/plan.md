@@ -14,14 +14,15 @@ and record browser/latency/leakage evidence before release readiness.
 
 The technical approach keeps the HAL driver as the real-time audio surface and
 the desktop app as the user-visible readiness orchestrator. Readiness uses local
-audio stimulus, shared route counters, stream-health evidence, and browser QA
+audio stimulus, stable app heartbeat/shared-memory evidence, stream-health
+evidence, and browser QA
 artifacts. It must never start recording or send audio to external services.
 
 ## Technical Context
 
 **Language/Version**: Swift 6 for macOS app, route orchestration, Audio Unit
 bridge, UI, and tests; C/C++17 for the Core Audio HAL AudioServerPlugIn,
-shared-memory route counters, and runtime proof tools; shell for installer and
+stable shared-memory heartbeat bridge, and runtime proof tools; shell for installer and
 validation harnesses.
 
 **Primary Dependencies**: macOS Core Audio, AudioToolbox/HAL Output Audio Unit,
@@ -149,8 +150,8 @@ qa/macos/
 ```
 
 **Structure Decision**: Continue the macOS-native structure from 002. Driver
-code owns real-time route counters and public device state; RecApp owns
-readiness orchestration and UI; Shared owns policy models; tests/qa own
+code owns public device state and the stable app I/O heartbeat boundary; RecApp
+owns readiness orchestration and UI; Shared owns policy models; tests/qa own
 validation and evidence.
 
 ## Complexity Tracking

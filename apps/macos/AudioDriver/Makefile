@@ -40,6 +40,8 @@ proof-plugin-install: proof-plugin-build
 	sudo rm -rf "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
 	sudo cp -R "$(PLUGIN_BUNDLE)" "$(PLUGIN_INSTALL_DIR)/"
 	sudo xattr -cr "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
+	sudo xattr -dr com.apple.provenance "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver" || true
+	sudo xattr -dr com.apple.quarantine "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver" || true
 	sudo killall coreaudiod
 
 proof-plugin-uninstall:

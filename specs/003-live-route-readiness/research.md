@@ -19,9 +19,9 @@ the existing product gate that publication alone is insufficient.
 
 ## Decision: Measure Readiness With Route Evidence, Not Raw Audio Artifacts
 
-The app should decide readiness from route counters, valid-frame evidence,
-latency/leakage measurements, and explicit user stimulus state. Diagnostics must
-store status and metrics, not raw audio.
+The app should decide readiness from stable app heartbeat/shared-memory
+evidence, valid-frame evidence, latency/leakage measurements, and explicit user
+stimulus state. Diagnostics must store status and metrics, not raw audio.
 
 **Rationale**: It satisfies privacy and deletion constraints while still giving
 QA enough evidence to verify route health.

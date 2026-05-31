@@ -36,9 +36,9 @@ used by all stories.
 - [X] T011 [P] Add browser target evidence tests in `apps/macos/Shared/Tests/BrowserTargetEvidenceTests.swift`.
 - [X] T012 [P] Add route invalidation state transition tests in `apps/macos/Shared/Tests/RouteInvalidationTests.swift`.
 - [X] T013 Add metadata-only diagnostics tests for readiness evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
-- [X] T014 Add shared-memory route evidence counters for readiness proof in `apps/macos/Shared/Sources/SharedAudioMemory.swift`.
-- [X] T015 Add matching driver-side route evidence counters in `apps/macos/AudioDriver/Sources/Bridge/SharedAudioBuffer.hpp`.
-- [X] T016 Add runtime probe output for readiness heartbeat, hidden state, and route counters in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
+- [X] T014 Keep shared-memory heartbeat layout stable and add stale-layout resize handling in `apps/macos/Shared/Sources/SharedAudioMemory.swift`.
+- [X] T015 Keep driver-side shared-memory heartbeat layout stable and add stale-layout resize handling in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T016 Keep runtime probe output focused on Core Audio publication, hidden, alive, and running state in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
 
 **Checkpoint**: Shared evidence exists, but the app still must not show ready.
 
@@ -155,15 +155,15 @@ recovery is visible.
 
 ## Final Phase: Validation And Release Evidence
 
-- [ ] T051 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp`.
-- [ ] T052 Run `swift test --package-path apps/macos`.
-- [ ] T053 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`.
-- [ ] T054 Run `sh apps/macos/Scripts/validate-live-route-readiness.sh`.
-- [ ] T055 Run live microphone, speaker, self-routing, latency, leakage, outage, and invalidation checks under `tests/macos/`.
-- [ ] T056 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T057 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
-- [ ] T058 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, or signed URLs under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/003-live-route-readiness/`.
-- [ ] T059 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/003-live-route-readiness/`.
+- [X] T051 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp`.
+- [X] T052 Run `swift test --package-path apps/macos`.
+- [X] T053 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`.
+- [X] T054 Run `sh apps/macos/Scripts/validate-live-route-readiness.sh`.
+- [X] T055 Run live microphone, speaker, self-routing, latency, leakage, outage, and invalidation checks under `tests/macos/`.
+- [X] T056 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T057 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
+- [X] T058 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, or signed URLs under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/003-live-route-readiness/`.
+- [X] T059 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/003-live-route-readiness/`.
 
 ## Dependencies
 

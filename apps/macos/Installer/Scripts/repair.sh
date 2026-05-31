@@ -31,6 +31,8 @@ EOF
 fi
 
 xattr -cr "$HAL_DEST" || true
+xattr -dr com.apple.provenance "$HAL_DEST" || true
+xattr -dr com.apple.quarantine "$HAL_DEST" || true
 killall coreaudiod >/dev/null 2>&1 || true
 echo "repaired" > "$STATE_PATH"
 

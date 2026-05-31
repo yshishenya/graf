@@ -50,10 +50,6 @@ public final class SharedAudioMemory {
         public let captureWriteIdx: UnsafeMutablePointer<UInt64>
         public let appHeartbeatNanos: UnsafeMutablePointer<UInt64>
         public let appIOState: UnsafeMutablePointer<UInt64>
-        public let micValidFrameCount: UnsafeMutablePointer<UInt64>
-        public let speakerStimulusFrameCount: UnsafeMutablePointer<UInt64>
-        public let routeInvalidationCount: UnsafeMutablePointer<UInt64>
-        public let readinessGeneration: UnsafeMutablePointer<UInt64>
         public let micBuffer: UnsafeMutablePointer<Float>
         public let speakerBuffer: UnsafeMutablePointer<Float>
         public let captureBuffer: UnsafeMutablePointer<Float>
@@ -68,10 +64,6 @@ public final class SharedAudioMemory {
             captureWriteIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             appHeartbeatNanos = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             appIOState = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
-            micValidFrameCount = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
-            speakerStimulusFrameCount = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
-            routeInvalidationCount = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
-            readinessGeneration = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             micBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
             speakerBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
             captureBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self)
@@ -92,11 +84,11 @@ public final class SharedAudioMemory {
         guard fd >= 0 else { return nil }
         self.fd = fd
 
-        shmSize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 12 * MemoryLayout<UInt64>.stride
+        shmSize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
 
         var isOwner = false
         var st = stat()
-        if fstat_fixed(fd, &st) == 0, st.st_size == 0 {
+        if fstat_fixed(fd, &st) == 0, st.st_size != off_t(shmSize) {
             ftruncate(fd, off_t(shmSize))
             isOwner = true
         }
@@ -109,6 +101,10 @@ public final class SharedAudioMemory {
         self.mapped = ptr
         self.isOwner = isOwner
         self.layout = Layout(base: ptr)
+
+        if isOwner {
+            mapped.initializeMemory(as: UInt8.self, repeating: 0, count: shmSize)
+        }
     }
 
     deinit {
@@ -200,23 +196,6 @@ public final class SharedAudioMemory {
         layout.appIOState.pointee = 0
         layout.appHeartbeatNanos.pointee = 0
         OSMemoryBarrier()
-    }
-
-    public func routeEvidenceCounterSnapshot() -> RouteEvidenceCounterSnapshot {
-        OSMemoryBarrier()
-        return RouteEvidenceCounterSnapshot(
-            micValidFrameCount: layout.micValidFrameCount.pointee,
-            speakerStimulusFrameCount: layout.speakerStimulusFrameCount.pointee,
-            routeInvalidationCount: layout.routeInvalidationCount.pointee,
-            readinessGeneration: layout.readinessGeneration.pointee
-        )
-    }
-
-    public struct RouteEvidenceCounterSnapshot: Codable, Equatable, Sendable {
-        public var micValidFrameCount: UInt64
-        public var speakerStimulusFrameCount: UInt64
-        public var routeInvalidationCount: UInt64
-        public var readinessGeneration: UInt64
     }
 
     public static func streamHealthEvidence(

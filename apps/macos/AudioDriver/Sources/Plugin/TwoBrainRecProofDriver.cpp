@@ -410,9 +410,9 @@ OSStatus Initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef in_host
     }
     fchmod(gShmFD, 0666);
 
-    // Check if we created it (file size will be 0 on fresh creation)
+    // Resize stale shared memory from older local builds before mapping the new layout.
     struct stat st;
-    if (fstat(gShmFD, &st) == 0 && st.st_size == 0) {
+    if (fstat(gShmFD, &st) == 0 && st.st_size != static_cast<off_t>(sizeof(TwoBrainRec::SharedAudioBuffer))) {
         ftruncate(gShmFD, sizeof(TwoBrainRec::SharedAudioBuffer));
         gShmOwner = true;
     }

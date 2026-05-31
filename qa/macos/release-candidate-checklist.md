@@ -54,6 +54,26 @@
   accepted for this feature state because no Bluetooth headset route is
   currently connected and real passthrough/capture is not accepted.
 
+## Validation Log (2026-05-31 06:07 MSK)
+
+- [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp`: PASS.
+- [x] `swift test --package-path apps/macos`: PASS.
+- [x] `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`: PASS.
+- [x] `sh apps/macos/Scripts/validate-live-route-readiness.sh`: PASS for available automated checks.
+- [x] Local package rebuilt and installed through `installer`: PASS.
+- [x] Installer postinstall clears local HAL loading blockers before restarting
+  `coreaudiod`; runtime publication proof is accepted without manual postinstall
+  repair.
+- [x] Runtime probe before app kill: `2brain Rec Microphone` and
+  `2brain Rec Speaker` were `FOUND hidden=0 alive=1`.
+- [x] Runtime probe after app kill and heartbeat timeout: both public virtual
+  devices were absent from the current Core Audio device list.
+- [x] Runtime probe after app relaunch: both public virtual devices returned as
+  `FOUND hidden=0 alive=1`.
+- [x] Browser target evidence remains blocked/not accepted for Chrome, Opera,
+  Yandex Browser, and Yandex Telemost-in-browser until real bidirectional
+  passthrough/capture artifacts are accepted.
+
 ## Validation Log (2026-05-31)
 
 - [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp` executed after live passthrough task expansion: PASS.
