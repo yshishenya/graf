@@ -83,17 +83,17 @@ record pass or blocked/not accepted evidence without starting recording.
 
 ### Tests for User Story 2
 
-- [ ] T028 [P] [US2] Add browser target evidence contract test in `apps/macos/Shared/Tests/BrowserTargetEvidenceTests.swift`.
-- [ ] T029 [P] [US2] Add backend/network outage live-route test in `tests/macos/route-synthetic/live-route-outage-check.swift`.
-- [ ] T030 [P] [US2] Update browser meeting matrix requirements in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
+- [X] T028 [P] [US2] Add browser target evidence contract test in `apps/macos/Shared/Tests/BrowserTargetEvidenceTests.swift`.
+- [X] T029 [P] [US2] Add backend/network outage live-route test in `tests/macos/route-synthetic/live-route-outage-check.swift`.
+- [X] T030 [P] [US2] Update browser meeting matrix requirements in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Add browser target evidence model handling in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
-- [ ] T032 [US2] Add browser target validation status rendering in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
-- [ ] T033 [US2] Preserve private app I/O fail-closed readiness invalidation in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
-- [ ] T034 [US2] Add browser pass/blocked/not accepted diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T035 [US2] Record browser matrix and backend outage evidence in `qa/macos/release-candidate-checklist.md`.
+- [X] T031 [US2] Add browser target evidence model handling in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
+- [X] T032 [US2] Add browser target validation status rendering in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
+- [X] T033 [US2] Preserve private app I/O fail-closed readiness invalidation in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T034 [US2] Add browser pass/blocked/not accepted diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T035 [US2] Record browser matrix and backend outage evidence in `qa/macos/release-candidate-checklist.md`.
 
 **Checkpoint**: Required browser targets have explicit pass or blocked/not
 accepted evidence and backend outage does not break live route readiness.

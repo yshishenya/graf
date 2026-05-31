@@ -77,6 +77,7 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
     public var testPlayback: HealthActionState
     public var activeBrowserName: String?
     public var activeMeetingTitle: String?
+    public var browserTargetEvidence: [BrowserTargetEvidence]
     public var unsupportedTargets: [String]
     public var recoveryActions: [String]
     public var lastUpdatedAt: Date
@@ -97,6 +98,7 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
         testPlayback: HealthActionState = .init(),
         activeBrowserName: String? = nil,
         activeMeetingTitle: String? = nil,
+        browserTargetEvidence: [BrowserTargetEvidence] = [],
         unsupportedTargets: [String] = [],
         recoveryActions: [String] = [],
         lastUpdatedAt: Date = Date()
@@ -116,6 +118,7 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
         self.testPlayback = testPlayback
         self.activeBrowserName = activeBrowserName
         self.activeMeetingTitle = activeMeetingTitle
+        self.browserTargetEvidence = browserTargetEvidence
         self.unsupportedTargets = unsupportedTargets
         self.recoveryActions = recoveryActions
         self.lastUpdatedAt = lastUpdatedAt
@@ -181,6 +184,7 @@ public final class AudioHealthViewModel {
         bufferRisk: LocalBufferRiskState? = nil,
         activeBrowserName: String? = nil,
         activeMeetingTitle: String? = nil,
+        browserTargetEvidence: [BrowserTargetEvidence]? = nil,
         unsupportedTargets: [String]? = nil,
         recoveryActions: [String]? = nil
     ) {
@@ -222,6 +226,9 @@ public final class AudioHealthViewModel {
         }
         if let activeMeetingTitle {
             state.activeMeetingTitle = activeMeetingTitle
+        }
+        if let browserTargetEvidence {
+            state.browserTargetEvidence = browserTargetEvidence
         }
         if let unsupportedTargets {
             state.unsupportedTargets = unsupportedTargets

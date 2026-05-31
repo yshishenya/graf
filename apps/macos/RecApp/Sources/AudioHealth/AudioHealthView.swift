@@ -83,6 +83,23 @@ public struct AudioHealthView: View {
                     )
                 }
             }
+            Section("Browser Targets", icon: "safari") {
+                if state.browserTargetEvidence.isEmpty {
+                    line(
+                        label: "Validation",
+                        detail: "No browser target evidence recorded",
+                        icon: "circle"
+                    )
+                } else {
+                    ForEach(state.browserTargetEvidence, id: \.target) { evidence in
+                        line(
+                            label: AdaptiveStatusText.safeLabel(evidence.target),
+                            detail: browserEvidenceLine(evidence),
+                            icon: browserEvidenceIcon(evidence.status)
+                        )
+                    }
+                }
+            }
             Section("Buffer", icon: "internaldrive") {
                 line(
                     label: "Local buffer",
@@ -229,6 +246,28 @@ public struct AudioHealthView: View {
             return "\(status): macOS output is not a physical speaker"
         default:
             return "\(status): \(reason.replacingOccurrences(of: "_", with: " "))"
+        }
+    }
+
+    private func browserEvidenceLine(_ evidence: BrowserTargetEvidence) -> String {
+        switch evidence.status {
+        case .passed:
+            return "Passed: mic and speaker usable"
+        case .blocked:
+            return "Blocked: \(AdaptiveStatusText.safeLabel(evidence.failureReason, fallback: "Reason required"))"
+        case .notAccepted:
+            return "Not accepted: \(AdaptiveStatusText.safeLabel(evidence.failureReason, fallback: "Reason required"))"
+        }
+    }
+
+    private func browserEvidenceIcon(_ status: BrowserTargetEvidenceStatus) -> String {
+        switch status {
+        case .passed:
+            return "checkmark.circle.fill"
+        case .blocked:
+            return "xmark.octagon.fill"
+        case .notAccepted:
+            return "exclamationmark.triangle.fill"
         }
     }
 

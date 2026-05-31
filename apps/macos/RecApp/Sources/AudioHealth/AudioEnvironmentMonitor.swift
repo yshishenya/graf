@@ -12,6 +12,7 @@ public enum AudioEnvironmentChange: String, Codable, Sendable, Hashable {
     case deviceChanged
     case bluetoothProfileChanged
     case activeMeetingContextChanged
+    case browserTargetEvidenceChanged
     case unsupportedTargetAdded
 }
 
@@ -29,6 +30,7 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
     public var bufferRisk: LocalBufferRiskState
     public var activeBrowserName: String?
     public var activeMeetingTitle: String?
+    public var browserTargetEvidence: [BrowserTargetEvidence]
     public var unsupportedTargets: [String]
     public var bluetoothRouteEvidence: BluetoothRouteEvidence?
 
@@ -46,6 +48,7 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
         bufferRisk: LocalBufferRiskState,
         activeBrowserName: String? = nil,
         activeMeetingTitle: String? = nil,
+        browserTargetEvidence: [BrowserTargetEvidence] = [],
         unsupportedTargets: [String] = [],
         bluetoothRouteEvidence: BluetoothRouteEvidence? = nil
     ) {
@@ -62,6 +65,7 @@ public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
         self.bufferRisk = bufferRisk
         self.activeBrowserName = activeBrowserName
         self.activeMeetingTitle = activeMeetingTitle
+        self.browserTargetEvidence = browserTargetEvidence
         self.unsupportedTargets = unsupportedTargets
         self.bluetoothRouteEvidence = bluetoothRouteEvidence
     }
@@ -110,6 +114,7 @@ public final class AudioEnvironmentMonitor {
             bufferRisk: snapshot.bufferRisk,
             activeBrowserName: snapshot.activeBrowserName,
             activeMeetingTitle: snapshot.activeMeetingTitle,
+            browserTargetEvidence: snapshot.browserTargetEvidence,
             unsupportedTargets: snapshot.unsupportedTargets,
             recoveryActions: recoveryActions,
             lastUpdatedAt: now()
@@ -176,6 +181,10 @@ public final class AudioEnvironmentMonitor {
         if previous.activeBrowserName != current.activeBrowserName ||
             previous.activeMeetingTitle != current.activeMeetingTitle {
             result.append(.activeMeetingContextChanged)
+        }
+
+        if previous.browserTargetEvidence != current.browserTargetEvidence {
+            result.append(.browserTargetEvidenceChanged)
         }
 
         if Set(current.unsupportedTargets).subtracting(previous.unsupportedTargets).count > 0 {

@@ -20,10 +20,27 @@ produced by the driver/app stack.
 
 | Target | US2 Status | Required Evidence |
 |---|---|---|
-| Chrome browser meetings | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
-| Opera browser meetings | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
-| Yandex Browser meetings | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
-| Yandex Telemost in browser | Blocked for current feature state | 30-minute call, separate local/remote tracks, no-loopback harness pass |
+| Chrome browser meetings | Pending 003 evidence | Ready state before join, `2brain Rec Microphone` selected, `2brain Rec Speaker` selected, local speech usable, remote audio usable |
+| Opera browser meetings | Pending 003 evidence | Pass or blocked/not accepted reason with the same metadata-only evidence fields |
+| Yandex Browser meetings | Pending 003 evidence | Pass or blocked/not accepted reason with the same metadata-only evidence fields |
+| Yandex Telemost in browser | Pending 003 evidence | Pass or blocked/not accepted reason with the same metadata-only evidence fields |
+
+## 003 Evidence Fields
+
+Each target must record:
+
+- target name and version if available;
+- selected meeting microphone;
+- selected meeting speaker;
+- readiness state before joining;
+- route state after joining;
+- local speech usability;
+- remote audio usability;
+- pass, blocked, or not accepted status;
+- concrete failure reason when not passed.
+
+Evidence must remain metadata-only and must not include raw audio, transcript
+text, credentials, tokens, signed URLs, or meeting content.
 
 ## Evidence Recorded 2026-05-31
 

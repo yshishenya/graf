@@ -139,6 +139,32 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildBrowserTargetEvidenceBundle(
+        evidence: [BrowserTargetEvidence]
+    ) throws -> DiagnosticBundle {
+        let values = evidence.map { item in
+            DiagnosticFieldValue.object([
+                "target": .string(item.target),
+                "status": .string(item.status.rawValue),
+                "microphoneSelected": .string(item.microphoneSelected),
+                "speakerSelected": .string(item.speakerSelected),
+                "localSpeechUsable": .bool(item.localSpeechUsable),
+                "remoteAudioUsable": .bool(item.remoteAudioUsable),
+                "failureReason": .string(item.failureReason ?? "none"),
+                "checkedAt": .string(Self.formatDate(item.checkedAt))
+            ])
+        }
+
+        return try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "browserTargetEvidence": .array(values),
+                "routeStatus": .string("browser_target_evidence_recorded")
+            ],
+            failureFamily: "browser_target_evidence"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),

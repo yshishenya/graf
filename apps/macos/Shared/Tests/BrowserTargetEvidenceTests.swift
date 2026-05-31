@@ -42,5 +42,50 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence.status, .blocked)
         XCTAssertFalse(evidence.failureReason?.isEmpty ?? true)
     }
+
+    func testBrowserTargetEvidenceTravelsThroughAudioEnvironmentState() {
+        let evidence = BrowserTargetEvidence(
+            target: "chrome",
+            status: .passed,
+            microphoneSelected: "2brain Rec Microphone",
+            speakerSelected: "2brain Rec Speaker",
+            localSpeechUsable: true,
+            remoteAudioUsable: true,
+            checkedAt: Date(timeIntervalSince1970: 1_779_887_120)
+        )
+        let monitor = AudioEnvironmentMonitor()
+        let (_, state) = monitor.refresh(with: AudioEnvironmentSnapshot(
+            driverState: .installed,
+            virtualMicState: .available,
+            virtualSpeakerState: .available,
+            microphonePermission: .granted,
+            outputPermission: .granted,
+            passthroughStatus: .healthy,
+            bufferRisk: .healthy,
+            browserTargetEvidence: [evidence]
+        ))
+
+        XCTAssertEqual(state.browserTargetEvidence, [evidence])
+    }
+
+    func testBrowserTargetEvidenceBundleIsMetadataOnly() throws {
+        let evidence = BrowserTargetEvidence(
+            target: "opera",
+            status: .blocked,
+            microphoneSelected: "2brain Rec Microphone",
+            speakerSelected: "2brain Rec Speaker",
+            localSpeechUsable: false,
+            remoteAudioUsable: false,
+            failureReason: "manual_validation_unavailable",
+            checkedAt: Date(timeIntervalSince1970: 1_779_887_120)
+        )
+
+        let bundle = try DiagnosticBundleService().buildBrowserTargetEvidenceBundle(evidence: [evidence])
+
+        XCTAssertEqual(bundle.redactionState, .redacted)
+        XCTAssertNotNil(bundle.manifest["browserTargetEvidence"])
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+    }
 }
 #endif

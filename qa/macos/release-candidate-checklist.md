@@ -17,6 +17,9 @@
   before release-ready status is accepted.
 - [ ] Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser each have
   pass or blocked/not accepted metadata-only evidence.
+- [ ] Browser evidence records selected meeting microphone/speaker, readiness
+  state before join, route state after join, local speech usability, remote
+  audio usability, and concrete blocked/not accepted reasons.
 - [ ] A 5-minute backend/network outage does not interrupt live route
   passthrough after readiness passes.
 - [ ] Physical device, browser target, Bluetooth profile, app heartbeat, and
