@@ -10,6 +10,7 @@ PROOF_SOURCES := \
 	Sources/Proof/ProofRunner.cpp \
 	Sources/Proof/VirtualDeviceProof.cpp \
 	Sources/Proof/PassthroughTimingProof.cpp \
+	Sources/Proof/SharedAudioBufferProof.cpp \
 	Sources/Routing/MicrophoneRoute.cpp \
 	Sources/Routing/SpeakerRoute.cpp \
 	Sources/Timing/TrackClock.cpp

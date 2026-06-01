@@ -10,6 +10,16 @@ recovery, and no-hidden-recording gates.
 
 **Organization**: Tasks are grouped by independently testable user story.
 
+## Post-Review Status - 2026-06-01
+
+The first live-passthrough implementation is treated as an experimental spike,
+not accepted release behavior. Completed implementation tasks below represent
+modeling, synthetic checks, UI scaffolding, and initial driver/app proof work.
+They do not close physical/browser live audio acceptance.
+
+New stabilization tasks T067-T081 are mandatory before any final acceptance task
+can be marked complete.
+
 ## Phase 1: Setup
 
 **Purpose**: Prepare passthrough evidence, validation, and contracts without
@@ -71,8 +81,10 @@ stays non-recording.
 - [X] T026 [US1] Render microphone passthrough active/failed states in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
 - [X] T027 [US1] Record microphone passthrough diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
-**Checkpoint**: US1 proves local mic audio can feed the virtual microphone
-without starting recording.
+**Checkpoint**: US1 has synthetic and experimental implementation coverage.
+Physical live microphone acceptance remains pending until the stabilization
+phase proves realtime-safe callbacks, valid ring-buffer semantics, and measured
+frame continuity.
 
 ---
 
@@ -102,7 +114,9 @@ output without leaking it into the virtual microphone.
 - [X] T038 [US2] Render speaker passthrough active/failed states in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
 - [X] T039 [US2] Record speaker passthrough diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
-**Checkpoint**: US1 and US2 together prove bidirectional local passthrough.
+**Checkpoint**: US1 and US2 have synthetic and experimental implementation
+coverage. Bidirectional local passthrough is not accepted until physical output
+playback, underrun handling, latency, leakage, and no-loopback evidence pass.
 
 ---
 
@@ -130,7 +144,8 @@ metadata-only evidence.
 - [X] T047 [US3] Record Chrome, Opera, Yandex Browser, and Yandex Telemost evidence in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 - [X] T048 [US3] Record browser validation release evidence in `qa/macos/release-candidate-checklist.md`.
 
-**Checkpoint**: Browser target matrix is explicit and truthful.
+**Checkpoint**: Browser target matrix exists. Browser live passthrough remains
+blocked/not accepted until physical live-route evidence is recorded per target.
 
 ---
 
@@ -157,7 +172,32 @@ change devices, and confirm stale/fail-closed/recovery behavior.
 - [X] T056 [US4] Add stale/recheck recovery UI for active passthrough in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
 - [X] T057 [US4] Record route recovery diagnostics and audit events in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
 
-**Checkpoint**: Live passthrough fails closed and recovers visibly.
+**Checkpoint**: Fail-closed models and checklists exist. Runtime recovery
+acceptance remains pending until `coreaudiod`, app kill, device-change, and
+browser stale-device evidence are recorded.
+
+---
+
+## Phase 7: Stabilization Refactor And Pipeline Gates
+
+**Purpose**: Convert the experimental spike into a safe, reviewable route engine
+before accepting live audio behavior.
+
+- [X] T067 [P] Add realtime callback safety static check in `tests/macos/static/audio-rt-safety-check.sh` and wire it into `apps/macos/Scripts/validate-real-bidirectional-passthrough.sh`.
+- [X] T068 [P] Add default-off app launch validation in `tests/macos/installer-recovery/default-passthrough-disabled-check.sh`.
+- [X] T069 [P] Add `coreaudiod` idle/no-hang validation checklist or harness in `tests/macos/installer-recovery/coreaudiod-no-hang-check.md`.
+- [X] T070 [P] Define shared ring-buffer behavior contract in `specs/004-real-bidirectional-passthrough/contracts/passthrough-contract.md`.
+- [X] T071 Add matching Swift ring-buffer behavior tests in `apps/macos/Shared/Tests/SharedAudioMemoryCompatibilityTests.swift`.
+- [X] T072 Add matching C++ ring-buffer proof vectors in `apps/macos/AudioDriver/Sources/Proof/` or `apps/macos/AudioDriver/Tests/`.
+- [ ] T073 Refactor `apps/macos/RecApp/App/TwoBrainRecApp.swift` so SwiftUI view lifecycle does not own bridge startup, heartbeat, device selection, or delayed Core Audio refresh.
+- [ ] T074 Add an explicit route-engine coordinator in `apps/macos/RecApp/Sources/Capture/` with start/stop/state ownership separate from UI.
+- [ ] T075 Refactor `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` so AudioUnit callbacks use preallocated buffers and emit only atomic counters on the realtime path.
+- [ ] T076 Remove speaker partial-read time stretching from `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`; replace it with explicit underrun zero-fill and degraded evidence.
+- [ ] T077 Restore truthful route readiness in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift` so env flags and device visibility cannot return `.passed` without measured live-route evidence.
+- [ ] T078 Add parameterized runtime probe expectations for default publication, fail-closed, and live-experiment states in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
+- [ ] T079 Update `specs/004-real-bidirectional-passthrough/tasks.md`, `quickstart.md`, and browser/release evidence files so synthetic checks, experimental checks, physical checks, and browser acceptance cannot be confused.
+- [ ] T080 Run `$speckit-analyze` after stabilization artifacts are updated and resolve all critical/high findings before continuing implementation.
+- [ ] T081 Re-run code review for realtime/Core Audio, app-driver architecture, tests/docs, and maintainability before final validation.
 
 ---
 
@@ -166,12 +206,12 @@ change devices, and confirm stale/fail-closed/recovery behavior.
 - [X] T058 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp`.
 - [X] T059 Run `swift test --package-path apps/macos`.
 - [X] T060 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`.
-- [X] T061 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh`.
-- [X] T062 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [X] T063 Run microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
-- [X] T064 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
-- [X] T065 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, signed URLs, or meeting content under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/004-real-bidirectional-passthrough/`.
-- [X] T066 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/004-real-bidirectional-passthrough/`.
+- [ ] T061 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh` after stabilization gates are wired in.
+- [ ] T062 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [ ] T063 Run physical microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
+- [ ] T064 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
+- [ ] T065 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, signed URLs, or meeting content under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/004-real-bidirectional-passthrough/`.
+- [ ] T066 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/004-real-bidirectional-passthrough/`.
 
 ## Dependencies
 
@@ -180,7 +220,8 @@ change devices, and confirm stale/fail-closed/recovery behavior.
 - US1 and US2 are both required for the MVP bidirectional passthrough slice.
 - US3 depends on US1 and US2 for real browser call validation.
 - US4 can start after US1/US2 have active passthrough states.
-- Final validation depends on all selected user stories.
+- Phase 7 blocks final live-route acceptance.
+- Final validation depends on all selected user stories and Phase 7.
 - T021-T024 block T025-T027.
 - T032-T035 block T036-T039.
 - T043-T046 block T047-T048.
@@ -202,5 +243,6 @@ change devices, and confirm stale/fail-closed/recovery behavior.
 3. Implement US2 speaker passthrough and no-loopback gating.
 4. Validate browser call evidence with US3.
 5. Add fail-closed and recovery hardening with US4.
-6. Run quickstart, final validation, and `$speckit-analyze` before accepting
+6. Complete Phase 7 stabilization/refactor gates.
+7. Run quickstart, final validation, and `$speckit-analyze` before accepting
    implementation completion.

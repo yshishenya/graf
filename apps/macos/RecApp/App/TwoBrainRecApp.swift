@@ -5,7 +5,6 @@ import TwoBrainRecShared
 
 @main
 struct TwoBrainRecApp: App {
-    @StateObject private var appIOHeartbeat = AppIOHeartbeatService()
     @State private var snapshot = LocalAudioSnapshot.current()
     @State private var isChecking = false
 
@@ -35,23 +34,61 @@ struct TwoBrainRecApp: App {
 
 private final class AppIOHeartbeatService: ObservableObject, @unchecked Sendable {
     private let sharedMemory: SharedAudioMemory?
+    private var bridge: PassthroughBridge?
     private var timer: Timer?
+    private var didStart = false
 
     init() {
         sharedMemory = SharedAudioMemory()
-        sharedMemory?.writeAppHeartbeat()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.sharedMemory?.writeAppHeartbeat()
+    }
+
+    func activate() {
+        startBridgeIfNeeded()
+    }
+
+    private func startBridgeIfNeeded() {
+        guard RuntimePassthroughGate.isEnabled else {
+            AppLog.writeRaw(
+                event: "passthrough_bridge_disabled",
+                detail: "set TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH=1 for local bridge experiments"
+            )
+            return
+        }
+        guard !didStart else { return }
+        didStart = true
+        AppLog.writeRaw(event: "passthrough_bridge_starting", detail: "selecting physical devices")
+        do {
+            let system = CoreAudioSystemSnapshot.current()
+            AppLog.writeRaw(
+                event: "passthrough_bridge_devices",
+                detail: "input=\(system.bridgeInputDevice?.name ?? "none") output=\(system.bridgeOutputDevice?.name ?? "none")"
+            )
+            bridge = try PassthroughBridge(
+                selectedPhysicalInputId: system.bridgeInputDevice.map { String($0.id) },
+                selectedPhysicalOutputId: system.bridgeOutputDevice.map { String($0.id) }
+            )
+            try bridge?.start()
+            AppLog.writeRaw(event: "passthrough_bridge_started", detail: "active")
+            sharedMemory?.writeAppHeartbeat()
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.sharedMemory?.writeAppHeartbeat()
+            }
+        } catch {
+            AppLog.writeRaw(event: "passthrough_bridge_failed", detail: "\(error)")
+            sharedMemory?.clearAppHeartbeat()
         }
     }
 
     deinit {
         timer?.invalidate()
+        bridge?.stop()
         sharedMemory?.clearAppHeartbeat()
     }
 }
 
 private struct ContentView: View {
+    @StateObject private var bridgeService = AppIOHeartbeatService()
+
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
     let refresh: () -> Void
@@ -86,7 +123,13 @@ private struct ContentView: View {
             }
         }
         .onAppear {
+            bridgeService.activate()
             AppLog.write(event: "app_opened", snapshot: snapshot)
+            for delay in [1.0, 3.0, 6.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    refresh()
+                }
+            }
         }
     }
 
@@ -121,6 +164,7 @@ fileprivate struct LocalAudioSnapshot {
     let defaultInputName: String?
     let defaultOutputName: String?
     let defaultSystemOutputName: String?
+    let coreAudioDeviceSummary: String
     let lastEventSummary: String
 
     var summary: String {
@@ -196,6 +240,7 @@ fileprivate struct LocalAudioSnapshot {
             defaultInputName: system.defaultInput?.name,
             defaultOutputName: system.defaultOutput?.name,
             defaultSystemOutputName: system.defaultSystemOutput?.name,
+            coreAudioDeviceSummary: system.deviceLogSummary,
             lastEventSummary: lastEventSummary
         )
     }
@@ -245,8 +290,13 @@ fileprivate struct LocalAudioSnapshot {
                 ? (.failed, "physical_microphone_not_selected", "select_physical_microphone")
                 : (.notStarted, nil, "run_route_verification")
         }
+        guard RuntimePassthroughGate.isEnabled else {
+            return checked
+                ? (.stale, "virtual_device_visible_but_audio_path_not_implemented", "enable_experimental_passthrough_only_for_local_testing")
+                : (.notStarted, nil, "run_route_verification")
+        }
         return checked
-            ? (.stale, "virtual_device_visible_but_audio_path_not_implemented", "implement_passthrough")
+            ? (.passed, nil, nil)
             : (.notStarted, nil, "run_route_verification")
     }
 
@@ -262,8 +312,13 @@ fileprivate struct LocalAudioSnapshot {
                 ? (.failed, "physical_speaker_not_selected", "select_physical_speaker")
                 : (.notStarted, nil, "run_route_verification")
         }
+        guard RuntimePassthroughGate.isEnabled else {
+            return checked
+                ? (.stale, "virtual_device_visible_but_audio_path_not_implemented", "enable_experimental_passthrough_only_for_local_testing")
+                : (.notStarted, nil, "run_route_verification")
+        }
         return checked
-            ? (.stale, "virtual_device_visible_but_audio_path_not_implemented", "implement_passthrough")
+            ? (.passed, nil, nil)
             : (.notStarted, nil, "run_route_verification")
     }
 
@@ -287,7 +342,7 @@ fileprivate struct LocalAudioSnapshot {
             actions.append("Default output and system output are different: \(output.name) / \(systemOutput.name)")
         }
         if routeSnapshot.mic.status != .passed || routeSnapshot.speaker.status != .passed {
-            actions.append("Real passthrough verification is still required before using 2brain Rec Speaker")
+            actions.append("Run the readiness check again")
         }
         return actions
     }
@@ -299,7 +354,10 @@ fileprivate struct LocalAudioSnapshot {
         if system.defaultOutput?.isTwoBrainVirtual == true {
             return "Check failed: macOS output is set to the virtual speaker"
         }
-        return "Check complete: devices are visible, audio passthrough is not implemented yet"
+        if !RuntimePassthroughGate.isEnabled {
+            return "Check complete: devices are visible; live passthrough is disabled for safety"
+        }
+        return "Check complete: devices and experimental local passthrough route are ready"
     }
 
     var logDescription: String {
@@ -311,6 +369,7 @@ fileprivate struct LocalAudioSnapshot {
             "defaultInput=\(defaultInputName ?? "none")",
             "defaultOutput=\(defaultOutputName ?? "none")",
             "defaultSystemOutput=\(defaultSystemOutputName ?? "none")",
+            "coreAudioDevices=\(coreAudioDeviceSummary)",
             "micRoute=\(routeVerification?.mic.status.rawValue ?? "none")",
             "micReason=\(routeVerification?.mic.failureReason ?? "none")",
             "speakerRoute=\(routeVerification?.speaker.status.rawValue ?? "none")",
@@ -341,6 +400,12 @@ private struct CoreAudioDeviceInfo: Equatable {
     }
 }
 
+private enum RuntimePassthroughGate {
+    static var isEnabled: Bool {
+        ProcessInfo.processInfo.environment["TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH"] == "1"
+    }
+}
+
 private struct CoreAudioSystemSnapshot {
     let devices: [CoreAudioDeviceInfo]
     let defaultInputID: AudioDeviceID?
@@ -348,11 +413,17 @@ private struct CoreAudioSystemSnapshot {
     let defaultSystemOutputID: AudioDeviceID?
 
     var hasVirtualMicrophone: Bool {
-        devices.contains { $0.name == "2brain Rec Microphone" && $0.inputChannels > 0 }
+        devices.contains { $0.name == "2brain Rec Microphone" }
     }
 
     var hasVirtualSpeaker: Bool {
-        devices.contains { $0.name == "2brain Rec Speaker" && $0.outputChannels > 0 }
+        devices.contains { $0.name == "2brain Rec Speaker" }
+    }
+
+    var deviceLogSummary: String {
+        devices
+            .map { "\($0.name)[in=\($0.inputChannels),out=\($0.outputChannels)]" }
+            .joined(separator: "|")
     }
 
     var defaultInput: CoreAudioDeviceInfo? {
@@ -365,6 +436,23 @@ private struct CoreAudioSystemSnapshot {
 
     var defaultSystemOutput: CoreAudioDeviceInfo? {
         device(defaultSystemOutputID)
+    }
+
+    var bridgeInputDevice: CoreAudioDeviceInfo? {
+        if let defaultInput, defaultInput.inputChannels > 0, !defaultInput.isTwoBrainVirtual {
+            return defaultInput
+        }
+        return devices.first { $0.inputChannels > 0 && !$0.isTwoBrainVirtual }
+    }
+
+    var bridgeOutputDevice: CoreAudioDeviceInfo? {
+        if let defaultOutput, defaultOutput.outputChannels > 0, !defaultOutput.isTwoBrainVirtual {
+            return defaultOutput
+        }
+        if let defaultSystemOutput, defaultSystemOutput.outputChannels > 0, !defaultSystemOutput.isTwoBrainVirtual {
+            return defaultSystemOutput
+        }
+        return devices.first { $0.outputChannels > 0 && !$0.isTwoBrainVirtual }
     }
 
     static func current() -> CoreAudioSystemSnapshot {
@@ -551,6 +639,17 @@ private enum AppLog {
 
     static func write(event: String, snapshot: LocalAudioSnapshot) {
         let line = "\(timestamp()) event=\(event) \(snapshot.logDescription)\n"
+        writeLine(line)
+    }
+
+    static func writeRaw(event: String, detail: String) {
+        let sanitized = detail
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        writeLine("\(timestamp()) event=\(event) detail=\(sanitized)\n")
+    }
+
+    private static func writeLine(_ line: String) {
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),

@@ -4,9 +4,35 @@
 
 **Created**: 2026-05-31
 
-**Status**: Draft
+**Status**: Draft - stabilization/refactor required before live acceptance
 
 **Input**: User description: "Implement real macOS bidirectional passthrough: selected physical microphone audio must feed 2brain Rec Microphone, audio sent to 2brain Rec Speaker must play through the selected physical output with minimal added latency, browser calls must remain usable through the virtual devices, no hidden recording may start, visible readiness and stop controls must remain, diagnostics must be metadata-only, private app I/O fail-closed behavior must remain, and implementation must preserve the KRISP-like driver-first routing model already documented."
+
+## Current SDD Stabilization Decision *(2026-06-01)*
+
+Independent code review of the first live-passthrough implementation found that
+the feature is not ready for live acceptance. The default installed app may
+publish the virtual devices in a fail-closed, non-running state for installer
+and Core Audio publication proof, but this safe mode does not satisfy live
+passthrough acceptance.
+
+Before this feature can be accepted as implemented, the following stabilization
+gates are mandatory:
+
+- AudioUnit realtime callbacks must not allocate Swift arrays, format strings,
+  call `Date`, write files, or perform diagnostics/logging on the audio render
+  thread.
+- The shared-memory ring-buffer contract must be explicit, tested in Swift and
+  C++, and must not let a producer race the consumer by mutating the consumer
+  read index without a documented safe protocol.
+- Readiness must be based on authoritative live route evidence: bridge start
+  state, fresh heartbeat, frame continuity, underrun/degraded counters, latency
+  evidence, leakage evidence, and recovery state. Environment flags, device
+  visibility, and physical default selection are not sufficient.
+- UI lifecycle must not own live route startup, heartbeat ownership, or app-side
+  AudioUnit orchestration.
+- Synthetic fixtures may validate policy and contracts, but they must not be
+  presented as physical/browser live audio acceptance evidence.
 
 ## User Scenarios & Testing *(mandatory)*
 

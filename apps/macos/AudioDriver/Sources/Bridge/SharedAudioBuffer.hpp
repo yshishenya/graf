@@ -34,6 +34,9 @@ struct SharedAudioBuffer {
     };
 
     bool Write(float* buf, std::atomic<size_t>& w_idx, std::atomic<size_t>& r_idx, const float* src, size_t count) {
+        if (src == nullptr) return false;
+        if (count == 0) return true;
+        if (count > kSharedRingCapacity) return false;
         size_t w = w_idx.load(std::memory_order_relaxed);
         size_t r = r_idx.load(std::memory_order_acquire);
         size_t avail = kSharedRingCapacity - (w - r);

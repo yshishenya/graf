@@ -6,6 +6,10 @@ MACOS_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)
 
 swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
+sh "$REPO_ROOT/tests/macos/static/audio-rt-safety-check.sh"
+if [ "${TWO_BRAIN_RUN_COREAUDIO_PROBES:-0}" = "1" ]; then
+  sh "$REPO_ROOT/tests/macos/installer-recovery/default-passthrough-disabled-check.sh"
+fi
 if ! swift test --package-path "$MACOS_DIR" --filter 'AppIOHealthTests|LivePassthroughPolicyTests|SharedAudioMemoryCompatibilityTests|LatencyGateTests|RouteVerificationTests|BrowserTargetEvidenceTests|RouteInvalidationTests|DiagnosticRedactionTests'; then
   TEST_BUNDLE_BINARY=$(find "$MACOS_DIR/.build" -path '*TwoBrainRecMacOSPackageTests.xctest/Contents/MacOS/TwoBrainRecMacOSPackageTests' -type f | head -n 1)
   if [ -n "$TEST_BUNDLE_BINARY" ]; then

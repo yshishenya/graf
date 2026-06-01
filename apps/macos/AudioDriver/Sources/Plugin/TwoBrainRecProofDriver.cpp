@@ -39,6 +39,10 @@ AudioServerPlugInHostRef gHost = nullptr;
 TwoBrainRec::SharedAudioBuffer* gShared = nullptr;
 int gShmFD = -1;
 bool gShmOwner = false;
+std::atomic<uint64_t> gMicReadInputCount{0};
+std::atomic<uint64_t> gSpeakerWriteMixCount{0};
+std::atomic<uint64_t> gMicZeroFillCount{0};
+std::atomic<uint64_t> gSpeakerDropCount{0};
 
 void Trace(const char* message) {
     const int fd = open("/tmp/2brain-rec-proof-driver.trace", O_CREAT | O_WRONLY | O_APPEND, 0644);
@@ -707,7 +711,7 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioDevicePropertySafetyOffset:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioDevicePropertyIsHidden:
-        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(PrivateAppIOAvailable() ? 0 : 1));
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioDevicePropertyStreams:
         if (DeviceStreamCount(in_object_id, in_address->mScope) == 0) {
             return WriteEmptyList(out_data_size);
@@ -861,59 +865,47 @@ OSStatus DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, A
 
     size_t sample_count = in_io_buffer_frame_size * 2;
 
-    char buf[256];
-    snprintf(buf, sizeof(buf), "DoIOOperation device=%u op=%s frames=%u samples=%zu",
-             in_device_id,
-             in_operation_id == kAudioServerPlugInIOOperationReadInput ? "ReadInput" :
-             in_operation_id == kAudioServerPlugInIOOperationWriteMix ? "WriteMix" : "other",
-             in_io_buffer_frame_size, sample_count);
-    TraceVerbose(buf);
-
     if (in_device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID &&
         in_operation_id == kAudioServerPlugInIOOperationReadInput) {
+        ++gMicReadInputCount;
         if (!PrivateAppIOAvailable()) {
             std::memset(io_main_buffer, 0, sample_count * sizeof(Float32));
-            TraceVerbose("MicReadInput: app IO unavailable, fail-closed zero-fill");
+            ++gMicZeroFillCount;
             return kAudioHardwareNoError;
         }
 
         auto avail = gShared->MicAvailable();
-        snprintf(buf, sizeof(buf), "MicReadInput: avail=%zu sample_count=%zu", avail, sample_count);
-        TraceVerbose(buf);
-
         if (avail >= sample_count) {
             gShared->Read(gShared->mic_buffer, gShared->mic_write_idx, gShared->mic_read_idx,
                           static_cast<float*>(io_main_buffer), sample_count);
-            TraceVerbose("MicReadInput: read OK");
         } else {
             std::memset(io_main_buffer, 0, sample_count * sizeof(Float32));
-            TraceVerbose("MicReadInput: no data, zero-fill");
+            ++gMicZeroFillCount;
         }
     }
     else if (in_device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID &&
              in_operation_id == kAudioServerPlugInIOOperationWriteMix) {
+        ++gSpeakerWriteMixCount;
         if (!PrivateAppIOAvailable()) {
-            TraceVerbose("SpeakerWriteMix: app IO unavailable, fail-closed drop");
+            ++gSpeakerDropCount;
             return kAudioHardwareNoError;
         }
 
         float* src = static_cast<float*>(io_main_buffer);
-        gShared->Write(gShared->speaker_buffer, gShared->speaker_write_idx, gShared->speaker_read_idx,
-                       src, sample_count);
-        gShared->Write(gShared->capture_buffer, gShared->capture_write_idx, gShared->capture_read_idx,
-                       src, sample_count);
+        const bool speaker_ok = gShared->Write(gShared->speaker_buffer, gShared->speaker_write_idx, gShared->speaker_read_idx,
+                                               src, sample_count);
+        const bool capture_ok = gShared->Write(gShared->capture_buffer, gShared->capture_write_idx, gShared->capture_read_idx,
+                                               src, sample_count);
 
-        snprintf(buf, sizeof(buf), "SpeakerWriteMix: wrote %zu samples", sample_count);
-        TraceVerbose(buf);
+        if (!speaker_ok || !capture_ok) {
+            ++gSpeakerDropCount;
+        }
     }
 
     return kAudioHardwareNoError;
 }
 
-OSStatus EndIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32, UInt32, UInt32, const AudioServerPlugInIOCycleInfo*) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "EndIOOperation device=%u", in_device_id);
-    TraceVerbose(buf);
+OSStatus EndIOOperation(AudioServerPlugInDriverRef, AudioObjectID, UInt32, UInt32, UInt32, const AudioServerPlugInIOCycleInfo*) {
     return kAudioHardwareNoError;
 }
 

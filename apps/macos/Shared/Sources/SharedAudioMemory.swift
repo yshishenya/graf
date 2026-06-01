@@ -4,6 +4,17 @@ import CShmHelpers
 public let kShmName = "/2brain-rec-audio-bridge"
 public let kSharedRingCapacity = 16384
 
+public enum SharedRingPolicy {
+    public static func writableSampleCount(writeIndex: UInt64, readIndex: UInt64, capacity: Int = kSharedRingCapacity) -> UInt64 {
+        UInt64(capacity) - (writeIndex &- readIndex)
+    }
+
+    public static func canWrite(writeIndex: UInt64, readIndex: UInt64, sampleCount: Int, capacity: Int = kSharedRingCapacity) -> Bool {
+        guard sampleCount >= 0, sampleCount <= capacity else { return false }
+        return UInt64(sampleCount) <= writableSampleCount(writeIndex: writeIndex, readIndex: readIndex, capacity: capacity)
+    }
+}
+
 public final class SharedAudioMemory {
     public static let expectedSharedMemorySize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
 
@@ -115,11 +126,14 @@ public final class SharedAudioMemory {
 
     @discardableResult
     public func writeMic(src: UnsafePointer<Float>, count: Int) -> Bool {
+        guard count > 0 else { return true }
+        guard count <= kSharedRingCapacity else { return false }
         let l = layout
         let w = l.micWriteIdx.pointee
         let r = l.micReadIdx.pointee
-        let avail = UInt64(kSharedRingCapacity) - (w &- r)
-        guard count <= avail else { return false }
+        guard SharedRingPolicy.canWrite(writeIndex: w, readIndex: r, sampleCount: count) else {
+            return false
+        }
         for i in 0..<count {
             l.micBuffer[Int(w &+ UInt64(i)) & (kSharedRingCapacity - 1)] = src[i]
         }

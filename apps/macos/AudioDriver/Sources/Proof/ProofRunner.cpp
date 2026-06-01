@@ -26,6 +26,9 @@ std::vector<VirtualDeviceExpectation> ExpectedMVPDevices();
 bool HasExactlyMVPDevices(const std::vector<VirtualDeviceExpectation>& devices);
 bool IsContinuitySampleUsable(const ContinuitySample& sample);
 bool RequiresDropoutMarker(const ContinuitySample& sample);
+bool SharedAudioBufferRejectsOverflowWithoutMovingReadIndex();
+bool SharedAudioBufferRejectsOversizedWrites();
+bool SharedAudioBufferAcceptsZeroLengthWrite();
 
 }  // namespace two_brain_rec::audio_proof
 
@@ -54,6 +57,18 @@ int main() {
 
     if (RequiresDropoutMarker(sample)) {
         std::cerr << "Nominal continuity sample should not require dropout marker\n";
+        return 1;
+    }
+    if (!SharedAudioBufferRejectsOverflowWithoutMovingReadIndex()) {
+        std::cerr << "SharedAudioBuffer must reject overflow without moving read index\n";
+        return 1;
+    }
+    if (!SharedAudioBufferRejectsOversizedWrites()) {
+        std::cerr << "SharedAudioBuffer must reject writes larger than capacity\n";
+        return 1;
+    }
+    if (!SharedAudioBufferAcceptsZeroLengthWrite()) {
+        std::cerr << "SharedAudioBuffer must accept zero-length writes as no-op\n";
         return 1;
     }
 

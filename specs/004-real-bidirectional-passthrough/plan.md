@@ -20,6 +20,27 @@ remains the local realtime handoff between driver and app. This feature does not
 start recording, upload audio, call MediaScribe, write Langfuse traces, or add
 new network egress.
 
+### Stabilization Review Update - 2026-06-01
+
+The first live-passthrough spike exposed system-level instability: `coreaudiod`
+CPU spikes, audio distortion, intermittent silence, and hangs in audio clients
+such as Zoom, Yandex Telemost, and System Settings. The feature remains in SDD
+implementation, but live route acceptance is paused until the following
+refactor gates pass:
+
+- separate UI lifecycle from route-engine ownership;
+- separate publication proof from live-route proof;
+- make AudioUnit callbacks realtime-safe;
+- formalize and test the shared-memory ring-buffer contract;
+- restore truthful readiness based on measured route evidence;
+- add default-off, no-autostart, `coreaudiod` CPU/no-hang, and RT-safety checks
+  to the validation pipeline.
+
+Temporary safe-mode behavior is allowed only as a stabilization measure: the
+driver may publish devices for Core Audio enumeration while the app-side live
+bridge is disabled by default and reports `running=0`. This safe mode is not
+live passthrough acceptance and does not close browser/physical evidence tasks.
+
 ## Technical Context
 
 **Language/Version**: Swift 6 for macOS app, Audio Unit bridge, route
@@ -37,8 +58,10 @@ or meeting-content persistence is added.
 
 **Testing**: Swift unit tests for route state, ring-buffer policy, diagnostics,
 and fail-closed behavior; C++ proof/runtime tools; synthetic passthrough harness;
-local installer/runtime probe; browser meeting matrix evidence; manual physical
-device checks where macOS hardware observation is required.
+local installer/runtime probe; static realtime-safety checks; default-off
+autostart checks; `coreaudiod` CPU/no-hang checks; browser meeting matrix
+evidence; manual physical device checks where macOS hardware observation is
+required.
 
 **Target Platform**: macOS 14.5+ on Apple Silicon. Built-in and wired
 microphone/output routes are release-quality targets. Bluetooth and
