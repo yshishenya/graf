@@ -1,0 +1,35 @@
+{
+  "schema": "2brain.rec.installer_lifecycle_evidence.v1",
+  "operations": [
+    "install",
+    "update",
+    "repair",
+    "rollback",
+    "uninstall",
+    "reinstall"
+  ],
+  "requiredFields": [
+    "operation",
+    "pre_state",
+    "post_state",
+    "core_audio_refresh_required",
+    "runtime_probe_result",
+    "result"
+  ],
+  "allowedRuntimeProbeResult": ["accepted", "blocked", "not_run"],
+  "allowedResult": ["passed", "blocked", "not_accepted"],
+  "rules": {
+    "hiddenManualCleanupIsNotAccepted": true,
+    "staleHALBundleAfterUninstallIsBlocked": true,
+    "repairOrUpdateMustProduceTruthfulReadyOrRepairState": true
+  },
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "tokens",
+    "signedUrls"
+  ]
+}

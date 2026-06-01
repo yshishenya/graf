@@ -1,4 +1,5 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -42,6 +43,57 @@ final class LivePassthroughPolicyTests: XCTestCase {
         XCTAssertFalse(highLatency.passesBuiltInWiredGate)
     }
 
+    func testDefaultLaunchStateIsNonRecordingAndInactiveUntilStarted() {
+        let engine = PassthroughRouteEngine(sharedMemory: nil)
+        var log: [(String, String)] = []
+
+        let state = engine.recordLaunchState { event, detail in
+            log.append((event, detail))
+        }
+
+        XCTAssertEqual(state, .inactive)
+        XCTAssertTrue(log.contains { event, detail in
+            event == "passthrough_bridge_launch_available" &&
+                detail.contains("non-recording")
+        })
+    }
+
+    func testAutomaticLaunchArmsWithoutOpeningPhysicalDevicesWhenNoVirtualClientRuns() {
+        let engine = PassthroughRouteEngine(
+            sharedMemory: nil,
+            activityDetector: FixedVirtualDeviceActivityDetector(isRunning: false)
+        )
+
+        let state = engine.startAutomaticRoute { _, _ in }
+
+        XCTAssertEqual(state, .armed)
+    }
+
+    func testAutoIdlePolicyReleasesPhysicalRouteWhenVirtualClientCloses() {
+        let policy = PassthroughAutoIdlePolicy(releaseAfterIdleTicks: 3)
+
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            virtualClientRunning: false,
+            consecutiveIdleTicks: 2
+        ))
+        XCTAssertTrue(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            virtualClientRunning: false,
+            consecutiveIdleTicks: 3
+        ))
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            virtualClientRunning: true,
+            consecutiveIdleTicks: 3
+        ))
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: false,
+            virtualClientRunning: false,
+            consecutiveIdleTicks: 3
+        ))
+    }
+
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
         LivePassthroughSession(
             sessionId: "session-1",
@@ -65,6 +117,14 @@ final class LivePassthroughPolicyTests: XCTestCase {
             ),
             recordingState: recordingState
         )
+    }
+}
+
+private struct FixedVirtualDeviceActivityDetector: VirtualDeviceActivityDetecting {
+    let isRunning: Bool
+
+    func anyExpectedVirtualDeviceRunning() -> Bool {
+        isRunning
     }
 }
 #endif

@@ -44,13 +44,24 @@ if [ -f "$APP_LOG" ]; then
   NEW_LOG=$(tail -c +"$((BEFORE_SIZE + 1))" "$APP_LOG" 2>/dev/null || true)
 fi
 
-if ! printf '%s\n' "$NEW_LOG" | rg -q 'passthrough_bridge_started'; then
-  echo "default-passthrough-disabled-check: expected automatic non-recording route start during default app launch" >&2
+LAUNCH_ROUTE_EVIDENCE=$(printf '%s\n' "$NEW_LOG" |
+  rg 'passthrough_bridge_armed|passthrough_bridge_started|passthrough_bridge_already_active' |
+  rg 'automatic non-recording route engine|waiting for virtual device client|route engine refreshed app IO heartbeat' || true)
+
+if [ -z "$LAUNCH_ROUTE_EVIDENCE" ]; then
+  echo "default-passthrough-disabled-check: expected automatic non-recording route evidence during default app launch" >&2
   exit 1
 fi
 
-if ! printf '%s\n' "$NEW_LOG" | rg -q 'automatic non-recording route engine active|passthrough_bridge_already_active'; then
-  echo "default-passthrough-disabled-check: expected automatic route-engine evidence during default app launch" >&2
+if printf '%s\n' "$LAUNCH_ROUTE_EVIDENCE" | rg -q 'passthrough_bridge_started' &&
+   ! printf '%s\n' "$LAUNCH_ROUTE_EVIDENCE" | rg -q 'automatic non-recording route engine active|passthrough_bridge_already_active'; then
+  echo "default-passthrough-disabled-check: expected started route-engine evidence to remain non-recording" >&2
+  exit 1
+fi
+
+if printf '%s\n' "$LAUNCH_ROUTE_EVIDENCE" | rg -q 'passthrough_bridge_armed' &&
+   ! printf '%s\n' "$LAUNCH_ROUTE_EVIDENCE" | rg -q 'waiting for virtual device client'; then
+  echo "default-passthrough-disabled-check: expected armed route-engine evidence to wait for a virtual device client" >&2
   exit 1
 fi
 

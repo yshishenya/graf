@@ -201,6 +201,80 @@ readiness checks are intentionally strict:
 Any UI state, checklist item, or task that suggests production passthrough is
 complete is obsolete and must be corrected before release readiness review.
 
+## Passthrough Release Hardening Proof Requirements (005)
+
+The 005 feature hardens the accepted non-recording passthrough path before local
+recording is added. Runtime proof for this slice must remain metadata-only and
+must not include raw audio, transcript text, credentials, tokens, signed URLs,
+passwords, or meeting content.
+
+Required pre-recording evidence families:
+
+- installed runtime baseline with public devices visible/alive and safe
+  non-running state when no Core Audio client is using them;
+- short smoke evidence for local speech, remote audio, no-loopback observation,
+  route state, and inactive recording/transcription/upload status;
+- no-hang evidence for macOS Sound settings, Chrome audio settings, Opera audio
+  settings, Zoom audio settings, and Yandex Telemost audio settings;
+- `coreaudiod` CPU evidence showing no sustained CPU above 10% for more than 30
+  seconds during no-call idle;
+- metadata-only no-hang helper output is not final UI-launch evidence unless
+  `TWO_BRAIN_REC_RUN_UI_NO_HANG=1` was used and target usability was observed
+  within the threshold;
+- route recovery evidence for physical input/output changes, aggregate or
+  multi-output routes, Bluetooth route handling, stale browser device IDs,
+  `coreaudiod` restart, and sleep/wake;
+- installer lifecycle evidence for install, update, repair, rollback,
+  uninstall, and reinstall;
+- diagnostics and UX evidence proving non-recording passthrough is not presented
+  as recording or transcription.
+
+Long-duration recording-assisted acceptance is intentionally deferred until
+local recording, retention, and deletion rules exist.
+
+## Passthrough Release Hardening Validation - 2026-06-01
+
+Commands executed from repository root on the updated lazy/armed passthrough
+build:
+
+```sh
+swift build --package-path apps/macos -c release --product TwoBrainRecApp
+swift test --package-path apps/macos --disable-swift-testing
+sh tests/macos/static/audio-rt-safety-check.sh
+make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build proof-hal-io-probe-build
+sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh
+TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh
+sudo installer -pkg apps/macos/.build/installer/2brain-rec-local.pkg -target /
+sudo killall coreaudiod
+open -a "2brain Rec"
+sh apps/macos/Scripts/validate-passthrough-release-hardening.sh
+```
+
+Validation result: accepted for automated and metadata-only pre-recording gates
+available in this slice.
+
+- Release app build: PASS.
+- Swift package test build with XCTest filters disabled: PASS.
+- Static realtime safety check: PASS.
+- Driver proof, runtime probe, and HAL I/O probe builds: PASS.
+- Runtime default-safe probe: PASS; both virtual devices were visible/alive and
+  reported `running=0`.
+- 35-second `coreaudiod` CPU gate after lazy/armed passthrough fix: PASS. Peak
+  CPU was observed, but sustained time above 10% stayed below the 30-second
+  blocking threshold.
+- Existing real bidirectional passthrough synthetic checks: PASS.
+- Audio settings no-hang helper: metadata-only dry run recorded targets as
+  `not_accepted` until explicit UI-launch evidence is run.
+- Installer lifecycle helper: metadata-only dry run recorded destructive
+  lifecycle operations as `not_accepted` until explicitly enabled.
+- Diagnostics scan: matches were policy text, fixture strings, or scanner
+  patterns only.
+
+Important design correction: default app launch now arms automatic
+non-recording passthrough and waits for a virtual-device client before opening
+physical input/output AudioUnits. This preserves automatic call readiness while
+avoiding sustained no-call `coreaudiod` CPU load.
+
 Safety correction added on 2026-05-31:
 
 - high-frequency HAL callback trace is disabled by default and can only be

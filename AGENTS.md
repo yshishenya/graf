@@ -4,9 +4,10 @@ This repository uses GitHub Spec Kit for spec-driven development. All product an
 
 Spec Kit is installed locally with:
 
-- CLI: `specify 0.8.14`
+- CLI: `specify` (check the current version with `specify --version`)
 - Default integration: `codex`
-- Codex skills mode: `.agents/skills/speckit-*`
+- Codex skills mode: global skills under `$HOME/.agents/skills/speckit-*`
+- Agent context extension: `.specify/extensions/agent-context/`
 - Project state: `.specify/`
 
 ## Project Context
@@ -103,14 +104,9 @@ The plan must:
 Planning must stop if constitution gates fail or important clarifications remain unresolved.
 
 <!-- SPECKIT START -->
-Current Spec Kit plan: `specs/004-real-bidirectional-passthrough/plan.md`
-
-Active feature: `004-real-bidirectional-passthrough`
-
-Use the plan, research, data model, contracts, and quickstart in
-`specs/004-real-bidirectional-passthrough/` as the authoritative context for
-macOS real bidirectional passthrough planning until a later Spec Kit feature
-supersedes this slice.
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/006-low-resource-audio/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
@@ -239,9 +235,11 @@ Do not commit secrets. Never write actual credentials, API keys, tokens, signed 
 Spec Kit project files expected in git:
 
 - `.specify/`
-- `.agents/skills/speckit-*`
 - `AGENTS.md`
 - `specs/` once features are created
+
+Codex skill files are installed globally by the current Spec Kit bootstrap and
+are not expected to be committed under repo-local `.agents/skills/`.
 
 Keep generated build/cache/secret files out of git through `.gitignore`.
 
@@ -266,6 +264,8 @@ Any feature touching `2brain Rec` capture, transcription, storage, or AI must pr
 
 ```sh
 specify --version
+specify version
+specify self check
 specify integration list
 specify extension list
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only

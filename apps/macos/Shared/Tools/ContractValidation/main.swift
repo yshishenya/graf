@@ -23,6 +23,31 @@ struct ForbiddenFixtureFile: Decodable {
     let forbiddenPatterns: [String]
 }
 
+struct ReleaseHardeningFixtureFile: Decodable {
+    let schema: String
+    let requiredFields: [String]?
+    let allowedResult: [String]?
+    let forbiddenFields: [String]
+}
+
+struct LowResourceValidationFixtureFile: Decodable {
+    let schema: String
+    let feature: String?
+    let baseline: String?
+    let allowedResult: [String]?
+    let requiredFields: [String]?
+    let requiredGates: [String]?
+    let thresholds: [String: Int]?
+    let forbiddenFields: [String]
+}
+
+struct LowResourceRouteTruthFixtureFile: Decodable {
+    let schema: String
+    let allowedResourceStates: [String]
+    let requiredPlanes: [String]
+    let forbiddenFields: [String]
+}
+
 func findRepositoryRoot(startingAt startURL: URL) throws -> URL {
     var candidate = startURL.standardizedFileURL
 
@@ -222,6 +247,92 @@ func validateDiagnosticForbiddenFixtures() throws {
     )
 }
 
+func validateReleaseHardeningFixtures() throws {
+    let fixtureNames = [
+        "release-hardening-evidence",
+        "core-audio-no-hang-evidence",
+        "route-recovery-evidence",
+        "installer-lifecycle-evidence",
+        "ux-readiness-evidence"
+    ]
+
+    for name in fixtureNames {
+        let url = repositoryRoot.appendingPathComponent("tests/macos/contract/\(name).json")
+        let fixture = try decode(ReleaseHardeningFixtureFile.self, from: url)
+        try require(
+            fixture.schema.hasPrefix("2brain.rec."),
+            "Release-hardening fixture \(name) must use a 2brain.rec schema"
+        )
+        try require(
+            Set(fixture.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "meetingContent", "credentials", "tokens", "signedUrls"]),
+            "Release-hardening fixture \(name) must forbid raw content and secret fields"
+        )
+
+        if let allowedResult = fixture.allowedResult {
+            try require(
+                Set(allowedResult) == ["passed", "blocked", "not_accepted"],
+                "Release-hardening fixture \(name) must use common result values"
+            )
+        }
+    }
+}
+
+func validateLowResourceFixtures() throws {
+    let validationURL = repositoryRoot.appendingPathComponent("tests/macos/contract/low-resource-validation-evidence.json")
+    let validation = try decode(LowResourceValidationFixtureFile.self, from: validationURL)
+
+    try require(
+        validation.schema == "2brain.rec.low_resource_validation_evidence.v1",
+        "Low-resource validation fixture must use the v1 schema"
+    )
+    try require(
+        validation.feature == "006-low-resource-audio",
+        "Low-resource validation fixture must identify feature 006"
+    )
+    try require(
+        validation.baseline == "005-macos-passthrough-release-hardening",
+        "Low-resource validation fixture must preserve the accepted 005 baseline"
+    )
+    try require(
+        Set(validation.allowedResult ?? []) == ["passed", "blocked", "not_accepted"],
+        "Low-resource validation fixture must use common result values"
+    )
+    try require(
+        validation.thresholds?["startup_timeout_ms"] == 3000,
+        "Low-resource startup threshold must be 3000 ms"
+    )
+    try require(
+        validation.thresholds?["target_surface_usable_within_seconds"] == 5,
+        "Low-resource no-hang threshold must be 5 seconds"
+    )
+    try require(
+        Set(validation.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "meetingContent", "credentials", "tokens", "signedUrls", "password"]),
+        "Low-resource validation fixture must forbid raw content and secret fields"
+    )
+
+    let routeURL = repositoryRoot.appendingPathComponent("tests/macos/contract/low-resource-route-truth.json")
+    let route = try decode(LowResourceRouteTruthFixtureFile.self, from: routeURL)
+    try require(
+        Set(route.requiredPlanes) == ["publication", "client_io", "app_bridge", "physical_devices", "recording_trigger"],
+        "Low-resource route truth fixture must require separate readiness planes"
+    )
+    try require(
+        route.allowedResourceStates.contains("fallback") && route.allowedResourceStates.contains("active"),
+        "Low-resource route truth fixture must include active and fallback states"
+    )
+
+    let startupURL = repositoryRoot.appendingPathComponent("tests/macos/contract/low-resource-startup-attempt.json")
+    let startup = try decode(LowResourceValidationFixtureFile.self, from: startupURL)
+    try require(
+        startup.thresholds?["maximum_duration_ms"] == 3000,
+        "Low-resource startup attempt fixture must cap duration at 3000 ms"
+    )
+    try require(
+        Set(startup.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "meetingContent", "credentials", "tokens", "signedUrls", "password"]),
+        "Low-resource startup fixture must forbid raw content and secret fields"
+    )
+}
+
 func validatePlatformGate() throws {
     let minimum = OperatingSystemVersion(majorVersion: 14, minorVersion: 5, patchVersion: 0)
     try require(
@@ -301,6 +412,8 @@ func validateDiagnosticBundleService() throws {
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
+    try validateReleaseHardeningFixtures()
+    try validateLowResourceFixtures()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()

@@ -195,7 +195,7 @@ public struct AudioHealthView: View {
         case .checking:
             return "Checking"
         case .ready:
-            return "Ready for calls"
+            return "Ready for calls, not recording"
         case .active:
             return "Active, not recording"
         case .stale:

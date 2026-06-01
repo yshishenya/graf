@@ -286,10 +286,10 @@ bool PrivateAppIOAvailable() {
 }
 
 std::atomic<UInt32>* RunningClientCountForDevice(AudioObjectID device_id) {
-    if (device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID) {
+    if (TwoBrainRec::AudioDriver::IsMicrophoneDevice(device_id)) {
         return &gMicrophoneIOClientCount;
     }
-    if (device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID) {
+    if (TwoBrainRec::AudioDriver::IsSpeakerDevice(device_id)) {
         return &gSpeakerIOClientCount;
     }
     return nullptr;
@@ -301,6 +301,11 @@ UInt32 DeviceIsRunning(AudioObjectID device_id) {
         return 0;
     }
     return count->load(std::memory_order_acquire) > 0 ? 1 : 0;
+}
+
+UInt32 PublicDeviceIsHidden(AudioObjectID device_id) {
+    return TwoBrainRec::AudioDriver::IsMicrophoneDevice(device_id) ||
+        TwoBrainRec::AudioDriver::IsSpeakerDevice(device_id) ? 0 : 1;
 }
 
 std::atomic<uint64_t>* ClockAnchorForDevice(AudioObjectID device_id) {
@@ -780,7 +785,7 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioDevicePropertyDeviceIsRunning:
         return WriteScalar(in_data_size, out_data_size, out_data, DeviceIsRunning(in_object_id));
     case kAudioDevicePropertyIsHidden:
-        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
+        return WriteScalar(in_data_size, out_data_size, out_data, PublicDeviceIsHidden(in_object_id));
     case kAudioDevicePropertyStreams:
         if (DeviceStreamCount(in_object_id, in_address->mScope) == 0) {
             return WriteEmptyList(out_data_size);

@@ -92,7 +92,19 @@ private struct ContentView: View {
                     let preflight = LocalAudioSnapshot.current()
                     AppLog.write(event: "auto_passthrough_preflight", snapshot: preflight)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        passthroughCoordinator.startAutomaticBridge()
+                        if ProcessInfo.processInfo.arguments.contains("--enforce-low-resource-promotion-gate") {
+                            let decision = LowResourcePromotionGate().decision(for: nil)
+                            if decision.shouldUseFallback {
+                                _ = PassthroughRouteEngine.shared.switchToAccepted005Fallback(
+                                    reason: decision.reason,
+                                    logger: AppLog.writeRaw
+                                )
+                            } else {
+                                passthroughCoordinator.armAutomaticBridge()
+                            }
+                        } else {
+                            passthroughCoordinator.armAutomaticBridge()
+                        }
                         LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_ready") { updated in
                             onAutoStarted(updated)
                         }
@@ -252,6 +264,9 @@ fileprivate struct LocalAudioSnapshot {
         )
         let recoveryActions = recoveryActions(system: system, routeSnapshot: routeSnapshot)
         let routeIsActive = routeEngineState == .active
+        let routeIsWaitingForClient = routeEngineState == .armed ||
+            routeEngineState == .idleSafe ||
+            routeEngineState == .inactive
 
         let health = AudioHealthState(
             driverState: driverState,
@@ -266,7 +281,9 @@ fileprivate struct LocalAudioSnapshot {
             continuityStatus: routeIsActive
                 ? "Non-recording passthrough is ready for calls."
                 : (hasMic && hasSpeaker
-                    ? "Virtual devices are published. Live passthrough is waiting for app I/O."
+                    ? (routeIsWaitingForClient
+                        ? "Virtual devices are published. Waiting for meeting audio."
+                        : "Virtual devices are published. Live passthrough is waiting for app I/O.")
                     : "Waiting for virtual devices"),
             bufferRisk: .healthy,
             livePassthroughStatus: routeIsActive ? .active : .inactive,

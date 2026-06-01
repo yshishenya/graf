@@ -120,5 +120,88 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertNil(bundle.manifest["rawAudio"])
         XCTAssertNil(bundle.manifest["transcriptText"])
     }
+
+    func testReleaseHardeningBundleKeepsOnlyMetadata() throws {
+        let now = Date(timeIntervalSince1970: 1_780_284_000)
+        let run = ReleaseHardeningRun(
+            runId: "005-local",
+            createdAt: now,
+            macOSVersion: "14.5",
+            appBuild: "local",
+            driverBuild: "local",
+            result: .blocked,
+            notes: "No-hang gate pending",
+            evidenceFamilies: [.installedRuntime, .noHang, .deferredRecordingAcceptance]
+        )
+
+        let bundle = try DiagnosticBundleService().buildReleaseHardeningBundle(
+            run: run,
+            shortSmokeEvidence: [
+                ShortSmokeEvidence(
+                    targetApp: "Chrome",
+                    selectedInput: "2brain Rec Microphone",
+                    selectedOutput: "2brain Rec Speaker",
+                    localSpeechObserved: true,
+                    remoteAudioObserved: true,
+                    loopbackObserved: false,
+                    recordingStarted: false,
+                    result: .passed
+                )
+            ],
+            noHangEvidence: [
+                CoreAudioNoHangEvidence(
+                    targetSurface: "macOS Sound settings",
+                    openedWithinSeconds: 2.0,
+                    coreaudiodCPUPeakPercent: 4.0,
+                    coreaudiodCPUSustainedPercent: 1.0,
+                    routeStateBefore: .ready,
+                    routeStateAfter: .ready,
+                    result: .passed
+                )
+            ],
+            deferredRecordingAcceptance: DeferredRecordingAcceptanceState()
+        )
+
+        XCTAssertEqual(bundle.redactionState, .redacted)
+        XCTAssertNotNil(bundle.manifest["releaseHardeningRun"])
+        XCTAssertNotNil(bundle.manifest["shortSmokeEvidence"])
+        XCTAssertNotNil(bundle.manifest["coreAudioNoHangEvidence"])
+        XCTAssertNotNil(bundle.manifest["deferredRecordingAcceptance"])
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+        XCTAssertNil(bundle.manifest["meetingContent"])
+    }
+
+    func testLowResourceRouteTruthKeepsMetadataAndRemovesSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "lowResourceRouteTruth": .object([
+                "resourceState": .string("active"),
+                "publication": .object([
+                    "microphoneVisible": .bool(true),
+                    "speakerVisible": .bool(true)
+                ]),
+                "recordingTrigger": .object([
+                    "recordingTriggerState": .string("off"),
+                    "transcriptText": .string("forbidden")
+                ])
+            ]),
+            "lowResourceStartupAttempts": .array([
+                .object([
+                    "durationMs": .int(2500),
+                    "outcome": .string("ready"),
+                    "signedUrl": .string("forbidden")
+                ])
+            ]),
+            "rawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["lowResourceRouteTruth"])
+        XCTAssertNotNil(result.manifest["lowResourceStartupAttempts"])
+        XCTAssertNil(result.manifest["rawAudio"])
+        XCTAssertTrue(result.removedFields.contains("lowResourceRouteTruth.recordingTrigger.transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("lowResourceStartupAttempts[0].signedUrl"))
+    }
 }
 #endif

@@ -1,5 +1,46 @@
 # macOS Release Candidate Checklist (MVP)
 
+## Passthrough Release Hardening Evidence (005)
+
+- [ ] Low-resource promotion for `006-low-resource-audio` uses a complete P1
+  gate bundle before default enablement; any missing, blocked, or failed P1
+  gate records `fallback` to `005-macos-passthrough-release-hardening`.
+- [ ] Low-resource promotion evidence includes route truth, startup timeout,
+  realtime safety, no-hang/CPU, recovery, fallback, redaction, and clean-room
+  gates without raw audio, transcript text, credentials, signed URLs, passwords,
+  or meeting content.
+- [ ] Pre-recording stability evidence records installed runtime, short smoke,
+  route state, CPU/no-hang behavior, and inactive recording/transcription/upload
+  status.
+- [ ] Installed runtime baseline includes
+  `proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe` or a
+  recorded blocked/not accepted reason.
+- [ ] Short smoke evidence is explicitly labeled as smoke-only and not
+  long-duration recording-assisted acceptance.
+- [ ] No-hang evidence covers macOS Sound settings, Chrome audio settings, Opera
+  audio settings, Zoom audio settings, and Yandex Telemost audio settings.
+- [ ] Audio settings no-hang evidence records actual UI-launch evidence with
+  `TWO_BRAIN_REC_RUN_UI_NO_HANG=1`, or records metadata-only `not_accepted`
+  reasons when UI launch is intentionally skipped.
+- [ ] `coreaudiod` CPU does not sustain above 10% for more than 30 consecutive
+  seconds during no-call idle with the app open.
+- [ ] Physical input/output changes, aggregate or multi-output routes,
+  Bluetooth routes, stale browser device IDs, `coreaudiod` restart, and
+  sleep/wake record passed, blocked, or not accepted metadata-only outcomes.
+- [ ] Installer lifecycle evidence covers install, update, repair, rollback,
+  uninstall, and reinstall without hidden manual cleanup.
+- [ ] Destructive installer lifecycle checks are either run with
+  `TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE=1` or recorded as `not_accepted`, not
+  `passed`.
+- [ ] Diagnostics and release evidence contain no raw audio, transcript text,
+  credentials, tokens, signed URLs, passwords, or meeting content.
+- [ ] UI evidence distinguishes non-recording passthrough active/ready state
+  from recording, transcription, and capture-active states.
+- [ ] Long-duration recording-assisted acceptance remains deferred until local
+  recording, retention, and deletion rules exist.
+- [ ] `qa/macos/recording-assisted-acceptance.md` remains blocked and is not
+  counted as passed for the pre-recording hardening slice.
+
 ## Live Route Readiness Evidence (003)
 
 - [ ] Fresh local install moves from `not ready for calls yet` to ready only

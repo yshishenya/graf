@@ -310,6 +310,28 @@ public final class AudioHealthViewModel {
         state.lastUpdatedAt = Date()
     }
 
+    public func applyLowResourceStartupState(_ resourceState: AudioResourceState, reason: String? = nil) {
+        switch resourceState {
+        case .blocked:
+            state.passthroughStatus = .failed
+            state.livePassthroughStatus = .blocked
+            state.recoveryActions.append(reason ?? "Retry audio route startup")
+        case .failed:
+            state.passthroughStatus = .failed
+            state.livePassthroughStatus = .failed
+            state.recoveryActions.append(reason ?? "Review audio route diagnostics")
+        case .retrying:
+            state.livePassthroughStatus = .checking
+        case .ready:
+            state.livePassthroughStatus = .ready
+        case .active:
+            state.livePassthroughStatus = .active
+        default:
+            break
+        }
+        state.lastUpdatedAt = Date()
+    }
+
     public func currentState() -> AudioHealthState {
         state
     }

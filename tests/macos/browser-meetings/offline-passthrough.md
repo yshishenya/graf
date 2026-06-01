@@ -6,6 +6,24 @@ Validate that live mic/speaker passthrough remains usable during backend,
 network, MediaScribe, or upload outages. This is a US2 acceptance scenario and
 does not require audio to leave the desktop during the outage.
 
+For the 005 pre-recording hardening slice, this file also records the
+no-recording/no-upload policy boundary: short smoke evidence may state whether
+local speech, remote audio, and no-loopback were observed, but it must not
+create raw audio, recording snippets, transcript text, upload payloads, or
+external egress.
+
+## 005 No-Recording/No-Upload Policy Scan
+
+- [ ] Short smoke evidence records selected input/output and user-observed audio
+  usability only.
+- [ ] Short smoke evidence records `recordingStarted: false`.
+- [ ] Recording, transcription, upload, MediaScribe, Langfuse, and server
+  workflows remain inactive during pre-recording hardening.
+- [ ] Raw audio, audio snippets, transcript text, credentials, tokens, signed
+  URLs, and meeting content are absent from evidence and diagnostics.
+- [ ] Long-duration replay is not accepted from this checklist until local
+  recording support exists.
+
 ## Preconditions
 
 - US1 route verification passes.

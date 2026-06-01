@@ -53,9 +53,9 @@ public struct RouteVerificationView: View {
             }
 
             if let snapshot, snapshot.canShowReady {
-                Label("Ready", systemImage: "checkmark.circle.fill")
+                Label("Audio route ready, not recording", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                    .accessibilityLabel("Audio routes ready")
+                    .accessibilityLabel("Audio routes ready, not recording")
             } else if isVerifying {
                 Label("Checking", systemImage: "waveform")
                     .foregroundStyle(.blue)
@@ -130,13 +130,13 @@ public struct RouteVerificationView: View {
         if verification.status == .passed {
             switch verification.path {
             case .micToVirtualInput:
-                return "Active: physical microphone reaches 2brain Rec Microphone"
+                return "Active: physical microphone reaches 2brain Rec Microphone, not recording"
             case .remoteOutputToVirtualSpeaker:
-                return "Active: 2brain Rec Speaker routes to physical output"
+                return "Active: 2brain Rec Speaker routes to physical output, not recording"
             case .speakerPassthrough:
-                return "Active: speaker passthrough is usable"
+                return "Active: speaker passthrough is usable, not recording"
             case .captureMirror:
-                return "Active: capture mirror is usable"
+                return "Active: capture mirror is usable, not recording"
             }
         }
         if let failureReason = verification.failureReason {

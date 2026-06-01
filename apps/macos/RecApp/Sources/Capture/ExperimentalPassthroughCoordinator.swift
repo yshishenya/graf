@@ -32,6 +32,16 @@ public final class ExperimentalPassthroughCoordinator: ObservableObject, @unchec
         )
     }
 
+    public func armAutomaticBridge(
+        selectedPhysicalInputId: String? = nil,
+        selectedPhysicalOutputId: String? = nil
+    ) {
+        startAutomaticBridge(
+            selectedPhysicalInputId: selectedPhysicalInputId,
+            selectedPhysicalOutputId: selectedPhysicalOutputId
+        )
+    }
+
     public func startExperimentalBridge(
         selectedPhysicalInputId: String? = nil,
         selectedPhysicalOutputId: String? = nil

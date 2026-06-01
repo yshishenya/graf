@@ -4,6 +4,7 @@
     "rawAudio",
     "audioSnippet",
     "transcriptText",
+    "meetingContent",
     "meetingNotes",
     "mediaScribeApiKey",
     "apiKey",
@@ -12,6 +13,9 @@
     "refreshToken",
     "deviceToken",
     "signedUrl",
+    "signed_url",
+    "signedUrls",
+    "token",
     "temporaryUploadUrl",
     "temporaryDownloadUrl"
   ],
@@ -19,6 +23,8 @@
     "-----BEGIN PRIVATE KEY-----",
     "X-API-Key:",
     "Authorization: Bearer ",
-    "https://*.presigned*"
+    "https://*.presigned*",
+    "signed_url",
+    "token="
   ]
 }

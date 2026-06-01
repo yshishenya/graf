@@ -143,6 +143,29 @@ public extension AdaptiveStatusText {
         }
     }
 
+    static func lowResourceRouteLabel(_ state: AudioResourceState) -> String {
+        switch state {
+        case .idleSafe:
+            return "Idle, routing is safe"
+        case .starting:
+            return "Starting audio route"
+        case .ready:
+            return "Routing ready, not recording"
+        case .active:
+            return "Routing active, not recording"
+        case .stale:
+            return "Audio route needs fresh evidence"
+        case .blocked:
+            return "Audio route blocked"
+        case .failed:
+            return "Audio route failed"
+        case .retrying:
+            return "Retrying audio route"
+        case .fallback:
+            return "Using previous audio route"
+        }
+    }
+
     static func browserLabel(_ name: String?) -> String {
         let normalized = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()

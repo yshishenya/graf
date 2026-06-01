@@ -10,4 +10,6 @@ bool RouteSpeakerFrames(
     MutableInterleavedAudioBuffer remote_capture_mirror
 );
 
+bool SpeakerRouteShouldRemainActive(unsigned int client_io_count);
+
 }  // namespace TwoBrainRec::AudioDriver
