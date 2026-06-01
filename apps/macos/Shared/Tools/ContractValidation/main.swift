@@ -23,6 +23,13 @@ struct ForbiddenFixtureFile: Decodable {
     let forbiddenPatterns: [String]
 }
 
+struct ReleaseHardeningFixtureFile: Decodable {
+    let schema: String
+    let requiredFields: [String]?
+    let allowedResult: [String]?
+    let forbiddenFields: [String]
+}
+
 func findRepositoryRoot(startingAt startURL: URL) throws -> URL {
     var candidate = startURL.standardizedFileURL
 
@@ -222,6 +229,36 @@ func validateDiagnosticForbiddenFixtures() throws {
     )
 }
 
+func validateReleaseHardeningFixtures() throws {
+    let fixtureNames = [
+        "release-hardening-evidence",
+        "core-audio-no-hang-evidence",
+        "route-recovery-evidence",
+        "installer-lifecycle-evidence",
+        "ux-readiness-evidence"
+    ]
+
+    for name in fixtureNames {
+        let url = repositoryRoot.appendingPathComponent("tests/macos/contract/\(name).json")
+        let fixture = try decode(ReleaseHardeningFixtureFile.self, from: url)
+        try require(
+            fixture.schema.hasPrefix("2brain.rec."),
+            "Release-hardening fixture \(name) must use a 2brain.rec schema"
+        )
+        try require(
+            Set(fixture.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "meetingContent", "credentials", "tokens", "signedUrls"]),
+            "Release-hardening fixture \(name) must forbid raw content and secret fields"
+        )
+
+        if let allowedResult = fixture.allowedResult {
+            try require(
+                Set(allowedResult) == ["passed", "blocked", "not_accepted"],
+                "Release-hardening fixture \(name) must use common result values"
+            )
+        }
+    }
+}
+
 func validatePlatformGate() throws {
     let minimum = OperatingSystemVersion(majorVersion: 14, minorVersion: 5, patchVersion: 0)
     try require(
@@ -301,6 +338,7 @@ func validateDiagnosticBundleService() throws {
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
+    try validateReleaseHardeningFixtures()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()

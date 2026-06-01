@@ -201,6 +201,34 @@ readiness checks are intentionally strict:
 Any UI state, checklist item, or task that suggests production passthrough is
 complete is obsolete and must be corrected before release readiness review.
 
+## Passthrough Release Hardening Proof Requirements (005)
+
+The 005 feature hardens the accepted non-recording passthrough path before local
+recording is added. Runtime proof for this slice must remain metadata-only and
+must not include raw audio, transcript text, credentials, tokens, signed URLs,
+passwords, or meeting content.
+
+Required pre-recording evidence families:
+
+- installed runtime baseline with public devices visible/alive and safe
+  non-running state when no Core Audio client is using them;
+- short smoke evidence for local speech, remote audio, no-loopback observation,
+  route state, and inactive recording/transcription/upload status;
+- no-hang evidence for macOS Sound settings, Chrome audio settings, Opera audio
+  settings, Zoom audio settings, and Yandex Telemost audio settings;
+- `coreaudiod` CPU evidence showing no sustained CPU above 10% for more than 30
+  seconds during no-call idle;
+- route recovery evidence for physical input/output changes, aggregate or
+  multi-output routes, Bluetooth route handling, stale browser device IDs,
+  `coreaudiod` restart, and sleep/wake;
+- installer lifecycle evidence for install, update, repair, rollback,
+  uninstall, and reinstall;
+- diagnostics and UX evidence proving non-recording passthrough is not presented
+  as recording or transcription.
+
+Long-duration recording-assisted acceptance is intentionally deferred until
+local recording, retention, and deletion rules exist.
+
 Safety correction added on 2026-05-31:
 
 - high-frequency HAL callback trace is disabled by default and can only be

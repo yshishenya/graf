@@ -121,6 +121,12 @@ public enum BrowserTargetEvidenceStatus: String, Codable, Sendable {
     case notAccepted = "not_accepted"
 }
 
+public enum ReleaseHardeningResult: String, Codable, Sendable {
+    case passed
+    case blocked
+    case notAccepted = "not_accepted"
+}
+
 public enum MeasurementStatus: String, Codable, Sendable {
     case passed
     case degraded

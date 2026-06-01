@@ -29,15 +29,15 @@
 
 **Critical**: No user story work should be accepted until this phase is complete.
 
-- [ ] T009 Add release-hardening evidence models in `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
-- [ ] T010 Add release-hardening evidence model tests in `apps/macos/Shared/Tests/ReleaseHardeningEvidenceTests.swift`.
-- [ ] T011 [P] Extend contract validation coverage for 005 fixtures in `apps/macos/Shared/Tests/ContractTests/ReleaseHardeningContractTests.swift`.
-- [ ] T012 [P] Extend diagnostic redaction denylist and allowlist fixtures for release evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
-- [ ] T013 Add metadata-only evidence writer support in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T014 Add release-hardening audit event names in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
-- [ ] T015 Add release-hardening result mapping for passed/blocked/not_accepted in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
-- [ ] T016 Wire build, runtime probe, static realtime check, and existing passthrough validation into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
-- [ ] T017 Update `apps/macos/AudioDriver/RuntimeProofReport.md` with a 005 section for pre-recording hardening evidence.
+- [X] T009 Add release-hardening evidence models in `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
+- [X] T010 Add release-hardening evidence model tests in `apps/macos/Shared/Tests/ReleaseHardeningEvidenceTests.swift`.
+- [X] T011 [P] Extend contract validation coverage for 005 fixtures in `apps/macos/Shared/Tests/ContractTests/ReleaseHardeningContractTests.swift`.
+- [X] T012 [P] Extend diagnostic redaction denylist and allowlist fixtures for release evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
+- [X] T013 Add metadata-only evidence writer support in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T014 Add release-hardening audit event names in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
+- [X] T015 Add release-hardening result mapping for passed/blocked/not_accepted in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
+- [X] T016 Wire build, runtime probe, static realtime check, and existing passthrough validation into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
+- [X] T017 Update `apps/macos/AudioDriver/RuntimeProofReport.md` with a 005 section for pre-recording hardening evidence.
 
 **Checkpoint**: Shared evidence and validation scaffolding exist, with no recording, transcription, upload, or external egress.
 

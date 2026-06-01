@@ -264,6 +264,41 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildReleaseHardeningBundle(
+        run: ReleaseHardeningRun,
+        shortSmokeEvidence: [ShortSmokeEvidence] = [],
+        noHangEvidence: [CoreAudioNoHangEvidence] = [],
+        routeRecoveryEvidence: [RouteRecoveryEvidence] = [],
+        installerLifecycleEvidence: [InstallerLifecycleEvidence] = [],
+        uxReadinessEvidence: [UXReadinessEvidence] = [],
+        deferredRecordingAcceptance: DeferredRecordingAcceptanceState? = nil
+    ) throws -> DiagnosticBundle {
+        try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "releaseHardeningRun": .object([
+                    "runId": .string(run.runId),
+                    "createdAt": .string(Self.formatDate(run.createdAt)),
+                    "macOSVersion": .string(run.macOSVersion),
+                    "appBuild": .string(run.appBuild),
+                    "driverBuild": .string(run.driverBuild),
+                    "result": .string(run.result.rawValue),
+                    "notes": .string(run.notes)
+                ]),
+                "releaseHardeningEvidenceFamilies": .array(
+                    run.evidenceFamilies.map { .string($0.rawValue) }
+                ),
+                "shortSmokeEvidence": .array(shortSmokeEvidence.map(Self.diagnosticValue)),
+                "coreAudioNoHangEvidence": .array(noHangEvidence.map(Self.diagnosticValue)),
+                "routeRecoveryEvidence": .array(routeRecoveryEvidence.map(Self.diagnosticValue)),
+                "installerLifecycleEvidence": .array(installerLifecycleEvidence.map(Self.diagnosticValue)),
+                "uxReadinessEvidence": .array(uxReadinessEvidence.map(Self.diagnosticValue)),
+                "deferredRecordingAcceptance": deferredRecordingAcceptance.map(Self.diagnosticValue) ?? .null
+            ],
+            failureFamily: "release_hardening"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),
@@ -318,6 +353,78 @@ public struct DiagnosticBundleService: Sendable {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+
+    private static func diagnosticValue(_ evidence: ShortSmokeEvidence) -> DiagnosticFieldValue {
+        .object([
+            "targetApp": .string(evidence.targetApp),
+            "selectedInput": .string(evidence.selectedInput),
+            "selectedOutput": .string(evidence.selectedOutput),
+            "localSpeechObserved": boolOrUnknown(evidence.localSpeechObserved),
+            "remoteAudioObserved": boolOrUnknown(evidence.remoteAudioObserved),
+            "loopbackObserved": boolOrUnknown(evidence.loopbackObserved),
+            "recordingStarted": .bool(evidence.recordingStarted),
+            "result": .string(evidence.result.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ evidence: CoreAudioNoHangEvidence) -> DiagnosticFieldValue {
+        .object([
+            "targetSurface": .string(evidence.targetSurface),
+            "openedWithinSeconds": .double(evidence.openedWithinSeconds),
+            "coreaudiodCPUPeakPercent": .double(evidence.coreaudiodCPUPeakPercent),
+            "coreaudiodCPUSustainedPercent": .double(evidence.coreaudiodCPUSustainedPercent),
+            "routeStateBefore": .string(evidence.routeStateBefore.rawValue),
+            "routeStateAfter": .string(evidence.routeStateAfter.rawValue),
+            "result": .string(evidence.result.rawValue),
+            "failureReason": .string(evidence.failureReason ?? "none")
+        ])
+    }
+
+    private static func diagnosticValue(_ evidence: RouteRecoveryEvidence) -> DiagnosticFieldValue {
+        .object([
+            "trigger": .string(evidence.trigger),
+            "detectedWithinSeconds": .double(evidence.detectedWithinSeconds),
+            "expectedState": .string(evidence.expectedState.rawValue),
+            "actualState": .string(evidence.actualState.rawValue),
+            "recoveryAction": .string(evidence.recoveryAction),
+            "result": .string(evidence.result.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ evidence: InstallerLifecycleEvidence) -> DiagnosticFieldValue {
+        .object([
+            "operation": .string(evidence.operation),
+            "preState": .string(evidence.preState),
+            "postState": .string(evidence.postState),
+            "coreAudioRefreshRequired": .bool(evidence.coreAudioRefreshRequired),
+            "runtimeProbeResult": .string(evidence.runtimeProbeResult),
+            "result": .string(evidence.result.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ evidence: UXReadinessEvidence) -> DiagnosticFieldValue {
+        .object([
+            "state": .string(evidence.state.rawValue),
+            "copyClaim": .string(evidence.copyClaim),
+            "nonRecordingExplicit": .bool(evidence.nonRecordingExplicit),
+            "recordingImplied": .bool(evidence.recordingImplied),
+            "accessibilityNotes": .string(evidence.accessibilityNotes),
+            "result": .string(evidence.result.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ state: DeferredRecordingAcceptanceState) -> DiagnosticFieldValue {
+        .object([
+            "blockedUntil": .string(state.blockedUntil),
+            "retentionPolicyRequired": .bool(state.retentionPolicyRequired),
+            "deletionPolicyRequired": .bool(state.deletionPolicyRequired),
+            "result": .string(state.result.rawValue)
+        ])
+    }
+
+    private static func boolOrUnknown(_ value: Bool?) -> DiagnosticFieldValue {
+        value.map { .bool($0) } ?? .string("unknown")
     }
 }
 
