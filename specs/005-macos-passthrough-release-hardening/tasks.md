@@ -77,19 +77,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T028 [P] [US2] Add no-hang evidence model tests in `apps/macos/Shared/Tests/CoreAudioNoHangEvidenceTests.swift`.
-- [ ] T029 [P] [US2] Add no-hang checklist contract in `tests/macos/installer-recovery/coreaudiod-no-hang-check.md`.
-- [ ] T030 [P] [US2] Add CPU threshold fixture coverage in `tests/macos/contract/core-audio-no-hang-evidence.json`.
-- [ ] T031 [P] [US2] Add settings-surface target matrix in `tests/macos/browser-meetings/audio-settings-no-hang-matrix.md`.
+- [X] T028 [P] [US2] Add no-hang evidence model tests in `apps/macos/Shared/Tests/CoreAudioNoHangEvidenceTests.swift`.
+- [X] T029 [P] [US2] Add no-hang checklist contract in `tests/macos/installer-recovery/coreaudiod-no-hang-check.md`.
+- [X] T030 [P] [US2] Add CPU threshold fixture coverage in `tests/macos/contract/core-audio-no-hang-evidence.json`.
+- [X] T031 [P] [US2] Add settings-surface target matrix in `tests/macos/browser-meetings/audio-settings-no-hang-matrix.md`.
 
 ### Implementation for User Story 2
 
-- [ ] T032 [US2] Add `coreaudiod` CPU sampler helper in `apps/macos/Scripts/coreaudiod-cpu-sample.sh`.
-- [ ] T033 [US2] Add local target launch timing helper in `apps/macos/Scripts/audio-settings-no-hang-check.sh`.
-- [ ] T034 [US2] Wire no-hang and CPU gates into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
-- [ ] T035 [US2] Record no-hang evidence through `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T036 [US2] Update `qa/macos/release-candidate-checklist.md` with macOS Sound, Chrome, Opera, Zoom, and Telemost no-hang outcomes.
-- [ ] T037 [US2] Update `apps/macos/AudioDriver/RuntimeProofReport.md` with no-hang and CPU evidence fields.
+- [X] T032 [US2] Add `coreaudiod` CPU sampler helper in `apps/macos/Scripts/coreaudiod-cpu-sample.sh`.
+- [X] T033 [US2] Add local target launch timing helper in `apps/macos/Scripts/audio-settings-no-hang-check.sh`.
+- [X] T034 [US2] Wire no-hang and CPU gates into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
+- [X] T035 [US2] Record no-hang evidence through `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T036 [US2] Update `qa/macos/release-candidate-checklist.md` with macOS Sound, Chrome, Opera, Zoom, and Telemost no-hang outcomes.
+- [X] T037 [US2] Update `apps/macos/AudioDriver/RuntimeProofReport.md` with no-hang and CPU evidence fields.
 
 **Checkpoint**: US2 is independently testable by running no-hang targets and CPU sampling without recording or upload.
 

@@ -11,16 +11,21 @@ automatically.
 - Local package is installed.
 - `2brain Rec Microphone` and `2brain Rec Speaker` are visible in Core Audio.
 - No meeting app is actively using `2brain Rec Speaker` for live passthrough.
+- For metadata-only dry runs, leave `TWO_BRAIN_REC_RUN_UI_NO_HANG` unset.
+- For actual UI-launch evidence, set `TWO_BRAIN_REC_RUN_UI_NO_HANG=1`.
 
 ## Steps
 
 - [ ] Restart `coreaudiod`.
 - [ ] Launch `2brain Rec` normally.
-- [ ] Wait 30 seconds with no call active.
+- [ ] Run `sh apps/macos/Scripts/coreaudiod-cpu-sample.sh`.
 - [ ] Confirm `coreaudiod` remains near idle and does not sustain CPU above 10%.
-- [ ] Launch System Settings → Sound and confirm it opens without hanging.
-- [ ] Launch Zoom audio settings and confirm it opens without hanging.
-- [ ] Launch Yandex Telemost audio settings and confirm it opens without hanging.
+- [ ] Run `sh apps/macos/Scripts/audio-settings-no-hang-check.sh all`.
+- [ ] For final no-hang evidence, rerun with
+  `TWO_BRAIN_REC_RUN_UI_NO_HANG=1` and record whether each target opens within
+  5 seconds.
+- [ ] Include macOS Sound settings, Chrome audio settings, Opera audio settings,
+  Zoom audio settings, and Yandex Telemost audio settings.
 - [ ] Run `make -C apps/macos/AudioDriver proof-runtime-probe-run`.
 - [ ] Confirm the probe reports both virtual devices visible with `running=0`.
 - [ ] Confirm app diagnostics include `passthrough_bridge_started` with
@@ -32,8 +37,8 @@ automatically.
 - `coreaudiod` PID and CPU before/after.
 - Runtime probe output.
 - App log tail without raw audio or meeting content.
-- Pass/blocked/not accepted status for System Settings, Zoom, and Yandex
-  Telemost launch behavior.
+- Pass/blocked/not accepted status for macOS Sound, Chrome, Opera, Zoom, and
+  Yandex Telemost launch behavior.
 
 ## Acceptance
 

@@ -218,6 +218,9 @@ Required pre-recording evidence families:
   settings, Zoom audio settings, and Yandex Telemost audio settings;
 - `coreaudiod` CPU evidence showing no sustained CPU above 10% for more than 30
   seconds during no-call idle;
+- metadata-only no-hang helper output is not final UI-launch evidence unless
+  `TWO_BRAIN_REC_RUN_UI_NO_HANG=1` was used and target usability was observed
+  within the threshold;
 - route recovery evidence for physical input/output changes, aggregate or
   multi-output routes, Bluetooth route handling, stale browser device IDs,
   `coreaudiod` restart, and sleep/wake;

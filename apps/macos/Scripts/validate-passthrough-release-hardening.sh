@@ -11,11 +11,13 @@ swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
 sh "$REPO_ROOT/tests/macos/static/audio-rt-safety-check.sh"
 make -C "$MACOS_DIR/AudioDriver" proof-plugin-build proof-runtime-probe-build proof-hal-io-probe-build
 make -C "$MACOS_DIR/AudioDriver" proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe
+sh "$SCRIPT_DIR/coreaudiod-cpu-sample.sh"
+sh "$SCRIPT_DIR/audio-settings-no-hang-check.sh" all
 sh "$SCRIPT_DIR/validate-real-bidirectional-passthrough.sh"
 
 echo "== 005 passthrough release hardening: pending gates =="
 echo "- Installed runtime package build/install probe: pending final packaging run"
-echo "- No-hang and CPU gate: pending T032-T034"
+echo "- Audio settings no-hang helper defaults to metadata-only; set TWO_BRAIN_REC_RUN_UI_NO_HANG=1 for actual UI launch evidence"
 echo "- Route recovery gate: pending T043-T049"
 echo "- Installer lifecycle gate: pending T054-T059"
 echo "- Diagnostics and UX gate: pending T064-T069"

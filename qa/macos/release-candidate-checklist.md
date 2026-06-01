@@ -12,6 +12,9 @@
   long-duration recording-assisted acceptance.
 - [ ] No-hang evidence covers macOS Sound settings, Chrome audio settings, Opera
   audio settings, Zoom audio settings, and Yandex Telemost audio settings.
+- [ ] Audio settings no-hang evidence records actual UI-launch evidence with
+  `TWO_BRAIN_REC_RUN_UI_NO_HANG=1`, or records metadata-only `not_accepted`
+  reasons when UI launch is intentionally skipped.
 - [ ] `coreaudiod` CPU does not sustain above 10% for more than 30 consecutive
   seconds during no-call idle with the app open.
 - [ ] Physical input/output changes, aggregate or multi-output routes,
