@@ -37,7 +37,7 @@ must not be used as substitutes for those acceptance gates.
 | Runtime probe distinguishes publication/default/non-running/visible-alive surface states | Yes | T078, T079 | Covered by runtime probe modes; documented as surface-only evidence, not final fail-closed or live-route acceptance. |
 | Synthetic checks cannot count as physical/browser acceptance | Yes | T079, T081, T063, T064 | Documented; physical/browser tasks remain pending. |
 | Final physical microphone/speaker/browser acceptance | Yes | T063, T064 | Pending by design until measured live-route implementation and evidence exist. |
-| Diagnostics redaction | Yes | T065 | Pending final scan after package/runtime proof update. |
+| Diagnostics redaction | Yes | T065 | Completed after package/runtime proof update; matches were policy/fixture forbidden-field strings only. |
 
 ## Validation Evidence
 
@@ -48,11 +48,16 @@ must not be used as substitutes for those acceptance gates.
 - `make -C apps/macos/AudioDriver proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-non-running-surface`: PASS.
 - `make -C apps/macos/AudioDriver proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-visible-alive-surface`: PASS, surface state only.
 - `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh`: PASS.
+- Installed package/runtime proof after `coreaudiod` restart recorded in
+  `apps/macos/AudioDriver/RuntimeProofReport.md`: PASS for publication,
+  default-safe, non-running surface, and visible/alive surface states.
+- Diagnostics redaction scan under `apps/macos`, `tests/macos`, `qa/macos`,
+  and `specs/004-real-bidirectional-passthrough`: PASS; matches were
+  policy/fixture forbidden-field strings only.
 
 ## Remaining Non-Blockers
 
-- T062 still requires reinstalling the local package, restarting `coreaudiod`,
-  and appending fresh runtime proof to `apps/macos/AudioDriver/RuntimeProofReport.md`.
 - T063 and T064 remain final live acceptance tasks and must stay pending until
   physical/browser evidence proves real bidirectional passthrough.
-- T065 and T066 should run after T062 evidence is recorded.
+- T066 should run after T063/T064 evidence is recorded or explicitly accepted as
+  blocked for this stabilization slice.

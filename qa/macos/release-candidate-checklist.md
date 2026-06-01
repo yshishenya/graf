@@ -94,6 +94,14 @@
 - [x] Main validation script uses `swift test --disable-swift-testing` after the
   local SwiftPM `swift-testing` helper was observed hanging after build
   completion.
+- [x] 2026-06-01 14:47 MSK installed runtime proof recorded in
+  `apps/macos/AudioDriver/RuntimeProofReport.md`: package upgrade succeeded,
+  publication/default-safe/non-running/visible-alive surface probes accepted,
+  and `coreaudiod` settled to `0.0%` CPU after restart.
+- [x] Diagnostics redaction scan completed for `apps/macos`, `tests/macos`,
+  `qa/macos`, and `specs/004-real-bidirectional-passthrough`: matches were
+  policy/fixture forbidden-field strings only, not live secrets or meeting
+  content.
 - [ ] Physical microphone-to-virtual-microphone live acceptance remains pending.
 - [ ] Physical virtual-speaker-to-output live acceptance remains pending.
 - [ ] Browser target acceptance remains pending for Chrome, Opera, Yandex

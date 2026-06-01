@@ -109,6 +109,85 @@ Expected device visibility:
 Runtime Core Audio publication proof: ACCEPTED
 ```
 
+## Stabilization Runtime Proof - 2026-06-01 14:47 MSK
+
+Commands executed from repository root after Phase 7 stabilization fixes:
+
+```sh
+TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh
+sudo installer -pkg apps/macos/.build/installer/2brain-rec-local.pkg -target /
+sudo killall coreaudiod
+open -a "2brain Rec"
+make -C apps/macos/AudioDriver proof-runtime-probe-run
+make -C apps/macos/AudioDriver proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe
+make -C apps/macos/AudioDriver proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-non-running-surface
+make -C apps/macos/AudioDriver proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-visible-alive-surface
+```
+
+Package install result:
+
+```text
+installer: Package name is 2brain Rec
+installer: Upgrading at base path /
+installer: The upgrade was successful.
+```
+
+Runtime proof after reinstall and `coreaudiod` restart:
+
+```text
+Core Audio devices visible to this user:
+- Микрофон MacBook Pro
+- Динамики MacBook Pro
+- 2brain Rec Microphone
+- 2brain Rec Speaker
+- Многовыходное устройство
+Runtime passthrough evidence: publication-only; this is Core Audio surface state only, not measured live audio acceptance.
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+
+Runtime passthrough evidence: default-safe; this is Core Audio surface state only, not measured live audio acceptance.
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+
+Runtime passthrough evidence: non-running-surface; this is Core Audio surface state only, not measured live audio acceptance.
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+
+Runtime passthrough evidence: visible-alive-surface; this is Core Audio surface state only, not measured live audio acceptance.
+Expected device visibility:
+- 2brain Rec Microphone: FOUND
+  hidden=0 alive=1 running=0
+- 2brain Rec Speaker: FOUND
+  hidden=0 alive=1 running=0
+Runtime Core Audio publication proof: ACCEPTED
+```
+
+Settle check after restart:
+
+```text
+coreaudiod: pid=51943 cpu=0.0 elapsed=00:59
+Core Audio Driver (2brainRecProof.driver): running under coreaudiod
+Desktop app: no persistent process after default launch; no app-side bridge or
+heartbeat was observed.
+```
+
+Interpretation: ACCEPTED for installed Core Audio publication, default-safe,
+non-running surface, and visible/alive surface evidence. This is not physical
+microphone, speaker playback, latency, leakage, no-loopback, browser, or final
+live-route fail-closed acceptance evidence.
+
 The app must still report **not ready for calls** because real bidirectional
 audio passthrough has not been implemented and verified end to end. Current
 readiness checks are intentionally strict:
