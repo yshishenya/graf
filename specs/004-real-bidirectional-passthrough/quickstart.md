@@ -26,25 +26,18 @@ make -C apps/macos/AudioDriver proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expe
 sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh
 ```
 
-Expected result: both virtual devices are visible and unhidden, with
-`running=0` unless a controlled live passthrough experiment is explicitly
-enabled. The default installed app must not start the app-side AudioUnit bridge
-or write an app-I/O heartbeat on launch. This section requires the local package
-to be installed in `/Applications` and Core Audio devices to be visible in the
+Expected result: both virtual devices are visible and unhidden. On normal app
+launch, 2brain Rec automatically starts only the local non-recording passthrough
+bridge and app-I/O heartbeat; public virtual devices still report `running=0`
+until a Core Audio client opens them. This section requires the local package to
+be installed in `/Applications` and Core Audio devices to be visible in the
 current macOS user session.
 
 ## Controlled Live Passthrough Safety Gate
 
-Live passthrough is currently guarded because the app-side AudioUnit bridge can
-destabilize `coreaudiod` if it starts automatically or performs realtime-unsafe
-work in callbacks. Do not enable it during normal installer, publication, or UI
-readiness checks.
-
-For local engineering experiments only, launch the app with:
-
-```sh
-TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH=1 open -a "2brain Rec"
-```
+Live passthrough starts automatically as a non-recording local route when the
+app opens. It must not start recording, transcription, upload, MediaScribe
+egress, or hidden capture. `Run Check` remains a recheck/repair action.
 
 Before accepting any live route result, confirm:
 
@@ -53,7 +46,8 @@ Before accepting any live route result, confirm:
   audio callbacks.
 - `sh tests/macos/static/audio-rt-safety-check.sh` passes.
 - `sh tests/macos/installer-recovery/default-passthrough-disabled-check.sh`
-  passes after local package installation.
+  passes after local package installation and records automatic non-recording
+  startup evidence.
 - `make -C apps/macos/AudioDriver proof-runtime-probe-run` still reports the
   devices visible and the expected fail-closed state after app quit.
 - `make -C apps/macos/AudioDriver proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-non-running-surface`
@@ -69,7 +63,7 @@ Before accepting any live route result, confirm:
 
 ## Microphone Passthrough Check
 
-1. Launch `2brain Rec` with the controlled live passthrough safety gate enabled.
+1. Launch `2brain Rec` normally and wait for the readiness view to show ready.
 2. Select a built-in or wired physical microphone.
 3. Select `2brain Rec Microphone` in a controlled receiver or browser meeting.
 4. Speak locally.

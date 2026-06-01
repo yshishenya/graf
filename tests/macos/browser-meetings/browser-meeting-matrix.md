@@ -157,6 +157,19 @@ Status summary:
 - Yandex Browser: skipped/not accepted by explicit decision;
 - Yandex Telemost: passed manual call smoke coverage after `Run Check`.
 
+## 004 Automatic Non-Recording Startup Update 2026-06-01
+
+Follow-up implementation changes the normal app-open path: 2brain Rec now
+prepares the local non-recording passthrough route automatically when the app
+opens. `Run Check` remains available as an explicit recheck/repair action, not
+the required activation path for ordinary browser meetings.
+
+The previously recorded browser evidence remains historically accurate because
+those checks were performed after explicit `Run Check`. Future browser smoke
+checks should start from a fresh app launch and confirm the same call behavior
+without pressing `Run Check`: remote side hears local speech, local user hears
+remote audio, no echo/loopback, and no recording/transcription/upload starts.
+
 ## Per-Target Steps
 
 - [ ] Join a meeting with one local speaker and at least one remote speaker.

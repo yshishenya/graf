@@ -184,7 +184,7 @@ browser stale-device evidence are recorded.
 before accepting live audio behavior.
 
 - [X] T067 [P] Add realtime callback safety static check in `tests/macos/static/audio-rt-safety-check.sh` and wire it into `apps/macos/Scripts/validate-real-bidirectional-passthrough.sh`.
-- [X] T068 [P] Add default-off app launch validation in `tests/macos/installer-recovery/default-passthrough-disabled-check.sh`.
+- [X] T068 [P] Add default launch safety validation in `tests/macos/installer-recovery/default-passthrough-disabled-check.sh`.
 - [X] T069 [P] Add `coreaudiod` idle/no-hang validation checklist or harness in `tests/macos/installer-recovery/coreaudiod-no-hang-check.md`.
 - [X] T070 [P] Define shared ring-buffer behavior contract in `specs/004-real-bidirectional-passthrough/contracts/passthrough-contract.md`.
 - [X] T071 Add matching Swift ring-buffer behavior tests in `apps/macos/Shared/Tests/SharedAudioMemoryCompatibilityTests.swift`.
@@ -199,6 +199,8 @@ before accepting live audio behavior.
 - [X] T080 Run `$speckit-analyze` after stabilization artifacts are updated and resolve all critical/high findings before continuing implementation.
 - [X] T081 Re-run code review for realtime/Core Audio, app-driver architecture, tests/docs, and maintainability before final validation.
 - [X] T082 Add an installed-device HAL I/O probe in `apps/macos/AudioDriver/Sources/Proof/HALIOProbe.cpp` and wire `proof-hal-io-probe-run` into `apps/macos/AudioDriver/Makefile`.
+- [X] T083 Auto-start the local non-recording passthrough route on app launch in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`.
+- [X] T084 Update default launch validation and Spec Kit artifacts so `Run Check` is a recheck/repair action, not the normal passthrough activation path.
 
 ---
 

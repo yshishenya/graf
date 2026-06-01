@@ -699,3 +699,25 @@ Expected device visibility:
 - 2brain Rec Speaker: FOUND
 Runtime Core Audio publication proof: ACCEPTED
 ```
+
+## Automatic Non-Recording Startup Follow-Up
+
+- Date: 2026-06-01
+- Decision: normal app launch should prepare the local non-recording
+  passthrough route automatically, so browser/meeting apps work without making
+  the user press `Run Check` first.
+- Safety boundary: automatic startup must not start recording, transcription,
+  upload, MediaScribe egress, or hidden capture. `Run Check` remains an explicit
+  recheck/repair action.
+- Runtime expectation: the app-side bridge may start and emit an app I/O
+  heartbeat on launch, while public virtual devices still report `running=0`
+  until a Core Audio client opens them.
+- Implementation follow-up: app launch now records a safe placeholder first,
+  performs Core Audio preflight in the background, then starts the AudioUnit
+  bridge from the UI event loop. This avoids the observed `coreaudiod` hang when
+  the bridge was started directly from the launch background path.
+- Installed validation: after rebuilding and installing the local package,
+  `default-passthrough-disabled-check.sh` passed. Logs recorded
+  `passthrough_bridge_started detail=automatic non-recording route engine
+  active`, `auto_passthrough_ready summary=Ready for audio routing`, and runtime
+  probe still reported both virtual devices visible/alive with `running=0`.

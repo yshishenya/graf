@@ -5,7 +5,7 @@ import TwoBrainRecShared
 
 @main
 struct TwoBrainRecApp: App {
-    @State private var snapshot = LocalAudioSnapshot.current()
+    @State private var snapshot = LocalAudioSnapshot.placeholder()
     @State private var isChecking = false
 
     var body: some Scene {
@@ -13,18 +13,25 @@ struct TwoBrainRecApp: App {
             ContentView(
                 snapshot: snapshot,
                 isChecking: isChecking,
-                refresh: {
-                    let updated = LocalAudioSnapshot.current()
-                    AppLog.write(event: "refresh", snapshot: updated)
+                onAutoStarted: { updated in
                     snapshot = updated
+                },
+                refresh: {
+                    LocalAudioSnapshot.refreshAsync(event: "refresh") { updated in
+                        snapshot = updated
+                    }
                 },
                 runCheck: {
                     isChecking = true
-                    _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                    let checked = LocalAudioSnapshot.runReadinessCheck()
-                    AppLog.write(event: "readiness_check", snapshot: checked)
-                    snapshot = checked
-                    isChecking = false
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                        let checked = LocalAudioSnapshot.runReadinessCheck()
+                        AppLog.write(event: "readiness_check", snapshot: checked)
+                        DispatchQueue.main.async {
+                            snapshot = checked
+                            isChecking = false
+                        }
+                    }
                 }
             )
             .frame(minWidth: 720, minHeight: 620)
@@ -40,6 +47,7 @@ private struct ContentView: View {
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
+    let onAutoStarted: (LocalAudioSnapshot) -> Void
     let refresh: () -> Void
     let runCheck: () -> Void
 
@@ -73,10 +81,34 @@ private struct ContentView: View {
         }
         .onAppear {
             passthroughCoordinator.recordLaunchState()
-            if ProcessInfo.processInfo.arguments.contains("--start-passthrough") {
-                passthroughCoordinator.startExperimentalBridge()
-            }
             AppLog.write(event: "app_opened", snapshot: snapshot)
+            if ProcessInfo.processInfo.arguments.contains("--disable-auto-passthrough") {
+                AppLog.writeRaw(
+                    event: "passthrough_bridge_auto_start_skipped",
+                    detail: "automatic non-recording route engine disabled for this launch"
+                )
+            } else {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let preflight = LocalAudioSnapshot.current()
+                    AppLog.write(event: "auto_passthrough_preflight", snapshot: preflight)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        passthroughCoordinator.startAutomaticBridge()
+                        LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_ready") { updated in
+                            onAutoStarted(updated)
+                        }
+                    }
+                }
+            }
+            if ProcessInfo.processInfo.arguments.contains("--start-passthrough") {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                    let updated = LocalAudioSnapshot.current()
+                    AppLog.write(event: "explicit_passthrough_ready", snapshot: updated)
+                    DispatchQueue.main.async {
+                        onAutoStarted(updated)
+                    }
+                }
+            }
         }
     }
 
@@ -127,26 +159,81 @@ fileprivate struct LocalAudioSnapshot {
         return "Driver is not installed on this Mac"
     }
 
-    static func current() -> LocalAudioSnapshot {
+    static func placeholder() -> LocalAudioSnapshot {
+        let driverExists = FileManager.default.fileExists(
+            atPath: "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"
+        )
+        let driverState: DriverInstallationState = driverExists ? .installed : .notInstalled
+        let health = AudioHealthState(
+            driverState: driverState,
+            virtualMicState: .requiresRestart,
+            virtualSpeakerState: .requiresRestart,
+            microphonePermission: .unknown,
+            outputPermission: .unknown,
+            passthroughStatus: .unknown,
+            continuityStatus: "Checking Core Audio in the background",
+            bufferRisk: .healthy,
+            livePassthroughStatus: .checking,
+            recoveryActions: []
+        )
+        return LocalAudioSnapshot(
+            driverState: driverState,
+            virtualMicrophoneState: .requiresRestart,
+            virtualSpeakerState: .requiresRestart,
+            routeVerification: nil,
+            healthState: health,
+            defaultInputName: nil,
+            defaultOutputName: nil,
+            defaultSystemOutputName: nil,
+            coreAudioDeviceSummary: "pending",
+            lastEventSummary: "Opening app"
+        )
+    }
+
+    static func refreshAsync(
+        event: String,
+        completion: @escaping @Sendable @MainActor (LocalAudioSnapshot) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let updated = LocalAudioSnapshot.current()
+            AppLog.write(event: event, snapshot: updated)
+            Task { @MainActor in
+                completion(updated)
+            }
+        }
+    }
+
+    static func current(
+        routeEngineState: PassthroughRouteEngineState = PassthroughRouteEngine.shared.state
+    ) -> LocalAudioSnapshot {
         makeSnapshot(
             system: CoreAudioSystemSnapshot.current(),
             routeVerification: nil,
+            routeEngineState: routeEngineState,
             lastEventSummary: "Status refreshed"
         )
     }
 
-    static func runReadinessCheck() -> LocalAudioSnapshot {
+    static func runReadinessCheck(
+        routeEngineState: PassthroughRouteEngineState = PassthroughRouteEngine.shared.state
+    ) -> LocalAudioSnapshot {
         let system = CoreAudioSystemSnapshot.current()
         return makeSnapshot(
             system: system,
-            routeVerification: routeSnapshot(system: system, checked: true),
-            lastEventSummary: readinessSummary(system: system)
+            routeVerification: routeSnapshot(
+                system: system,
+                checked: true,
+                routeEngineState: routeEngineState
+            ),
+            routeEngineState: routeEngineState,
+            lastEventSummary: readinessSummary(system: system, routeEngineState: routeEngineState)
         )
     }
 
     private static func makeSnapshot(
         system: CoreAudioSystemSnapshot,
         routeVerification: RouteVerificationSnapshot?,
+        routeEngineState: PassthroughRouteEngineState,
         lastEventSummary: String
     ) -> LocalAudioSnapshot {
         let hasMic = system.hasVirtualMicrophone
@@ -158,8 +245,13 @@ fileprivate struct LocalAudioSnapshot {
         let micState: VirtualDeviceAvailabilityState = hasMic ? .available : (driverExists ? .requiresRestart : .missing)
         let speakerState: VirtualDeviceAvailabilityState = hasSpeaker ? .available : (driverExists ? .requiresRestart : .missing)
         let driverState: DriverInstallationState = driverExists ? .installed : .notInstalled
-        let routeSnapshot = routeVerification ?? routeSnapshot(system: system, checked: false)
+        let routeSnapshot = routeVerification ?? routeSnapshot(
+            system: system,
+            checked: false,
+            routeEngineState: routeEngineState
+        )
         let recoveryActions = recoveryActions(system: system, routeSnapshot: routeSnapshot)
+        let routeIsActive = routeEngineState == .active
 
         let health = AudioHealthState(
             driverState: driverState,
@@ -170,11 +262,14 @@ fileprivate struct LocalAudioSnapshot {
             physicalInput: system.defaultInput?.healthSummary(direction: .input),
             physicalOutput: system.defaultOutput?.healthSummary(direction: .output),
             routeVerification: routeSnapshot,
-            passthroughStatus: .unknown,
-            continuityStatus: hasMic && hasSpeaker
-                ? "Virtual devices are published. Real audio passthrough is not verified yet."
-                : "Waiting for virtual devices",
+            passthroughStatus: routeIsActive ? .healthy : .unknown,
+            continuityStatus: routeIsActive
+                ? "Non-recording passthrough is ready for calls."
+                : (hasMic && hasSpeaker
+                    ? "Virtual devices are published. Live passthrough is waiting for app I/O."
+                    : "Waiting for virtual devices"),
             bufferRisk: .healthy,
+            livePassthroughStatus: routeIsActive ? .active : .inactive,
             recoveryActions: recoveryActions
         )
 
@@ -194,16 +289,28 @@ fileprivate struct LocalAudioSnapshot {
 
     private static func routeSnapshot(
         system: CoreAudioSystemSnapshot,
-        checked: Bool
+        checked: Bool,
+        routeEngineState: PassthroughRouteEngineState
     ) -> RouteVerificationSnapshot {
         let now = Date()
-        let micResult = micRouteResult(system: system, checked: checked)
-        let speakerResult = speakerRouteResult(system: system, checked: checked)
+        let micResult = micRouteResult(
+            system: system,
+            checked: checked,
+            routeEngineState: routeEngineState
+        )
+        let speakerResult = speakerRouteResult(
+            system: system,
+            checked: checked,
+            routeEngineState: routeEngineState
+        )
+        let validationType: RouteValidationType = routeEngineState == .active
+            ? .appIOHeartbeat
+            : .syntheticSignal
         return RouteVerificationSnapshot(
             mic: RouteVerification(
                 id: "local-mic-publication",
                 path: .micToVirtualInput,
-                validationType: .syntheticSignal,
+                validationType: validationType,
                 target: "2brain Rec Microphone",
                 status: micResult.status,
                 failureReason: micResult.reason,
@@ -214,7 +321,7 @@ fileprivate struct LocalAudioSnapshot {
             speaker: RouteVerification(
                 id: "local-speaker-publication",
                 path: .remoteOutputToVirtualSpeaker,
-                validationType: .syntheticSignal,
+                validationType: validationType,
                 target: "2brain Rec Speaker",
                 status: speakerResult.status,
                 failureReason: speakerResult.reason,
@@ -227,7 +334,8 @@ fileprivate struct LocalAudioSnapshot {
 
     private static func micRouteResult(
         system: CoreAudioSystemSnapshot,
-        checked: Bool
+        checked: Bool,
+        routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
         guard system.hasVirtualMicrophone else {
             return (.failed, "virtual_microphone_not_visible", "install_or_repair_driver")
@@ -237,14 +345,18 @@ fileprivate struct LocalAudioSnapshot {
                 ? (.failed, "physical_microphone_not_selected", "select_physical_microphone")
                 : (.notStarted, nil, "run_route_verification")
         }
+        if routeEngineState == .active {
+            return (.passed, nil, nil)
+        }
         return checked
-            ? (.stale, "live_passthrough_evidence_missing", "run_controlled_live_passthrough_validation")
+            ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
             : (.notStarted, nil, "run_route_verification")
     }
 
     private static func speakerRouteResult(
         system: CoreAudioSystemSnapshot,
-        checked: Bool
+        checked: Bool,
+        routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
         guard system.hasVirtualSpeaker else {
             return (.failed, "virtual_speaker_not_visible", "install_or_repair_driver")
@@ -254,8 +366,11 @@ fileprivate struct LocalAudioSnapshot {
                 ? (.failed, "physical_speaker_not_selected", "select_physical_speaker")
                 : (.notStarted, nil, "run_route_verification")
         }
+        if routeEngineState == .active {
+            return (.passed, nil, nil)
+        }
         return checked
-            ? (.stale, "live_passthrough_evidence_missing", "run_controlled_live_passthrough_validation")
+            ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
             : (.notStarted, nil, "run_route_verification")
     }
 
@@ -284,14 +399,20 @@ fileprivate struct LocalAudioSnapshot {
         return actions
     }
 
-    private static func readinessSummary(system: CoreAudioSystemSnapshot) -> String {
+    private static func readinessSummary(
+        system: CoreAudioSystemSnapshot,
+        routeEngineState: PassthroughRouteEngineState
+    ) -> String {
         if !system.hasVirtualMicrophone || !system.hasVirtualSpeaker {
             return "Check failed: virtual devices are missing"
         }
         if system.defaultOutput?.isTwoBrainVirtual == true {
             return "Check failed: macOS output is set to the virtual speaker"
         }
-        return "Check complete: devices are visible; live passthrough evidence is still required"
+        if routeEngineState == .active {
+            return "Check complete: non-recording passthrough is active"
+        }
+        return "Check complete: devices are visible; app I/O heartbeat is still required"
     }
 
     var logDescription: String {

@@ -3,12 +3,12 @@
 Status: pending stabilization validation
 
 Purpose: prove that installing and launching `2brain Rec` does not destabilize
-the macOS Core Audio stack when live passthrough is disabled by default.
+the macOS Core Audio stack when the non-recording live passthrough route starts
+automatically.
 
 ## Preconditions
 
 - Local package is installed.
-- `TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH` is not set.
 - `2brain Rec Microphone` and `2brain Rec Speaker` are visible in Core Audio.
 - No meeting app is actively using `2brain Rec Speaker` for live passthrough.
 
@@ -23,8 +23,8 @@ the macOS Core Audio stack when live passthrough is disabled by default.
 - [ ] Launch Yandex Telemost audio settings and confirm it opens without hanging.
 - [ ] Run `make -C apps/macos/AudioDriver proof-runtime-probe-run`.
 - [ ] Confirm the probe reports both virtual devices visible with `running=0`.
-- [ ] Confirm app diagnostics include `passthrough_bridge_disabled`, not
-  `passthrough_bridge_started`.
+- [ ] Confirm app diagnostics include `passthrough_bridge_started` with
+  automatic non-recording startup detail.
 
 ## Evidence To Record
 
@@ -38,5 +38,6 @@ the macOS Core Audio stack when live passthrough is disabled by default.
 ## Acceptance
 
 Accepted only when all steps pass. Any sustained `coreaudiod` CPU spike,
-application hang, automatic bridge start, or `running=1` state blocks live
-passthrough acceptance.
+application hang, hidden recording/transcription/upload, or unexpected
+`running=1` state without a Core Audio client blocks live passthrough
+acceptance.

@@ -296,5 +296,10 @@ heartbeat and route checks pass again.
 - Browser validation can record a target as blocked/not accepted when the
   target cannot be safely validated in the current local environment.
 - Recording, local buffering, upload, transcription, storage, MediaScribe,
-  Langfuse, deletion, server workflows, and assisted auto-start remain out of
-  scope for this feature.
+  Langfuse, deletion, server workflows, and assisted auto-start of capture
+  remain out of scope for this feature.
+- The desktop app may automatically prepare the local non-recording passthrough
+  route when opened so selected browser/meeting apps can use the virtual
+  microphone and speaker without pressing `Run Check`. This startup behavior
+  must not start recording, transcription, upload, or hidden capture; `Run Check`
+  remains an explicit recheck/repair action.

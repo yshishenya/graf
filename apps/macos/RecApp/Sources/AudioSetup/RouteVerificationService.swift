@@ -16,7 +16,12 @@ public struct RouteVerificationSnapshot: Codable, Equatable, Sendable {
     }
 
     public var canShowReady: Bool {
-        false
+        mic.path == .micToVirtualInput
+            && speaker.path == .remoteOutputToVirtualSpeaker
+            && mic.validationType == .appIOHeartbeat
+            && speaker.validationType == .appIOHeartbeat
+            && mic.status == .passed
+            && speaker.status == .passed
     }
 
     public var syntheticRoutesPassed: Bool {

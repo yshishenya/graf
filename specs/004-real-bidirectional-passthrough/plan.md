@@ -33,13 +33,15 @@ refactor gates pass:
 - make AudioUnit callbacks realtime-safe;
 - formalize and test the shared-memory ring-buffer contract;
 - restore truthful readiness based on measured route evidence;
-- add default-off, no-autostart, `coreaudiod` CPU/no-hang, and RT-safety checks
-  to the validation pipeline.
+- add automatic non-recording app-route startup, `coreaudiod` CPU/no-hang, and
+  RT-safety checks to the validation pipeline.
 
-Temporary safe-mode behavior is allowed only as a stabilization measure: the
-driver may publish devices for Core Audio enumeration while the app-side live
-bridge is disabled by default and reports `running=0`. This safe mode is not
-live passthrough acceptance and does not close browser/physical evidence tasks.
+Startup safe-mode behavior is allowed only as a stabilization measure: the
+driver may publish devices for Core Audio enumeration while the app-side
+non-recording bridge starts automatically and virtual devices still report
+`running=0` until a client opens them. This startup state is not recording,
+transcription, upload, or hidden capture, and does not replace browser/physical
+evidence tasks.
 
 ## Technical Context
 
@@ -58,8 +60,8 @@ or meeting-content persistence is added.
 
 **Testing**: Swift unit tests for route state, ring-buffer policy, diagnostics,
 and fail-closed behavior; C++ proof/runtime tools; synthetic passthrough harness;
-local installer/runtime probe; static realtime-safety checks; default-off
-autostart checks; `coreaudiod` CPU/no-hang checks; browser meeting matrix
+local installer/runtime probe; static realtime-safety checks; automatic
+non-recording startup checks; `coreaudiod` CPU/no-hang checks; browser meeting matrix
 evidence; manual physical device checks where macOS hardware observation is
 required.
 
@@ -86,7 +88,9 @@ installer scripts, shared route models, and QA harnesses.
 
 - no no-driver fallback;
 - no hidden recording, hidden capture, transcript generation, or assisted
-  auto-start in this slice;
+  auto-start of capture in this slice;
+- app launch may automatically start only the local non-recording passthrough
+  route so meetings work without a manual `Run Check`;
 - no direct desktop-to-MediaScribe upload and no new external network egress;
 - diagnostics and evidence are metadata-only by default;
 - public devices keep the 003 private app I/O fail-closed behavior;

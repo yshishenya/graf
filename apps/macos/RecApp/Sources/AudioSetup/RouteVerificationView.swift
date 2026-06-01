@@ -182,6 +182,8 @@ public struct RouteVerificationView: View {
             return "aggregate or multi-output speaker route is not managed for release readiness."
         case "bluetooth_profile_switching":
             return "Bluetooth profile is switching; recheck after it is stable."
+        case "app_io_heartbeat_missing":
+            return "app audio route is not active yet."
         case "virtual_device_visible_but_audio_path_not_implemented":
             return "device is visible, but real audio passthrough is not implemented yet."
         default:

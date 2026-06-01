@@ -21,6 +21,17 @@ public final class ExperimentalPassthroughCoordinator: ObservableObject, @unchec
         state = routeEngine.recordLaunchState(logger: logger)
     }
 
+    public func startAutomaticBridge(
+        selectedPhysicalInputId: String? = nil,
+        selectedPhysicalOutputId: String? = nil
+    ) {
+        state = routeEngine.startAutomaticRoute(
+            selectedPhysicalInputId: selectedPhysicalInputId,
+            selectedPhysicalOutputId: selectedPhysicalOutputId,
+            logger: logger
+        )
+    }
+
     public func startExperimentalBridge(
         selectedPhysicalInputId: String? = nil,
         selectedPhysicalOutputId: String? = nil

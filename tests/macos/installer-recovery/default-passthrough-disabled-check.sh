@@ -16,8 +16,18 @@ fi
 open -a "2brain Rec"
 sleep "${TWO_BRAIN_REC_DEFAULT_OFF_WAIT_SECONDS:-6}"
 
-PROBE_OUTPUT=$(make -C "$REPO_ROOT/apps/macos/AudioDriver" proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe 2>&1 || true)
+TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
+if [ -n "$TIMEOUT_BIN" ]; then
+  PROBE_OUTPUT=$("$TIMEOUT_BIN" 20 make -C "$REPO_ROOT/apps/macos/AudioDriver" proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe 2>&1 || true)
+else
+  PROBE_OUTPUT=$(make -C "$REPO_ROOT/apps/macos/AudioDriver" proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe 2>&1 || true)
+fi
 printf '%s\n' "$PROBE_OUTPUT"
+
+if printf '%s\n' "$PROBE_OUTPUT" | rg -q 'timed out|Terminated: 15'; then
+  echo "default-passthrough-disabled-check: runtime publication proof timed out" >&2
+  exit 1
+fi
 
 if ! printf '%s\n' "$PROBE_OUTPUT" | rg -q 'Runtime Core Audio publication proof: ACCEPTED'; then
   echo "default-passthrough-disabled-check: runtime publication proof failed" >&2
@@ -34,13 +44,13 @@ if [ -f "$APP_LOG" ]; then
   NEW_LOG=$(tail -c +"$((BEFORE_SIZE + 1))" "$APP_LOG" 2>/dev/null || true)
 fi
 
-if printf '%s\n' "$NEW_LOG" | rg -q 'passthrough_bridge_started'; then
-  echo "default-passthrough-disabled-check: bridge started during default app launch" >&2
+if ! printf '%s\n' "$NEW_LOG" | rg -q 'passthrough_bridge_started'; then
+  echo "default-passthrough-disabled-check: expected automatic non-recording route start during default app launch" >&2
   exit 1
 fi
 
-if ! printf '%s\n' "$NEW_LOG" | rg -q 'passthrough_bridge_experiment_available'; then
-  echo "default-passthrough-disabled-check: expected explicit non-starting route-engine event during default app launch" >&2
+if ! printf '%s\n' "$NEW_LOG" | rg -q 'automatic non-recording route engine active|passthrough_bridge_already_active'; then
+  echo "default-passthrough-disabled-check: expected automatic route-engine evidence during default app launch" >&2
   exit 1
 fi
 

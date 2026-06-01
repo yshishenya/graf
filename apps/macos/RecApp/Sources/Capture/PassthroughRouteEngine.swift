@@ -33,18 +33,58 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
 
     public func recordLaunchState(logger: Logger) -> PassthroughRouteEngineState {
         queue.sync {
+            if bridge != nil {
+                bridge?.refreshAppIOHeartbeat()
+                stateStorage = .active
+                logger(
+                    "passthrough_bridge_launch_active",
+                    "non-recording route engine is already active"
+                )
+                return stateStorage
+            }
+
             stateStorage = .inactive
             logger(
-                "passthrough_bridge_experiment_available",
-                "route engine is service-owned and starts only after explicit readiness check"
+                "passthrough_bridge_launch_available",
+                "non-recording route engine will start automatically when the app opens"
             )
             return stateStorage
         }
     }
 
+    public func startAutomaticRoute(
+        selectedPhysicalInputId: String? = nil,
+        selectedPhysicalOutputId: String? = nil,
+        logger: Logger
+    ) -> PassthroughRouteEngineState {
+        startRoute(
+            selectedPhysicalInputId: selectedPhysicalInputId,
+            selectedPhysicalOutputId: selectedPhysicalOutputId,
+            reason: "automatic app launch",
+            startedDetail: "automatic non-recording route engine active",
+            logger: logger
+        )
+    }
+
     public func startExperimentalRoute(
         selectedPhysicalInputId: String? = nil,
         selectedPhysicalOutputId: String? = nil,
+        logger: Logger
+    ) -> PassthroughRouteEngineState {
+        startRoute(
+            selectedPhysicalInputId: selectedPhysicalInputId,
+            selectedPhysicalOutputId: selectedPhysicalOutputId,
+            reason: "explicit readiness check",
+            startedDetail: "explicit route engine active",
+            logger: logger
+        )
+    }
+
+    private func startRoute(
+        selectedPhysicalInputId: String?,
+        selectedPhysicalOutputId: String?,
+        reason: String,
+        startedDetail: String,
         logger: Logger
     ) -> PassthroughRouteEngineState {
         queue.sync {
@@ -56,7 +96,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             }
 
             stateStorage = .starting
-            logger("passthrough_bridge_starting", "explicit readiness check")
+            logger("passthrough_bridge_starting", reason)
             do {
                 let bridge = try PassthroughBridge(
                     selectedPhysicalInputId: selectedPhysicalInputId,
@@ -67,7 +107,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
                 self.bridge = bridge
                 startHeartbeatTimer(for: bridge)
                 stateStorage = .active
-                logger("passthrough_bridge_started", "explicit route engine active")
+                logger("passthrough_bridge_started", startedDetail)
             } catch {
                 stopHeartbeatTimer()
                 bridge = nil
