@@ -59,6 +59,19 @@ public struct DiagnosticRedactor: Sendable {
         "permissionStatus",
         "recoveryActionId",
         "routeVerificationResults",
+        "liveRouteReadiness",
+        "microphonePathEvidence",
+        "speakerPathEvidence",
+        "latencyMeasurement",
+        "leakageMeasurement",
+        "browserTargetEvidence",
+        "livePassthrough",
+        "microphonePassthroughPath",
+        "speakerPassthroughPath",
+        "passthroughBrowserEvidence",
+        "passthroughRecoveryEvents",
+        "appHeartbeatStatus",
+        "routeInvalidationEvents",
         "passthroughHealth",
         "dropoutCount",
         "driftSummary",
@@ -70,7 +83,16 @@ public struct DiagnosticRedactor: Sendable {
         "uploadReadiness",
         "uploadFailureCategory",
         "redactionEngineVersion",
-        "diagnosticSchemaVersion"
+        "diagnosticSchemaVersion",
+        "failureFamily",
+        "failureReason",
+        "sessionId",
+        "trackCount",
+        "trackRoles",
+        "trackStates",
+        "hardFailureCount",
+        "emptyBufferCount",
+        "droppedFrameCount"
     ]
 
     public init() {}

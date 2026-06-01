@@ -34,6 +34,30 @@ an app-only screen/audio capture approach.
   not be selected blindly because the MVP needs virtual app-selectable endpoints,
   not a physical device driver replacement.
 
+## Decision: Native-per-platform stack by default
+
+**Decision**: This product slice intentionally keeps capture, virtual-device ownership,
+and installer lifecycle native to the target OS for the platform under implementation.
+For MVP this is Swift/Cocoa + C/C++ on macOS. Cross-platform UI layers or shared
+desktop runtimes are not accepted for this slice because they cannot provide the same
+guarantees around real-time audio privileges, signed installer workflows, and driver
+lifecycle operations.
+
+**Rationale**: The audio capture plane is tightly coupled to OS kernel/user privilege
+interfaces, signing/notarization, and device lifecycle contracts. Platform-native
+stacks reduce integration risk and support reliable signed/macOS-legal installation,
+comprehensive routing validation, and diagnosability.
+
+**Alternatives considered**:
+
+- Flutter/Dart/Electron-like stacks for shared desktop: rejected for driver and
+  audio-path ownership because they do not natively expose the same level of control
+  over virtual device driver lifecycle, low-latency audio callbacks, and OS installer
+  signing/permissions without layering substantial custom native code anyway.
+- Reusing a single shared native abstraction across Windows/macOS before macOS
+  Phase 0 acceptance: rejected to avoid delaying macOS validation with unresolved
+  platform tradeoffs.
+
 ## Decision: Keep the driver/audio component thin
 
 **Decision**: The driver/audio component owns only virtual device behavior,
@@ -89,7 +113,7 @@ packages; the MVP should use that distribution model rather than bypassing it.
 **Alternatives considered**:
 
 - Unsigned internal package: rejected because it creates install friction and
-  weakens private-alpha trust.
+  weakens release-readiness trust.
 - Silent/MDM install: rejected by clarification and out of scope for MVP.
 
 ## Decision: Treat local capture storage as desktop-owned encrypted artifacts
@@ -124,7 +148,7 @@ support without turning diagnostics into hidden data egress.
 
 - Full logs by default: rejected because logs can contain sensitive data.
 - No diagnostics: rejected because driver onboarding and support would be too
-  slow for internal alpha.
+  slow for production readiness.
 
 ## Decision: Use two acceptance tracks for QA
 

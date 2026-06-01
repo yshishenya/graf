@@ -103,13 +103,14 @@ The plan must:
 Planning must stop if constitution gates fail or important clarifications remain unresolved.
 
 <!-- SPECKIT START -->
-Current Spec Kit plan: `specs/001-macos-audio-driver/plan.md`
+Current Spec Kit plan: `specs/004-real-bidirectional-passthrough/plan.md`
 
-Active feature: `001-macos-audio-driver`
+Active feature: `004-real-bidirectional-passthrough`
 
 Use the plan, research, data model, contracts, and quickstart in
-`specs/001-macos-audio-driver/` as the authoritative context for macOS virtual
-audio driver MVP planning until a later Spec Kit feature supersedes this slice.
+`specs/004-real-bidirectional-passthrough/` as the authoritative context for
+macOS real bidirectional passthrough planning until a later Spec Kit feature
+supersedes this slice.
 <!-- SPECKIT END -->
 
 ### 4. Checklist
@@ -214,11 +215,19 @@ Behavior:
 
 - before `$speckit-specify`, the git hook creates a feature branch;
 - before/after many commands, optional git commit hooks may be offered;
-- auto-commit is disabled by default unless configured in `.specify/extensions/git/git-config.yml`.
+- auto-commit is disabled by default unless configured in `.specify/extensions/git/git-config.yml`;
+- this repo may enable auto-commit for completed Spec Kit documentation artifacts
+  such as constitution, specification, clarification, plan, checklist, tasks, and
+  analysis outputs.
 
 Agent rules:
 
-- do not auto-commit unless the user asks or explicitly approves a Spec Kit git hook;
+- auto-commit may run only for user-approved Spec Kit hooks that produce
+  documentation artifacts;
+- do not auto-commit implementation code, generated build outputs, secrets, or
+  unrelated working tree changes;
+- for implementation changes, commit only after explicit user approval and
+  validation;
 - never reset or discard user changes;
 - use feature branches created by Spec Kit for feature work;
 - preserve generated Spec Kit artifacts in review.
@@ -241,6 +250,9 @@ Keep generated build/cache/secret files out of git through `.gitignore`.
 Any feature touching `2brain Rec` capture, transcription, storage, or AI must preserve these gates:
 
 - macOS driver-first MVP; no no-driver fallback.
+- Capture and driver implementation is platform-native by default: macOS feature slice
+  uses macOS-native languages and APIs, with future platforms handled by separate
+  native stacks and separate architecture decisions.
 - Manual start/stop remains available.
 - Assisted auto-start is internal-MVP only unless customer policy explicitly enables it.
 - Active capture must always have a visible local indicator and one-action stop.

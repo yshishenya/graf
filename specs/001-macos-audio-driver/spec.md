@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-27
 
-**Status**: Implementation started; Phase 0 Core Audio publication proof accepted; US1 route verification next
+**Status**: implementation started; Phase 0 Core Audio publication proof accepted; live passthrough, capture, and release-readiness gates remain pending
 
 **Input**: User description: "macOS virtual audio driver MVP"
 
@@ -27,7 +27,7 @@ As an internal team user on macOS, I want to install 2brain Rec and verify that
 meeting, so that I know capture is ready and live call audio will still pass
 through normally.
 
-**Why this priority**: The product cannot enter private alpha unless users can
+**Why this priority**: The product cannot enter pilot rollout unless users can
 install the virtual audio layer, see both virtual devices, select physical
 input/output devices, and verify both mic and speaker routes without guessing.
 
@@ -121,10 +121,10 @@ state produces a specific visible diagnosis and recovery path.
 
 As a user, I want uninstall and rollback to remove 2brain Rec virtual devices
 and avoid leaving my system audio in a confusing state, so that I can safely
-recover from a failed install or stop using the alpha.
+recover from a failed install or stop using this app safely.
 
-**Why this priority**: Clean uninstall is necessary for trust and for internal
-alpha recovery, but it can follow core install/capture validation.
+**Why this priority**: Clean uninstall is necessary for trust and for safe
+rollback/recovery, but it can follow core install/capture validation.
 
 **Independent Test**: Can be tested by installing, selecting virtual devices,
 uninstalling, and confirming virtual devices and related startup/background
@@ -341,7 +341,7 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
   interrupt live mic or speaker passthrough.
 - **SC-007**: Active capture state is identifiable without opening the desktop
   app and can be stopped in one interaction from a local visible surface.
-- **SC-008**: No private-alpha release candidate ships with unresolved
+- **SC-008**: No release-candidate for production pilot ships with unresolved
   virtual-device install, passthrough, recording integrity, invisible-recording,
   uninstall, or rollback P0 defects.
 - **SC-009**: Diagnostics generated from driver or route failures contain no raw
@@ -354,6 +354,9 @@ artifacts are removed or clearly reported as requiring manual OS-level cleanup.
 - MVP platform is macOS on Apple Silicon.
 - Minimum supported macOS version is 14.5, with latest stable macOS also covered
   at release-candidate time.
+- The implementation path is native to macOS for app, capture control, and virtual-device
+  ownership; this feature does not define cross-platform sharing of the driver or
+  privilege layer.
 - Official MVP meeting targets are browser-based meetings in Chrome, Opera, and
   Yandex Browser, plus Yandex Telemost in browser after QA.
 - Other apps that can select `2brain Rec Microphone` and `2brain Rec Speaker`

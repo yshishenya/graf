@@ -1,0 +1,70 @@
+import Foundation
+import TwoBrainRecShared
+
+#if canImport(XCTest)
+import XCTest
+
+final class LivePassthroughPolicyTests: XCTestCase {
+    func testSessionCanActivateOnlyWhenReadyAndNotRecording() {
+        let session = makeSession(status: .ready, recordingState: "not_recording")
+
+        XCTAssertTrue(session.canActivate)
+    }
+
+    func testSessionCannotActivateWhenRecordingStateIsRecording() {
+        let session = makeSession(status: .ready, recordingState: "recording")
+
+        XCTAssertFalse(session.canActivate)
+    }
+
+    func testSessionCannotActivateWithMissingHeartbeat() {
+        var session = makeSession(status: .ready, recordingState: "not_recording")
+        session.healthEvidence.appHeartbeatStatus = .heartbeatLost
+
+        XCTAssertFalse(session.canActivate)
+    }
+
+    func testBuiltInWiredGateRequiresLatencyAndLeakageThresholds() {
+        let passing = PassthroughHealthEvidence(
+            appHeartbeatStatus: .connected,
+            latencyMs: 24,
+            leakageDbBelowReference: 48,
+            notIntelligible: true
+        )
+        let highLatency = PassthroughHealthEvidence(
+            appHeartbeatStatus: .connected,
+            latencyMs: 34,
+            leakageDbBelowReference: 48,
+            notIntelligible: true
+        )
+
+        XCTAssertTrue(passing.passesBuiltInWiredGate)
+        XCTAssertFalse(highLatency.passesBuiltInWiredGate)
+    }
+
+    private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
+        LivePassthroughSession(
+            sessionId: "session-1",
+            status: status,
+            microphonePath: MicrophonePassthroughPath(
+                physicalInputId: "built-in-input",
+                physicalInputName: "MacBook Pro Microphone",
+                status: .ready,
+                validFrameObserved: true
+            ),
+            speakerPath: SpeakerPassthroughPath(
+                physicalOutputId: "built-in-output",
+                physicalOutputName: "MacBook Pro Speakers",
+                status: .ready,
+                stimulusObserved: true
+            ),
+            healthEvidence: PassthroughHealthEvidence(
+                appHeartbeatStatus: .connected,
+                latencyMs: 20,
+                leakageDbBelowReference: 50
+            ),
+            recordingState: recordingState
+        )
+    }
+}
+#endif

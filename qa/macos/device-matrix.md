@@ -24,6 +24,16 @@ Track official MVP coverage for physical audio devices and macOS versions.
 | AirPods-class device | Yes | Synthetic route, browser meeting, 60-minute run |
 | Other devices | Best effort | Must not be marketed as officially supported |
 
+## US1 Route Verification Coverage
+
+| Scenario | Required Result | Evidence |
+|---|---|---|
+| Fresh install on macOS 14.5 Apple Silicon | Driver installs interactively or reports `requires_restart` | `tests/macos/installer-recovery/fresh-install.md` |
+| Virtual microphone publication | `2brain Rec Microphone` visible with input channels only | `tests/macos/route-synthetic/mic-route-check.swift` |
+| Virtual speaker publication | `2brain Rec Speaker` visible with output channels only | `tests/macos/route-synthetic/speaker-route-check.swift` |
+| Self-routing attempt | Selecting a 2brain Rec virtual device as physical input/output is rejected | `SelfRoutingGuard` contract coverage |
+| Route readiness | `ready` shown only after mic and speaker synthetic routes pass | `RouteVerificationContractTests` |
+
 ## Release Candidate Thresholds
 
 - Wired audio: local and remote tracks aligned within 100 ms over 60 minutes.

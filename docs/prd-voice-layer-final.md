@@ -68,7 +68,7 @@ Required MVP:
 
 Fallback policy:
 
-- No no-driver MVP fallback. If the macOS virtual audio layer cannot pass Phase 0 gates, the product does not proceed to private alpha.
+- No no-driver MVP fallback. If the macOS virtual audio layer cannot pass Phase 0 gates, the product does not proceed to pilot rollout.
 
 MVP includes:
 
@@ -98,6 +98,22 @@ MVP includes:
 - MVP audit events.
 - Docker Compose deployment profile.
 - Light and dark themes.
+
+### 4.x Platform and Technology Strategy
+
+- macOS is the first platform and is implemented as a native stack:
+  - macOS desktop app: Swift (SwiftUI for UI and app logic where applicable).
+  - macOS virtual audio layer and real-time capture bridge: Swift/C++ using platform-supported
+    audio APIs in the selected Core Audio virtual-device path.
+  - Installer and packaging lifecycle: native macOS signing/notarization workflows.
+- The MVP capture/driver plane is intentionally not a single Dart/Flutter/Electron runtime,
+  because privileged audio routing, virtual-device ownership, and installer signing/notarization
+  must stay native to the OS integration layer.
+- Windows, Linux, iOS, and Android are future platform phases and must be delivered through
+  separate architecture slices with their own native stack and distribution model after macOS
+  launch criteria are met.
+- Cross-platform frameworks can be considered only for non-capture surfaces that do not own
+  audio-driver, virtual-device, permission, or installer runtime behavior.
 
 MVP excludes:
 
@@ -293,7 +309,7 @@ Acceptance criteria:
 - User can stop active capture from tray or widget in one interaction.
 - Auto-started recording is visibly distinguishable from manually started recording.
 - Widget shows when only mic or only speaker audio is being captured.
-- Invisible-recording defects are release-blocking for private alpha and external/customer alpha.
+- Invisible-recording defects are release-blocking for pilot rollout and external/customer rollout.
 
 ## 10. Virtual Audio Layer
 
@@ -1604,7 +1620,7 @@ Accessibility/localization acceptance criteria:
 - UI locale can differ from transcript language and notes output language.
 - Long localized labels do not clip critical tray, widget, button, table, or dialog controls.
 
-Required UX artifacts before private alpha:
+Required UX artifacts before pilot rollout:
 
 - Desktop Home.
 - Onboarding flow and onboarding failure matrix.
@@ -1725,7 +1741,7 @@ Capacity planning must document audio storage per hour, MediaScribe processing t
 
 Reference performance profile:
 
-- The Phase 1 transcript-ready target must be measured against a named reference deployment before private alpha.
+- The Phase 1 transcript-ready target must be measured against a named reference deployment before pilot rollout.
 - Reference deployment must specify CPU, RAM, storage type, MediaScribe account/API configuration, audio codec, average meeting duration, and concurrent processing jobs.
 - If MediaScribe capacity is shared with other workloads, MVP must define queue timeout and retry behavior.
 
@@ -1830,7 +1846,7 @@ Phase 0: Feasibility and architecture gates.
 - Define ingest protocol, state machines, object lifecycle.
 - Define consent, deletion, and data-boundary policies.
 
-Phase 1: Private alpha MVP.
+Phase 1: Pilot rollout MVP.
 
 - Desktop app for selected platform.
 - Driver-first capture path based on macOS virtual audio layer.
@@ -1903,7 +1919,7 @@ Platform-specific Phase 0 gates:
 - macOS: signed/notarized installer proof, required permission flow proof, virtual audio component load proof, helper recovery proof if helper is used, clean uninstall proof.
 - Windows: deferred until after macOS launch. Windows must not be represented as supported during MVP.
 
-Phase 1 private alpha gate:
+Phase 1 pilot rollout gate:
 
 - End-to-end meeting flow works from desktop recording to dashboard notes.
 - Self-hosted deployment works from documented steps.
@@ -2043,12 +2059,13 @@ Required decisions:
 13. Pricing/package assumption.
 14. Support posture.
 15. Windows follow-up trigger after macOS launch.
+16. Native-per-platform technology strategy for capture/driver plane and installer lifecycle.
 
 Decision criteria:
 
 - Each decision has owner, date, selected option, rationale, and revisit trigger.
 - No Phase 0 driver implementation starts until decisions 1-2 are resolved.
-- No Phase 1 implementation starts until decisions 1-15 are resolved and MediaScribe retention/deletion behavior is documented.
+- No Phase 1 implementation starts until decisions 1-16 are resolved and MediaScribe retention/deletion behavior is documented.
 - Any decision affecting data boundaries must be reflected in admin settings, onboarding copy, and audit behavior.
 
 ## 38. Open Risks

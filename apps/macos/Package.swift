@@ -17,13 +17,23 @@ let package = Package(
             targets: ["TwoBrainRecAppCore"]
         ),
         .executable(
+            name: "TwoBrainRecApp",
+            targets: ["TwoBrainRecApp"]
+        ),
+        .executable(
             name: "ContractValidation",
             targets: ["ContractValidation"]
         )
     ],
     targets: [
         .target(
+            name: "CShmHelpers",
+            path: "Shared/CShmHelpers",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "TwoBrainRecShared",
+            dependencies: ["CShmHelpers"],
             path: "Shared/Sources"
         ),
         .target(
@@ -32,9 +42,19 @@ let package = Package(
             path: "RecApp/Sources"
         ),
         .executableTarget(
+            name: "TwoBrainRecApp",
+            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
+            path: "RecApp/App"
+        ),
+        .executableTarget(
             name: "ContractValidation",
             dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
             path: "Shared/Tools/ContractValidation"
+        ),
+        .testTarget(
+            name: "TwoBrainRecSharedTests",
+            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
+            path: "Shared/Tests"
         )
     ]
 )

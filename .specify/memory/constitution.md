@@ -115,6 +115,13 @@ must be decomposed into reviewable artifacts before code.
 - MVP target platform is macOS with Apple Silicon required.
 - Windows is a later platform after macOS launch and MUST NOT be represented as
   MVP-supported.
+- Platform capture and routing must be implemented on native OS primitives first for
+  each operating system slice; cross-platform abstractions may be used only where
+  they do not own virtual-device driver lifecycle, audio routing, permission
+  flows, real-time audio capture, passthrough, or installer signing/notarization.
+- For the MVP, this means Swift/Cocoa/Core Audio for macOS app and driver plane;
+  Windows and future platforms are expected to use their own native stacks after
+  platform discovery and governance update.
 - MVP server target is `2brain.dev` with public URL `https://rec.2brain.dev`.
 - `2brain_rec`-owned infrastructure MUST run in Docker containers for MVP.
 - Dedicated Postgres and MinIO are required for `2brain_rec`.
@@ -128,7 +135,7 @@ must be decomposed into reviewable artifacts before code.
 - User deletion deletes the whole meeting in MVP; partial artifact deletion is
   deferred unless explicitly specified.
 - UI MUST use an original `2brain Rec` design system and pass brand-distance
-  review before private alpha.
+  review before production rollout.
 
 ## Development Workflow And Quality Gates
 

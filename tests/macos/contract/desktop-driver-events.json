@@ -51,6 +51,43 @@
       "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
     },
     {
+      "name": "private_app_io.health_changed",
+      "requiredFields": [
+        "appIOState",
+        "publicDeviceAvailability",
+        "missedHeartbeatCount",
+        "lastHeartbeatAt",
+        "recoveryAction",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    },
+    {
+      "name": "audio.latency_measured",
+      "requiredFields": [
+        "routeClass",
+        "measuredLatencyMs",
+        "thresholdMs",
+        "status",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    },
+    {
+      "name": "bluetooth.route_evidence",
+      "requiredFields": [
+        "profileName",
+        "profileState",
+        "inputAvailable",
+        "outputAvailable",
+        "validFrameIntervalsPassed",
+        "oneSidedAudioEvent",
+        "dropoutRate",
+        "timestamp"
+      ],
+      "forbiddenFields": ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]
+    },
+    {
       "name": "capture.frame_available",
       "requiredFields": [
         "trackRole",

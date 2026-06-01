@@ -1,0 +1,124 @@
+import Foundation
+import TwoBrainRecShared
+
+#if canImport(XCTest)
+import XCTest
+
+final class DiagnosticRedactionTests: XCTestCase {
+    func testReadinessEvidenceDiagnosticsKeepMetadataAndRemoveSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "liveRouteReadiness": .object([
+                "status": .string("failed"),
+                "failureReason": .string("missing_valid_frames"),
+                "rawAudio": .string("forbidden")
+            ]),
+            "browserTargetEvidence": .array([
+                .object([
+                    "target": .string("chrome"),
+                    "status": .string("blocked"),
+                    "meetingContent": .string("forbidden")
+                ])
+            ]),
+            "transcriptText": .string("forbidden"),
+            "routeStatus": .string("failed"),
+            "recoveryActionId": .string("rerun_readiness_check")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["liveRouteReadiness"])
+        XCTAssertNotNil(result.manifest["browserTargetEvidence"])
+        XCTAssertNotNil(result.manifest["routeStatus"])
+        XCTAssertNil(result.manifest["transcriptText"])
+        XCTAssertTrue(result.removedFields.contains("liveRouteReadiness.rawAudio"))
+        XCTAssertTrue(result.removedFields.contains("browserTargetEvidence[0].meetingContent"))
+    }
+
+    func testLiveRouteReadinessBundleKeepsOnlyMetadata() throws {
+        let now = Date(timeIntervalSince1970: 1_779_887_120)
+        let result = LiveRouteReadinessResult(
+            status: .failed,
+            microphoneEvidence: MicrophonePathEvidence(
+                selectedPhysicalDeviceId: "built-in-input",
+                selectedPhysicalDeviceName: "MacBook Pro Microphone",
+                status: .failed,
+                validFrameCount: 0,
+                emptyBufferCount: 1,
+                capturabilityStatus: .notCapturable,
+                selfRoutingRejected: false,
+                failureReason: "missing_valid_frames",
+                checkedAt: now
+            ),
+            speakerEvidence: SpeakerPathEvidence(
+                selectedPhysicalOutputId: "built-in-output",
+                selectedPhysicalOutputName: "MacBook Pro Speakers",
+                status: .passed,
+                stimulusObserved: true,
+                validFrameCount: 1,
+                emptyBufferCount: 0,
+                selfRoutingRejected: false,
+                checkedAt: now
+            ),
+            checkedAt: now,
+            recoveryAction: "rerun_readiness_check"
+        )
+
+        let bundle = try DiagnosticBundleService().buildLiveRouteReadinessBundle(result: result)
+
+        XCTAssertEqual(bundle.redactionState, .redacted)
+        XCTAssertNotNil(bundle.manifest["liveRouteReadiness"])
+        XCTAssertNotNil(bundle.manifest["microphonePathEvidence"])
+        XCTAssertNotNil(bundle.manifest["speakerPathEvidence"])
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+    }
+
+    func testLivePassthroughBundleKeepsOnlyMetadata() throws {
+        let now = Date(timeIntervalSince1970: 1_779_887_120)
+        let session = LivePassthroughSession(
+            sessionId: "passthrough-1",
+            status: .active,
+            microphonePath: MicrophonePassthroughPath(
+                physicalInputId: "built-in-input",
+                physicalInputName: "MacBook Pro Microphone",
+                status: .ready,
+                validFrameObserved: true
+            ),
+            speakerPath: SpeakerPassthroughPath(
+                physicalOutputId: "built-in-output",
+                physicalOutputName: "MacBook Pro Speakers",
+                status: .ready,
+                stimulusObserved: true
+            ),
+            healthEvidence: PassthroughHealthEvidence(
+                appHeartbeatStatus: .connected,
+                latencyMs: 21,
+                leakageDbBelowReference: 49
+            ),
+            browserEvidence: [
+                PassthroughBrowserCallEvidence(
+                    targetName: "Chrome",
+                    targetVersion: "local",
+                    selectedMicrophone: "2brain Rec Microphone",
+                    selectedSpeaker: "2brain Rec Speaker",
+                    localSpeechUsable: true,
+                    remoteAudioUsable: true,
+                    status: .passed,
+                    checkedAt: now
+                )
+            ],
+            startedAt: now
+        )
+
+        let bundle = try DiagnosticBundleService().buildLivePassthroughBundle(session: session)
+
+        XCTAssertEqual(bundle.redactionState, .redacted)
+        XCTAssertNotNil(bundle.manifest["livePassthrough"])
+        XCTAssertNotNil(bundle.manifest["microphonePassthroughPath"])
+        XCTAssertNotNil(bundle.manifest["speakerPassthroughPath"])
+        XCTAssertNotNil(bundle.manifest["passthroughHealth"])
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+    }
+}
+#endif

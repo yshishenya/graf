@@ -28,6 +28,27 @@ Status: Phase 0 Core Audio publication proof accepted. The local proof
 AudioServerPlugIn publishes both MVP virtual devices and the runtime probe sees
 them in macOS Core Audio.
 
+This is publication evidence only. It does not prove real microphone
+passthrough, virtual speaker passthrough to the selected physical output,
+capture mirroring, or browser meeting readiness. The current expected app state
+after local install is `Installed, but not ready for calls yet`.
+
+Safety behavior while passthrough is pending:
+
+- proof devices are visible for Core Audio publication validation;
+- proof devices must not be used as the user's normal system input/output;
+- the proof driver reports that it cannot be the system default device until
+  live passthrough is accepted;
+- verbose HAL callback tracing is disabled by default to avoid high `coreaudiod`
+  CPU during audio IO.
+
+After changing driver code, reinstall the proof bundle and restart Core Audio
+before judging runtime behavior:
+
+```sh
+make -C apps/macos/AudioDriver proof-plugin-install
+```
+
 Created proof harnesses:
 
 - `Sources/Proof/VirtualDeviceProof.cpp`
@@ -106,6 +127,16 @@ Remove the proof plug-in with:
 make -C apps/macos/AudioDriver proof-plugin-uninstall
 ```
 
+Verbose driver trace is intentionally opt-in and only takes effect after the next
+Core Audio restart:
+
+```sh
+make -C apps/macos/AudioDriver proof-plugin-trace-enable
+make -C apps/macos/AudioDriver proof-plugin-install
+make -C apps/macos/AudioDriver proof-plugin-trace-read
+make -C apps/macos/AudioDriver proof-plugin-trace-disable
+```
+
 The broader local foundation validation command is:
 
 ```sh
@@ -113,9 +144,8 @@ sh apps/macos/Scripts/validate-foundation.sh
 ```
 
 This runs the Swift build, contract validation executable, and proof scaffold.
-The local Swift toolchain used during this remediation does not provide
-`XCTest` or Swift `Testing`, so `ContractValidation` is the executable validation
-gate until a full Xcode test target is introduced.
+In standard macOS dev environments, it is followed by full `swift test` and
+manual capture-path regression verification (`sh apps/macos/Scripts/validate-us1-regression.sh`).
 
 The implementation-ready US1 gate is intentionally stricter:
 
@@ -123,8 +153,9 @@ The implementation-ready US1 gate is intentionally stricter:
 sh apps/macos/Scripts/validate-us1-gate.sh
 ```
 
-It fails until `RuntimeProofReport.md` records `**Status**: ACCEPTED` with
-observed Apple Silicon Core Audio runtime evidence.
+It fails until `RuntimeProofReport.md` records an `ACCEPTED` Core Audio
+publication result with observed Apple Silicon runtime evidence. Passing this
+gate does not mean real passthrough or capture is ready.
 
 ## Signing And Distribution Prerequisites
 

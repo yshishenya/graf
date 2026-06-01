@@ -19,11 +19,27 @@ component packaged through an interactive signed/notarized installer. Phase 0
 must prove the selected virtual-device technology on Apple Silicon before
 implementation tasks begin.
 
+The stack is intentionally native-first:
+
+- macOS capture and routing live in Swift (app/UI/helper) plus C/C++ where required
+  by Core Audio/AudioServerPlugIn APIs.
+- No cross-platform UI framework or generic runtime owns virtual-device lifecycle,
+  low-latency audio route control, permissions, installer signing/notarization, or
+  passthrough/real-time capture paths.
+- Windows/Linux/iOS/Android are out-of-scope for this feature and must be designed
+  through separate native platform architecture slices after the macOS MVP decisions.
+
 ## Technical Context
 
 **Language/Version**: Swift 6 for macOS app, helper tools, and UI; C/C++ for the
 real-time Core Audio virtual audio component where required by Apple APIs; shell
 only for installer/notarization automation.
+
+**Cross-platform strategy (MVP scope)**: No shared audio-driver runtime or native
+privilege layer is used across platforms for this feature. Real-time capture and
+virtual device ownership are verified separately per platform. The first shipping
+stack remains platform-native macOS; subsequent platform stacks are designed and
+validated in their own architectural slices.
 
 **Primary Dependencies**: macOS Core Audio/Audio Hardware APIs, Core Audio
 AudioServerPlugIn-compatible virtual device implementation path, Apple Developer
@@ -113,11 +129,18 @@ recorded Apple Silicon runtime result in
 `apps/macos/AudioDriver/RuntimeProofReport.md` before any US1 task that
 publishes real virtual devices or installer behavior.
 
-**Phase 0 Runtime Gate Result**: PASS. `RuntimeProofReport.md` records
-`**Status**: ACCEPTED`; the local Core Audio proof bundle publishes
+**Phase 0 Runtime Gate Result**: PASS. `RuntimeProofReport.md` records an
+`ACCEPTED` Core Audio publication result; the local Core Audio proof bundle publishes
 `2brain Rec Microphone` and `2brain Rec Speaker` on Apple Silicon macOS.
-This unlocks US1 route-verification work. It does not prove production routing,
+This unlocks US1 publication/setup work. It does not prove production routing,
 passthrough, capture, signing, notarization, or installer UX.
+
+**Reality Check (2026-05-31)**: The local installer and desktop app now prove
+driver package installation and virtual-device visibility. The correct runtime
+state is still `not ready for calls yet` because live microphone passthrough,
+live speaker passthrough, browser meeting validation, and separate track capture
+remain unaccepted. The next implementation gate is the US2 runtime acceptance
+gap in `tasks.md`, not release-candidate hardening.
 
 ## Project Structure
 

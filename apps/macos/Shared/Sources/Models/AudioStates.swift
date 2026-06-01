@@ -20,6 +20,7 @@ public enum VirtualDeviceAvailabilityState: String, Codable, Sendable {
     case installed
     case available
     case unavailable
+    case hidden
     case incompatible
     case requiresRestart = "requires_restart"
 }
@@ -46,6 +47,9 @@ public enum RouteValidationType: String, Codable, Sendable {
     case browserMeeting = "browser_meeting"
     case testRecording = "test_recording"
     case testPlayback = "test_playback"
+    case appIOHeartbeat = "app_io_heartbeat"
+    case latencyProbe = "latency_probe"
+    case bluetoothPilot = "bluetooth_pilot"
 }
 
 public enum RouteVerificationStatus: String, Codable, Sendable {
@@ -54,6 +58,88 @@ public enum RouteVerificationStatus: String, Codable, Sendable {
     case passed
     case failed
     case stale
+}
+
+public enum LiveRouteReadinessStatus: String, Codable, Sendable {
+    case notStarted = "not_started"
+    case checking
+    case ready
+    case stale
+    case degraded
+    case failed
+}
+
+public enum LivePassthroughStatus: String, Codable, Sendable {
+    case inactive
+    case checking
+    case ready
+    case active
+    case stale
+    case degraded
+    case failed
+    case blocked
+}
+
+public enum PassthroughFailureReason: String, Codable, Sendable {
+    case none
+    case permissionDenied = "permission_denied"
+    case muted
+    case silent
+    case unavailable
+    case selfRouted = "self_routed"
+    case aggregateUnmanaged = "aggregate_unmanaged"
+    case deviceChanged = "device_changed"
+    case appHeartbeatMissing = "app_heartbeat_missing"
+    case coreaudiodRestarted = "coreaudiod_restarted"
+    case latencyExceeded = "latency_exceeded"
+    case leakageExceeded = "leakage_exceeded"
+    case unknown
+}
+
+public enum RouteRecoveryEventType: String, Codable, Sendable {
+    case physicalInputChanged = "physical_input_changed"
+    case physicalOutputChanged = "physical_output_changed"
+    case browserTargetChanged = "browser_target_changed"
+    case bluetoothProfileChanged = "bluetooth_profile_changed"
+    case appHeartbeatLost = "app_heartbeat_lost"
+    case appHeartbeatRestored = "app_heartbeat_restored"
+    case driverReloaded = "driver_reloaded"
+    case coreaudiodRestarted = "coreaudiod_restarted"
+}
+
+public enum RouteEvidenceStatus: String, Codable, Sendable {
+    case notStarted = "not_started"
+    case passed
+    case blocked
+    case degraded
+    case failed
+}
+
+public enum BrowserTargetEvidenceStatus: String, Codable, Sendable {
+    case passed
+    case blocked
+    case notAccepted = "not_accepted"
+}
+
+public enum MeasurementStatus: String, Codable, Sendable {
+    case passed
+    case degraded
+    case blocked
+}
+
+public enum IntelligibilityStatus: String, Codable, Sendable {
+    case notIntelligible = "not_intelligible"
+    case intelligible
+    case unknown
+}
+
+public enum RouteInvalidationSource: String, Codable, Sendable {
+    case physicalDevice = "physical_device"
+    case outputRoute = "output_route"
+    case browserTarget = "browser_target"
+    case bluetoothProfile = "bluetooth_profile"
+    case appIO = "app_io"
+    case coreaudiod
 }
 
 public enum CaptureMode: String, Codable, Sendable {
@@ -150,8 +236,32 @@ public enum PassthroughStatus: String, Codable, Sendable {
     case healthy
     case degraded
     case failed
+    case appIOMissing = "app_io_missing"
+    case latencyExceeded = "latency_exceeded"
     case mutedByPhysicalDevice = "muted_by_physical_device"
     case physicalDeviceMissing = "physical_device_missing"
+    case unknown
+}
+
+public enum AppIOState: String, Codable, Sendable {
+    case unavailable
+    case waitingForApp = "waiting_for_app"
+    case connected
+    case heartbeatLost = "heartbeat_lost"
+    case recovering
+}
+
+public enum CapturabilityStatus: String, Codable, Sendable {
+    case capturable
+    case notCapturable = "not_capturable"
+    case unknown
+}
+
+public enum BluetoothProfileState: String, Codable, Sendable {
+    case stable
+    case switching
+    case oneSidedAudio = "one_sided_audio"
+    case unsupported
     case unknown
 }
 

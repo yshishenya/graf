@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "0.1.0",
+  "requiredTargets": [
+    "chrome",
+    "opera",
+    "yandex_browser",
+    "yandex_telemost_browser"
+  ],
+  "statuses": ["passed", "blocked", "not_accepted"],
+  "requiredFields": [
+    "target",
+    "targetVersion",
+    "status",
+    "microphoneSelected",
+    "speakerSelected",
+    "readinessStateBeforeJoin",
+    "routeStateAfterJoin",
+    "localSpeechUsable",
+    "remoteAudioUsable",
+    "failureReason",
+    "checkedAt"
+  ],
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "credentials",
+    "tokens",
+    "signedUrls",
+    "meetingContent"
+  ],
+  "passRules": {
+    "passedRequiresReadyBeforeJoin": true,
+    "blockedRequiresFailureReason": true,
+    "notAcceptedRequiresFailureReason": true,
+    "releaseReadinessRequiresEveryTargetEvidence": true
+  }
+}

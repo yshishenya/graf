@@ -2,12 +2,21 @@
 #include <CoreAudio/AudioServerPlugIn.h>
 #include <CoreFoundation/CoreFoundation.h>
 
+#include "../Bridge/SharedAudioBuffer.hpp"
+#include "../Device/VirtualDeviceRegistry.hpp"
+
 #include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
+#include <mach/mach_time.h>
+
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <ctime>
+#include <algorithm>
 
 extern AudioServerPlugInDriverInterface gDriverInterface;
 extern AudioServerPlugInDriverInterface* gDriverInterfacePointer;
@@ -15,16 +24,30 @@ extern AudioServerPlugInDriverInterface* gDriverInterfacePointer;
 namespace {
 
 constexpr AudioObjectID kPlugInObject = kAudioObjectPlugInObject;
-constexpr AudioObjectID kMicDevice = 2;
-constexpr AudioObjectID kSpeakerDevice = 3;
-constexpr AudioObjectID kMicStream = 4;
-constexpr AudioObjectID kSpeakerStream = 5;
 constexpr Float64 kSampleRate = 48000.0;
 constexpr UInt32 kBufferFrameSize = 512;
 constexpr UInt32 kZeroTimeStampPeriod = 24000;
+constexpr UInt32 kPrivateTapListSelector = 'taps';
+constexpr UInt32 kPrivateConfigurationSizeSelector = 'cfsz';
+constexpr UInt32 kPrivateSingleInputSingleOutputSelector = 'siso';
+constexpr UInt32 kPrivateAggregateRelatedSelector = 'aerE';
+constexpr UInt32 kPrivateDataSourceOrderingSelector = 'dsOr';
+constexpr const char* kVerboseTraceFlagPath = "/tmp/2brain-rec-proof-driver.verbose";
+constexpr uint64_t kAppIOHeartbeatTimeoutNanos = 5ULL * 1000ULL * 1000ULL * 1000ULL;
 
 std::atomic<UInt32> gReferenceCount{1};
 AudioServerPlugInHostRef gHost = nullptr;
+TwoBrainRec::SharedAudioBuffer* gShared = nullptr;
+int gShmFD = -1;
+bool gShmOwner = false;
+std::atomic<uint64_t> gMicReadInputCount{0};
+std::atomic<uint64_t> gSpeakerWriteMixCount{0};
+std::atomic<uint64_t> gMicZeroFillCount{0};
+std::atomic<uint64_t> gSpeakerDropCount{0};
+std::atomic<UInt32> gMicrophoneIOClientCount{0};
+std::atomic<UInt32> gSpeakerIOClientCount{0};
+std::atomic<uint64_t> gMicrophoneClockAnchorHostTime{0};
+std::atomic<uint64_t> gSpeakerClockAnchorHostTime{0};
 
 void Trace(const char* message) {
     const int fd = open("/tmp/2brain-rec-proof-driver.trace", O_CREAT | O_WRONLY | O_APPEND, 0644);
@@ -39,6 +62,22 @@ void Trace(const char* message) {
         write(fd, buffer, static_cast<size_t>(count));
     }
     close(fd);
+}
+
+bool VerboseTraceEnabled() {
+    static std::atomic<int> enabled{-1};
+    int current = enabled.load();
+    if (current == -1) {
+        current = access(kVerboseTraceFlagPath, F_OK) == 0 ? 1 : 0;
+        enabled.store(current);
+    }
+    return current == 1;
+}
+
+void TraceVerbose(const char* message) {
+    if (VerboseTraceEnabled()) {
+        Trace(message);
+    }
 }
 
 void FourCC(UInt32 value, char out[5]) {
@@ -56,7 +95,7 @@ void FourCC(UInt32 value, char out[5]) {
 
 void TraceProperty(const char* operation, AudioObjectID object_id, const AudioObjectPropertyAddress* address) {
     if (address == nullptr) {
-        Trace(operation);
+        TraceVerbose(operation);
         return;
     }
 
@@ -76,27 +115,29 @@ void TraceProperty(const char* operation, AudioObjectID object_id, const AudioOb
         scope,
         address->mElement
     );
-    Trace(buffer);
+    TraceVerbose(buffer);
 }
 
 __attribute__((constructor)) void TraceBundleLoaded() {
     Trace("bundle constructor loaded");
 }
 
+__attribute__((destructor)) void CleanupSharedMemory() {
+    if (gShared != nullptr) {
+        munmap(gShared, sizeof(TwoBrainRec::SharedAudioBuffer));
+        gShared = nullptr;
+    }
+    if (gShmOwner) {
+        shm_unlink(TwoBrainRec::kShmName);
+    }
+}
+
 bool IsDevice(AudioObjectID object_id) {
-    return object_id == kMicDevice || object_id == kSpeakerDevice;
+    return TwoBrainRec::AudioDriver::IsVirtualDevice(object_id);
 }
 
 bool IsStream(AudioObjectID object_id) {
-    return object_id == kMicStream || object_id == kSpeakerStream;
-}
-
-bool IsInputScope(AudioObjectPropertyScope scope) {
-    return scope == kAudioObjectPropertyScopeInput || scope == kAudioObjectPropertyScopeGlobal;
-}
-
-bool IsOutputScope(AudioObjectPropertyScope scope) {
-    return scope == kAudioObjectPropertyScopeOutput || scope == kAudioObjectPropertyScopeGlobal;
+    return TwoBrainRec::AudioDriver::IsVirtualStream(object_id);
 }
 
 CFStringRef CopyString(const char* value) {
@@ -104,22 +145,19 @@ CFStringRef CopyString(const char* value) {
 }
 
 const char* DeviceName(AudioObjectID object_id) {
-    return object_id == kMicDevice ? "2brain Rec Microphone" : "2brain Rec Speaker";
+    return TwoBrainRec::AudioDriver::VirtualDeviceName(object_id);
 }
 
 const char* DeviceUID(AudioObjectID object_id) {
-    return object_id == kMicDevice ? "pro.2brain.rec.microphone" : "pro.2brain.rec.speaker";
+    return TwoBrainRec::AudioDriver::VirtualDeviceUID(object_id);
 }
 
 AudioObjectID OwnerForObject(AudioObjectID object_id) {
     if (IsDevice(object_id)) {
         return kPlugInObject;
     }
-    if (object_id == kMicStream) {
-        return kMicDevice;
-    }
-    if (object_id == kSpeakerStream) {
-        return kSpeakerDevice;
+    if (IsStream(object_id)) {
+        return TwoBrainRec::AudioDriver::OwnerForVirtualObject(object_id);
     }
     return kAudioObjectUnknown;
 }
@@ -198,17 +236,11 @@ OSStatus WriteEmptyList(UInt32* out_data_size) {
 }
 
 UInt32 DeviceStreamCount(AudioObjectID device_id, AudioObjectPropertyScope scope) {
-    if (device_id == kMicDevice && IsInputScope(scope)) {
-        return 1;
-    }
-    if (device_id == kSpeakerDevice && IsOutputScope(scope)) {
-        return 1;
-    }
-    return 0;
+    return TwoBrainRec::AudioDriver::StreamCountForVirtualDevice(device_id, scope);
 }
 
 AudioObjectID DeviceStream(AudioObjectID device_id) {
-    return device_id == kMicDevice ? kMicStream : kSpeakerStream;
+    return TwoBrainRec::AudioDriver::StreamForVirtualDevice(device_id);
 }
 
 OSStatus WriteStreamConfiguration(AudioObjectID device_id, AudioObjectPropertyScope scope, UInt32 in_data_size, UInt32* out_data_size, void* out_data) {
@@ -233,6 +265,89 @@ bool HasObject(AudioObjectID object_id) {
     return object_id == kPlugInObject || IsDevice(object_id) || IsStream(object_id);
 }
 
+bool PrivateAppIOAvailable() {
+    if (gShared == nullptr) {
+        return false;
+    }
+    if (gShared->app_io_state.load(std::memory_order_acquire) == 0) {
+        return false;
+    }
+
+    const uint64_t heartbeat = gShared->app_heartbeat_nanos.load(std::memory_order_acquire);
+    if (heartbeat == 0) {
+        return false;
+    }
+
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const uint64_t now_nanos = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now).count()
+    );
+    return now_nanos >= heartbeat && (now_nanos - heartbeat) <= kAppIOHeartbeatTimeoutNanos;
+}
+
+std::atomic<UInt32>* RunningClientCountForDevice(AudioObjectID device_id) {
+    if (device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID) {
+        return &gMicrophoneIOClientCount;
+    }
+    if (device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID) {
+        return &gSpeakerIOClientCount;
+    }
+    return nullptr;
+}
+
+UInt32 DeviceIsRunning(AudioObjectID device_id) {
+    auto* count = RunningClientCountForDevice(device_id);
+    if (count == nullptr) {
+        return 0;
+    }
+    return count->load(std::memory_order_acquire) > 0 ? 1 : 0;
+}
+
+std::atomic<uint64_t>* ClockAnchorForDevice(AudioObjectID device_id) {
+    if (device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID) {
+        return &gMicrophoneClockAnchorHostTime;
+    }
+    if (device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID) {
+        return &gSpeakerClockAnchorHostTime;
+    }
+    return nullptr;
+}
+
+uint64_t HostTicksToNanos(uint64_t host_ticks) {
+    static mach_timebase_info_data_t timebase = [] {
+        mach_timebase_info_data_t info{};
+        mach_timebase_info(&info);
+        return info;
+    }();
+    return static_cast<uint64_t>(
+        (static_cast<long double>(host_ticks) * timebase.numer) / timebase.denom
+    );
+}
+
+uint64_t NanosToHostTicks(uint64_t nanos) {
+    static mach_timebase_info_data_t timebase = [] {
+        mach_timebase_info_data_t info{};
+        mach_timebase_info(&info);
+        return info;
+    }();
+    return static_cast<uint64_t>(
+        (static_cast<long double>(nanos) * timebase.denom) / timebase.numer
+    );
+}
+
+void NotifyDeviceIsRunningChanged(AudioObjectID device_id) {
+    if (gHost == nullptr || !IsDevice(device_id)) {
+        return;
+    }
+
+    AudioObjectPropertyAddress address{
+        kAudioDevicePropertyDeviceIsRunning,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    gHost->PropertiesChanged(gHost, device_id, 1, &address);
+}
+
 bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddress* address) {
     if (!HasObject(object_id) || address == nullptr) {
         return false;
@@ -241,9 +356,18 @@ bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddr
     switch (address->mSelector) {
     case kAudioObjectPropertyBaseClass:
     case kAudioObjectPropertyClass:
+    case kAudioObjectPropertyListenerAdded:
+    case kAudioObjectPropertyListenerRemoved:
     case kAudioObjectPropertyOwner:
     case kAudioObjectPropertyName:
+    case kAudioObjectPropertyModelName:
     case kAudioObjectPropertyManufacturer:
+    case kAudioObjectPropertyElementName:
+    case kAudioObjectPropertyElementCategoryName:
+    case kAudioObjectPropertyElementNumberName:
+    case kAudioObjectPropertyIdentify:
+    case kAudioObjectPropertySerialNumber:
+    case kAudioObjectPropertyFirmwareVersion:
     case kAudioObjectPropertyOwnedObjects:
         return true;
     default:
@@ -253,6 +377,7 @@ bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddr
     if (object_id == kPlugInObject) {
         switch (address->mSelector) {
         case kAudioPlugInPropertyBundleID:
+        case kAudioPlugInPropertyResourceBundle:
         case kAudioPlugInPropertyDeviceList:
         case kAudioPlugInPropertyBoxList:
         case kAudioPlugInPropertyTranslateUIDToDevice:
@@ -264,6 +389,10 @@ bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddr
 
     if (IsDevice(object_id)) {
         switch (address->mSelector) {
+        case kPrivateAggregateRelatedSelector:
+        case kPrivateConfigurationSizeSelector:
+        case kPrivateDataSourceOrderingSelector:
+        case kPrivateSingleInputSingleOutputSelector:
         case kAudioDevicePropertyDeviceUID:
         case kAudioDevicePropertyModelUID:
         case kAudioDevicePropertyTransportType:
@@ -293,6 +422,7 @@ bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddr
 
     if (IsStream(object_id)) {
         switch (address->mSelector) {
+        case kPrivateTapListSelector:
         case kAudioStreamPropertyIsActive:
         case kAudioStreamPropertyDirection:
         case kAudioStreamPropertyTerminalType:
@@ -343,6 +473,42 @@ ULONG Release(void*) {
 OSStatus Initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef in_host) {
     Trace("Initialize called");
     gHost = in_host;
+
+    // Create or open shared memory
+    gShmFD = shm_open(TwoBrainRec::kShmName, O_CREAT | O_RDWR, 0666);
+    if (gShmFD < 0) {
+        Trace("Initialize: shm_open failed");
+        return kAudioHardwareUnspecifiedError;
+    }
+    fchmod(gShmFD, 0666);
+
+    // Resize stale shared memory from older local builds before mapping the new layout.
+    struct stat st;
+    if (fstat(gShmFD, &st) == 0 && st.st_size != static_cast<off_t>(sizeof(TwoBrainRec::SharedAudioBuffer))) {
+        ftruncate(gShmFD, sizeof(TwoBrainRec::SharedAudioBuffer));
+        gShmOwner = true;
+    }
+
+    gShared = static_cast<TwoBrainRec::SharedAudioBuffer*>(
+        mmap(nullptr, sizeof(TwoBrainRec::SharedAudioBuffer),
+             PROT_READ | PROT_WRITE, MAP_SHARED, gShmFD, 0)
+    );
+
+    if (gShared == MAP_FAILED) {
+        Trace("Initialize: mmap failed");
+        close(gShmFD);
+        shm_unlink(TwoBrainRec::kShmName);
+        gShared = nullptr;
+        gShmFD = -1;
+        return kAudioHardwareUnspecifiedError;
+    }
+
+    close(gShmFD);
+
+    if (gShmOwner) {
+        std::memset(gShared, 0, sizeof(TwoBrainRec::SharedAudioBuffer));
+    }
+
     return kAudioHardwareNoError;
 }
 
@@ -354,11 +520,17 @@ OSStatus DestroyDevice(AudioServerPlugInDriverRef, AudioObjectID) {
     return kAudioHardwareUnsupportedOperationError;
 }
 
-OSStatus AddDeviceClient(AudioServerPlugInDriverRef, AudioObjectID, const AudioServerPlugInClientInfo*) {
+OSStatus AddDeviceClient(AudioServerPlugInDriverRef, AudioObjectID in_device_id, const AudioServerPlugInClientInfo*) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "AddDeviceClient device=%u", in_device_id);
+    Trace(buf);
     return kAudioHardwareNoError;
 }
 
-OSStatus RemoveDeviceClient(AudioServerPlugInDriverRef, AudioObjectID, const AudioServerPlugInClientInfo*) {
+OSStatus RemoveDeviceClient(AudioServerPlugInDriverRef, AudioObjectID in_device_id, const AudioServerPlugInClientInfo*) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "RemoveDeviceClient device=%u", in_device_id);
+    Trace(buf);
     return kAudioHardwareNoError;
 }
 
@@ -373,7 +545,7 @@ OSStatus AbortDeviceConfigurationChange(AudioServerPlugInDriverRef, AudioObjectI
 Boolean HasProperty(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address) {
     TraceProperty("HasProperty called", in_object_id, in_address);
     const Boolean has_property = HasPropertyForObject(in_object_id, in_address);
-    Trace(has_property ? "HasProperty result=true" : "HasProperty result=false");
+    TraceVerbose(has_property ? "HasProperty result=true" : "HasProperty result=false");
     return has_property;
 }
 
@@ -385,7 +557,8 @@ OSStatus IsPropertySettable(AudioServerPlugInDriverRef, AudioObjectID in_object_
     if (!HasPropertyForObject(in_object_id, in_address)) {
         return kAudioHardwareUnknownPropertyError;
     }
-    *out_is_settable = false;
+    *out_is_settable = in_address->mSelector == kAudioObjectPropertyListenerAdded ||
+        in_address->mSelector == kAudioObjectPropertyListenerRemoved;
     return kAudioHardwareNoError;
 }
 
@@ -399,11 +572,20 @@ OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object
     }
 
     switch (in_address->mSelector) {
+    case kAudioObjectPropertyListenerAdded:
+    case kAudioObjectPropertyListenerRemoved:
+        *out_data_size = sizeof(AudioObjectPropertyAddress);
+        return kAudioHardwareNoError;
     case kAudioObjectPropertyBaseClass:
     case kAudioObjectPropertyClass:
     case kAudioObjectPropertyOwner:
+    case kAudioObjectPropertyIdentify:
     case kAudioDevicePropertyTransportType:
     case kAudioDevicePropertyClockDomain:
+    case kPrivateAggregateRelatedSelector:
+    case kPrivateConfigurationSizeSelector:
+    case kPrivateDataSourceOrderingSelector:
+    case kPrivateSingleInputSingleOutputSelector:
     case kAudioDevicePropertyDeviceIsAlive:
     case kAudioDevicePropertyDeviceIsRunning:
     case kAudioDevicePropertyDeviceCanBeDefaultDevice:
@@ -421,8 +603,17 @@ OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID in_object
     case kAudioStreamPropertyStartingChannel:
         *out_data_size = sizeof(UInt32);
         return kAudioHardwareNoError;
+    case kPrivateTapListSelector:
+        *out_data_size = 0;
+        return kAudioHardwareNoError;
     case kAudioObjectPropertyName:
+    case kAudioObjectPropertyModelName:
     case kAudioObjectPropertyManufacturer:
+    case kAudioObjectPropertyElementName:
+    case kAudioObjectPropertyElementCategoryName:
+    case kAudioObjectPropertyElementNumberName:
+    case kAudioObjectPropertySerialNumber:
+    case kAudioObjectPropertyFirmwareVersion:
     case kAudioPlugInPropertyBundleID:
     case kAudioDevicePropertyDeviceUID:
     case kAudioDevicePropertyModelUID:
@@ -487,12 +678,17 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     }
 
     switch (in_address->mSelector) {
+    case kAudioObjectPropertyListenerAdded:
+    case kAudioObjectPropertyListenerRemoved:
+        return kAudioHardwareIllegalOperationError;
     case kAudioObjectPropertyBaseClass:
         return WriteScalar(in_data_size, out_data_size, out_data, BaseClassForObject(in_object_id));
     case kAudioObjectPropertyClass:
         return WriteScalar(in_data_size, out_data_size, out_data, ClassForObject(in_object_id));
     case kAudioObjectPropertyOwner:
         return WriteScalar(in_data_size, out_data_size, out_data, OwnerForObject(in_object_id));
+    case kAudioObjectPropertyIdentify:
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioObjectPropertyName:
         if (in_object_id == kPlugInObject) {
             return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain Rec Proof Driver"));
@@ -500,13 +696,30 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         if (IsDevice(in_object_id)) {
             return WriteCFString(in_data_size, out_data_size, out_data, CopyString(DeviceName(in_object_id)));
         }
-        return WriteCFString(in_data_size, out_data_size, out_data, CopyString(in_object_id == kMicStream ? "2brain Rec Microphone Stream" : "2brain Rec Speaker Stream"));
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString(TwoBrainRec::AudioDriver::VirtualStreamName(in_object_id)));
+    case kAudioObjectPropertyModelName:
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain Rec Proof Audio Device"));
     case kAudioObjectPropertyManufacturer:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain"));
+    case kAudioObjectPropertyElementName:
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("Main"));
+    case kAudioObjectPropertyElementCategoryName:
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("Audio"));
+    case kAudioObjectPropertyElementNumberName:
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("1"));
+    case kAudioObjectPropertySerialNumber:
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain-rec-proof"));
+    case kAudioObjectPropertyFirmwareVersion:
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("0.1.0-proof"));
     case kAudioObjectPropertyOwnedObjects:
         if (in_object_id == kPlugInObject) {
-            const AudioObjectID devices[] = {kMicDevice, kSpeakerDevice};
-            return WriteObjectList(in_data_size, out_data_size, out_data, devices, 2);
+            return WriteObjectList(
+                in_data_size,
+                out_data_size,
+                out_data,
+                TwoBrainRec::AudioDriver::VirtualDeviceObjectIDs(),
+                TwoBrainRec::AudioDriver::VirtualDeviceCount()
+            );
         }
         if (IsDevice(in_object_id)) {
             const AudioObjectID stream = DeviceStream(in_object_id);
@@ -515,10 +728,16 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         return WriteEmptyList(out_data_size);
     case kAudioPlugInPropertyBundleID:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.rec.proof.driver"));
-    case kAudioPlugInPropertyDeviceList: {
-        const AudioObjectID devices[] = {kMicDevice, kSpeakerDevice};
-        return WriteObjectList(in_data_size, out_data_size, out_data, devices, 2);
-    }
+    case kAudioPlugInPropertyResourceBundle:
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("."));
+    case kAudioPlugInPropertyDeviceList:
+        return WriteObjectList(
+            in_data_size,
+            out_data_size,
+            out_data,
+            TwoBrainRec::AudioDriver::VirtualDeviceObjectIDs(),
+            TwoBrainRec::AudioDriver::VirtualDeviceCount()
+        );
     case kAudioPlugInPropertyBoxList:
         return WriteEmptyList(out_data_size);
     case kAudioPlugInPropertyTranslateUIDToDevice: {
@@ -526,9 +745,9 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         if (in_qualifier_data_size == sizeof(CFStringRef) && in_qualifier_data != nullptr) {
             auto uid = *reinterpret_cast<const CFStringRef*>(in_qualifier_data);
             if (CFStringCompare(uid, CFSTR("pro.2brain.rec.microphone"), 0) == kCFCompareEqualTo) {
-                translated = kMicDevice;
+                translated = TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID;
             } else if (CFStringCompare(uid, CFSTR("pro.2brain.rec.speaker"), 0) == kCFCompareEqualTo) {
-                translated = kSpeakerDevice;
+                translated = TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID;
             }
         }
         return WriteScalar(in_data_size, out_data_size, out_data, translated);
@@ -541,16 +760,25 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.rec.proof.model"));
     case kAudioDevicePropertyTransportType:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(kAudioDeviceTransportTypeVirtual));
+    case kPrivateAggregateRelatedSelector:
+    case kPrivateDataSourceOrderingSelector:
+    case kPrivateSingleInputSingleOutputSelector:
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
+    case kPrivateConfigurationSizeSelector:
+        return WriteScalar(in_data_size, out_data_size, out_data, kBufferFrameSize);
     case kAudioDevicePropertyClockDomain:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioDevicePropertyDeviceIsAlive:
-    case kAudioDevicePropertyDeviceCanBeDefaultDevice:
     case kAudioDevicePropertyClockIsStable:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(1));
-    case kAudioDevicePropertyDeviceIsRunning:
+    case kAudioDevicePropertyDeviceCanBeDefaultDevice:
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(1));
     case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
     case kAudioDevicePropertyLatency:
     case kAudioDevicePropertySafetyOffset:
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
+    case kAudioDevicePropertyDeviceIsRunning:
+        return WriteScalar(in_data_size, out_data_size, out_data, DeviceIsRunning(in_object_id));
     case kAudioDevicePropertyIsHidden:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioDevicePropertyStreams:
@@ -581,11 +809,27 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioStreamPropertyIsActive:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(1));
     case kAudioStreamPropertyDirection:
-        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(in_object_id == kMicStream ? 1 : 0));
+        return WriteScalar(
+            in_data_size,
+            out_data_size,
+            out_data,
+            static_cast<UInt32>(TwoBrainRec::AudioDriver::VirtualStreamIsInput(in_object_id) ? 1 : 0)
+        );
     case kAudioStreamPropertyTerminalType:
-        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(in_object_id == kMicStream ? kAudioStreamTerminalTypeMicrophone : kAudioStreamTerminalTypeSpeaker));
+        return WriteScalar(
+            in_data_size,
+            out_data_size,
+            out_data,
+            static_cast<UInt32>(
+                TwoBrainRec::AudioDriver::VirtualStreamIsInput(in_object_id)
+                    ? kAudioStreamTerminalTypeMicrophone
+                    : kAudioStreamTerminalTypeSpeaker
+            )
+        );
     case kAudioStreamPropertyStartingChannel:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(1));
+    case kPrivateTapListSelector:
+        return WriteEmptyList(out_data_size);
     case kAudioStreamPropertyVirtualFormat:
     case kAudioStreamPropertyPhysicalFormat:
         return WriteScalar(in_data_size, out_data_size, out_data, StreamFormat());
@@ -601,46 +845,162 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     }
 }
 
-OSStatus SetPropertyData(AudioServerPlugInDriverRef, AudioObjectID, pid_t, const AudioObjectPropertyAddress*, UInt32, const void*, UInt32, const void*) {
+OSStatus SetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id, pid_t, const AudioObjectPropertyAddress* in_address, UInt32, const void*, UInt32, const void*) {
+    TraceProperty("SetPropertyData called", in_object_id, in_address);
+    if (in_address != nullptr &&
+        (in_address->mSelector == kAudioObjectPropertyListenerAdded ||
+         in_address->mSelector == kAudioObjectPropertyListenerRemoved)) {
+        return kAudioHardwareNoError;
+    }
     return kAudioHardwareIllegalOperationError;
 }
 
-OSStatus StartIO(AudioServerPlugInDriverRef, AudioObjectID, UInt32) {
+OSStatus StartIO(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "StartIO device=%u", in_device_id);
+    Trace(buf);
+    auto* count = RunningClientCountForDevice(in_device_id);
+    if (count != nullptr) {
+        const UInt32 previous = count->fetch_add(1, std::memory_order_acq_rel);
+        if (previous == 0) {
+            NotifyDeviceIsRunningChanged(in_device_id);
+        }
+    }
     return kAudioHardwareNoError;
 }
 
-OSStatus StopIO(AudioServerPlugInDriverRef, AudioObjectID, UInt32) {
+OSStatus StopIO(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "StopIO device=%u", in_device_id);
+    Trace(buf);
+    auto* count = RunningClientCountForDevice(in_device_id);
+    if (count != nullptr) {
+        UInt32 current = count->load(std::memory_order_acquire);
+        while (current > 0 &&
+               !count->compare_exchange_weak(current, current - 1, std::memory_order_acq_rel)) {
+        }
+        if (current == 1) {
+            NotifyDeviceIsRunningChanged(in_device_id);
+        }
+    }
     return kAudioHardwareNoError;
 }
 
-OSStatus GetZeroTimeStamp(AudioServerPlugInDriverRef, AudioObjectID, UInt32, Float64* out_sample_time, UInt64* out_host_time, UInt64* out_seed) {
+OSStatus GetZeroTimeStamp(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32, Float64* out_sample_time, UInt64* out_host_time, UInt64* out_seed) {
     if (out_sample_time == nullptr || out_host_time == nullptr || out_seed == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
-    *out_sample_time = 0;
-    *out_host_time = 0;
+    auto* anchor_storage = ClockAnchorForDevice(in_device_id);
+    if (anchor_storage == nullptr) {
+        return kAudioHardwareBadObjectError;
+    }
+
+    const uint64_t now = mach_absolute_time();
+    uint64_t anchor = anchor_storage->load(std::memory_order_acquire);
+    if (anchor == 0) {
+        uint64_t expected = 0;
+        if (anchor_storage->compare_exchange_strong(expected, now, std::memory_order_acq_rel)) {
+            anchor = now;
+        } else {
+            anchor = expected;
+        }
+    }
+
+    const uint64_t elapsed_ticks = now >= anchor ? now - anchor : 0;
+    const uint64_t elapsed_nanos = HostTicksToNanos(elapsed_ticks);
+    const uint64_t current_frame = (elapsed_nanos * static_cast<uint64_t>(kSampleRate)) / 1000000000ULL;
+    const uint64_t zero_frame = (current_frame / kZeroTimeStampPeriod) * kZeroTimeStampPeriod;
+    const uint64_t zero_nanos = (zero_frame * 1000000000ULL) / static_cast<uint64_t>(kSampleRate);
+
+    *out_sample_time = static_cast<Float64>(zero_frame);
+    *out_host_time = anchor + NanosToHostTicks(zero_nanos);
     *out_seed = 1;
+
+    char buf[128];
+    snprintf(buf, sizeof(buf), "GetZeroTimeStamp device=%u sample=%.0f host=%llu",
+             in_device_id, *out_sample_time, *out_host_time);
+    TraceVerbose(buf);
+
     return kAudioHardwareNoError;
 }
 
-OSStatus WillDoIOOperation(AudioServerPlugInDriverRef, AudioObjectID, UInt32, UInt32 in_operation_id, Boolean* out_will_do, Boolean* out_will_do_in_place) {
+OSStatus WillDoIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32, UInt32 in_operation_id, Boolean* out_will_do, Boolean* out_will_do_in_place) {
     if (out_will_do == nullptr || out_will_do_in_place == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
-    *out_will_do = (in_operation_id == kAudioServerPlugInIOOperationReadInput ||
-                    in_operation_id == kAudioServerPlugInIOOperationWriteMix);
-    *out_will_do_in_place = true;
+    const bool is_microphone = in_device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID;
+    const bool is_speaker = in_device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID;
+    *out_will_do = (is_microphone && in_operation_id == kAudioServerPlugInIOOperationReadInput) ||
+                   (is_speaker && in_operation_id == kAudioServerPlugInIOOperationWriteMix);
+    *out_will_do_in_place = false;
+
+    char buf[128];
+    snprintf(buf, sizeof(buf), "WillDoIOOperation device=%u op=%s will_do=%d",
+             in_device_id,
+             in_operation_id == kAudioServerPlugInIOOperationReadInput ? "ReadInput" :
+             in_operation_id == kAudioServerPlugInIOOperationWriteMix ? "WriteMix" : "other",
+             *out_will_do);
+    TraceVerbose(buf);
+
     return kAudioHardwareNoError;
 }
 
-OSStatus BeginIOOperation(AudioServerPlugInDriverRef, AudioObjectID, UInt32, UInt32, UInt32, const AudioServerPlugInIOCycleInfo*) {
+OSStatus BeginIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32 in_stream_id, UInt32, UInt32, const AudioServerPlugInIOCycleInfo*) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "BeginIOOperation device=%u stream=%u", in_device_id, in_stream_id);
+    TraceVerbose(buf);
     return kAudioHardwareNoError;
 }
 
-OSStatus DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID, AudioObjectID, UInt32, UInt32, UInt32 in_io_buffer_frame_size, const AudioServerPlugInIOCycleInfo*, void* io_main_buffer, void*) {
-    if (io_main_buffer != nullptr) {
-        std::memset(io_main_buffer, 0, in_io_buffer_frame_size * 2 * sizeof(Float32));
+OSStatus DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, AudioObjectID, UInt32, UInt32 in_operation_id, UInt32 in_io_buffer_frame_size, const AudioServerPlugInIOCycleInfo*, void* io_main_buffer, void*) {
+    if (io_main_buffer == nullptr || gShared == nullptr) {
+        TraceVerbose("DoIOOperation: null buffer or gShared");
+        return kAudioHardwareNoError;
     }
+
+    size_t sample_count = in_io_buffer_frame_size * 2;
+
+    if (in_device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID &&
+        in_operation_id == kAudioServerPlugInIOOperationReadInput) {
+        ++gMicReadInputCount;
+        if (!PrivateAppIOAvailable()) {
+            std::memset(io_main_buffer, 0, sample_count * sizeof(Float32));
+            ++gMicZeroFillCount;
+            return kAudioHardwareNoError;
+        }
+
+        auto* dst = static_cast<float*>(io_main_buffer);
+        const size_t read_count = gShared->Read(
+            gShared->mic_buffer,
+            gShared->mic_write_idx,
+            gShared->mic_read_idx,
+            dst,
+            sample_count
+        );
+        if (read_count < sample_count) {
+            std::memset(dst + read_count, 0, (sample_count - read_count) * sizeof(Float32));
+            ++gMicZeroFillCount;
+        }
+    }
+    else if (in_device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID &&
+             in_operation_id == kAudioServerPlugInIOOperationWriteMix) {
+        ++gSpeakerWriteMixCount;
+        if (!PrivateAppIOAvailable()) {
+            ++gSpeakerDropCount;
+            return kAudioHardwareNoError;
+        }
+
+        float* src = static_cast<float*>(io_main_buffer);
+        const bool speaker_ok = gShared->Write(gShared->speaker_buffer, gShared->speaker_write_idx, gShared->speaker_read_idx,
+                                               src, sample_count);
+        const bool capture_ok = gShared->Write(gShared->capture_buffer, gShared->capture_write_idx, gShared->capture_read_idx,
+                                               src, sample_count);
+
+        if (!speaker_ok || !capture_ok) {
+            ++gSpeakerDropCount;
+        }
+    }
+
     return kAudioHardwareNoError;
 }
 
