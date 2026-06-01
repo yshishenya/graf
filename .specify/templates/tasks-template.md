@@ -69,11 +69,6 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T007 Create base models/entities that all stories depend on
 - [ ] T008 Configure error handling and logging infrastructure
 - [ ] T009 Setup environment configuration management
-- [ ] TXXX Define/verify constitution gates for this feature in specs/[###-feature-name]/plan.md
-- [ ] TXXX [P] Add artifact lifecycle/deletion tracking tasks if feature creates meeting-derived data
-- [ ] TXXX [P] Add audit event tasks if feature changes capture, security, retention, deletion, admin, device, egress, or policy behavior
-- [ ] TXXX [P] Add secret redaction/configuration tasks if feature touches credentials, tokens, signed URLs, Docker secrets, or diagnostics
-- [ ] TXXX [P] Add visible-state/accessibility tasks if feature changes recording, tray/widget, onboarding, admin, or meeting UI
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -162,11 +157,6 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
-- [ ] TXXX Run/resolve $speckit-analyze findings before implementation is considered complete
-- [ ] TXXX Verify no secrets, tokens, signed URLs, raw transcript text, or raw audio appear in logs, diagnostics, generated artifacts, or committed files
-- [ ] TXXX Verify deletion/retention/audit behavior for all meeting-derived artifacts created by this feature
-- [ ] TXXX Verify UI changes pass visible-state, accessibility, localization, and brand-distance gates where applicable
-- [ ] TXXX Verify deployment changes include health checks, rollback, backup/restore, log redaction, and disk-full behavior where applicable
 
 ---
 

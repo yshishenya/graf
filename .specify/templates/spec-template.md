@@ -103,35 +103,6 @@
 - **[Entity 1]**: [What it represents, key attributes without implementation]
 - **[Entity 2]**: [What it represents, relationships to other entities]
 
-### Constitutional Requirements *(mandatory for 2brain Rec)*
-
-Complete every item with concrete requirements or `N/A - [reason]`.
-
-- **Capture/Driver Impact**: [Does this feature touch macOS driver, audio
-  routing, capture, local buffering, installer, permissions, passthrough, or
-  degraded states? If yes, define visible, measurable requirements.]
-- **Visible Control Impact**: [Does this feature touch recording/transcription
-  start, stop, pause, auto-start, tray/widget, onboarding, or active capture
-  state? If yes, define visible indicator, one-action stop, manual control, and
-  no-invisible-recording requirements.]
-- **Data Boundary Impact**: [Does this feature touch upload, storage,
-  MediaScribe, Langfuse, LLM, observability, analytics, integrations, exports,
-  or external network egress? If yes, define allowed destinations, provenance,
-  failure behavior, and admin disclosure.]
-- **Secrets Impact**: [Does this feature touch credentials, tokens, signed URLs,
-  auth/session/device secrets, Docker secrets, or diagnostics? If yes, define
-  server-side-only storage, redaction, rotation, and no-client-exposure rules.]
-- **Retention/Deletion Impact**: [Does this feature create, transform, cache,
-  index, export, trace, or diagnose meeting-derived data? If yes, define
-  artifact registration, retention, deletion report state, and post-egress
-  limits.]
-- **Audit Impact**: [Does this feature change security, capture, retention,
-  deletion, admin, device, egress, or policy behavior? If yes, define required
-  audit events.]
-- **UX/Brand/Accessibility Impact**: [Does this feature change UI? If yes,
-  define accessibility states, localization constraints, and brand-distance
-  review requirements.]
-
 ## Success Criteria *(mandatory)*
 
 <!--

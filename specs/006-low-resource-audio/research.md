@@ -176,9 +176,82 @@ The likely refactor boundary is:
 - App route engine: decide when a stream needs physical routing, orchestrate bounded startup, choose valid physical devices, recover from restarts, and expose route truth.
 - Future recording layer: subscribe only after an explicit application trigger and visible capture state; never require the driver to become a recorder.
 
-### Open Questions For Planning
+## Phase 0 Decisions For Planning
 
-- Whether 2brain Rec needs a hidden app-IO device analogous to Krisp's `krisp app io`, or whether shared ring buffers plus explicit app client metadata are sufficient.
-- Whether virtual devices should ever hide when the app exits, or remain visible and fail closed for MVP reliability.
-- How to implement bounded app/driver handoff so Core Audio callbacks stay realtime-safe and never wait on app process health, IPC, locks, logs, or allocation.
-- How to detect active browser/meeting streams without relying on natural audio energy, because silence is a valid active-stream state.
+### Decision: Use visible fail-closed public devices for this slice
+
+**Rationale**: 2brain Rec already needs stable browser and meeting app selections
+while low-resource behavior is being validated. Hiding public virtual devices on
+app exit or stale heartbeat increases stale-selection and trust risk. The driver
+can remain installed and visible while fail-closing audio if the app bridge is
+not healthy.
+
+**Alternatives considered**:
+
+- Hide devices when the app exits or heartbeat is stale: rejected for this slice
+  because it changes user-facing device selection behavior and needs separate
+  acceptance gates.
+- Always report live-ready while visible: rejected because device publication is
+  not live-route readiness.
+
+### Decision: Keep shared memory plus heartbeat as the app/driver boundary for 006
+
+**Rationale**: The current driver/app handoff already has shared buffers,
+heartbeat, fail-closed zero/drop behavior, and explicit client running-state
+evidence. That is enough to implement low-resource routing and validation while
+reducing scope. A hidden app-IO device similar to Krisp's observed model may be
+useful later, but it is not required before this slice can pass.
+
+**Alternatives considered**:
+
+- Add a hidden app-IO Core Audio device now: rejected as a larger driver
+  protocol change that would increase risk before the existing shared-memory
+  path is made realtime-safe and bounded.
+- Use only app polling without driver running-state evidence: rejected because
+  explicit `StartIO`/`StopIO` state is the correct source for active stream
+  detection.
+
+### Decision: Treat startup isolation as foundational refactor work
+
+**Rationale**: Prior failures showed distortion, silence, high `coreaudiod` CPU,
+and hangs in common audio surfaces. Low-resource mode is acceptable only if
+physical Core Audio setup, AudioUnit binding, and enumeration are bounded and do
+not run through UI/main-path operations. Every attempt must resolve to ready,
+blocked, failed, or fallback within 3 seconds.
+
+**Alternatives considered**:
+
+- Keep synchronous startup and rely on manual retry: rejected because the user
+  explicitly rejected manual `Run Check` activation and because synchronous Core
+  Audio work can hang user-facing surfaces.
+- Delay optimization until recording exists: rejected because audio reliability
+  and no-hang gates must be fixed before recording adds more complexity.
+
+### Decision: HAL IO callbacks must be realtime-safe by contract
+
+**Rationale**: The HAL driver runs inside Core Audio. Callback-sensitive paths
+must not do file IO, logging, allocation, wall-clock freshness checks, blocking
+IPC, lock waits, process launches, network calls, or UI work. App health should
+be represented by atomically readable shared state prepared outside the realtime
+path, and missing health must fail closed.
+
+**Alternatives considered**:
+
+- Keep optional trace logging in callback-adjacent paths: rejected unless static
+  validation proves it is outside realtime callback paths.
+- Let callbacks query app/process health directly: rejected because it can block
+  Core Audio and common audio clients.
+
+### Decision: Detect active streams from explicit client IO state
+
+**Rationale**: Natural silence is valid in calls. The route must remain active
+while a browser or meeting app has an open stream even if audio energy is near
+zero. Driver `StartIO`/`StopIO` and `kAudioDevicePropertyDeviceIsRunning`
+evidence are the canonical activation source for this slice.
+
+**Alternatives considered**:
+
+- Audio-energy-based idle detection: rejected because silence would incorrectly
+  release or downgrade an active route.
+- App/window/process heuristics alone: rejected because open apps are not the
+  same as active Core Audio streams.

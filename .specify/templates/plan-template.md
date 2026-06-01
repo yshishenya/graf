@@ -40,39 +40,7 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-Answer every gate below with PASS, FAIL, or N/A. Any FAIL requires correction
-before implementation planning continues, unless explicitly justified in
-Complexity Tracking and approved by the user.
-
-### 2brain Rec Constitutional Gates
-
-- **Driver-first capture integrity**: If the feature touches capture, routing,
-  recording, buffering, installer, permissions, or driver UX, does it preserve
-  the macOS driver-first MVP, separate mic/speaker tracks, no loopback, local
-  passthrough, degraded states, and Phase 0 driver decision gates?
-- **Visible consent and control**: If the feature touches recording or
-  transcription start/stop, does it preserve visible active-capture indication,
-  one-action stop, manual start/stop, policy-gated assisted auto-start, and no
-  invisible/silent recording path?
-- **Data boundary and secrets**: If the feature touches upload, processing,
-  STT, LLM, observability, integrations, auth, or deployment, does it keep
-  credentials server-side, document egress, prevent secret/log leakage, and keep
-  Langfuse metadata-only by default?
-- **Deletion truth and lifecycle accounting**: If the feature creates,
-  transforms, exports, observes, or caches meeting content, does it register
-  artifacts for retention/deletion and avoid promises beyond 2brain Rec control?
-- **Spec-driven delivery**: Is the feature specified, clarified where needed,
-  planned, checklist-gated for high risk, taskable by independent user story,
-  and analyzable before implementation?
-- **Brand-distance and accessibility**: If the feature changes UI, does it
-  require original 2brain Rec design, accessibility states, localization safety,
-  and brand-distance review?
-- **Operational readiness**: If the feature touches Docker/deployment/storage,
-  does it cover secrets, health checks, backups, restore, rollback, log
-  redaction, timeout/failure behavior, and disk-full behavior?
-
-**Initial Gate Result**: [PASS/FAIL with notes]
-**Post-Design Gate Result**: [PASS/FAIL with notes]
+[Gates determined based on constitution file]
 
 ## Project Structure
 
