@@ -103,21 +103,21 @@
 
 ### Tests for User Story 3
 
-- [ ] T038 [P] [US3] Add route recovery evidence tests in `apps/macos/Shared/Tests/RouteRecoveryEvidenceTests.swift`.
-- [ ] T039 [P] [US3] Add `coreaudiod` restart recovery checklist in `tests/macos/installer-recovery/coreaudiod-release-hardening-recovery.md`.
-- [ ] T040 [P] [US3] Add sleep/wake release-hardening checklist in `tests/macos/physical-devices/sleep-wake-release-hardening.md`.
-- [ ] T041 [P] [US3] Add stale browser device-ID checklist in `tests/macos/browser-meetings/stale-device-id-recovery.md`.
-- [ ] T042 [P] [US3] Add aggregate and multi-output route checklist in `tests/macos/physical-devices/aggregate-multi-output-route.md`.
+- [X] T038 [P] [US3] Add route recovery evidence tests in `apps/macos/Shared/Tests/RouteRecoveryEvidenceTests.swift`.
+- [X] T039 [P] [US3] Add `coreaudiod` restart recovery checklist in `tests/macos/installer-recovery/coreaudiod-release-hardening-recovery.md`.
+- [X] T040 [P] [US3] Add sleep/wake release-hardening checklist in `tests/macos/physical-devices/sleep-wake-release-hardening.md`.
+- [X] T041 [P] [US3] Add stale browser device-ID checklist in `tests/macos/browser-meetings/stale-device-id-recovery.md`.
+- [X] T042 [P] [US3] Add aggregate and multi-output route checklist in `tests/macos/physical-devices/aggregate-multi-output-route.md`.
 
 ### Implementation for User Story 3
 
-- [ ] T043 [US3] Ensure route invalidation emits stale/degraded/blocked within 5 seconds in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
-- [ ] T044 [US3] Ensure `coreaudiod` restart clears stale ready state before recovery in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`.
-- [ ] T045 [US3] Add sleep/wake route recheck handling in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
-- [ ] T046 [US3] Add route recovery evidence fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
-- [ ] T047 [US3] Record route recovery diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T048 [US3] Wire recovery checklist prompts into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
-- [ ] T049 [US3] Update `qa/macos/device-matrix.md` with physical, aggregate, Bluetooth, stale-ID, `coreaudiod`, and sleep/wake result semantics.
+- [X] T043 [US3] Ensure route invalidation emits stale/degraded/blocked within 5 seconds in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
+- [X] T044 [US3] Ensure `coreaudiod` restart clears stale ready state before recovery in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`.
+- [X] T045 [US3] Add sleep/wake route recheck handling in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`.
+- [X] T046 [US3] Add route recovery evidence fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
+- [X] T047 [US3] Record route recovery diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T048 [US3] Wire recovery checklist prompts into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
+- [X] T049 [US3] Update `qa/macos/device-matrix.md` with physical, aggregate, Bluetooth, stale-ID, `coreaudiod`, and sleep/wake result semantics.
 
 **Checkpoint**: US3 is independently testable through route recovery metadata and truthful route state transitions.
 

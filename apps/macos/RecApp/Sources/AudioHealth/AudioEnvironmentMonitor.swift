@@ -14,6 +14,8 @@ public enum AudioEnvironmentChange: String, Codable, Sendable, Hashable {
     case activeMeetingContextChanged
     case browserTargetEvidenceChanged
     case unsupportedTargetAdded
+    case coreaudiodRestarted
+    case sleepWake
 }
 
 public struct AudioEnvironmentSnapshot: Codable, Equatable, Sendable {
@@ -291,6 +293,10 @@ public final class AudioEnvironmentMonitor {
             return .bluetoothProfile
         case .virtualInputStateChanged, .virtualOutputStateChanged, .driverStateChanged:
             return .appIO
+        case .coreaudiodRestarted:
+            return .coreaudiod
+        case .sleepWake:
+            return .appIO
         case .routeVerificationChanged, .permissionChanged, .passthroughChanged, .bufferRiskChanged, .unsupportedTargetAdded:
             return nil
         }
@@ -305,6 +311,10 @@ public final class AudioEnvironmentMonitor {
         case .bluetoothProfileChanged:
             return .bluetoothProfileChanged
         case .driverStateChanged, .virtualInputStateChanged, .virtualOutputStateChanged:
+            return .driverReloaded
+        case .coreaudiodRestarted:
+            return .coreaudiodRestarted
+        case .sleepWake:
             return .driverReloaded
         case .passthroughChanged:
             return .appHeartbeatLost

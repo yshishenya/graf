@@ -40,3 +40,15 @@ Track official MVP coverage for physical audio devices and macOS versions.
 - Wired audio: dropped frames below 0.1%.
 - Bluetooth and AirPods-class audio: dropped frames below 0.5% while passthrough remains usable.
 - Backend/network outage for 5 minutes must not interrupt live passthrough.
+
+## 005 Route Recovery Evidence
+
+| Scenario | Required 005 result semantics | Evidence |
+|---|---|---|
+| Physical microphone change | `stale`, `degraded`, or ready only after fresh route evidence within 5 seconds | `tests/macos/physical-devices/aggregate-multi-output-route.md` |
+| Physical output change | `stale`, `degraded`, or ready only after fresh route evidence within 5 seconds | `tests/macos/physical-devices/aggregate-multi-output-route.md` |
+| Aggregate or multi-output route | `passed`, `blocked`, or `not_accepted`; no release-ready state from visibility alone | `tests/macos/physical-devices/aggregate-multi-output-route.md` |
+| Bluetooth route | Managed pilot, `blocked`, or `not_accepted` unless separately proven | `tests/macos/physical-devices/aggregate-multi-output-route.md` |
+| Stale browser device ID | `blocked` or `not_accepted` until safe reselection/recovery is recorded | `tests/macos/browser-meetings/stale-device-id-recovery.md` |
+| `coreaudiod` restart | Route becomes stale/degraded/blocked or ready only after valid evidence | `tests/macos/installer-recovery/coreaudiod-release-hardening-recovery.md` |
+| Sleep/wake | Ready after evidence or truthful stale/degraded/repair state | `tests/macos/physical-devices/sleep-wake-release-hardening.md` |

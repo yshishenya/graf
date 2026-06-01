@@ -6,6 +6,7 @@ public enum PassthroughRouteEngineState: Equatable, Sendable {
     case inactive
     case starting
     case active
+    case stale(String)
     case blocked(String)
     case failed(String)
 }
@@ -127,6 +128,18 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             sharedMemory?.clearAppHeartbeat()
             stateStorage = .inactive
             logger?("passthrough_bridge_stopped", "route engine cleared app IO heartbeat")
+            return stateStorage
+        }
+    }
+
+    public func markCoreAudioRestarted(logger: Logger? = nil) -> PassthroughRouteEngineState {
+        queue.sync {
+            stopHeartbeatTimer()
+            bridge?.stop()
+            bridge = nil
+            sharedMemory?.clearAppHeartbeat()
+            stateStorage = .stale("coreaudiod_restarted")
+            logger?("passthrough_bridge_stale", "coreaudiod restarted; route requires recheck")
             return stateStorage
         }
     }
