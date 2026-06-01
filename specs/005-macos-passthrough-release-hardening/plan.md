@@ -67,9 +67,9 @@ installer scripts, shared route models, QA/evidence harnesses.
 - UI must distinguish non-recording passthrough from recording/capture states.
 
 **Scale/Scope**: Internal macOS pilot hardening for 2brain Rec. Primary surfaces
-are macOS Sound settings, Chrome/Opera audio settings, Zoom audio settings, and
-Yandex Telemost audio settings. Yandex Browser can remain skipped/not accepted
-if explicitly documented.
+are macOS Sound settings, Chrome audio settings, Opera audio settings, Zoom
+audio settings, and Yandex Telemost audio settings. Yandex Browser can remain
+skipped/not accepted if explicitly documented.
 
 ## Constitution Check
 

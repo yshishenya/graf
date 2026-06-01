@@ -10,7 +10,7 @@
 
 - [X] CHK001 Are pre-recording stability gates defined without requiring long-duration manual replay evidence? [Completeness, Spec §FR-001, Spec §SC-001]
 - [X] CHK002 Are short smoke evidence requirements complete for local speech, remote audio, no-loopback observation, route state, CPU/no-hang, and inactive recording/upload status? [Completeness, Spec §FR-002]
-- [X] CHK003 Are all required no-hang target surfaces explicitly named, including macOS Sound, Chrome or Opera, Zoom, and Telemost? [Completeness, Spec §FR-003, Contract no-hang]
+- [X] CHK003 Are all required no-hang target surfaces explicitly named, including macOS Sound, Chrome, Opera, Zoom, and Telemost? [Completeness, Spec §FR-003, Contract no-hang]
 - [X] CHK004 Are Core Audio readiness requirements clear that device visibility alone is insufficient proof of live audio readiness? [Completeness, Spec §FR-011, Contract no-hang]
 
 ## Requirement Clarity

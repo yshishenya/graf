@@ -38,7 +38,7 @@ As a user, I want Zoom, browser audio settings, Telemost, and macOS Sound settin
 
 **Why this priority**: The prior debugging cycle exposed hangs around Core Audio enumeration and bridge startup. Release readiness requires explicit no-hang evidence.
 
-**Independent Test**: With the driver installed and the app open, launch macOS Sound settings, Chrome/Opera meeting device settings, Zoom audio settings, and Telemost audio settings; verify they open within a bounded time and `coreaudiod` does not sustain high CPU.
+**Independent Test**: With the driver installed and the app open, launch macOS Sound settings, Chrome meeting device settings, Opera meeting device settings, Zoom audio settings, and Telemost audio settings; verify they open within a bounded time and `coreaudiod` does not sustain high CPU.
 
 **Acceptance Scenarios**:
 
@@ -127,7 +127,7 @@ As a tester, I want the future full manual audio acceptance matrix to be defined
 
 - **FR-001**: The system MUST provide a pre-recording release-hardening validation path that does not require long-duration manual call replay evidence.
 - **FR-002**: The system MUST record short smoke evidence for local speech usability, remote audio usability, no remote-to-mic loopback observations, route state, CPU/no-hang behavior, and whether recording/transcription/upload remained inactive.
-- **FR-003**: The system MUST verify that macOS Sound settings, Chrome or Opera audio settings, Zoom audio settings, and Telemost audio settings open without hanging while the driver is installed and the app is open.
+- **FR-003**: The system MUST verify that macOS Sound settings, Chrome audio settings, Opera audio settings, Zoom audio settings, and Telemost audio settings open without hanging while the driver is installed and the app is open.
 - **FR-004**: The system MUST detect and document sustained `coreaudiod` CPU above the release threshold as a blocking release-hardening failure.
 - **FR-005**: The system MUST verify physical microphone change, physical output change, aggregate/multi-output route, Bluetooth route, and stale browser device-ID behavior as passed, blocked, or not accepted with metadata-only evidence.
 - **FR-006**: The system MUST verify `coreaudiod` restart recovery after install and during/after passthrough readiness.
