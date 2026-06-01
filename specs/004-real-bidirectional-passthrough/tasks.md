@@ -209,7 +209,7 @@ before accepting live audio behavior.
 - [X] T060 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`.
 - [X] T061 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh` after stabilization gates are wired in.
 - [X] T062 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T063 Run physical microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
+- [X] T063 Run physical microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
 - [ ] T064 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 - [X] T065 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, signed URLs, or meeting content under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/004-real-bidirectional-passthrough/`.
 - [X] T066 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/004-real-bidirectional-passthrough/`.

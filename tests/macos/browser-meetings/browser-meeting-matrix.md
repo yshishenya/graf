@@ -24,7 +24,7 @@ through the 2brain Rec virtual devices without starting recording.
 | Chrome browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
 | Opera browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
 | Yandex Browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
-| Yandex Telemost in browser | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
+| Yandex Telemost | Passed for manual call smoke test | User confirmed after `Run Check`: remote side hears local speech, local user hears remote audio, no echo/loopback |
 
 ## 004 Evidence Fields
 
@@ -121,6 +121,24 @@ real browser/Telemost audio test after the app starts passthrough. It is still
 not full browser meeting acceptance: a controlled call with a remote/control
 side must still confirm that local speech reaches the other side, remote audio
 is heard locally, and remote audio does not leak into `2brain Rec Microphone`.
+
+## 004 Telemost Manual Call Evidence 2026-06-01
+
+After pressing `Run Check` in the installed 2brain Rec app, the user joined a
+Telemost call with `2brain Rec Microphone` and `2brain Rec Speaker` selected.
+
+Evidence:
+
+- remote/control side heard the local user: yes;
+- local user heard remote/control side: yes;
+- echo or remote-to-mic loopback was not observed: yes.
+
+Status: **Yandex Telemost manual call smoke test passed**.
+
+This accepts the Telemost smoke scenario for bidirectional passthrough. It does
+not yet accept the full browser matrix: Chrome, Opera, and Yandex Browser still
+need the same remote/control-side validation before the broader browser target
+task can be closed.
 
 ## Per-Target Steps
 

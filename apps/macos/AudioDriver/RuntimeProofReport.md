@@ -587,6 +587,18 @@ browser/Telemost self-test accepted**. Full meeting acceptance remains pending
 until a controlled call verifies remote-side local speech, remote audio
 playback, and no remote-to-mic loopback.
 
+Telemost manual call follow-up on 2026-06-01:
+
+- After pressing `Run Check`, the user selected `2brain Rec Microphone` and
+  `2brain Rec Speaker` in Telemost.
+- Remote/control side heard the local user.
+- Local user heard the remote/control side.
+- Echo or remote-to-mic loopback was not observed.
+
+This accepts the Telemost manual call smoke test for bidirectional passthrough.
+The broader browser matrix remains pending for Chrome, Opera, and Yandex
+Browser.
+
 Validation commands executed:
 
 ```text
