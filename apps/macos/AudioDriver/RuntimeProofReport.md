@@ -599,6 +599,19 @@ This accepts the Telemost manual call smoke test for bidirectional passthrough.
 The broader browser matrix remains pending for Chrome, Opera, and Yandex
 Browser.
 
+Chrome, Opera, and Yandex Browser follow-up on 2026-06-01:
+
+- Chrome was checked by the user after `Run Check` and accepted for manual
+  smoke coverage.
+- Opera was checked by the user after `Run Check` and accepted for manual smoke
+  coverage.
+- Yandex Browser is intentionally not run in this cycle and is recorded as
+  skipped/not accepted by explicit decision, not failed.
+
+With Telemost already accepted, the browser matrix now has recorded evidence for
+all requested targets: Chrome passed, Opera passed, Yandex Telemost passed, and
+Yandex Browser skipped/not accepted by decision.
+
 Validation commands executed:
 
 ```text

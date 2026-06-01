@@ -21,9 +21,9 @@ through the 2brain Rec virtual devices without starting recording.
 
 | Target | 004 Status | Required Evidence |
 |---|---|---|
-| Chrome browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
-| Opera browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
-| Yandex Browser meetings | Not accepted in this cycle | Physical browser-call validation not run yet; do not mark supported |
+| Chrome browser meetings | Passed for manual call smoke test | User reported Chrome checked after `Run Check`; bidirectional passthrough accepted for smoke coverage |
+| Opera browser meetings | Passed for manual call smoke test | User reported Opera checked after `Run Check`; bidirectional passthrough accepted for smoke coverage |
+| Yandex Browser meetings | Not accepted in this cycle | User explicitly chose not to run this target; record as skipped/not accepted, not failed |
 | Yandex Telemost | Passed for manual call smoke test | User confirmed after `Run Check`: remote side hears local speech, local user hears remote audio, no echo/loopback |
 
 ## 004 Evidence Fields
@@ -139,6 +139,23 @@ This accepts the Telemost smoke scenario for bidirectional passthrough. It does
 not yet accept the full browser matrix: Chrome, Opera, and Yandex Browser still
 need the same remote/control-side validation before the broader browser target
 task can be closed.
+
+## 004 Chrome, Opera, And Yandex Browser Decision 2026-06-01
+
+After the Telemost call smoke test passed, the user also checked Chrome and
+Opera. Both are accepted for manual call smoke coverage after explicit
+`Run Check`.
+
+Yandex Browser is intentionally not run in this cycle. Its status is
+`Not accepted / skipped by decision`, not failed. This records target evidence
+for the matrix without claiming unsupported validation.
+
+Status summary:
+
+- Chrome: passed manual smoke coverage after `Run Check`;
+- Opera: passed manual smoke coverage after `Run Check`;
+- Yandex Browser: skipped/not accepted by explicit decision;
+- Yandex Telemost: passed manual call smoke coverage after `Run Check`.
 
 ## Per-Target Steps
 
