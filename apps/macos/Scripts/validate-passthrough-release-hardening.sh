@@ -13,13 +13,14 @@ make -C "$MACOS_DIR/AudioDriver" proof-plugin-build proof-runtime-probe-build pr
 make -C "$MACOS_DIR/AudioDriver" proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe
 sh "$SCRIPT_DIR/coreaudiod-cpu-sample.sh"
 sh "$SCRIPT_DIR/audio-settings-no-hang-check.sh" all
+sh "$SCRIPT_DIR/installer-lifecycle-release-hardening.sh" all
 sh "$SCRIPT_DIR/validate-real-bidirectional-passthrough.sh"
 
 echo "== 005 passthrough release hardening: pending gates =="
 echo "- Installed runtime package build/install probe: pending final packaging run"
 echo "- Audio settings no-hang helper defaults to metadata-only; set TWO_BRAIN_REC_RUN_UI_NO_HANG=1 for actual UI launch evidence"
 echo "- Route recovery checklists are available; physical/coreaudiod/sleep-wake evidence still requires environment execution"
-echo "- Installer lifecycle gate: pending T054-T059"
+echo "- Installer lifecycle helper defaults to metadata-only; set TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE=1 for destructive lifecycle evidence"
 echo "- Diagnostics and UX gate: pending T064-T069"
 echo "- Deferred recording-assisted acceptance: pending T072-T075"
 echo "validate-passthrough-release-hardening: completed available baseline checks"

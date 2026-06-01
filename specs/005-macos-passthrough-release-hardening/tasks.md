@@ -131,19 +131,19 @@
 
 ### Tests for User Story 4
 
-- [ ] T050 [P] [US4] Add installer lifecycle evidence tests in `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`.
-- [ ] T051 [P] [US4] Add install/update/repair checklist in `tests/macos/installer-recovery/install-update-repair-release-hardening.md`.
-- [ ] T052 [P] [US4] Add rollback/uninstall/reinstall checklist in `tests/macos/installer-recovery/rollback-uninstall-reinstall-release-hardening.md`.
-- [ ] T053 [P] [US4] Add installer lifecycle fixture coverage in `tests/macos/contract/installer-lifecycle-evidence.json`.
+- [X] T050 [P] [US4] Add installer lifecycle evidence tests in `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`.
+- [X] T051 [P] [US4] Add install/update/repair checklist in `tests/macos/installer-recovery/install-update-repair-release-hardening.md`.
+- [X] T052 [P] [US4] Add rollback/uninstall/reinstall checklist in `tests/macos/installer-recovery/rollback-uninstall-reinstall-release-hardening.md`.
+- [X] T053 [P] [US4] Add installer lifecycle fixture coverage in `tests/macos/contract/installer-lifecycle-evidence.json`.
 
 ### Implementation for User Story 4
 
-- [ ] T054 [US4] Add installer lifecycle command wrapper in `apps/macos/Scripts/installer-lifecycle-release-hardening.sh`.
-- [ ] T055 [US4] Wire installer lifecycle gate into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
-- [ ] T056 [US4] Add installer lifecycle evidence fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
-- [ ] T057 [US4] Record installer lifecycle diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T058 [US4] Update `qa/macos/driver-lifecycle-checklist.md` with 005 passed/blocked/not_accepted evidence rules.
-- [ ] T059 [US4] Audit `apps/macos/Installer/Scripts/repair.sh`, `apps/macos/Installer/Scripts/rollback.sh`, and `apps/macos/Installer/Scripts/uninstall.sh`; either fix stale Core Audio cleanup gaps or record no-change rationale in `qa/macos/driver-lifecycle-checklist.md`.
+- [X] T054 [US4] Add installer lifecycle command wrapper in `apps/macos/Scripts/installer-lifecycle-release-hardening.sh`.
+- [X] T055 [US4] Wire installer lifecycle gate into `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
+- [X] T056 [US4] Add installer lifecycle evidence fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
+- [X] T057 [US4] Record installer lifecycle diagnostics in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T058 [US4] Update `qa/macos/driver-lifecycle-checklist.md` with 005 passed/blocked/not_accepted evidence rules.
+- [X] T059 [US4] Audit `apps/macos/Installer/Scripts/repair.sh`, `apps/macos/Installer/Scripts/rollback.sh`, and `apps/macos/Installer/Scripts/uninstall.sh`; either fix stale Core Audio cleanup gaps or record no-change rationale in `qa/macos/driver-lifecycle-checklist.md`.
 
 **Checkpoint**: US4 is independently testable through installer lifecycle commands and metadata-only evidence.
 

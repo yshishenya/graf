@@ -22,6 +22,9 @@
   sleep/wake record passed, blocked, or not accepted metadata-only outcomes.
 - [ ] Installer lifecycle evidence covers install, update, repair, rollback,
   uninstall, and reinstall without hidden manual cleanup.
+- [ ] Destructive installer lifecycle checks are either run with
+  `TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE=1` or recorded as `not_accepted`, not
+  `passed`.
 - [ ] Diagnostics and release evidence contain no raw audio, transcript text,
   credentials, tokens, signed URLs, passwords, or meeting content.
 - [ ] UI evidence distinguishes non-recording passthrough active/ready state

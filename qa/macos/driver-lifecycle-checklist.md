@@ -87,3 +87,33 @@ Pending lifecycle proof:
 - active-call update rehearsal with a real capture/call state;
 - privileged repair, rollback, and uninstall rehearsals on a disposable local
   install.
+
+## 005 Release-Hardening Lifecycle Evidence
+
+- [ ] `apps/macos/Scripts/installer-lifecycle-release-hardening.sh all` records
+  install, update, repair, rollback, uninstall, and reinstall as `passed`,
+  `blocked`, or `not_accepted`.
+- [ ] Destructive lifecycle operations use
+  `TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE=1`; dry runs must be recorded as
+  `not_accepted`, not `passed`.
+- [ ] Repair/update/reinstall return devices to visible/alive default-safe state
+  or record a blocked reason.
+- [ ] Uninstall removes virtual devices after Core Audio refresh or records
+  stale HAL/manual cleanup as blocked.
+- [ ] Rollback restores the newest backup or records `not_accepted` when no
+  backup exists.
+- [ ] Lifecycle reports contain operation, pre-state, post-state, Core Audio
+  refresh requirement, runtime probe result, and final result.
+
+### Installer Script Audit For 005
+
+- `repair.sh`: no code change required in this pass. The script already clears
+  extended attributes, restarts `coreaudiod`, and writes a metadata-only JSON
+  report. Privileged rehearsal remains required before final acceptance.
+- `rollback.sh`: no code change required in this pass. The script reports
+  `partial` when no backup is available; this maps to blocked/not accepted
+  lifecycle evidence until a backup-backed rollback is rehearsed.
+- `uninstall.sh`: no code change required in this pass. The script reports
+  manual cleanup when removal fails and does not write audio, transcripts,
+  credentials, tokens, or signed URLs. Destructive rehearsal remains required on
+  a disposable install.
