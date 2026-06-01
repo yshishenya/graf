@@ -201,15 +201,15 @@
 
 **Purpose**: Run complete validation, analyze consistency, and prepare review artifacts.
 
-- [ ] T076 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T077 Run `swift test --package-path apps/macos --disable-swift-testing` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T078 Run `sh tests/macos/static/audio-rt-safety-check.sh` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T079 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build proof-hal-io-probe-build` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T080 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T081 Run `sh apps/macos/Scripts/validate-passthrough-release-hardening.sh` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T082 Scan `apps/macos`, `tests/macos`, `qa/macos`, and `specs/005-macos-passthrough-release-hardening` for raw audio, transcript text, credentials, tokens, signed URLs, passwords, and meeting content.
-- [ ] T083 Re-run `$speckit-analyze` and resolve all critical/high findings in `specs/005-macos-passthrough-release-hardening/`.
-- [ ] T084 Update `specs/005-macos-passthrough-release-hardening/tasks.md` so completed tasks are marked `[X]` only after validation evidence exists.
+- [X] T076 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T077 Run `swift test --package-path apps/macos --disable-swift-testing` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T078 Run `sh tests/macos/static/audio-rt-safety-check.sh` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T079 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build proof-hal-io-probe-build` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T080 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T081 Run `sh apps/macos/Scripts/validate-passthrough-release-hardening.sh` and record result in `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T082 Scan `apps/macos`, `tests/macos`, `qa/macos`, and `specs/005-macos-passthrough-release-hardening` for raw audio, transcript text, credentials, tokens, signed URLs, passwords, and meeting content.
+- [X] T083 Re-run `$speckit-analyze` and resolve all critical/high findings in `specs/005-macos-passthrough-release-hardening/`.
+- [X] T084 Update `specs/005-macos-passthrough-release-hardening/tasks.md` so completed tasks are marked `[X]` only after validation evidence exists.
 
 ---
 

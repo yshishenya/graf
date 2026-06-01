@@ -58,6 +58,17 @@ final class LivePassthroughPolicyTests: XCTestCase {
         })
     }
 
+    func testAutomaticLaunchArmsWithoutOpeningPhysicalDevicesWhenNoVirtualClientRuns() {
+        let engine = PassthroughRouteEngine(
+            sharedMemory: nil,
+            activityDetector: FixedVirtualDeviceActivityDetector(isRunning: false)
+        )
+
+        let state = engine.startAutomaticRoute { _, _ in }
+
+        XCTAssertEqual(state, .armed)
+    }
+
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
         LivePassthroughSession(
             sessionId: "session-1",
@@ -81,6 +92,14 @@ final class LivePassthroughPolicyTests: XCTestCase {
             ),
             recordingState: recordingState
         )
+    }
+}
+
+private struct FixedVirtualDeviceActivityDetector: VirtualDeviceActivityDetecting {
+    let isRunning: Bool
+
+    func anyExpectedVirtualDeviceRunning() -> Bool {
+        isRunning
     }
 }
 #endif
