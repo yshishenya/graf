@@ -1,6 +1,6 @@
 # Final Readiness Check: macOS Virtual Audio Driver MVP
 
-Date: 2026-05-27
+Date: 2026-06-01
 Feature: `specs/001-macos-audio-driver/`
 Runner: local macOS environment for 90%+ implementation verification.
 
@@ -22,11 +22,11 @@ inside the quality checklists.
 | Foundation validation (`sh apps/macos/Scripts/validate-foundation.sh`) | PASS | `ContractValidation: PASS`, `AudioDriver proof scaffold: PASS` |
 | Runtime publication probe (`make -C apps/macos/AudioDriver proof-runtime-probe-run`) | PASS | `2brain Rec Microphone` and `2brain Rec Speaker` found as visible Core Audio devices |
 | Route synthetic preflight (mic/speaker/no-loopback/integrity scripts) | PASS | All scripts report `ACCEPTED` and alignment/correlation thresholds met |
-| Regression automation (`sh apps/macos/Scripts/validate-us1-regression.sh`) | PARTIAL | Default regression avoids hanging Core Audio probes; optional live probe mode has timeout guards. Real passthrough/capture readiness is not accepted yet. |
+| Regression automation (`sh apps/macos/Scripts/validate-us1-regression.sh`) | SUPERSEDED | Later slices added runtime probes, no-hang checks, low-resource validation, and realtime safety checks. See `specs/006-low-resource-audio/implementation-evidence.md`. |
 | Fresh install + permissions | NOT RUN (manual integration environment required) | Requires interactive installer and signed/notarized package runtime validation |
 | Step 2 route verification blocking/one-action `ready` check | NOT RUN (depends on interactive onboarding flow) | Requires UI flow execution on supported host |
-| Browser meeting matrix (Chrome/Opera/Yandex + Telemost-in-browser) | NOT RUN | Manual device+meeting matrix requires browser session setup |
-| 60-minute integrity run (wired/Bluetooth/AirPods + outage) | NOT RUN | Long-run scenario and network outage require dedicated capture window |
+| Browser meeting matrix (Chrome/Opera/Yandex + Telemost-in-browser) | PARTIAL PASS | Telemost, Chrome, Opera, and Zoom manual smoke passed; Yandex Browser skipped/not accepted by decision; long-duration recording acceptance remains pending |
+| 60-minute integrity run (wired/Bluetooth/AirPods + outage) | NOT RUN | Long-run recorded-track scenario and outage require a dedicated capture feature/window |
 | Failure recovery matrix | NOT RUN | Permission/device/server/network/buffer recovery paths not manually executed here |
 | Visible control one-action stop | NOT RUN | Requires running capture surface verification |
 | Installer lifecycle matrix (update/repair/rollback/uninstall/reinstall) | NOT RUN | Requires installer lifecycle validation with stateful app+driver execution |
@@ -36,7 +36,7 @@ inside the quality checklists.
 
 - **Execution mode:** manual equivalent to `speckit-analyze` (spec.md, plan.md, tasks.md, constitution).
 - **Findings:** 2026-05-31 review found that `tasks.md` overstated US2 and final readiness by marking real passthrough/capture validation complete.
-- **Resolution:** T035-T037 and T064-T067 were reopened; release-candidate readiness now explicitly blocks on real passthrough/capture validation.
+- **Resolution:** 2026-06-01 follow-up implementation accepted non-recording bidirectional passthrough smoke and low-resource startup behavior. Durable recorded tracks, long-run integrity, and full release-candidate readiness remain open.
 - **Notable risk:** `validate-us1-gate.sh` verifies the recorded publication proof state and does not run a fresh runtime probe by itself, so a dedicated proof run is still required on supported hardware before release.
 
 ## T066 - Secret / Sensitive Content Scan
@@ -61,10 +61,11 @@ inside the quality checklists.
 
 ## Current blocker before production release
 
-- Implement and validate real microphone passthrough, virtual speaker
-  passthrough to selected physical output, capture mirroring, loopback
-  rejection, and continuity/dropout reporting. The current app is intentionally
-  not ready for calls.
+- Implement and validate the user-facing recording session: manual start/stop,
+  persistent visible capture indicator, one-action stop, durable separate
+  local/remote track artifacts, continuity/dropout reporting, and long-duration
+  integrity evidence. The current accepted behavior is non-recording
+  passthrough, not production recording.
 
 ## Next steps before production release
 

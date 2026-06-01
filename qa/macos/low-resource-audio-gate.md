@@ -6,32 +6,32 @@ evidence, and fallback to the accepted 005 app-launch lifecycle.
 
 ## Required Evidence Before Promotion
 
-- [ ] Runtime publication evidence shows `2brain Rec Microphone` and
+- [x] Runtime publication evidence shows `2brain Rec Microphone` and
   `2brain Rec Speaker` visible/alive with `hidden=0` while idle-safe.
-- [ ] Automatic activation evidence proves browser/meeting audio can activate
+- [x] Automatic activation evidence proves browser/meeting audio can activate
   passthrough without pressing `Run Check`.
-- [ ] Recording boundary evidence proves the driver creates no recordings,
+- [x] Recording boundary evidence proves the driver creates no recordings,
   transcripts, uploads, MediaScribe requests, Langfuse traces, analytics, or
   external egress.
-- [ ] Startup evidence proves every physical route attempt resolves within
+- [x] Startup evidence proves every physical route attempt resolves within
   3000 ms as `ready`, `blocked`, `failed`, or `fallback`.
-- [ ] No-hang evidence covers macOS Sound settings, Chrome, Opera, Zoom, and
+- [x] No-hang evidence covers macOS Sound settings, Chrome, Opera, Zoom, and
   Yandex Telemost surfaces within 5 seconds or records blocked/not accepted.
-- [ ] Idle CPU evidence proves `coreaudiod` does not sustain above 10% for more
+- [x] Idle CPU evidence proves `coreaudiod` does not sustain above 10% for more
   than 30 consecutive seconds during no-call idle.
-- [ ] Silent-stream evidence proves natural silence does not downgrade an open
+- [x] Silent-stream evidence proves natural silence does not downgrade an open
   client IO stream.
-- [ ] Physical-device policy evidence rejects 2brain Rec virtual devices and
+- [x] Physical-device policy evidence rejects 2brain Rec virtual devices and
   marks other virtual, aggregate, or multi-output devices unsupported unless a
   later gate accepts them.
-- [ ] Realtime-safety evidence finds no file IO, logging, allocation, wall-clock
+- [x] Realtime-safety evidence finds no file IO, logging, allocation, wall-clock
   calls, lock waits, blocking IPC, process launches, network calls, or UI work
   in HAL callback-sensitive paths.
-- [ ] Recovery evidence covers `coreaudiod` restart, sleep/wake, physical device
+- [x] Recovery evidence covers `coreaudiod` restart, sleep/wake, physical device
   changes, stale browser device IDs, app exit, and stale heartbeat.
-- [ ] Fallback evidence proves the accepted 005 app-launch lifecycle can be
+- [x] Fallback evidence proves the accepted 005 app-launch lifecycle can be
   restored without reinstalling the HAL driver.
-- [ ] Diagnostics and validation artifacts contain no raw audio, transcript
+- [x] Diagnostics and validation artifacts contain no raw audio, transcript
   text, meeting content, credentials, tokens, signed URLs, passwords, or live
   secret paths.
 

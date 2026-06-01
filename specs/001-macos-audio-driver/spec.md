@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-27
 
-**Status**: implementation started; Phase 0 Core Audio publication proof accepted; live passthrough, capture, and release-readiness gates remain pending
+**Status**: superseded by later implementation slices for route readiness and low-resource passthrough; Core Audio publication, non-recording bidirectional passthrough smoke, and low-resource default-safe behavior are accepted locally; active recording/capture artifacts and release-candidate gates remain pending
 
 **Input**: User description: "macOS virtual audio driver MVP"
 

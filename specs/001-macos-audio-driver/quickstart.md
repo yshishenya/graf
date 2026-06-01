@@ -99,19 +99,22 @@ open apps/macos/.build/installer/2brain-rec-local.pkg
 Developer Tools Security is only a local development convenience. Pre-release
 and production builds still require Apple signing and notarization.
 
-### Current Accepted Scope (2026-05-31)
+### Current Accepted Scope (2026-06-01)
 
-The current build is accepted only for driver publication and truthful readiness
-blocking. The expected result after install is:
+The current build is accepted for driver publication, low-resource default-safe
+idle behavior, and non-recording passthrough smoke. The expected result after
+install is:
 
 - app launches;
 - driver package is installed;
 - both virtual devices are visible in macOS;
-- app reports `not ready for calls yet` until real audio passthrough is proven.
+- app may report route-ready/non-recording passthrough state only from valid
+  route evidence;
+- recording, transcription, upload, MediaScribe, and Langfuse remain inactive.
 
 Do not treat device visibility alone as route readiness.
-Until live passthrough is accepted, proof devices should not be selected as the
-normal macOS system input or output.
+Do not treat non-recording passthrough as active recording or durable captured
+track acceptance.
 
 When driver source changes, reinstall the proof HAL bundle before rechecking
 runtime behavior:

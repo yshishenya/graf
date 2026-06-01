@@ -8,20 +8,27 @@
 
 **Organization**: Tasks are grouped by user story so each story can be implemented and validated independently after shared foundations are complete.
 
-## Reality Alignment (2026-05-31)
+## Reality Alignment (2026-06-01)
 
-Current accepted runtime evidence proves macOS Core Audio publication only:
+Current accepted runtime evidence proves macOS Core Audio publication,
+low-resource default-safe behavior, and non-recording bidirectional passthrough
+smoke for the current local development build:
 
 - the local installer can deploy the app and HAL driver for development use;
 - `2brain Rec Microphone` and `2brain Rec Speaker` are visible to macOS;
-- the desktop app launches and truthfully reports `not ready for calls yet`.
+- idle runtime proof reports both virtual devices visible/alive and non-running;
+- physical routes are opened on virtual-device client I/O or explicit recheck,
+  not eagerly on app launch;
+- Telemost, Chrome, Opera, and Zoom manual smoke passed without starting
+  recording, transcription, upload, MediaScribe, or Langfuse activity.
 
-The release-critical bidirectional audio path is still open:
+The release-critical recording path is still open:
 
-- physical microphone to virtual microphone passthrough is not accepted;
-- virtual speaker to physical speaker passthrough is not accepted;
 - separate local/remote capture tracks are not accepted;
-- browser/meeting end-to-end validation is not accepted.
+- 30/60 minute recorded track integrity is not accepted;
+- active recording indicator/one-action stop still needs a dedicated feature;
+- backend upload/transcription/dashboard/retention/deletion are not part of
+  this closed audio-route slice.
 
 Tasks marked complete before this alignment may represent scaffolding,
 contracts, or synthetic validation. Release acceptance still requires the open
@@ -133,8 +140,8 @@ passthrough is implemented and verified.
 
 ### Implementation for User Story 2
 
-- [ ] T035 [US2] Implement and wire live microphone passthrough excluding remote audio in `apps/macos/AudioDriver/Sources/Routing/MicrophoneRoute.cpp` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
-- [ ] T036 [US2] Implement and wire live virtual speaker receive, physical output passthrough, and capture mirror path in `apps/macos/AudioDriver/Sources/Routing/SpeakerRoute.cpp` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T035 [US2] Implement and wire live microphone passthrough excluding remote audio in `apps/macos/AudioDriver/Sources/Routing/MicrophoneRoute.cpp` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T036 [US2] Implement and wire live virtual speaker receive, physical output passthrough, and capture mirror path in `apps/macos/AudioDriver/Sources/Routing/SpeakerRoute.cpp` and `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
 - [ ] T037 [US2] Implement runtime track timing and continuity event emission for the live driver path in `apps/macos/AudioDriver/Sources/Timing/TrackClock.cpp`.
 - [X] T038 [US2] Implement desktop capture session state machine, `detecting` state, policy snapshot reference, and trigger evidence readiness hooks for audio-recording and transcript-only modes in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`.
 - [X] T039 [US2] Implement local encrypted buffer writer interface and degraded threshold states in `apps/macos/RecApp/Sources/Buffering/LocalBufferService.swift`.
@@ -144,15 +151,16 @@ passthrough is implemented and verified.
 
 ### Runtime Acceptance Gap for User Story 2
 
-- [ ] T078 [US2] Wire AudioServerPlugIn `StartIO` and `StopIO` to the physical-device bridge without starting hidden capture in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
-- [ ] T079 [US2] Add a user-triggered passthrough readiness probe that never reports ready from device visibility alone in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
-- [ ] T080 [US2] Add real runtime passthrough proof commands and failure diagnostics in `apps/macos/AudioDriver/Makefile` and `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [ ] T081 [US2] Record browser meeting validation evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost in `tests/macos/browser-meetings/browser-meeting-matrix.md` and `qa/macos/release-candidate-checklist.md`.
+- [X] T078 [US2] Wire AudioServerPlugIn `StartIO` and `StopIO` to the physical-device bridge without starting hidden capture in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp`.
+- [X] T079 [US2] Add a user-triggered passthrough readiness probe that never reports ready from device visibility alone in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`.
+- [X] T080 [US2] Add real runtime passthrough proof commands and failure diagnostics in `apps/macos/AudioDriver/Makefile` and `apps/macos/AudioDriver/RuntimeProofReport.md`.
+- [X] T081 [US2] Record browser meeting validation evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost in `tests/macos/browser-meetings/browser-meeting-matrix.md` and `qa/macos/release-candidate-checklist.md`.
 - [ ] T082 [US2] Record 30-minute track integrity and 5-minute outage evidence in `tests/macos/physical-devices/track-integrity-check.swift` and `qa/macos/release-candidate-checklist.md`.
 - [X] T083 [US1] Disable high-frequency proof-driver callback trace by default and prevent publication-only virtual devices from becoming system defaults in `apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp` and `apps/macos/AudioDriver/Makefile`.
 
-**Checkpoint**: User Story 2 is not complete until the runtime acceptance gap
-above is closed and the release-candidate checklist contains real meeting
+**Checkpoint**: The non-recording passthrough portion of User Story 2 is
+accepted for local smoke coverage. User Story 2 is not production complete until
+T037 and T082 close the durable recorded-track timing/continuity and long-run
 evidence.
 
 ---
@@ -216,7 +224,7 @@ evidence.
 - [X] T063 Run all requirement-quality checklists and record final status in `specs/001-macos-audio-driver/checklists/`.
 - [ ] T064 Run quickstart validation scenarios and record outcomes in `qa/macos/release-candidate-checklist.md`.
 - [ ] T065 Run `$speckit-analyze` and resolve critical/high findings in `specs/001-macos-audio-driver/`.
-- [ ] T066 Verify no secrets, tokens, signed URLs, raw transcript text, or raw audio appear in committed files under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/001-macos-audio-driver/`.
+- [X] T066 Verify no secrets, tokens, signed URLs, raw transcript text, or raw audio appear in committed files under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/001-macos-audio-driver/`.
 - [ ] T067 Verify UI changes pass visible-state, accessibility, localization-safety, and brand-distance gates in `qa/macos/release-candidate-checklist.md`.
 
 ---

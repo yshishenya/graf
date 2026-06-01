@@ -17,10 +17,25 @@ driver slice.
 | Rollback | Rollback script and partial cleanup behavior documented | Accepted by script review; destructive rollback rehearsal pending |
 | Repair | Repair script restores driver publication and route state | Accepted by script review; privileged repair rehearsal pending |
 | Uninstall | Uninstall removes driver artifacts and reports manual cleanup | Accepted by script review; destructive uninstall rehearsal pending |
-| Passthrough failure | App I/O loss fails closed and recovers only after revalidation | Synthetic model accepted; real app kill/crash/relaunch evidence pending |
-| Non-recording UX | Ready/active passthrough copy must not imply recording, transcription, or capture | 005 copy review checklist added; screenshots/manual review pending |
-| Diagnostics redaction | Release-hardening evidence must be metadata-only | Contract tests and scan command added; full artifact scan required before final acceptance |
-| QA matrix | Browser, physical-device, Bluetooth, and installer scenarios listed | Listed; browser/backend/Bluetooth physical pilots pending |
+| Passthrough failure | App I/O loss fails closed and recovers only after revalidation | App kill/relaunch, low-resource recovery, and fallback evidence accepted for local smoke scope |
+| Non-recording UX | Ready/active passthrough copy must not imply recording, transcription, or capture | Accepted for current non-recording smoke scope; recording copy remains future |
+| Diagnostics redaction | Release-hardening evidence must be metadata-only | Contract tests and secret/redaction scans accepted for current evidence set |
+| QA matrix | Browser, physical-device, Bluetooth, and installer scenarios listed | Telemost, Chrome, Opera, and Zoom smoke accepted; Yandex Browser skipped/not accepted; long-run recording and production installer pilots pending |
+
+## Evidence Recorded 2026-06-01
+
+Owner: local development validation by yshishenya, recorded by Codex.
+
+- Low-resource default-safe runtime proof accepted with both virtual devices
+  visible/alive and non-running.
+- No-hang/audio settings evidence passed for macOS Sound, Chrome, Opera, Zoom,
+  and Yandex Telemost.
+- Idle `coreaudiod` CPU gate passed after browser/meeting smoke with peak 8%
+  and 0 sustained seconds above threshold.
+- Manual smoke passed for Telemost, Chrome, Opera, and Zoom with
+  `2brain Rec Microphone` and `2brain Rec Speaker`.
+- Recording, transcription, upload, MediaScribe, Langfuse, and dashboard flows
+  remain out of scope for this accepted driver/audio-route gate.
 
 ## Evidence Recorded 2026-05-31
 

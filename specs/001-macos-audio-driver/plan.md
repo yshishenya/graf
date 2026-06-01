@@ -135,12 +135,15 @@ publishes real virtual devices or installer behavior.
 This unlocks US1 publication/setup work. It does not prove production routing,
 passthrough, capture, signing, notarization, or installer UX.
 
-**Reality Check (2026-05-31)**: The local installer and desktop app now prove
-driver package installation and virtual-device visibility. The correct runtime
-state is still `not ready for calls yet` because live microphone passthrough,
-live speaker passthrough, browser meeting validation, and separate track capture
-remain unaccepted. The next implementation gate is the US2 runtime acceptance
-gap in `tasks.md`, not release-candidate hardening.
+**Reality Check (2026-06-01)**: Later slices `004-real-bidirectional-passthrough`,
+`005-macos-passthrough-release-hardening`, and `006-low-resource-audio` supersede
+the older 2026-05-31 route gap. The local installer and desktop app now prove
+virtual-device publication, default-safe idle state, low-resource route
+activation, no-hang behavior, idle CPU behavior, and manual non-recording smoke
+for Telemost, Chrome, Opera, and Zoom. This still does not accept active
+recording, durable separate local/remote track artifacts, long-duration capture
+integrity, upload, transcription, retention, deletion, signed/notarized
+production installer evidence, or release-candidate rollout.
 
 ## Project Structure
 

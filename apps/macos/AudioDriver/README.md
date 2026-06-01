@@ -24,21 +24,23 @@ The current planning decision favors a Core Audio virtual-device approach. Audio
 
 ## Current Proof Status
 
-Status: Phase 0 Core Audio publication proof accepted. The local proof
-AudioServerPlugIn publishes both MVP virtual devices and the runtime probe sees
-them in macOS Core Audio.
+Status: Phase 0 Core Audio publication proof, low-resource idle-safe
+publication, and non-recording passthrough smoke are accepted for the current
+local development build. The local proof AudioServerPlugIn publishes both MVP
+virtual devices and the runtime probe sees them in macOS Core Audio.
 
-This is publication evidence only. It does not prove real microphone
-passthrough, virtual speaker passthrough to the selected physical output,
-capture mirroring, or browser meeting readiness. The current expected app state
-after local install is `Installed, but not ready for calls yet`.
+This is not recording acceptance. It does not prove durable recorded
+local/remote track artifacts, long-duration capture integrity, upload,
+transcription, retention, or deletion behavior. The current expected app state
+after local install is non-recording passthrough ready when route evidence is
+valid, with recording/transcription/upload inactive.
 
-Safety behavior while passthrough is pending:
+Safety behavior while recording is pending:
 
 - proof devices are visible for Core Audio publication validation;
-- proof devices must not be used as the user's normal system input/output;
-- the proof driver reports that it cannot be the system default device until
-  live passthrough is accepted;
+- physical routes are opened only when virtual-device client I/O or an explicit
+  check needs them;
+- low-resource idle keeps public virtual devices visible/alive but non-running;
 - verbose HAL callback tracing is disabled by default to avoid high `coreaudiod`
   CPU during audio IO.
 
@@ -155,7 +157,8 @@ sh apps/macos/Scripts/validate-us1-gate.sh
 
 It fails until `RuntimeProofReport.md` records an `ACCEPTED` Core Audio
 publication result with observed Apple Silicon runtime evidence. Passing this
-gate does not mean real passthrough or capture is ready.
+gate does not mean recording, long-duration capture, upload, or transcription is
+ready.
 
 ## Signing And Distribution Prerequisites
 

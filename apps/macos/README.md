@@ -17,7 +17,7 @@ This document is the architecture reference for the macOS-only MVP slice.
 - **Storage in this slice**: local encrypted buffer artifacts and manifests only.
 - **No backend audio responsibilities in client**: app does not send raw audio directly to MediaScribe and does not store API credentials.
 
-## 2.1) Current Runtime Status (2026-05-31)
+## 2.1) Current Runtime Status (2026-06-01)
 
 Accepted:
 
@@ -25,17 +25,28 @@ Accepted:
 - app launches from `/Applications/2brain Rec.app` when Developer Tools Security
   is enabled for ad-hoc development builds;
 - the HAL driver is loaded by Core Audio;
-- both virtual devices are visible in macOS.
+- both virtual devices are visible in macOS;
+- default-safe idle runtime proof reports both virtual devices visible/alive and
+  non-running;
+- low-resource routing is the local default after automated gates and manual
+  smoke;
+- Telemost, Chrome, Opera, and Zoom manual smoke passed with
+  `2brain Rec Microphone` and `2brain Rec Speaker`;
+- `Run Check` is retained as recheck/repair and is no longer required for normal
+  non-recording passthrough startup.
 
 Not accepted yet:
 
-- physical microphone audio passthrough into `2brain Rec Microphone`;
-- virtual speaker audio passthrough to the selected physical speaker;
-- separate local and remote track capture;
-- browser meeting end-to-end readiness.
+- active recording session start/stop as a production user workflow;
+- persistent recording indicator and one-action stop during active capture;
+- separate recorded local and remote track artifacts;
+- long-duration 30/60 minute recording integrity acceptance;
+- backend upload, MediaScribe transcription, dashboard notes, retention, and
+  deletion workflows.
 
-The correct current app behavior is to show installed/visible driver state while
-blocking `ready for calls` until the live audio path is implemented and verified.
+The correct current app behavior is to support non-recording passthrough while
+remaining explicit that recording, transcription, upload, and external egress do
+not start from the audio-route readiness path.
 
 ## 3) Recovery model
 

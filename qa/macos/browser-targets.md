@@ -8,10 +8,11 @@ Track official MVP browser meeting targets and route/capture validation status.
 
 | Target | Status | Required Coverage |
 |---|---|---|
-| Chrome browser meetings | Planned | Synthetic route plus real browser meeting validation |
-| Opera browser meetings | Planned | Synthetic route plus real browser meeting validation |
-| Yandex Browser meetings | Planned | Synthetic route plus real browser meeting validation |
-| Yandex Telemost in browser | Planned after QA | Synthetic route plus real browser meeting validation |
+| Chrome browser meetings | Manual smoke passed | Synthetic route plus real browser meeting validation; long-duration recording acceptance deferred |
+| Opera browser meetings | Manual smoke passed | Synthetic route plus real browser meeting validation; long-duration recording acceptance deferred |
+| Yandex Browser meetings | Skipped/not accepted in current cycle | Must be run before it is marketed as supported |
+| Yandex Telemost in browser | Manual smoke passed | Synthetic route plus real browser meeting validation; long-duration recording acceptance deferred |
+| Zoom | Manual smoke passed, best-effort target | Not in the original browser-only MVP matrix; keep as additional app evidence until a spec adds official support |
 
 ## Best-Effort Rule
 
@@ -42,10 +43,10 @@ until both synthetic paths pass.
 
 | Target | 005 Short Smoke Evidence | Future Recording-Assisted Acceptance |
 |---|---|---|
-| Chrome browser meetings | May record metadata-only local speech, remote audio, and no-loopback observation | Deferred until local recording exists |
-| Opera browser meetings | May record metadata-only local speech, remote audio, and no-loopback observation | Deferred until local recording exists |
+| Chrome browser meetings | Passed current metadata-only manual smoke | Deferred until local recording exists |
+| Opera browser meetings | Passed current metadata-only manual smoke | Deferred until local recording exists |
 | Yandex Browser meetings | May be marked `not_accepted` if skipped | Deferred until local recording exists |
-| Yandex Telemost in browser | May record metadata-only local speech, remote audio, and no-loopback observation | Deferred until local recording exists |
+| Yandex Telemost in browser | Passed current metadata-only manual smoke | Deferred until local recording exists |
 
 005 evidence must never treat short smoke confirmation as long-duration replay
 acceptance. Unsupported, skipped, or unavailable targets must be recorded as

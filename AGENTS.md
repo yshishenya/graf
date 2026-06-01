@@ -20,6 +20,10 @@ Primary baseline document:
 
 Treat `docs/prd-voice-layer-final.md` as the product baseline until a Spec Kit feature spec supersedes a specific slice of it.
 
+Current implementation status after merged feature slices:
+
+- `docs/current-product-status.md`
+
 ## Spec Kit Command Style
 
 This repo was initialized with Codex skills mode. Use skill names in conversation:

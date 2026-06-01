@@ -8,11 +8,11 @@ tokens, signed URLs, or screenshots with meeting content.
 
 | Target surface | Required outcome | Current status | Notes |
 |---|---|---|---|
-| macOS Sound settings | Usable within 5 seconds or blocked/not accepted | Pending | May be launched by helper when UI no-hang mode is enabled |
-| Chrome audio settings | Usable within 5 seconds or blocked/not accepted | Pending | Browser target; no meeting content required |
-| Opera audio settings | Usable within 5 seconds or blocked/not accepted | Pending | Browser target; no meeting content required |
-| Zoom audio settings | Usable within 5 seconds or blocked/not accepted | Pending | App may be absent and recorded as not accepted |
-| Yandex Telemost audio settings | Usable within 5 seconds or blocked/not accepted | Pending | Browser target; no meeting content required |
+| macOS Sound settings | Usable within 5 seconds or blocked/not accepted | Passed | 2026-06-01 UI no-hang run with `TWO_BRAIN_REC_RUN_UI_NO_HANG=1` |
+| Chrome audio settings | Usable within 5 seconds or blocked/not accepted | Passed | Browser target; no meeting content required |
+| Opera audio settings | Usable within 5 seconds or blocked/not accepted | Passed | Browser target; no meeting content required |
+| Zoom audio settings | Usable within 5 seconds or blocked/not accepted | Passed | App surface opened within threshold in the no-hang run |
+| Yandex Telemost audio settings | Usable within 5 seconds or blocked/not accepted | Passed | Browser target; no meeting content required |
 
 ## Evidence Fields
 

@@ -21,10 +21,11 @@ through the 2brain Rec virtual devices without starting recording.
 
 | Target | 004 Status | Required Evidence |
 |---|---|---|
-| Chrome browser meetings | Passed for manual call smoke test | User reported Chrome checked after `Run Check`; bidirectional passthrough accepted for smoke coverage |
-| Opera browser meetings | Passed for manual call smoke test | User reported Opera checked after `Run Check`; bidirectional passthrough accepted for smoke coverage |
+| Chrome browser meetings | Passed for manual smoke test | User reported Chrome checked; bidirectional passthrough accepted for current smoke coverage |
+| Opera browser meetings | Passed for manual smoke test | User reported Opera checked; bidirectional passthrough accepted for current smoke coverage |
 | Yandex Browser meetings | Not accepted in this cycle | User explicitly chose not to run this target; record as skipped/not accepted, not failed |
-| Yandex Telemost | Passed for manual call smoke test | User confirmed after `Run Check`: remote side hears local speech, local user hears remote audio, no echo/loopback |
+| Yandex Telemost | Passed for manual call smoke test | User confirmed remote side hears local speech, local user hears remote audio, no echo/loopback |
+| Zoom | Passed for manual smoke test | Additional app target outside the original browser-only matrix; user confirmed sound check works |
 
 ## 004 Evidence Fields
 
@@ -51,10 +52,9 @@ Backend/network outage synthetic coverage was executed:
 live-passthrough-outage-check: ACCEPTED
 ```
 
-Real browser meeting validation is not accepted for this cycle. Until physical
-browser calls are run, the targets above remain not accepted rather than
-passed. This is metadata-only release evidence: the local passthrough stack may
-be validated synthetically, but browser target support is still pending.
+This historical 004 section was superseded later on 2026-06-01 by manual smoke
+evidence and the automatic non-recording startup update below. Keep it as the
+state before the browser/meeting retest, not as the current matrix status.
 
 ## 004 Stabilization Update 2026-06-01
 
@@ -135,10 +135,9 @@ Evidence:
 
 Status: **Yandex Telemost manual call smoke test passed**.
 
-This accepts the Telemost smoke scenario for bidirectional passthrough. It does
-not yet accept the full browser matrix: Chrome, Opera, and Yandex Browser still
-need the same remote/control-side validation before the broader browser target
-task can be closed.
+This accepts the Telemost smoke scenario for bidirectional passthrough. Later
+checks also accepted Chrome and Opera for current manual smoke coverage; Yandex
+Browser remains skipped/not accepted by decision.
 
 ## 004 Chrome, Opera, And Yandex Browser Decision 2026-06-01
 

@@ -2,50 +2,50 @@
 
 ## Passthrough Release Hardening Evidence (005)
 
-- [ ] Low-resource promotion for `006-low-resource-audio` uses a complete P1
+- [x] Low-resource promotion for `006-low-resource-audio` uses a complete P1
   gate bundle before default enablement; any missing, blocked, or failed P1
   gate records `fallback` to `005-macos-passthrough-release-hardening`.
-- [ ] Low-resource promotion evidence includes route truth, startup timeout,
+- [x] Low-resource promotion evidence includes route truth, startup timeout,
   realtime safety, no-hang/CPU, recovery, fallback, redaction, and clean-room
   gates without raw audio, transcript text, credentials, signed URLs, passwords,
   or meeting content.
-- [ ] Pre-recording stability evidence records installed runtime, short smoke,
+- [x] Pre-recording stability evidence records installed runtime, short smoke,
   route state, CPU/no-hang behavior, and inactive recording/transcription/upload
   status.
-- [ ] Installed runtime baseline includes
+- [x] Installed runtime baseline includes
   `proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe` or a
   recorded blocked/not accepted reason.
-- [ ] Short smoke evidence is explicitly labeled as smoke-only and not
+- [x] Short smoke evidence is explicitly labeled as smoke-only and not
   long-duration recording-assisted acceptance.
-- [ ] No-hang evidence covers macOS Sound settings, Chrome audio settings, Opera
+- [x] No-hang evidence covers macOS Sound settings, Chrome audio settings, Opera
   audio settings, Zoom audio settings, and Yandex Telemost audio settings.
-- [ ] Audio settings no-hang evidence records actual UI-launch evidence with
+- [x] Audio settings no-hang evidence records actual UI-launch evidence with
   `TWO_BRAIN_REC_RUN_UI_NO_HANG=1`, or records metadata-only `not_accepted`
   reasons when UI launch is intentionally skipped.
-- [ ] `coreaudiod` CPU does not sustain above 10% for more than 30 consecutive
+- [x] `coreaudiod` CPU does not sustain above 10% for more than 30 consecutive
   seconds during no-call idle with the app open.
-- [ ] Physical input/output changes, aggregate or multi-output routes,
+- [x] Physical input/output changes, aggregate or multi-output routes,
   Bluetooth routes, stale browser device IDs, `coreaudiod` restart, and
   sleep/wake record passed, blocked, or not accepted metadata-only outcomes.
-- [ ] Installer lifecycle evidence covers install, update, repair, rollback,
+- [x] Installer lifecycle evidence covers install, update, repair, rollback,
   uninstall, and reinstall without hidden manual cleanup.
-- [ ] Destructive installer lifecycle checks are either run with
+- [x] Destructive installer lifecycle checks are either run with
   `TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE=1` or recorded as `not_accepted`, not
   `passed`.
-- [ ] Diagnostics and release evidence contain no raw audio, transcript text,
+- [x] Diagnostics and release evidence contain no raw audio, transcript text,
   credentials, tokens, signed URLs, passwords, or meeting content.
-- [ ] UI evidence distinguishes non-recording passthrough active/ready state
+- [x] UI evidence distinguishes non-recording passthrough active/ready state
   from recording, transcription, and capture-active states.
-- [ ] Long-duration recording-assisted acceptance remains deferred until local
+- [x] Long-duration recording-assisted acceptance remains deferred until local
   recording, retention, and deletion rules exist.
-- [ ] `qa/macos/recording-assisted-acceptance.md` remains blocked and is not
+- [x] `qa/macos/recording-assisted-acceptance.md` remains blocked and is not
   counted as passed for the pre-recording hardening slice.
 
 ## Live Route Readiness Evidence (003)
 
-- [ ] Fresh local install moves from `not ready for calls yet` to ready only
+- [x] Fresh local install moves to route-ready/non-recording passthrough only
   after microphone and speaker live route evidence pass.
-- [ ] Publication-only evidence never produces ready state in app UI,
+- [x] Publication-only evidence never produces ready state in app UI,
   diagnostics, or release evidence.
 - [ ] Self-routing is rejected when a 2brain Rec virtual device is selected as a
   physical working device.
@@ -107,9 +107,9 @@
 - [x] Backend/network outage synthetic check executed:
   `swift tests/macos/route-synthetic/passthrough-outage-check.swift` returned
   `passthrough-outage-check: ACCEPTED`.
-- [x] Browser meeting matrix evidence recorded as blocked/not accepted for this
-  feature state because the app truthfully remains `not ready for calls yet`
-  until real bidirectional passthrough and capture artifacts exist.
+- [x] Historical 2026-05-31 browser meeting matrix evidence recorded as
+  blocked/not accepted for that feature state. Superseded on 2026-06-01 by
+  non-recording smoke acceptance for Telemost, Chrome, Opera, and Zoom.
 - [x] Bluetooth/AirPods managed-route pilot evidence recorded as blocked/not
   accepted for this feature state because no Bluetooth headset route is
   currently connected and real passthrough/capture is not accepted.
@@ -143,10 +143,12 @@
   `qa/macos`, and `specs/004-real-bidirectional-passthrough`: matches were
   policy/fixture forbidden-field strings only, not live secrets or meeting
   content.
-- [ ] Physical microphone-to-virtual-microphone live acceptance remains pending.
-- [ ] Physical virtual-speaker-to-output live acceptance remains pending.
-- [ ] Browser target acceptance remains pending for Chrome, Opera, Yandex
-  Browser, and Yandex Telemost-in-browser.
+- [x] Physical microphone-to-virtual-microphone live smoke accepted for current
+  non-recording scope.
+- [x] Physical virtual-speaker-to-output live smoke accepted for current
+  non-recording scope.
+- [x] Browser target smoke accepted for Chrome, Opera, Zoom, and Yandex
+  Telemost; Yandex Browser remains skipped/not accepted by decision.
 
 ## Validation Log (2026-05-31 06:07 MSK)
 
@@ -180,7 +182,9 @@
 - [x] Local Developer Tools Security recovery executed: app launches from `/Applications/2brain Rec.app` in local ad-hoc development mode.
 - [x] Local installer build executed: `sh apps/macos/Installer/Scripts/build-local-installer.sh` created `apps/macos/.build/installer/2brain-rec-local.pkg`.
 - [x] App UI confirms the driver package is installed and both virtual devices are visible in macOS.
-- [x] App UI truthfully blocks readiness with `not ready for calls yet` because real audio passthrough is not implemented and verified.
+- [x] Historical 2026-05-31 app UI truthfully blocked readiness with `not ready
+  for calls yet`; superseded by accepted non-recording passthrough smoke and
+  low-resource default-safe behavior on 2026-06-01.
 - [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp` executed: PASS.
 - [x] `swift test --package-path apps/macos` executed: PASS.
 - [x] `make -C apps/macos/AudioDriver proof-plugin-build` executed after safety correction: PASS.
@@ -189,14 +193,16 @@
   2026-05-31 04:16 MSK; earlier sudo limitation is superseded.
 - [x] CLI runtime probe from this shell now sees both virtual devices while the
   app heartbeat is alive.
-- [ ] Real microphone-to-virtual-microphone passthrough not accepted.
-- [ ] Real virtual-speaker-to-physical-speaker passthrough not accepted.
+- [x] Real microphone-to-virtual-microphone passthrough accepted for current
+  non-recording smoke scope.
+- [x] Real virtual-speaker-to-physical-speaker passthrough accepted for current
+  non-recording smoke scope.
 - [x] Private app I/O fail-closed validation accepted for app kill/relaunch.
 - [x] Built-in/wired `<=30 ms` added route latency validation accepted in
   synthetic harness.
 - [ ] Remote speaker leakage `<= -45 dB` against speaker reference not run in a real browser meeting.
-- [ ] Browser meeting end-to-end validation blocked by current product gate:
-  real passthrough/capture is not accepted.
+- [x] Browser/meeting smoke no longer blocked for Telemost, Chrome, Opera, and
+  Zoom; durable recording capture remains a separate gate.
 - [ ] Separate local/remote track capture not accepted.
 
 ## Validation Log (2026-05-27)
@@ -286,14 +292,16 @@
 
 ## Known Deviation Log
 
-- [x] 2026-05-31: Current build is a driver publication and readiness UI build, not a production passthrough build. The expected app state is `not ready for calls yet`.
+- [x] 2026-05-31: Current build was a driver publication and readiness UI build,
+  not a production passthrough build. Superseded by 2026-06-01 low-resource
+  non-recording passthrough acceptance.
 - [x] 2026-05-31 04:16 MSK: App I/O fail-closed proof is accepted, but browser
   and Bluetooth release-candidate checks remain blocked by the larger real
   passthrough/capture gate.
 - [x] 2026-05-31: Feature 004 local package install, `coreaudiod` restart,
   runtime publication probe, driver heartbeat fail-closed gate, and synthetic
-  live passthrough checks are accepted. Chrome, Opera, Yandex Browser, and
-  Yandex Telemost browser-call evidence is recorded as not accepted until
-  physical browser calls are run.
+  live passthrough checks were accepted. Superseded on 2026-06-01 by manual
+  smoke acceptance for Chrome, Opera, Zoom, and Yandex Telemost; Yandex Browser
+  remains skipped/not accepted by decision.
 - [ ] Fill remaining observations with run date + artifact reference before release
 - [ ] Update this checklist after each quickstart run
