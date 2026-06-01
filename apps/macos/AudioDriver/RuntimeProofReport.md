@@ -721,3 +721,7 @@ Runtime Core Audio publication proof: ACCEPTED
   `passthrough_bridge_started detail=automatic non-recording route engine
   active`, `auto_passthrough_ready summary=Ready for audio routing`, and runtime
   probe still reported both virtual devices visible/alive with `running=0`.
+- User acceptance: after the installed automatic-start build was tested in the
+  real app/browser flow, the user confirmed the audio path works without
+  pressing `Run Check`. `Run Check` remains a recheck/repair control, not the
+  normal activation step.

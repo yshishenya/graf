@@ -51,6 +51,8 @@ must not be used as substitutes for those acceptance gates.
 - Installed automatic non-recording startup check on 2026-06-01: PASS. App log
   recorded automatic route start and ready snapshot; runtime probe remained
   accepted with `running=0` for both virtual devices.
+- User acceptance on 2026-06-01: PASS. The installed app/browser flow works
+  without pressing `Run Check`; `Run Check` remains recheck/repair only.
 - Installed package/runtime proof after `coreaudiod` restart recorded in
   `apps/macos/AudioDriver/RuntimeProofReport.md`: PASS for publication,
   default-safe, non-running surface, and visible/alive surface states.
@@ -60,7 +62,7 @@ must not be used as substitutes for those acceptance gates.
 
 ## Remaining Non-Blockers
 
-- T063 and T064 remain final live acceptance tasks and must stay pending until
-  physical/browser evidence proves real bidirectional passthrough.
-- T066 should run after T063/T064 evidence is recorded or explicitly accepted as
-  blocked for this stabilization slice.
+- Yandex Browser remains intentionally skipped/not accepted by decision for this
+  cycle. Chrome, Opera, and Telemost have manual smoke coverage.
+- Release hardening should still add broader long-duration call, device-change,
+  and OS-version matrix evidence before external distribution.

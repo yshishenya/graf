@@ -201,6 +201,7 @@ before accepting live audio behavior.
 - [X] T082 Add an installed-device HAL I/O probe in `apps/macos/AudioDriver/Sources/Proof/HALIOProbe.cpp` and wire `proof-hal-io-probe-run` into `apps/macos/AudioDriver/Makefile`.
 - [X] T083 Auto-start the local non-recording passthrough route on app launch in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`.
 - [X] T084 Update default launch validation and Spec Kit artifacts so `Run Check` is a recheck/repair action, not the normal passthrough activation path.
+- [X] T085 Record user acceptance for automatic non-recording passthrough startup without pressing `Run Check` in `tests/macos/browser-meetings/browser-meeting-matrix.md` and `apps/macos/AudioDriver/RuntimeProofReport.md`.
 
 ---
 

@@ -170,6 +170,21 @@ checks should start from a fresh app launch and confirm the same call behavior
 without pressing `Run Check`: remote side hears local speech, local user hears
 remote audio, no echo/loopback, and no recording/transcription/upload starts.
 
+## 004 Automatic Startup User Acceptance 2026-06-01
+
+After installing the automatic non-recording startup build, the user confirmed
+that the normal meeting path works without manual activation:
+
+- 2brain Rec opens and prepares passthrough without pressing `Run Check`;
+- selected browser/meeting targets can use `2brain Rec Microphone` and
+  `2brain Rec Speaker`;
+- local speech and remote audio both work;
+- no echo/loopback was reported;
+- `Run Check` is now retained only as recheck/repair.
+
+Status: **automatic non-recording passthrough startup accepted for the current
+manual smoke scope**.
+
 ## Per-Target Steps
 
 - [ ] Join a meeting with one local speaker and at least one remote speaker.
