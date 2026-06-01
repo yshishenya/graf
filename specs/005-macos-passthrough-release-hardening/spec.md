@@ -8,6 +8,12 @@
 
 **Input**: User description: "After accepting real bidirectional passthrough, harden the macOS audio layer before adding recording. Keep the current non-recording passthrough behavior, but prioritize automated and low-manual validation now: CPU/no-hang behavior, device-change recovery, `coreaudiod` restart recovery, sleep/wake behavior, installer repair/update/uninstall regression, diagnostics redaction, and UX clarity that passthrough is active while recording is not. Defer full long-duration/manual call acceptance until recording exists, so the team can verify the audio path from recorded evidence. Recording, transcription, upload, MediaScribe, Langfuse, and new server workflows remain out of scope for this slice."
 
+## Clarifications
+
+### Session 2026-06-01
+
+- Q: Should full manual long-duration call checks be required before recording exists? → A: No. Defer full long-duration/manual replay acceptance until local recording exists; this slice should focus on automated and low-manual pre-recording hardening.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Prove Pre-Recording Stability Gates (Priority: P1)

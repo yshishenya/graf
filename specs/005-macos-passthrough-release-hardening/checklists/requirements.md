@@ -31,4 +31,5 @@
 
 ## Notes
 
-- Ready for `$speckit-clarify`; this is a high-risk driver/audio release-hardening slice, so clarification remains mandatory before planning.
+- `$speckit-clarify` captured the key scope decision: full long-duration/manual replay acceptance is deferred until local recording exists.
+- Ready for `$speckit-plan`; planning must keep this slice focused on automated and low-manual pre-recording hardening.
