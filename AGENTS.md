@@ -103,13 +103,13 @@ The plan must:
 Planning must stop if constitution gates fail or important clarifications remain unresolved.
 
 <!-- SPECKIT START -->
-Current Spec Kit plan: `specs/004-real-bidirectional-passthrough/plan.md`
+Current Spec Kit plan: `specs/005-macos-passthrough-release-hardening/plan.md`
 
-Active feature: `004-real-bidirectional-passthrough`
+Active feature: `005-macos-passthrough-release-hardening`
 
 Use the plan, research, data model, contracts, and quickstart in
-`specs/004-real-bidirectional-passthrough/` as the authoritative context for
-macOS real bidirectional passthrough planning until a later Spec Kit feature
+`specs/005-macos-passthrough-release-hardening/` as the authoritative context
+for macOS passthrough release hardening until a later Spec Kit feature
 supersedes this slice.
 <!-- SPECKIT END -->
 
