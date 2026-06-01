@@ -32,62 +32,10 @@ struct TwoBrainRecApp: App {
     }
 }
 
-private final class AppIOHeartbeatService: ObservableObject, @unchecked Sendable {
-    private let sharedMemory: SharedAudioMemory?
-    private var bridge: PassthroughBridge?
-    private var timer: Timer?
-    private var didStart = false
-
-    init() {
-        sharedMemory = SharedAudioMemory()
-    }
-
-    func activate() {
-        startBridgeIfNeeded()
-    }
-
-    private func startBridgeIfNeeded() {
-        guard RuntimePassthroughGate.isEnabled else {
-            AppLog.writeRaw(
-                event: "passthrough_bridge_disabled",
-                detail: "set TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH=1 for local bridge experiments"
-            )
-            return
-        }
-        guard !didStart else { return }
-        didStart = true
-        AppLog.writeRaw(event: "passthrough_bridge_starting", detail: "selecting physical devices")
-        do {
-            let system = CoreAudioSystemSnapshot.current()
-            AppLog.writeRaw(
-                event: "passthrough_bridge_devices",
-                detail: "input=\(system.bridgeInputDevice?.name ?? "none") output=\(system.bridgeOutputDevice?.name ?? "none")"
-            )
-            bridge = try PassthroughBridge(
-                selectedPhysicalInputId: system.bridgeInputDevice.map { String($0.id) },
-                selectedPhysicalOutputId: system.bridgeOutputDevice.map { String($0.id) }
-            )
-            try bridge?.start()
-            AppLog.writeRaw(event: "passthrough_bridge_started", detail: "active")
-            sharedMemory?.writeAppHeartbeat()
-            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                self?.sharedMemory?.writeAppHeartbeat()
-            }
-        } catch {
-            AppLog.writeRaw(event: "passthrough_bridge_failed", detail: "\(error)")
-            sharedMemory?.clearAppHeartbeat()
-        }
-    }
-
-    deinit {
-        timer?.invalidate()
-        bridge?.stop()
-        sharedMemory?.clearAppHeartbeat()
-    }
-}
-
 private struct ContentView: View {
-    @StateObject private var bridgeService = AppIOHeartbeatService()
+    @StateObject private var passthroughCoordinator = ExperimentalPassthroughCoordinator(
+        logger: AppLog.writeRaw
+    )
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -123,13 +71,8 @@ private struct ContentView: View {
             }
         }
         .onAppear {
-            bridgeService.activate()
+            passthroughCoordinator.recordLaunchState()
             AppLog.write(event: "app_opened", snapshot: snapshot)
-            for delay in [1.0, 3.0, 6.0] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    refresh()
-                }
-            }
         }
     }
 
@@ -290,13 +233,8 @@ fileprivate struct LocalAudioSnapshot {
                 ? (.failed, "physical_microphone_not_selected", "select_physical_microphone")
                 : (.notStarted, nil, "run_route_verification")
         }
-        guard RuntimePassthroughGate.isEnabled else {
-            return checked
-                ? (.stale, "virtual_device_visible_but_audio_path_not_implemented", "enable_experimental_passthrough_only_for_local_testing")
-                : (.notStarted, nil, "run_route_verification")
-        }
         return checked
-            ? (.passed, nil, nil)
+            ? (.stale, "live_passthrough_evidence_missing", "run_controlled_live_passthrough_validation")
             : (.notStarted, nil, "run_route_verification")
     }
 
@@ -312,13 +250,8 @@ fileprivate struct LocalAudioSnapshot {
                 ? (.failed, "physical_speaker_not_selected", "select_physical_speaker")
                 : (.notStarted, nil, "run_route_verification")
         }
-        guard RuntimePassthroughGate.isEnabled else {
-            return checked
-                ? (.stale, "virtual_device_visible_but_audio_path_not_implemented", "enable_experimental_passthrough_only_for_local_testing")
-                : (.notStarted, nil, "run_route_verification")
-        }
         return checked
-            ? (.passed, nil, nil)
+            ? (.stale, "live_passthrough_evidence_missing", "run_controlled_live_passthrough_validation")
             : (.notStarted, nil, "run_route_verification")
     }
 
@@ -354,10 +287,7 @@ fileprivate struct LocalAudioSnapshot {
         if system.defaultOutput?.isTwoBrainVirtual == true {
             return "Check failed: macOS output is set to the virtual speaker"
         }
-        if !RuntimePassthroughGate.isEnabled {
-            return "Check complete: devices are visible; live passthrough is disabled for safety"
-        }
-        return "Check complete: devices and experimental local passthrough route are ready"
+        return "Check complete: devices are visible; live passthrough evidence is still required"
     }
 
     var logDescription: String {
@@ -397,12 +327,6 @@ private struct CoreAudioDeviceInfo: Equatable {
             className: isTwoBrainVirtual ? .unknown : .builtIn,
             availabilityState: .available
         )
-    }
-}
-
-private enum RuntimePassthroughGate {
-    static var isEnabled: Bool {
-        ProcessInfo.processInfo.environment["TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH"] == "1"
     }
 }
 

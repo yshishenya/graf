@@ -189,11 +189,11 @@ before accepting live audio behavior.
 - [X] T070 [P] Define shared ring-buffer behavior contract in `specs/004-real-bidirectional-passthrough/contracts/passthrough-contract.md`.
 - [X] T071 Add matching Swift ring-buffer behavior tests in `apps/macos/Shared/Tests/SharedAudioMemoryCompatibilityTests.swift`.
 - [X] T072 Add matching C++ ring-buffer proof vectors in `apps/macos/AudioDriver/Sources/Proof/` or `apps/macos/AudioDriver/Tests/`.
-- [ ] T073 Refactor `apps/macos/RecApp/App/TwoBrainRecApp.swift` so SwiftUI view lifecycle does not own bridge startup, heartbeat, device selection, or delayed Core Audio refresh.
-- [ ] T074 Add an explicit route-engine coordinator in `apps/macos/RecApp/Sources/Capture/` with start/stop/state ownership separate from UI.
-- [ ] T075 Refactor `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` so AudioUnit callbacks use preallocated buffers and emit only atomic counters on the realtime path.
-- [ ] T076 Remove speaker partial-read time stretching from `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`; replace it with explicit underrun zero-fill and degraded evidence.
-- [ ] T077 Restore truthful route readiness in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift` so env flags and device visibility cannot return `.passed` without measured live-route evidence.
+- [X] T073 Refactor `apps/macos/RecApp/App/TwoBrainRecApp.swift` so SwiftUI view lifecycle does not own bridge startup, heartbeat, device selection, or delayed Core Audio refresh.
+- [X] T074 Add an explicit route-engine coordinator in `apps/macos/RecApp/Sources/Capture/` with start/stop/state ownership separate from UI.
+- [X] T075 Refactor `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` so AudioUnit callbacks use preallocated buffers and emit only atomic counters on the realtime path.
+- [X] T076 Remove speaker partial-read time stretching from `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`; replace it with explicit underrun zero-fill and degraded evidence.
+- [X] T077 Restore truthful route readiness in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift` so env flags and device visibility cannot return `.passed` without measured live-route evidence.
 - [ ] T078 Add parameterized runtime probe expectations for default publication, fail-closed, and live-experiment states in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
 - [ ] T079 Update `specs/004-real-bidirectional-passthrough/tasks.md`, `quickstart.md`, and browser/release evidence files so synthetic checks, experimental checks, physical checks, and browser acceptance cannot be confused.
 - [ ] T080 Run `$speckit-analyze` after stabilization artifacts are updated and resolve all critical/high findings before continuing implementation.
