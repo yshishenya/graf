@@ -110,7 +110,7 @@ Planning must stop if constitution gates fail or important clarifications remain
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/007-capture-session-indicator/plan.md
+at specs/008-local-recording-persistence/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
