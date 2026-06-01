@@ -203,5 +203,35 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("lowResourceRouteTruth.recordingTrigger.transcriptText"))
         XCTAssertTrue(result.removedFields.contains("lowResourceStartupAttempts[0].signedUrl"))
     }
+
+    func testRecordingEvidenceKeepsMetadataAndRemovesSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "recordingEvidence": .array([
+                .object([
+                    "sessionId": .string("session"),
+                    "eventType": .string("recording.started"),
+                    "routeState": .string("active"),
+                    "indicatorState": .string("active"),
+                    "transcriptText": .string("forbidden")
+                ])
+            ]),
+            "recordingPrerequisites": .array([
+                .object([
+                    "routeState": .string("active"),
+                    "blockedReason": .string("none"),
+                    "signedUrl": .string("forbidden")
+                ])
+            ]),
+            "meetingContent": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["recordingEvidence"])
+        XCTAssertNotNil(result.manifest["recordingPrerequisites"])
+        XCTAssertNil(result.manifest["meetingContent"])
+        XCTAssertTrue(result.removedFields.contains("recordingEvidence[0].transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("recordingPrerequisites[0].signedUrl"))
+    }
 }
 #endif

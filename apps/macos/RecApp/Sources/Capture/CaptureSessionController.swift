@@ -177,13 +177,14 @@ public final class CaptureSessionController {
         return current
     }
 
-    public func requestStop() throws -> CaptureSession {
+    public func requestStop(reason: RecordingStopReason = .userRequested) throws -> CaptureSession {
         var current = try requireSession()
         guard canTransition(from: current.state, to: .stopping) else {
             throw CaptureSessionControllerError.invalidTransition("Cannot stop from \(current.state.rawValue)")
         }
 
         current.state = .stopping
+        current.stopReason = reason
         current.visibleIndicatorState = .degraded
         current.stopActionAvailable = true
         session = current
@@ -204,7 +205,31 @@ public final class CaptureSessionController {
         return current
     }
 
-    public func fail() throws -> CaptureSession {
+    public func blockStart(
+        reason: RecordingStartBlocker,
+        recoveryAction: String
+    ) throws -> CaptureSession {
+        var current = try requireSession()
+        guard current.state == .detecting || current.state == .ready || current.state == .starting else {
+            throw CaptureSessionControllerError.invalidTransition("Cannot block start from \(current.state.rawValue)")
+        }
+
+        current.state = .failed
+        current.stoppedAt = clock()
+        current.visibleIndicatorState = .error
+        current.stopActionAvailable = false
+        current.failureCategory = reason
+        current.triggerEvidence["blockedReason"] = reason.rawValue
+        current.triggerEvidence["recoveryAction"] = recoveryAction
+        current.triggerEvidence["blockedAt"] = iso8601String(clock())
+        session = current
+        return current
+    }
+
+    public func fail(
+        stopReason: RecordingStopReason = .failed,
+        failureCategory: RecordingStartBlocker? = nil
+    ) throws -> CaptureSession {
         var current = try requireSession()
         guard canTransition(from: current.state, to: .failed) else {
             throw CaptureSessionControllerError.invalidTransition("Cannot fail from \(current.state.rawValue)")
@@ -214,6 +239,8 @@ public final class CaptureSessionController {
         current.stoppedAt = clock()
         current.visibleIndicatorState = .error
         current.stopActionAvailable = false
+        current.stopReason = stopReason
+        current.failureCategory = failureCategory
         session = current
         return current
     }

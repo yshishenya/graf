@@ -18,9 +18,9 @@
 
 **Purpose**: Add feature evidence scaffolding and validation entry points.
 
-- [ ] T001 Create manual recording smoke evidence document in `tests/macos/browser-meetings/manual-recording-smoke.md`.
-- [ ] T002 Create QA gate document in `qa/macos/capture-session-indicator.md`.
-- [ ] T003 Add capture-session validation script shell in `apps/macos/Scripts/validate-capture-session-indicator.sh`.
+- [X] T001 Create manual recording smoke evidence document in `tests/macos/browser-meetings/manual-recording-smoke.md`.
+- [X] T002 Create QA gate document in `qa/macos/capture-session-indicator.md`.
+- [X] T003 Add capture-session validation script shell in `apps/macos/Scripts/validate-capture-session-indicator.sh`.
 
 ---
 
@@ -28,11 +28,11 @@
 
 **Purpose**: Add shared model and contract support required by all recording stories.
 
-- [ ] T004 [P] Add recording prerequisite states and failure categories in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
-- [ ] T005 [P] Extend capture session and add recording evidence models in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
-- [ ] T006 [P] Add recording audit event names in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
-- [ ] T007 Add contract validation fixtures for recording evidence in `tests/macos/contract/recording-session-evidence.json`.
-- [ ] T008 Update contract validation checks for recording evidence in `apps/macos/Shared/Tools/ContractValidation/main.swift`.
+- [X] T004 [P] Add recording prerequisite states and failure categories in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
+- [X] T005 [P] Extend capture session and add recording evidence models in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
+- [X] T006 [P] Add recording audit event names in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
+- [X] T007 Add contract validation fixtures for recording evidence in `tests/macos/contract/recording-session-evidence.json`.
+- [X] T008 Update contract validation checks for recording evidence in `apps/macos/Shared/Tools/ContractValidation/main.swift`.
 
 **Checkpoint**: Shared model layer can represent manual recording lifecycle, blockers, indicator state, and metadata-only evidence.
 
@@ -46,16 +46,16 @@
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Add start/stop transition tests in `apps/macos/Shared/Tests/CaptureControlTests.swift`.
-- [ ] T010 [P] [US1] Add prerequisite gate tests in `apps/macos/Shared/Tests/RecordingPrerequisiteGateTests.swift`.
+- [X] T009 [P] [US1] Add start/stop transition tests in `apps/macos/Shared/Tests/CaptureControlTests.swift`.
+- [X] T010 [P] [US1] Add prerequisite gate tests in `apps/macos/Shared/Tests/RecordingPrerequisiteGateTests.swift`.
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement recording prerequisite gate in `apps/macos/RecApp/Sources/Capture/RecordingPrerequisiteGate.swift`.
-- [ ] T012 [US1] Extend capture session controller with manual start/stop blocker handling in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`.
-- [ ] T013 [US1] Wire Record/Stop controls into the app shell in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
-- [ ] T014 [US1] Update capture control view for Record, Stop, blocked, starting, active, stopping, and stopped states in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
-- [ ] T015 [US1] Preserve non-recording passthrough after stop in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift` or document no code change in `qa/macos/capture-session-indicator.md`.
+- [X] T011 [US1] Implement recording prerequisite gate in `apps/macos/RecApp/Sources/Capture/RecordingPrerequisiteGate.swift`.
+- [X] T012 [US1] Extend capture session controller with manual start/stop blocker handling in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`.
+- [X] T013 [US1] Wire Record/Stop controls into the app shell in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T014 [US1] Update capture control view for Record, Stop, blocked, starting, active, stopping, and stopped states in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
+- [X] T015 [US1] Preserve non-recording passthrough after stop in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift` or document no code change in `qa/macos/capture-session-indicator.md`.
 
 **Checkpoint**: Manual start and one-action stop work locally without upload, transcription, MediaScribe, Langfuse, or dashboard activity.
 
@@ -69,15 +69,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Add visible indicator safety tests in `apps/macos/Shared/Tests/CaptureSessionSafetyTests.swift`.
-- [ ] T017 [P] [US2] Add capture status item accessibility/label tests in `apps/macos/Shared/Tests/CaptureIndicatorTests.swift`.
+- [X] T016 [P] [US2] Add visible indicator safety tests in `apps/macos/Shared/Tests/CaptureSessionSafetyTests.swift`.
+- [X] T017 [P] [US2] Add capture status item accessibility/label tests in `apps/macos/Shared/Tests/CaptureIndicatorTests.swift`.
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Strengthen active-state visible stop validation in `apps/macos/Shared/Sources/Models/CaptureSessionSafetyValidator.swift`.
-- [ ] T019 [US2] Update capture status item copy, icons, accessibility labels, and stop affordance in `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift`.
-- [ ] T020 [US2] Add fail-closed handling for visible-indicator loss in `apps/macos/RecApp/Sources/Capture/CaptureRecoveryService.swift`.
-- [ ] T021 [US2] Surface persistent capture status in the app layout in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T018 [US2] Strengthen active-state visible stop validation in `apps/macos/Shared/Sources/Models/CaptureSessionSafetyValidator.swift`.
+- [X] T019 [US2] Update capture status item copy, icons, accessibility labels, and stop affordance in `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift`.
+- [X] T020 [US2] Add fail-closed handling for visible-indicator loss in `apps/macos/RecApp/Sources/Capture/CaptureRecoveryService.swift`.
+- [X] T021 [US2] Surface persistent capture status in the app layout in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
 
 **Checkpoint**: Active recording cannot continue with hidden/unavailable visible indicators.
 
@@ -91,15 +91,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T022 [P] [US3] Add recording evidence model tests in `apps/macos/Shared/Tests/RecordingEvidenceTests.swift`.
-- [ ] T023 [P] [US3] Extend diagnostic redaction tests for recording evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
+- [X] T022 [P] [US3] Add recording evidence model tests in `apps/macos/Shared/Tests/RecordingEvidenceTests.swift`.
+- [X] T023 [P] [US3] Extend diagnostic redaction tests for recording evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] Implement recording evidence service in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`.
-- [ ] T025 [US3] Add recording evidence diagnostic bundle support in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T026 [US3] Emit recording lifecycle evidence from controller/app actions in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift` and `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
-- [ ] T027 [US3] Update diagnostic redactor allowlist for safe recording evidence fields in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
+- [X] T024 [US3] Implement recording evidence service in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`.
+- [X] T025 [US3] Add recording evidence diagnostic bundle support in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T026 [US3] Emit recording lifecycle evidence from controller/app actions in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift` and `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T027 [US3] Update diagnostic redactor allowlist for safe recording evidence fields in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
 
 **Checkpoint**: Recording evidence is complete enough for QA and remains metadata-only.
 
@@ -113,14 +113,14 @@
 
 ### Tests for User Story 4
 
-- [ ] T028 [P] [US4] Add blocked-start tests for policy, route, storage, permission, and indicator prerequisites in `apps/macos/Shared/Tests/RecordingPrerequisiteGateTests.swift`.
-- [ ] T029 [P] [US4] Add blocked-start diagnostic bundle tests in `apps/macos/Shared/Tests/RecordingEvidenceTests.swift`.
+- [X] T028 [P] [US4] Add blocked-start tests for policy, route, storage, permission, and indicator prerequisites in `apps/macos/Shared/Tests/RecordingPrerequisiteGateTests.swift`.
+- [X] T029 [P] [US4] Add blocked-start diagnostic bundle tests in `apps/macos/Shared/Tests/RecordingEvidenceTests.swift`.
 
 ### Implementation for User Story 4
 
-- [ ] T030 [US4] Connect route, policy, permission, storage, and indicator prerequisite snapshot inputs in `apps/macos/RecApp/Sources/Capture/RecordingPrerequisiteGate.swift`.
-- [ ] T031 [US4] Add blocked-start user-facing copy and recovery actions in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
-- [ ] T032 [US4] Record blocked-start audit/evidence events in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`.
+- [X] T030 [US4] Connect route, policy, permission, storage, and indicator prerequisite snapshot inputs in `apps/macos/RecApp/Sources/Capture/RecordingPrerequisiteGate.swift`.
+- [X] T031 [US4] Add blocked-start user-facing copy and recovery actions in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
+- [X] T032 [US4] Record blocked-start audit/evidence events in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`.
 
 **Checkpoint**: No invalid route/policy/permission/storage/indicator case can start recording.
 
@@ -130,13 +130,13 @@
 
 **Purpose**: Validate the complete 007 feature and update evidence.
 
-- [ ] T033 Run Swift package tests and record result in `qa/macos/capture-session-indicator.md`.
-- [ ] T034 Run contract validation and record result in `qa/macos/capture-session-indicator.md`.
-- [ ] T035 Run realtime safety scan and record result in `qa/macos/capture-session-indicator.md`.
-- [ ] T036 Run `apps/macos/Scripts/validate-capture-session-indicator.sh` and record result in `qa/macos/capture-session-indicator.md`.
-- [ ] T037 Update release-candidate checklist with 007 status in `qa/macos/release-candidate-checklist.md`.
-- [ ] T038 Verify diagnostics contain no raw audio, transcript text, meeting content, credentials, tokens, signed URLs, passwords, or live secret paths across `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/007-capture-session-indicator/`.
-- [ ] T039 Mark completed tasks in `specs/007-capture-session-indicator/tasks.md`.
+- [X] T033 Run Swift package tests and record result in `qa/macos/capture-session-indicator.md`.
+- [X] T034 Run contract validation and record result in `qa/macos/capture-session-indicator.md`.
+- [X] T035 Run realtime safety scan and record result in `qa/macos/capture-session-indicator.md`.
+- [X] T036 Run `apps/macos/Scripts/validate-capture-session-indicator.sh` and record result in `qa/macos/capture-session-indicator.md`.
+- [X] T037 Update release-candidate checklist with 007 status in `qa/macos/release-candidate-checklist.md`.
+- [X] T038 Verify diagnostics contain no raw audio, transcript text, meeting content, credentials, tokens, signed URLs, passwords, or live secret paths across `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/007-capture-session-indicator/`.
+- [X] T039 Mark completed tasks in `specs/007-capture-session-indicator/tasks.md`.
 
 ---
 

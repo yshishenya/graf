@@ -2,6 +2,16 @@
 
 ## Passthrough Release Hardening Evidence (005)
 
+- [x] Manual capture session and visible indicator feature `007` has automated
+  local gates passing for manual Record/Stop, visible indicator safety,
+  blocked-start prerequisites, metadata-only evidence, diagnostics redaction,
+  contract validation, and realtime callback safety.
+- [x] Feature `007` remains scoped to local manual recording lifecycle only:
+  no upload, transcription, MediaScribe, Langfuse, dashboard publication,
+  retention, deletion, or assisted auto-start acceptance is claimed.
+- [ ] Feature `007` manual browser smoke remains pending for Yandex Telemost,
+  Chrome, Opera, and Zoom before recording release acceptance.
+
 - [x] Low-resource promotion for `006-low-resource-audio` uses a complete P1
   gate bundle before default enablement; any missing, blocked, or failed P1
   gate records `fallback` to `005-macos-passthrough-release-hardening`.

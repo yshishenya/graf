@@ -48,6 +48,14 @@ struct LowResourceRouteTruthFixtureFile: Decodable {
     let forbiddenFields: [String]
 }
 
+struct RecordingSessionEvidenceFixtureFile: Decodable {
+    let schema: String
+    let requiredEventTypes: [String]
+    let requiredFields: [String]
+    let forbiddenFields: [String]
+    let forbiddenExternalActivity: [String]
+}
+
 func findRepositoryRoot(startingAt startURL: URL) throws -> URL {
     var candidate = startURL.standardizedFileURL
 
@@ -333,6 +341,63 @@ func validateLowResourceFixtures() throws {
     )
 }
 
+func validateRecordingSessionEvidenceFixture() throws {
+    let url = repositoryRoot.appendingPathComponent("tests/macos/contract/recording-session-evidence.json")
+    let fixture = try decode(RecordingSessionEvidenceFixtureFile.self, from: url)
+
+    try require(
+        fixture.schema == "recording-session-evidence-v1",
+        "Recording session evidence fixture must use v1 schema"
+    )
+    try require(
+        Set(fixture.requiredEventTypes).isSuperset(of: [
+            RecordingEvidenceEventType.startRequested.rawValue,
+            RecordingEvidenceEventType.startBlocked.rawValue,
+            RecordingEvidenceEventType.started.rawValue,
+            RecordingEvidenceEventType.stopRequested.rawValue,
+            RecordingEvidenceEventType.stopped.rawValue,
+            RecordingEvidenceEventType.failed.rawValue,
+            RecordingEvidenceEventType.indicatorLost.rawValue,
+            RecordingEvidenceEventType.routeInvalidated.rawValue,
+            RecordingEvidenceEventType.storageBlocked.rawValue
+        ]),
+        "Recording evidence fixture must require all lifecycle and fail-closed events"
+    )
+    try require(
+        Set(fixture.requiredFields).isSuperset(of: [
+            "sessionId",
+            "eventType",
+            "occurredAt",
+            "initiator",
+            "routeState",
+            "indicatorState",
+            "stopActionAvailable",
+            "blockedReason",
+            "recoveryAction",
+            "diagnosticSafe"
+        ]),
+        "Recording evidence fixture must require safe lifecycle fields"
+    )
+    try require(
+        Set(fixture.forbiddenFields).isSuperset(of: [
+            "rawAudio",
+            "transcriptText",
+            "meetingContent",
+            "credentials",
+            "tokens",
+            "signedUrls",
+            "password",
+            "mediaScribeCredentials",
+            "langfuseContentTrace"
+        ]),
+        "Recording evidence fixture must forbid raw content, secrets, and external trace content"
+    )
+    try require(
+        Set(fixture.forbiddenExternalActivity) == ["upload", "mediascribe", "langfuse", "dashboard_publish"],
+        "Recording evidence fixture must forbid external activity in this slice"
+    )
+}
+
 func validatePlatformGate() throws {
     let minimum = OperatingSystemVersion(majorVersion: 14, minorVersion: 5, patchVersion: 0)
     try require(
@@ -414,6 +479,7 @@ do {
     try validateDiagnosticForbiddenFixtures()
     try validateReleaseHardeningFixtures()
     try validateLowResourceFixtures()
+    try validateRecordingSessionEvidenceFixture()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()

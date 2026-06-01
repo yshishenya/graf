@@ -631,6 +631,8 @@ public struct CaptureSession: Codable, Equatable, Sendable {
     public var bufferSummaryId: String?
     public var startedAt: Date?
     public var stoppedAt: Date?
+    public var stopReason: RecordingStopReason?
+    public var failureCategory: RecordingStartBlocker?
 
     public init(
         id: String,
@@ -643,7 +645,9 @@ public struct CaptureSession: Codable, Equatable, Sendable {
         stopActionAvailable: Bool,
         bufferSummaryId: String?,
         startedAt: Date?,
-        stoppedAt: Date?
+        stoppedAt: Date?,
+        stopReason: RecordingStopReason? = nil,
+        failureCategory: RecordingStartBlocker? = nil
     ) {
         self.id = id
         self.mode = mode
@@ -656,6 +660,133 @@ public struct CaptureSession: Codable, Equatable, Sendable {
         self.bufferSummaryId = bufferSummaryId
         self.startedAt = startedAt
         self.stoppedAt = stoppedAt
+        self.stopReason = stopReason
+        self.failureCategory = failureCategory
+    }
+}
+
+public struct RecordingPrerequisiteSnapshot: Codable, Equatable, Sendable {
+    public var routeState: LivePassthroughStatus
+    public var routeEvidenceKind: RecordingRouteEvidenceKind
+    public var policyAllowsRecording: Bool
+    public var microphonePermissionGranted: Bool
+    public var storageRisk: LocalBufferRiskState
+    public var indicatorAvailable: Bool
+    public var sourceAppEligibility: SourceAppEligibility
+    public var blockedReason: RecordingStartBlocker
+    public var recoveryAction: String?
+    public var evaluatedAt: Date
+
+    public init(
+        routeState: LivePassthroughStatus,
+        routeEvidenceKind: RecordingRouteEvidenceKind,
+        policyAllowsRecording: Bool,
+        microphonePermissionGranted: Bool,
+        storageRisk: LocalBufferRiskState,
+        indicatorAvailable: Bool,
+        sourceAppEligibility: SourceAppEligibility,
+        blockedReason: RecordingStartBlocker = .none,
+        recoveryAction: String? = nil,
+        evaluatedAt: Date
+    ) {
+        self.routeState = routeState
+        self.routeEvidenceKind = routeEvidenceKind
+        self.policyAllowsRecording = policyAllowsRecording
+        self.microphonePermissionGranted = microphonePermissionGranted
+        self.storageRisk = storageRisk
+        self.indicatorAvailable = indicatorAvailable
+        self.sourceAppEligibility = sourceAppEligibility
+        self.blockedReason = blockedReason
+        self.recoveryAction = recoveryAction
+        self.evaluatedAt = evaluatedAt
+    }
+
+    public var allowsRecording: Bool {
+        blockedReason == .none &&
+            [.ready, .active].contains(routeState) &&
+            routeEvidenceKind != .publicationOnly &&
+            routeEvidenceKind != .stale &&
+            routeEvidenceKind != .unknown &&
+            policyAllowsRecording &&
+            microphonePermissionGranted &&
+            storageRisk == .healthy &&
+            indicatorAvailable &&
+            sourceAppEligibility == .eligible
+    }
+}
+
+public struct CaptureIndicatorSnapshot: Codable, Equatable, Sendable {
+    public var surface: String
+    public var state: VisibleIndicatorState
+    public var visible: Bool
+    public var stopActionAvailable: Bool
+    public var accessibilityLabel: String
+    public var lastVerifiedAt: Date
+
+    public init(
+        surface: String,
+        state: VisibleIndicatorState,
+        visible: Bool,
+        stopActionAvailable: Bool,
+        accessibilityLabel: String,
+        lastVerifiedAt: Date
+    ) {
+        self.surface = surface
+        self.state = state
+        self.visible = visible
+        self.stopActionAvailable = stopActionAvailable
+        self.accessibilityLabel = accessibilityLabel
+        self.lastVerifiedAt = lastVerifiedAt
+    }
+
+    public var satisfiesActiveRecordingRequirement: Bool {
+        visible &&
+            state != .hidden &&
+            stopActionAvailable &&
+            !accessibilityLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+public struct RecordingEvidenceEvent: Codable, Equatable, Sendable {
+    public var eventId: String
+    public var sessionId: String
+    public var eventType: RecordingEvidenceEventType
+    public var occurredAt: Date
+    public var initiator: RecordingEvidenceInitiator
+    public var routeState: LivePassthroughStatus
+    public var indicatorState: VisibleIndicatorState
+    public var stopActionAvailable: Bool
+    public var blockedReason: RecordingStartBlocker
+    public var recoveryAction: String?
+    public var durationMs: Int?
+    public var diagnosticSafe: Bool
+
+    public init(
+        eventId: String,
+        sessionId: String,
+        eventType: RecordingEvidenceEventType,
+        occurredAt: Date,
+        initiator: RecordingEvidenceInitiator,
+        routeState: LivePassthroughStatus,
+        indicatorState: VisibleIndicatorState,
+        stopActionAvailable: Bool,
+        blockedReason: RecordingStartBlocker = .none,
+        recoveryAction: String? = nil,
+        durationMs: Int? = nil,
+        diagnosticSafe: Bool = true
+    ) {
+        self.eventId = eventId
+        self.sessionId = sessionId
+        self.eventType = eventType
+        self.occurredAt = occurredAt
+        self.initiator = initiator
+        self.routeState = routeState
+        self.indicatorState = indicatorState
+        self.stopActionAvailable = stopActionAvailable
+        self.blockedReason = blockedReason
+        self.recoveryAction = recoveryAction
+        self.durationMs = durationMs
+        self.diagnosticSafe = diagnosticSafe
     }
 }
 

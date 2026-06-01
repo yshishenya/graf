@@ -1,0 +1,45 @@
+{
+  "schema": "recording-session-evidence-v1",
+  "requiredEventTypes": [
+    "recording.start_requested",
+    "recording.start_blocked",
+    "recording.started",
+    "recording.stop_requested",
+    "recording.stopped",
+    "recording.failed",
+    "recording.indicator_lost",
+    "recording.route_invalidated",
+    "recording.storage_blocked"
+  ],
+  "requiredFields": [
+    "sessionId",
+    "eventType",
+    "occurredAt",
+    "initiator",
+    "routeState",
+    "indicatorState",
+    "stopActionAvailable",
+    "blockedReason",
+    "recoveryAction",
+    "diagnosticSafe"
+  ],
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "apiKey",
+    "tokens",
+    "signedUrls",
+    "password",
+    "mediaScribeCredentials",
+    "langfuseContentTrace"
+  ],
+  "forbiddenExternalActivity": [
+    "upload",
+    "mediascribe",
+    "langfuse",
+    "dashboard_publish"
+  ]
+}

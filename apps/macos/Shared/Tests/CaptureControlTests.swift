@@ -23,6 +23,47 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(active.stopActionAvailable)
     }
 
+    func testManualStopMovesActiveSessionToStoppedWithReason() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 20) },
+            idFactory: { "capture-stop-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        _ = try controller.markCapturing()
+        let stopping = try controller.requestStop(reason: .userRequested)
+        let stopped = try controller.completeStop()
+
+        XCTAssertEqual(stopping.state, .stopping)
+        XCTAssertTrue(stopping.stopActionAvailable)
+        XCTAssertEqual(stopped.state, .stopped)
+        XCTAssertEqual(stopped.stopReason, .userRequested)
+        XCTAssertFalse(stopped.stopActionAvailable)
+    }
+
+    func testBlockedManualStartRecordsFailureCategory() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 30) },
+            idFactory: { "capture-blocked-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        let blocked = try controller.blockStart(
+            reason: .routeNotReady,
+            recoveryAction: "Recheck audio route before recording"
+        )
+
+        XCTAssertEqual(blocked.state, .failed)
+        XCTAssertEqual(blocked.failureCategory, .routeNotReady)
+        XCTAssertEqual(blocked.triggerEvidence["blockedReason"], "route_not_ready")
+        XCTAssertEqual(blocked.triggerEvidence["recoveryAction"], "Recheck audio route before recording")
+        XCTAssertFalse(blocked.stopActionAvailable)
+    }
+
     func testTrackEvidenceUsesCurrentSession() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 10) },

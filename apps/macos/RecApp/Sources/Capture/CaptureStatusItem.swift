@@ -34,7 +34,7 @@ public struct CaptureStatusItem: View {
             HStack(spacing: 8) {
                 Image(systemName: iconName(for: session.visibleIndicatorState))
                     .foregroundStyle(color(for: session.visibleIndicatorState))
-                Text(label(for: session.mode, state: session.state))
+                Text(Self.statusLabel(for: session))
                     .font(.caption)
                     .lineLimit(1)
             }
@@ -52,6 +52,8 @@ public struct CaptureStatusItem: View {
             }
         }
         .padding(8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Self.accessibilityLabel(for: session))
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(.thickMaterial)
@@ -91,18 +93,41 @@ public struct CaptureStatusItem: View {
         }
     }
 
-    private func label(for mode: CaptureMode, state: CaptureSessionState) -> String {
-        switch state {
+    public static func statusLabel(for session: CaptureSession) -> String {
+        switch session.state {
+        case .idle:
+            return "Recording idle"
+        case .detecting:
+            return "Checking recording readiness"
+        case .ready:
+            return "Ready to record"
+        case .starting:
+            return "Recording starting"
         case .active:
-            return "\(mode.rawValue.replacingOccurrences(of: "_", with: " ")) active"
+            return "Recording active"
         case .paused:
-            return "\(mode.rawValue.replacingOccurrences(of: "_", with: " ")) paused"
+            return "Recording paused"
         case .degraded:
-            return "\(mode.rawValue.replacingOccurrences(of: "_", with: " ")) degraded"
-        case .ready, .detecting:
-            return "Ready to capture"
-        default:
-            return mode.rawValue.replacingOccurrences(of: "_", with: " ")
+            return "Recording degraded"
+        case .stopping:
+            return "Recording stopping"
+        case .stopped:
+            return "Recording stopped"
+        case .failed:
+            return "Recording failed"
+        case .finalized:
+            return "Recording finalized"
         }
+    }
+
+    public static func accessibilityLabel(for session: CaptureSession) -> String {
+        let prefix = statusLabel(for: session)
+        if session.stopActionAvailable {
+            return "\(prefix). Stop recording is available."
+        }
+        if session.state == .idle || session.state == .detecting || session.state == .ready {
+            return "\(prefix). Recording is not active."
+        }
+        return prefix
     }
 }
