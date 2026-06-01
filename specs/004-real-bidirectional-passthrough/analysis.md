@@ -35,8 +35,8 @@ must not be used as substitutes for those acceptance gates.
 | Ring buffer writer must not mutate reader index and must reject overflow all-or-nothing | Yes | T069, T070, T071, T072 | Covered by Swift compatibility tests and C++ proof vectors. |
 | Default app launch may autostart only non-recording app-side bridge/heartbeat, with virtual devices non-running until client I/O | Yes | T068, T073, T074, T077, T078, T079, T083, T084 | Covered by `default-passthrough-disabled-check.sh` and runtime probe `--expect-default-safe`. |
 | Runtime probe distinguishes publication/default/non-running/visible-alive surface states | Yes | T078, T079 | Covered by runtime probe modes; documented as surface-only evidence, not final fail-closed or live-route acceptance. |
-| Synthetic checks cannot count as physical/browser acceptance | Yes | T079, T081, T063, T064 | Documented; physical/browser tasks remain pending. |
-| Final physical microphone/speaker/browser acceptance | Yes | T063, T064 | Pending by design until measured live-route implementation and evidence exist. |
+| Synthetic checks cannot count as physical/browser acceptance | Yes | T079, T081, T063, T064 | Documented; synthetic proof remains separate from manual physical/browser smoke evidence. |
+| Final physical microphone/speaker/browser acceptance | Yes | T063, T064, T085 | Accepted for the current manual smoke scope; broader release hardening remains a non-blocking follow-up. |
 | Diagnostics redaction | Yes | T065 | Completed after package/runtime proof update; matches were policy/fixture forbidden-field strings only. |
 
 ## Validation Evidence
