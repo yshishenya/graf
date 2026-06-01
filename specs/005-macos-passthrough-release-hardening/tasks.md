@@ -157,19 +157,19 @@
 
 ### Tests for User Story 5
 
-- [ ] T060 [P] [US5] Add UX readiness evidence tests in `apps/macos/Shared/Tests/UXReadinessEvidenceTests.swift`.
-- [ ] T061 [P] [US5] Extend diagnostic redaction tests for release-hardening evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
-- [ ] T062 [P] [US5] Add non-recording copy review checklist in `qa/macos/non-recording-passthrough-ux.md`.
-- [ ] T063 [P] [US5] Add diagnostics forbidden-field fixture coverage in `tests/macos/contract/diagnostic-forbidden-fields.json`.
+- [X] T060 [P] [US5] Add UX readiness evidence tests in `apps/macos/Shared/Tests/UXReadinessEvidenceTests.swift`.
+- [X] T061 [P] [US5] Extend diagnostic redaction tests for release-hardening evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
+- [X] T062 [P] [US5] Add non-recording copy review checklist in `qa/macos/non-recording-passthrough-ux.md`.
+- [X] T063 [P] [US5] Add diagnostics forbidden-field fixture coverage in `tests/macos/contract/diagnostic-forbidden-fields.json`.
 
 ### Implementation for User Story 5
 
-- [ ] T064 [US5] Update non-recording passthrough status copy in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
-- [ ] T065 [US5] Update readiness and repair action copy in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
-- [ ] T066 [US5] Ensure visibility-only device publication cannot render ready UI in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
-- [ ] T067 [US5] Add UX readiness evidence fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
-- [ ] T068 [US5] Add diagnostics redaction scan command to `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
-- [ ] T069 [US5] Update `qa/macos/driver-gate-approval.md` with non-recording UX and diagnostics acceptance gates.
+- [X] T064 [US5] Update non-recording passthrough status copy in `apps/macos/RecApp/Sources/AudioHealth/AudioHealthView.swift`.
+- [X] T065 [US5] Update readiness and repair action copy in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift`.
+- [X] T066 [US5] Ensure visibility-only device publication cannot render ready UI in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`.
+- [X] T067 [US5] Add UX readiness evidence fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
+- [X] T068 [US5] Add diagnostics redaction scan command to `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
+- [X] T069 [US5] Update `qa/macos/driver-gate-approval.md` with non-recording UX and diagnostics acceptance gates.
 
 **Checkpoint**: US5 is independently testable through UI evidence review and diagnostics redaction scans.
 

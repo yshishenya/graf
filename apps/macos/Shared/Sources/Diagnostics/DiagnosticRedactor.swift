@@ -21,6 +21,7 @@ public struct DiagnosticRedactor: Sendable {
         "rawAudio",
         "audioSnippet",
         "transcriptText",
+        "meetingContent",
         "meetingNotes",
         "mediaScribeApiKey",
         "apiKey",
@@ -29,6 +30,9 @@ public struct DiagnosticRedactor: Sendable {
         "refreshToken",
         "deviceToken",
         "signedUrl",
+        "signed_url",
+        "signedUrls",
+        "token",
         "temporaryUploadUrl",
         "temporaryDownloadUrl"
     ]

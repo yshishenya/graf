@@ -75,7 +75,7 @@ does not require hidden manual cleanup.
 
 ```sh
 swift test --package-path apps/macos --disable-swift-testing --filter DiagnosticRedactionTests
-rg -n "(BEGIN (RSA|OPENSSH|PRIVATE) KEY|AKIA[0-9A-Z]{16}|xox[baprs]-|ghp_|sk-|signed_url|signedUrl|token=|password=)" apps/macos tests/macos qa/macos specs/005-macos-passthrough-release-hardening || true
+rg -n "(BEGIN (RSA|OPENSSH|PRIVATE) KEY|AKIA[0-9A-Z]{16}|xox[baprs]-|ghp_|sk-[A-Za-z0-9]{20,}|signed_url|signedUrl|token=|password=)" apps/macos tests/macos qa/macos specs/005-macos-passthrough-release-hardening || true
 ```
 
 Expected result: tests pass; scan results are policy text or deliberate fixture

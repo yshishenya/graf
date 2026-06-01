@@ -18,6 +18,8 @@ driver slice.
 | Repair | Repair script restores driver publication and route state | Accepted by script review; privileged repair rehearsal pending |
 | Uninstall | Uninstall removes driver artifacts and reports manual cleanup | Accepted by script review; destructive uninstall rehearsal pending |
 | Passthrough failure | App I/O loss fails closed and recovers only after revalidation | Synthetic model accepted; real app kill/crash/relaunch evidence pending |
+| Non-recording UX | Ready/active passthrough copy must not imply recording, transcription, or capture | 005 copy review checklist added; screenshots/manual review pending |
+| Diagnostics redaction | Release-hardening evidence must be metadata-only | Contract tests and scan command added; full artifact scan required before final acceptance |
 | QA matrix | Browser, physical-device, Bluetooth, and installer scenarios listed | Listed; browser/backend/Bluetooth physical pilots pending |
 
 ## Evidence Recorded 2026-05-31
@@ -137,3 +139,5 @@ feature release-ready until these pending items are completed:
 - Bluetooth/AirPods managed-route pilot proof;
 - privileged repair, rollback, and uninstall rehearsals on a disposable local
   install.
+- non-recording passthrough UX screenshot review for ready, active, stale,
+  degraded, failed, blocked, repair, and recheck states.
