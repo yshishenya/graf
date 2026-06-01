@@ -573,6 +573,20 @@ virtual devices with the app-side bridge active. It does **not** replace the
 browser meeting matrix: Chrome, Opera, Yandex Browser, Google Meet, and Yandex
 Telemost still require physical/browser acceptance runs after this fix.
 
+Browser/Telemost local self-test follow-up on 2026-06-01:
+
+- After pressing `Run Check`, the installed app started explicit live
+  passthrough readiness.
+- The browser and Telemost built-in audio tests recorded the user's microphone
+  and played the recorded voice back.
+- The user heard their recorded voice, confirming that the mic and speaker paths
+  work for local browser/Telemost audio self-tests after readiness is started.
+
+This updates the status from **ready for browser re-test** to **local
+browser/Telemost self-test accepted**. Full meeting acceptance remains pending
+until a controlled call verifies remote-side local speech, remote audio
+playback, and no remote-to-mic loopback.
+
 Validation commands executed:
 
 ```text

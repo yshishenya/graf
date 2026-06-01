@@ -104,6 +104,24 @@ not change any target below to `Passed`. The next browser run must explicitly
 record local speech usability and remote audio usability after selecting
 `2brain Rec Microphone` and `2brain Rec Speaker`.
 
+## 004 Browser Local Self-Test Evidence 2026-06-01
+
+After pressing `Run Check` in the installed 2brain Rec app, the user confirmed
+that browser and Telemost local audio tests became usable. The tested flow was:
+
+- the app started explicit live passthrough readiness;
+- the browser/Telemost test recorded audio through the selected microphone path;
+- the test played the recorded voice back through the selected speaker path;
+- the user heard the recorded voice.
+
+Status: **local browser/Telemost self-test accepted after explicit `Run Check`**.
+
+This is stronger than HAL publication or synthetic proof because it exercises a
+real browser/Telemost audio test after the app starts passthrough. It is still
+not full browser meeting acceptance: a controlled call with a remote/control
+side must still confirm that local speech reaches the other side, remote audio
+is heard locally, and remote audio does not leak into `2brain Rec Microphone`.
+
 ## Per-Target Steps
 
 - [ ] Join a meeting with one local speaker and at least one remote speaker.
