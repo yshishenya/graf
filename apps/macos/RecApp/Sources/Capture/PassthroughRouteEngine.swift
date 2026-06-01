@@ -74,27 +74,13 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
                 return stateStorage
             }
 
-            if activityDetector.anyExpectedVirtualDeviceRunning() {
-                return startRouteLocked(
-                    selectedPhysicalInputId: selectedPhysicalInputId,
-                    selectedPhysicalOutputId: selectedPhysicalOutputId,
-                    reason: "automatic app launch with active virtual device client",
-                    startedDetail: "automatic non-recording route engine active",
-                    logger: logger
-                )
-            }
-
-            stateStorage = .armed
-            logger(
-                "passthrough_bridge_armed",
-                "automatic non-recording route engine waiting for virtual device client"
-            )
-            startAutomaticStartTimer(
+            return startRouteLocked(
                 selectedPhysicalInputId: selectedPhysicalInputId,
                 selectedPhysicalOutputId: selectedPhysicalOutputId,
+                reason: "automatic app launch",
+                startedDetail: "automatic non-recording route engine active",
                 logger: logger
             )
-            return stateStorage
         }
     }
 
@@ -221,21 +207,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         stopHeartbeatTimer()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
-        timer.setEventHandler { [weak self, weak bridge] in
-            guard let self else { return }
-            guard self.activityDetector.anyExpectedVirtualDeviceRunning() else {
-                bridge?.stop()
-                self.bridge = nil
-                self.sharedMemory?.clearAppHeartbeat()
-                self.stateStorage = .armed
-                self.stopHeartbeatTimer()
-                self.startAutomaticStartTimer(
-                    selectedPhysicalInputId: nil,
-                    selectedPhysicalOutputId: nil,
-                    logger: { _, _ in }
-                )
-                return
-            }
+        timer.setEventHandler { [weak bridge] in
             bridge?.refreshAppIOHeartbeat()
         }
         heartbeatTimer = timer
