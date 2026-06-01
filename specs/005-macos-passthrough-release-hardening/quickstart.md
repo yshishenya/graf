@@ -86,4 +86,5 @@ recording/transcription/capture.
 
 Do not require long-duration recorded call replay in this slice. Create or
 update the future checklist that will become mandatory after local recording
-exists.
+exists. The current slice may pass only when the future checklist is explicitly
+blocked until local recording, retention, and deletion rules exist.

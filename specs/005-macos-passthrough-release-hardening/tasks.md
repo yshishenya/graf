@@ -183,15 +183,15 @@
 
 ### Tests for User Story 6
 
-- [ ] T070 [P] [US6] Add deferred recording acceptance tests in `apps/macos/Shared/Tests/DeferredRecordingAcceptanceTests.swift`.
-- [ ] T071 [P] [US6] Add deferred acceptance contract fixture in `tests/macos/contract/deferred-recording-acceptance.json`.
+- [X] T070 [P] [US6] Add deferred recording acceptance tests in `apps/macos/Shared/Tests/DeferredRecordingAcceptanceTests.swift`.
+- [X] T071 [P] [US6] Add deferred acceptance contract fixture in `tests/macos/contract/deferred-recording-acceptance.json`.
 
 ### Implementation for User Story 6
 
-- [ ] T072 [US6] Complete future recording-assisted checklist in `qa/macos/recording-assisted-acceptance.md`.
-- [ ] T073 [US6] Add deferred recording gate state to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
-- [ ] T074 [US6] Update `specs/005-macos-passthrough-release-hardening/quickstart.md` with the blocked-until-recording rule after implementation details settle.
-- [ ] T075 [US6] Update `qa/macos/release-candidate-checklist.md` so long-duration replay is visible as a future gate, not a current blocker.
+- [X] T072 [US6] Complete future recording-assisted checklist in `qa/macos/recording-assisted-acceptance.md`.
+- [X] T073 [US6] Add deferred recording gate state to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
+- [X] T074 [US6] Update `specs/005-macos-passthrough-release-hardening/quickstart.md` with the blocked-until-recording rule after implementation details settle.
+- [X] T075 [US6] Update `qa/macos/release-candidate-checklist.md` so long-duration replay is visible as a future gate, not a current blocker.
 
 **Checkpoint**: US6 is independently testable as documentation/model coverage without creating recording artifacts.
 

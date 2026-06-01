@@ -26,3 +26,7 @@ content-review rules.
 
 - [x] 005 pre-recording hardening may reference this checklist but must not
   require recording-derived evidence before local recording exists.
+- [x] 005 release-hardening tasks treat this checklist as a future gate and keep
+  current long-duration replay acceptance blocked.
+- [x] Future acceptance must include retention/deletion policy before any raw or
+  recorded audio evidence is created.

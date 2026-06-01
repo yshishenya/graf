@@ -31,6 +31,8 @@
   from recording, transcription, and capture-active states.
 - [ ] Long-duration recording-assisted acceptance remains deferred until local
   recording, retention, and deletion rules exist.
+- [ ] `qa/macos/recording-assisted-acceptance.md` remains blocked and is not
+  counted as passed for the pre-recording hardening slice.
 
 ## Live Route Readiness Evidence (003)
 
