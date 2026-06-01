@@ -22,6 +22,8 @@ server-side data.
   - `blocked`: route cannot safely start within the accepted gate.
   - `failed`: route attempt failed with a recorded metadata-only reason.
   - `retrying`: a bounded retry is scheduled or user-requested.
+  - `fallback`: accepted 005 app-launch lifecycle is restored without driver
+    reinstall.
 - **State transitions**:
   - `idle_safe -> starting`: explicit client IO state opens for expected virtual
     device.

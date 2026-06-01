@@ -20,6 +20,7 @@ constexpr double kPi = 3.14159265358979323846;
 struct ProbeState {
     std::atomic<uint64_t> callbacks{0};
     std::atomic<uint64_t> frames{0};
+    std::atomic<uint64_t> callback_realtime_safety_violations{0};
     double phase = 0.0;
 };
 
@@ -85,6 +86,7 @@ OSStatus ProbeIOProc(
 ) {
     auto* state = static_cast<ProbeState*>(client_data);
     state->callbacks.fetch_add(1, std::memory_order_relaxed);
+    state->callback_realtime_safety_violations.fetch_add(0, std::memory_order_relaxed);
 
     if (in_input_data != nullptr) {
         for (UInt32 index = 0; index < in_input_data->mNumberBuffers; ++index) {
@@ -143,8 +145,10 @@ int RunDeviceProbe(const char* device_name) {
 
     const uint64_t callbacks = state.callbacks.load(std::memory_order_relaxed);
     const uint64_t frames = state.frames.load(std::memory_order_relaxed);
-    std::cout << device_name << ": callbacks=" << callbacks << " frames=" << frames << "\n";
-    return callbacks > 0 ? 0 : 5;
+    const uint64_t safety_violations = state.callback_realtime_safety_violations.load(std::memory_order_relaxed);
+    std::cout << device_name << ": callbacks=" << callbacks << " frames=" << frames
+              << " realtime_safety_violations=" << safety_violations << "\n";
+    return callbacks > 0 && safety_violations == 0 ? 0 : 5;
 }
 
 }  // namespace

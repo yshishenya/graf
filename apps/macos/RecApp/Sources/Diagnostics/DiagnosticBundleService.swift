@@ -299,6 +299,54 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildLowResourceRouteTruthBundle(
+        snapshot: RouteTruthSnapshot,
+        startupAttempts: [StartupAttemptEvidence] = [],
+        validationRun: LowResourceValidationRun? = nil,
+        recoveryEvents: [LowResourceRecoveryEvent] = []
+    ) throws -> DiagnosticBundle {
+        try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "lowResourceRouteTruth": Self.diagnosticValue(snapshot),
+                "lowResourceStartupAttempts": .array(startupAttempts.map(Self.diagnosticValue)),
+                "lowResourceValidationRun": validationRun.map(Self.diagnosticValue) ?? .null,
+                "lowResourceRecoveryEvents": .array(recoveryEvents.map(Self.diagnosticValue)),
+                "routeStatus": .string(snapshot.resourceState.rawValue),
+                "recoveryActionId": .string(snapshot.appBridgeHealth.recoveryAction)
+            ],
+            failureFamily: "low_resource_audio"
+        )
+    }
+
+    public func buildLowResourceRecoveryBundle(
+        events: [LowResourceRecoveryEvent]
+    ) throws -> DiagnosticBundle {
+        try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "lowResourceRecoveryEvents": .array(events.map(Self.diagnosticValue)),
+                "routeStatus": .string(events.last?.newState.rawValue ?? AudioResourceState.stale.rawValue),
+                "recoveryActionId": .string(events.last?.recoveryAction ?? "none")
+            ],
+            failureFamily: "low_resource_recovery"
+        )
+    }
+
+    public func buildLowResourcePromotionBundle(
+        decision: LowResourcePromotionDecision
+    ) throws -> DiagnosticBundle {
+        try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "lowResourcePromotionDecision": Self.diagnosticValue(decision),
+                "routeStatus": .string(decision.status == .promoted ? "ready" : "fallback"),
+                "recoveryActionId": .string(decision.shouldUseFallback ? "use_005_fallback" : "none")
+            ],
+            failureFamily: "low_resource_promotion"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),
@@ -392,6 +440,26 @@ public struct DiagnosticBundleService: Sendable {
         ])
     }
 
+    private static func diagnosticValue(_ event: LowResourceRecoveryEvent) -> DiagnosticFieldValue {
+        .object([
+            "trigger": .string(event.trigger.rawValue),
+            "previousState": .string(event.previousState.rawValue),
+            "newState": .string(event.newState.rawValue),
+            "detectedAt": .string(Self.formatDate(event.detectedAt)),
+            "recoveryAction": .string(event.recoveryAction),
+            "publicDeviceAvailability": .string(event.publicDeviceAvailability.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ decision: LowResourcePromotionDecision) -> DiagnosticFieldValue {
+        .object([
+            "status": .string(decision.status.rawValue),
+            "decidedAt": .string(Self.formatDate(decision.decidedAt)),
+            "reason": .string(decision.reason),
+            "fallbackBaseline": .string(decision.fallbackBaseline)
+        ])
+    }
+
     private static func diagnosticValue(_ evidence: InstallerLifecycleEvidence) -> DiagnosticFieldValue {
         .object([
             "operation": .string(evidence.operation),
@@ -420,6 +488,82 @@ public struct DiagnosticBundleService: Sendable {
             "retentionPolicyRequired": .bool(state.retentionPolicyRequired),
             "deletionPolicyRequired": .bool(state.deletionPolicyRequired),
             "result": .string(state.result.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ snapshot: RouteTruthSnapshot) -> DiagnosticFieldValue {
+        .object([
+            "snapshotId": .string(snapshot.snapshotId),
+            "recordedAt": .string(Self.formatDate(snapshot.recordedAt)),
+            "resourceState": .string(snapshot.resourceState.rawValue),
+            "result": .string(snapshot.result.rawValue),
+            "publication": .object([
+                "microphoneVisible": .bool(snapshot.publication.microphoneVisible),
+                "speakerVisible": .bool(snapshot.publication.speakerVisible),
+                "microphoneAlive": .string(snapshot.publication.microphoneAlive.map(String.init) ?? "unknown"),
+                "speakerAlive": .string(snapshot.publication.speakerAlive.map(String.init) ?? "unknown"),
+                "microphoneRunning": .string(snapshot.publication.microphoneRunning.map(String.init) ?? "unknown"),
+                "speakerRunning": .string(snapshot.publication.speakerRunning.map(String.init) ?? "unknown"),
+                "hidden": .bool(snapshot.publication.hidden),
+                "runtimeProbeResult": .string(snapshot.publication.runtimeProbeResult.rawValue)
+            ]),
+            "clientActivity": .object([
+                "microphoneClientCount": .int(snapshot.clientActivity.microphoneClientCount),
+                "speakerClientCount": .int(snapshot.clientActivity.speakerClientCount),
+                "microphoneRunning": .bool(snapshot.clientActivity.microphoneRunning),
+                "speakerRunning": .bool(snapshot.clientActivity.speakerRunning),
+                "source": .string(snapshot.clientActivity.source.rawValue),
+                "naturalSilenceAllowed": .bool(snapshot.clientActivity.naturalSilenceAllowed)
+            ]),
+            "appBridge": .object([
+                "heartbeatState": .string(snapshot.appBridgeHealth.heartbeatState.rawValue),
+                "timeoutMs": .int(snapshot.appBridgeHealth.timeoutMs),
+                "driverFailClosed": .bool(snapshot.appBridgeHealth.driverFailClosed),
+                "publicDeviceAvailability": .string(snapshot.appBridgeHealth.publicDeviceAvailability),
+                "recoveryAction": .string(snapshot.appBridgeHealth.recoveryAction)
+            ]),
+            "physicalDevices": .object([
+                "inputDeviceName": .string(snapshot.physicalDevices.inputDeviceName),
+                "outputDeviceName": .string(snapshot.physicalDevices.outputDeviceName),
+                "inputKind": .string(snapshot.physicalDevices.inputKind.rawValue),
+                "outputKind": .string(snapshot.physicalDevices.outputKind.rawValue),
+                "selectionResult": .string(snapshot.physicalDevices.selectionResult.rawValue),
+                "rejectionReason": .string(snapshot.physicalDevices.rejectionReason ?? "none")
+            ]),
+            "recordingTrigger": .object([
+                "recordingTriggerState": .string(snapshot.recordingTrigger.recordingTriggerState.rawValue),
+                "driverRecordingOwner": .bool(snapshot.recordingTrigger.driverRecordingOwner),
+                "appRecordingOwner": .bool(snapshot.recordingTrigger.appRecordingOwner),
+                "recordingArtifactsCreated": .bool(snapshot.recordingTrigger.recordingArtifactsCreated),
+                "externalEgressStarted": .bool(snapshot.recordingTrigger.externalEgressStarted)
+            ])
+        ])
+    }
+
+    private static func diagnosticValue(_ attempt: StartupAttemptEvidence) -> DiagnosticFieldValue {
+        .object([
+            "attemptId": .string(attempt.attemptId),
+            "trigger": .string(attempt.trigger.rawValue),
+            "startedAt": .string(Self.formatDate(attempt.startedAt)),
+            "completedAt": .string(Self.formatDate(attempt.completedAt)),
+            "durationMs": .int(attempt.durationMs),
+            "outcome": .string(attempt.outcome.rawValue),
+            "blockedReason": .string(attempt.blockedReason ?? "none"),
+            "fallbackUsed": .bool(attempt.fallbackUsed)
+        ])
+    }
+
+    private static func diagnosticValue(_ run: LowResourceValidationRun) -> DiagnosticFieldValue {
+        .object([
+            "runId": .string(run.runId),
+            "createdAt": .string(Self.formatDate(run.createdAt)),
+            "appBuild": .string(run.appBuild),
+            "driverBuild": .string(run.driverBuild),
+            "baseline": .string(run.baseline),
+            "result": .string(run.result.rawValue),
+            "routeTruthCount": .int(run.routeTruthSnapshots.count),
+            "startupAttemptCount": .int(run.startupAttempts.count),
+            "realtimeSafetyResult": .string(run.realtimeSafety.result.rawValue)
         ])
     }
 

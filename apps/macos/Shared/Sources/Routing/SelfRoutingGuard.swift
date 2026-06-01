@@ -3,6 +3,8 @@ import Foundation
 public enum SelfRoutingViolationCode: String, Codable, Equatable, Sendable {
     case virtualInputSelectedAsPhysicalInput = "virtual_input_selected_as_physical_input"
     case virtualOutputSelectedAsPhysicalOutput = "virtual_output_selected_as_physical_output"
+    case unsupportedWorkingInput = "unsupported_working_input"
+    case unsupportedWorkingOutput = "unsupported_working_output"
 }
 
 public struct SelfRoutingViolation: Codable, Equatable, Sendable {
@@ -73,6 +75,58 @@ public struct SelfRoutingGuard: Sendable {
         return .allowed
     }
 
+    public func workingDeviceKind(for device: PhysicalAudioDevice?) -> PhysicalWorkingDeviceKind {
+        guard let device else { return .unknown }
+        let normalizedId = normalize(device.id)
+        let normalizedName = normalize(device.displayName)
+
+        if matchesVirtualMicrophone(device) || matchesVirtualSpeaker(device) {
+            return .twoBrainVirtual
+        }
+        if normalizedName.contains("aggregate") || normalizedId.contains("aggregate") {
+            return .aggregate
+        }
+        if normalizedName.contains("multi-output") ||
+            normalizedName.contains("multi output") ||
+            normalizedId.contains("multi-output") ||
+            normalizedId.contains("multi_output") {
+            return .multiOutput
+        }
+        if normalizedName.contains("virtual") ||
+            normalizedId.contains("virtual") ||
+            normalizedName.contains("blackhole") ||
+            normalizedName.contains("soundflower") {
+            return .otherVirtual
+        }
+        if device.deviceClass == .bluetooth || device.deviceClass == .airpodsClass {
+            return .bluetooth
+        }
+        if [.builtIn, .wired, .usb].contains(device.deviceClass) {
+            return .physical
+        }
+        return .unknown
+    }
+
+    public func physicalWorkingDeviceSelection(
+        input: PhysicalAudioDevice?,
+        output: PhysicalAudioDevice?
+    ) -> PhysicalWorkingDeviceSelection {
+        let inputKind = workingDeviceKind(for: input)
+        let outputKind = workingDeviceKind(for: output)
+        let rejectedReason = rejectionReason(inputKind: inputKind, outputKind: outputKind)
+
+        return PhysicalWorkingDeviceSelection(
+            inputDeviceId: input?.id ?? "none",
+            inputDeviceName: input?.displayName ?? "none",
+            outputDeviceId: output?.id ?? "none",
+            outputDeviceName: output?.displayName ?? "none",
+            inputKind: inputKind,
+            outputKind: outputKind,
+            selectionResult: rejectedReason == nil ? .accepted : .rejected,
+            rejectionReason: rejectedReason
+        )
+    }
+
     public func matchesVirtualMicrophone(_ device: PhysicalAudioDevice) -> Bool {
         matches(device, knownIdentifiers: [Self.microphoneDisplayName, Self.microphoneUID])
     }
@@ -93,5 +147,18 @@ public struct SelfRoutingGuard: Sendable {
 
     private func normalize(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func rejectionReason(
+        inputKind: PhysicalWorkingDeviceKind,
+        outputKind: PhysicalWorkingDeviceKind
+    ) -> String? {
+        if inputKind != .physical {
+            return "input_must_be_physical_working_device"
+        }
+        if outputKind != .physical {
+            return "output_must_be_physical_working_device"
+        }
+        return nil
     }
 }

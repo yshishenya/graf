@@ -48,10 +48,22 @@ if [ "$target" = "--list" ]; then
 fi
 
 if [ "$target" = "all" ]; then
+  failures=0
   for item in macos-sound chrome opera zoom telemost; do
-    "$0" "$item"
+    if ! sh "$0" "$item"; then
+      failures=$((failures + 1))
+    fi
   done
+  if [ "$failures" -ne 0 ]; then
+    echo "audio-settings-no-hang-check: BLOCKED ($failures targets)" >&2
+    exit 2
+  fi
   exit 0
+fi
+
+if [ "${TWO_BRAIN_REC_LOW_RESOURCE_MODE:-0}" = "1" ]; then
+  echo "low_resource_mode=1"
+  echo "startup_timeout_ms=3000"
 fi
 
 if [ "$RUN_UI" != "1" ]; then

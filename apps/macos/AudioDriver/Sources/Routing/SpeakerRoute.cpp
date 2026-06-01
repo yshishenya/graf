@@ -39,4 +39,8 @@ bool RouteSpeakerFrames(
     return true;
 }
 
+bool SpeakerRouteShouldRemainActive(unsigned int client_io_count) {
+    return client_io_count > 0;
+}
+
 }  // namespace TwoBrainRec::AudioDriver

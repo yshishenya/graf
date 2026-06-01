@@ -2,6 +2,13 @@
 
 ## Passthrough Release Hardening Evidence (005)
 
+- [ ] Low-resource promotion for `006-low-resource-audio` uses a complete P1
+  gate bundle before default enablement; any missing, blocked, or failed P1
+  gate records `fallback` to `005-macos-passthrough-release-hardening`.
+- [ ] Low-resource promotion evidence includes route truth, startup timeout,
+  realtime safety, no-hang/CPU, recovery, fallback, redaction, and clean-room
+  gates without raw audio, transcript text, credentials, signed URLs, passwords,
+  or meeting content.
 - [ ] Pre-recording stability evidence records installed runtime, short smoke,
   route state, CPU/no-hang behavior, and inactive recording/transcription/upload
   status.

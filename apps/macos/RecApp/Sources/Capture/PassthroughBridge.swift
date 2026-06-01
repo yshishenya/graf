@@ -22,6 +22,7 @@ private func bridgeLog(_ msg: String) {
 }
 
 public final class PassthroughBridge {
+    public static let startupTimeoutMs = 3000
     private static let maxRealtimeFrames = 4096
     private static let channelsPerFrame = 2
 
@@ -118,6 +119,28 @@ public final class PassthroughBridge {
     }
 
     public var passthroughActive: Bool { isRunning }
+
+    public static func startupAttemptEvidence(
+        attemptId: String,
+        trigger: StartupAttemptTrigger,
+        startedAt: Date,
+        completedAt: Date,
+        outcome: StartupAttemptOutcome,
+        blockedReason: String? = nil,
+        fallbackUsed: Bool = false
+    ) -> StartupAttemptEvidence {
+        let duration = max(0, Int((completedAt.timeIntervalSince1970 - startedAt.timeIntervalSince1970) * 1000))
+        return StartupAttemptEvidence(
+            attemptId: attemptId,
+            trigger: trigger,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            durationMs: duration,
+            outcome: duration > startupTimeoutMs ? .blocked : outcome,
+            blockedReason: duration > startupTimeoutMs ? "startup_timeout" : blockedReason,
+            fallbackUsed: fallbackUsed
+        )
+    }
 
     public func appIOHealth(now: Date = Date()) -> PrivateAppIOHealth {
         AppIOHealthPolicy().evaluate(lastHeartbeatAt: lastHeartbeatAt, now: now)

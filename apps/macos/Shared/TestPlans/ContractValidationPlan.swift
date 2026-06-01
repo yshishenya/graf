@@ -33,3 +33,21 @@ struct DiagnosticsRedactionTestPlan {
         "signed URLs"
     ]
 }
+
+struct LowResourceAudioContractTestPlan {
+    static let validationCommand = "swift run --package-path apps/macos ContractValidation"
+
+    static let requiredFixtures = [
+        "low-resource-validation-evidence",
+        "low-resource-route-truth",
+        "low-resource-startup-attempt"
+    ]
+
+    static let requiredEvidencePlanes = [
+        "publication",
+        "client_io",
+        "app_bridge",
+        "physical_devices",
+        "recording_trigger"
+    ]
+}

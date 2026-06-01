@@ -35,6 +35,8 @@ public struct RouteVerificationSnapshot: Codable, Equatable, Sendable {
 }
 
 public struct RouteVerificationService: Sendable {
+    public static let lowResourceStartupTimeoutNanoseconds: UInt64 = 3_000_000_000
+
     private let clock: @Sendable () -> Date
     private let idFactory: @Sendable () -> String
     private let probe: SyntheticRouteProbe
@@ -125,6 +127,31 @@ public struct RouteVerificationService: Sendable {
                 recoveryAction: speakerPreflightFailure?.recoveryAction
             )
         )
+    }
+
+    public func verifyBounded(
+        physicalInput: PhysicalAudioDevice?,
+        physicalOutput: PhysicalAudioDevice?,
+        timeoutNanoseconds: UInt64 = Self.lowResourceStartupTimeoutNanoseconds
+    ) async -> RouteVerificationSnapshot {
+        await withTaskGroup(of: RouteVerificationSnapshot.self) { group in
+            group.addTask {
+                await verify(physicalInput: physicalInput, physicalOutput: physicalOutput)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                let now = clock()
+                return failedSnapshot(
+                    startedAt: now,
+                    reason: "route_verification_timeout",
+                    recoveryAction: "retry_audio_route_startup"
+                )
+            }
+
+            let first = await group.next()!
+            group.cancelAll()
+            return first
+        }
     }
 
     public func verifyLiveReadiness(

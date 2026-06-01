@@ -146,7 +146,7 @@ As an engineer and tester, I want the route to be explained by separate evidence
 - **FR-008**: The system MUST record metadata-only evidence for lightweight idle behavior, automatic reactivation, no-hang behavior, CPU behavior, route recovery, and fallback decisions.
 - **FR-009**: The system MUST recover safely after `coreaudiod` restart, sleep/wake, physical device changes, and stale browser device selections before showing ready.
 - **FR-010**: The audio driver MUST NOT own meeting recording, transcription, upload, MediaScribe, Langfuse, analytics, or external network egress; those responsibilities belong to application software and remain outside this feature unless a later recording feature explicitly supersedes this boundary.
-- **FR-011**: The system MUST distinguish idle-safe, starting, ready, stale, blocked, failed, and retry states in UI and diagnostics.
+- **FR-011**: The system MUST distinguish idle-safe, starting, ready, active, stale, blocked, failed, retrying, and fallback states in UI and diagnostics.
 - **FR-012**: Diagnostics and validation artifacts MUST NOT contain raw audio, transcript text, meeting content, credentials, tokens, signed URLs, or passwords.
 - **FR-013**: The validation pipeline MUST include a regression guard proving that low-resource behavior does not reintroduce the previous "works only after Run Check" failure.
 - **FR-014**: The validation pipeline MUST include a regression guard proving that startup cannot leave Core Audio or the app stuck in an unbounded starting state.
@@ -163,10 +163,11 @@ As an engineer and tester, I want the route to be explained by separate evidence
 - **FR-025**: The system MUST maintain clean-room separation from Krisp: use only public documentation, installed-component observation, logs, strings, and behavior-level inference; do not copy proprietary code, assets, identifiers, UI text, protocols, or protected implementation details.
 - **FR-026**: The validation pipeline MUST compare low-resource behavior against the accepted 005 app-launch baseline for audio usability, no-loopback, no-hang surfaces, CPU, recovery, and fallback.
 - **FR-027**: If 2brain Rec Speaker is selected as system or app output and an active client stream exists, the route MUST deliver audio to a valid physical output whenever app bridge health is good; resource saving MUST NOT intentionally mute or drop that route.
+- **FR-028**: User-facing audio status language MUST be localization-safe, must not imply active recording/capture when only routing is active, and MUST distinguish generic not-ready conditions from stale evidence, blocked startup, failed startup, retrying, repair, and fallback states.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Audio Resource State**: The current readiness/resource mode: idle-safe, starting, ready, stale, blocked, failed, or retrying.
+- **Audio Resource State**: The current readiness/resource mode: idle-safe, starting, ready, active, stale, blocked, failed, retrying, or fallback.
 - **Client Activity Evidence**: Metadata-only signal that a supported app is actively using one or both virtual devices, based on explicit IO/client state rather than audio energy alone.
 - **Route Truth Planes**: Separate metadata-only facts for device publication, active client IO, app bridge heartbeat/readiness, physical working device validity, and recording trigger state.
 - **Startup Attempt Evidence**: Metadata-only record of startup timing, outcome, blocker reason, and whether fallback preserved the working default.
@@ -177,7 +178,7 @@ As an engineer and tester, I want the route to be explained by separate evidence
 ### Constitutional Requirements *(mandatory for 2brain Rec)*
 
 - **Capture/Driver Impact**: This feature directly changes macOS driver/audio routing readiness, passthrough lifecycle, degraded states, and recovery. It must preserve driver-first MVP behavior, fail-closed audio, no-loopback gates, application-owned recording triggers, and measurable no-hang/CPU/recovery criteria.
-- **Visible Control Impact**: This feature must not start recording or transcription. It may change readiness/status states, but the user must always see whether passthrough is idle-safe, starting, ready, stale, blocked, or failed.
+- **Visible Control Impact**: This feature must not start recording or transcription. It may change readiness/status states, but the user must always see whether passthrough is idle-safe, starting, ready, active, stale, blocked, failed, retrying, or fallback.
 - **Data Boundary Impact**: This feature is local-only. It must not add MediaScribe upload, Langfuse traces, LLM calls, analytics, server upload, storage, or external network egress.
 - **Secrets Impact**: No credentials, tokens, signed URLs, passwords, or live credential paths may be stored in client state, diagnostics, logs, screenshots, or evidence artifacts.
 - **Retention/Deletion Impact**: This feature must not create meeting-content artifacts, raw audio, transcripts, or server-side deletion obligations. Validation evidence is metadata-only.

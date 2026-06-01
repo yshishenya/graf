@@ -3,6 +3,7 @@ set -eu
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 BRIDGE_FILE="$REPO_ROOT/apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift"
+DRIVER_PLUGIN_FILE="$REPO_ROOT/apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp"
 TMP_DIR="${TMPDIR:-/tmp}/2brain-rec-rt-safety"
 mkdir -p "$TMP_DIR"
 
@@ -41,6 +42,9 @@ for callback_file in "$MIC_CALLBACK" "$SPEAKER_CALLBACK"; do
   check_forbidden "$callback_file" 'open\(|write\(|close\(' "file I/O in AudioUnit callback"
   check_forbidden "$callback_file" 'callbackErrorCount|micCallbackCount|speakerCallbackCount|micDropCount|speakerUnderrunCount' "non-atomic Swift counter mutation in AudioUnit callback"
 done
+
+check_forbidden "$DRIVER_PLUGIN_FILE" 'IOOperation.*Trace\\(|Trace\\(.*IOOperation|DoIOOperation.*Trace\\(' "trace logging near HAL IO operation paths"
+check_forbidden "$DRIVER_PLUGIN_FILE" 'DoIOOperation.*std::chrono|DoIOOperation.*std::time|BeginIOOperation.*std::chrono|EndIOOperation.*std::chrono' "wall-clock access near HAL IO operation paths"
 
 if [ "$failures" -ne 0 ]; then
   echo "audio-rt-safety-check: BLOCKED ($failures violations)" >&2

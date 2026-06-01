@@ -69,6 +69,24 @@ bool IsVirtualStream(AudioObjectID object_id) {
     return FindVirtualStream(object_id) != nullptr;
 }
 
+VirtualDeviceRole RoleForVirtualDevice(AudioObjectID object_id) {
+    if (object_id == kMicrophoneDeviceObjectID || object_id == kMicrophoneStreamObjectID) {
+        return VirtualDeviceRole::Microphone;
+    }
+    if (object_id == kSpeakerDeviceObjectID || object_id == kSpeakerStreamObjectID) {
+        return VirtualDeviceRole::Speaker;
+    }
+    return VirtualDeviceRole::Unknown;
+}
+
+bool IsMicrophoneDevice(AudioObjectID object_id) {
+    return RoleForVirtualDevice(object_id) == VirtualDeviceRole::Microphone;
+}
+
+bool IsSpeakerDevice(AudioObjectID object_id) {
+    return RoleForVirtualDevice(object_id) == VirtualDeviceRole::Speaker;
+}
+
 AudioObjectID OwnerForVirtualObject(AudioObjectID object_id) {
     if (IsVirtualDevice(object_id)) {
         return kAudioObjectPlugInObject;

@@ -1,0 +1,66 @@
+{
+  "schema": "2brain.rec.low_resource_validation_evidence.v1",
+  "feature": "006-low-resource-audio",
+  "baseline": "005-macos-passthrough-release-hardening",
+  "allowedResult": ["passed", "blocked", "not_accepted"],
+  "requiredFields": [
+    "run_id",
+    "created_at",
+    "feature",
+    "baseline",
+    "app_build",
+    "driver_build",
+    "result",
+    "route_truth",
+    "startup_attempts",
+    "realtime_safety",
+    "runtime_probe",
+    "no_hang",
+    "cpu",
+    "browser_meeting_smoke",
+    "recovery",
+    "fallback"
+  ],
+  "requiredGates": [
+    "runtime_publication",
+    "automatic_activation",
+    "recording_boundary",
+    "startup_timeout",
+    "no_hang_surfaces",
+    "cpu",
+    "silent_stream",
+    "self_routing",
+    "chained_device_policy",
+    "realtime_safety",
+    "recovery",
+    "fallback",
+    "redaction",
+    "clean_room"
+  ],
+  "thresholds": {
+    "startup_timeout_ms": 3000,
+    "target_surface_usable_within_seconds": 5,
+    "coreaudiod_sustained_cpu_percent": 10,
+    "coreaudiod_sustained_cpu_duration_seconds": 30,
+    "ready_clear_after_recovery_seconds": 5
+  },
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "tokens",
+    "signedUrls",
+    "password",
+    "secretPath"
+  ],
+  "rules": {
+    "metadataOnly": true,
+    "recordingTranscriptionUploadMustRemainInactive": true,
+    "mediaScribeLangfuseMustRemainInactive": true,
+    "allP1GatesRequiredForPromotion": true,
+    "failedP1GatePreserves005Fallback": true,
+    "cleanRoomReviewRequired": true
+  }
+}

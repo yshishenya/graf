@@ -36,5 +36,21 @@ final class CoreAudioNoHangEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence.result, .blocked)
         XCTAssertFalse(evidence.failureReason?.isEmpty ?? true)
     }
+
+    func testBlockedStartupOutcomeIsAcceptedEvidenceNotPassedEvidence() {
+        let startup = StartupAttemptEvidence(
+            attemptId: "slow-audio-unit",
+            trigger: .testFixture,
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 4),
+            durationMs: 3000,
+            outcome: .blocked,
+            blockedReason: "simulated_slow_audio_unit"
+        )
+
+        XCTAssertTrue(startup.isWithinAcceptedWindow)
+        XCTAssertEqual(startup.outcome, .blocked)
+        XCTAssertEqual(startup.blockedReason, "simulated_slow_audio_unit")
+    }
 }
 #endif

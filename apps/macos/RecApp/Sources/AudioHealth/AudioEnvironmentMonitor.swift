@@ -164,6 +164,21 @@ public final class AudioEnvironmentMonitor {
         .sorted { $0.eventType.rawValue < $1.eventType.rawValue }
     }
 
+    public func lowResourceRecoveryEvents(
+        for changes: [AudioEnvironmentChange],
+        previousState: AudioResourceState
+    ) -> [LowResourceRecoveryEvent] {
+        let policy = LowResourceRecoveryPolicy()
+        return Set(changes.compactMap(Self.lowResourceRecoveryTrigger(for:))).map { trigger in
+            policy.event(
+                for: trigger,
+                previousState: previousState,
+                detectedAt: now()
+            )
+        }
+        .sorted { $0.trigger.rawValue < $1.trigger.rawValue }
+    }
+
     public func monitorPermission(
         microphonePermission: PermissionStatus,
         outputPermission: PermissionStatus
@@ -319,6 +334,24 @@ public final class AudioEnvironmentMonitor {
         case .passthroughChanged:
             return .appHeartbeatLost
         case .routeVerificationChanged, .permissionChanged, .bufferRiskChanged, .unsupportedTargetAdded:
+            return nil
+        }
+    }
+
+    private static func lowResourceRecoveryTrigger(for change: AudioEnvironmentChange) -> LowResourceRecoveryTrigger? {
+        switch change {
+        case .passthroughChanged:
+            return .staleHeartbeat
+        case .coreaudiodRestarted:
+            return .coreaudiodRestart
+        case .sleepWake:
+            return .sleepWake
+        case .deviceChanged:
+            return .physicalDeviceChanged
+        case .activeMeetingContextChanged, .browserTargetEvidenceChanged:
+            return .browserDeviceChanged
+        case .driverStateChanged, .virtualInputStateChanged, .virtualOutputStateChanged, .permissionChanged,
+             .routeVerificationChanged, .bufferRiskChanged, .bluetoothProfileChanged, .unsupportedTargetAdded:
             return nil
         }
     }

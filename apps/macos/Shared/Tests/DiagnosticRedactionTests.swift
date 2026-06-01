@@ -171,5 +171,37 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertNil(bundle.manifest["transcriptText"])
         XCTAssertNil(bundle.manifest["meetingContent"])
     }
+
+    func testLowResourceRouteTruthKeepsMetadataAndRemovesSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "lowResourceRouteTruth": .object([
+                "resourceState": .string("active"),
+                "publication": .object([
+                    "microphoneVisible": .bool(true),
+                    "speakerVisible": .bool(true)
+                ]),
+                "recordingTrigger": .object([
+                    "recordingTriggerState": .string("off"),
+                    "transcriptText": .string("forbidden")
+                ])
+            ]),
+            "lowResourceStartupAttempts": .array([
+                .object([
+                    "durationMs": .int(2500),
+                    "outcome": .string("ready"),
+                    "signedUrl": .string("forbidden")
+                ])
+            ]),
+            "rawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["lowResourceRouteTruth"])
+        XCTAssertNotNil(result.manifest["lowResourceStartupAttempts"])
+        XCTAssertNil(result.manifest["rawAudio"])
+        XCTAssertTrue(result.removedFields.contains("lowResourceRouteTruth.recordingTrigger.transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("lowResourceStartupAttempts[0].signedUrl"))
+    }
 }
 #endif

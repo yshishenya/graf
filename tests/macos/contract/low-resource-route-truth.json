@@ -1,0 +1,82 @@
+{
+  "schema": "2brain.rec.low_resource_route_truth.v1",
+  "allowedResourceStates": [
+    "idle_safe",
+    "starting",
+    "ready",
+    "active",
+    "stale",
+    "blocked",
+    "failed",
+    "retrying",
+    "fallback"
+  ],
+  "requiredPlanes": [
+    "publication",
+    "client_io",
+    "app_bridge",
+    "physical_devices",
+    "recording_trigger"
+  ],
+  "publication": {
+    "requiredFields": [
+      "microphone_visible",
+      "speaker_visible",
+      "microphone_alive",
+      "speaker_alive",
+      "microphone_running",
+      "speaker_running",
+      "hidden"
+    ],
+    "hiddenMustBeFalseForMvpDefault": true
+  },
+  "client_io": {
+    "requiredFields": [
+      "microphone_client_count",
+      "speaker_client_count",
+      "microphone_running",
+      "speaker_running",
+      "source",
+      "natural_silence_allowed"
+    ],
+    "allowedSources": ["driver_start_stop", "device_is_running", "test_fixture"],
+    "audioEnergyMustNotDetermineActivity": true
+  },
+  "app_bridge": {
+    "requiredFields": [
+      "heartbeat_state",
+      "timeout_ms",
+      "driver_fail_closed",
+      "public_device_availability"
+    ],
+    "allowedHeartbeatStates": ["waiting_for_app", "connected", "heartbeat_lost"],
+    "staleHeartbeatMustNotHidePublicDevices": true
+  },
+  "physical_devices": {
+    "allowedKinds": [
+      "physical",
+      "2brain_virtual",
+      "other_virtual",
+      "aggregate",
+      "multi_output",
+      "bluetooth",
+      "unknown"
+    ],
+    "twoBrainVirtualMustBeRejected": true,
+    "aggregateMultiOutputUnsupportedByDefault": true
+  },
+  "recording_trigger": {
+    "allowedStates": ["off", "armed_future", "active_future"],
+    "mustRemainOffForThisFeature": true,
+    "driverOwnsRecording": false
+  },
+  "forbiddenFields": [
+    "rawAudio",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "tokens",
+    "signedUrls",
+    "password"
+  ]
+}

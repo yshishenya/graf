@@ -69,6 +69,31 @@ final class LivePassthroughPolicyTests: XCTestCase {
         XCTAssertEqual(state, .armed)
     }
 
+    func testAutoIdlePolicyReleasesPhysicalRouteWhenVirtualClientCloses() {
+        let policy = PassthroughAutoIdlePolicy(releaseAfterIdleTicks: 3)
+
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            virtualClientRunning: false,
+            consecutiveIdleTicks: 2
+        ))
+        XCTAssertTrue(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            virtualClientRunning: false,
+            consecutiveIdleTicks: 3
+        ))
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            virtualClientRunning: true,
+            consecutiveIdleTicks: 3
+        ))
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: false,
+            virtualClientRunning: false,
+            consecutiveIdleTicks: 3
+        ))
+    }
+
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
         LivePassthroughSession(
             sessionId: "session-1",

@@ -73,3 +73,13 @@ Every readiness report must expose these planes separately:
 - Slow Core Audio setup or enumeration must surface as `blocked`/`failed`/`fallback`
   within 3000 ms.
 - Route truth diagnostics must keep metadata only.
+
+## User-Facing Status Language
+
+- Status labels and recovery actions must be localization-safe and must not rely
+  on color alone.
+- `ready` and `active` describe audio routing evidence only; they must not imply
+  recording, transcription, upload, or capture.
+- Generic "not ready" language may be used only as a summary; diagnostics and
+  recovery guidance must preserve the specific state: `stale`, `blocked`,
+  `failed`, `retrying`, repair needed, or `fallback`.

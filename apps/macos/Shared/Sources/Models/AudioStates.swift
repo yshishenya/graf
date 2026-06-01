@@ -257,6 +257,12 @@ public enum AppIOState: String, Codable, Sendable {
     case recovering
 }
 
+public enum RecordingTriggerBoundaryState: String, Codable, Sendable {
+    case off
+    case armedFuture = "armed_future"
+    case activeFuture = "active_future"
+}
+
 public enum CapturabilityStatus: String, Codable, Sendable {
     case capturable
     case notCapturable = "not_capturable"

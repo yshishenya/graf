@@ -18,12 +18,21 @@ struct VirtualDeviceDescriptor {
     bool is_input;
 };
 
+enum class VirtualDeviceRole {
+    Unknown,
+    Microphone,
+    Speaker
+};
+
 UInt32 VirtualDeviceCount();
 const AudioObjectID* VirtualDeviceObjectIDs();
 const VirtualDeviceDescriptor* FindVirtualDevice(AudioObjectID object_id);
 const VirtualDeviceDescriptor* FindVirtualStream(AudioObjectID object_id);
 bool IsVirtualDevice(AudioObjectID object_id);
 bool IsVirtualStream(AudioObjectID object_id);
+VirtualDeviceRole RoleForVirtualDevice(AudioObjectID object_id);
+bool IsMicrophoneDevice(AudioObjectID object_id);
+bool IsSpeakerDevice(AudioObjectID object_id);
 AudioObjectID OwnerForVirtualObject(AudioObjectID object_id);
 AudioObjectID StreamForVirtualDevice(AudioObjectID device_id);
 bool VirtualStreamIsInput(AudioObjectID stream_id);

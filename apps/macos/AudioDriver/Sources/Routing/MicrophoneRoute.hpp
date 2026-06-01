@@ -22,6 +22,8 @@ bool RouteMicrophoneFrames(
     MutableInterleavedAudioBuffer virtual_microphone
 );
 
+bool MicrophoneRouteShouldRemainActive(unsigned int client_io_count);
+
 double RemoteLeakageScore(
     InterleavedAudioBuffer virtual_microphone,
     InterleavedAudioBuffer remote_speaker

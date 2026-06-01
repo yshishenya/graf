@@ -5,11 +5,11 @@ import TwoBrainRecShared
 import XCTest
 
 final class AppIOHealthTests: XCTestCase {
-    func testMissingHeartbeatFailsClosedByHidingPublicDevices() {
+    func testMissingHeartbeatFailsClosedWhileKeepingPublicDevicesVisible() {
         let health = AppIOHealthPolicy().evaluate(lastHeartbeatAt: nil, now: Date(timeIntervalSince1970: 10))
 
         XCTAssertEqual(health.state, .waitingForApp)
-        XCTAssertEqual(health.publicDeviceAvailability, .hidden)
+        XCTAssertEqual(health.publicDeviceAvailability, .available)
         XCTAssertEqual(health.recoveryAction, "restart_desktop_audio_engine")
     }
 
@@ -21,7 +21,7 @@ final class AppIOHealthTests: XCTestCase {
         )
 
         XCTAssertEqual(health.state, .heartbeatLost)
-        XCTAssertEqual(health.publicDeviceAvailability, .hidden)
+        XCTAssertEqual(health.publicDeviceAvailability, .available)
         XCTAssertEqual(health.missedHeartbeatCount, 1)
     }
 
@@ -45,8 +45,15 @@ final class AppIOHealthTests: XCTestCase {
         )
 
         XCTAssertEqual(health.state, .heartbeatLost)
-        XCTAssertEqual(health.publicDeviceAvailability, .hidden)
+        XCTAssertEqual(health.publicDeviceAvailability, .available)
         XCTAssertEqual(health.recoveryAction, "restart_desktop_audio_engine")
+    }
+
+    func testLegacyPolicyCanStillHidePublicDevicesWhenExplicitlyConfigured() {
+        let health = AppIOHealthPolicy(keepsPublicDevicesVisibleOnFailure: false)
+            .evaluate(lastHeartbeatAt: nil, now: Date(timeIntervalSince1970: 10))
+
+        XCTAssertEqual(health.publicDeviceAvailability, .hidden)
     }
 }
 #endif
