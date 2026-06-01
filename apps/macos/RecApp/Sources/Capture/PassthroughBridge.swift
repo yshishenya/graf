@@ -146,8 +146,8 @@ public final class PassthroughBridge {
     }
 
     fileprivate func recordAppIOHeartbeat(at date: Date = Date()) {
-        _ = date
-        lastHeartbeatAt = nil
+        lastHeartbeatAt = date
+        shm.writeAppHeartbeat(at: date)
     }
 
     public func refreshAppIOHeartbeat(at date: Date = Date()) {
@@ -176,13 +176,60 @@ public final class PassthroughBridge {
     }
 
     private func hasStreams(_ id: AudioDeviceID, scope: AudioObjectPropertyScope) -> Bool {
+        channelCount(id, scope: scope) > 0
+    }
+
+    private func channelCount(_ id: AudioDeviceID, scope: AudioObjectPropertyScope) -> Int {
         var streamAddr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreamConfiguration,
             mScope: scope,
             mElement: kAudioObjectPropertyElementMain
         )
         var streamSize: UInt32 = 0
-        return AudioObjectGetPropertyDataSize(id, &streamAddr, 0, nil, &streamSize) == noErr && streamSize > 0
+        guard AudioObjectGetPropertyDataSize(id, &streamAddr, 0, nil, &streamSize) == noErr,
+              streamSize > 0 else {
+            return 0
+        }
+
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(streamSize),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { raw.deallocate() }
+
+        guard AudioObjectGetPropertyData(id, &streamAddr, 0, nil, &streamSize, raw) == noErr else {
+            return 0
+        }
+
+        let buffers = UnsafeMutableAudioBufferListPointer(
+            raw.bindMemory(to: AudioBufferList.self, capacity: 1)
+        )
+        return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private func defaultDeviceID(scope: AudioObjectPropertyScope) -> AudioDeviceID? {
+        let selector = scope == kAudioDevicePropertyScopeInput
+            ? kAudioHardwarePropertyDefaultInputDevice
+            : kAudioHardwarePropertyDefaultOutputDevice
+        var addr = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID = AudioDeviceID(kAudioObjectUnknown)
+        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &addr,
+            0,
+            nil,
+            &dataSize,
+            &deviceID
+        )
+        guard status == noErr, deviceID != kAudioObjectUnknown else {
+            return nil
+        }
+        return deviceID
     }
 
     private func allDeviceIDs() -> [AudioDeviceID] {
@@ -221,6 +268,14 @@ public final class PassthroughBridge {
     private func findPhysicalDevice(scope: AudioObjectPropertyScope, selectedId: String?) throws -> AudioDeviceID? {
         if let selected = try selectedDeviceID(selectedId, scope: scope) {
             return selected
+        }
+
+        if let defaultID = defaultDeviceID(scope: scope),
+           let defaultName = deviceName(defaultID),
+           !defaultName.localizedCaseInsensitiveContains("2brain Rec"),
+           hasStreams(defaultID, scope: scope) {
+            bridgeLog("findPhysicalDevice: DEFAULT \(defaultID) '\(defaultName)' scope=\(scope) channels=\(channelCount(defaultID, scope: scope))")
+            return defaultID
         }
 
         let isInput = scope == kAudioDevicePropertyScopeInput

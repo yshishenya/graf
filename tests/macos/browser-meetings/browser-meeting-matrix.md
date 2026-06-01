@@ -72,6 +72,38 @@ The browser matrix remains `Not accepted` until physical/browser acceptance
 evidence exists. Synthetic checks and runtime publication proof are not browser
 support evidence.
 
+## 004 Failed Browser Report And Fix Probe 2026-06-01
+
+Manual browser checks before the latest driver/app fixes reported that neither
+microphone nor speaker audio worked in Telemost, browser Telemost, and Google
+Meet even though the virtual devices were selectable. This is recorded as a
+real failed browser report, not as a user setup issue.
+
+Root-cause investigation found that the installed stack could publish devices
+without a truthful live I/O state:
+
+- the app-side heartbeat could be absent or stale while the devices remained
+  visible;
+- `DeviceIsRunning` did not reflect `StartIO`/`StopIO`;
+- the driver advertised both input and output operations for both virtual
+  devices;
+- zero timestamp state was shared across the microphone and speaker devices;
+- the app bridge could choose devices by name before trying the actual default
+  physical input/output.
+
+After the fix, a local HAL I/O probe against the installed virtual devices
+started real Core Audio I/O callbacks for both devices:
+
+```text
+2brain Rec Microphone: callbacks=188 frames=96256
+2brain Rec Speaker: callbacks=188 frames=96256
+```
+
+This moves the implementation back to **ready for browser re-test**, but it does
+not change any target below to `Passed`. The next browser run must explicitly
+record local speech usability and remote audio usability after selecting
+`2brain Rec Microphone` and `2brain Rec Speaker`.
+
 ## Per-Target Steps
 
 - [ ] Join a meeting with one local speaker and at least one remote speaker.

@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstring>
 #include <ctime>
+#include <algorithm>
 
 extern AudioServerPlugInDriverInterface gDriverInterface;
 extern AudioServerPlugInDriverInterface* gDriverInterfacePointer;
@@ -43,6 +44,10 @@ std::atomic<uint64_t> gMicReadInputCount{0};
 std::atomic<uint64_t> gSpeakerWriteMixCount{0};
 std::atomic<uint64_t> gMicZeroFillCount{0};
 std::atomic<uint64_t> gSpeakerDropCount{0};
+std::atomic<UInt32> gMicrophoneIOClientCount{0};
+std::atomic<UInt32> gSpeakerIOClientCount{0};
+std::atomic<uint64_t> gMicrophoneClockAnchorHostTime{0};
+std::atomic<uint64_t> gSpeakerClockAnchorHostTime{0};
 
 void Trace(const char* message) {
     const int fd = open("/tmp/2brain-rec-proof-driver.trace", O_CREAT | O_WRONLY | O_APPEND, 0644);
@@ -278,6 +283,69 @@ bool PrivateAppIOAvailable() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(now).count()
     );
     return now_nanos >= heartbeat && (now_nanos - heartbeat) <= kAppIOHeartbeatTimeoutNanos;
+}
+
+std::atomic<UInt32>* RunningClientCountForDevice(AudioObjectID device_id) {
+    if (device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID) {
+        return &gMicrophoneIOClientCount;
+    }
+    if (device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID) {
+        return &gSpeakerIOClientCount;
+    }
+    return nullptr;
+}
+
+UInt32 DeviceIsRunning(AudioObjectID device_id) {
+    auto* count = RunningClientCountForDevice(device_id);
+    if (count == nullptr) {
+        return 0;
+    }
+    return count->load(std::memory_order_acquire) > 0 ? 1 : 0;
+}
+
+std::atomic<uint64_t>* ClockAnchorForDevice(AudioObjectID device_id) {
+    if (device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID) {
+        return &gMicrophoneClockAnchorHostTime;
+    }
+    if (device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID) {
+        return &gSpeakerClockAnchorHostTime;
+    }
+    return nullptr;
+}
+
+uint64_t HostTicksToNanos(uint64_t host_ticks) {
+    static mach_timebase_info_data_t timebase = [] {
+        mach_timebase_info_data_t info{};
+        mach_timebase_info(&info);
+        return info;
+    }();
+    return static_cast<uint64_t>(
+        (static_cast<long double>(host_ticks) * timebase.numer) / timebase.denom
+    );
+}
+
+uint64_t NanosToHostTicks(uint64_t nanos) {
+    static mach_timebase_info_data_t timebase = [] {
+        mach_timebase_info_data_t info{};
+        mach_timebase_info(&info);
+        return info;
+    }();
+    return static_cast<uint64_t>(
+        (static_cast<long double>(nanos) * timebase.denom) / timebase.numer
+    );
+}
+
+void NotifyDeviceIsRunningChanged(AudioObjectID device_id) {
+    if (gHost == nullptr || !IsDevice(device_id)) {
+        return;
+    }
+
+    AudioObjectPropertyAddress address{
+        kAudioDevicePropertyDeviceIsRunning,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    gHost->PropertiesChanged(gHost, device_id, 1, &address);
 }
 
 bool HasPropertyForObject(AudioObjectID object_id, const AudioObjectPropertyAddress* address) {
@@ -704,12 +772,13 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioDevicePropertyClockIsStable:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(1));
     case kAudioDevicePropertyDeviceCanBeDefaultDevice:
-        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
-    case kAudioDevicePropertyDeviceIsRunning:
+        return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(1));
     case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
     case kAudioDevicePropertyLatency:
     case kAudioDevicePropertySafetyOffset:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
+    case kAudioDevicePropertyDeviceIsRunning:
+        return WriteScalar(in_data_size, out_data_size, out_data, DeviceIsRunning(in_object_id));
     case kAudioDevicePropertyIsHidden:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioDevicePropertyStreams:
@@ -787,41 +856,65 @@ OSStatus SetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
 }
 
 OSStatus StartIO(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32) {
-    Trace("StartIO called");
     char buf[64];
     snprintf(buf, sizeof(buf), "StartIO device=%u", in_device_id);
-    TraceVerbose(buf);
+    Trace(buf);
+    auto* count = RunningClientCountForDevice(in_device_id);
+    if (count != nullptr) {
+        const UInt32 previous = count->fetch_add(1, std::memory_order_acq_rel);
+        if (previous == 0) {
+            NotifyDeviceIsRunningChanged(in_device_id);
+        }
+    }
     return kAudioHardwareNoError;
 }
 
 OSStatus StopIO(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32) {
     char buf[64];
     snprintf(buf, sizeof(buf), "StopIO device=%u", in_device_id);
-    TraceVerbose(buf);
+    Trace(buf);
+    auto* count = RunningClientCountForDevice(in_device_id);
+    if (count != nullptr) {
+        UInt32 current = count->load(std::memory_order_acquire);
+        while (current > 0 &&
+               !count->compare_exchange_weak(current, current - 1, std::memory_order_acq_rel)) {
+        }
+        if (current == 1) {
+            NotifyDeviceIsRunningChanged(in_device_id);
+        }
+    }
     return kAudioHardwareNoError;
-}
-
-namespace {
-    UInt64 gSampleTime = 0;
-    bool gZtsInitialized = false;
 }
 
 OSStatus GetZeroTimeStamp(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32, Float64* out_sample_time, UInt64* out_host_time, UInt64* out_seed) {
     if (out_sample_time == nullptr || out_host_time == nullptr || out_seed == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
-
-    if (!gZtsInitialized) {
-        gSampleTime = 0;
-        gZtsInitialized = true;
+    auto* anchor_storage = ClockAnchorForDevice(in_device_id);
+    if (anchor_storage == nullptr) {
+        return kAudioHardwareBadObjectError;
     }
 
-    *out_sample_time = static_cast<Float64>(gSampleTime);
-    *out_host_time = mach_absolute_time();
-    *out_seed = 1;
+    const uint64_t now = mach_absolute_time();
+    uint64_t anchor = anchor_storage->load(std::memory_order_acquire);
+    if (anchor == 0) {
+        uint64_t expected = 0;
+        if (anchor_storage->compare_exchange_strong(expected, now, std::memory_order_acq_rel)) {
+            anchor = now;
+        } else {
+            anchor = expected;
+        }
+    }
 
-    // Advance timestamps to signal IO progress to coreaudiod
-    gSampleTime += kZeroTimeStampPeriod;
+    const uint64_t elapsed_ticks = now >= anchor ? now - anchor : 0;
+    const uint64_t elapsed_nanos = HostTicksToNanos(elapsed_ticks);
+    const uint64_t current_frame = (elapsed_nanos * static_cast<uint64_t>(kSampleRate)) / 1000000000ULL;
+    const uint64_t zero_frame = (current_frame / kZeroTimeStampPeriod) * kZeroTimeStampPeriod;
+    const uint64_t zero_nanos = (zero_frame * 1000000000ULL) / static_cast<uint64_t>(kSampleRate);
+
+    *out_sample_time = static_cast<Float64>(zero_frame);
+    *out_host_time = anchor + NanosToHostTicks(zero_nanos);
+    *out_seed = 1;
 
     char buf[128];
     snprintf(buf, sizeof(buf), "GetZeroTimeStamp device=%u sample=%.0f host=%llu",
@@ -835,9 +928,11 @@ OSStatus WillDoIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_i
     if (out_will_do == nullptr || out_will_do_in_place == nullptr) {
         return kAudioHardwareIllegalOperationError;
     }
-    *out_will_do = (in_operation_id == kAudioServerPlugInIOOperationReadInput ||
-                    in_operation_id == kAudioServerPlugInIOOperationWriteMix);
-    *out_will_do_in_place = true;
+    const bool is_microphone = in_device_id == TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID;
+    const bool is_speaker = in_device_id == TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID;
+    *out_will_do = (is_microphone && in_operation_id == kAudioServerPlugInIOOperationReadInput) ||
+                   (is_speaker && in_operation_id == kAudioServerPlugInIOOperationWriteMix);
+    *out_will_do_in_place = false;
 
     char buf[128];
     snprintf(buf, sizeof(buf), "WillDoIOOperation device=%u op=%s will_do=%d",
@@ -874,12 +969,16 @@ OSStatus DoIOOperation(AudioServerPlugInDriverRef, AudioObjectID in_device_id, A
             return kAudioHardwareNoError;
         }
 
-        auto avail = gShared->MicAvailable();
-        if (avail >= sample_count) {
-            gShared->Read(gShared->mic_buffer, gShared->mic_write_idx, gShared->mic_read_idx,
-                          static_cast<float*>(io_main_buffer), sample_count);
-        } else {
-            std::memset(io_main_buffer, 0, sample_count * sizeof(Float32));
+        auto* dst = static_cast<float*>(io_main_buffer);
+        const size_t read_count = gShared->Read(
+            gShared->mic_buffer,
+            gShared->mic_write_idx,
+            gShared->mic_read_idx,
+            dst,
+            sample_count
+        );
+        if (read_count < sample_count) {
+            std::memset(dst + read_count, 0, (sample_count - read_count) * sizeof(Float32));
             ++gMicZeroFillCount;
         }
     }

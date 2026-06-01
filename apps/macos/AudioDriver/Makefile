@@ -3,6 +3,7 @@ CXXFLAGS ?= -std=c++17 -Wall -Wextra -Werror
 BUILD_DIR ?= .build/proof
 PROOF_BIN := $(BUILD_DIR)/audio-driver-proof
 RUNTIME_PROBE_BIN := $(BUILD_DIR)/runtime-device-probe
+HAL_IO_PROBE_BIN := $(BUILD_DIR)/hal-io-probe
 PLUGIN_BUNDLE := $(BUILD_DIR)/2brainRecProof.driver
 PLUGIN_BINARY := $(PLUGIN_BUNDLE)/Contents/MacOS/2brainRecProof
 PLUGIN_INSTALL_DIR := /Library/Audio/Plug-Ins/HAL
@@ -15,6 +16,7 @@ PROOF_SOURCES := \
 	Sources/Routing/SpeakerRoute.cpp \
 	Sources/Timing/TrackClock.cpp
 RUNTIME_PROBE_SOURCES := Sources/Proof/RuntimeDeviceProbe.cpp
+HAL_IO_PROBE_SOURCES := Sources/Proof/HALIOProbe.cpp
 PLUGIN_SOURCES := \
 	Sources/Plugin/TwoBrainRecProofDriver.cpp \
 	Sources/Device/VirtualDeviceRegistry.cpp \
@@ -23,7 +25,7 @@ PLUGIN_HEADERS := \
 	Sources/Device/VirtualDeviceRegistry.hpp \
 	Sources/Bridge/SharedAudioBuffer.hpp
 
-.PHONY: proof-scaffold-build proof-scaffold-run proof-runtime-probe-build proof-runtime-probe-run proof-plugin-build proof-plugin-install proof-plugin-uninstall proof-plugin-trace-reset proof-plugin-trace-enable proof-plugin-trace-disable proof-plugin-trace-read clean
+.PHONY: proof-scaffold-build proof-scaffold-run proof-runtime-probe-build proof-runtime-probe-run proof-hal-io-probe-build proof-hal-io-probe-run proof-plugin-build proof-plugin-install proof-plugin-uninstall proof-plugin-trace-reset proof-plugin-trace-enable proof-plugin-trace-disable proof-plugin-trace-read clean
 
 proof-scaffold-build: $(PROOF_BIN)
 
@@ -34,6 +36,11 @@ proof-runtime-probe-build: $(RUNTIME_PROBE_BIN)
 
 proof-runtime-probe-run: proof-runtime-probe-build
 	@$(RUNTIME_PROBE_BIN) $(RUNTIME_PROBE_ARGS)
+
+proof-hal-io-probe-build: $(HAL_IO_PROBE_BIN)
+
+proof-hal-io-probe-run: proof-hal-io-probe-build
+	@$(HAL_IO_PROBE_BIN)
 
 proof-plugin-build: $(PLUGIN_BINARY)
 
@@ -69,6 +76,10 @@ $(PROOF_BIN): $(PROOF_SOURCES)
 $(RUNTIME_PROBE_BIN): $(RUNTIME_PROBE_SOURCES)
 	@mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(RUNTIME_PROBE_SOURCES) -framework CoreAudio -framework CoreFoundation -o $(RUNTIME_PROBE_BIN)
+
+$(HAL_IO_PROBE_BIN): $(HAL_IO_PROBE_SOURCES)
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(HAL_IO_PROBE_SOURCES) -framework CoreAudio -framework CoreFoundation -o $(HAL_IO_PROBE_BIN)
 
 $(PLUGIN_BINARY): $(PLUGIN_SOURCES) $(PLUGIN_HEADERS) Resources/ProofPlugin/Info.plist
 	@mkdir -p "$(PLUGIN_BUNDLE)/Contents/MacOS"

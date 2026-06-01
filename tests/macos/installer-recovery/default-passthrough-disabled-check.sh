@@ -39,8 +39,8 @@ if printf '%s\n' "$NEW_LOG" | rg -q 'passthrough_bridge_started'; then
   exit 1
 fi
 
-if ! printf '%s\n' "$NEW_LOG" | rg -q 'passthrough_bridge_disabled'; then
-  echo "default-passthrough-disabled-check: expected explicit disabled event during default app launch" >&2
+if ! printf '%s\n' "$NEW_LOG" | rg -q 'passthrough_bridge_experiment_available'; then
+  echo "default-passthrough-disabled-check: expected explicit non-starting route-engine event during default app launch" >&2
   exit 1
 fi
 

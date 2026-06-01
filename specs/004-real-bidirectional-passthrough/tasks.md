@@ -198,6 +198,7 @@ before accepting live audio behavior.
 - [X] T079 Update `specs/004-real-bidirectional-passthrough/tasks.md`, `quickstart.md`, and browser/release evidence files so synthetic checks, experimental checks, physical checks, and browser acceptance cannot be confused.
 - [X] T080 Run `$speckit-analyze` after stabilization artifacts are updated and resolve all critical/high findings before continuing implementation.
 - [X] T081 Re-run code review for realtime/Core Audio, app-driver architecture, tests/docs, and maintainability before final validation.
+- [X] T082 Add an installed-device HAL I/O probe in `apps/macos/AudioDriver/Sources/Proof/HALIOProbe.cpp` and wire `proof-hal-io-probe-run` into `apps/macos/AudioDriver/Makefile`.
 
 ---
 
@@ -211,7 +212,7 @@ before accepting live audio behavior.
 - [ ] T063 Run physical microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
 - [ ] T064 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.
 - [X] T065 Verify diagnostics contain no raw audio, transcript text, credentials, tokens, signed URLs, or meeting content under `apps/macos/`, `tests/macos/`, `qa/macos/`, and `specs/004-real-bidirectional-passthrough/`.
-- [ ] T066 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/004-real-bidirectional-passthrough/`.
+- [X] T066 Re-run `$speckit-analyze` after implementation and resolve any critical/high findings in `specs/004-real-bidirectional-passthrough/`.
 
 ## Dependencies
 

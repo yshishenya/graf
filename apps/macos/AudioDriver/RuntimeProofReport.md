@@ -517,12 +517,69 @@ Physical browser-call evidence remains pending and must not be marketed as
 passed until Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser are
 run against the installed app.
 
+## HAL I/O Probe Update
+
+- Date: 2026-06-01
+- Status: **ENGINEERING I/O ACCEPTED / BROWSER ACCEPTANCE STILL PENDING**
+- Context: Telemost and Google Meet initially showed the virtual microphone and
+  speaker but did not move usable audio. The investigation found that the
+  driver still exposed a publication-only surface: app-side heartbeat was not
+  enough, `DeviceIsRunning` did not track `StartIO` clients, `WillDoIOOperation`
+  declared both operations for both devices, and zero timestamps were shared
+  between devices.
+- Driver changes made after the failed browser report:
+  - `StartIO` and `StopIO` now maintain per-device running-client counts.
+  - `kAudioDevicePropertyDeviceIsRunning` now reflects active I/O clients.
+  - `WillDoIOOperation` now advertises only `ReadInput` for
+    `2brain Rec Microphone` and only `WriteMix` for `2brain Rec Speaker`.
+  - `GetZeroTimeStamp` now uses separate stable host-time anchors per virtual
+    device instead of one shared incrementing sample counter.
+  - Microphone `ReadInput` now performs partial reads and zero-fills only the
+    missing tail instead of returning full silence on any underrun.
+- App-side changes made after the failed browser report:
+  - explicit passthrough start restores the app heartbeat;
+  - default physical input/output devices are preferred before name-based
+    fallback discovery;
+  - physical device eligibility now checks actual channel count instead of only
+    property-data size.
+
+Local installed-app I/O probe evidence:
+
+```text
+2brain Rec Microphone: callbacks=188 frames=96256
+2brain Rec Speaker: callbacks=188 frames=96256
+```
+
+Shared-memory evidence immediately after the probe:
+
+```text
+mic_read=192512 mic_write=208896 mic_avail=16384
+speaker_read=192512 speaker_write=192512 speaker_avail=0
+capture_read=0 capture_write=16384 capture_avail=16384
+heartbeat=1780317050544875264 app_io_state=1
+```
+
+Driver trace evidence:
+
+```text
+StartIO device=2
+StopIO device=2
+StartIO device=3
+StopIO device=3
+```
+
+This proves Core Audio can start real I/O callbacks against both installed
+virtual devices with the app-side bridge active. It does **not** replace the
+browser meeting matrix: Chrome, Opera, Yandex Browser, Google Meet, and Yandex
+Telemost still require physical/browser acceptance runs after this fix.
+
 Validation commands executed:
 
 ```text
 swift build --package-path apps/macos -c release --product TwoBrainRecApp
 swift test --package-path apps/macos
 make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build
+make -C apps/macos/AudioDriver proof-hal-io-probe-run
 sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh
 TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh
 installer -pkg apps/macos/.build/installer/2brain-rec-local.pkg -target /

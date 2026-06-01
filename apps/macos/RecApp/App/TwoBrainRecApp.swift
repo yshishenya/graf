@@ -20,6 +20,7 @@ struct TwoBrainRecApp: App {
                 },
                 runCheck: {
                     isChecking = true
+                    _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
                     let checked = LocalAudioSnapshot.runReadinessCheck()
                     AppLog.write(event: "readiness_check", snapshot: checked)
                     snapshot = checked
@@ -72,6 +73,9 @@ private struct ContentView: View {
         }
         .onAppear {
             passthroughCoordinator.recordLaunchState()
+            if ProcessInfo.processInfo.arguments.contains("--start-passthrough") {
+                passthroughCoordinator.startExperimentalBridge()
+            }
             AppLog.write(event: "app_opened", snapshot: snapshot)
         }
     }

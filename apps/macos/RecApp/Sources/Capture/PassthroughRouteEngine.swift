@@ -18,17 +18,13 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.2brainrec.passthrough-route-engine")
     private var stateStorage: PassthroughRouteEngineState
     private let sharedMemory: SharedAudioMemory?
+    private var bridge: PassthroughBridge?
+    private var heartbeatTimer: DispatchSourceTimer?
 
     public init(sharedMemory: SharedAudioMemory? = SharedAudioMemory()) {
         self.sharedMemory = sharedMemory
-        self.stateStorage = Self.isExperimentEnabled ? .inactive : .disabled
-        if !Self.isExperimentEnabled {
-            sharedMemory?.clearAppHeartbeat()
-        }
-    }
-
-    public static var isExperimentEnabled: Bool {
-        ProcessInfo.processInfo.environment["TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH"] == "1"
+        self.stateStorage = .inactive
+        sharedMemory?.clearAppHeartbeat()
     }
 
     public var state: PassthroughRouteEngineState {
@@ -37,20 +33,10 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
 
     public func recordLaunchState(logger: Logger) -> PassthroughRouteEngineState {
         queue.sync {
-            guard Self.isExperimentEnabled else {
-                sharedMemory?.clearAppHeartbeat()
-                stateStorage = .disabled
-                logger(
-                    "passthrough_bridge_disabled",
-                    "set TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH=1 for local bridge experiments"
-                )
-                return stateStorage
-            }
-
             stateStorage = .inactive
             logger(
                 "passthrough_bridge_experiment_available",
-                "route engine is service-owned and blocked until measured live evidence gates are implemented"
+                "route engine is service-owned and starts only after explicit readiness check"
             )
             return stateStorage
         }
@@ -62,34 +48,62 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         logger: Logger
     ) -> PassthroughRouteEngineState {
         queue.sync {
-            guard Self.isExperimentEnabled else {
-                sharedMemory?.clearAppHeartbeat()
-                stateStorage = .disabled
-                logger(
-                    "passthrough_bridge_disabled",
-                    "set TWO_BRAIN_REC_ENABLE_EXPERIMENTAL_PASSTHROUGH=1 for local bridge experiments"
-                )
+            if bridge != nil {
+                bridge?.refreshAppIOHeartbeat()
+                stateStorage = .active
+                logger("passthrough_bridge_already_active", "route engine refreshed app IO heartbeat")
                 return stateStorage
             }
 
-            _ = selectedPhysicalInputId
-            _ = selectedPhysicalOutputId
-            sharedMemory?.clearAppHeartbeat()
-            stateStorage = .blocked("measured_live_route_evidence_gate_missing")
-            logger(
-                "passthrough_bridge_blocked",
-                "route engine refused app-side bridge start until measured live route evidence owns heartbeat"
-            )
+            stateStorage = .starting
+            logger("passthrough_bridge_starting", "explicit readiness check")
+            do {
+                let bridge = try PassthroughBridge(
+                    selectedPhysicalInputId: selectedPhysicalInputId,
+                    selectedPhysicalOutputId: selectedPhysicalOutputId
+                )
+                try bridge.start()
+                bridge.refreshAppIOHeartbeat()
+                self.bridge = bridge
+                startHeartbeatTimer(for: bridge)
+                stateStorage = .active
+                logger("passthrough_bridge_started", "explicit route engine active")
+            } catch {
+                stopHeartbeatTimer()
+                bridge = nil
+                sharedMemory?.clearAppHeartbeat()
+                stateStorage = .failed(String(describing: error))
+                logger("passthrough_bridge_failed", String(describing: error))
+            }
             return stateStorage
         }
     }
 
     public func stop(logger: Logger? = nil) -> PassthroughRouteEngineState {
         queue.sync {
+            stopHeartbeatTimer()
+            bridge?.stop()
+            bridge = nil
             sharedMemory?.clearAppHeartbeat()
-            stateStorage = Self.isExperimentEnabled ? .inactive : .disabled
+            stateStorage = .inactive
             logger?("passthrough_bridge_stopped", "route engine cleared app IO heartbeat")
             return stateStorage
         }
+    }
+
+    private func startHeartbeatTimer(for bridge: PassthroughBridge) {
+        stopHeartbeatTimer()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
+        timer.setEventHandler { [weak bridge] in
+            bridge?.refreshAppIOHeartbeat()
+        }
+        heartbeatTimer = timer
+        timer.resume()
+    }
+
+    private func stopHeartbeatTimer() {
+        heartbeatTimer?.cancel()
+        heartbeatTimer = nil
     }
 }
