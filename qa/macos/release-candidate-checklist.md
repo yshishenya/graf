@@ -7,6 +7,8 @@
   missing-track truth, and no external egress.
 - [x] Feature `008` full validation script passes for local persistence models,
   contract validation, realtime safety, and manifest fixture checks.
+- [x] Feature `008` user smoke confirms a local recording exists after manual
+  `Record`/`Stop` in the freshly rebuilt local app bundle.
 - [ ] Feature `008` manual browser smoke remains pending before recording
   release acceptance.
 - [ ] Feature `008` local recording artifacts are not yet accepted for upload,

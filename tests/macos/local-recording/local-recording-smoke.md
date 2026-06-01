@@ -22,9 +22,9 @@ auto-start.
 
 | Artifact | Current 008 Status | Required Evidence |
 |---|---|---|
-| `manifest.json` | Automated contract accepted; manual smoke pending | Exists, valid JSON, metadata-only, no external egress |
-| `local-mic.wav` | Manual smoke pending | Exists and non-empty when mic frames are available |
-| `remote-speaker.wav` | Manual smoke pending | Exists and non-empty when remote speaker frames are available |
+| `manifest.json` | User-confirmed local recording exists after `Record`/`Stop`; metadata contract accepted | Exists, valid JSON, metadata-only, no external egress |
+| `local-mic.wav` | User-confirmed local recording exists after `Record`/`Stop` | Exists and non-empty when mic frames are available |
+| `remote-speaker.wav` | Truthful saved/degraded status required per manifest | Exists and non-empty when remote speaker frames are available |
 
 ## Target Matrix
 
@@ -34,6 +34,13 @@ auto-start.
 | Chrome | Manual smoke pending | Saved location, manifest, local mic track, remote speaker track or truthful degraded status |
 | Opera | Manual smoke pending | Saved location, manifest, local mic track, remote speaker track or truthful degraded status |
 | Zoom | Manual smoke pending | Saved location, manifest, local mic track, remote speaker track or truthful degraded status |
+
+## Manual Evidence Log
+
+- 2026-06-02 01:19 MSK: User confirmed that pressing `Record` and then `Stop`
+  produced a local recording in the freshly rebuilt `008` app. Treat this as
+  accepted local artifact presence smoke only; target-specific meeting smoke
+  remains pending.
 
 Evidence must remain metadata-only and must not include raw audio, transcript
 text, meeting content, credentials, tokens, signed URLs, passwords, or live

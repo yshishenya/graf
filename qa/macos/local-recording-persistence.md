@@ -30,11 +30,21 @@ auto-start.
 
 See `tests/macos/local-recording/local-recording-smoke.md`.
 
+## Manual Smoke Evidence
+
+- 2026-06-02 01:19 MSK: User ran the freshly rebuilt
+  `apps/macos/RecApp/.build/2brain Rec.app`, pressed `Record`, pressed `Stop`,
+  and confirmed that a local recording exists. This accepts the local artifact
+  presence smoke for feature `008`; upload, transcription, dashboard,
+  retention, deletion, encryption, and assisted auto-start remain out of scope.
+
 ## Current Acceptance
 
 Status: Automated 008 gates passed and fresh local app bundle launched from
-`apps/macos/RecApp/.build/2brain Rec.app`. Manual meeting-target smoke remains
-pending and must record metadata-only evidence before release acceptance.
+`apps/macos/RecApp/.build/2brain Rec.app`. User-confirmed local recording
+artifact presence after manual `Record`/`Stop` is accepted for this slice.
+Meeting-target smoke remains pending and must record metadata-only evidence
+before broader recording release acceptance.
 
 ## Passthrough After Stop
 
