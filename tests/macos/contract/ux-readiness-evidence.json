@@ -1,0 +1,28 @@
+{
+  "schema": "2brain.rec.ux_readiness_evidence.v1",
+  "states": ["ready", "active", "stale", "degraded", "failed", "blocked", "repair", "recheck"],
+  "requiredFields": [
+    "state",
+    "copy_claim",
+    "non_recording_explicit",
+    "recording_implied",
+    "accessibility_notes",
+    "result"
+  ],
+  "allowedResult": ["passed", "blocked", "not_accepted"],
+  "rules": {
+    "passthroughMustNotImplyRecording": true,
+    "deviceVisibilityAloneIsNotReady": true,
+    "statusMustNotRelyOnColorAlone": true,
+    "copyMustBeOriginalTwoBrainRecLanguage": true
+  },
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "tokens",
+    "signedUrls"
+  ]
+}

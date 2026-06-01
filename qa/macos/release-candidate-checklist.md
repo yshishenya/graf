@@ -1,5 +1,26 @@
 # macOS Release Candidate Checklist (MVP)
 
+## Passthrough Release Hardening Evidence (005)
+
+- [ ] Pre-recording stability evidence records installed runtime, short smoke,
+  route state, CPU/no-hang behavior, and inactive recording/transcription/upload
+  status.
+- [ ] No-hang evidence covers macOS Sound settings, Chrome audio settings, Opera
+  audio settings, Zoom audio settings, and Yandex Telemost audio settings.
+- [ ] `coreaudiod` CPU does not sustain above 10% for more than 30 consecutive
+  seconds during no-call idle with the app open.
+- [ ] Physical input/output changes, aggregate or multi-output routes,
+  Bluetooth routes, stale browser device IDs, `coreaudiod` restart, and
+  sleep/wake record passed, blocked, or not accepted metadata-only outcomes.
+- [ ] Installer lifecycle evidence covers install, update, repair, rollback,
+  uninstall, and reinstall without hidden manual cleanup.
+- [ ] Diagnostics and release evidence contain no raw audio, transcript text,
+  credentials, tokens, signed URLs, passwords, or meeting content.
+- [ ] UI evidence distinguishes non-recording passthrough active/ready state
+  from recording, transcription, and capture-active states.
+- [ ] Long-duration recording-assisted acceptance remains deferred until local
+  recording, retention, and deletion rules exist.
+
 ## Live Route Readiness Evidence (003)
 
 - [ ] Fresh local install moves from `not ready for calls yet` to ready only

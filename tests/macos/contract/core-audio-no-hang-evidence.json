@@ -1,0 +1,38 @@
+{
+  "schema": "2brain.rec.core_audio_no_hang_evidence.v1",
+  "targets": [
+    "macOS Sound settings",
+    "Chrome audio settings",
+    "Opera audio settings",
+    "Zoom audio settings",
+    "Yandex Telemost audio settings"
+  ],
+  "optionalTargets": [
+    "Yandex Browser audio settings"
+  ],
+  "requiredFields": [
+    "target_surface",
+    "opened_within_seconds",
+    "coreaudiod_cpu_peak_percent",
+    "coreaudiod_cpu_sustained_percent",
+    "route_state_before",
+    "route_state_after",
+    "result",
+    "failure_reason"
+  ],
+  "allowedResult": ["passed", "blocked", "not_accepted"],
+  "thresholds": {
+    "target_surface_usable_within_seconds": 5,
+    "coreaudiod_sustained_cpu_percent": 10,
+    "coreaudiod_sustained_cpu_duration_seconds": 30
+  },
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "tokens",
+    "signedUrls"
+  ]
+}

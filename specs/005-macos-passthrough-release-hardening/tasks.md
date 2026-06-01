@@ -12,14 +12,14 @@
 
 **Purpose**: Establish release-hardening fixtures, evidence locations, and validation entry points without changing runtime behavior yet.
 
-- [ ] T001 [P] Add release-hardening evidence fixture in `tests/macos/contract/release-hardening-evidence.json`.
-- [ ] T002 [P] Add no-hang evidence fixture in `tests/macos/contract/core-audio-no-hang-evidence.json`.
-- [ ] T003 [P] Add route recovery evidence fixture in `tests/macos/contract/route-recovery-evidence.json`.
-- [ ] T004 [P] Add installer lifecycle evidence fixture in `tests/macos/contract/installer-lifecycle-evidence.json`.
-- [ ] T005 [P] Add UX readiness evidence fixture in `tests/macos/contract/ux-readiness-evidence.json`.
-- [ ] T006 [P] Add release-hardening QA section in `qa/macos/release-candidate-checklist.md`.
-- [ ] T007 [P] Add 005 validation wrapper skeleton in `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
-- [ ] T008 [P] Add future recording-assisted acceptance placeholder in `qa/macos/recording-assisted-acceptance.md`.
+- [X] T001 [P] Add release-hardening evidence fixture in `tests/macos/contract/release-hardening-evidence.json`.
+- [X] T002 [P] Add no-hang evidence fixture in `tests/macos/contract/core-audio-no-hang-evidence.json`.
+- [X] T003 [P] Add route recovery evidence fixture in `tests/macos/contract/route-recovery-evidence.json`.
+- [X] T004 [P] Add installer lifecycle evidence fixture in `tests/macos/contract/installer-lifecycle-evidence.json`.
+- [X] T005 [P] Add UX readiness evidence fixture in `tests/macos/contract/ux-readiness-evidence.json`.
+- [X] T006 [P] Add release-hardening QA section in `qa/macos/release-candidate-checklist.md`.
+- [X] T007 [P] Add 005 validation wrapper skeleton in `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
+- [X] T008 [P] Add future recording-assisted acceptance placeholder in `qa/macos/recording-assisted-acceptance.md`.
 
 ---
 
