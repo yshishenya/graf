@@ -80,6 +80,51 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertEqual(bundle.redactionState, .blockedSensitiveContent)
     }
 
+    func testLocalRecordingEvidenceSummaryIsMetadataOnly() {
+        let manifest = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 1),
+            startedAt: Date(timeIntervalSince1970: 1),
+            stoppedAt: Date(timeIntervalSince1970: 2),
+            status: .saved,
+            directoryId: "safe-dir",
+            tracks: [
+                LocalRecordingTrack(
+                    trackId: "mic",
+                    role: .localMic,
+                    status: .saved,
+                    fileName: "local-mic.wav",
+                    format: "wav-lpcm",
+                    sampleRate: 48_000,
+                    channelCount: 2,
+                    durationMs: 1000,
+                    byteCount: 100,
+                    frameCount: 48_000
+                ),
+                LocalRecordingTrack(
+                    trackId: "remote",
+                    role: .remoteSpeaker,
+                    status: .saved,
+                    fileName: "remote-speaker.wav",
+                    format: "wav-lpcm",
+                    sampleRate: 48_000,
+                    channelCount: 2,
+                    durationMs: 1000,
+                    byteCount: 100,
+                    frameCount: 48_000
+                )
+            ]
+        )
+
+        let evidence = RecordingEvidenceService().localRecordingEvidence(for: manifest)
+
+        XCTAssertEqual(evidence["sessionId"], "session")
+        XCTAssertEqual(evidence["status"], "saved")
+        XCTAssertEqual(evidence["externalEgressStarted"], "false")
+        XCTAssertNil(evidence["rawAudio"])
+        XCTAssertNil(evidence["absolutePath"])
+    }
+
     private func makeSession(
         state: CaptureSessionState,
         indicator: VisibleIndicatorState,

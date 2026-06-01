@@ -56,6 +56,15 @@ struct RecordingSessionEvidenceFixtureFile: Decodable {
     let forbiddenExternalActivity: [String]
 }
 
+struct LocalRecordingManifestFixtureFile: Decodable {
+    let schema: String
+    let requiredFields: [String]
+    let requiredTrackRoles: [String]
+    let allowedStatuses: [String]
+    let forbiddenFields: [String]
+    let forbiddenExternalActivity: [String]
+}
+
 func findRepositoryRoot(startingAt startURL: URL) throws -> URL {
     var candidate = startURL.standardizedFileURL
 
@@ -398,6 +407,63 @@ func validateRecordingSessionEvidenceFixture() throws {
     )
 }
 
+func validateLocalRecordingManifestFixture() throws {
+    let url = repositoryRoot.appendingPathComponent("tests/macos/contract/local-recording-manifest.json")
+    let fixture = try decode(LocalRecordingManifestFixtureFile.self, from: url)
+
+    try require(
+        fixture.schema == LocalRecordingManifest.schemaVersion,
+        "Local recording manifest fixture must use local-recording-manifest.v1 schema"
+    )
+    try require(
+        Set(fixture.requiredFields).isSuperset(of: [
+            "sessionId",
+            "createdAt",
+            "startedAt",
+            "stoppedAt",
+            "status",
+            "directoryId",
+            "manifestFileName",
+            "tracks",
+            "externalEgressStarted",
+            "transcriptionStarted",
+            "diagnosticSafe"
+        ]),
+        "Local recording manifest must require safe session fields"
+    )
+    try require(
+        Set(fixture.requiredTrackRoles) == Set([AudioTrackRole.localMic.rawValue, AudioTrackRole.remoteSpeaker.rawValue]),
+        "Local recording manifest must require local mic and remote speaker roles"
+    )
+    try require(
+        Set(fixture.allowedStatuses) == Set([
+            LocalRecordingSessionStatus.saved.rawValue,
+            LocalRecordingSessionStatus.degraded.rawValue,
+            LocalRecordingSessionStatus.failed.rawValue
+        ]),
+        "Local recording manifest must allow saved, degraded, and failed terminal statuses"
+    )
+    try require(
+        Set(fixture.forbiddenFields).isSuperset(of: [
+            "rawAudio",
+            "transcriptText",
+            "meetingContent",
+            "credentials",
+            "tokens",
+            "signedUrls",
+            "password",
+            "apiKey",
+            "absolutePath",
+            "liveSecretPath"
+        ]),
+        "Local recording manifest must forbid raw content, secrets, and live paths"
+    )
+    try require(
+        Set(fixture.forbiddenExternalActivity) == ["upload", "mediascribe", "langfuse", "dashboard_publish"],
+        "Local recording manifest must forbid external activity in this slice"
+    )
+}
+
 func validatePlatformGate() throws {
     let minimum = OperatingSystemVersion(majorVersion: 14, minorVersion: 5, patchVersion: 0)
     try require(
@@ -480,6 +546,7 @@ do {
     try validateReleaseHardeningFixtures()
     try validateLowResourceFixtures()
     try validateRecordingSessionEvidenceFixture()
+    try validateLocalRecordingManifestFixture()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()

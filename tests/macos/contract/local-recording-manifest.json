@@ -1,0 +1,44 @@
+{
+  "schema": "local-recording-manifest.v1",
+  "requiredFields": [
+    "sessionId",
+    "createdAt",
+    "startedAt",
+    "stoppedAt",
+    "status",
+    "directoryId",
+    "manifestFileName",
+    "tracks",
+    "externalEgressStarted",
+    "transcriptionStarted",
+    "diagnosticSafe"
+  ],
+  "requiredTrackRoles": [
+    "local_mic",
+    "remote_speaker"
+  ],
+  "allowedStatuses": [
+    "saved",
+    "degraded",
+    "failed"
+  ],
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "apiKey",
+    "tokens",
+    "signedUrls",
+    "password",
+    "absolutePath",
+    "liveSecretPath"
+  ],
+  "forbiddenExternalActivity": [
+    "upload",
+    "mediascribe",
+    "langfuse",
+    "dashboard_publish"
+  ]
+}

@@ -18,10 +18,10 @@
 
 **Purpose**: Add fixtures, QA evidence files, and validation entry points.
 
-- [ ] T001 Create local recording smoke evidence document in `tests/macos/local-recording/local-recording-smoke.md`.
-- [ ] T002 Create QA gate document in `qa/macos/local-recording-persistence.md`.
-- [ ] T003 Add validation script shell in `apps/macos/Scripts/validate-local-recording-persistence.sh`.
-- [ ] T004 Add local recording manifest contract fixture in `tests/macos/contract/local-recording-manifest.json`.
+- [X] T001 Create local recording smoke evidence document in `tests/macos/local-recording/local-recording-smoke.md`.
+- [X] T002 Create QA gate document in `qa/macos/local-recording-persistence.md`.
+- [X] T003 Add validation script shell in `apps/macos/Scripts/validate-local-recording-persistence.sh`.
+- [X] T004 Add local recording manifest contract fixture in `tests/macos/contract/local-recording-manifest.json`.
 
 ---
 
@@ -29,10 +29,10 @@
 
 **Purpose**: Add shared model and contract support required by all persistence stories.
 
-- [ ] T005 [P] Add local recording persistence states in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
-- [ ] T006 [P] Add local recording session, track, manifest, and evidence models in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
-- [ ] T007 [P] Add local recording audit event names in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
-- [ ] T008 Update contract validation for local recording manifest in `apps/macos/Shared/Tools/ContractValidation/main.swift`.
+- [X] T005 [P] Add local recording persistence states in `apps/macos/Shared/Sources/Models/AudioStates.swift`.
+- [X] T006 [P] Add local recording session, track, manifest, and evidence models in `apps/macos/Shared/Sources/Models/AudioModels.swift`.
+- [X] T007 [P] Add local recording audit event names in `apps/macos/Shared/Sources/Audit/AuditEvents.swift`.
+- [X] T008 Update contract validation for local recording manifest in `apps/macos/Shared/Tools/ContractValidation/main.swift`.
 
 **Checkpoint**: Shared model layer can represent saved, degraded, failed, and metadata-only local recording artifacts.
 
@@ -46,17 +46,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Add local recording store tests in `apps/macos/Shared/Tests/LocalRecordingStoreTests.swift`.
-- [ ] T010 [P] [US1] Add local writer lifecycle tests in `apps/macos/Shared/Tests/LocalRecordingWriterTests.swift`.
-- [ ] T011 [P] [US1] Add manifest serialization tests in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`.
+- [X] T009 [P] [US1] Add local recording store tests in `apps/macos/Shared/Tests/LocalRecordingStoreTests.swift`.
+- [X] T010 [P] [US1] Add local writer lifecycle tests in `apps/macos/Shared/Tests/LocalRecordingWriterTests.swift`.
+- [X] T011 [P] [US1] Add manifest serialization tests in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`.
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement app-owned local recording directory store in `apps/macos/RecApp/Sources/Capture/LocalRecordingStore.swift`.
-- [ ] T013 [US1] Implement local recording manifest service in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`.
-- [ ] T014 [US1] Implement non-realtime local recording writer in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`.
-- [ ] T015 [US1] Wire local writer start/stop into manual recording flow in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
-- [ ] T016 [US1] Show saved local recording location in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
+- [X] T012 [US1] Implement app-owned local recording directory store in `apps/macos/RecApp/Sources/Capture/LocalRecordingStore.swift`.
+- [X] T013 [US1] Implement local recording manifest service in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`.
+- [X] T014 [US1] Implement non-realtime local recording writer in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`.
+- [X] T015 [US1] Wire local writer start/stop into manual recording flow in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T016 [US1] Show saved local recording location in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
 
 **Checkpoint**: Manual `Record`/`Stop` produces a discoverable local recording artifact.
 
@@ -70,15 +70,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T017 [P] [US2] Add missing-track finalization tests in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`.
-- [ ] T018 [P] [US2] Add writer failure tests in `apps/macos/Shared/Tests/LocalRecordingWriterTests.swift`.
+- [X] T017 [P] [US2] Add missing-track finalization tests in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`.
+- [X] T018 [P] [US2] Add writer failure tests in `apps/macos/Shared/Tests/LocalRecordingWriterTests.swift`.
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Add track-level degraded and failed finalization in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`.
-- [ ] T020 [US2] Block or fail closed when local recording directory is unavailable in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
-- [ ] T021 [US2] Surface saved, degraded, and failed copy in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
-- [ ] T022 [US2] Preserve non-recording passthrough after local writer stop in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` or document no code change in `qa/macos/local-recording-persistence.md`.
+- [X] T019 [US2] Add track-level degraded and failed finalization in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`.
+- [X] T020 [US2] Block or fail closed when local recording directory is unavailable in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T021 [US2] Surface saved, degraded, and failed copy in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`.
+- [X] T022 [US2] Preserve non-recording passthrough after local writer stop in `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` or document no code change in `qa/macos/local-recording-persistence.md`.
 
 **Checkpoint**: Partial recordings are truthful and cannot be mistaken for complete acceptance.
 
@@ -92,15 +92,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T023 [P] [US3] Add local recording diagnostic redaction tests in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
-- [ ] T024 [P] [US3] Add local recording evidence tests in `apps/macos/Shared/Tests/RecordingEvidenceTests.swift`.
+- [X] T023 [P] [US3] Add local recording diagnostic redaction tests in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`.
+- [X] T024 [P] [US3] Add local recording evidence tests in `apps/macos/Shared/Tests/RecordingEvidenceTests.swift`.
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] Add local recording evidence generation in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`.
-- [ ] T026 [US3] Add diagnostic bundle support for local recording manifests in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T027 [US3] Extend diagnostic redactor safe allowlist for local recording metadata in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
-- [ ] T028 [US3] Record local recording saved/degraded/failed audit events in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T025 [US3] Add local recording evidence generation in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`.
+- [X] T026 [US3] Add diagnostic bundle support for local recording manifests in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T027 [US3] Extend diagnostic redactor safe allowlist for local recording metadata in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`.
+- [X] T028 [US3] Record local recording saved/degraded/failed audit events in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
 
 **Checkpoint**: Evidence proves local recording status without content leakage.
 
@@ -110,14 +110,14 @@
 
 **Purpose**: Validate the complete 008 feature and update evidence.
 
-- [ ] T029 Run Swift package tests and record result in `qa/macos/local-recording-persistence.md`.
-- [ ] T030 Run contract validation and record result in `qa/macos/local-recording-persistence.md`.
-- [ ] T031 Run realtime safety scan and record result in `qa/macos/local-recording-persistence.md`.
-- [ ] T032 Run `apps/macos/Scripts/validate-local-recording-persistence.sh` and record result in `qa/macos/local-recording-persistence.md`.
-- [ ] T033 Update release-candidate checklist with 008 status in `qa/macos/release-candidate-checklist.md`.
-- [ ] T034 Verify diagnostics contain no raw audio, transcript text, meeting content, credentials, tokens, signed URLs, passwords, or live secret paths in `qa/macos/local-recording-persistence.md`.
-- [ ] T035 Rebuild and launch local app bundle in `apps/macos/RecApp/.build/2brain Rec.app`.
-- [ ] T036 Mark completed tasks in `specs/008-local-recording-persistence/tasks.md`.
+- [X] T029 Run Swift package tests and record result in `qa/macos/local-recording-persistence.md`.
+- [X] T030 Run contract validation and record result in `qa/macos/local-recording-persistence.md`.
+- [X] T031 Run realtime safety scan and record result in `qa/macos/local-recording-persistence.md`.
+- [X] T032 Run `apps/macos/Scripts/validate-local-recording-persistence.sh` and record result in `qa/macos/local-recording-persistence.md`.
+- [X] T033 Update release-candidate checklist with 008 status in `qa/macos/release-candidate-checklist.md`.
+- [X] T034 Verify diagnostics contain no raw audio, transcript text, meeting content, credentials, tokens, signed URLs, passwords, or live secret paths in `qa/macos/local-recording-persistence.md`.
+- [X] T035 Rebuild and launch local app bundle in `apps/macos/RecApp/.build/2brain Rec.app`.
+- [X] T036 Mark completed tasks in `specs/008-local-recording-persistence/tasks.md`.
 
 ---
 

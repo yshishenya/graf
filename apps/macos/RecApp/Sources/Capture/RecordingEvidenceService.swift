@@ -54,6 +54,20 @@ public struct RecordingEvidenceService: Sendable {
         )
     }
 
+    public func localRecordingEvidence(for manifest: LocalRecordingManifest) -> [String: String] {
+        [
+            "sessionId": manifest.sessionId,
+            "status": manifest.status.rawValue,
+            "directoryId": manifest.directoryId,
+            "manifestFileName": manifest.manifestFileName,
+            "trackRoles": manifest.tracks.map(\.role.rawValue).joined(separator: ","),
+            "trackStates": manifest.tracks.map(\.status.rawValue).joined(separator: ","),
+            "externalEgressStarted": String(manifest.externalEgressStarted),
+            "transcriptionStarted": String(manifest.transcriptionStarted),
+            "diagnosticSafe": String(manifest.diagnosticSafe)
+        ]
+    }
+
     private func durationMs(for session: CaptureSession) -> Int? {
         guard let startedAt = session.startedAt else {
             return nil

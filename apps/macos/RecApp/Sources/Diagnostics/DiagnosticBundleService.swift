@@ -284,6 +284,32 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildLocalRecordingBundle(
+        manifest: LocalRecordingManifest,
+        manifestOverrides: [String: DiagnosticFieldValue] = [:]
+    ) throws -> DiagnosticBundle {
+        var bundleManifest = manifestOverrides
+        bundleManifest["localRecordingManifest"] = Self.diagnosticValue(manifest)
+        bundleManifest["localRecordingTracks"] = .array(manifest.tracks.map(Self.diagnosticValue))
+        bundleManifest["localRecordingEvidence"] = .object([
+            "sessionId": .string(manifest.sessionId),
+            "status": .string(manifest.status.rawValue),
+            "directoryId": .string(manifest.directoryId),
+            "manifestFileName": .string(manifest.manifestFileName),
+            "diagnosticSafe": .bool(manifest.diagnosticSafe)
+        ])
+        bundleManifest["sessionId"] = .string(manifest.sessionId)
+        bundleManifest["trackCount"] = .int(manifest.tracks.count)
+        bundleManifest["trackRoles"] = .array(manifest.tracks.map { .string($0.role.rawValue) })
+        bundleManifest["trackStates"] = .array(manifest.tracks.map { .string($0.status.rawValue) })
+
+        return try buildBundle(
+            schemaVersion: "1",
+            manifest: bundleManifest,
+            failureFamily: "local_recording"
+        )
+    }
+
     public func buildReleaseHardeningBundle(
         run: ReleaseHardeningRun,
         shortSmokeEvidence: [ShortSmokeEvidence] = [],
@@ -551,6 +577,40 @@ public struct DiagnosticBundleService: Sendable {
             "stopActionAvailable": .bool(snapshot.stopActionAvailable),
             "accessibilityLabelPresent": .bool(!snapshot.accessibilityLabel.isEmpty),
             "lastVerifiedAt": .string(Self.formatDate(snapshot.lastVerifiedAt))
+        ])
+    }
+
+    private static func diagnosticValue(_ manifest: LocalRecordingManifest) -> DiagnosticFieldValue {
+        .object([
+            "schemaVersion": .string(manifest.schemaVersion),
+            "sessionId": .string(manifest.sessionId),
+            "createdAt": .string(Self.formatDate(manifest.createdAt)),
+            "startedAt": .string(Self.formatDate(manifest.startedAt)),
+            "stoppedAt": .string(Self.formatDate(manifest.stoppedAt)),
+            "status": .string(manifest.status.rawValue),
+            "directoryId": .string(manifest.directoryId),
+            "manifestFileName": .string(manifest.manifestFileName),
+            "tracks": .array(manifest.tracks.map(Self.diagnosticValue)),
+            "externalEgressStarted": .bool(manifest.externalEgressStarted),
+            "transcriptionStarted": .bool(manifest.transcriptionStarted),
+            "diagnosticSafe": .bool(manifest.diagnosticSafe),
+            "failureReason": .string(manifest.failureReason.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ track: LocalRecordingTrack) -> DiagnosticFieldValue {
+        .object([
+            "trackId": .string(track.trackId),
+            "role": .string(track.role.rawValue),
+            "status": .string(track.status.rawValue),
+            "fileName": .string(track.fileName),
+            "format": .string(track.format),
+            "sampleRate": .double(track.sampleRate),
+            "channelCount": .int(track.channelCount),
+            "durationMs": .int(track.durationMs),
+            "byteCount": .int(Int(track.byteCount)),
+            "frameCount": .int(Int(track.frameCount)),
+            "failureReason": .string(track.failureReason.rawValue)
         ])
     }
 

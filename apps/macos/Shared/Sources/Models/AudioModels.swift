@@ -827,6 +827,106 @@ public struct AudioTrack: Codable, Equatable, Sendable {
     }
 }
 
+public struct LocalRecordingTrack: Codable, Equatable, Sendable {
+    public var trackId: String
+    public var role: AudioTrackRole
+    public var status: LocalRecordingTrackStatus
+    public var fileName: String
+    public var format: String
+    public var sampleRate: Double
+    public var channelCount: Int
+    public var durationMs: Int
+    public var byteCount: Int64
+    public var frameCount: Int64
+    public var failureReason: LocalRecordingFailureReason
+
+    public init(
+        trackId: String,
+        role: AudioTrackRole,
+        status: LocalRecordingTrackStatus,
+        fileName: String,
+        format: String,
+        sampleRate: Double,
+        channelCount: Int,
+        durationMs: Int,
+        byteCount: Int64,
+        frameCount: Int64,
+        failureReason: LocalRecordingFailureReason = .none
+    ) {
+        self.trackId = trackId
+        self.role = role
+        self.status = status
+        self.fileName = fileName
+        self.format = format
+        self.sampleRate = sampleRate
+        self.channelCount = channelCount
+        self.durationMs = durationMs
+        self.byteCount = byteCount
+        self.frameCount = frameCount
+        self.failureReason = failureReason
+    }
+
+    public var isComplete: Bool {
+        status == .saved && byteCount > 0 && frameCount > 0 && durationMs > 0
+    }
+}
+
+public struct LocalRecordingManifest: Codable, Equatable, Sendable {
+    public static let schemaVersion = "local-recording-manifest.v1"
+
+    public var schemaVersion: String
+    public var sessionId: String
+    public var createdAt: Date
+    public var startedAt: Date
+    public var stoppedAt: Date
+    public var status: LocalRecordingSessionStatus
+    public var directoryId: String
+    public var manifestFileName: String
+    public var tracks: [LocalRecordingTrack]
+    public var externalEgressStarted: Bool
+    public var transcriptionStarted: Bool
+    public var diagnosticSafe: Bool
+    public var failureReason: LocalRecordingFailureReason
+
+    public init(
+        schemaVersion: String = Self.schemaVersion,
+        sessionId: String,
+        createdAt: Date,
+        startedAt: Date,
+        stoppedAt: Date,
+        status: LocalRecordingSessionStatus,
+        directoryId: String,
+        manifestFileName: String = "manifest.json",
+        tracks: [LocalRecordingTrack],
+        externalEgressStarted: Bool = false,
+        transcriptionStarted: Bool = false,
+        diagnosticSafe: Bool = true,
+        failureReason: LocalRecordingFailureReason = .none
+    ) {
+        self.schemaVersion = schemaVersion
+        self.sessionId = sessionId
+        self.createdAt = createdAt
+        self.startedAt = startedAt
+        self.stoppedAt = stoppedAt
+        self.status = status
+        self.directoryId = directoryId
+        self.manifestFileName = manifestFileName
+        self.tracks = tracks
+        self.externalEgressStarted = externalEgressStarted
+        self.transcriptionStarted = transcriptionStarted
+        self.diagnosticSafe = diagnosticSafe
+        self.failureReason = failureReason
+    }
+
+    public var isComplete: Bool {
+        status == .saved &&
+            !externalEgressStarted &&
+            !transcriptionStarted &&
+            Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
+            tracks.allSatisfy(\.isComplete)
+    }
+}
+
 public struct LocalBufferItem: Codable, Equatable, Sendable {
     public var id: String
     public var sessionId: String

@@ -2,6 +2,17 @@
 
 ## Passthrough Release Hardening Evidence (005)
 
+- [x] Local recording persistence feature `008` has model and contract gates for
+  local mic/remote speaker track artifacts, metadata-only manifest, degraded
+  missing-track truth, and no external egress.
+- [x] Feature `008` full validation script passes for local persistence models,
+  contract validation, realtime safety, and manifest fixture checks.
+- [ ] Feature `008` manual browser smoke remains pending before recording
+  release acceptance.
+- [ ] Feature `008` local recording artifacts are not yet accepted for upload,
+  transcription, retention, deletion, dashboard publication, or assisted
+  auto-start.
+
 - [x] Manual capture session and visible indicator feature `007` has automated
   local gates passing for manual Record/Stop, visible indicator safety,
   blocked-start prerequisites, metadata-only evidence, diagnostics redaction,

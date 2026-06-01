@@ -246,6 +246,32 @@ public enum RecordingRouteEvidenceKind: String, Codable, Sendable {
     case unknown
 }
 
+public enum LocalRecordingSessionStatus: String, Codable, Sendable {
+    case active
+    case saved
+    case degraded
+    case failed
+}
+
+public enum LocalRecordingTrackStatus: String, Codable, Sendable {
+    case pending
+    case recording
+    case saved
+    case missing
+    case degraded
+    case failed
+}
+
+public enum LocalRecordingFailureReason: String, Codable, Sendable {
+    case none
+    case directoryUnavailable = "directory_unavailable"
+    case writeFailed = "write_failed"
+    case finalizationFailed = "finalization_failed"
+    case emptyRequiredTrack = "empty_required_track"
+    case appClosed = "app_closed"
+    case unknown
+}
+
 public enum LocalBufferArtifactType: String, Codable, Sendable {
     case audioChunk = "audio_chunk"
     case trackManifest = "track_manifest"

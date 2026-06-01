@@ -233,5 +233,32 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("recordingEvidence[0].transcriptText"))
         XCTAssertTrue(result.removedFields.contains("recordingPrerequisites[0].signedUrl"))
     }
+
+    func testLocalRecordingEvidenceKeepsSafeMetadataAndRemovesSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "localRecordingManifest": .object([
+                "sessionId": .string("session"),
+                "directoryId": .string("20260602-session"),
+                "absolutePath": .string("/Users/example/Recordings/session"),
+                "rawAudio": .string("forbidden")
+            ]),
+            "localRecordingTracks": .array([
+                .object([
+                    "role": .string("local_mic"),
+                    "fileName": .string("local-mic.wav"),
+                    "byteCount": .int(100),
+                    "meetingContent": .string("forbidden")
+                ])
+            ])
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["localRecordingManifest"])
+        XCTAssertNotNil(result.manifest["localRecordingTracks"])
+        XCTAssertTrue(result.removedFields.contains("localRecordingManifest.absolutePath"))
+        XCTAssertTrue(result.removedFields.contains("localRecordingManifest.rawAudio"))
+        XCTAssertTrue(result.removedFields.contains("localRecordingTracks[0].meetingContent"))
+    }
 }
 #endif
