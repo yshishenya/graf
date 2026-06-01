@@ -1,4 +1,5 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -40,6 +41,21 @@ final class LivePassthroughPolicyTests: XCTestCase {
 
         XCTAssertTrue(passing.passesBuiltInWiredGate)
         XCTAssertFalse(highLatency.passesBuiltInWiredGate)
+    }
+
+    func testDefaultLaunchStateIsNonRecordingAndInactiveUntilStarted() {
+        let engine = PassthroughRouteEngine(sharedMemory: nil)
+        var log: [(String, String)] = []
+
+        let state = engine.recordLaunchState { event, detail in
+            log.append((event, detail))
+        }
+
+        XCTAssertEqual(state, .inactive)
+        XCTAssertTrue(log.contains { event, detail in
+            event == "passthrough_bridge_launch_available" &&
+                detail.contains("non-recording")
+        })
     }
 
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {

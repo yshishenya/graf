@@ -5,6 +5,11 @@
 - [ ] Pre-recording stability evidence records installed runtime, short smoke,
   route state, CPU/no-hang behavior, and inactive recording/transcription/upload
   status.
+- [ ] Installed runtime baseline includes
+  `proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe` or a
+  recorded blocked/not accepted reason.
+- [ ] Short smoke evidence is explicitly labeled as smoke-only and not
+  long-duration recording-assisted acceptance.
 - [ ] No-hang evidence covers macOS Sound settings, Chrome audio settings, Opera
   audio settings, Zoom audio settings, and Yandex Telemost audio settings.
 - [ ] `coreaudiod` CPU does not sustain above 10% for more than 30 consecutive

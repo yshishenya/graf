@@ -237,6 +237,11 @@ bool ValidateExpectation(
     }
 }
 
+bool ExpectationRequiresIdleNonRunning(ExpectationMode mode) {
+    return mode == ExpectationMode::DefaultSafe ||
+           mode == ExpectationMode::NonRunningSurface;
+}
+
 const char* ExpectationLabel(ExpectationMode mode) {
     switch (mode) {
     case ExpectationMode::PublicationOnly:
@@ -274,6 +279,9 @@ int main(int argc, char** argv) {
 
     std::cout << "Runtime passthrough evidence: " << ExpectationLabel(mode)
               << "; this is Core Audio surface state only, not measured live audio acceptance.\n";
+    if (ExpectationRequiresIdleNonRunning(mode)) {
+        std::cout << "Idle public running state expectation: both virtual devices must report running=0.\n";
+    }
     std::cout << "Expected device visibility:\n";
     std::cout << "- " << kExpectedMicrophone << ": " << (microphone.found ? "FOUND" : "MISSING") << "\n";
     std::cout << "  hidden=" << TriState(microphone.hidden_read, microphone.hidden)

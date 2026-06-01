@@ -37,3 +37,16 @@ Any app or meeting target outside the official matrix is best-effort unless a la
 US1 does not require joining a real meeting. It requires the virtual devices to
 be selectable in the browser target settings and route readiness to stay blocked
 until both synthetic paths pass.
+
+## 005 Short Smoke vs Future Long-Duration Acceptance
+
+| Target | 005 Short Smoke Evidence | Future Recording-Assisted Acceptance |
+|---|---|---|
+| Chrome browser meetings | May record metadata-only local speech, remote audio, and no-loopback observation | Deferred until local recording exists |
+| Opera browser meetings | May record metadata-only local speech, remote audio, and no-loopback observation | Deferred until local recording exists |
+| Yandex Browser meetings | May be marked `not_accepted` if skipped | Deferred until local recording exists |
+| Yandex Telemost in browser | May record metadata-only local speech, remote audio, and no-loopback observation | Deferred until local recording exists |
+
+005 evidence must never treat short smoke confirmation as long-duration replay
+acceptance. Unsupported, skipped, or unavailable targets must be recorded as
+`blocked` or `not_accepted`, not `passed`.

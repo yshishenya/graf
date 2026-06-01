@@ -51,19 +51,19 @@
 
 ### Tests for User Story 1
 
-- [ ] T018 [P] [US1] Add default non-recording startup regression tests in `apps/macos/Shared/Tests/LivePassthroughPolicyTests.swift`.
-- [ ] T019 [P] [US1] Add short smoke evidence contract tests in `apps/macos/Shared/Tests/ShortSmokeEvidenceTests.swift`.
-- [ ] T020 [P] [US1] Add idle running-state expectation coverage in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
-- [ ] T021 [P] [US1] Add no-recording/no-upload policy scan notes in `tests/macos/browser-meetings/offline-passthrough.md`.
+- [X] T018 [P] [US1] Add default non-recording startup regression tests in `apps/macos/Shared/Tests/LivePassthroughPolicyTests.swift`.
+- [X] T019 [P] [US1] Add short smoke evidence contract tests in `apps/macos/Shared/Tests/ShortSmokeEvidenceTests.swift`.
+- [X] T020 [P] [US1] Add idle running-state expectation coverage in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
+- [X] T021 [P] [US1] Add no-recording/no-upload policy scan notes in `tests/macos/browser-meetings/offline-passthrough.md`.
 
 ### Implementation for User Story 1
 
-- [ ] T022 [US1] Ensure automatic startup remains limited to non-recording passthrough in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`.
-- [ ] T023 [US1] Add short smoke evidence collection fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
-- [ ] T024 [US1] Record short smoke metadata without audio payloads in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
-- [ ] T025 [US1] Add installed runtime baseline command path to `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
-- [ ] T026 [US1] Update `qa/macos/browser-targets.md` to distinguish short smoke evidence from future long-duration acceptance.
-- [ ] T027 [US1] Update `qa/macos/release-candidate-checklist.md` with pre-recording stability gate acceptance and blocker states.
+- [X] T022 [US1] Ensure automatic startup remains limited to non-recording passthrough in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`.
+- [X] T023 [US1] Add short smoke evidence collection fields to `apps/macos/Shared/Sources/Models/ReleaseHardeningEvidence.swift`.
+- [X] T024 [US1] Record short smoke metadata without audio payloads in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`.
+- [X] T025 [US1] Add installed runtime baseline command path to `apps/macos/Scripts/validate-passthrough-release-hardening.sh`.
+- [X] T026 [US1] Update `qa/macos/browser-targets.md` to distinguish short smoke evidence from future long-duration acceptance.
+- [X] T027 [US1] Update `qa/macos/release-candidate-checklist.md` with pre-recording stability gate acceptance and blocker states.
 
 **Checkpoint**: US1 is independently testable with installed runtime probes and metadata-only short smoke evidence.
 
