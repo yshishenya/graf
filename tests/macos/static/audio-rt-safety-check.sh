@@ -39,6 +39,7 @@ for callback_file in "$MIC_CALLBACK" "$SPEAKER_CALLBACK"; do
   check_forbidden "$callback_file" 'Date\(' "wall-clock access in AudioUnit callback"
   check_forbidden "$callback_file" 'String\(format:' "string formatting in AudioUnit callback"
   check_forbidden "$callback_file" 'open\(|write\(|close\(' "file I/O in AudioUnit callback"
+  check_forbidden "$callback_file" 'callbackErrorCount|micCallbackCount|speakerCallbackCount|micDropCount|speakerUnderrunCount' "non-atomic Swift counter mutation in AudioUnit callback"
 done
 
 if [ "$failures" -ne 0 ]; then

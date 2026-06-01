@@ -194,10 +194,10 @@ before accepting live audio behavior.
 - [X] T075 Refactor `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift` so AudioUnit callbacks use preallocated buffers and emit only atomic counters on the realtime path.
 - [X] T076 Remove speaker partial-read time stretching from `apps/macos/RecApp/Sources/Capture/PassthroughBridge.swift`; replace it with explicit underrun zero-fill and degraded evidence.
 - [X] T077 Restore truthful route readiness in `apps/macos/RecApp/App/TwoBrainRecApp.swift` and `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift` so env flags and device visibility cannot return `.passed` without measured live-route evidence.
-- [ ] T078 Add parameterized runtime probe expectations for default publication, fail-closed, and live-experiment states in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
-- [ ] T079 Update `specs/004-real-bidirectional-passthrough/tasks.md`, `quickstart.md`, and browser/release evidence files so synthetic checks, experimental checks, physical checks, and browser acceptance cannot be confused.
-- [ ] T080 Run `$speckit-analyze` after stabilization artifacts are updated and resolve all critical/high findings before continuing implementation.
-- [ ] T081 Re-run code review for realtime/Core Audio, app-driver architecture, tests/docs, and maintainability before final validation.
+- [X] T078 Add parameterized runtime probe expectations for default publication, non-running surface, and visible-alive surface states in `apps/macos/AudioDriver/Sources/Proof/RuntimeDeviceProbe.cpp`.
+- [X] T079 Update `specs/004-real-bidirectional-passthrough/tasks.md`, `quickstart.md`, and browser/release evidence files so synthetic checks, experimental checks, physical checks, and browser acceptance cannot be confused.
+- [X] T080 Run `$speckit-analyze` after stabilization artifacts are updated and resolve all critical/high findings before continuing implementation.
+- [X] T081 Re-run code review for realtime/Core Audio, app-driver architecture, tests/docs, and maintainability before final validation.
 
 ---
 
@@ -206,7 +206,7 @@ before accepting live audio behavior.
 - [X] T058 Run `swift build --package-path apps/macos -c release --product TwoBrainRecApp`.
 - [X] T059 Run `swift test --package-path apps/macos`.
 - [X] T060 Run `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`.
-- [ ] T061 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh` after stabilization gates are wired in.
+- [X] T061 Run `sh apps/macos/Scripts/validate-real-bidirectional-passthrough.sh` after stabilization gates are wired in.
 - [ ] T062 Install the local package, restart `coreaudiod`, and record runtime probe evidence in `apps/macos/AudioDriver/RuntimeProofReport.md`.
 - [ ] T063 Run physical microphone passthrough, speaker passthrough, no-loopback, latency, leakage, outage, and fail-closed checks under `tests/macos/`.
 - [ ] T064 Record browser target evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser in `tests/macos/browser-meetings/browser-meeting-matrix.md`.

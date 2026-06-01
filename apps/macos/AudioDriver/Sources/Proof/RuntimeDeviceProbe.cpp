@@ -1,6 +1,7 @@
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
 
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -10,6 +11,13 @@ namespace {
 constexpr AudioObjectPropertyElement kMainElement = 0;
 constexpr const char* kExpectedMicrophone = "2brain Rec Microphone";
 constexpr const char* kExpectedSpeaker = "2brain Rec Speaker";
+
+enum class ExpectationMode {
+    PublicationOnly,
+    DefaultSafe,
+    NonRunningSurface,
+    VisibleAliveSurface
+};
 
 struct ExpectedDeviceState {
     std::string name;
@@ -161,9 +169,92 @@ std::string TriState(bool read, bool value) {
     return value ? "1" : "0";
 }
 
+ExpectationMode ParseExpectationMode(int argc, char** argv) {
+    if (argc <= 1) {
+        return ExpectationMode::PublicationOnly;
+    }
+    const std::string arg = argv[1];
+    if (arg == "--expect-default-safe") {
+        return ExpectationMode::DefaultSafe;
+    }
+    if (arg == "--expect-non-running-surface") {
+        return ExpectationMode::NonRunningSurface;
+    }
+    if (arg == "--expect-visible-alive-surface") {
+        return ExpectationMode::VisibleAliveSurface;
+    }
+    if (arg == "--help" || arg == "-h") {
+        std::cout << "Usage: runtime-device-probe [--expect-default-safe|--expect-non-running-surface|--expect-visible-alive-surface]\n";
+        std::cout << "  no argument             require both 2brain Rec devices to be published\n";
+        std::cout << "  --expect-default-safe   require visible/alive/non-running default safe state\n";
+        std::cout << "  --expect-non-running-surface require readable devices with no public running state\n";
+        std::cout << "  --expect-visible-alive-surface require visible/alive devices only; measured audio evidence is separate\n";
+        std::exit(0);
+    }
+    std::cerr << "Unknown runtime probe argument: " << arg << "\n";
+    std::exit(64);
+}
+
+bool HasReadableState(const ExpectedDeviceState& state) {
+    return state.hidden_read && state.alive_read && state.running_read;
+}
+
+bool MatchesDefaultSafe(const ExpectedDeviceState& state) {
+    return state.found &&
+           HasReadableState(state) &&
+           !state.hidden &&
+           state.alive &&
+           !state.running;
+}
+
+bool MatchesNonRunningSurface(const ExpectedDeviceState& state) {
+    return state.found &&
+           HasReadableState(state) &&
+           !state.running;
+}
+
+bool MatchesVisibleAliveSurface(const ExpectedDeviceState& state) {
+    return state.found &&
+           HasReadableState(state) &&
+           !state.hidden &&
+           state.alive;
+}
+
+bool ValidateExpectation(
+    ExpectationMode mode,
+    const ExpectedDeviceState& microphone,
+    const ExpectedDeviceState& speaker
+) {
+    switch (mode) {
+    case ExpectationMode::PublicationOnly:
+        return microphone.found && speaker.found;
+    case ExpectationMode::DefaultSafe:
+        return MatchesDefaultSafe(microphone) && MatchesDefaultSafe(speaker);
+    case ExpectationMode::NonRunningSurface:
+        return MatchesNonRunningSurface(microphone) && MatchesNonRunningSurface(speaker);
+    case ExpectationMode::VisibleAliveSurface:
+        return MatchesVisibleAliveSurface(microphone) && MatchesVisibleAliveSurface(speaker);
+    }
+}
+
+const char* ExpectationLabel(ExpectationMode mode) {
+    switch (mode) {
+    case ExpectationMode::PublicationOnly:
+        return "publication-only";
+    case ExpectationMode::DefaultSafe:
+        return "default-safe";
+    case ExpectationMode::NonRunningSurface:
+        return "non-running-surface";
+    case ExpectationMode::VisibleAliveSurface:
+        return "visible-alive-surface";
+    }
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const ExpectationMode mode = ParseExpectationMode(argc, argv);
+
     std::vector<AudioDeviceID> devices;
     if (!GetDeviceIds(&devices)) {
         return 1;
@@ -181,7 +272,8 @@ int main() {
         CaptureExpectedState(device_id, name, &speaker);
     }
 
-    std::cout << "Runtime passthrough evidence: publication and fail-closed state only; live audio path checks run separately.\n";
+    std::cout << "Runtime passthrough evidence: " << ExpectationLabel(mode)
+              << "; this is Core Audio surface state only, not measured live audio acceptance.\n";
     std::cout << "Expected device visibility:\n";
     std::cout << "- " << kExpectedMicrophone << ": " << (microphone.found ? "FOUND" : "MISSING") << "\n";
     std::cout << "  hidden=" << TriState(microphone.hidden_read, microphone.hidden)
@@ -192,7 +284,7 @@ int main() {
               << " alive=" << TriState(speaker.alive_read, speaker.alive)
               << " running=" << TriState(speaker.running_read, speaker.running) << "\n";
 
-    if (!microphone.found || !speaker.found) {
+    if (!ValidateExpectation(mode, microphone, speaker)) {
         std::cerr << "Runtime Core Audio publication proof: BLOCKED\n";
         return 2;
     }

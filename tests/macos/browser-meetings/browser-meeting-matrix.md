@@ -56,6 +56,22 @@ browser calls are run, the targets above remain not accepted rather than
 passed. This is metadata-only release evidence: the local passthrough stack may
 be validated synthetically, but browser target support is still pending.
 
+## 004 Stabilization Update 2026-06-01
+
+Spec Kit Phase 7 split evidence into four lanes:
+
+- default-safe publication evidence: virtual devices are visible, alive, and
+  `running=0`;
+- synthetic policy evidence: model and contract checks may print `ACCEPTED`;
+- controlled live-engineering evidence: enabled only with explicit experiment
+  gates and not release accepted by default;
+- physical/browser acceptance evidence: required before any browser target can
+  move from `Not accepted` to `Passed`.
+
+The browser matrix remains `Not accepted` until physical/browser acceptance
+evidence exists. Synthetic checks and runtime publication proof are not browser
+support evidence.
+
 ## Per-Target Steps
 
 - [ ] Join a meeting with one local speaker and at least one remote speaker.

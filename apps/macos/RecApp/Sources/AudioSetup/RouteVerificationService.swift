@@ -16,6 +16,10 @@ public struct RouteVerificationSnapshot: Codable, Equatable, Sendable {
     }
 
     public var canShowReady: Bool {
+        false
+    }
+
+    public var syntheticRoutesPassed: Bool {
         mic.path == .micToVirtualInput
             && speaker.path == .remoteOutputToVirtualSpeaker
             && mic.validationType == .syntheticSignal
@@ -131,29 +135,30 @@ public struct RouteVerificationService: Sendable {
         let microphoneEvidence = MicrophonePathEvidence(
             selectedPhysicalDeviceId: physicalInput?.id ?? "",
             selectedPhysicalDeviceName: physicalInput?.displayName ?? "",
-            status: routeEvidenceStatus(from: snapshot.mic.status),
-            validFrameCount: snapshot.mic.status == .passed ? 1 : 0,
-            emptyBufferCount: snapshot.mic.status == .passed ? 0 : 1,
-            capturabilityStatus: snapshot.mic.status == .passed ? .capturable : .notCapturable,
+            status: liveEvidenceStatus(from: snapshot.mic.status),
+            validFrameCount: 0,
+            emptyBufferCount: 0,
+            capturabilityStatus: .unknown,
             selfRoutingRejected: micSelfRouting,
-            failureReason: snapshot.mic.failureReason,
+            failureReason: liveEvidenceFailureReason(from: snapshot.mic),
             checkedAt: now
         )
 
         let speakerEvidence = SpeakerPathEvidence(
             selectedPhysicalOutputId: physicalOutput?.id ?? "",
             selectedPhysicalOutputName: physicalOutput?.displayName ?? "",
-            status: routeEvidenceStatus(from: snapshot.speaker.status),
-            stimulusObserved: snapshot.speaker.status == .passed,
-            validFrameCount: snapshot.speaker.status == .passed ? 1 : 0,
-            emptyBufferCount: snapshot.speaker.status == .passed ? 0 : 1,
+            status: liveEvidenceStatus(from: snapshot.speaker.status),
+            stimulusObserved: false,
+            validFrameCount: 0,
+            emptyBufferCount: 0,
             selfRoutingRejected: speakerSelfRouting,
-            failureReason: snapshot.speaker.failureReason,
+            failureReason: liveEvidenceFailureReason(from: snapshot.speaker),
             checkedAt: now
         )
 
         let recoveryAction = snapshot.mic.recoveryAction ?? snapshot.speaker.recoveryAction
-        let status: LiveRouteReadinessStatus = snapshot.canShowReady ? .ready : .failed
+        let hasPreflightFailure = snapshot.mic.status == .failed || snapshot.speaker.status == .failed
+        let status: LiveRouteReadinessStatus = hasPreflightFailure ? .failed : .stale
 
         return LiveRouteReadinessResult(
             status: status,
@@ -272,10 +277,10 @@ public struct RouteVerificationService: Sendable {
         }
     }
 
-    private func routeEvidenceStatus(from status: RouteVerificationStatus) -> RouteEvidenceStatus {
+    private func liveEvidenceStatus(from status: RouteVerificationStatus) -> RouteEvidenceStatus {
         switch status {
         case .passed:
-            .passed
+            .blocked
         case .stale:
             .degraded
         case .failed:
@@ -285,5 +290,9 @@ public struct RouteVerificationService: Sendable {
         case .notStarted:
             .notStarted
         }
+    }
+
+    private func liveEvidenceFailureReason(from route: RouteVerification) -> String? {
+        route.failureReason ?? "live_passthrough_evidence_missing"
     }
 }

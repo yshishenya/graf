@@ -73,6 +73,32 @@
   accepted for this feature state because no Bluetooth headset route is
   currently connected and real passthrough/capture is not accepted.
 
+## Validation Log (2026-06-01 Stabilization)
+
+- [x] Spec Kit Phase 7 added stabilization/refactor gates after live bridge
+  review found realtime callback, ring-buffer, readiness, and app-driver
+  ownership blockers.
+- [x] `audio-rt-safety-check.sh` added to the validation pipeline and currently
+  passes after removing callback allocation/logging from `PassthroughBridge`.
+- [x] `default-passthrough-disabled-check.sh` added and executed: PASS. Normal
+  app launch does not start the app-side bridge and runtime probe remains
+  `running=0`.
+- [x] Runtime probe supports parameterized expectations through
+  `RUNTIME_PROBE_ARGS=--expect-default-safe`,
+  `RUNTIME_PROBE_ARGS=--expect-non-running-surface`, and
+  `RUNTIME_PROBE_ARGS=--expect-visible-alive-surface`; these are Core Audio
+  surface evidence only and cannot substitute for measured live audio
+  acceptance.
+- [x] Shared ring-buffer contract changed to explicit SPSC all-or-nothing writes;
+  Swift behavior tests and C++ proof vectors pass.
+- [x] Main validation script uses `swift test --disable-swift-testing` after the
+  local SwiftPM `swift-testing` helper was observed hanging after build
+  completion.
+- [ ] Physical microphone-to-virtual-microphone live acceptance remains pending.
+- [ ] Physical virtual-speaker-to-output live acceptance remains pending.
+- [ ] Browser target acceptance remains pending for Chrome, Opera, Yandex
+  Browser, and Yandex Telemost-in-browser.
+
 ## Validation Log (2026-05-31 06:07 MSK)
 
 - [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp`: PASS.

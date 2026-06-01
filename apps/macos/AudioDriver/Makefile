@@ -33,7 +33,7 @@ proof-scaffold-run: proof-scaffold-build
 proof-runtime-probe-build: $(RUNTIME_PROBE_BIN)
 
 proof-runtime-probe-run: proof-runtime-probe-build
-	@$(RUNTIME_PROBE_BIN)
+	@$(RUNTIME_PROBE_BIN) $(RUNTIME_PROBE_ARGS)
 
 proof-plugin-build: $(PLUGIN_BINARY)
 

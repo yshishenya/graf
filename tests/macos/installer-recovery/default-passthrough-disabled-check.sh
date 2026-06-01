@@ -16,7 +16,7 @@ fi
 open -a "2brain Rec"
 sleep "${TWO_BRAIN_REC_DEFAULT_OFF_WAIT_SECONDS:-6}"
 
-PROBE_OUTPUT=$(make -C "$REPO_ROOT/apps/macos/AudioDriver" proof-runtime-probe-run 2>&1 || true)
+PROBE_OUTPUT=$(make -C "$REPO_ROOT/apps/macos/AudioDriver" proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe 2>&1 || true)
 printf '%s\n' "$PROBE_OUTPUT"
 
 if ! printf '%s\n' "$PROBE_OUTPUT" | rg -q 'Runtime Core Audio publication proof: ACCEPTED'; then

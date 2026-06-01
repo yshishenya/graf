@@ -28,11 +28,6 @@ public final class PassthroughBridge {
     fileprivate let shm: SharedAudioMemory
     fileprivate var micAU: AudioComponentInstance?
     fileprivate var speakerAU: AudioComponentInstance?
-    fileprivate var micCallbackCount: UInt64 = 0
-    fileprivate var speakerCallbackCount: UInt64 = 0
-    fileprivate var micDropCount: UInt64 = 0
-    fileprivate var speakerUnderrunCount: UInt64 = 0
-    fileprivate var callbackErrorCount: UInt64 = 0
     fileprivate let micScratchBuffer: UnsafeMutablePointer<Float>
     fileprivate let speakerScratchBuffer: UnsafeMutablePointer<Float>
     fileprivate let scratchSampleCapacity: Int
@@ -98,8 +93,6 @@ public final class PassthroughBridge {
                 bridgeLog("start: speaker AU started")
 
                 isRunning = true
-                lastHeartbeatAt = Date()
-                shm.writeAppHeartbeat(at: lastHeartbeatAt!)
                 bridgeLog("start: OK, experimental bridge started")
             } catch {
                 bridgeLog("start: error: \(error)")
@@ -153,8 +146,8 @@ public final class PassthroughBridge {
     }
 
     fileprivate func recordAppIOHeartbeat(at date: Date = Date()) {
-        lastHeartbeatAt = date
-        shm.writeAppHeartbeat(at: date)
+        _ = date
+        lastHeartbeatAt = nil
     }
 
     public func refreshAppIOHeartbeat(at date: Date = Date()) {
@@ -402,14 +395,12 @@ public final class PassthroughBridge {
 private let micInputCallback: AURenderCallback = { (inRefCon, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, ioData) -> OSStatus in
     let bridge = Unmanaged<PassthroughBridge>.fromOpaque(inRefCon).takeUnretainedValue()
     guard let au = bridge.micAU else {
-        bridge.callbackErrorCount += 1
         return noErr
     }
 
     let frameCount = Int(inNumberFrames)
     let sampleCount = frameCount * 2
     guard sampleCount <= bridge.scratchSampleCapacity else {
-        bridge.callbackErrorCount += 1
         return noErr
     }
 
@@ -423,14 +414,10 @@ private let micInputCallback: AURenderCallback = { (inRefCon, ioActionFlags, inT
     )
     let err = AudioUnitRender(au, ioActionFlags, inTimeStamp, 1, inNumberFrames, &bufferList)
     guard err == noErr else {
-        bridge.callbackErrorCount += 1
         return err
     }
 
-    bridge.micCallbackCount += 1
-    if !bridge.shm.writeMic(src: bridge.micScratchBuffer, count: sampleCount) {
-        bridge.micDropCount += 1
-    }
+    _ = bridge.shm.writeMic(src: bridge.micScratchBuffer, count: sampleCount)
     return noErr
 }
 
@@ -438,21 +425,18 @@ private let speakerRenderCallback: AURenderCallback = { (inRefCon, ioActionFlags
     let bridge = Unmanaged<PassthroughBridge>.fromOpaque(inRefCon).takeUnretainedValue()
 
     guard let ioData = ioData else {
-        bridge.callbackErrorCount += 1
         return noErr
     }
 
     let frameCount = Int(inNumberFrames)
     let requestedSampleCount = frameCount * 2
     guard requestedSampleCount <= bridge.scratchSampleCapacity else {
-        bridge.callbackErrorCount += 1
+        zeroOutput(ioData)
         return noErr
     }
-    bridge.speakerCallbackCount += 1
 
     let read = bridge.shm.readSpeaker(dst: bridge.speakerScratchBuffer, count: requestedSampleCount)
     if read < requestedSampleCount {
-        bridge.speakerUnderrunCount += 1
         memset(
             bridge.speakerScratchBuffer.advanced(by: read),
             0,
@@ -492,4 +476,14 @@ private let speakerRenderCallback: AURenderCallback = { (inRefCon, ioActionFlags
     }
 
     return noErr
+}
+
+private func zeroOutput(_ ioData: UnsafeMutablePointer<AudioBufferList>) {
+    let abl = UnsafeMutableAudioBufferListPointer(ioData)
+    for index in 0..<abl.count {
+        let buffer = abl[index]
+        if let data = buffer.mData {
+            memset(data, 0, Int(buffer.mDataByteSize))
+        }
+    }
 }

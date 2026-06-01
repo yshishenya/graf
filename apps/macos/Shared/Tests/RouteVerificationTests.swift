@@ -64,20 +64,14 @@ final class RouteVerificationTests: XCTestCase {
         XCTAssertFalse(allowsTransition(from: .stale, to: .passed))
     }
 
-    func testReadyRequiresBothMicAndSpeakerSyntheticRoutesPassed() {
+    func testSyntheticRoutePassDoesNotShowLiveReady() {
         let now = Date(timeIntervalSince1970: 1_779_887_120)
         let mic = verification(path: .micToVirtualInput, status: .passed, startedAt: now)
         let speaker = verification(path: .remoteOutputToVirtualSpeaker, status: .passed, startedAt: now)
+        let snapshot = RouteVerificationSnapshot(mic: mic, speaker: speaker)
 
-        XCTAssertTrue(isReadyAllowed(mic: mic, speaker: speaker))
-        XCTAssertFalse(isReadyAllowed(
-            mic: mic,
-            speaker: verification(path: .remoteOutputToVirtualSpeaker, status: .stale, startedAt: now)
-        ))
-        XCTAssertFalse(isReadyAllowed(
-            mic: verification(path: .micToVirtualInput, status: .failed, startedAt: now),
-            speaker: speaker
-        ))
+        XCTAssertTrue(snapshot.syntheticRoutesPassed)
+        XCTAssertFalse(snapshot.canShowReady)
     }
 
     func testLiveRouteReadinessRequiresBothLivePathEvidence() {
@@ -228,7 +222,7 @@ final class RouteVerificationTests: XCTestCase {
         XCTAssertEqual(snapshot.mic.failureReason, "physical_input_missing")
     }
 
-    func testRouteVerificationServiceAllowsReadyOnlyWhenBothRoutesPass() async {
+    func testRouteVerificationServiceNeverShowsSyntheticRoutesAsLiveReady() async {
         let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
         let service = RouteVerificationService(
@@ -246,7 +240,8 @@ final class RouteVerificationTests: XCTestCase {
             probe: { _, _ in .passed }
         )
         let passingSnapshot = await passingService.verify(physicalInput: input, physicalOutput: output)
-        XCTAssertTrue(passingSnapshot.canShowReady)
+        XCTAssertTrue(passingSnapshot.syntheticRoutesPassed)
+        XCTAssertFalse(passingSnapshot.canShowReady)
     }
 
     func testRouteVerificationServiceMapsPhysicalMicrophoneFailures() async {
@@ -304,10 +299,12 @@ final class RouteVerificationTests: XCTestCase {
 
         let result = await service.verifyLiveReadiness(physicalInput: input, physicalOutput: output)
 
-        XCTAssertTrue(result.canShowReady)
-        XCTAssertEqual(result.status, .ready)
-        XCTAssertEqual(result.microphoneEvidence.validFrameCount, 1)
-        XCTAssertEqual(result.speakerEvidence.stimulusObserved, true)
+        XCTAssertFalse(result.canShowReady)
+        XCTAssertEqual(result.status, .stale)
+        XCTAssertEqual(result.microphoneEvidence.status, .blocked)
+        XCTAssertEqual(result.microphoneEvidence.validFrameCount, 0)
+        XCTAssertEqual(result.microphoneEvidence.failureReason, "live_passthrough_evidence_missing")
+        XCTAssertFalse(result.speakerEvidence.stimulusObserved)
     }
 
     func testRouteVerificationServiceLiveReadinessRejectsSelfRouting() async {
@@ -343,7 +340,7 @@ final class RouteVerificationTests: XCTestCase {
 
         XCTAssertEqual(
             service.auditEvents(for: result),
-            [.liveRouteReadinessCheckStarted, .liveRouteReadinessPassed]
+            [.liveRouteReadinessCheckStarted, .liveRouteReadinessStale]
         )
     }
 
@@ -401,15 +398,6 @@ final class RouteVerificationTests: XCTestCase {
         default:
             false
         }
-    }
-
-    private func isReadyAllowed(mic: RouteVerification, speaker: RouteVerification) -> Bool {
-        mic.path == .micToVirtualInput
-            && speaker.path == .remoteOutputToVirtualSpeaker
-            && mic.validationType == .syntheticSignal
-            && speaker.validationType == .syntheticSignal
-            && mic.status == .passed
-            && speaker.status == .passed
     }
 
     private func verification(
