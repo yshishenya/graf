@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "recording-artifact-format.v1",
+  "package": {
+    "manifestFileName": "manifest.json",
+    "requiredFiles": ["mic.wav", "incoming.wav"],
+    "mediaScribeSourceMode": "dual",
+    "externalEgressStarted": false,
+    "transcriptionStarted": false
+  },
+  "tracks": [
+    {
+      "role": "local_mic",
+      "mediaScribeField": "mic_file",
+      "fileName": "mic.wav",
+      "format": "wav-pcm-s16le",
+      "sampleRate": 16000,
+      "channelCount": 1,
+      "bitsPerSample": 16,
+      "timelineStartMs": 0,
+      "timelineAligned": true
+    },
+    {
+      "role": "remote_speaker",
+      "mediaScribeField": "incoming_file",
+      "fileName": "incoming.wav",
+      "format": "wav-pcm-s16le",
+      "sampleRate": 16000,
+      "channelCount": 1,
+      "bitsPerSample": 16,
+      "timelineStartMs": 0,
+      "timelineAligned": true
+    }
+  ],
+  "forbiddenFields": [
+    "rawAudio",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "tokens",
+    "signedUrls",
+    "password",
+    "apiKey",
+    "mediaScribeCredentials",
+    "langfuseContentTrace"
+  ]
+}

@@ -48,6 +48,52 @@ struct LowResourceRouteTruthFixtureFile: Decodable {
     let forbiddenFields: [String]
 }
 
+struct RecordingSessionEvidenceFixtureFile: Decodable {
+    let schema: String
+    let requiredEventTypes: [String]
+    let requiredFields: [String]
+    let forbiddenFields: [String]
+    let forbiddenExternalActivity: [String]
+}
+
+struct LocalRecordingManifestFixtureFile: Decodable {
+    let schema: String
+    let requiredFields: [String]
+    let requiredTrackRoles: [String]
+    let allowedStatuses: [String]
+    let allowedReadinessStates: [String]
+    let requiredTrackFields: [String]
+    let forbiddenFields: [String]
+    let forbiddenExternalActivity: [String]
+}
+
+struct RecordingArtifactFormatFixtureFile: Decodable {
+    struct Package: Decodable {
+        let manifestFileName: String
+        let requiredFiles: [String]
+        let mediaScribeSourceMode: String
+        let externalEgressStarted: Bool
+        let transcriptionStarted: Bool
+    }
+
+    struct Track: Decodable {
+        let role: String
+        let mediaScribeField: String
+        let fileName: String
+        let format: String
+        let sampleRate: Int
+        let channelCount: Int
+        let bitsPerSample: Int
+        let timelineStartMs: Int
+        let timelineAligned: Bool
+    }
+
+    let schemaVersion: String
+    let package: Package
+    let tracks: [Track]
+    let forbiddenFields: [String]
+}
+
 func findRepositoryRoot(startingAt startURL: URL) throws -> URL {
     var candidate = startURL.standardizedFileURL
 
@@ -333,6 +379,198 @@ func validateLowResourceFixtures() throws {
     )
 }
 
+func validateRecordingSessionEvidenceFixture() throws {
+    let url = repositoryRoot.appendingPathComponent("tests/macos/contract/recording-session-evidence.json")
+    let fixture = try decode(RecordingSessionEvidenceFixtureFile.self, from: url)
+
+    try require(
+        fixture.schema == "recording-session-evidence-v1",
+        "Recording session evidence fixture must use v1 schema"
+    )
+    try require(
+        Set(fixture.requiredEventTypes).isSuperset(of: [
+            RecordingEvidenceEventType.startRequested.rawValue,
+            RecordingEvidenceEventType.startBlocked.rawValue,
+            RecordingEvidenceEventType.started.rawValue,
+            RecordingEvidenceEventType.stopRequested.rawValue,
+            RecordingEvidenceEventType.stopped.rawValue,
+            RecordingEvidenceEventType.failed.rawValue,
+            RecordingEvidenceEventType.indicatorLost.rawValue,
+            RecordingEvidenceEventType.routeInvalidated.rawValue,
+            RecordingEvidenceEventType.storageBlocked.rawValue
+        ]),
+        "Recording evidence fixture must require all lifecycle and fail-closed events"
+    )
+    try require(
+        Set(fixture.requiredFields).isSuperset(of: [
+            "sessionId",
+            "eventType",
+            "occurredAt",
+            "initiator",
+            "routeState",
+            "indicatorState",
+            "stopActionAvailable",
+            "blockedReason",
+            "recoveryAction",
+            "diagnosticSafe"
+        ]),
+        "Recording evidence fixture must require safe lifecycle fields"
+    )
+    try require(
+        Set(fixture.forbiddenFields).isSuperset(of: [
+            "rawAudio",
+            "transcriptText",
+            "meetingContent",
+            "credentials",
+            "tokens",
+            "signedUrls",
+            "password",
+            "mediaScribeCredentials",
+            "langfuseContentTrace"
+        ]),
+        "Recording evidence fixture must forbid raw content, secrets, and external trace content"
+    )
+    try require(
+        Set(fixture.forbiddenExternalActivity) == ["upload", "mediascribe", "langfuse", "dashboard_publish"],
+        "Recording evidence fixture must forbid external activity in this slice"
+    )
+}
+
+func validateLocalRecordingManifestFixture() throws {
+    let url = repositoryRoot.appendingPathComponent("tests/macos/contract/local-recording-manifest.json")
+    let fixture = try decode(LocalRecordingManifestFixtureFile.self, from: url)
+
+    try require(
+        fixture.schema == LocalRecordingManifest.schemaVersion,
+        "Local recording manifest fixture must use current local recording manifest schema"
+    )
+    try require(
+        Set(fixture.requiredFields).isSuperset(of: [
+            "sessionId",
+            "createdAt",
+            "startedAt",
+            "stoppedAt",
+            "status",
+            "directoryId",
+            "manifestFileName",
+            "transcriptionReadiness",
+            "mediaScribeSourceMode",
+            "tracks",
+            "externalEgressStarted",
+            "transcriptionStarted",
+            "diagnosticSafe"
+        ]),
+        "Local recording manifest must require safe session fields"
+    )
+    try require(
+        Set(fixture.requiredTrackRoles) == Set([AudioTrackRole.localMic.rawValue, AudioTrackRole.remoteSpeaker.rawValue]),
+        "Local recording manifest must require local mic and remote speaker roles"
+    )
+    try require(
+        Set(fixture.allowedStatuses) == Set([
+            LocalRecordingSessionStatus.saved.rawValue,
+            LocalRecordingSessionStatus.degraded.rawValue,
+            LocalRecordingSessionStatus.failed.rawValue
+        ]),
+        "Local recording manifest must allow saved, degraded, and failed terminal statuses"
+    )
+    try require(
+        Set(fixture.allowedReadinessStates) == Set([
+            TranscriptionReadinessState.ready.rawValue,
+            TranscriptionReadinessState.degraded.rawValue,
+            TranscriptionReadinessState.failed.rawValue,
+            TranscriptionReadinessState.legacyNotReady.rawValue
+        ]),
+        "Local recording manifest must allow all transcription readiness states"
+    )
+    try require(
+        Set(fixture.requiredTrackFields).isSuperset(of: [
+            "mediaScribeField",
+            "format",
+            "sampleRate",
+            "channelCount",
+            "bitsPerSample",
+            "timelineStartMs",
+            "timelineAligned"
+        ]),
+        "Local recording manifest must require MediaScribe-ready track metadata"
+    )
+    try require(
+        Set(fixture.forbiddenFields).isSuperset(of: [
+            "rawAudio",
+            "transcriptText",
+            "meetingContent",
+            "credentials",
+            "tokens",
+            "signedUrls",
+            "password",
+            "apiKey",
+            "absolutePath",
+            "liveSecretPath"
+        ]),
+        "Local recording manifest must forbid raw content, secrets, and live paths"
+    )
+    try require(
+        Set(fixture.forbiddenExternalActivity) == ["upload", "mediascribe", "langfuse", "dashboard_publish"],
+        "Local recording manifest must forbid external activity in this slice"
+    )
+}
+
+func validateRecordingArtifactFormatFixture() throws {
+    let url = repositoryRoot.appendingPathComponent("tests/macos/contract/recording-artifact-format.json")
+    let fixture = try decode(RecordingArtifactFormatFixtureFile.self, from: url)
+
+    try require(
+        fixture.schemaVersion == "recording-artifact-format.v1",
+        "Recording artifact format fixture must use v1 schema"
+    )
+    try require(
+        fixture.package.manifestFileName == "manifest.json" &&
+            Set(fixture.package.requiredFiles) == Set(["mic.wav", "incoming.wav"]) &&
+            fixture.package.mediaScribeSourceMode == "dual" &&
+            fixture.package.externalEgressStarted == false &&
+            fixture.package.transcriptionStarted == false,
+        "Recording artifact package must define manifest, dual files, and no egress"
+    )
+    let tracksByRole = Dictionary(uniqueKeysWithValues: fixture.tracks.map { ($0.role, $0) })
+    try require(
+        tracksByRole[AudioTrackRole.localMic.rawValue]?.mediaScribeField == MediaScribeTrackField.micFile.rawValue &&
+            tracksByRole[AudioTrackRole.localMic.rawValue]?.fileName == "mic.wav",
+        "Local mic track must map to MediaScribe mic_file and mic.wav"
+    )
+    try require(
+        tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.mediaScribeField == MediaScribeTrackField.incomingFile.rawValue &&
+            tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.fileName == "incoming.wav",
+        "Remote speaker track must map to MediaScribe incoming_file and incoming.wav"
+    )
+    for track in fixture.tracks {
+        try require(
+            track.format == "wav-pcm-s16le" &&
+                track.sampleRate == 16_000 &&
+                track.channelCount == 1 &&
+                track.bitsPerSample == 16 &&
+                track.timelineStartMs == 0 &&
+                track.timelineAligned,
+            "Every recording artifact track must be WAV PCM16 mono 16k with aligned timeline"
+        )
+    }
+    try require(
+        Set(fixture.forbiddenFields).isSuperset(of: [
+            "rawAudio",
+            "transcriptText",
+            "meetingContent",
+            "credentials",
+            "tokens",
+            "signedUrls",
+            "password",
+            "apiKey",
+            "mediaScribeCredentials",
+            "langfuseContentTrace"
+        ]),
+        "Recording artifact fixture must forbid raw content, secrets, and trace content"
+    )
+}
+
 func validatePlatformGate() throws {
     let minimum = OperatingSystemVersion(majorVersion: 14, minorVersion: 5, patchVersion: 0)
     try require(
@@ -414,6 +652,9 @@ do {
     try validateDiagnosticForbiddenFixtures()
     try validateReleaseHardeningFixtures()
     try validateLowResourceFixtures()
+    try validateRecordingSessionEvidenceFixture()
+    try validateLocalRecordingManifestFixture()
+    try validateRecordingArtifactFormatFixture()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()

@@ -1,0 +1,61 @@
+{
+  "schema": "local-recording-manifest.v2",
+  "requiredFields": [
+    "sessionId",
+    "createdAt",
+    "startedAt",
+    "stoppedAt",
+    "status",
+    "directoryId",
+    "manifestFileName",
+    "transcriptionReadiness",
+    "mediaScribeSourceMode",
+    "tracks",
+    "externalEgressStarted",
+    "transcriptionStarted",
+    "diagnosticSafe"
+  ],
+  "requiredTrackRoles": [
+    "local_mic",
+    "remote_speaker"
+  ],
+  "allowedStatuses": [
+    "saved",
+    "degraded",
+    "failed"
+  ],
+  "allowedReadinessStates": [
+    "ready",
+    "degraded",
+    "failed",
+    "legacy_not_ready"
+  ],
+  "requiredTrackFields": [
+    "mediaScribeField",
+    "format",
+    "sampleRate",
+    "channelCount",
+    "bitsPerSample",
+    "timelineStartMs",
+    "timelineAligned"
+  ],
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "credentials",
+    "apiKey",
+    "tokens",
+    "signedUrls",
+    "password",
+    "absolutePath",
+    "liveSecretPath"
+  ],
+  "forbiddenExternalActivity": [
+    "upload",
+    "mediascribe",
+    "langfuse",
+    "dashboard_publish"
+  ]
+}

@@ -105,6 +105,19 @@ public final class CaptureRecoveryService {
         }
     }
 
+    public func failClosedForIndicatorLoss(_ session: CaptureSession) -> CaptureSession {
+        var updated = session
+        if isRecoverable(session.state) || session.state == .active || session.state == .stopping {
+            updated.state = .failed
+            updated.stoppedAt = clock()
+            updated.visibleIndicatorState = .error
+            updated.stopActionAvailable = false
+            updated.stopReason = .indicatorLost
+            updated.failureCategory = .indicatorUnavailable
+        }
+        return updated
+    }
+
     private func isRecoverable(_ state: CaptureSessionState) -> Bool {
         switch state {
         case .active, .paused, .degraded, .starting, .stopping, .ready, .detecting:
@@ -120,6 +133,7 @@ public final class CaptureRecoveryService {
         updated.stoppedAt = clock()
         updated.visibleIndicatorState = .error
         updated.stopActionAvailable = false
+        updated.stopReason = .appBridgeLost
         return updated
     }
 

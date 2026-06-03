@@ -631,6 +631,8 @@ public struct CaptureSession: Codable, Equatable, Sendable {
     public var bufferSummaryId: String?
     public var startedAt: Date?
     public var stoppedAt: Date?
+    public var stopReason: RecordingStopReason?
+    public var failureCategory: RecordingStartBlocker?
 
     public init(
         id: String,
@@ -643,7 +645,9 @@ public struct CaptureSession: Codable, Equatable, Sendable {
         stopActionAvailable: Bool,
         bufferSummaryId: String?,
         startedAt: Date?,
-        stoppedAt: Date?
+        stoppedAt: Date?,
+        stopReason: RecordingStopReason? = nil,
+        failureCategory: RecordingStartBlocker? = nil
     ) {
         self.id = id
         self.mode = mode
@@ -656,6 +660,133 @@ public struct CaptureSession: Codable, Equatable, Sendable {
         self.bufferSummaryId = bufferSummaryId
         self.startedAt = startedAt
         self.stoppedAt = stoppedAt
+        self.stopReason = stopReason
+        self.failureCategory = failureCategory
+    }
+}
+
+public struct RecordingPrerequisiteSnapshot: Codable, Equatable, Sendable {
+    public var routeState: LivePassthroughStatus
+    public var routeEvidenceKind: RecordingRouteEvidenceKind
+    public var policyAllowsRecording: Bool
+    public var microphonePermissionGranted: Bool
+    public var storageRisk: LocalBufferRiskState
+    public var indicatorAvailable: Bool
+    public var sourceAppEligibility: SourceAppEligibility
+    public var blockedReason: RecordingStartBlocker
+    public var recoveryAction: String?
+    public var evaluatedAt: Date
+
+    public init(
+        routeState: LivePassthroughStatus,
+        routeEvidenceKind: RecordingRouteEvidenceKind,
+        policyAllowsRecording: Bool,
+        microphonePermissionGranted: Bool,
+        storageRisk: LocalBufferRiskState,
+        indicatorAvailable: Bool,
+        sourceAppEligibility: SourceAppEligibility,
+        blockedReason: RecordingStartBlocker = .none,
+        recoveryAction: String? = nil,
+        evaluatedAt: Date
+    ) {
+        self.routeState = routeState
+        self.routeEvidenceKind = routeEvidenceKind
+        self.policyAllowsRecording = policyAllowsRecording
+        self.microphonePermissionGranted = microphonePermissionGranted
+        self.storageRisk = storageRisk
+        self.indicatorAvailable = indicatorAvailable
+        self.sourceAppEligibility = sourceAppEligibility
+        self.blockedReason = blockedReason
+        self.recoveryAction = recoveryAction
+        self.evaluatedAt = evaluatedAt
+    }
+
+    public var allowsRecording: Bool {
+        blockedReason == .none &&
+            [.ready, .active].contains(routeState) &&
+            routeEvidenceKind != .publicationOnly &&
+            routeEvidenceKind != .stale &&
+            routeEvidenceKind != .unknown &&
+            policyAllowsRecording &&
+            microphonePermissionGranted &&
+            storageRisk == .healthy &&
+            indicatorAvailable &&
+            sourceAppEligibility == .eligible
+    }
+}
+
+public struct CaptureIndicatorSnapshot: Codable, Equatable, Sendable {
+    public var surface: String
+    public var state: VisibleIndicatorState
+    public var visible: Bool
+    public var stopActionAvailable: Bool
+    public var accessibilityLabel: String
+    public var lastVerifiedAt: Date
+
+    public init(
+        surface: String,
+        state: VisibleIndicatorState,
+        visible: Bool,
+        stopActionAvailable: Bool,
+        accessibilityLabel: String,
+        lastVerifiedAt: Date
+    ) {
+        self.surface = surface
+        self.state = state
+        self.visible = visible
+        self.stopActionAvailable = stopActionAvailable
+        self.accessibilityLabel = accessibilityLabel
+        self.lastVerifiedAt = lastVerifiedAt
+    }
+
+    public var satisfiesActiveRecordingRequirement: Bool {
+        visible &&
+            state != .hidden &&
+            stopActionAvailable &&
+            !accessibilityLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+public struct RecordingEvidenceEvent: Codable, Equatable, Sendable {
+    public var eventId: String
+    public var sessionId: String
+    public var eventType: RecordingEvidenceEventType
+    public var occurredAt: Date
+    public var initiator: RecordingEvidenceInitiator
+    public var routeState: LivePassthroughStatus
+    public var indicatorState: VisibleIndicatorState
+    public var stopActionAvailable: Bool
+    public var blockedReason: RecordingStartBlocker
+    public var recoveryAction: String?
+    public var durationMs: Int?
+    public var diagnosticSafe: Bool
+
+    public init(
+        eventId: String,
+        sessionId: String,
+        eventType: RecordingEvidenceEventType,
+        occurredAt: Date,
+        initiator: RecordingEvidenceInitiator,
+        routeState: LivePassthroughStatus,
+        indicatorState: VisibleIndicatorState,
+        stopActionAvailable: Bool,
+        blockedReason: RecordingStartBlocker = .none,
+        recoveryAction: String? = nil,
+        durationMs: Int? = nil,
+        diagnosticSafe: Bool = true
+    ) {
+        self.eventId = eventId
+        self.sessionId = sessionId
+        self.eventType = eventType
+        self.occurredAt = occurredAt
+        self.initiator = initiator
+        self.routeState = routeState
+        self.indicatorState = indicatorState
+        self.stopActionAvailable = stopActionAvailable
+        self.blockedReason = blockedReason
+        self.recoveryAction = recoveryAction
+        self.durationMs = durationMs
+        self.diagnosticSafe = diagnosticSafe
     }
 }
 
@@ -693,6 +824,149 @@ public struct AudioTrack: Codable, Equatable, Sendable {
         self.clockDriftMs = clockDriftMs
         self.dropoutMarkerIds = dropoutMarkerIds
         self.finalizedAt = finalizedAt
+    }
+}
+
+public struct LocalRecordingTrack: Codable, Equatable, Sendable {
+    public var trackId: String
+    public var role: AudioTrackRole
+    public var mediaScribeField: MediaScribeTrackField
+    public var status: LocalRecordingTrackStatus
+    public var fileName: String
+    public var format: String
+    public var sampleRate: Double
+    public var channelCount: Int
+    public var bitsPerSample: Int
+    public var durationMs: Int
+    public var byteCount: Int64
+    public var frameCount: Int64
+    public var timelineStartMs: Int
+    public var timelineAligned: Bool
+    public var failureReason: LocalRecordingFailureReason
+
+    public init(
+        trackId: String,
+        role: AudioTrackRole,
+        mediaScribeField: MediaScribeTrackField? = nil,
+        status: LocalRecordingTrackStatus,
+        fileName: String,
+        format: String,
+        sampleRate: Double,
+        channelCount: Int,
+        bitsPerSample: Int = 0,
+        durationMs: Int,
+        byteCount: Int64,
+        frameCount: Int64,
+        timelineStartMs: Int = 0,
+        timelineAligned: Bool = false,
+        failureReason: LocalRecordingFailureReason = .none
+    ) {
+        self.trackId = trackId
+        self.role = role
+        self.mediaScribeField = mediaScribeField ?? Self.defaultMediaScribeField(for: role)
+        self.status = status
+        self.fileName = fileName
+        self.format = format
+        self.sampleRate = sampleRate
+        self.channelCount = channelCount
+        self.bitsPerSample = bitsPerSample
+        self.durationMs = durationMs
+        self.byteCount = byteCount
+        self.frameCount = frameCount
+        self.timelineStartMs = timelineStartMs
+        self.timelineAligned = timelineAligned
+        self.failureReason = failureReason
+    }
+
+    public var isComplete: Bool {
+        status == .saved && byteCount > 0 && frameCount > 0 && durationMs > 0
+    }
+
+    public var isMediaScribeReady: Bool {
+        isComplete &&
+            format == "wav-pcm-s16le" &&
+            sampleRate == 16_000 &&
+            channelCount == 1 &&
+            bitsPerSample == 16 &&
+            timelineStartMs == 0 &&
+            timelineAligned
+    }
+
+    public static func defaultMediaScribeField(for role: AudioTrackRole) -> MediaScribeTrackField {
+        switch role {
+        case .localMic:
+            .micFile
+        case .remoteSpeaker:
+            .incomingFile
+        }
+    }
+}
+
+public struct LocalRecordingManifest: Codable, Equatable, Sendable {
+    public static let schemaVersion = "local-recording-manifest.v2"
+
+    public var schemaVersion: String
+    public var sessionId: String
+    public var createdAt: Date
+    public var startedAt: Date
+    public var stoppedAt: Date
+    public var status: LocalRecordingSessionStatus
+    public var directoryId: String
+    public var manifestFileName: String
+    public var transcriptionReadiness: TranscriptionReadinessState
+    public var mediaScribeSourceMode: String
+    public var tracks: [LocalRecordingTrack]
+    public var externalEgressStarted: Bool
+    public var transcriptionStarted: Bool
+    public var diagnosticSafe: Bool
+    public var failureReason: LocalRecordingFailureReason
+
+    public init(
+        schemaVersion: String = Self.schemaVersion,
+        sessionId: String,
+        createdAt: Date,
+        startedAt: Date,
+        stoppedAt: Date,
+        status: LocalRecordingSessionStatus,
+        directoryId: String,
+        manifestFileName: String = "manifest.json",
+        transcriptionReadiness: TranscriptionReadinessState = .degraded,
+        mediaScribeSourceMode: String = "dual",
+        tracks: [LocalRecordingTrack],
+        externalEgressStarted: Bool = false,
+        transcriptionStarted: Bool = false,
+        diagnosticSafe: Bool = true,
+        failureReason: LocalRecordingFailureReason = .none
+    ) {
+        self.schemaVersion = schemaVersion
+        self.sessionId = sessionId
+        self.createdAt = createdAt
+        self.startedAt = startedAt
+        self.stoppedAt = stoppedAt
+        self.status = status
+        self.directoryId = directoryId
+        self.manifestFileName = manifestFileName
+        self.transcriptionReadiness = transcriptionReadiness
+        self.mediaScribeSourceMode = mediaScribeSourceMode
+        self.tracks = tracks
+        self.externalEgressStarted = externalEgressStarted
+        self.transcriptionStarted = transcriptionStarted
+        self.diagnosticSafe = diagnosticSafe
+        self.failureReason = failureReason
+    }
+
+    public var isComplete: Bool {
+        status == .saved &&
+            transcriptionReadiness == .ready &&
+            mediaScribeSourceMode == "dual" &&
+            !externalEgressStarted &&
+            !transcriptionStarted &&
+            Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
+            tracks.allSatisfy(\.isMediaScribeReady)
+    }
+
+    public static func transcriptionReadiness(forSchemaVersion schemaVersion: String) -> TranscriptionReadinessState {
+        schemaVersion == Self.schemaVersion ? .degraded : .legacyNotReady
     }
 }
 

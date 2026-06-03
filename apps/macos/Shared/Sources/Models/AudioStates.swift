@@ -171,6 +171,7 @@ public enum SourceAppEligibility: String, Codable, Sendable {
     case eligible
     case ineligible
     case unknown
+    case policyBlocked = "policy_blocked"
 }
 
 public enum VisibleIndicatorState: String, Codable, Sendable {
@@ -193,6 +194,97 @@ public enum AudioTrackState: String, Codable, Sendable {
     case degraded
     case missing
     case finalized
+}
+
+public enum RecordingStartBlocker: String, Codable, Sendable {
+    case none
+    case routeNotReady = "route_not_ready"
+    case publicationOnly = "publication_only"
+    case policyDisabled = "policy_disabled"
+    case permissionDenied = "permission_denied"
+    case storageUnsafe = "storage_unsafe"
+    case indicatorUnavailable = "indicator_unavailable"
+    case sourceAppIneligible = "source_app_ineligible"
+    case alreadyRecording = "already_recording"
+    case unknown
+}
+
+public enum RecordingStopReason: String, Codable, Sendable {
+    case userRequested = "user_requested"
+    case routeInvalidated = "route_invalidated"
+    case indicatorLost = "indicator_lost"
+    case storageUnsafe = "storage_unsafe"
+    case appBridgeLost = "app_bridge_lost"
+    case coreaudiodRestarted = "coreaudiod_restarted"
+    case failed
+}
+
+public enum RecordingEvidenceEventType: String, Codable, Sendable {
+    case startRequested = "recording.start_requested"
+    case startBlocked = "recording.start_blocked"
+    case started = "recording.started"
+    case stopRequested = "recording.stop_requested"
+    case stopped = "recording.stopped"
+    case failed = "recording.failed"
+    case indicatorLost = "recording.indicator_lost"
+    case routeInvalidated = "recording.route_invalidated"
+    case storageBlocked = "recording.storage_blocked"
+}
+
+public enum RecordingEvidenceInitiator: String, Codable, Sendable {
+    case user
+    case systemFailClosed = "system_fail_closed"
+    case recovery
+    case validation
+}
+
+public enum RecordingRouteEvidenceKind: String, Codable, Sendable {
+    case lowResourceTruth = "low_resource_truth"
+    case liveRoute = "live_route"
+    case publicationOnly = "publication_only"
+    case stale
+    case unknown
+}
+
+public enum LocalRecordingSessionStatus: String, Codable, Sendable {
+    case active
+    case saved
+    case degraded
+    case failed
+}
+
+public enum LocalRecordingTrackStatus: String, Codable, Sendable {
+    case pending
+    case recording
+    case saved
+    case missing
+    case degraded
+    case failed
+}
+
+public enum LocalRecordingFailureReason: String, Codable, Sendable {
+    case none
+    case directoryUnavailable = "directory_unavailable"
+    case writeFailed = "write_failed"
+    case finalizationFailed = "finalization_failed"
+    case emptyRequiredTrack = "empty_required_track"
+    case formatNotReady = "format_not_ready"
+    case timelineMisaligned = "timeline_misaligned"
+    case legacyNotReady = "legacy_not_ready"
+    case appClosed = "app_closed"
+    case unknown
+}
+
+public enum TranscriptionReadinessState: String, Codable, Sendable {
+    case ready
+    case degraded
+    case failed
+    case legacyNotReady = "legacy_not_ready"
+}
+
+public enum MediaScribeTrackField: String, Codable, Sendable {
+    case micFile = "mic_file"
+    case incomingFile = "incoming_file"
 }
 
 public enum LocalBufferArtifactType: String, Codable, Sendable {

@@ -2,6 +2,37 @@
 
 ## Passthrough Release Hardening Evidence (005)
 
+- [x] Feature `010` automated gates pass for MediaScribe-ready local artifact
+  format: dual track role mapping, WAV PCM16 mono 16 kHz contract, metadata-only
+  diagnostics, secret scan, and `007`/`008` regression validation.
+- [x] Feature `010` manual smoke passed on a fresh workspace bundle: manual
+  `Record`/`Stop` produced `manifest.json`, `mic.wav`, and `incoming.wav` with
+  manifest readiness `ready` and `dual` source mode.
+- [x] Local recording persistence feature `008` has model and contract gates for
+  local mic/remote speaker track artifacts, metadata-only manifest, degraded
+  missing-track truth, and no external egress.
+- [x] Feature `008` full validation script passes for local persistence models,
+  contract validation, realtime safety, and manifest fixture checks.
+- [x] Feature `008` user smoke confirms a local recording exists after manual
+  `Record`/`Stop` in the freshly rebuilt local app bundle.
+- [x] Feature `008` 1-minute local recording smoke confirms that a recording
+  saves successfully after user review.
+- [x] Feature `008` manual browser smoke passed for Yandex Telemost, Chrome,
+  Opera, and Zoom with 1-minute local recording save checks.
+- [x] Local recording artifacts from features `008` and `010` are accepted only
+  as local artifacts. They are not yet accepted for upload, transcription,
+  retention, deletion, dashboard publication, or assisted auto-start.
+
+- [x] Manual capture session and visible indicator feature `007` has automated
+  local gates passing for manual Record/Stop, visible indicator safety,
+  blocked-start prerequisites, metadata-only evidence, diagnostics redaction,
+  contract validation, and realtime callback safety.
+- [x] Feature `007` remains scoped to local manual recording lifecycle only:
+  no upload, transcription, MediaScribe, Langfuse, dashboard publication,
+  retention, deletion, or assisted auto-start acceptance is claimed.
+- [x] Feature `007` manual browser smoke passed for Yandex Telemost, Chrome,
+  Opera, and Zoom with visible manual recording and one-action stop.
+
 - [x] Low-resource promotion for `006-low-resource-audio` uses a complete P1
   gate bundle before default enablement; any missing, blocked, or failed P1
   gate records `fallback` to `005-macos-passthrough-release-hardening`.

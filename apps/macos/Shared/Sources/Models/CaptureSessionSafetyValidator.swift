@@ -1,7 +1,7 @@
 public enum CaptureSessionSafetyValidator {
     public static func validate(_ session: CaptureSession) -> Bool {
         if requiresVisibleStop(session.state) {
-            return session.visibleIndicatorState != .hidden &&
+            return [.ready, .active, .paused, .degraded].contains(session.visibleIndicatorState) &&
                 session.stopActionAvailable
         }
 
@@ -10,9 +10,9 @@ public enum CaptureSessionSafetyValidator {
 
     private static func requiresVisibleStop(_ state: CaptureSessionState) -> Bool {
         switch state {
-        case .active, .paused, .degraded, .stopping:
+        case .starting, .active, .paused, .degraded, .stopping:
             return true
-        case .idle, .detecting, .ready, .starting, .stopped, .failed, .finalized:
+        case .idle, .detecting, .ready, .stopped, .failed, .finalized:
             return false
         }
     }

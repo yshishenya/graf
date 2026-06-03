@@ -44,6 +44,13 @@ private struct ContentView: View {
     @StateObject private var passthroughCoordinator = ExperimentalPassthroughCoordinator(
         logger: AppLog.writeRaw
     )
+    @State private var captureController = CaptureSessionController()
+    @State private var localRecordingWriter = LocalRecordingWriter()
+    @State private var captureSession: CaptureSession?
+    @State private var recordingBlocker: String?
+    @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
+    @State private var localRecordingManifest: LocalRecordingManifest?
+    @State private var localRecordingLocation: String?
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -69,6 +76,14 @@ private struct ContentView: View {
                         canVerify: true,
                         isVerifying: isChecking,
                         onVerify: runCheck
+                    )
+                    CaptureControlView(
+                        session: captureSession,
+                        blockedReason: recordingBlocker,
+                        localRecordingStatus: localRecordingStatusText,
+                        localRecordingLocation: localRecordingLocation,
+                        onRecord: startManualRecording,
+                        onStop: stopManualRecording
                     )
                     AudioHealthView(state: snapshot.healthState)
                     DiagnosticLogView(
@@ -143,6 +158,156 @@ private struct ContentView: View {
             .help("Refresh audio device status")
         }
         .padding(18)
+    }
+
+    private func startManualRecording() {
+        localRecordingManifest = nil
+        localRecordingLocation = nil
+        let prerequisite = RecordingPrerequisiteGate().evaluate(
+            RecordingPrerequisiteSnapshot(
+                routeState: snapshot.healthState.livePassthroughStatus ?? .inactive,
+                routeEvidenceKind: snapshot.routeVerification?.canShowReady == true ? .lowResourceTruth : .publicationOnly,
+                policyAllowsRecording: true,
+                microphonePermissionGranted: snapshot.healthState.microphonePermission != .denied,
+                storageRisk: snapshot.healthState.bufferRisk,
+                indicatorAvailable: true,
+                sourceAppEligibility: .eligible,
+                evaluatedAt: Date()
+            )
+        )
+
+        do {
+            _ = try captureController.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+            guard prerequisite.allowsRecording else {
+                let blocked = try captureController.blockStart(
+                    reason: prerequisite.blockedReason,
+                    recoveryAction: prerequisite.recoveryAction ?? "Resolve recording blocker"
+                )
+                captureSession = blocked
+                recordingEvidenceEvents.append(
+                    RecordingEvidenceService().startBlocked(session: blocked, prerequisite: prerequisite)
+                )
+                recordingBlocker = recordingBlockerText(for: prerequisite)
+                AppLog.writeRaw(
+                    event: AuditEventName.recordingStartBlocked.rawValue,
+                    detail: "reason=\(prerequisite.blockedReason.rawValue) action=\(prerequisite.recoveryAction ?? "none")"
+                )
+                return
+            }
+
+            _ = try captureController.markReady(triggerEvidence: [
+                "routeState": prerequisite.routeState.rawValue,
+                "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue
+            ])
+            _ = try captureController.start()
+            let active = try captureController.markCapturing()
+            let directory = try localRecordingWriter.start(
+                sessionId: active.id,
+                startedAt: active.startedAt ?? Date()
+            )
+            captureSession = active
+            localRecordingLocation = directory.directoryURL.path
+            recordingEvidenceEvents.append(
+                RecordingEvidenceService().event(
+                    for: active,
+                    type: .started,
+                    initiator: .user,
+                    routeState: prerequisite.routeState
+                )
+            )
+            recordingBlocker = nil
+            AppLog.writeRaw(
+                event: AuditEventName.recordingStarted.rawValue,
+                detail: "sessionId=\(active.id) routeState=\(prerequisite.routeState.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
+            )
+        } catch {
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: .storageUnsafe) {
+                captureSession = failed
+            }
+            recordingBlocker = "Recording could not start local file capture: \(error)"
+            AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
+        }
+    }
+
+    private func stopManualRecording() {
+        do {
+            _ = try captureController.requestStop(reason: .userRequested)
+            let manifest = try localRecordingWriter.stop()
+            let stopped = try captureController.completeStop()
+            captureSession = stopped
+            localRecordingManifest = manifest
+            recordingEvidenceEvents.append(
+                RecordingEvidenceService().event(
+                    for: stopped,
+                    type: .stopped,
+                    initiator: .user,
+                    routeState: snapshot.healthState.livePassthroughStatus ?? .inactive
+                )
+            )
+            recordingBlocker = nil
+            let localEvent: AuditEventName = switch manifest.status {
+            case .saved:
+                .localRecordingSaved
+            case .degraded:
+                .localRecordingDegraded
+            case .failed, .active:
+                .localRecordingFailed
+            }
+            AppLog.writeRaw(
+                event: localEvent.rawValue,
+                detail: "sessionId=\(stopped.id) status=\(manifest.status.rawValue) directoryId=\(manifest.directoryId)"
+            )
+            AppLog.writeRaw(
+                event: AuditEventName.recordingStopped.rawValue,
+                detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
+            )
+        } catch {
+            recordingBlocker = "Recording could not stop: \(error)"
+            AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
+        }
+    }
+
+    private func recordingBlockerText(for snapshot: RecordingPrerequisiteSnapshot) -> String {
+        let action = snapshot.recoveryAction ?? "Resolve blocker before recording"
+        switch snapshot.blockedReason {
+        case .none:
+            return ""
+        case .routeNotReady, .publicationOnly:
+            return "Recording blocked: audio route is not ready. \(action)."
+        case .policyDisabled:
+            return "Recording blocked by policy. \(action)."
+        case .permissionDenied:
+            return "Recording blocked: microphone permission is unavailable. \(action)."
+        case .storageUnsafe:
+            return "Recording blocked: local storage reserve is unsafe. \(action)."
+        case .indicatorUnavailable:
+            return "Recording blocked: visible indicator is unavailable. \(action)."
+        case .sourceAppIneligible:
+            return "Recording blocked: target is not approved. \(action)."
+        case .alreadyRecording:
+            return "Recording already active."
+        case .unknown:
+            return "Recording blocked: unknown prerequisite failure. \(action)."
+        }
+    }
+
+    private var localRecordingStatusText: String? {
+        guard let manifest = localRecordingManifest else {
+            if localRecordingWriter.isRecording {
+                return "Local recording in progress"
+            }
+            return nil
+        }
+        switch manifest.status {
+        case .saved:
+            return "Local recording saved"
+        case .degraded:
+            return "Local recording saved with missing or degraded track"
+        case .failed:
+            return "Local recording failed"
+        case .active:
+            return "Local recording in progress"
+        }
     }
 }
 
