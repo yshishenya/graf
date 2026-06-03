@@ -29,7 +29,9 @@ public struct CaptureControlView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let session {
                 CaptureStatusItem(session: session, onStop: onStop)
-            } else {
+            }
+
+            if Self.shouldShowRecordButton(for: session) {
                 Button(action: onRecord) {
                     Label("Record", systemImage: "record.circle")
                 }
@@ -60,5 +62,10 @@ public struct CaptureControlView: View {
                     .accessibilityLabel("Local recording location: \(localRecordingLocation)")
             }
         }
+    }
+
+    public static func shouldShowRecordButton(for session: CaptureSession?) -> Bool {
+        guard let session else { return true }
+        return !CaptureStatusItem.showsStopButton(for: session)
     }
 }

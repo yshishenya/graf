@@ -31,6 +31,20 @@ final class CaptureIndicatorTests: XCTestCase {
         )
     }
 
+    func testStoppedSessionAllowsRecordButtonToReturn() {
+        let session = makeSession(state: .stopped, indicator: .hidden, stopAvailable: false)
+
+        XCTAssertFalse(CaptureStatusItem.showsStopButton(for: session))
+        XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: session))
+    }
+
+    func testActiveSessionShowsStopInsteadOfRecord() {
+        let session = makeSession(state: .active, indicator: .active, stopAvailable: true)
+
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: session))
+        XCTAssertFalse(CaptureControlView.shouldShowRecordButton(for: session))
+    }
+
     private func makeSession(
         state: CaptureSessionState,
         indicator: VisibleIndicatorState,

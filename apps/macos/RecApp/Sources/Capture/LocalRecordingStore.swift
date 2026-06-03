@@ -30,8 +30,8 @@ public struct LocalRecordingStore: Sendable {
             directoryId: directoryId,
             directoryURL: directoryURL,
             manifestURL: directoryURL.appendingPathComponent("manifest.json"),
-            localMicURL: directoryURL.appendingPathComponent("local-mic.wav"),
-            remoteSpeakerURL: directoryURL.appendingPathComponent("remote-speaker.wav")
+            localMicURL: directoryURL.appendingPathComponent("mic.wav"),
+            remoteSpeakerURL: directoryURL.appendingPathComponent("incoming.wav")
         )
     }
 

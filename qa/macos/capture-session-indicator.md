@@ -32,6 +32,11 @@ retention, deletion, or assisted auto-start.
 | 007 validation script | `sh apps/macos/Scripts/validate-capture-session-indicator.sh` | Passed | Runs Swift tests, contract validation, and realtime safety scan. |
 | Secret/content scan | `rg ...` forbidden-content scan | Passed | Matches are policy, fixture, and redaction-test forbidden-field strings only; no live secret, raw audio, transcript text, or meeting content found. |
 
+Latest refresh:
+
+- 2026-06-02 01:48 MSK on `master`: `sh apps/macos/Scripts/validate-capture-session-indicator.sh`
+  passed with `capture_session_indicator_validation=passed`.
+
 ## Manual Smoke Log
 
 See `tests/macos/browser-meetings/manual-recording-smoke.md`.
@@ -39,8 +44,9 @@ See `tests/macos/browser-meetings/manual-recording-smoke.md`.
 ## Current Acceptance
 
 Status: Automated 007 gates passed for local manual recording lifecycle and
-visible indicator safety. Manual meeting-target smoke remains pending and must
-record metadata-only evidence before release acceptance.
+visible indicator safety. User-confirmed 1-minute manual recording smoke passed
+for Yandex Telemost, Chrome, Opera, and Zoom on 2026-06-02. Yandex Browser
+remains not accepted in the current cycle.
 
 ## Passthrough After Stop
 

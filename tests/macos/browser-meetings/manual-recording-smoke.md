@@ -21,11 +21,20 @@ Langfuse, dashboard notes, retention, or deletion.
 
 | Target | Current 007 Status | Required Evidence |
 |---|---|---|
-| Yandex Telemost | Manual smoke pending | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
-| Chrome | Manual smoke pending | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
-| Opera | Manual smoke pending | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
-| Zoom | Manual smoke pending | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
+| Yandex Telemost | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
+| Chrome | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
+| Opera | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
+| Zoom | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
 | Yandex Browser | Not accepted in current cycle | Run only if explicitly added back to smoke scope |
+
+## Manual Evidence Log
+
+- 2026-06-02 02:02 MSK: User confirmed 1-minute manual recording smoke for
+  Yandex Telemost, Chrome, Opera, and Zoom. Treat this as accepted target smoke
+  for manual recording start, visible active state, one-action stop, and local
+  stop completion for feature `007`. This does not accept upload,
+  transcription, MediaScribe, Langfuse, dashboard publication, retention,
+  deletion, long-duration recording, or meeting-app mute truth.
 
 ## Evidence Fields
 

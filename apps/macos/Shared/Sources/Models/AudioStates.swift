@@ -268,8 +268,23 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case writeFailed = "write_failed"
     case finalizationFailed = "finalization_failed"
     case emptyRequiredTrack = "empty_required_track"
+    case formatNotReady = "format_not_ready"
+    case timelineMisaligned = "timeline_misaligned"
+    case legacyNotReady = "legacy_not_ready"
     case appClosed = "app_closed"
     case unknown
+}
+
+public enum TranscriptionReadinessState: String, Codable, Sendable {
+    case ready
+    case degraded
+    case failed
+    case legacyNotReady = "legacy_not_ready"
+}
+
+public enum MediaScribeTrackField: String, Codable, Sendable {
+    case micFile = "mic_file"
+    case incomingFile = "incoming_file"
 }
 
 public enum LocalBufferArtifactType: String, Codable, Sendable {

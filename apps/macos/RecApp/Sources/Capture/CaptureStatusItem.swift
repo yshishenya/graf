@@ -24,11 +24,7 @@ public struct CaptureStatusItem: View {
     @ViewBuilder
     private func statusSurface(for session: CaptureSession) -> some View {
         let canStop = session.stopActionAvailable
-        let isActive = session.state == .starting ||
-            session.state == .active ||
-            session.state == .paused ||
-            session.state == .degraded ||
-            session.state == .stopping
+        let isActive = Self.showsStopButton(for: session)
 
         HStack(spacing: 10) {
             HStack(spacing: 8) {
@@ -118,6 +114,14 @@ public struct CaptureStatusItem: View {
         case .finalized:
             return "Recording finalized"
         }
+    }
+
+    public static func showsStopButton(for session: CaptureSession) -> Bool {
+        session.state == .starting ||
+            session.state == .active ||
+            session.state == .paused ||
+            session.state == .degraded ||
+            session.state == .stopping
     }
 
     public static func accessibilityLabel(for session: CaptureSession) -> String {

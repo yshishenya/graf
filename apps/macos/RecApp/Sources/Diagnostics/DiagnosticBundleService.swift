@@ -590,6 +590,8 @@ public struct DiagnosticBundleService: Sendable {
             "status": .string(manifest.status.rawValue),
             "directoryId": .string(manifest.directoryId),
             "manifestFileName": .string(manifest.manifestFileName),
+            "transcriptionReadiness": .string(manifest.transcriptionReadiness.rawValue),
+            "mediaScribeSourceMode": .string(manifest.mediaScribeSourceMode),
             "tracks": .array(manifest.tracks.map(Self.diagnosticValue)),
             "externalEgressStarted": .bool(manifest.externalEgressStarted),
             "transcriptionStarted": .bool(manifest.transcriptionStarted),
@@ -602,14 +604,18 @@ public struct DiagnosticBundleService: Sendable {
         .object([
             "trackId": .string(track.trackId),
             "role": .string(track.role.rawValue),
+            "mediaScribeField": .string(track.mediaScribeField.rawValue),
             "status": .string(track.status.rawValue),
             "fileName": .string(track.fileName),
             "format": .string(track.format),
             "sampleRate": .double(track.sampleRate),
             "channelCount": .int(track.channelCount),
+            "bitsPerSample": .int(track.bitsPerSample),
             "durationMs": .int(track.durationMs),
             "byteCount": .int(Int(track.byteCount)),
             "frameCount": .int(Int(track.frameCount)),
+            "timelineStartMs": .int(track.timelineStartMs),
+            "timelineAligned": .bool(track.timelineAligned),
             "failureReason": .string(track.failureReason.rawValue)
         ])
     }

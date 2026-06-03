@@ -1,7 +1,7 @@
 # PRD: 2brain Rec self-hosted meeting capture with macOS virtual audio driver
 
-Date: 2026-05-27
-Status: Final baseline after 5-agent review, updated with product owner decisions
+Date: 2026-06-04
+Status: Final baseline after 5-agent review, updated with current implementation status
 Owner: Product/Engineering
 
 ## 1. Summary
@@ -11,6 +11,49 @@ Owner: Product/Engineering
 The core product is a macOS desktop app plus virtual audio layer. Users select `2brain Rec Microphone` and `2brain Rec Speaker` in meeting apps. `2brain Rec` captures local microphone audio and remote participant audio as separate tracks, uploads them to the customer-controlled server, sends transcription work to the existing MediaScribe API, and exposes recordings/transcripts/notes in a web dashboard.
 
 The product is functionally in the same category as Krisp's meeting assistant, but must not copy Krisp's brand, assets, UI expression, copy, icons, proprietary behavior, binaries, or model behavior. The implementation must use public OS APIs, original code, licensed SDKs, and approved open-source or commercial models.
+
+## 1A. Current Implementation Status
+
+Current accepted local baseline:
+
+- macOS remains the MVP platform.
+- The Core Audio HAL component publishes `2brain Rec Microphone` and
+  `2brain Rec Speaker`.
+- Low-resource non-recording passthrough is accepted for the current local
+  environment.
+- Manual `Record`/`Stop` exists with visible local recording state and
+  one-action stop.
+- Local recording persistence is accepted for manual recordings.
+- Feature `010-recording-artifact-format` is accepted for local
+  MediaScribe-ready dual-track artifacts: `manifest.json`, `mic.wav`, and
+  `incoming.wav` with metadata-only diagnostics and readiness truth.
+- The current MediaScribe integration contract for future backend work is the
+  dual-track contract in `docs/integrations/mediascribe-dual-track-api.md`.
+- ADR `001-local-trust-shell-and-server-dashboard` is accepted: active capture
+  UI remains local/native; post-meeting/admin surfaces live in the server web
+  dashboard.
+
+Current non-accepted product areas:
+
+- Backend ingest, upload sessions, Postgres, MinIO, Temporal workflows,
+  MediaScribe processing, dashboard notes, server retention, and deletion are
+  not implemented yet.
+- Feature `011-assisted-auto-recording` is specified only. Detect-and-ask,
+  future auto-record, automatic naming, and assisted detection evidence are not
+  implemented yet.
+- Meeting-app mute truth remains a future privacy slice before broader
+  recording acceptance.
+- Signed/notarized production installer evidence remains separate from local
+  ad-hoc development package evidence.
+
+Recommended next product slice:
+
+- `012-server-ingest-foundation`: authenticated resumable server ingest for
+  finalized local dual-track artifacts, with Postgres metadata, MinIO object
+  storage, upload/session status contracts, and server-side MediaScribe
+  credential boundaries. MediaScribe job processing, full dashboard UI,
+  deletion execution, and assisted auto-recording should remain separate slices
+  unless that spec explicitly expands scope.
 
 ## 2. Positioning
 
@@ -114,6 +157,55 @@ MVP includes:
   launch criteria are met.
 - Cross-platform frameworks can be considered only for non-capture surfaces that do not own
   audio-driver, virtual-device, permission, or installer runtime behavior.
+
+### 4.y UI Authority And Multiplatform Surface Strategy
+
+`2brain Rec` uses a hybrid UI authority model:
+
+- Capture-critical desktop trust surfaces are local/native and remain usable
+  without server-rendered UI.
+- Post-meeting review, transcript, notes, search, sharing, admin policy,
+  retention, deletion, audit, and device-fleet views live primarily in the
+  server web dashboard.
+- Cross-platform reuse comes from shared state contracts, design tokens,
+  localization keys, and policy schemas, not from server control of active
+  capture UI.
+
+Local/native desktop surfaces are authoritative for:
+
+- active capture state;
+- persistent local visible indicator;
+- one-action stop;
+- tray/menu and floating widget state;
+- recording, pause/resume, and stop commands;
+- route readiness and audio health;
+- driver install/update/repair/uninstall state;
+- local buffer and disk safety;
+- local recording artifact truth;
+- offline pending recordings;
+- diagnostics export and local degraded states.
+
+Server-provided policy, feature flags, approved targets, naming policy,
+consent/legal profile, localization, and non-critical help content may constrain
+or annotate the desktop UI, but MUST NOT be required to display active capture
+truth or to stop active capture. If policy is stale or the server is
+unreachable, the desktop app must keep active capture stoppable, show a truthful
+offline or policy-stale state, and fail closed for new assisted auto-start when
+the last valid policy cannot authorize it.
+
+Server-driven UI or WebView-rendered remote UI MUST NOT own:
+
+- active recording indicator visibility;
+- Stop availability;
+- capture state truth;
+- local route health truth;
+- local storage safety;
+- permission and driver recovery truth;
+- authorization gates for capture-critical actions.
+
+Server-driven schemas may be considered for non-critical settings, help content,
+onboarding copy, and admin-constrained forms only when the local app validates
+schema version, has safe cached fallback, and rejects unknown or unsafe actions.
 
 MVP excludes:
 
@@ -1010,6 +1102,17 @@ AI chat, when enabled:
 
 MediaScribe is the existing STT backend for MVP.
 
+Current `2brain Rec` integration contract:
+
+- The canonical contract for future `2brain Rec` backend implementation is
+  `docs/integrations/mediascribe-dual-track-api.md`.
+- `2brain Rec` must submit separate local microphone and incoming speaker files
+  to the dual-track endpoint:
+  `POST /v1/audio/transcriptions/dual-track`.
+- Older single-file observations below are historical discovery notes only and
+  must not supersede the dual-track contract for `2brain Rec` ingest and
+  transcription work.
+
 Base URL:
 
 - `https://mediascribe.2brain.pro`
@@ -1087,8 +1190,10 @@ Observed result object:
 
 Integration requirements:
 
-- `2brain_rec` server uploads finalized server-side meeting audio from MinIO to MediaScribe as a job using `POST /v1/audio/transcriptions`.
+- `2brain_rec` server uploads finalized server-side meeting audio from MinIO to MediaScribe as a dual-track job using `POST /v1/audio/transcriptions/dual-track`.
 - Desktop local buffers must upload to `2brain_rec` first and must never call MediaScribe directly.
+- The required multipart fields are `mic_file` for local microphone audio and
+  `incoming_file` for remote/incoming speaker audio.
 - `diarize=true` and `summarize=true` by default.
 - `2brain_rec` stores the MediaScribe job ID on the meeting.
 - `2brain_rec` polls job status until `status=ready` or terminal failure.
@@ -1099,7 +1204,10 @@ Integration requirements:
 - Health checks and errors must not echo credentials, request headers, signed URLs, raw transcript content, or uploaded file names containing sensitive meeting data.
 - If MediaScribe supports direct object storage ingest later, prefer server-to-server object reference over reuploading large files.
 
-Observed service API contract from Hermes:
+Historical single-file service API observation from Hermes:
+
+This observation is retained for audit context only. It is not the accepted
+`2brain Rec` integration contract after feature `010-recording-artifact-format`.
 
 - `POST /v1/audio/transcriptions`
   - Auth: `X-API-Key: <MEDIASCRIBE_API_KEY>`
@@ -2048,7 +2156,7 @@ Required decisions:
 2. Driver installer/signing/notarization approach.
 3. Default mode: audio plus transcript retained.
 4. Retention UX for full-meeting deletion and keep/delete controls.
-5. MediaScribe authenticated job API contract using `X-API-Key`.
+5. MediaScribe authenticated dual-track job API contract using `X-API-Key`.
 6. MediaScribe processing capacity, timeout, and retry policy.
 7. Langfuse tracing keys/project setup for project `2brain_rec`.
 8. Consent default for internal team and later customer use.

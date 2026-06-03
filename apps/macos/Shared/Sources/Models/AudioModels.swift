@@ -830,49 +830,80 @@ public struct AudioTrack: Codable, Equatable, Sendable {
 public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     public var trackId: String
     public var role: AudioTrackRole
+    public var mediaScribeField: MediaScribeTrackField
     public var status: LocalRecordingTrackStatus
     public var fileName: String
     public var format: String
     public var sampleRate: Double
     public var channelCount: Int
+    public var bitsPerSample: Int
     public var durationMs: Int
     public var byteCount: Int64
     public var frameCount: Int64
+    public var timelineStartMs: Int
+    public var timelineAligned: Bool
     public var failureReason: LocalRecordingFailureReason
 
     public init(
         trackId: String,
         role: AudioTrackRole,
+        mediaScribeField: MediaScribeTrackField? = nil,
         status: LocalRecordingTrackStatus,
         fileName: String,
         format: String,
         sampleRate: Double,
         channelCount: Int,
+        bitsPerSample: Int = 0,
         durationMs: Int,
         byteCount: Int64,
         frameCount: Int64,
+        timelineStartMs: Int = 0,
+        timelineAligned: Bool = false,
         failureReason: LocalRecordingFailureReason = .none
     ) {
         self.trackId = trackId
         self.role = role
+        self.mediaScribeField = mediaScribeField ?? Self.defaultMediaScribeField(for: role)
         self.status = status
         self.fileName = fileName
         self.format = format
         self.sampleRate = sampleRate
         self.channelCount = channelCount
+        self.bitsPerSample = bitsPerSample
         self.durationMs = durationMs
         self.byteCount = byteCount
         self.frameCount = frameCount
+        self.timelineStartMs = timelineStartMs
+        self.timelineAligned = timelineAligned
         self.failureReason = failureReason
     }
 
     public var isComplete: Bool {
         status == .saved && byteCount > 0 && frameCount > 0 && durationMs > 0
     }
+
+    public var isMediaScribeReady: Bool {
+        isComplete &&
+            format == "wav-pcm-s16le" &&
+            sampleRate == 16_000 &&
+            channelCount == 1 &&
+            bitsPerSample == 16 &&
+            timelineStartMs == 0 &&
+            timelineAligned
+    }
+
+    public static func defaultMediaScribeField(for role: AudioTrackRole) -> MediaScribeTrackField {
+        switch role {
+        case .localMic:
+            .micFile
+        case .remoteSpeaker:
+            .incomingFile
+        }
+    }
 }
 
 public struct LocalRecordingManifest: Codable, Equatable, Sendable {
-    public static let schemaVersion = "local-recording-manifest.v1"
+    public static let schemaVersion = "local-recording-manifest.v2"
 
     public var schemaVersion: String
     public var sessionId: String
@@ -882,6 +913,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var status: LocalRecordingSessionStatus
     public var directoryId: String
     public var manifestFileName: String
+    public var transcriptionReadiness: TranscriptionReadinessState
+    public var mediaScribeSourceMode: String
     public var tracks: [LocalRecordingTrack]
     public var externalEgressStarted: Bool
     public var transcriptionStarted: Bool
@@ -897,6 +930,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         status: LocalRecordingSessionStatus,
         directoryId: String,
         manifestFileName: String = "manifest.json",
+        transcriptionReadiness: TranscriptionReadinessState = .degraded,
+        mediaScribeSourceMode: String = "dual",
         tracks: [LocalRecordingTrack],
         externalEgressStarted: Bool = false,
         transcriptionStarted: Bool = false,
@@ -911,6 +946,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.status = status
         self.directoryId = directoryId
         self.manifestFileName = manifestFileName
+        self.transcriptionReadiness = transcriptionReadiness
+        self.mediaScribeSourceMode = mediaScribeSourceMode
         self.tracks = tracks
         self.externalEgressStarted = externalEgressStarted
         self.transcriptionStarted = transcriptionStarted
@@ -920,10 +957,16 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
 
     public var isComplete: Bool {
         status == .saved &&
+            transcriptionReadiness == .ready &&
+            mediaScribeSourceMode == "dual" &&
             !externalEgressStarted &&
             !transcriptionStarted &&
             Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
-            tracks.allSatisfy(\.isComplete)
+            tracks.allSatisfy(\.isMediaScribeReady)
+    }
+
+    public static func transcriptionReadiness(forSchemaVersion schemaVersion: String) -> TranscriptionReadinessState {
+        schemaVersion == Self.schemaVersion ? .degraded : .legacyNotReady
     }
 }
 

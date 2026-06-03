@@ -26,6 +26,11 @@ auto-start.
 | 008 validation script | `sh apps/macos/Scripts/validate-local-recording-persistence.sh` | Passed | Swift tests, contract validation, realtime safety, and manifest fixture check passed. |
 | Secret/content scan | `rg ...` forbidden-content scan | Passed | Matches are policy, fixture, and redaction-test forbidden-field strings only; no live secret, raw audio, transcript text, or meeting content found. |
 
+Latest refresh:
+
+- 2026-06-02 01:48 MSK on `master`: `sh apps/macos/Scripts/validate-local-recording-persistence.sh`
+  passed with `local_recording_persistence_validation=passed`.
+
 ## Manual Smoke Log
 
 See `tests/macos/local-recording/local-recording-smoke.md`.
@@ -37,14 +42,23 @@ See `tests/macos/local-recording/local-recording-smoke.md`.
   and confirmed that a local recording exists. This accepts the local artifact
   presence smoke for feature `008`; upload, transcription, dashboard,
   retention, deletion, encryption, and assisted auto-start remain out of scope.
+- 2026-06-02 01:52 MSK: User recorded and checked a 1-minute local recording;
+  the recording saves successfully. This accepts 1-minute local artifact
+  persistence smoke for feature `008`; target-specific meeting smoke remains
+  pending until recorded separately.
+- 2026-06-02 02:02 MSK: User confirmed the 1-minute recording save check across
+  Yandex Telemost, Chrome, Opera, and Zoom. This accepts target local recording
+  persistence smoke for feature `008`; upload, transcription, dashboard,
+  retention, deletion, encryption, assisted auto-start, and meeting-app mute
+  truth remain out of scope.
 
 ## Current Acceptance
 
 Status: Automated 008 gates passed and fresh local app bundle launched from
 `apps/macos/RecApp/.build/2brain Rec.app`. User-confirmed local recording
-artifact presence after manual `Record`/`Stop` is accepted for this slice.
-Meeting-target smoke remains pending and must record metadata-only evidence
-before broader recording release acceptance.
+artifact presence after manual `Record`/`Stop` and a user-confirmed 1-minute
+saved recording across Yandex Telemost, Chrome, Opera, and Zoom are accepted for
+this slice. Yandex Browser remains not accepted in the current cycle.
 
 ## Passthrough After Stop
 

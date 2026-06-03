@@ -49,7 +49,7 @@ public final class LocalRecordingWriter {
                 FileManager.default.createFile(atPath: directory.localMicURL.path, contents: nil)
             }
 
-            let remoteWriter = try FloatWAVFileWriter(url: directory.remoteSpeakerURL)
+            let remoteWriter = try PCM16MonoWAVFileWriter(url: directory.remoteSpeakerURL)
             let sharedMemory = sharedMemoryFactory()
             let timer = DispatchSource.makeTimerSource(queue: queue)
             let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
@@ -94,15 +94,19 @@ public final class LocalRecordingWriter {
                 role: .localMic,
                 url: active.directory.localMicURL,
                 durationMs: Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000)),
-                frameCount: Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 48_000)),
-                fileName: "local-mic.wav"
+                frameCount: Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000)),
+                fileName: "mic.wav",
+                timelineAligned: true
             )
+            let timelineToleranceMs = 1_000
+            let remoteTimelineAligned = abs(active.remoteWriter.durationMs - micTrack.durationMs) <= timelineToleranceMs
             let remoteTrack = track(
                 role: .remoteSpeaker,
                 url: active.directory.remoteSpeakerURL,
                 durationMs: active.remoteWriter.durationMs,
                 frameCount: Int64(active.remoteWriter.frameCount),
-                fileName: "remote-speaker.wav"
+                fileName: "incoming.wav",
+                timelineAligned: remoteTimelineAligned
             )
 
             let manifest = manifestService.manifest(
@@ -126,31 +130,41 @@ public final class LocalRecordingWriter {
         url: URL,
         durationMs: Int,
         frameCount: Int64,
-        fileName: String
+        fileName: String,
+        timelineAligned: Bool
     ) -> LocalRecordingTrack {
         let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
             .int64Value ?? 0
         let complete = byteCount > 44 && frameCount > 0 && durationMs > 0
+        let failureReason: LocalRecordingFailureReason
+        if complete {
+            failureReason = timelineAligned ? .none : .timelineMisaligned
+        } else {
+            failureReason = .emptyRequiredTrack
+        }
         return LocalRecordingTrack(
             trackId: "\(role.rawValue)-track",
             role: role,
             status: complete ? .saved : .missing,
             fileName: fileName,
-            format: "wav-lpcm",
-            sampleRate: 48_000,
-            channelCount: 2,
+            format: "wav-pcm-s16le",
+            sampleRate: 16_000,
+            channelCount: 1,
+            bitsPerSample: 16,
             durationMs: complete ? durationMs : 0,
             byteCount: byteCount,
             frameCount: complete ? frameCount : 0,
-            failureReason: complete ? .none : .emptyRequiredTrack
+            timelineStartMs: 0,
+            timelineAligned: complete && timelineAligned,
+            failureReason: failureReason
         )
     }
 
     private static func makeMicrophoneRecorder(url: URL) throws -> AVAudioRecorder? {
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 2,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false
@@ -166,7 +180,7 @@ private final class ActiveRecording {
     let startedAt: Date
     let directory: LocalRecordingDirectory
     let microphoneRecorder: AVAudioRecorder?
-    let remoteWriter: FloatWAVFileWriter
+    let remoteWriter: PCM16MonoWAVFileWriter
     let sharedMemory: SharedAudioMemory?
     let timer: DispatchSourceTimer
     let scratch: UnsafeMutablePointer<Float>
@@ -177,7 +191,7 @@ private final class ActiveRecording {
         startedAt: Date,
         directory: LocalRecordingDirectory,
         microphoneRecorder: AVAudioRecorder?,
-        remoteWriter: FloatWAVFileWriter,
+        remoteWriter: PCM16MonoWAVFileWriter,
         sharedMemory: SharedAudioMemory?,
         timer: DispatchSourceTimer,
         scratch: UnsafeMutablePointer<Float>,
@@ -195,11 +209,14 @@ private final class ActiveRecording {
     }
 }
 
-private final class FloatWAVFileWriter {
+private final class PCM16MonoWAVFileWriter {
     private let handle: FileHandle
-    private(set) var sampleCount = 0
-    private let sampleRate = 48_000
-    private let channelCount = 2
+    private(set) var frameCount = 0
+    private let inputSampleRate = 48_000
+    private let inputChannelCount = 2
+    private let outputSampleRate = 16_000
+    private let outputChannelCount = 1
+    private let bitsPerSample = 16
 
     init(url: URL) throws {
         FileManager.default.createFile(atPath: url.path, contents: nil)
@@ -207,24 +224,34 @@ private final class FloatWAVFileWriter {
         try handle.write(contentsOf: Data(repeating: 0, count: 44))
     }
 
-    var frameCount: Int {
-        sampleCount / channelCount
-    }
-
     var durationMs: Int {
-        Int((Double(frameCount) / Double(sampleRate)) * 1000)
+        Int((Double(frameCount) / Double(outputSampleRate)) * 1000)
     }
 
     func write(samples: UnsafePointer<Float>, count: Int) throws {
         guard count > 0 else { return }
-        let byteCount = count * MemoryLayout<Float>.stride
-        let data = Data(bytes: samples, count: byteCount)
+        let inputFrameCount = count / inputChannelCount
+        guard inputFrameCount > 0 else { return }
+        let ratio = max(1, inputSampleRate / outputSampleRate)
+        var data = Data()
+        data.reserveCapacity((inputFrameCount / ratio) * MemoryLayout<Int16>.stride)
+        var frameIndex = 0
+        while frameIndex < inputFrameCount {
+            let sampleIndex = frameIndex * inputChannelCount
+            let left = samples[sampleIndex]
+            let right = inputChannelCount > 1 ? samples[sampleIndex + 1] : left
+            let mono = max(-1, min(1, (left + right) * 0.5))
+            var intSample = Int16(mono * Float(Int16.max)).littleEndian
+            data.append(Data(bytes: &intSample, count: MemoryLayout<Int16>.size))
+            frameCount += 1
+            frameIndex += ratio
+        }
+        guard !data.isEmpty else { return }
         try handle.write(contentsOf: data)
-        sampleCount += count
     }
 
     func close() throws {
-        let dataByteCount = UInt32(sampleCount * MemoryLayout<Float>.stride)
+        let dataByteCount = UInt32(frameCount * MemoryLayout<Int16>.stride)
         let riffByteCount = UInt32(36) + dataByteCount
         var header = Data()
         header.append(contentsOf: [0x52, 0x49, 0x46, 0x46])
@@ -232,12 +259,12 @@ private final class FloatWAVFileWriter {
         header.append(contentsOf: [0x57, 0x41, 0x56, 0x45])
         header.append(contentsOf: [0x66, 0x6d, 0x74, 0x20])
         header.appendLE(UInt32(16))
-        header.appendLE(UInt16(3))
-        header.appendLE(UInt16(channelCount))
-        header.appendLE(UInt32(sampleRate))
-        header.appendLE(UInt32(sampleRate * channelCount * MemoryLayout<Float>.stride))
-        header.appendLE(UInt16(channelCount * MemoryLayout<Float>.stride))
-        header.appendLE(UInt16(32))
+        header.appendLE(UInt16(1))
+        header.appendLE(UInt16(outputChannelCount))
+        header.appendLE(UInt32(outputSampleRate))
+        header.appendLE(UInt32(outputSampleRate * outputChannelCount * MemoryLayout<Int16>.stride))
+        header.appendLE(UInt16(outputChannelCount * MemoryLayout<Int16>.stride))
+        header.appendLE(UInt16(bitsPerSample))
         header.append(contentsOf: [0x64, 0x61, 0x74, 0x61])
         header.appendLE(dataByteCount)
         try handle.seek(toOffset: 0)

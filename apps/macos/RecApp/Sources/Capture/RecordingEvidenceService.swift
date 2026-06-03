@@ -58,10 +58,14 @@ public struct RecordingEvidenceService: Sendable {
         [
             "sessionId": manifest.sessionId,
             "status": manifest.status.rawValue,
+            "transcriptionReadiness": manifest.transcriptionReadiness.rawValue,
+            "mediaScribeSourceMode": manifest.mediaScribeSourceMode,
             "directoryId": manifest.directoryId,
             "manifestFileName": manifest.manifestFileName,
             "trackRoles": manifest.tracks.map(\.role.rawValue).joined(separator: ","),
+            "mediaScribeFields": manifest.tracks.map(\.mediaScribeField.rawValue).joined(separator: ","),
             "trackStates": manifest.tracks.map(\.status.rawValue).joined(separator: ","),
+            "trackFormats": manifest.tracks.map(\.format).joined(separator: ","),
             "externalEgressStarted": String(manifest.externalEgressStarted),
             "transcriptionStarted": String(manifest.transcriptionStarted),
             "diagnosticSafe": String(manifest.diagnosticSafe)

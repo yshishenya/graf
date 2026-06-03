@@ -20,6 +20,7 @@ final class LocalRecordingManifestTests: XCTestCase {
             )
 
         XCTAssertEqual(manifest.status, .saved)
+        XCTAssertEqual(manifest.transcriptionReadiness, .ready)
         XCTAssertTrue(manifest.isComplete)
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)
@@ -38,21 +39,57 @@ final class LocalRecordingManifestTests: XCTestCase {
                         trackId: "remote",
                         role: .remoteSpeaker,
                         status: .missing,
-                        fileName: "remote-speaker.wav",
-                        format: "wav-lpcm",
-                        sampleRate: 48_000,
-                        channelCount: 2,
+                        fileName: "incoming.wav",
+                        format: "wav-pcm-s16le",
+                        sampleRate: 16_000,
+                        channelCount: 1,
+                        bitsPerSample: 16,
                         durationMs: 0,
                         byteCount: 44,
                         frameCount: 0,
+                        timelineStartMs: 0,
+                        timelineAligned: false,
                         failureReason: .emptyRequiredTrack
                     )
                 ]
             )
 
         XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
         XCTAssertFalse(manifest.isComplete)
         XCTAssertEqual(manifest.failureReason, .emptyRequiredTrack)
+    }
+
+    func testMisalignedTrackProducesDegradedReadiness() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [
+                    completeTrack(role: .localMic),
+                    LocalRecordingTrack(
+                        trackId: "remote",
+                        role: .remoteSpeaker,
+                        status: .saved,
+                        fileName: "incoming.wav",
+                        format: "wav-pcm-s16le",
+                        sampleRate: 16_000,
+                        channelCount: 1,
+                        bitsPerSample: 16,
+                        durationMs: 1000,
+                        byteCount: 32_044,
+                        frameCount: 16_000,
+                        timelineStartMs: 0,
+                        timelineAligned: false
+                    )
+                ]
+            )
+
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
+        XCTAssertEqual(manifest.failureReason, .timelineMisaligned)
     }
 
     func testManifestWritesJSON() throws {
@@ -73,6 +110,15 @@ final class LocalRecordingManifestTests: XCTestCase {
         let data = try Data(contentsOf: url)
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(object?["schemaVersion"] as? String, LocalRecordingManifest.schemaVersion)
+        XCTAssertEqual(object?["mediaScribeSourceMode"] as? String, "dual")
+        XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
+    }
+
+    func testLegacySchemaIsNotTranscriptionReady() {
+        XCTAssertEqual(
+            LocalRecordingManifest.transcriptionReadiness(forSchemaVersion: "local-recording-manifest.v1"),
+            .legacyNotReady
+        )
     }
 }
 
@@ -81,13 +127,16 @@ private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {
         trackId: role.rawValue,
         role: role,
         status: .saved,
-        fileName: "\(role.rawValue).wav",
-        format: "wav-lpcm",
-        sampleRate: 48_000,
-        channelCount: 2,
+        fileName: role == .localMic ? "mic.wav" : "incoming.wav",
+        format: "wav-pcm-s16le",
+        sampleRate: 16_000,
+        channelCount: 1,
+        bitsPerSample: 16,
         durationMs: 1000,
-        byteCount: 192_044,
-        frameCount: 48_000
+        byteCount: 32_044,
+        frameCount: 16_000,
+        timelineStartMs: 0,
+        timelineAligned: true
     )
 }
 #endif

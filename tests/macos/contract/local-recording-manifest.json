@@ -1,5 +1,5 @@
 {
-  "schema": "local-recording-manifest.v1",
+  "schema": "local-recording-manifest.v2",
   "requiredFields": [
     "sessionId",
     "createdAt",
@@ -8,6 +8,8 @@
     "status",
     "directoryId",
     "manifestFileName",
+    "transcriptionReadiness",
+    "mediaScribeSourceMode",
     "tracks",
     "externalEgressStarted",
     "transcriptionStarted",
@@ -21,6 +23,21 @@
     "saved",
     "degraded",
     "failed"
+  ],
+  "allowedReadinessStates": [
+    "ready",
+    "degraded",
+    "failed",
+    "legacy_not_ready"
+  ],
+  "requiredTrackFields": [
+    "mediaScribeField",
+    "format",
+    "sampleRate",
+    "channelCount",
+    "bitsPerSample",
+    "timelineStartMs",
+    "timelineAligned"
   ],
   "forbiddenFields": [
     "rawAudio",
