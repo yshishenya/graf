@@ -16,7 +16,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-01T18:22:15.705410+00:00"
+      "installed_at": "2026-06-04T12:27:19.877429+00:00"
     },
     "git": {
       "version": "1.0.0",
@@ -41,7 +41,28 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-01T18:22:16.339744+00:00"
+      "installed_at": "2026-06-04T12:27:20.621383+00:00"
+    },
+    "github-issue-canon": {
+      "version": "0.1.0",
+      "source": "local",
+      "manifest_hash": "sha256:95f247cd88394abd94cc7c041732e7f8b20a6d3d4c266e8e767b0a257c104ffd",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "agy": [
+          "speckit.github-issue-canon.ensure",
+          "speckit.github-issue-canon.validate",
+          "speckit.github-issue-canon.normalize"
+        ],
+        "codex": [
+          "speckit.github-issue-canon.ensure",
+          "speckit.github-issue-canon.validate",
+          "speckit.github-issue-canon.normalize"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-06-04T12:27:25.260933+00:00"
     }
   }
 }

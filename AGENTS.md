@@ -110,7 +110,7 @@ Planning must stop if constitution gates fail or important clarifications remain
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/010-recording-artifact-format/plan.md
+at specs/012-server-ingest-foundation/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
@@ -183,6 +183,36 @@ Use `$speckit-taskstoissues` only when:
 - the user explicitly wants GitHub issues created.
 
 Never create issues in a repository that does not match the configured git remote.
+
+All GitHub issues created for this repository, whether manually, through
+`$speckit-taskstoissues`, or through direct `gh issue create`, must follow the
+project issue canon in `docs/github-issue-canon.md`.
+
+Required issue title format:
+
+```text
+[<feature>][<priority>][<area>] <imperative outcome>
+```
+
+Required issue body sections, in order:
+
+- `Summary`
+- `Context`
+- `Problem`
+- `Confirmed Findings`
+- `Scope`
+- `Acceptance Criteria`
+- `Validation Required`
+- `Implementation Notes`
+- `Links`
+
+Spec Kit issue sync must preserve traceability to feature number, task IDs,
+validation evidence, and closure criteria. Use labels as structured metadata:
+`feature:<number>`, `priority:P0`-`priority:P3`, `area:<name>`,
+`gate:<name>`, and `type:<name>`. Do not patch globally installed Spec Kit
+skills to enforce this; they may be overwritten by Spec Kit updates. Keep the
+canonical rule in project-owned files: `AGENTS.md`,
+`docs/github-issue-canon.md`, and `.github/ISSUE_TEMPLATE/`.
 
 ## Optional Commands For Quality And Validation
 

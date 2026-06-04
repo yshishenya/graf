@@ -1,0 +1,61 @@
+schema_version: "1.0"
+
+extension:
+  id: github-issue-canon
+  name: "GitHub Issue Canon"
+  version: "0.1.0"
+  description: "Installs and enforces a Spec Kit-traceable GitHub issue canon around task-to-issue sync"
+  author: yshishenya
+  repository: https://github.com/yshishenya/spec-kit-ext-github-issue-canon
+  license: MIT
+
+requires:
+  speckit_version: ">=0.9.0"
+  tools:
+    - name: git
+      required: true
+    - name: gh
+      required: true
+    - name: python3
+      required: true
+
+provides:
+  commands:
+    - name: speckit.github-issue-canon.ensure
+      file: commands/speckit.github-issue-canon.ensure.md
+      description: "Install or refresh project GitHub issue canon files and labels"
+    - name: speckit.github-issue-canon.validate
+      file: commands/speckit.github-issue-canon.validate.md
+      description: "Validate GitHub issues against the project issue canon"
+    - name: speckit.github-issue-canon.normalize
+      file: commands/speckit.github-issue-canon.normalize.md
+      description: "Normalize GitHub issues to the project issue canon"
+
+  config:
+    - name: "github-issue-canon-config.yml"
+      template: "github-issue-canon-config.template.yml"
+      description: "GitHub issue canon configuration"
+      required: false
+
+hooks:
+  before_taskstoissues:
+    command: speckit.github-issue-canon.ensure
+    optional: false
+    description: "Install/refresh GitHub issue canon before issue sync"
+  after_taskstoissues:
+    command: speckit.github-issue-canon.validate
+    optional: false
+    description: "Validate GitHub issues after task-to-issue sync"
+
+tags:
+  - github
+  - issues
+  - taskstoissues
+  - governance
+  - workflow
+
+config:
+  defaults:
+    title_format: "[{feature}][{priority}][{area}] {outcome}"
+    normalize_after_taskstoissues: true
+    fail_on_invalid: true
