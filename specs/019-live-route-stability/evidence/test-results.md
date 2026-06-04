@@ -67,3 +67,33 @@ Summary line:
 - `latency-check: ACCEPTED`
 
 The scripts were updated to include `019` test filters and metadata-only evidence summaries. The long-running hardware gates remain separate evidence files and are not counted as accepted until they are actually run.
+
+## Code Review Remediation
+
+Date: 2026-06-04
+
+GitHub issues created from review findings:
+
+- https://github.com/yshishenya/crisp/issues/134
+- https://github.com/yshishenya/crisp/issues/135
+- https://github.com/yshishenya/crisp/issues/136
+- https://github.com/yshishenya/crisp/issues/138
+- https://github.com/yshishenya/crisp/issues/139
+- https://github.com/yshishenya/crisp/issues/140
+- https://github.com/yshishenya/crisp/issues/141
+- https://github.com/yshishenya/crisp/issues/142
+
+Remediation validation:
+
+```sh
+swift test --package-path apps/macos --filter 'AutorepairStateMachineContractTests|LiveRouteAutorepairTests|ValidationRunEvidenceTests|LiveRouteAcceptanceMatrixTests'
+swift test --package-path apps/macos --filter 'LiveRouteClientActivityTests|LivePassthroughPolicyTests|LiveRouteStabilityTests|LiveRouteIdleRegressionTests|LiveRouteEvidenceContractTests|LiveRouteDiagnosticBundleTests|LocalRecordingManifestTests|RecordingTimelineEvidenceTests'
+swift test
+apps/macos/Scripts/validate-live-passthrough-foundation.sh
+apps/macos/Scripts/validate-live-route-readiness.sh
+apps/macos/Scripts/validate-recording-artifact-format.sh
+```
+
+Result: passed.
+
+Note: `.specify/extensions/github-issue-canon/scripts/ensure_issue_canon.py` installed/updated project-owned canon artifacts but could not complete label synchronization in this environment because the `gh` CLI is not installed. Issues were created through the GitHub connector with canonical titles, sections, and labels, and then closed after validation passed.

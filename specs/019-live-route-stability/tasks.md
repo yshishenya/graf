@@ -181,6 +181,76 @@
 
 ---
 
+## Phase 9: Code Review Remediation
+
+**Purpose**: Resolve the detailed code-review findings from commit `83fb87c` before PR/release acceptance. These tasks are required before claiming `019` as PR-ready or starting manual 30/75-minute acceptance runs.
+
+- [X] T064 [P] [US1] Replace aggregate virtual-device activity fallback with real per-side client activity evidence in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/134
+  - Review finding: `CoreAudioVirtualDeviceActivityDetector.expectedVirtualDeviceClientActivity()` currently uses the protocol default that wraps `anyExpectedVirtualDeviceRunning()` into one aggregate snapshot.
+  - Why it matters: US1/T018 requires route preservation to stop depending on aggregate virtual-device running state alone. The current runtime path cannot distinguish microphone vs speaker open/running state, natural silence, or whether only one side still uses the virtual device.
+  - Implementation requirements: implement a concrete `expectedVirtualDeviceClientActivity()` in `CoreAudioVirtualDeviceActivityDetector`; classify expected microphone and speaker devices separately; populate `microphoneOpen`, `microphoneRunning`, `speakerOpen`, `speakerRunning`, `stillUsesVirtualMicrophone`, `stillUsesVirtualSpeaker`, `freshnessMs`, and `source` from CoreAudio-observed metadata without raw audio.
+  - Acceptance criteria: production `CoreAudioVirtualDeviceActivityDetector` no longer relies on the default aggregate implementation; tests cover mic-only, speaker-only, both-side, neither-side, and stale/ambiguous evidence.
+  - Validation: `swift test --package-path apps/macos --filter 'LiveRouteClientActivityTests|LivePassthroughPolicyTests|LiveRouteStabilityTests'`.
+
+- [X] T065 [US4] Propagate the exact release-decision client snapshot through the route release path in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/135
+  - Review finding: `releaseBridgeForIdleLocked()` re-reads `activityDetector.expectedVirtualDeviceClientActivity()` instead of using the snapshot that triggered the release/deny decision.
+  - Why it matters: release evidence can describe a different state than the one that caused the decision, and `reconcileClientActivity(snapshot:)` loses its caller-provided evidence. This can produce false preserved/released diagnostics.
+  - Implementation requirements: pass `ClientActivitySnapshot` into the release path; build `RouteReleaseDecision` from that exact snapshot; include the snapshot in the `release_decision` route evidence event; avoid a second detector read during the same decision.
+  - Acceptance criteria: tests prove `reconcileClientActivity(snapshot:)` and heartbeat release decisions use the supplied/observed snapshot exactly once and store matching evidence.
+  - Validation: `swift test --package-path apps/macos --filter 'LiveRouteReleaseDecisionTests|LiveRouteIdleRegressionTests|LivePassthroughPolicyTests'`.
+
+- [X] T066 [US2] Align autorepair timing tiers and tests with `contracts/autorepair-state-machine.md` in `apps/macos/Shared/Sources/Routing/AutorepairStateMachine.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/136
+  - Review finding: implementation uses `normal <= 10s` and `os_device_heavy <= 30s`, while the contract requires normal `<= 2s` and OS/device-heavy `<= 10s` after the required OS/device condition is available.
+  - Why it matters: current tests allow a 6-second normal autorepair to succeed, which contradicts the `019` contract and would produce false acceptance.
+  - Implementation requirements: change timing constants to the contract values; add boundary tests for `2.0`, `2.1`, `10.0`, and `10.1` seconds; ensure no-fresh-evidence attempts never report `succeeded`.
+  - Acceptance criteria: normal repair succeeds only at or below 2 seconds with fresh evidence; OS/device-heavy repair succeeds only at or below 10 seconds with fresh evidence; slower or missing-evidence attempts are degraded/failed, never healthy.
+  - Validation: `swift test --package-path apps/macos --filter 'AutorepairStateMachineContractTests|LiveRouteAutorepairTests'`.
+
+- [X] T067 [US5] Prevent empty or incomplete validation evidence from aggregating to `accepted` in `apps/macos/Shared/Sources/Diagnostics/ValidationRunEvidence.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/138
+  - Review finding: `ValidationRunEvidenceAggregator.aggregate()` returns `accepted` when `entries` is empty because it falls through to the final `else`.
+  - Why it matters: this is a false-green risk for acceptance evidence; `019` explicitly requires not-tested combinations to be listed and never counted as acceptance.
+  - Implementation requirements: return `not_tested` for empty input; add required coverage checks for Chrome, Opera, Zoom, Telemost and built-in, wired, USB before `accepted`; keep Bluetooth/AirPods-class as backlog/not accepted; expose missing targets/device classes in evidence or diagnostics.
+  - Acceptance criteria: empty entries, partial target coverage, partial device coverage, Bluetooth-only coverage, and not-tested combinations cannot return `accepted`.
+  - Validation: `swift test --package-path apps/macos --filter 'ValidationRunEvidenceTests|LiveRouteAcceptanceMatrixTests'`.
+
+- [X] T068 [US5] Integrate `RouteEvidenceStore` into runtime route evidence writing in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/139
+  - Review finding: `RouteEvidenceStore` exists but is unused; route engine keeps only `lastRouteEvidenceEvent`, so long-run diagnostics lose history.
+  - Why it matters: accepted 30/75-minute validation requires route lifecycle, client activity, autorepair, release decision, frame continuity, validation run, and user-action evidence over time. A single in-memory last event is insufficient.
+  - Implementation requirements: inject or configure a local `RouteEvidenceStore`; append JSON Lines for lifecycle, preserved, stale, blocked, failed, autorepair, and release-decision events; keep writes outside realtime callbacks; tolerate write failures by reporting degraded diagnostic state without blocking audio routing.
+  - Acceptance criteria: tests prove route events are appended in order to a JSONL file and survive multiple lifecycle/release decisions; runtime does not rely solely on `lastRouteEvidenceEvent`.
+  - Validation: `swift test --package-path apps/macos --filter 'LiveRouteStabilityTests|LiveRouteDiagnosticBundleTests'`.
+
+- [X] T069 [US1] Emit frame-continuity route evidence from the route engine in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/140
+  - Review finding: `FrameContinuitySnapshot` and `RouteEvidenceFamily.frameContinuity` exist, but runtime never emits frame-continuity events.
+  - Why it matters: `T019` and route-evidence contracts require frame-continuity evidence for accepted long-duration runs. Without it, diagnostics cannot distinguish active-but-silent from dropped frames.
+  - Implementation requirements: collect or accept safe frame continuity counters from existing app/bridge evidence; emit metadata-only `frame_continuity` events; include microphone/incoming frame counts, missing frames, dropout count, and window duration.
+  - Acceptance criteria: tests cover healthy continuity, missing incoming frames, missing microphone frames, and dropout evidence; accepted US1 evidence includes at least one frame-continuity event.
+  - Validation: `swift test --package-path apps/macos --filter 'LiveRouteEvidenceContractTests|LiveRouteStabilityTests'`.
+
+- [X] T070 [US3] Replace hardcoded route session ids with real route-session correlation in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/141
+  - Review finding: route evidence uses `sessionId = "live-route"` in lifecycle and release-decision events.
+  - Why it matters: hardcoded session ids break correlation between route evidence, recording timeline evidence, autorepair attempt ids, and validation runs.
+  - Implementation requirements: create a real route session id when a route is armed/started; carry it through lifecycle, autorepair, release, recording manifest, and diagnostic bundle evidence; keep the id metadata-only and stable for the route session.
+  - Acceptance criteria: tests prove two route sessions produce different ids, all events within one session share the same id, and recording timeline evidence can reference the route session id.
+  - Validation: `swift test --package-path apps/macos --filter 'LocalRecordingManifestTests|RecordingTimelineEvidenceTests|LiveRouteStabilityTests'`.
+
+- [X] T071 [P] [US1] Strengthen 30-minute route stability tests to exercise the engine path, not only policy fixtures in `apps/macos/Shared/Tests/LiveRouteStabilityTests.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/142
+  - Review finding: current `LiveRouteStabilityTests` loops over `PassthroughAutoIdlePolicy` with a constant fixture snapshot and does not exercise engine heartbeat/release/evidence behavior.
+  - Why it matters: the test name and task claim integration coverage, but it cannot catch release-path bugs, detector fallback issues, JSONL evidence gaps, or session correlation mistakes.
+  - Implementation requirements: add a deterministic fake detector and fake/no-op bridge path or test seam so the engine can simulate 30 minutes of active, one-sided, natural-silence, stale, and closed-client windows; assert no unexpected release while evidence remains active/ambiguous; assert release only after fresh closed-client evidence.
+  - Acceptance criteria: engine-level tests fail if aggregate fallback, snapshot re-read, missing evidence append, or hardcoded session id regressions return.
+  - Validation: `swift test --package-path apps/macos --filter 'LiveRouteStabilityTests|LiveRouteIdleRegressionTests'`.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

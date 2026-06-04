@@ -136,6 +136,38 @@ final class LivePassthroughPolicyTests: XCTestCase {
         ))
     }
 
+    func testCoreAudioDetectorBuildsPerSideClientActivitySnapshots() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [
+                .init(name: "2brain Rec Microphone", isRunning: true),
+                .init(name: "2brain Rec Speaker", isRunning: false)
+            ]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertTrue(snapshot.microphoneOpen)
+        XCTAssertTrue(snapshot.microphoneRunning)
+        XCTAssertTrue(snapshot.speakerOpen)
+        XCTAssertFalse(snapshot.speakerRunning)
+        XCTAssertEqual(snapshot.stillUsesVirtualMicrophone, true)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, true)
+        XCTAssertEqual(snapshot.source, .coreAudioClient)
+    }
+
+    func testCoreAudioDetectorDoesNotUseAggregateFallbackForMissingSide() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [.init(name: "2brain Rec Microphone", isRunning: true)]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertTrue(snapshot.microphoneRunning)
+        XCTAssertFalse(snapshot.speakerOpen)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
+        XCTAssertTrue(detector.anyExpectedVirtualDeviceRunning())
+    }
+
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
         LivePassthroughSession(
             sessionId: "session-1",

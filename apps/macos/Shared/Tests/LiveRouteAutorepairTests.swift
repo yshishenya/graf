@@ -14,12 +14,27 @@ final class LiveRouteAutorepairTests: XCTestCase {
             trigger: .coreaudiodRestart,
             timingTier: .normal,
             startedAt: LiveRouteStabilityFixtures.now,
-            completedAt: LiveRouteStabilityFixtures.now.addingTimeInterval(6),
+            completedAt: LiveRouteStabilityFixtures.now.addingTimeInterval(1.5),
             clientActivity: freshActivity
         )
 
         XCTAssertEqual(attempt.outcome, .succeeded)
         XCTAssertTrue(attempt.isAcceptedSuccess)
+    }
+
+    func testRecoverableDisruptionOverTimingWindowIsDegraded() {
+        let coordinator = LiveRouteAutorepairCoordinator(now: { LiveRouteStabilityFixtures.now })
+
+        let attempt = coordinator.attempt(
+            trigger: .coreaudiodRestart,
+            timingTier: .normal,
+            startedAt: LiveRouteStabilityFixtures.now,
+            completedAt: LiveRouteStabilityFixtures.now.addingTimeInterval(2.1),
+            clientActivity: LiveRouteStabilityFixtures.clientActivity()
+        )
+
+        XCTAssertEqual(attempt.outcome, .degradedSlow)
+        XCTAssertFalse(attempt.isAcceptedSuccess)
     }
 
     func testRecoverableDisruptionWithoutFreshEvidenceIsDegraded() {

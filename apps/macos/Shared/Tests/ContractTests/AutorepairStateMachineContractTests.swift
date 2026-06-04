@@ -14,8 +14,8 @@ final class AutorepairStateMachineContractTests: XCTestCase {
     }
 
     func testTimingTiersMatchAcceptedWindows() {
-        XCTAssertEqual(AutorepairTimingTier.normal.acceptedRecoverySeconds, 10)
-        XCTAssertEqual(AutorepairTimingTier.osDeviceHeavy.acceptedRecoverySeconds, 30)
+        XCTAssertEqual(AutorepairTimingTier.normal.acceptedRecoverySeconds, 2)
+        XCTAssertEqual(AutorepairTimingTier.osDeviceHeavy.acceptedRecoverySeconds, 10)
     }
 
     func testNonRecoverableReasonsCoverBlockedOutcomes() {
@@ -45,6 +45,51 @@ final class AutorepairStateMachineContractTests: XCTestCase {
         )
 
         XCTAssertTrue(attempt.isAcceptedSuccess)
+    }
+
+    func testAcceptedAttemptRejectsTimingBoundaryOverruns() {
+        let startedAt = LiveRouteStabilityFixtures.now
+        let normalBoundary = AutorepairAttempt(
+            attemptId: "repair-normal-boundary",
+            trigger: .browserStreamRecreated,
+            timingTier: .normal,
+            outcome: .succeeded,
+            startedAt: startedAt,
+            completedAt: startedAt.addingTimeInterval(2.0),
+            freshEvidenceObservedAt: startedAt.addingTimeInterval(2.0)
+        )
+        let normalOverrun = AutorepairAttempt(
+            attemptId: "repair-normal-overrun",
+            trigger: .browserStreamRecreated,
+            timingTier: .normal,
+            outcome: .succeeded,
+            startedAt: startedAt,
+            completedAt: startedAt.addingTimeInterval(2.1),
+            freshEvidenceObservedAt: startedAt.addingTimeInterval(2.1)
+        )
+        let heavyBoundary = AutorepairAttempt(
+            attemptId: "repair-heavy-boundary",
+            trigger: .sleepWake,
+            timingTier: .osDeviceHeavy,
+            outcome: .succeeded,
+            startedAt: startedAt,
+            completedAt: startedAt.addingTimeInterval(10.0),
+            freshEvidenceObservedAt: startedAt.addingTimeInterval(10.0)
+        )
+        let heavyOverrun = AutorepairAttempt(
+            attemptId: "repair-heavy-overrun",
+            trigger: .sleepWake,
+            timingTier: .osDeviceHeavy,
+            outcome: .succeeded,
+            startedAt: startedAt,
+            completedAt: startedAt.addingTimeInterval(10.1),
+            freshEvidenceObservedAt: startedAt.addingTimeInterval(10.1)
+        )
+
+        XCTAssertTrue(normalBoundary.isAcceptedSuccess)
+        XCTAssertFalse(normalOverrun.isAcceptedSuccess)
+        XCTAssertTrue(heavyBoundary.isAcceptedSuccess)
+        XCTAssertFalse(heavyOverrun.isAcceptedSuccess)
     }
 }
 #endif

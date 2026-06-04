@@ -26,13 +26,17 @@ public struct ValidationRunEvidenceAggregator: Sendable {
         completedAt: Date?
     ) -> ValidationRunEvidence {
         let result: ValidationResult
-        if entries.contains(where: { $0.result == .failed }) {
+        if entries.isEmpty {
+            result = .notTested
+        } else if entries.contains(where: { $0.result == .failed }) {
             result = .failed
         } else if entries.contains(where: { $0.result == .blocked }) {
             result = .blocked
         } else if entries.contains(where: { $0.result == .degraded }) {
             result = .degraded
         } else if entries.contains(where: { $0.result == .notTested }) {
+            result = .notTested
+        } else if !Self.hasRequiredAcceptedCoverage(entries) {
             result = .notTested
         } else {
             result = .accepted
@@ -48,5 +52,13 @@ public struct ValidationRunEvidenceAggregator: Sendable {
             startedAt: startedAt,
             completedAt: completedAt
         )
+    }
+
+    public static func hasRequiredAcceptedCoverage(_ entries: [LiveRouteAcceptanceMatrixEntry]) -> Bool {
+        let acceptedEntries = entries.filter { $0.result == .accepted }
+        let acceptedTargets = Set(acceptedEntries.map(\.target))
+        let acceptedDeviceClasses = Set(acceptedEntries.map(\.deviceClass))
+        return acceptedTargets.isSuperset(of: Set(MeetingTarget.allCases))
+            && acceptedDeviceClasses.isSuperset(of: MacOSDefaultRouteSnapshot.acceptedDeviceClasses)
     }
 }

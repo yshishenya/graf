@@ -747,6 +747,9 @@ public struct DiagnosticBundleService: Sendable {
         if let releaseDecision = event.releaseDecision {
             object["releaseDecision"] = diagnosticValue(releaseDecision)
         }
+        if let frameContinuity = event.frameContinuity {
+            object["frameContinuity"] = diagnosticValue(frameContinuity)
+        }
         if let recordingTimeline = event.recordingTimeline {
             object["recordingTimeline"] = diagnosticValue(recordingTimeline)
         }
@@ -784,6 +787,16 @@ public struct DiagnosticBundleService: Sendable {
             "reason": .string(decision.reason.rawValue),
             "clientEvidenceFresh": .bool(decision.clientEvidenceFresh),
             "decidedAt": .string(Self.formatDate(decision.decidedAt))
+        ])
+    }
+
+    private static func diagnosticValue(_ snapshot: FrameContinuitySnapshot) -> DiagnosticFieldValue {
+        .object([
+            "microphoneFramesObserved": .int(snapshot.microphoneFramesObserved),
+            "incomingFramesObserved": .int(snapshot.incomingFramesObserved),
+            "missingFrameCount": .int(snapshot.missingFrameCount),
+            "dropoutCount": .int(snapshot.dropoutCount),
+            "windowMs": .int(snapshot.windowMs)
         ])
     }
 

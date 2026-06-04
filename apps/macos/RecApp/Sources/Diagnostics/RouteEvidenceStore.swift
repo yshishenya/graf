@@ -41,6 +41,7 @@ public struct RouteEvidenceStore {
     public static func releaseDecisionEvent(
         sessionId: String,
         decision: RouteReleaseDecision,
+        clientActivity: ClientActivitySnapshot,
         eventId: String = UUID().uuidString
     ) -> RouteEvidenceEvent {
         RouteEvidenceEvent(
@@ -51,6 +52,7 @@ public struct RouteEvidenceStore {
             observedAt: decision.decidedAt,
             source: .routeEngine,
             routeState: decision.outcome == .released ? .released : .preserved,
+            clientActivity: clientActivity,
             releaseDecision: decision
         )
     }

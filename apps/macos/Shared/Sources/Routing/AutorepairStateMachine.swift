@@ -44,9 +44,9 @@ public enum AutorepairTimingTier: String, Codable, Sendable {
     public var acceptedRecoverySeconds: Double {
         switch self {
         case .normal:
-            10
+            2
         case .osDeviceHeavy:
-            30
+            10
         }
     }
 }

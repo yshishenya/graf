@@ -26,5 +26,50 @@ final class ValidationRunEvidenceTests: XCTestCase {
         XCTAssertEqual(Set(evidence.deviceClassesCovered), [.builtIn, .wired, .usb])
         XCTAssertTrue(evidence.isAcceptedWithoutNormalUserActions)
     }
+
+    func testEmptyValidationEvidenceIsNotAccepted() {
+        let evidence = ValidationRunEvidenceAggregator().aggregate(
+            runId: "019-empty",
+            durationGate: .development30Minute,
+            entries: [],
+            userActionCount: 0,
+            startedAt: LiveRouteStabilityFixtures.now,
+            completedAt: nil
+        )
+
+        XCTAssertEqual(evidence.result, .notTested)
+        XCTAssertFalse(evidence.isAcceptedWithoutNormalUserActions)
+    }
+
+    func testPartialTargetOrDeviceCoverageIsNotAccepted() {
+        let partialTargets = [
+            LiveRouteAcceptanceMatrixEntry(target: .chrome, deviceClass: .builtIn, result: .accepted),
+            LiveRouteAcceptanceMatrixEntry(target: .opera, deviceClass: .wired, result: .accepted),
+            LiveRouteAcceptanceMatrixEntry(target: .zoom, deviceClass: .usb, result: .accepted)
+        ]
+        let partialDevices = MeetingTarget.allCases.map {
+            LiveRouteAcceptanceMatrixEntry(target: $0, deviceClass: .builtIn, result: .accepted)
+        }
+
+        let targetEvidence = ValidationRunEvidenceAggregator().aggregate(
+            runId: "019-partial-target",
+            durationGate: .development30Minute,
+            entries: partialTargets,
+            userActionCount: 0,
+            startedAt: LiveRouteStabilityFixtures.now,
+            completedAt: nil
+        )
+        let deviceEvidence = ValidationRunEvidenceAggregator().aggregate(
+            runId: "019-partial-device",
+            durationGate: .development30Minute,
+            entries: partialDevices,
+            userActionCount: 0,
+            startedAt: LiveRouteStabilityFixtures.now,
+            completedAt: nil
+        )
+
+        XCTAssertEqual(targetEvidence.result, .notTested)
+        XCTAssertEqual(deviceEvidence.result, .notTested)
+    }
 }
 #endif

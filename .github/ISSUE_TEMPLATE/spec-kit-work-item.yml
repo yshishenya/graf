@@ -1,0 +1,122 @@
+name: Spec Kit Work Item
+description: Create a Spec Kit-traceable implementation, review, hardening, or documentation issue.
+title: "[012][P0][area] Imperative outcome"
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use the canonical title format: `[<feature>][<priority>][<area>] <imperative outcome>`.
+        Example: `[012][P0][ingest/finalize] Reject mismatched artifact manifests before finalize`
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing what must become true.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Keep the bullet names and fill each value.
+      value: |
+        - Feature: `012-server-ingest-foundation`
+        - Spec tasks: T000
+        - Source: review / analyze / implementation / user report / production incident
+        - Gate: blocks PR / blocks deployment / follow-up / nice-to-have
+        - Related issues:
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Concrete current behavior, gap, or risk. Explain why it matters.
+    validations:
+      required: true
+
+  - type: textarea
+    id: confirmed-findings
+    attributes:
+      label: Confirmed Findings
+      description: Use facts, missing proof, or verified review findings. Do not speculate.
+      value: |
+        - 
+        - 
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Explicitly define in-scope and out-of-scope boundaries.
+      value: |
+        In scope:
+        - 
+
+        Out of scope:
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Use checkboxes. Prefer Given/When/Then wording for behavior.
+      value: |
+        - [ ] Given ..., when ..., then ...
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-required
+    attributes:
+      label: Validation Required
+      description: List evidence needed before closure.
+      value: |
+        - [ ] Test file or command:
+        - [ ] Contract/checklist/compose/manual smoke evidence:
+        - [ ] Documentation/status update if required:
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-notes
+    attributes:
+      label: Implementation Notes
+      description: Constraints, important paths, sequencing, or known traps. Keep practical.
+    validations:
+      required: false
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Links
+      description: Link Spec Kit artifacts and related issues.
+      value: |
+        - Spec:
+        - Plan:
+        - Tasks:
+        - Related:
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: canon-confirmation
+    attributes:
+      label: Canon Confirmation
+      options:
+        - label: The title follows `[<feature>][<priority>][<area>] <imperative outcome>`.
+          required: true
+        - label: Acceptance criteria and validation evidence are concrete enough to determine closure.
+          required: true
