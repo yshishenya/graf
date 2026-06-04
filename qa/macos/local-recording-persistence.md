@@ -60,6 +60,17 @@ artifact presence after manual `Record`/`Stop` and a user-confirmed 1-minute
 saved recording across Yandex Telemost, Chrome, Opera, and Zoom are accepted for
 this slice. Yandex Browser remains not accepted in the current cycle.
 
+## Known Follow-Up
+
+- Feature `022-meeting-mute-truth` tracks the unresolved meeting-app mute privacy
+  boundary discovered during validation. Feature `008` accepts local artifact
+  persistence only; it does not prove that speech is excluded from local mic
+  artifacts when the user mutes inside Zoom, browser meeting targets, or other
+  meeting apps.
+- Future acceptance must define canonical mute truth evidence, unsupported-target
+  behavior, muted interval artifact truth, user-facing limitation copy, and a QA
+  target matrix before local recording can claim privacy-correct mute behavior.
+
 ## Passthrough After Stop
 
 No code change was required in
