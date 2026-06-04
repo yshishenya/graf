@@ -46,7 +46,10 @@ final class LiveRouteStabilityTests: XCTestCase {
             .split(separator: "\n")
             .map(String.init)
         XCTAssertTrue(lines.contains { $0.contains("\"sessionId\":\"route-session-1\"") })
+        XCTAssertTrue(lines.contains { $0.contains("\"name\":\"route.lifecycle.armed\"") })
+        XCTAssertTrue(lines.contains { $0.contains("\"name\":\"route.lifecycle.active\"") })
         XCTAssertFalse(lines.contains { $0.contains("\"sessionId\":\"live-route\"") })
+        XCTAssertFalse(lines.contains { $0.contains("\"name\":\"route.armed\"") })
     }
 
     func testEngineDoesNotBlockRouteWhenEvidenceStoreWriteFails() throws {
@@ -95,6 +98,8 @@ final class LiveRouteStabilityTests: XCTestCase {
         XCTAssertEqual(evidence?.releaseDecision?.outcome, .released)
         XCTAssertEqual(evidence?.clientActivity, closedSnapshot)
         XCTAssertEqual(evidence?.sessionId, "route-session-1")
+        XCTAssertEqual(evidence?.family, .releaseDecision)
+        XCTAssertEqual(evidence?.name, "idle_release.released_after_client_closed")
     }
 
     func testEngineCreatesDifferentRouteSessionIdsAcrossSessions() {

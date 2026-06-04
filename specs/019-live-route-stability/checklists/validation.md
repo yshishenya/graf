@@ -32,3 +32,16 @@
 - [x] CHK013 Are validation-run evidence fields sufficient to prove duration gate, target, device class, user actions, route releases, autorepair attempts, timeline integrity, and not-tested combinations? [Completeness, Contract §Validation Run Evidence]
 - [x] CHK014 Are quickstart expected outcomes specific enough to support future tasks with exact validation artifacts and commands? [Task Readiness, Quickstart]
 - [x] CHK015 Are validation requirements scoped to local live route stability without depending on backend ingest or upload readiness? [Scope, Spec §FR-013, Plan §Storage]
+
+## Pending Acceptance Gate Requirements
+
+- [ ] CHK016 Are the requirements explicit that T060/T061/T062 remain pending gates and cannot be interpreted as implementation acceptance? [Consistency, Tasks §Phase 8, Evidence §development-30-minute, Evidence §release-75-minute, Evidence §local-offline]
+- [ ] CHK017 Are the 30-minute development gate evidence requirements complete enough to distinguish accepted, degraded, failed, blocked, and not-tested outcomes per target and device class? [Completeness, Spec §FR-020, Spec §FR-025, Evidence §development-30-minute]
+- [ ] CHK018 Are the 75-minute release gate requirements clear about who runs the manual gate, which environment/device classes are in scope, and what artifact path records the result? [Clarity, Spec §SC-001, Quickstart §Release Gate, Evidence §release-75-minute]
+- [ ] CHK019 Are requirements clear that a 30-minute accepted development run does not substitute for the 75-minute release gate? [Consistency, Spec §FR-021, Spec §SC-001, Quickstart §Acceptance Summary]
+- [ ] CHK020 Are local-offline validation requirements specific about which services must be unavailable and which local route functions must remain in scope? [Clarity, Spec §SC-011, Evidence §local-offline]
+- [ ] CHK021 Are requirements measurable enough to prove no accepted run required `Run Check`, meeting-device reselect, app relaunch, or meeting settings reopen? [Measurability, Spec §FR-032, Spec §SC-007b, Quickstart §Acceptance Summary]
+- [ ] CHK022 Are requirements complete for recording-active long-duration runs, including whether `mic.wav`, `incoming.wav`, manifest alignment, and route-interruption categories are mandatory for accepted evidence? [Completeness, Spec §FR-015, Spec §SC-003, Spec §SC-014]
+- [ ] CHK023 Are not-tested combinations required to remain visible in release evidence without being treated as failures or accepted support claims? [Acceptance Criteria, Spec §SC-021, Evidence §acceptance-matrix]
+- [ ] CHK024 Are Bluetooth and AirPods-class exclusion requirements consistently tied to backlog/not-accepted evidence across 30-minute, 75-minute, and local-offline gates? [Consistency, Spec §FR-042, Spec §SC-020, Evidence §release-75-minute]
+- [ ] CHK025 Are acceptance evidence requirements traceable to concrete files so PR/release reviewers can distinguish automated test evidence from manual gate evidence? [Traceability, Quickstart §Evidence Paths, Tasks §Phase 8]

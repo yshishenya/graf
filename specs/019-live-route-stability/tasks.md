@@ -174,9 +174,12 @@
 - [X] T057 [P] Add `019` quickstart command references and evidence paths in `specs/019-live-route-stability/quickstart.md`
 - [X] T058 Run Swift tests for macOS package and record results in `specs/019-live-route-stability/evidence/test-results.md`
 - [X] T059 Run foundation validation scripts and record results in `specs/019-live-route-stability/evidence/test-results.md`
-- [X] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
-- [X] T061 Run 75-minute manual release gate evidence for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested outcomes without counting blocked, failed, degraded, or not-tested outcomes as acceptance in `specs/019-live-route-stability/evidence/release-75-minute.md`
-- [X] T062 Run local-offline validation with backend, network, MediaScribe, Langfuse, and transfer services unavailable and record results in `specs/019-live-route-stability/evidence/local-offline.md`
+- [ ] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
+  - Current status: not executed in this implementation session; `specs/019-live-route-stability/evidence/development-30-minute.md` currently records `not_tested` evidence shape only and must not be counted as acceptance.
+- [ ] T061 Run 75-minute manual release gate evidence for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested outcomes without counting blocked, failed, degraded, or not-tested outcomes as acceptance in `specs/019-live-route-stability/evidence/release-75-minute.md`
+  - Current status: not executed in this implementation session; `specs/019-live-route-stability/evidence/release-75-minute.md` currently records `not_tested` evidence shape only and must not be counted as acceptance.
+- [ ] T062 Run local-offline validation with backend, network, MediaScribe, Langfuse, and transfer services unavailable and record results in `specs/019-live-route-stability/evidence/local-offline.md`
+  - Current status: manual environment validation pending; implemented paths are local metadata-only, but offline release acceptance is not yet claimed.
 - [X] T063 Review all evidence for no speaker-to-mic leakage, backend ingest, upload, transcription, MediaScribe, Langfuse, or Bluetooth implementation scope creep in `specs/019-live-route-stability/evidence/scope-review.md`
 
 ---

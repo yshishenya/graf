@@ -78,7 +78,7 @@ final class RouteInvalidationTests: XCTestCase {
             eventId: "stale",
             sessionId: "route-session",
             family: .routeLifecycle,
-            name: "route.stale",
+            name: "route.lifecycle.stale",
             observedAt: Date(timeIntervalSince1970: 1),
             source: .routeEngine,
             routeState: .stale
@@ -87,7 +87,7 @@ final class RouteInvalidationTests: XCTestCase {
             eventId: "released",
             sessionId: "route-session",
             family: .routeLifecycle,
-            name: "route.released",
+            name: "route.lifecycle.released",
             observedAt: Date(timeIntervalSince1970: 2),
             source: .routeEngine,
             routeState: .released

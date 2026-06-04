@@ -48,12 +48,29 @@ public struct RouteEvidenceStore {
             eventId: eventId,
             sessionId: sessionId,
             family: .releaseDecision,
-            name: "release_decision.\(decision.outcome.rawValue)",
+            name: Self.releaseDecisionEventName(decision),
             observedAt: decision.decidedAt,
             source: .routeEngine,
             routeState: decision.outcome == .released ? .released : .preserved,
             clientActivity: clientActivity,
             releaseDecision: decision
         )
+    }
+
+    private static func releaseDecisionEventName(_ decision: RouteReleaseDecision) -> String {
+        switch (decision.outcome, decision.reason) {
+        case (.released, .meetingClientClosed):
+            return "idle_release.released_after_client_closed"
+        case (.keepActive, .deniedActiveClient):
+            return "idle_release.release_denied_client_active"
+        case (.denied, .deniedAmbiguousEvidence), (.denied, .deniedStaleEvidence):
+            return "idle_release.release_denied_unknown_state"
+        case (.keepActive, _):
+            return "idle_release.keep_active"
+        case (.released, _):
+            return "idle_release.released_after_client_closed"
+        case (.denied, _):
+            return "idle_release.release_denied_unknown_state"
+        }
     }
 }

@@ -36,7 +36,7 @@ public enum RouteEvidenceFamily: String, Codable, CaseIterable, Sendable {
     case defaultRoute = "default_route"
     case frameContinuity = "frame_continuity"
     case autorepair = "autorepair"
-    case releaseDecision = "release_decision"
+    case releaseDecision = "idle_release_decision"
     case recordingTimeline = "recording_timeline"
     case validationRun = "validation_run"
     case userAction = "user_action"

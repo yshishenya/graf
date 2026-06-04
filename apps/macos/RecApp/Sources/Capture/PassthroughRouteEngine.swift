@@ -206,7 +206,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             bridge = nil
             sharedMemory?.clearAppHeartbeat()
             stateStorage = .idleSafe
-            recordEvidenceLocked(lifecycleEventLocked(name: "route.stopped", state: .stopped))
+            recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.stopped", state: .stopped))
             routeSessionId = nil
             logger?("passthrough_bridge_stopped", "route engine cleared app IO heartbeat")
             return stateStorage
@@ -221,7 +221,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             bridge = nil
             sharedMemory?.clearAppHeartbeat()
             stateStorage = .stale("coreaudiod_restarted")
-            recordEvidenceLocked(lifecycleEventLocked(name: "route.stale", state: .stale))
+            recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.stale", state: .stale))
             logger?("passthrough_bridge_stale", "coreaudiod restarted; route requires recheck")
             logger?("passthrough_autorepair_triggered", AutorepairTrigger.coreaudiodRestart.rawValue)
             return stateStorage
@@ -236,19 +236,19 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             switch attempt.outcome {
             case .succeeded:
                 stateStorage = .active
-                recordEvidenceLocked(lifecycleEventLocked(name: "route.healthy_after_fresh_evidence", state: .healthyAfterFreshEvidence))
+                recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.recovered", state: .healthyAfterFreshEvidence))
                 logger?("passthrough_autorepair_succeeded", attempt.trigger.rawValue)
             case .degradedSlow:
                 stateStorage = .stale("autorepair_degraded_slow")
-                recordEvidenceLocked(lifecycleEventLocked(name: "route.stale", state: .stale))
+                recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.stale", state: .stale))
                 logger?("passthrough_autorepair_degraded", attempt.trigger.rawValue)
             case .blockedNonRecoverable:
                 stateStorage = .blocked(attempt.nonRecoverableReason?.rawValue ?? "blocked_non_recoverable")
-                recordEvidenceLocked(lifecycleEventLocked(name: "route.blocked", state: .blocked))
+                recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.blocked", state: .blocked))
                 logger?("passthrough_autorepair_blocked", attempt.nonRecoverableReason?.rawValue ?? "blocked_non_recoverable")
             case .failed, .retryBudgetExhausted:
                 stateStorage = .failed(attempt.outcome.rawValue)
-                recordEvidenceLocked(lifecycleEventLocked(name: "route.failed", state: .failed))
+                recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.failed", state: .failed))
                 logger?("passthrough_autorepair_failed", attempt.outcome.rawValue)
             case .notStarted:
                 break
@@ -297,7 +297,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             consecutiveIdleTicks = 0
             startHeartbeatTimer(for: bridge, logger: logger)
             stateStorage = .active
-            recordEvidenceLocked(lifecycleEventLocked(name: "route.active", state: .active))
+            recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.active", state: .active))
             let attempt = PassthroughBridge.startupAttemptEvidence(
                 attemptId: UUID().uuidString,
                 trigger: .clientIOOpened,
@@ -380,7 +380,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             )
         }
         automaticStartTimer = timer
-        recordEvidenceLocked(lifecycleEventLocked(name: "route.armed", state: .armed))
+        recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.armed", state: .armed))
         timer.resume()
     }
 
@@ -422,7 +422,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             consecutiveIdleTicks = 0
             if bridge != nil {
                 stateStorage = .active
-                recordEvidenceLocked(lifecycleEventLocked(name: "route.preserved", state: .preserved, clientActivity: snapshot))
+                recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.preserved", state: .preserved, clientActivity: snapshot))
                 logger?("passthrough_route_preserved", "fresh client activity preserved physical route")
             }
             return stateStorage
@@ -484,7 +484,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             eventId: idFactory(),
             sessionId: sessionId,
             family: .routeLifecycle,
-            name: name,
+            name: Self.canonicalLifecycleName(name, state: state),
             observedAt: Date(),
             source: .routeEngine,
             routeState: state,
@@ -501,7 +501,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             eventId: idFactory(),
             sessionId: sessionId,
             family: .releaseDecision,
-            name: "release_decision.\(decision.outcome.rawValue)",
+            name: Self.releaseDecisionEventName(decision),
             observedAt: decision.decidedAt,
             source: .routeEngine,
             routeState: decision.outcome == .released ? .released : .preserved,
@@ -537,6 +537,38 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
     private func recordEvidenceLocked(_ event: RouteEvidenceEvent) {
         lastRouteEvidenceEvent = event
         _ = try? routeEvidenceStore?.append(event)
+    }
+
+    private static func canonicalLifecycleName(_ name: String, state: LiveRouteState) -> String {
+        if name.hasPrefix("route.lifecycle.") {
+            return name
+        }
+        switch state {
+        case .healthyAfterFreshEvidence:
+            return "route.lifecycle.recovered"
+        default:
+            if name.hasPrefix("route.") {
+                return "route.lifecycle." + name.dropFirst("route.".count)
+            }
+            return name
+        }
+    }
+
+    private static func releaseDecisionEventName(_ decision: RouteReleaseDecision) -> String {
+        switch (decision.outcome, decision.reason) {
+        case (.released, .meetingClientClosed):
+            return "idle_release.released_after_client_closed"
+        case (.keepActive, .deniedActiveClient):
+            return "idle_release.release_denied_client_active"
+        case (.denied, .deniedAmbiguousEvidence), (.denied, .deniedStaleEvidence):
+            return "idle_release.release_denied_unknown_state"
+        case (.keepActive, _):
+            return "idle_release.keep_active"
+        case (.released, _):
+            return "idle_release.released_after_client_closed"
+        case (.denied, _):
+            return "idle_release.release_denied_unknown_state"
+        }
     }
 
     private func stopAutomaticStartTimer() {
@@ -610,15 +642,17 @@ public struct CoreAudioVirtualDeviceActivityDetector: VirtualDeviceActivityDetec
         let snapshots = snapshotProvider()
         let microphone = snapshots.first { expectedMicrophoneNames.contains($0.name) }
         let speaker = snapshots.first { expectedSpeakerNames.contains($0.name) }
+        let microphoneClientActive = microphone?.isRunning ?? false
+        let speakerClientActive = speaker?.isRunning ?? false
 
         return ClientActivitySnapshot(
             source: .coreAudioClient,
-            microphoneOpen: microphone != nil,
-            microphoneRunning: microphone?.isRunning ?? false,
-            speakerOpen: speaker != nil,
-            speakerRunning: speaker?.isRunning ?? false,
-            stillUsesVirtualMicrophone: microphone != nil,
-            stillUsesVirtualSpeaker: speaker != nil,
+            microphoneOpen: microphoneClientActive,
+            microphoneRunning: microphoneClientActive,
+            speakerOpen: speakerClientActive,
+            speakerRunning: speakerClientActive,
+            stillUsesVirtualMicrophone: microphoneClientActive,
+            stillUsesVirtualSpeaker: speakerClientActive,
             freshnessMs: 0,
             naturalSilenceAllowed: true
         )

@@ -20,6 +20,7 @@ final class LiveRouteEvidenceContractTests: XCTestCase {
                 .userAction
             ]
         )
+        XCTAssertEqual(RouteEvidenceFamily.releaseDecision.rawValue, "idle_release_decision")
     }
 
     func testRouteEvidenceSerializesRequiredMetadataFields() throws {

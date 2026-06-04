@@ -148,10 +148,10 @@ final class LivePassthroughPolicyTests: XCTestCase {
 
         XCTAssertTrue(snapshot.microphoneOpen)
         XCTAssertTrue(snapshot.microphoneRunning)
-        XCTAssertTrue(snapshot.speakerOpen)
+        XCTAssertFalse(snapshot.speakerOpen)
         XCTAssertFalse(snapshot.speakerRunning)
         XCTAssertEqual(snapshot.stillUsesVirtualMicrophone, true)
-        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, true)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
         XCTAssertEqual(snapshot.source, .coreAudioClient)
     }
 
@@ -166,6 +166,39 @@ final class LivePassthroughPolicyTests: XCTestCase {
         XCTAssertFalse(snapshot.speakerOpen)
         XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
         XCTAssertTrue(detector.anyExpectedVirtualDeviceRunning())
+    }
+
+    func testCoreAudioDetectorDoesNotTreatInstalledIdleDevicesAsOpenClients() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [
+                .init(name: "2brain Rec Microphone", isRunning: false),
+                .init(name: "2brain Rec Speaker", isRunning: false)
+            ]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertFalse(snapshot.microphoneOpen)
+        XCTAssertFalse(snapshot.microphoneRunning)
+        XCTAssertFalse(snapshot.speakerOpen)
+        XCTAssertFalse(snapshot.speakerRunning)
+        XCTAssertEqual(snapshot.stillUsesVirtualMicrophone, false)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
+        XCTAssertFalse(PassthroughAutoIdlePolicy().clientActivityPolicy.shouldPreserveRoute(for: snapshot))
+    }
+
+    func testCoreAudioDetectorReportsClosedWhenNeitherExpectedSideExists() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [.init(name: "External USB Microphone", isRunning: true)]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertFalse(snapshot.microphoneOpen)
+        XCTAssertFalse(snapshot.speakerOpen)
+        XCTAssertEqual(snapshot.stillUsesVirtualMicrophone, false)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
+        XCTAssertFalse(detector.anyExpectedVirtualDeviceRunning())
     }
 
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
