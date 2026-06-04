@@ -374,6 +374,23 @@
 
 ---
 
+## Phase 13: Pre-Merge Polish To Remove Residual Warnings
+
+**Purpose**: Remove the final non-blocking test warnings found after Phase 12 so PR #125 can merge without known warning debt.
+
+**GitHub tracking**: Pre-merge polish packages are #132-#133.
+
+- #132: T196, T198, T200
+- #133: T197, T199, T200
+
+- [X] T196 Add the Starlette-supported `httpx2` TestClient dependency and lock it in `apps/server/pyproject.toml` and `apps/server/uv.lock`
+- [X] T197 Add Alembic `path_separator = os` configuration to remove legacy config parsing warnings in `apps/server/alembic.ini`
+- [X] T198 Prove the server test suite has no residual warnings under current dependencies in `apps/server/tests/`
+- [X] T199 Prove Alembic clean-database migration smoke runs without legacy config warnings in `apps/server/tests/integration/test_postgres_migrations.py`
+- [X] T200 Run full pre-merge validation and update evidence in `specs/012-server-ingest-foundation/quickstart.md`
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -390,6 +407,7 @@
 - **Phase 10 Review Remediation**: Depends on all prior 012 implementation phases and blocks PR/deployment-plan readiness until T106-T118 are complete.
 - **Phase 11 Second Review Hackathon Remediation**: Depends on Phase 10 and blocks PR/deployment-plan readiness until T119-T180 are complete.
 - **Phase 12 Final Sanity Remediation**: Depends on Phase 11 and the merged issue-canon/bootstrap layer from `master`; blocks ready PR/deployment-plan handoff until T181-T195 are complete and verified.
+- **Phase 13 Pre-Merge Polish**: Depends on Phase 12; removes residual warning debt before merge.
 
 ### User Story Dependencies
 
@@ -413,6 +431,7 @@
 - Second review tests T119-T130 can run in parallel before implementation tasks T131-T154.
 - Additional confirmed finding tasks T155-T180 can be split by domain and run alongside matching Phase 11 implementation work once their owning tests are in place.
 - Final sanity tests T181-T186 can run in parallel before implementation tasks T187-T194. T195 must run last after all Phase 12 remediation tasks are complete.
+- Pre-merge polish tasks T196-T197 can run in parallel; T198-T200 must run after dependency/config changes are complete.
 
 ## Parallel Example: User Story 1
 

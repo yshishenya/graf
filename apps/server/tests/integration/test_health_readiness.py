@@ -69,6 +69,9 @@ def test_ready_reports_not_ready_when_database_schema_is_empty(tmp_path) -> None
     with TestClient(app) as test_client:
         response = test_client.get("/api/v1/health/ready")
         internal = test_client.get("/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"})
+    import asyncio
+
+    asyncio.run(engine.dispose())
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready"}

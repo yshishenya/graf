@@ -92,5 +92,6 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, m
         )
 
     get_settings.cache_clear()
+    asyncio.run(engine.dispose())
     assert ready.status_code == 200
     assert meeting.status_code == 200

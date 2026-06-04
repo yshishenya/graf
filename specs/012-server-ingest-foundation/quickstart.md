@@ -278,6 +278,21 @@ Final sanity remediation evidence recorded on 2026-06-04:
 - Secret/content scan found only expected local development placeholders and
   redaction test strings; no production credentials were committed.
 
+Pre-merge polish evidence recorded on 2026-06-04:
+
+- Residual warning cleanup was captured as Phase 13 tasks T196-T200 and GitHub
+  issues #132-#133.
+- `cd apps/server && uv run --extra dev pytest -q -W error` -> `115 passed`.
+- `cd apps/server && uv run --extra dev ruff check .` -> pass.
+- `cd apps/server && uv run python -m compileall -q src tests scripts` -> pass.
+- `docker compose -f infra/docker-compose.dev.yml config` -> pass.
+- `TWOBRAIN_POSTGRES_PASSWORD=dummy TWOBRAIN_MINIO_ROOT_USER=rootuser TWOBRAIN_MINIO_ROOT_PASSWORD=rootsecret TWOBRAIN_MINIO_API_ACCESS_KEY=twobrain_rec_api TWOBRAIN_MINIO_API_SECRET_KEY=apisecret docker compose -f infra/docker-compose.yml config` -> pass.
+- `python3 .specify/extensions/github-issue-canon/scripts/validate_issue_canon.py`
+  -> OK (2 Spec Kit issues checked).
+- The previous Starlette TestClient and Alembic config warnings are gone. The
+  warnings-as-errors run also proved upload spool and SQLite test engine
+  resources are closed cleanly.
+
 Phase 11 partial remediation evidence recorded on 2026-06-04:
 
 - #112 finalize integrity and artifact provenance remediation completed for

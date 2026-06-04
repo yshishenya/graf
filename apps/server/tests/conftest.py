@@ -73,6 +73,7 @@ def client(test_settings: Settings) -> TestClient:
         test_client.app_state["sessionmaker"] = sessionmaker
         test_client.app_state["storage"] = app.state.storage
         yield test_client
+    asyncio.run(engine.dispose())
 
 
 @pytest.fixture(autouse=True)

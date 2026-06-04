@@ -55,16 +55,6 @@ async def accept_part(
     content_sha256: str,
     data: BoundedUploadBody | bytes,
 ) -> UploadPartRecord:
-    if part_number < 0:
-        raise ProblemDetail(status=400, code="invalid_part_number", title="Part number must be non-negative")
-    if byte_offset < 0:
-        raise ProblemDetail(status=400, code="invalid_byte_offset", title="Byte offset must be non-negative")
-    session = await get_session_for_tenant(session_id, tenant_scope, db)
-    await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
-    try:
-        ensure_can_accept_part(session.status)
-    except ValueError as exc:
-        raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal") from exc
     if isinstance(data, bytes):
         actual_sha = sha256(data).hexdigest()
         byte_length = len(data)
@@ -77,6 +67,24 @@ async def accept_part(
     def close_upload_stream() -> None:
         if stream is not None:
             stream.close()
+
+    if part_number < 0:
+        close_upload_stream()
+        raise ProblemDetail(status=400, code="invalid_part_number", title="Part number must be non-negative")
+    if byte_offset < 0:
+        close_upload_stream()
+        raise ProblemDetail(status=400, code="invalid_byte_offset", title="Byte offset must be non-negative")
+    try:
+        session = await get_session_for_tenant(session_id, tenant_scope, db)
+        await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
+    except Exception:
+        close_upload_stream()
+        raise
+    try:
+        ensure_can_accept_part(session.status)
+    except ValueError as exc:
+        close_upload_stream()
+        raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal") from exc
 
     try:
         if byte_length > settings.max_upload_part_bytes:
