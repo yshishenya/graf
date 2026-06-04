@@ -162,6 +162,14 @@
 - [X] T060 Run forbidden-content scan across deployment docs and evidence templates in `docs/deployments/2brain-rec/`
 - [X] T061 Verify all Spec Kit analysis findings are resolved before implementation closure using `specs/021-production-deployment-plan/tasks.md`
 
+## Phase 8: Review Follow-up Hardening
+
+- [X] T062 [P] [US1] Remove live production secret values from container environment and read runtime credentials from Docker secret files in `apps/server/src/twobrain_rec_server/config.py` and `infra/docker-compose.yml`
+- [X] T063 [P] [US2] Replace live volume archive backup with Postgres logical dump and MinIO API mirror backup in `infra/scripts/backup-rec-stack.sh`
+- [X] T064 [US2] Implement non-destructive restore rehearsal by restoring the Postgres dump into a temporary database and MinIO objects into a temporary bucket in `infra/scripts/rehearse-rec-restore.sh`
+- [X] T065 [P] [US4] Preserve rollback helper remote arguments for trigger, prior-state reference, residue owner, and follow-up fields in `infra/scripts/rollback-rec-stack.sh`
+- [X] T066 [US4] Clarify rollback helper as decision/evidence-only unless a separate destructive restore procedure is explicitly chosen in `docs/deployments/2brain-rec/rollback-runbook.md`
+
 ---
 
 ## Dependencies & Execution Order

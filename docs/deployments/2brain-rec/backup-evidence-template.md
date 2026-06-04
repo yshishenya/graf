@@ -18,8 +18,8 @@ or raw object contents.
 
 ## Scope
 
-- Postgres volume: `twobrain-rec-postgres-data`
-- MinIO volume: `twobrain-rec-minio-data`
+- Postgres artifact: `postgres.dump`
+- MinIO artifact: `minio-objects/`
 - Backup destination reference:
 - Encryption expectation:
 - Retention expectation:
@@ -35,4 +35,6 @@ or raw object contents.
 
 - backup_result: pass / blocked / failed
 - backup_reference:
+- postgres_artifact:
+- minio_artifact:
 - open_risks:

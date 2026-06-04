@@ -72,18 +72,14 @@ def test_production_compose_uses_required_secret_placeholders_without_dev_defaul
     compose = _compose()
     api_env = compose["services"]["rec-api"]["environment"]
 
-    for variable in [
-        "TWOBRAIN_POSTGRES_PASSWORD",
-        "TWOBRAIN_MINIO_ROOT_USER",
-        "TWOBRAIN_MINIO_ROOT_PASSWORD",
-        "TWOBRAIN_MINIO_API_ACCESS_KEY",
-        "TWOBRAIN_MINIO_API_SECRET_KEY",
-    ]:
-        assert f"${{{variable}:?set in deployment environment}}" in compose_text
-
+    assert "__POSTGRES_PASSWORD__" in api_env["TWOBRAIN_DATABASE_URL"]
+    assert api_env["TWOBRAIN_MINIO_ACCESS_KEY"] == "__DOCKER_SECRET_FILE__"
+    assert api_env["TWOBRAIN_MINIO_SECRET_KEY"] == "__DOCKER_SECRET_FILE__"
     assert "localhost" not in api_env["TWOBRAIN_DATABASE_URL"]
     assert api_env["TWOBRAIN_MINIO_ENDPOINT"] == "rec-minio:9000"
     assert "twobrain_rec_dev_secret" not in compose_text
+    assert "TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment" not in compose_text
+    assert "TWOBRAIN_MINIO_API_SECRET_KEY:?set in deployment environment" not in compose_text
 
 
 def test_production_compose_declares_docker_secret_files_for_required_secret_classes() -> None:
@@ -102,7 +98,7 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
 
     api = compose["services"]["rec-api"]
     api_secret_sources = {secret["source"] for secret in api["secrets"]}
-    assert {"twobrain_minio_api_access_key", "twobrain_minio_api_secret_key", "twobrain_smoke_credential"} <= api_secret_sources
+    assert {"twobrain_postgres_password", "twobrain_minio_api_access_key", "twobrain_minio_api_secret_key", "twobrain_smoke_credential"} <= api_secret_sources
 
     postgres = compose["services"]["rec-postgres"]
     assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])

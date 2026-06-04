@@ -34,7 +34,7 @@ deploy_path=/opt/projects/2brain-rec
 cleanup_obligations=record_any_residue_before_retry
 ```
 
-## Remote Execution
+## Remote Decision Recording
 
 Run on the workstation only after choosing a trigger:
 
@@ -45,6 +45,18 @@ infra/scripts/rollback-rec-stack.sh --remote --trigger migration --prior-state-r
 The command runs in `/opt/projects/2brain-rec` on `2brain.dev`. For restore or
 rollback decisions, evidence must include a prior-state reference. For any
 cleanup obligation, evidence must include residue owner and follow-up reason.
+
+This helper is decision/evidence-only. It does not restore production data,
+replace service images, delete volumes, or mutate Rec-owned storage. If a
+destructive production restore is required, the operator must explicitly choose
+that separate restore procedure from the verified backup reference and record
+that action as new evidence before retrying smoke.
+
+Expected remote output includes:
+
+```text
+rollback_execution=decision_only_no_state_change
+```
 
 ## Truthful Status
 

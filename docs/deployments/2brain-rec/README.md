@@ -70,7 +70,7 @@ Production deployment actions run on `2brain.dev` under `/opt/projects/2brain-re
 
 - backup-before-migration;
 - migration verification;
-- restore/rollback rehearsal;
+- restore/rollback rehearsal into temporary targets;
 - first production smoke through `https://rec.2brain.pro`;
 - smoke cleanup and evidence capture.
 

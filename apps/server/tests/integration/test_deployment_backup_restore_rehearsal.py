@@ -19,8 +19,8 @@ def test_backup_helper_dry_run_records_remote_target_without_secret_values() -> 
 
     assert "2brain.dev" in output
     assert "/opt/projects/2brain-rec" in output
-    assert "twobrain-rec-postgres-data" in output
-    assert "twobrain-rec-minio-data" in output
+    assert "postgres_artifact=postgres.dump" in output
+    assert "minio_artifact=minio-objects/" in output
     assert "secret" not in output.lower()
 
 

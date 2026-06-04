@@ -76,6 +76,31 @@ def test_production_accepts_existing_secret_files(tmp_path) -> None:
     assert settings.postgres_password_file == secret
 
 
+def test_production_reads_runtime_credentials_from_secret_files(tmp_path) -> None:
+    postgres_password = tmp_path / "postgres-password"
+    minio_access_key = tmp_path / "minio-access-key"
+    minio_secret_key = tmp_path / "minio-secret-key"
+    smoke_credential = tmp_path / "smoke-credential"
+    postgres_password.write_text("prod pg password")
+    minio_access_key.write_text("twobrain_rec_api")
+    minio_secret_key.write_text("prod-api-secret")
+    smoke_credential.write_text("smoke")
+
+    settings = _production_settings(
+        database_url="postgresql+asyncpg://twobrain_rec:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec",
+        minio_access_key="__DOCKER_SECRET_FILE__",
+        minio_secret_key="__DOCKER_SECRET_FILE__",
+        postgres_password_file=postgres_password,
+        minio_access_key_file=minio_access_key,
+        minio_secret_key_file=minio_secret_key,
+        smoke_credential_file=smoke_credential,
+    )
+
+    assert "prod%20pg%20password" in settings.database_url
+    assert settings.minio_access_key == "twobrain_rec_api"
+    assert settings.minio_secret_key == "prod-api-secret"
+
+
 def test_production_rejects_missing_secret_files(tmp_path) -> None:
     missing = tmp_path / "missing-secret"
 

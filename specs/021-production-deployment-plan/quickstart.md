@@ -16,11 +16,6 @@ Expected:
 ## 2. Render Production Compose
 
 ```sh
-TWOBRAIN_POSTGRES_PASSWORD=dummy-prod-password \
-TWOBRAIN_MINIO_ROOT_USER=dummy-root-user \
-TWOBRAIN_MINIO_ROOT_PASSWORD=dummy-root-password \
-TWOBRAIN_MINIO_API_ACCESS_KEY=dummy-api-access \
-TWOBRAIN_MINIO_API_SECRET_KEY=dummy-api-secret \
 docker compose -f infra/docker-compose.yml config
 ```
 
@@ -30,6 +25,7 @@ Expected:
 - Postgres and MinIO use Rec-owned volumes.
 - Public exposure is limited to the intended API/reverse-proxy path for `rec.2brain.pro`.
 - Internal services are not accidentally exposed publicly.
+- App services use Docker secret file paths and placeholder-only credential environment values.
 - Temporal and MediaScribe are not required for accepted 012 ingest readiness.
 
 ## 3. Validate Fail-Closed Production Secrets
