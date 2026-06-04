@@ -16,3 +16,15 @@ Default remote target:
 Local execution is for dry-run checks only: tests, compile, compose rendering,
 and content scans. Backup, migration, deployment, first production smoke,
 cleanup, and final evidence are remote operations on `2brain.dev`.
+
+## Local CI
+
+Run the local CI gate before commits or pushes when GitHub-hosted Actions minutes
+are unavailable:
+
+```sh
+infra/scripts/ci-local.sh
+```
+
+It runs server tests, Ruff, compileall, production Compose rendering, and the
+deployment evidence scan. It does not contact production or run remote smoke.

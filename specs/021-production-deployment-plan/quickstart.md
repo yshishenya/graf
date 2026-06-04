@@ -131,12 +131,7 @@ Expected:
 Minimum local validation after implementation tasks:
 
 ```sh
-cd apps/server
-PYTHONPATH=src pytest -q
-PYTHONPATH=src ruff check .
-cd ../..
-python -m compileall -q apps/server/src apps/server/tests apps/server/scripts
-docker compose -f infra/docker-compose.yml config
+infra/scripts/ci-local.sh
 ```
 
 Expected:
