@@ -29,15 +29,22 @@ Current accepted local baseline:
   `incoming.wav` with metadata-only diagnostics and readiness truth.
 - The current MediaScribe integration contract for future backend work is the
   dual-track contract in `docs/integrations/mediascribe-dual-track-api.md`.
+- Feature `012-server-ingest-foundation` is implemented in-repository as the
+  first backend foundation: FastAPI ingest API, local/prod Docker Compose
+  scaffolds with Rec-owned Postgres/MinIO, Alembic schema models,
+  server-mediated upload/session endpoints, resumable/idempotent part
+  handling, tenant/device API boundary checks, metadata-only audit/logging,
+  status contracts, and inert processing placeholders. Local validation on
+  2026-06-04 passed the server test suite and compose configuration checks.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted: active capture
   UI remains local/native; post-meeting/admin surfaces live in the server web
   dashboard.
 
 Current non-accepted product areas:
 
-- Backend ingest, upload sessions, Postgres, MinIO, Temporal workflows,
+- Production deployment, desktop upload queue integration, Temporal workflows,
   MediaScribe processing, dashboard notes, server retention, and deletion are
-  not implemented yet.
+  not accepted yet.
 - Feature `011-assisted-auto-recording` is specified only. Detect-and-ask,
   future auto-record, automatic naming, and assisted detection evidence are not
   implemented yet.
@@ -46,16 +53,13 @@ Current non-accepted product areas:
 - Signed/notarized production installer evidence remains separate from local
   ad-hoc development package evidence.
 
-Recommended next product slice:
+Current backend boundary:
 
-- `012-server-ingest-foundation`: authenticated resumable server ingest for
-  finalized local dual-track artifacts, with Postgres metadata, MinIO object
-  storage, upload/session status contracts, and server-side MediaScribe
-  credential boundaries. MediaScribe job processing, full dashboard UI,
-  Temporal/workflow start, deletion execution, and assisted auto-recording
-  should remain separate slices unless that spec explicitly expands scope. A
-  successful `012` ingest records `ingested_pending_processing` and inert
-  processing placeholders only.
+- `012-server-ingest-foundation` remains server-mediated and records successful
+  ingest as `ingested_pending_processing` with inert processing placeholders.
+  It does not start Temporal workflows, call MediaScribe, implement production
+  desktop upload queue UI, expose dashboard/share/download/delete surfaces, or
+  execute retention/deletion jobs.
 
 Reserved follow-up slices:
 

@@ -49,6 +49,16 @@ implementation record.
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
+- Feature `012-server-ingest-foundation` is implemented as the first backend
+  foundation slice in this repository: FastAPI ingest service scaffold,
+  local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO
+  server-mediated object boundary, provider-neutral tenant/device request
+  checks, upload/session APIs, resumable/idempotent part acceptance, safe
+  audit/logging helpers, status contracts, and inert processing placeholders.
+  Local validation on 2026-06-04 passed `27` server tests plus compose config
+  rendering. It does not deploy production, implement the desktop uploader,
+  start Temporal workflows, call MediaScribe, or expose dashboard/share/delete
+  surfaces.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -62,12 +72,12 @@ implementation record.
   recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
 - Long-duration 30/60 minute integrity acceptance is not complete.
-- Upload, resumable ingest, MediaScribe transcription, dashboard notes, server
-  retention, and deletion workflows are not implemented in the macOS client
-  slice.
-- No backend scaffold, Docker Compose deployment, Postgres schema, MinIO bucket
-  wiring, Temporal workflow, upload API, or web dashboard implementation exists
-  in this repository yet.
+- Production deployment, desktop upload queue wiring, MediaScribe
+  transcription, dashboard notes, Temporal workflow starts, server retention,
+  and deletion workflows are not accepted yet.
+- The `012` backend foundation exists, but it remains a local/repository
+  implementation until production deployment and desktop uploader slices are
+  completed and accepted.
 - Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
   detect-and-ask, automatic naming, and future auto-record behavior have not
   been implemented or accepted.
@@ -76,34 +86,24 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `012-server-ingest-foundation`.
+Recommended next feature: `013-federated-auth-foundation` or
+`014-desktop-upload-queue`, depending on whether identity/session work or
+desktop upload UX should be unblocked first.
 
-Goal: move from accepted local saved artifacts to an owner-controlled server
-ingest foundation without weakening local recording visibility, stop control,
-metadata-only diagnostics, explicit egress policy, storage truth, or deletion
-accounting.
+Goal: connect the accepted local artifact and implemented server ingest
+foundation to real user/device identity and the macOS upload queue without
+weakening local recording visibility, stop control, metadata-only diagnostics,
+explicit egress policy, storage truth, or deletion accounting.
 
 Recommended scope:
 
-- Self-hosted backend skeleton for `rec.2brain.dev` and local development.
-- Minimal auth/device registration sufficient for a trusted desktop uploader.
-- Meeting and upload-session APIs for finalized local dual-track artifacts.
-- Resumable/idempotent ingest with checksums, missing-range recovery, and
-  truthful finalized/degraded/failed states.
-- Postgres metadata and MinIO object storage foundations.
-- Server-side MediaScribe credential boundary, but no required MediaScribe job
-  submission in the first ingest foundation unless the new spec explicitly
-  expands scope.
-- Temporal/workflow boundary: `012` must not start processing workflows. A
-  successful ingest only records `ingested_pending_processing` plus inert
-  processing placeholders; the workflow start belongs to
-  `015-mediascribe-processing-pipeline`.
-- Tenant-isolation hardening memory: `012` must enforce application-level
-  organization/workspace/user/device checks now. If PostgreSQL Row-Level
-  Security is deferred, the plan/tasks must create a traceable hardening
-  follow-up so this does not become invisible security debt.
-- Desktop-visible upload/session state contract for a later local upload queue
-  UI slice.
+- Provider-neutral user/workspace/session/device identity sufficient for a
+  trusted desktop uploader.
+- macOS upload queue that picks up local `010` artifacts, calls the `012`
+  ingest API, shows pending/uploading/retrying/uploaded/degraded/failed truth,
+  and preserves local files until server status is known.
+- Production deployment hardening for the dedicated Rec Docker stack when live
+  rollout starts.
 
 Keep separate unless the next spec explicitly changes scope:
 

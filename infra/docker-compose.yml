@@ -1,0 +1,69 @@
+services:
+  rec-api:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../apps/server/.env.example
+    environment:
+      TWOBRAIN_ENV: production
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:${TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment}@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: ${TWOBRAIN_MINIO_ACCESS_KEY:?set in deployment environment}
+      TWOBRAIN_MINIO_SECRET_KEY: ${TWOBRAIN_MINIO_SECRET_KEY:?set in deployment environment}
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+    networks:
+      - rec-private
+
+  rec-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: twobrain_rec
+      POSTGRES_USER: twobrain_rec
+      POSTGRES_PASSWORD: ${TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment}
+    volumes:
+      - rec-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twobrain_rec -d twobrain_rec"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - rec-private
+
+  rec-minio:
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${TWOBRAIN_MINIO_ACCESS_KEY:?set in deployment environment}
+      MINIO_ROOT_PASSWORD: ${TWOBRAIN_MINIO_SECRET_KEY:?set in deployment environment}
+    volumes:
+      - rec-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - rec-private
+
+networks:
+  rec-private:
+    name: twobrain-rec-private
+
+volumes:
+  rec-postgres-data:
+    name: twobrain-rec-postgres-data
+  rec-minio-data:
+    name: twobrain-rec-minio-data

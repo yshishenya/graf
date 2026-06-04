@@ -18,15 +18,15 @@
 
 **Purpose**: Create the backend service and self-hosted development skeleton.
 
-- [ ] T001 Create backend package directory structure in `apps/server/src/twobrain_rec_server/`
-- [ ] T002 Create server test directory structure in `apps/server/tests/`
-- [ ] T003 Create backend Python project configuration with FastAPI, Pydantic, SQLAlchemy, Alembic, asyncpg, MinIO, pytest, pytest-asyncio, httpx, and lint tooling in `apps/server/pyproject.toml`
-- [ ] T004 Create backend package marker and public module exports in `apps/server/src/twobrain_rec_server/__init__.py`
-- [ ] T005 Create local server environment template without secrets in `apps/server/.env.example`
-- [ ] T006 Create API container Dockerfile in `infra/server/Dockerfile`
-- [ ] T007 Create local development Docker Compose stack for API, Postgres, and MinIO in `infra/docker-compose.dev.yml`
-- [ ] T008 Create production Docker Compose scaffold for an isolated Rec stack with API, Postgres, MinIO, dedicated network, dedicated volumes, health checks, and secret placeholders in `infra/docker-compose.yml`
-- [ ] T009 Add server build/cache/secret ignore rules in `.gitignore`
+- [X] T001 Create backend package directory structure in `apps/server/src/twobrain_rec_server/`
+- [X] T002 Create server test directory structure in `apps/server/tests/`
+- [X] T003 Create backend Python project configuration with FastAPI, Pydantic, SQLAlchemy, Alembic, asyncpg, MinIO, pytest, pytest-asyncio, httpx, and lint tooling in `apps/server/pyproject.toml`
+- [X] T004 Create backend package marker and public module exports in `apps/server/src/twobrain_rec_server/__init__.py`
+- [X] T005 Create local server environment template without secrets in `apps/server/.env.example`
+- [X] T006 Create API container Dockerfile in `infra/server/Dockerfile`
+- [X] T007 Create local development Docker Compose stack for API, Postgres, and MinIO in `infra/docker-compose.dev.yml`
+- [X] T008 Create production Docker Compose scaffold for an isolated Rec stack with API, Postgres, MinIO, dedicated network, dedicated volumes, health checks, and secret placeholders in `infra/docker-compose.yml`
+- [X] T009 Add server build/cache/secret ignore rules in `.gitignore`
 
 ---
 
@@ -36,25 +36,25 @@
 
 **Critical**: No user story work should begin until this phase is complete.
 
-- [ ] T010 Create FastAPI application factory and router registration shell in `apps/server/src/twobrain_rec_server/main.py`
-- [ ] T011 Create typed settings model for API, Postgres, MinIO, ingest limits, upload TTL, and log redaction in `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T012 Create structured error/problem response helpers in `apps/server/src/twobrain_rec_server/api/problems.py`
-- [ ] T013 Create request ID and safe JSON logging middleware in `apps/server/src/twobrain_rec_server/observability/logging.py`
-- [ ] T014 Create database engine/session lifecycle module in `apps/server/src/twobrain_rec_server/db/session.py`
-- [ ] T015 Create Alembic configuration in `apps/server/alembic.ini`
-- [ ] T016 Create Alembic environment wired to app metadata in `apps/server/src/twobrain_rec_server/db/migrations/env.py`
-- [ ] T017 Create initial SQLAlchemy base metadata module in `apps/server/src/twobrain_rec_server/db/base.py`
-- [ ] T018 Create provider-neutral authenticated principal and device context models in `apps/server/src/twobrain_rec_server/auth/context.py`
-- [ ] T019 Implement application-level tenant authorization dependencies that verify organization, workspace, user, membership, device, and upload-session scope before ingest reads or writes in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
-- [ ] T020 Create MinIO storage client wrapper with server-only credential handling in `apps/server/src/twobrain_rec_server/storage/minio_client.py`
-- [ ] T021 Create object key builder for tenant/workspace/meeting/session scoped keys in `apps/server/src/twobrain_rec_server/storage/object_keys.py`
-- [ ] T022 Create ingest status and enum definitions in `apps/server/src/twobrain_rec_server/domain/statuses.py`
-- [ ] T023 Create shared pytest configuration and dependency overrides in `apps/server/tests/conftest.py`
-- [ ] T024 [P] Create fake MinIO test double in `apps/server/tests/fakes/fake_minio.py`
-- [ ] T025 [P] Create authenticated principal/device test fixtures in `apps/server/tests/fakes/auth_contexts.py`
-- [ ] T026 [P] Create artifact fixture generator helper in `apps/server/tests/fixtures/artifacts.py`
-- [ ] T027 Create health route skeleton for liveness and ingest readiness in `apps/server/src/twobrain_rec_server/api/health.py`
-- [ ] T028 Create base Pydantic API request/response schemas for health, problem errors, meeting, upload session, upload parts, missing ranges, finalize, and abort in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T010 Create FastAPI application factory and router registration shell in `apps/server/src/twobrain_rec_server/main.py`
+- [X] T011 Create typed settings model for API, Postgres, MinIO, ingest limits, upload TTL, and log redaction in `apps/server/src/twobrain_rec_server/config.py`
+- [X] T012 Create structured error/problem response helpers in `apps/server/src/twobrain_rec_server/api/problems.py`
+- [X] T013 Create request ID and safe JSON logging middleware in `apps/server/src/twobrain_rec_server/observability/logging.py`
+- [X] T014 Create database engine/session lifecycle module in `apps/server/src/twobrain_rec_server/db/session.py`
+- [X] T015 Create Alembic configuration in `apps/server/alembic.ini`
+- [X] T016 Create Alembic environment wired to app metadata in `apps/server/src/twobrain_rec_server/db/migrations/env.py`
+- [X] T017 Create initial SQLAlchemy base metadata module in `apps/server/src/twobrain_rec_server/db/base.py`
+- [X] T018 Create provider-neutral authenticated principal and device context models in `apps/server/src/twobrain_rec_server/auth/context.py`
+- [X] T019 Implement application-level tenant authorization dependencies that verify organization, workspace, user, membership, device, and upload-session scope before ingest reads or writes in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
+- [X] T020 Create MinIO storage client wrapper with server-only credential handling in `apps/server/src/twobrain_rec_server/storage/minio_client.py`
+- [X] T021 Create object key builder for tenant/workspace/meeting/session scoped keys in `apps/server/src/twobrain_rec_server/storage/object_keys.py`
+- [X] T022 Create ingest status and enum definitions in `apps/server/src/twobrain_rec_server/domain/statuses.py`
+- [X] T023 Create shared pytest configuration and dependency overrides in `apps/server/tests/conftest.py`
+- [X] T024 [P] Create fake MinIO test double in `apps/server/tests/fakes/fake_minio.py`
+- [X] T025 [P] Create authenticated principal/device test fixtures in `apps/server/tests/fakes/auth_contexts.py`
+- [X] T026 [P] Create artifact fixture generator helper in `apps/server/tests/fixtures/artifacts.py`
+- [X] T027 Create health route skeleton for liveness and ingest readiness in `apps/server/src/twobrain_rec_server/api/health.py`
+- [X] T028 Create base Pydantic API request/response schemas for health, problem errors, meeting, upload session, upload parts, missing ranges, finalize, and abort in `apps/server/src/twobrain_rec_server/api/schemas.py`
 - [X] T029 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/security.md`
 - [X] T030 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/infra.md`
 - [X] T031 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/ux.md`
@@ -72,27 +72,27 @@
 
 ### Tests for User Story 1
 
-- [ ] T033 [P] [US1] Add OpenAPI contract tests for meeting/session/part/finalize happy path in `apps/server/tests/contract/test_ingest_openapi_contract.py`
-- [ ] T034 [P] [US1] Add unit tests for artifact manifest role validation and checksum metadata in `apps/server/tests/unit/test_manifest_validation.py`
-- [ ] T035 [P] [US1] Add unit tests for configurable ingest duration and byte-size policy acceptance boundaries in `apps/server/tests/unit/test_ingest_limits.py`
-- [ ] T036 [P] [US1] Add integration test for 30-minute dual-track happy-path ingest in `apps/server/tests/integration/test_ingest_happy_path.py`
+- [X] T033 [P] [US1] Add OpenAPI contract tests for meeting/session/part/finalize happy path in `apps/server/tests/contract/test_ingest_openapi_contract.py`
+- [X] T034 [P] [US1] Add unit tests for artifact manifest role validation and checksum metadata in `apps/server/tests/unit/test_manifest_validation.py`
+- [X] T035 [P] [US1] Add unit tests for configurable ingest duration and byte-size policy acceptance boundaries in `apps/server/tests/unit/test_ingest_limits.py`
+- [X] T036 [P] [US1] Add integration test for 30-minute dual-track happy-path ingest in `apps/server/tests/integration/test_ingest_happy_path.py`
 
 ### Implementation for User Story 1
 
-- [ ] T037 [P] [US1] Create organization/workspace/user/device SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/identity.py`
-- [ ] T038 [P] [US1] Create meeting and processing placeholder SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/meeting.py`
-- [ ] T039 [P] [US1] Create upload session, upload part, temporary upload object, track artifact, manifest snapshot, and audit event SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/ingest.py`
-- [ ] T040 [US1] Create initial Alembic migration for identity, meeting, ingest, and audit tables in `apps/server/src/twobrain_rec_server/db/migrations/versions/0001_ingest_foundation.py`
-- [ ] T041 [US1] Implement manifest validation service in `apps/server/src/twobrain_rec_server/ingest/manifest.py`
-- [ ] T042 [US1] Implement ingest policy and limit validation service in `apps/server/src/twobrain_rec_server/ingest/policy.py`
-- [ ] T043 [US1] Implement meeting creation/idempotency service in `apps/server/src/twobrain_rec_server/ingest/meetings.py`
-- [ ] T044 [US1] Implement upload session creation service in `apps/server/src/twobrain_rec_server/ingest/sessions.py`
-- [ ] T045 [US1] Implement server-mediated upload part acceptance and durable storage in `apps/server/src/twobrain_rec_server/ingest/parts.py`
-- [ ] T046 [US1] Implement finalize service that creates track artifacts and inert processing placeholders in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
-- [ ] T047 [US1] Implement meeting and upload session API routes with T019 authorization dependencies applied to every read/write operation in `apps/server/src/twobrain_rec_server/api/ingest.py`
-- [ ] T048 [US1] Wire ingest routes into FastAPI app in `apps/server/src/twobrain_rec_server/main.py`
-- [ ] T049 [US1] Add safe audit events for meeting creation, session creation, part acceptance, and finalization in `apps/server/src/twobrain_rec_server/ingest/audit.py`
-- [ ] T050 [US1] Create test artifact generator script in `apps/server/scripts/create_test_artifact.py`
+- [X] T037 [P] [US1] Create organization/workspace/user/device SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/identity.py`
+- [X] T038 [P] [US1] Create meeting and processing placeholder SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/meeting.py`
+- [X] T039 [P] [US1] Create upload session, upload part, temporary upload object, track artifact, manifest snapshot, and audit event SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/ingest.py`
+- [X] T040 [US1] Create initial Alembic migration for identity, meeting, ingest, and audit tables in `apps/server/src/twobrain_rec_server/db/migrations/versions/0001_ingest_foundation.py`
+- [X] T041 [US1] Implement manifest validation service in `apps/server/src/twobrain_rec_server/ingest/manifest.py`
+- [X] T042 [US1] Implement ingest policy and limit validation service in `apps/server/src/twobrain_rec_server/ingest/policy.py`
+- [X] T043 [US1] Implement meeting creation/idempotency service in `apps/server/src/twobrain_rec_server/ingest/meetings.py`
+- [X] T044 [US1] Implement upload session creation service in `apps/server/src/twobrain_rec_server/ingest/sessions.py`
+- [X] T045 [US1] Implement server-mediated upload part acceptance and durable storage in `apps/server/src/twobrain_rec_server/ingest/parts.py`
+- [X] T046 [US1] Implement finalize service that creates track artifacts and inert processing placeholders in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
+- [X] T047 [US1] Implement meeting and upload session API routes with T019 authorization dependencies applied to every read/write operation in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T048 [US1] Wire ingest routes into FastAPI app in `apps/server/src/twobrain_rec_server/main.py`
+- [X] T049 [US1] Add safe audit events for meeting creation, session creation, part acceptance, and finalization in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T050 [US1] Create test artifact generator script in `apps/server/scripts/create_test_artifact.py`
 
 **Checkpoint**: US1 MVP is independently testable with happy-path upload and finalize.
 
@@ -106,18 +106,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T051 [P] [US2] Add unit tests for accepted/missing range calculation in `apps/server/tests/unit/test_missing_ranges.py`
-- [ ] T052 [P] [US2] Add unit tests for idempotent matching retry and conflicting retry rejection in `apps/server/tests/unit/test_upload_idempotency.py`
-- [ ] T053 [P] [US2] Add integration test for interrupted upload resume and single finalization in `apps/server/tests/integration/test_upload_resume.py`
+- [X] T051 [P] [US2] Add unit tests for accepted/missing range calculation in `apps/server/tests/unit/test_missing_ranges.py`
+- [X] T052 [P] [US2] Add unit tests for idempotent matching retry and conflicting retry rejection in `apps/server/tests/unit/test_upload_idempotency.py`
+- [X] T053 [P] [US2] Add integration test for interrupted upload resume and single finalization in `apps/server/tests/integration/test_upload_resume.py`
 
 ### Implementation for User Story 2
 
-- [ ] T054 [US2] Implement accepted and missing range calculation service in `apps/server/src/twobrain_rec_server/ingest/ranges.py`
-- [ ] T055 [US2] Implement idempotent part replay and checksum conflict handling in `apps/server/src/twobrain_rec_server/ingest/parts.py`
-- [ ] T056 [US2] Implement missing ranges API route in `apps/server/src/twobrain_rec_server/api/ingest.py`
-- [ ] T057 [US2] Implement upload session status read service in `apps/server/src/twobrain_rec_server/ingest/status.py`
-- [ ] T058 [US2] Add audit event handling for retry and checksum conflict events in `apps/server/src/twobrain_rec_server/ingest/audit.py`
-- [ ] T059 [US2] Create resumable upload helper script for quickstart validation in `apps/server/scripts/upload_test_artifact.py`
+- [X] T054 [US2] Implement accepted and missing range calculation service in `apps/server/src/twobrain_rec_server/ingest/ranges.py`
+- [X] T055 [US2] Implement idempotent part replay and checksum conflict handling in `apps/server/src/twobrain_rec_server/ingest/parts.py`
+- [X] T056 [US2] Implement missing ranges API route in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T057 [US2] Implement upload session status read service in `apps/server/src/twobrain_rec_server/ingest/status.py`
+- [X] T058 [US2] Add audit event handling for retry and checksum conflict events in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T059 [US2] Create resumable upload helper script for quickstart validation in `apps/server/scripts/upload_test_artifact.py`
 
 **Checkpoint**: US2 can be validated independently after US1 foundation.
 
@@ -131,18 +131,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T060 [P] [US3] Add contract tests asserting no MediaScribe, object-storage credential, signed URL, workflow ID, or job ID fields leak in ingest responses in `apps/server/tests/contract/test_no_secret_egress_contract.py`
-- [ ] T061 [P] [US3] Add unit tests for log redaction and safe audit metadata filtering in `apps/server/tests/unit/test_redaction.py`
-- [ ] T062 [P] [US3] Add integration test proving finalize creates no Temporal workflow and no MediaScribe job identifiers in `apps/server/tests/integration/test_no_processing_side_effects.py`
+- [X] T060 [P] [US3] Add contract tests asserting no MediaScribe, object-storage credential, signed URL, workflow ID, or job ID fields leak in ingest responses in `apps/server/tests/contract/test_no_secret_egress_contract.py`
+- [X] T061 [P] [US3] Add unit tests for log redaction and safe audit metadata filtering in `apps/server/tests/unit/test_redaction.py`
+- [X] T062 [P] [US3] Add integration test proving finalize creates no Temporal workflow and no MediaScribe job identifiers in `apps/server/tests/integration/test_no_processing_side_effects.py`
 
 ### Implementation for User Story 3
 
-- [ ] T063 [US3] Implement secret/content redaction helpers in `apps/server/src/twobrain_rec_server/observability/redaction.py`
-- [ ] T064 [US3] Apply redaction to API problem details and request logging in `apps/server/src/twobrain_rec_server/api/problems.py`
-- [ ] T065 [US3] Ensure upload authorization DTOs expose only server-mediated session scope in `apps/server/src/twobrain_rec_server/ingest/authorization.py`
-- [ ] T066 [US3] Ensure finalize response always reports null workflow/job identifiers and false workflow/job side effects in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
-- [ ] T067 [US3] Implement ingest readiness checks excluding MediaScribe and Temporal dependencies in `apps/server/src/twobrain_rec_server/api/health.py`
-- [ ] T068 [US3] Document metadata-only observability fields in `apps/server/README.md`
+- [X] T063 [US3] Implement secret/content redaction helpers in `apps/server/src/twobrain_rec_server/observability/redaction.py`
+- [X] T064 [US3] Apply redaction to API problem details and request logging in `apps/server/src/twobrain_rec_server/api/problems.py`
+- [X] T065 [US3] Ensure upload authorization DTOs expose only server-mediated session scope in `apps/server/src/twobrain_rec_server/ingest/authorization.py`
+- [X] T066 [US3] Ensure finalize response always reports null workflow/job identifiers and false workflow/job side effects in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
+- [X] T067 [US3] Implement ingest readiness checks excluding MediaScribe and Temporal dependencies in `apps/server/src/twobrain_rec_server/api/health.py`
+- [X] T068 [US3] Document metadata-only observability fields in `apps/server/README.md`
 
 **Checkpoint**: US3 security boundary is independently testable.
 
@@ -156,19 +156,19 @@
 
 ### Tests for User Story 4
 
-- [ ] T069 [P] [US4] Add unit tests for upload session and meeting state transitions in `apps/server/tests/unit/test_ingest_state_machine.py`
-- [ ] T070 [P] [US4] Add integration tests for missing, corrupt, wrong-role, and unsupported artifacts in `apps/server/tests/integration/test_degraded_ingest.py`
-- [ ] T071 [P] [US4] Add integration tests for storage outage, partial object write, and premature finalization states in `apps/server/tests/integration/test_ingest_failure_truth.py`
-- [ ] T072 [P] [US4] Add integration tests for over-limit duration, track bytes, package bytes, and session lifetime outcomes in `apps/server/tests/integration/test_ingest_limits.py`
+- [X] T069 [P] [US4] Add unit tests for upload session and meeting state transitions in `apps/server/tests/unit/test_ingest_state_machine.py`
+- [X] T070 [P] [US4] Add integration tests for missing, corrupt, wrong-role, and unsupported artifacts in `apps/server/tests/integration/test_degraded_ingest.py`
+- [X] T071 [P] [US4] Add integration tests for storage outage, partial object write, and premature finalization states in `apps/server/tests/integration/test_ingest_failure_truth.py`
+- [X] T072 [P] [US4] Add integration tests for over-limit duration, track bytes, package bytes, and session lifetime outcomes in `apps/server/tests/integration/test_ingest_limits.py`
 
 ### Implementation for User Story 4
 
-- [ ] T073 [US4] Implement upload session state machine rules in `apps/server/src/twobrain_rec_server/ingest/state_machine.py`
-- [ ] T074 [US4] Implement degraded and failed reason catalog in `apps/server/src/twobrain_rec_server/domain/reasons.py`
-- [ ] T075 [US4] Implement abort and expiry service logic in `apps/server/src/twobrain_rec_server/ingest/lifecycle.py`
-- [ ] T076 [US4] Implement abort API route in `apps/server/src/twobrain_rec_server/api/ingest.py`
-- [ ] T077 [US4] Add temporary object cleanup accounting records for non-success terminal states in `apps/server/src/twobrain_rec_server/ingest/lifecycle.py`
-- [ ] T078 [US4] Add audit event handling for degraded, failed, aborted, and expired states in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T073 [US4] Implement upload session state machine rules in `apps/server/src/twobrain_rec_server/ingest/state_machine.py`
+- [X] T074 [US4] Implement degraded and failed reason catalog in `apps/server/src/twobrain_rec_server/domain/reasons.py`
+- [X] T075 [US4] Implement abort and expiry service logic in `apps/server/src/twobrain_rec_server/ingest/lifecycle.py`
+- [X] T076 [US4] Implement abort API route in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T077 [US4] Add temporary object cleanup accounting records for non-success terminal states in `apps/server/src/twobrain_rec_server/ingest/lifecycle.py`
+- [X] T078 [US4] Add audit event handling for degraded, failed, aborted, and expired states in `apps/server/src/twobrain_rec_server/ingest/audit.py`
 
 **Checkpoint**: US4 truth states are independently testable.
 
@@ -182,18 +182,18 @@
 
 ### Tests for User Story 6
 
-- [ ] T079 [P] [US6] Add authorization integration tests for cross-user, cross-device, cross-workspace, and cross-organization denial in `apps/server/tests/integration/test_tenant_authorization.py`
-- [ ] T080 [P] [US6] Add unit tests for tenant-scoped object key construction and collision prevention in `apps/server/tests/unit/test_object_keys.py`
-- [ ] T081 [P] [US6] Add integration test for access policy and share/download placeholder persistence in `apps/server/tests/integration/test_access_placeholders.py`
+- [X] T079 [P] [US6] Add authorization integration tests for cross-user, cross-device, cross-workspace, and cross-organization denial in `apps/server/tests/integration/test_tenant_authorization.py`
+- [X] T080 [P] [US6] Add unit tests for tenant-scoped object key construction and collision prevention in `apps/server/tests/unit/test_object_keys.py`
+- [X] T081 [P] [US6] Add integration test for access policy and share/download placeholder persistence in `apps/server/tests/integration/test_access_placeholders.py`
 
 ### Implementation for User Story 6
 
-- [ ] T082 [US6] Implement reusable tenant authorization policy helpers for owner/workspace/admin placeholder decisions in `apps/server/src/twobrain_rec_server/auth/authorization.py`
-- [ ] T083 [US6] Audit ingest route authorization coverage against FR-042 and add missing dependency coverage if any route drift is found in `apps/server/src/twobrain_rec_server/api/ingest.py`
-- [ ] T084 [US6] Implement access policy snapshot model/service in `apps/server/src/twobrain_rec_server/ingest/access_policy.py`
-- [ ] T085 [US6] Implement share/download capability placeholder model fields in `apps/server/src/twobrain_rec_server/db/models/meeting.py`
-- [ ] T086 [US6] Add migration for access policy snapshot and share/download placeholder fields in `apps/server/src/twobrain_rec_server/db/migrations/versions/0002_access_placeholders.py`
-- [ ] T087 [US6] Document RLS-hardening follow-up issue candidate and compensating application checks in `specs/012-server-ingest-foundation/tasks.md`
+- [X] T082 [US6] Implement reusable tenant authorization policy helpers for owner/workspace/admin placeholder decisions in `apps/server/src/twobrain_rec_server/auth/authorization.py`
+- [X] T083 [US6] Audit ingest route authorization coverage against FR-042 and add missing dependency coverage if any route drift is found in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T084 [US6] Implement access policy snapshot model/service in `apps/server/src/twobrain_rec_server/ingest/access_policy.py`
+- [X] T085 [US6] Implement share/download capability placeholder model fields in `apps/server/src/twobrain_rec_server/db/models/meeting.py`
+- [X] T086 [US6] Add migration for access policy snapshot and share/download placeholder fields in `apps/server/src/twobrain_rec_server/db/migrations/versions/0002_access_placeholders.py`
+- [X] T087 [US6] Document RLS-hardening follow-up issue candidate and compensating application checks in `specs/012-server-ingest-foundation/tasks.md`
 
 **Checkpoint**: US6 ownership/access metadata is independently testable without dashboard/share implementation.
 
@@ -207,17 +207,17 @@
 
 ### Tests for User Story 5
 
-- [ ] T088 [P] [US5] Add contract tests for desktop status vocabulary and canonical API state mapping in `apps/server/tests/contract/test_desktop_status_contract.py`
-- [ ] T089 [P] [US5] Add integration tests proving transcript, notes, dashboard detail, deletion execution, share, download, indexing, and assisted recording endpoints are absent or not implemented in `apps/server/tests/integration/test_out_of_scope_boundaries.py`
-- [ ] T090 [P] [US5] Add integration test for future processing pickup metadata without workflow execution in `apps/server/tests/integration/test_processing_placeholder.py`
+- [X] T088 [P] [US5] Add contract tests for desktop status vocabulary and canonical API state mapping in `apps/server/tests/contract/test_desktop_status_contract.py`
+- [X] T089 [P] [US5] Add integration tests proving transcript, notes, dashboard detail, deletion execution, share, download, indexing, and assisted recording endpoints are absent or not implemented in `apps/server/tests/integration/test_out_of_scope_boundaries.py`
+- [X] T090 [P] [US5] Add integration test for future processing pickup metadata without workflow execution in `apps/server/tests/integration/test_processing_placeholder.py`
 
 ### Implementation for User Story 5
 
-- [ ] T091 [US5] Implement desktop status mapping DTOs in `apps/server/src/twobrain_rec_server/ingest/desktop_status.py`
-- [ ] T092 [US5] Add status mapping to upload session response serializers in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T093 [US5] Implement processing placeholder query service for future 015 pickup in `apps/server/src/twobrain_rec_server/ingest/processing_placeholder.py`
-- [ ] T094 [US5] Add explicit not-implemented route policy documentation in `apps/server/README.md`
-- [ ] T095 [US5] Update desktop ingest status contract notes if implementation discovers naming drift in `specs/012-server-ingest-foundation/contracts/desktop-ingest-status.md`
+- [X] T091 [US5] Implement desktop status mapping DTOs in `apps/server/src/twobrain_rec_server/ingest/desktop_status.py`
+- [X] T092 [US5] Add status mapping to upload session response serializers in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T093 [US5] Implement processing placeholder query service for future 015 pickup in `apps/server/src/twobrain_rec_server/ingest/processing_placeholder.py`
+- [X] T094 [US5] Add explicit not-implemented route policy documentation in `apps/server/README.md`
+- [X] T095 [US5] Update desktop ingest status contract notes if implementation discovers naming drift in `specs/012-server-ingest-foundation/contracts/desktop-ingest-status.md`
 
 **Checkpoint**: US5 future-slice readiness is independently testable without scope creep.
 
@@ -227,16 +227,16 @@
 
 **Purpose**: Final validation, evidence capture, post-implementation checklist re-review, and hardening register cleanup across all stories.
 
-- [ ] T096 [P] Re-review security checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/security.md`
-- [ ] T097 [P] Re-review infra checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/infra.md`
-- [ ] T098 [P] Re-review UX/status checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/ux.md`
-- [ ] T099 [P] Re-review driver-boundary checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/driver.md`
-- [ ] T100 Run full server unit, contract, and integration suite and record validation evidence in `specs/012-server-ingest-foundation/quickstart.md`
-- [ ] T101 Run local and production Docker Compose quickstart validation, including `docker compose -f infra/docker-compose.yml config`, and update commands or caveats in `specs/012-server-ingest-foundation/quickstart.md`
-- [ ] T102 Run log/API response secret-content scan and record evidence in `specs/012-server-ingest-foundation/quickstart.md`
-- [ ] T103 Update current product status for completed 012 scope and remaining follow-ups in `docs/current-product-status.md`
-- [ ] T104 Update PRD implementation slice status and deferred work register if 012 scope changes in `docs/prd-voice-layer-final.md`
-- [ ] T105 Verify no unintended macOS driver/uploader source changes are required by 012 in `apps/macos/Package.swift`
+- [X] T096 [P] Re-review security checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/security.md`
+- [X] T097 [P] Re-review infra checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/infra.md`
+- [X] T098 [P] Re-review UX/status checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/ux.md`
+- [X] T099 [P] Re-review driver-boundary checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/driver.md`
+- [X] T100 Run full server unit, contract, and integration suite and record validation evidence in `specs/012-server-ingest-foundation/quickstart.md`
+- [X] T101 Run local and production Docker Compose quickstart validation, including `docker compose -f infra/docker-compose.yml config`, and update commands or caveats in `specs/012-server-ingest-foundation/quickstart.md`
+- [X] T102 Run log/API response secret-content scan and record evidence in `specs/012-server-ingest-foundation/quickstart.md`
+- [X] T103 Update current product status for completed 012 scope and remaining follow-ups in `docs/current-product-status.md`
+- [X] T104 Update PRD implementation slice status and deferred work register if 012 scope changes in `docs/prd-voice-layer-final.md`
+- [X] T105 Verify no unintended macOS driver/uploader source changes are required by 012 in `apps/macos/Package.swift`
 
 ---
 
@@ -301,5 +301,6 @@ Task: "T036 [US1] Add integration test for 30-minute dual-track happy-path inges
 ### Hardening Register
 
 - `RLS-hardening`: PostgreSQL Row Level Security is deferred in 012 with mandatory application-level tenant checks. A future task or GitHub issue must implement RLS or record explicit risk acceptance before broad external customer exposure.
+- `RLS-hardening` GitHub issue candidate: implement PostgreSQL RLS policies for `organizations`, `workspaces`, `meetings`, `upload_sessions`, `upload_parts`, `track_artifacts`, `manifest_snapshots`, `temporary_upload_objects`, and `ingest_audit_events` after auth provider context propagation is stable. Until then, application-level checks in `apps/server/src/twobrain_rec_server/auth/dependencies.py`, `apps/server/src/twobrain_rec_server/auth/authorization.py`, and ingest route dependencies remain the compensating control.
 - `direct-object-upload`: Direct object-storage upload URLs remain out of scope for 012 and require a separate security/lifecycle review.
 - `015-mediascribe-processing-pipeline`: Temporal workflow start and MediaScribe job submission remain out of scope for 012.

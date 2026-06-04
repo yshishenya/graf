@@ -1,0 +1,43 @@
+from datetime import datetime
+from uuid import UUID, uuid4
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+
+from twobrain_rec_server.db.base import Base
+
+
+class Meeting(Base):
+    __tablename__ = "meetings"
+    __table_args__ = (UniqueConstraint("workspace_id", "local_recording_id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
+    local_recording_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(500))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(64), default="draft")
+    processing_status: Mapped[str] = mapped_column(String(64), default="not_submitted")
+    visibility: Mapped[str] = mapped_column(String(64), default="owner_only")
+    share_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
+    download_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ProcessingPlaceholder(Base):
+    __tablename__ = "processing_placeholders"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), default="not_submitted")
+    workflow_id: Mapped[str | None] = mapped_column(String(240))
+    mediascribe_job_id: Mapped[str | None] = mapped_column(String(240))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

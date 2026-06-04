@@ -142,10 +142,10 @@ Generate artifacts that exceed duration, track bytes, and package bytes.
 
 Expected:
 
-- API returns `413` with one of:
-  - `recording_duration_limit_exceeded`
-  - `track_size_limit_exceeded`
-  - `package_size_limit_exceeded`
+- API returns `400` or `413` with one of:
+  - `recording_duration_exceeded`
+  - `track_bytes_exceeded`
+  - `package_bytes_exceeded`
 - Meeting/session status is `failed` or `degraded` according to how far the upload progressed.
 - No finalized meeting is produced.
 - Response includes the exceeded limit name/value but not internal storage paths or secrets.
@@ -185,3 +185,17 @@ Expected:
 
 - Application-level tenant tests pass in 012.
 - PostgreSQL RLS remains tracked as `RLS-hardening` until implemented or explicitly risk-accepted.
+
+## 13. Implementation Evidence
+
+Recorded on 2026-06-04:
+
+- `cd apps/server && PYTHONPATH=src pytest -q` -> `27 passed`.
+- `python -m compileall -q apps/server/src apps/server/tests apps/server/scripts` -> pass.
+- `docker compose -f infra/docker-compose.dev.yml config` -> pass.
+- `TWOBRAIN_POSTGRES_PASSWORD=dummy TWOBRAIN_MINIO_ACCESS_KEY=dummy TWOBRAIN_MINIO_SECRET_KEY=dummy docker compose -f infra/docker-compose.yml config` -> pass.
+- `git diff -- apps/macos/Package.swift` -> no diff; 012 did not modify the macOS driver/uploader package.
+- Secret/content scan found only local development placeholders and redaction test strings, not production credentials:
+  - `infra/docker-compose.dev.yml` uses `twobrain_rec_dev_secret` for local-only MinIO/Postgres development.
+  - `apps/server/tests/unit/test_redaction.py` intentionally includes a fake bearer value to verify redaction.
+  - Redaction key names such as `mediascribe_api_key` and `signed_url` appear only as blocked field names.
