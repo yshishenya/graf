@@ -25,8 +25,9 @@ prevents infinite repair churn.
 - `coreaudiod_restart`
 - `hal_reload`
 - `sleep_wake`
-- `physical_device_disappeared_then_returned`
-- `macos_default_route_changed_to_accepted_class`
+- `physical_device_disappeared`
+- `physical_device_returned`
+- `macos_default_route_changed`
 - `browser_stream_recreated`
 - `stale_browser_device_id`
 - `app_route_engine_restart`

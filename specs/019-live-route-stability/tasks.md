@@ -87,7 +87,7 @@
 - [ ] T027 [US2] Resolve accepted macOS system default input/output snapshots in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`
 - [ ] T028 [US2] Integrate autorepair recovery and blocked-state outcomes into `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
 - [ ] T029 [US2] Record `Run Check` and other user-action audit events as diagnostic fallback evidence in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`
-- [ ] T030 [US2] Add induced autorepair scenario support to validation script in `apps/macos/Scripts/validate-live-route-readiness.sh`
+- [ ] T030 [US2] Add induced autorepair and manual `Run Check` diagnostic fallback scenario support to validation script in `apps/macos/Scripts/validate-live-route-readiness.sh`
 - [ ] T031 [US2] Document US2 autorepair validation evidence in `specs/019-live-route-stability/evidence/us2-autorepair.md`
 
 **Checkpoint**: US2 can be validated without pressing `Run Check` in accepted recovery cases.
@@ -104,14 +104,14 @@
 
 - [ ] T032 [P] [US3] Add recording timeline alignment band tests for accepted, degraded_warning, and failed thresholds in `apps/macos/Shared/Tests/RecordingTimelineEvidenceTests.swift`
 - [ ] T033 [P] [US3] Add manifest correlation tests for route session id, autorepair attempt ids, and route interruption category in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
-- [ ] T034 [P] [US3] Add recording-active autorepair safety tests for indicator/stop preservation and timeline gap truth in `apps/macos/Shared/Tests/RecordingRouteStabilityTests.swift`
+- [ ] T034 [P] [US3] Add recording-active autorepair safety tests for route-status taxonomy, indicator/stop preservation, and timeline gap truth in `apps/macos/Shared/Tests/RecordingRouteStabilityTests.swift`
 
 ### Implementation for User Story 3
 
 - [ ] T035 [US3] Add recording timeline evidence model support in `apps/macos/Shared/Sources/Models/RecordingTimelineEvidence.swift`
 - [ ] T036 [US3] Extend recording evidence capture with route gaps and autorepair correlation in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
 - [ ] T037 [US3] Extend manifest writing with alignment band and interruption category in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
-- [ ] T038 [US3] Preserve visible recording indicator and one-action stop during live route autorepair in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`
+- [ ] T038 [US3] Preserve route-status distinctions, visible recording indicator, and one-action stop during live route autorepair in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`
 - [ ] T039 [US3] Extend artifact validation for `019` route timeline evidence in `apps/macos/Scripts/validate-recording-artifact-format.sh`
 - [ ] T040 [US3] Document US3 recording timeline validation evidence in `specs/019-live-route-stability/evidence/us3-recording-timeline.md`
 
@@ -174,8 +174,8 @@
 - [ ] T057 [P] Add `019` quickstart command references and evidence paths in `specs/019-live-route-stability/quickstart.md`
 - [ ] T058 Run Swift tests for macOS package and record results in `specs/019-live-route-stability/evidence/test-results.md`
 - [ ] T059 Run foundation validation scripts and record results in `specs/019-live-route-stability/evidence/test-results.md`
-- [ ] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, and Telemost and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
-- [ ] T061 Run or record 75-minute manual release gate evidence for Chrome, Opera, Zoom, and Telemost with accepted, blocked, failed, degraded, and not-tested outcomes in `specs/019-live-route-stability/evidence/release-75-minute.md`
+- [ ] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
+- [ ] T061 Run 75-minute manual release gate evidence for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested outcomes without counting blocked, failed, degraded, or not-tested outcomes as acceptance in `specs/019-live-route-stability/evidence/release-75-minute.md`
 - [ ] T062 Run local-offline validation with backend, network, MediaScribe, Langfuse, and transfer services unavailable and record results in `specs/019-live-route-stability/evidence/local-offline.md`
 - [ ] T063 Review all evidence for no speaker-to-mic leakage, backend ingest, upload, transcription, MediaScribe, Langfuse, or Bluetooth implementation scope creep in `specs/019-live-route-stability/evidence/scope-review.md`
 
