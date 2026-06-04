@@ -94,13 +94,69 @@ Recommended scope:
 - Server-side MediaScribe credential boundary, but no required MediaScribe job
   submission in the first ingest foundation unless the new spec explicitly
   expands scope.
+- Temporal/workflow boundary: `012` must not start processing workflows. A
+  successful ingest only records `ingested_pending_processing` plus inert
+  processing placeholders; the workflow start belongs to
+  `015-mediascribe-processing-pipeline`.
+- Tenant-isolation hardening memory: `012` must enforce application-level
+  organization/workspace/user/device checks now. If PostgreSQL Row-Level
+  Security is deferred, the plan/tasks must create a traceable hardening
+  follow-up so this does not become invisible security debt.
 - Desktop-visible upload/session state contract for a later local upload queue
   UI slice.
 
 Keep separate unless the next spec explicitly changes scope:
 
-- MediaScribe submit/poll/result import.
-- Full web dashboard meeting detail/transcript/notes UI.
-- Server retention/deletion execution.
+- `013-federated-auth-foundation`: provider-neutral user authentication and
+  account/device identity, with priority login providers for the Russian market
+  such as Yandex ID, VK ID, and Telegram Login, plus later Sber ID and T-ID
+  where partner setup allows.
+- `014-desktop-upload-queue`: macOS app sends local recordings to the server,
+  shows upload status, retries failures, and preserves local artifacts until
+  upload truth is known.
+- `015-mediascribe-processing-pipeline`: server-side MediaScribe
+  submit/poll/result import from finalized ingested artifacts. This slice owns
+  starting the durable processing workflow after ingest finalization, using
+  internal meeting/upload/artifact identifiers and idempotent workflow IDs.
+- `016-meeting-dashboard-review`: web dashboard meeting list/detail,
+  processing state, transcript, notes, playback, and review surfaces.
+- `017-access-sharing-downloads`: role-based meeting access, team visibility,
+  download/export permissions, login-required share links, optional public-link
+  policy, and share-page lifecycle/audit.
+- `018-retention-deletion-execution`: server-side retention jobs, deletion
+  workflows, deletion verification reports, local desktop purge coordination,
+  backup expiry accounting, and external dependency deletion truth.
 - Assisted auto-start and generalized meeting detection.
 - Feature `009` meeting-app mute truth.
+
+## Deferred Work Register
+
+Use this register as the anti-drift memory for work intentionally left out of
+the current accepted implementation or `012` ingest slice.
+
+- `009-respect-meeting-mute`: resolve meeting-app mute truth before broader
+  local recording acceptance.
+- `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
+  naming, and any future auto-start behavior from the accepted requirements.
+- `013-federated-auth-foundation`: implement provider-neutral auth, account
+  linking, sessions, workspace membership, and registered device identity.
+- `014-desktop-upload-queue`: make the macOS app send local artifacts to the
+  server, show upload status, retry safely, and preserve local artifacts until
+  upload truth is known.
+- `015-mediascribe-processing-pipeline`: start the durable processing workflow
+  after ingest, submit/poll/import MediaScribe results, and keep credentials
+  server-side.
+- `016-meeting-dashboard-review`: show meetings, processing state, transcript,
+  notes, playback, and review surfaces.
+- `017-access-sharing-downloads`: add RBAC/team visibility, audio/transcript/
+  summary downloads, share links/pages, lifecycle, and audit.
+- `018-retention-deletion-execution`: implement retention/deletion workflows,
+  deletion reports, local purge coordination, backup expiry, and external
+  dependency deletion truth.
+- `RLS-hardening`: if PostgreSQL Row-Level Security is deferred by `012` plan,
+  create a traceable task or GitHub issue candidate with compensating
+  application-level authorization checks.
+- `direct-object-upload`: future upload optimization only after a separate
+  security and lifecycle review; `012` remains `server_mediated`.
+- Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
+  30/60 minute integrity, and signed/notarized installer evidence.
