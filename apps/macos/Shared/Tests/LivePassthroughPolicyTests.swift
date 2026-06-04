@@ -69,6 +69,50 @@ final class LivePassthroughPolicyTests: XCTestCase {
         XCTAssertEqual(state, .armed)
     }
 
+    func testAutomaticLaunchWarmsRouteAfterClientDetectionGrace() {
+        let detector = FixedVirtualDeviceActivityDetector(isRunning: false)
+        let bridge = CountingPassthroughBridge()
+        let engine = PassthroughRouteEngine(
+            sharedMemory: nil,
+            activityDetector: detector,
+            bridgeFactory: { _, _ in bridge }
+        )
+        var log: [(String, String)] = []
+
+        let armed = engine.startAutomaticRoute { event, detail in
+            log.append((event, detail))
+        }
+
+        XCTAssertEqual(armed, .armed)
+        XCTAssertTrue(waitUntil(timeout: 5) { bridge.startCount > 0 })
+        XCTAssertEqual(engine.state, .active)
+        XCTAssertTrue(log.contains { event, detail in
+            event == "passthrough_bridge_started" &&
+                detail == "automatic non-recording route engine active"
+        })
+    }
+
+    func testSlowSuccessfulAutomaticWarmupStaysActive() {
+        let bridge = CountingPassthroughBridge(startDelay: 3.2)
+        let engine = PassthroughRouteEngine(
+            sharedMemory: nil,
+            activityDetector: FixedVirtualDeviceActivityDetector(isRunning: false),
+            bridgeFactory: { _, _ in bridge }
+        )
+        var log: [(String, String)] = []
+
+        _ = engine.startAutomaticRoute { event, detail in
+            log.append((event, detail))
+        }
+
+        XCTAssertTrue(waitUntil(timeout: 7) { bridge.startCount > 0 })
+        XCTAssertEqual(engine.state, .active)
+        XCTAssertTrue(log.contains { event, detail in
+            event == "passthrough_bridge_started_slow" &&
+                detail.contains("route active")
+        })
+    }
+
     func testAutoIdlePolicyReleasesPhysicalRouteWhenVirtualClientCloses() {
         let policy = PassthroughAutoIdlePolicy(releaseAfterIdleTicks: 3)
 
@@ -233,5 +277,43 @@ private struct FixedVirtualDeviceActivityDetector: VirtualDeviceActivityDetectin
     func anyExpectedVirtualDeviceRunning() -> Bool {
         isRunning
     }
+}
+
+private final class CountingPassthroughBridge: PassthroughBridgeControlling, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _startCount = 0
+    private let startDelay: TimeInterval
+
+    init(startDelay: TimeInterval = 0) {
+        self.startDelay = startDelay
+    }
+
+    var startCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _startCount
+    }
+
+    func start() throws {
+        if startDelay > 0 {
+            Thread.sleep(forTimeInterval: startDelay)
+        }
+        lock.lock()
+        _startCount += 1
+        lock.unlock()
+    }
+
+    func stop() {}
+
+    func refreshAppIOHeartbeat() {}
+}
+
+private func waitUntil(timeout: TimeInterval, condition: @escaping () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() { return true }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    return condition()
 }
 #endif

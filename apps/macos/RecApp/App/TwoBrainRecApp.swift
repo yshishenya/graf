@@ -123,6 +123,11 @@ private struct ContentView: View {
                         LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_ready") { updated in
                             onAutoStarted(updated)
                         }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                            LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_active") { updated in
+                                onAutoStarted(updated)
+                            }
+                        }
                     }
                 }
             }

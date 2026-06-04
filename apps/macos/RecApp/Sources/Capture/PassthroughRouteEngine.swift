@@ -63,6 +63,7 @@ extension PassthroughBridge: PassthroughBridgeControlling {
 public final class PassthroughRouteEngine: @unchecked Sendable {
     public typealias Logger = @Sendable (_ event: String, _ detail: String) -> Void
     public typealias BridgeFactory = @Sendable (_ selectedPhysicalInputId: String?, _ selectedPhysicalOutputId: String?) throws -> PassthroughBridgeControlling
+    public static let automaticClientDetectionGraceTicks = 3
 
     public static let shared = PassthroughRouteEngine()
 
@@ -81,6 +82,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
     private var consecutiveIdleTicks = 0
     private var routeSessionId: String?
     private var lastRouteEvidenceEvent: RouteEvidenceEvent?
+    private var automaticStartTicks = 0
 
     public init(
         sharedMemory: SharedAudioMemory? = SharedAudioMemory(),
@@ -308,8 +310,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             if attempt.isWithinAcceptedWindow {
                 logger("passthrough_bridge_started", startedDetail)
             } else {
-                stateStorage = .blocked("startup_timeout")
-                logger("passthrough_bridge_blocked", "startup exceeded 3000 ms")
+                logger("passthrough_bridge_started_slow", "startup exceeded 3000 ms; route active after successful bridge start")
             }
         } catch {
             stopHeartbeatTimer()
@@ -370,16 +371,21 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         timer.schedule(deadline: .now() + 0.5, repeating: 1.0)
         timer.setEventHandler { [weak self] in
             guard let self, self.bridge == nil else { return }
-            guard self.activityDetector.anyExpectedVirtualDeviceRunning() else { return }
+            self.automaticStartTicks += 1
+            let virtualDeviceRunning = self.activityDetector.anyExpectedVirtualDeviceRunning()
+            guard virtualDeviceRunning || self.automaticStartTicks >= Self.automaticClientDetectionGraceTicks else { return }
             _ = self.startRouteLocked(
                 selectedPhysicalInputId: selectedPhysicalInputId,
                 selectedPhysicalOutputId: selectedPhysicalOutputId,
-                reason: "virtual device client became active",
+                reason: virtualDeviceRunning
+                    ? "virtual device client became active"
+                    : "automatic route warmup after client detection grace",
                 startedDetail: "automatic non-recording route engine active",
                 logger: logger
             )
         }
         automaticStartTimer = timer
+        automaticStartTicks = 0
         recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.armed", state: .armed))
         timer.resume()
     }
@@ -574,6 +580,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
     private func stopAutomaticStartTimer() {
         automaticStartTimer?.cancel()
         automaticStartTimer = nil
+        automaticStartTicks = 0
     }
 
     private func stopHeartbeatTimer() {
