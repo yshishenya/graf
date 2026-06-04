@@ -304,8 +304,11 @@ UInt32 DeviceIsRunning(AudioObjectID device_id) {
 }
 
 UInt32 PublicDeviceIsHidden(AudioObjectID device_id) {
-    return TwoBrainRec::AudioDriver::IsMicrophoneDevice(device_id) ||
-        TwoBrainRec::AudioDriver::IsSpeakerDevice(device_id) ? 0 : 1;
+    if (!TwoBrainRec::AudioDriver::IsMicrophoneDevice(device_id) &&
+        !TwoBrainRec::AudioDriver::IsSpeakerDevice(device_id)) {
+        return 1;
+    }
+    return PrivateAppIOAvailable() ? 0 : 1;
 }
 
 std::atomic<uint64_t>* ClockAnchorForDevice(AudioObjectID device_id) {
@@ -864,6 +867,11 @@ OSStatus StartIO(AudioServerPlugInDriverRef, AudioObjectID in_device_id, UInt32)
     char buf[64];
     snprintf(buf, sizeof(buf), "StartIO device=%u", in_device_id);
     Trace(buf);
+    if (!PrivateAppIOAvailable()) {
+        snprintf(buf, sizeof(buf), "StartIO blocked_no_app_io device=%u", in_device_id);
+        Trace(buf);
+        return kAudioHardwareIllegalOperationError;
+    }
     auto* count = RunningClientCountForDevice(in_device_id);
     if (count != nullptr) {
         const UInt32 previous = count->fetch_add(1, std::memory_order_acq_rel);
