@@ -25,6 +25,16 @@ public final class SharedAudioMemory {
         public var checkedAt: Date
     }
 
+    public struct WriteIndexSnapshot: Codable, Equatable, Sendable {
+        public var micReadIndex: UInt64
+        public var micWriteIndex: UInt64
+        public var speakerReadIndex: UInt64
+        public var speakerWriteIndex: UInt64
+        public var captureReadIndex: UInt64
+        public var captureWriteIndex: UInt64
+        public var checkedAt: Date
+    }
+
     public struct StreamCounterSnapshot: Codable, Equatable, Sendable {
         public var capturedFrameCount: UInt64
         public var storedFrameCount: UInt64
@@ -189,6 +199,31 @@ public final class SharedAudioMemory {
         return layout.captureWriteIdx.pointee - layout.captureReadIdx.pointee
     }
 
+    public func writeIndexSnapshot(checkedAt: Date = Date()) -> WriteIndexSnapshot {
+        OSMemoryBarrier()
+        return WriteIndexSnapshot(
+            micReadIndex: layout.micReadIdx.pointee,
+            micWriteIndex: layout.micWriteIdx.pointee,
+            speakerReadIndex: layout.speakerReadIdx.pointee,
+            speakerWriteIndex: layout.speakerWriteIdx.pointee,
+            captureReadIndex: layout.captureReadIdx.pointee,
+            captureWriteIndex: layout.captureWriteIdx.pointee,
+            checkedAt: checkedAt
+        )
+    }
+
+    public func peekLatestMic(dst: UnsafeMutablePointer<Float>, count: Int) -> Int {
+        peekLatest(buffer: layout.micBuffer, writeIndex: layout.micWriteIdx.pointee, dst: dst, count: count)
+    }
+
+    public func peekLatestSpeaker(dst: UnsafeMutablePointer<Float>, count: Int) -> Int {
+        peekLatest(buffer: layout.speakerBuffer, writeIndex: layout.speakerWriteIdx.pointee, dst: dst, count: count)
+    }
+
+    public func peekLatestCapture(dst: UnsafeMutablePointer<Float>, count: Int) -> Int {
+        peekLatest(buffer: layout.captureBuffer, writeIndex: layout.captureWriteIdx.pointee, dst: dst, count: count)
+    }
+
     public func availabilitySnapshot(checkedAt: Date = Date()) -> AvailabilitySnapshot {
         AvailabilitySnapshot(
             micAvailableFrames: micAvailable(),
@@ -196,6 +231,22 @@ public final class SharedAudioMemory {
             captureAvailableFrames: captureAvailable(),
             checkedAt: checkedAt
         )
+    }
+
+    private func peekLatest(
+        buffer: UnsafeMutablePointer<Float>,
+        writeIndex: UInt64,
+        dst: UnsafeMutablePointer<Float>,
+        count: Int
+    ) -> Int {
+        OSMemoryBarrier()
+        guard count > 0, writeIndex > 0 else { return 0 }
+        let sampleCount = min(count, kSharedRingCapacity, Int(min(UInt64(kSharedRingCapacity), writeIndex)))
+        let start = writeIndex &- UInt64(sampleCount)
+        for index in 0..<sampleCount {
+            dst[index] = buffer[Int(start &+ UInt64(index)) & (kSharedRingCapacity - 1)]
+        }
+        return sampleCount
     }
 
     public func writeAppHeartbeat(at date: Date = Date()) {

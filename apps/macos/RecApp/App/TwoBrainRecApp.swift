@@ -51,6 +51,9 @@ private struct ContentView: View {
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var localRecordingLocation: String?
+    @State private var liveRecordingLevels = LiveRecordingLevels.inactive
+    @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
+    @State private var liveAudioSignalMonitor = LiveAudioSignalMonitor()
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -82,6 +85,8 @@ private struct ContentView: View {
                         blockedReason: recordingBlocker,
                         localRecordingStatus: localRecordingStatusText,
                         localRecordingLocation: localRecordingLocation,
+                        levels: liveRecordingLevels,
+                        routeSignalLevels: liveRouteSignalLevels,
                         onRecord: startManualRecording,
                         onStop: stopManualRecording
                     )
@@ -141,6 +146,19 @@ private struct ContentView: View {
                     }
                 }
             }
+        }
+        .onReceive(
+            Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+        ) { _ in
+            let recordingLevels = localRecordingWriter.currentLevels()
+            let routeLevels = PassthroughRouteEngine.shared.currentSignalLevels()
+            let routeState = PassthroughRouteEngine.shared.state
+            liveRecordingLevels = recordingLevels
+            liveRouteSignalLevels = liveAudioSignalMonitor.currentLevels(
+                routeActive: routeState == .active,
+                routeLevels: routeLevels,
+                recordingLevels: recordingLevels
+            )
         }
     }
 
@@ -212,6 +230,7 @@ private struct ContentView: View {
             )
             captureSession = active
             localRecordingLocation = directory.directoryURL.path
+            liveRecordingLevels = localRecordingWriter.currentLevels()
             recordingEvidenceEvents.append(
                 RecordingEvidenceService().event(
                     for: active,
@@ -241,6 +260,7 @@ private struct ContentView: View {
             let stopped = try captureController.completeStop()
             captureSession = stopped
             localRecordingManifest = manifest
+            liveRecordingLevels = .inactive
             recordingEvidenceEvents.append(
                 RecordingEvidenceService().event(
                     for: stopped,

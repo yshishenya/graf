@@ -11,6 +11,53 @@ public enum PassthroughBridgeError: Error {
     case sharedMemoryUnavailable
 }
 
+public struct LiveRouteSignalLevels: Equatable, Sendable {
+    public var isActive: Bool
+    public var microphoneLevel: Double
+    public var speakerLevel: Double
+    public var microphoneUpdatedAt: Date?
+    public var speakerUpdatedAt: Date?
+
+    public init(
+        isActive: Bool,
+        microphoneLevel: Double,
+        speakerLevel: Double,
+        microphoneUpdatedAt: Date?,
+        speakerUpdatedAt: Date?
+    ) {
+        self.isActive = isActive
+        self.microphoneLevel = Self.clamp(microphoneLevel)
+        self.speakerLevel = Self.clamp(speakerLevel)
+        self.microphoneUpdatedAt = microphoneUpdatedAt
+        self.speakerUpdatedAt = speakerUpdatedAt
+    }
+
+    public static let inactive = LiveRouteSignalLevels(
+        isActive: false,
+        microphoneLevel: 0,
+        speakerLevel: 0,
+        microphoneUpdatedAt: nil,
+        speakerUpdatedAt: nil
+    )
+
+    public func microphoneIsLive(now: Date = Date(), staleAfter: TimeInterval = 2) -> Bool {
+        isFresh(microphoneUpdatedAt, now: now, staleAfter: staleAfter)
+    }
+
+    public func speakerIsLive(now: Date = Date(), staleAfter: TimeInterval = 2) -> Bool {
+        isFresh(speakerUpdatedAt, now: now, staleAfter: staleAfter)
+    }
+
+    private func isFresh(_ date: Date?, now: Date, staleAfter: TimeInterval) -> Bool {
+        guard isActive, let date else { return false }
+        return now.timeIntervalSince(date) <= staleAfter
+    }
+
+    private static func clamp(_ value: Double) -> Double {
+        min(1, max(0, value.isFinite ? value : 0))
+    }
+}
+
 private func bridgeLog(_ msg: String) {
     let fd = open("/tmp/2brain-rec-bridge.log", O_CREAT | O_WRONLY | O_APPEND, 0644)
     guard fd >= 0 else { return }
@@ -34,6 +81,10 @@ public final class PassthroughBridge {
     fileprivate let scratchSampleCapacity: Int
     private var isRunning = false
     private var lastHeartbeatAt: Date?
+    fileprivate var lastMicLevel = 0.0
+    fileprivate var lastSpeakerLevel = 0.0
+    fileprivate var lastMicFrameTimestamp = 0.0
+    fileprivate var lastSpeakerFrameTimestamp = 0.0
     private let selectedPhysicalInputId: String?
     private let selectedPhysicalOutputId: String?
     private let queue = DispatchQueue(label: "com.2brainrec.passthrough", qos: .userInitiated)
@@ -120,6 +171,22 @@ public final class PassthroughBridge {
 
     public var passthroughActive: Bool { isRunning }
 
+    public func currentSignalLevels(now: Date = Date()) -> LiveRouteSignalLevels {
+        let micDate = lastMicFrameTimestamp > 0
+            ? Date(timeIntervalSinceReferenceDate: lastMicFrameTimestamp)
+            : nil
+        let speakerDate = lastSpeakerFrameTimestamp > 0
+            ? Date(timeIntervalSinceReferenceDate: lastSpeakerFrameTimestamp)
+            : nil
+        return LiveRouteSignalLevels(
+            isActive: isRunning,
+            microphoneLevel: lastMicLevel,
+            speakerLevel: lastSpeakerLevel,
+            microphoneUpdatedAt: micDate,
+            speakerUpdatedAt: speakerDate
+        )
+    }
+
     public static func startupAttemptEvidence(
         attemptId: String,
         trigger: StartupAttemptTrigger,
@@ -171,6 +238,28 @@ public final class PassthroughBridge {
     fileprivate func recordAppIOHeartbeat(at date: Date = Date()) {
         lastHeartbeatAt = date
         shm.writeAppHeartbeat(at: date)
+    }
+
+    fileprivate func recordMicLevel(samples: UnsafePointer<Float>, count: Int) {
+        guard count > 0 else { return }
+        lastMicLevel = Self.rmsLevel(samples: samples, count: count)
+        lastMicFrameTimestamp = Date.timeIntervalSinceReferenceDate
+    }
+
+    fileprivate func recordSpeakerLevel(samples: UnsafePointer<Float>, count: Int) {
+        guard count > 0 else { return }
+        lastSpeakerLevel = Self.rmsLevel(samples: samples, count: count)
+        lastSpeakerFrameTimestamp = Date.timeIntervalSinceReferenceDate
+    }
+
+    private static func rmsLevel(samples: UnsafePointer<Float>, count: Int) -> Double {
+        guard count > 0 else { return 0 }
+        var sum = 0.0
+        for index in 0..<count {
+            let sample = Double(samples[index])
+            sum += sample * sample
+        }
+        return min(1, sqrt(sum / Double(count)))
     }
 
     public func refreshAppIOHeartbeat(at date: Date = Date()) {
@@ -496,6 +585,7 @@ private let micInputCallback: AURenderCallback = { (inRefCon, ioActionFlags, inT
     }
 
     _ = bridge.shm.writeMic(src: bridge.micScratchBuffer, count: sampleCount)
+    bridge.recordMicLevel(samples: bridge.micScratchBuffer, count: sampleCount)
     return noErr
 }
 
@@ -514,6 +604,9 @@ private let speakerRenderCallback: AURenderCallback = { (inRefCon, ioActionFlags
     }
 
     let read = bridge.shm.readSpeaker(dst: bridge.speakerScratchBuffer, count: requestedSampleCount)
+    if read > 0 {
+        bridge.recordSpeakerLevel(samples: bridge.speakerScratchBuffer, count: read)
+    }
     if read < requestedSampleCount {
         memset(
             bridge.speakerScratchBuffer.advanced(by: read),

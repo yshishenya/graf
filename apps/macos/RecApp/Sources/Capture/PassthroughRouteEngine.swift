@@ -52,11 +52,18 @@ public protocol PassthroughBridgeControlling: AnyObject {
     func start() throws
     func stop()
     func refreshAppIOHeartbeat()
+    func currentSignalLevels(now: Date) -> LiveRouteSignalLevels
 }
 
 extension PassthroughBridge: PassthroughBridgeControlling {
     public func refreshAppIOHeartbeat() {
         refreshAppIOHeartbeat(at: Date())
+    }
+}
+
+public extension PassthroughBridgeControlling {
+    func currentSignalLevels(now: Date = Date()) -> LiveRouteSignalLevels {
+        .inactive
     }
 }
 
@@ -111,6 +118,12 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
 
     public var currentRouteSessionId: String? {
         queue.sync { routeSessionId }
+    }
+
+    public func currentSignalLevels(now: Date = Date()) -> LiveRouteSignalLevels {
+        queue.sync {
+            bridge?.currentSignalLevels(now: now) ?? .inactive
+        }
     }
 
     public func recordLaunchState(logger: Logger) -> PassthroughRouteEngineState {

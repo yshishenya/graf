@@ -6,6 +6,8 @@ public struct CaptureControlView: View {
     private let blockedReason: String?
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
+    private let levels: LiveRecordingLevels
+    private let routeSignalLevels: LiveRouteSignalLevels
     private let onRecord: () -> Void
     private let onStop: () -> Void
 
@@ -14,6 +16,8 @@ public struct CaptureControlView: View {
         blockedReason: String? = nil,
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
+        levels: LiveRecordingLevels = .inactive,
+        routeSignalLevels: LiveRouteSignalLevels = .inactive,
         onRecord: @escaping () -> Void,
         onStop: @escaping () -> Void
     ) {
@@ -21,22 +25,39 @@ public struct CaptureControlView: View {
         self.blockedReason = blockedReason
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
+        self.levels = levels
+        self.routeSignalLevels = routeSignalLevels
         self.onRecord = onRecord
         self.onStop = onStop
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let session {
-                CaptureStatusItem(session: session, onStop: onStop)
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            LiveRecordingMetersView(
+                levels: levels,
+                routeSignalLevels: routeSignalLevels
+            )
 
-            if Self.shouldShowRecordButton(for: session) {
-                Button(action: onRecord) {
-                    Label("Record", systemImage: "record.circle")
+            Divider()
+
+            HStack(alignment: .center, spacing: 12) {
+                if let session {
+                    CaptureStatusItem(session: session, onStop: onStop)
+                } else {
+                    Label("Recording idle", systemImage: "record.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .accessibilityLabel("Start recording")
+
+                Spacer()
+
+                if Self.shouldShowRecordButton(for: session) {
+                    Button(action: onRecord) {
+                        Label("Record", systemImage: "record.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Start recording")
+                }
             }
 
             if let blockedReason, !blockedReason.isEmpty {
@@ -62,10 +83,197 @@ public struct CaptureControlView: View {
                     .accessibilityLabel("Local recording location: \(localRecordingLocation)")
             }
         }
+        .padding(16)
     }
 
     public static func shouldShowRecordButton(for session: CaptureSession?) -> Bool {
         guard let session else { return true }
         return !CaptureStatusItem.showsStopButton(for: session)
+    }
+}
+
+private struct LiveRecordingMetersView: View {
+    let levels: LiveRecordingLevels
+    let routeSignalLevels: LiveRouteSignalLevels
+    private var now: Date { Date() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Live Audio")
+                        .font(.headline)
+                    Text(liveSummary)
+                        .font(.caption)
+                        .foregroundStyle(summaryColor)
+                }
+                Spacer()
+                Image(systemName: incomingIsLive ? "waveform.circle.fill" : "waveform.circle")
+                    .font(.title3)
+                    .foregroundStyle(summaryColor)
+            }
+
+            meterRow(
+                title: "Microphone",
+                detail: microphoneDetail,
+                icon: "mic.fill",
+                level: microphoneLevel,
+                isLive: microphoneIsLive,
+                warning: shouldWarnMicrophone
+            )
+            meterRow(
+                title: "Incoming",
+                detail: incomingDetail,
+                icon: "speaker.wave.2.fill",
+                level: incomingLevel,
+                isLive: incomingIsLive,
+                warning: shouldWarnIncoming
+            )
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var liveSummary: String {
+        guard levels.isRecording || routeSignalLevels.isActive else {
+            return "Waiting for route"
+        }
+        if microphoneIsLive && incomingIsLive {
+            return "Virtual mic and speaker are carrying audio"
+        }
+        if microphoneIsLive {
+            return "Virtual mic active, speaker silent"
+        }
+        if incomingIsLive {
+            return "Virtual speaker active, mic silent"
+        }
+        return "No virtual-device audio"
+    }
+
+    private var summaryColor: Color {
+        if incomingIsLive && microphoneIsLive {
+            return .green
+        }
+        if shouldWarnIncoming {
+            return .orange
+        }
+        return .secondary
+    }
+
+    private var microphoneDetail: String {
+        guard levels.isRecording || routeSignalLevels.isActive else { return "Waiting for live route" }
+        return microphoneIsLive
+            ? "2brain Rec Microphone is being read by the meeting app."
+            : "No meeting app is reading 2brain Rec Microphone."
+    }
+
+    private var incomingDetail: String {
+        guard levels.isRecording || routeSignalLevels.isActive else { return "Waiting for live route" }
+        if incomingIsLive {
+            return "2brain Rec Speaker is receiving meeting audio."
+        }
+        return "No audio is entering 2brain Rec Speaker."
+    }
+
+    private var microphoneLevel: Double {
+        max(levels.microphoneLevel, routeSignalLevels.microphoneLevel)
+    }
+
+    private var incomingLevel: Double {
+        max(levels.incomingLevel, routeSignalLevels.speakerLevel)
+    }
+
+    private var microphoneIsLive: Bool {
+        levels.microphoneIsLive(now: now, staleAfter: 0.45) ||
+            routeSignalLevels.microphoneIsLive(now: now, staleAfter: 0.45)
+    }
+
+    private var incomingIsLive: Bool {
+        levels.incomingIsLive(now: now, staleAfter: 0.45) ||
+            routeSignalLevels.speakerIsLive(now: now, staleAfter: 0.45)
+    }
+
+    private var shouldWarnIncoming: Bool {
+        (levels.isRecording || routeSignalLevels.isActive) && !incomingIsLive
+    }
+
+    private var shouldWarnMicrophone: Bool {
+        (levels.isRecording || routeSignalLevels.isActive) && !microphoneIsLive
+    }
+
+    private func meterRow(
+        title: String,
+        detail: String,
+        icon: String,
+        level: Double,
+        isLive: Bool,
+        warning: Bool
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(warning ? .orange : (isLive ? .green : .secondary))
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text(isLive ? "Routed" : "Not routed")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(warning ? .orange : (isLive ? .green : .secondary))
+                }
+                EqualizerBars(level: level, isLive: isLive, warning: warning)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(warning ? .orange : .secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(detail)")
+    }
+}
+
+private struct EqualizerBars: View {
+    let level: Double
+    let isLive: Bool
+    let warning: Bool
+
+    private let bars = 14
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 3) {
+            ForEach(0..<bars, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color(for: index))
+                    .frame(width: 7, height: height(for: index))
+            }
+        }
+        .frame(height: 28, alignment: .bottom)
+        .animation(.linear(duration: 0.05), value: level)
+        .animation(.linear(duration: 0.05), value: isLive)
+    }
+
+    private func height(for index: Int) -> CGFloat {
+        let base = CGFloat(4 + (index % 3))
+        guard isLive else { return base }
+        let displayLevel = min(1, pow(max(level, 0) * 7, 0.72))
+        let activeBars = max(1, Int((displayLevel * Double(bars)).rounded(.up)))
+        guard index < activeBars else { return base }
+        let shape = CGFloat([0.42, 0.7, 1.0, 0.56, 0.84][index % 5])
+        return 7 + CGFloat(displayLevel) * 22 * shape
+    }
+
+    private func color(for index: Int) -> Color {
+        guard isLive else {
+            return warning ? .orange.opacity(0.28) : .secondary.opacity(0.22)
+        }
+        let displayLevel = min(1, pow(max(level, 0) * 7, 0.72))
+        if index < max(1, Int((displayLevel * Double(bars)).rounded(.up))) {
+            return warning ? .orange : .green
+        }
+        return .secondary.opacity(0.18)
     }
 }

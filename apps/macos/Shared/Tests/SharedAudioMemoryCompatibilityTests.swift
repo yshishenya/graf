@@ -30,5 +30,28 @@ final class SharedAudioMemoryCompatibilityTests: XCTestCase {
     func testRingWritableSampleCountTracksUnreadDistance() {
         XCTAssertEqual(SharedRingPolicy.writableSampleCount(writeIndex: 10, readIndex: 6, capacity: 8), 4)
     }
+
+    func testPeekLatestSamplesDoesNotConsumeMicRing() throws {
+        guard let memory = SharedAudioMemory() else {
+            throw XCTSkip("Shared memory is unavailable in this environment")
+        }
+        var samples: [Float] = [0.1, 0.2, 0.3, 0.4]
+        XCTAssertTrue(samples.withUnsafeBufferPointer { buffer in
+            memory.writeMic(src: buffer.baseAddress!, count: buffer.count)
+        })
+        let before = memory.writeIndexSnapshot()
+        let availableBefore = memory.micAvailable()
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 2)
+        defer { scratch.deallocate() }
+
+        let read = memory.peekLatestMic(dst: scratch, count: 2)
+        let after = memory.writeIndexSnapshot()
+        let availableAfter = memory.micAvailable()
+
+        XCTAssertEqual(read, 2)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 2)), [0.3, 0.4])
+        XCTAssertEqual(before.micWriteIndex, after.micWriteIndex)
+        XCTAssertEqual(availableBefore, availableAfter)
+    }
 }
 #endif

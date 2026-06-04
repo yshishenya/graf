@@ -8,6 +8,53 @@ public enum LocalRecordingWriterError: Error {
     case directoryUnavailable
 }
 
+public struct LiveRecordingLevels: Equatable, Sendable {
+    public var isRecording: Bool
+    public var microphoneLevel: Double
+    public var incomingLevel: Double
+    public var microphoneUpdatedAt: Date?
+    public var incomingUpdatedAt: Date?
+
+    public init(
+        isRecording: Bool,
+        microphoneLevel: Double,
+        incomingLevel: Double,
+        microphoneUpdatedAt: Date?,
+        incomingUpdatedAt: Date?
+    ) {
+        self.isRecording = isRecording
+        self.microphoneLevel = Self.clamp(microphoneLevel)
+        self.incomingLevel = Self.clamp(incomingLevel)
+        self.microphoneUpdatedAt = microphoneUpdatedAt
+        self.incomingUpdatedAt = incomingUpdatedAt
+    }
+
+    public static let inactive = LiveRecordingLevels(
+        isRecording: false,
+        microphoneLevel: 0,
+        incomingLevel: 0,
+        microphoneUpdatedAt: nil,
+        incomingUpdatedAt: nil
+    )
+
+    public func microphoneIsLive(now: Date = Date(), staleAfter: TimeInterval = 2) -> Bool {
+        isFresh(microphoneUpdatedAt, now: now, staleAfter: staleAfter)
+    }
+
+    public func incomingIsLive(now: Date = Date(), staleAfter: TimeInterval = 2) -> Bool {
+        isFresh(incomingUpdatedAt, now: now, staleAfter: staleAfter)
+    }
+
+    private func isFresh(_ date: Date?, now: Date, staleAfter: TimeInterval) -> Bool {
+        guard isRecording, let date else { return false }
+        return now.timeIntervalSince(date) <= staleAfter
+    }
+
+    private static func clamp(_ value: Double) -> Double {
+        min(1, max(0, value.isFinite ? value : 0))
+    }
+}
+
 public final class LocalRecordingWriter {
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
@@ -32,6 +79,28 @@ public final class LocalRecordingWriter {
         queue.sync { active != nil }
     }
 
+    public func currentLevels(now: Date = Date()) -> LiveRecordingLevels {
+        queue.sync {
+            guard let active else { return .inactive }
+            var microphoneLevel = active.lastMicrophoneLevel
+            var microphoneUpdatedAt = active.lastMicrophoneFrameAt
+            if let recorder = active.microphoneRecorder, recorder.isRecording {
+                recorder.updateMeters()
+                microphoneLevel = Self.normalizedPower(recorder.averagePower(forChannel: 0))
+                microphoneUpdatedAt = now
+                active.lastMicrophoneLevel = microphoneLevel
+                active.lastMicrophoneFrameAt = now
+            }
+            return LiveRecordingLevels(
+                isRecording: true,
+                microphoneLevel: microphoneLevel,
+                incomingLevel: active.lastIncomingLevel,
+                microphoneUpdatedAt: microphoneUpdatedAt,
+                incomingUpdatedAt: active.lastIncomingFrameAt
+            )
+        }
+    }
+
     public func start(sessionId: String, startedAt: Date) throws -> LocalRecordingDirectory {
         try queue.sync {
             guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
@@ -44,6 +113,7 @@ public final class LocalRecordingWriter {
 
             let microphone = try Self.makeMicrophoneRecorder(url: directory.localMicURL)
             if recordMicrophone {
+                microphone?.isMeteringEnabled = true
                 microphone?.record()
             } else {
                 FileManager.default.createFile(atPath: directory.localMicURL.path, contents: nil)
@@ -61,6 +131,8 @@ public final class LocalRecordingWriter {
                 let read = sharedMemory.readCapture(dst: active.scratch, count: available)
                 if read > 0 {
                     try? active.remoteWriter.write(samples: active.scratch, count: read)
+                    active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: read)
+                    active.lastIncomingFrameAt = Date()
                 }
             }
 
@@ -170,8 +242,27 @@ public final class LocalRecordingWriter {
             AVLinearPCMIsBigEndianKey: false
         ]
         let recorder = try AVAudioRecorder(url: url, settings: settings)
+        recorder.isMeteringEnabled = true
         recorder.prepareToRecord()
         return recorder
+    }
+
+    private static func normalizedPower(_ decibels: Float) -> Double {
+        guard decibels.isFinite else { return 0 }
+        let floor: Float = -60
+        if decibels <= floor { return 0 }
+        if decibels >= 0 { return 1 }
+        return Double((decibels - floor) / -floor)
+    }
+
+    private static func rmsLevel(samples: UnsafePointer<Float>, count: Int) -> Double {
+        guard count > 0 else { return 0 }
+        var sum: Double = 0
+        for index in 0..<count {
+            let sample = Double(samples[index])
+            sum += sample * sample
+        }
+        return min(1, sqrt(sum / Double(count)))
     }
 }
 
@@ -185,6 +276,10 @@ private final class ActiveRecording {
     let timer: DispatchSourceTimer
     let scratch: UnsafeMutablePointer<Float>
     let scratchCapacity: Int
+    var lastMicrophoneLevel: Double
+    var lastIncomingLevel: Double
+    var lastMicrophoneFrameAt: Date?
+    var lastIncomingFrameAt: Date?
 
     init(
         sessionId: String,
@@ -206,6 +301,10 @@ private final class ActiveRecording {
         self.timer = timer
         self.scratch = scratch
         self.scratchCapacity = scratchCapacity
+        self.lastMicrophoneLevel = 0
+        self.lastIncomingLevel = 0
+        self.lastMicrophoneFrameAt = nil
+        self.lastIncomingFrameAt = nil
     }
 }
 

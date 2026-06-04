@@ -55,6 +55,41 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertEqual(header.sampleRate, 16_000)
         XCTAssertEqual(header.bitsPerSample, 16)
     }
+
+    func testWriterReportsInactiveLevelsWhenIdle() {
+        let writer = LocalRecordingWriter(recordMicrophone: false)
+
+        let levels = writer.currentLevels(now: Date(timeIntervalSince1970: 10))
+
+        XCTAssertFalse(levels.isRecording)
+        XCTAssertEqual(levels.microphoneLevel, 0)
+        XCTAssertEqual(levels.incomingLevel, 0)
+        XCTAssertFalse(levels.microphoneIsLive(now: Date(timeIntervalSince1970: 10)))
+        XCTAssertFalse(levels.incomingIsLive(now: Date(timeIntervalSince1970: 10)))
+    }
+
+    func testWriterReportsRecordingLevelsWithoutInventingIncomingFrames() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-writer-level-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            sharedMemoryFactory: { nil },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        let levels = writer.currentLevels(now: Date(timeIntervalSince1970: 11))
+        _ = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        XCTAssertTrue(levels.isRecording)
+        XCTAssertEqual(levels.microphoneLevel, 0)
+        XCTAssertEqual(levels.incomingLevel, 0)
+        XCTAssertFalse(levels.incomingIsLive(now: Date(timeIntervalSince1970: 11)))
+    }
 }
 
 private struct WAVHeader {
