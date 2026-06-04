@@ -55,10 +55,10 @@
 - [ ] T026 [P] Create artifact fixture generator helper in `apps/server/tests/fixtures/artifacts.py`
 - [ ] T027 Create health route skeleton for liveness and ingest readiness in `apps/server/src/twobrain_rec_server/api/health.py`
 - [ ] T028 Create base Pydantic API request/response schemas for health, problem errors, meeting, upload session, upload parts, missing ranges, finalize, and abort in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T029 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/security.md`
-- [ ] T030 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/infra.md`
-- [ ] T031 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/ux.md`
-- [ ] T032 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/driver.md`
+- [X] T029 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/security.md`
+- [X] T030 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/infra.md`
+- [X] T031 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/ux.md`
+- [X] T032 Complete pre-implementation requirement-quality review and mark resolved or explicitly risk-accepted items in `specs/012-server-ingest-foundation/checklists/driver.md`
 
 **Checkpoint**: Foundation and requirement-quality gates ready; user story implementation can start only after T029-T032 are complete or their remaining risks are explicitly accepted.
 
