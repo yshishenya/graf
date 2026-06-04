@@ -3,6 +3,7 @@ from typing import NoReturn
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import TrackDescriptor
 from twobrain_rec_server.auth.context import TenantScope

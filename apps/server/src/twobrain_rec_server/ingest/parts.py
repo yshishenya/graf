@@ -3,7 +3,9 @@ from io import BytesIO
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.api.upload_stream import BoundedUploadBody
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import TrackRole, UploadSessionStatus
@@ -51,7 +53,7 @@ async def accept_part(
     part_number: int,
     byte_offset: int,
     content_sha256: str,
-    data: bytes,
+    data: BoundedUploadBody | bytes,
 ) -> UploadPartRecord:
     if part_number < 0:
         raise ProblemDetail(status=400, code="invalid_part_number", title="Part number must be non-negative")
@@ -63,23 +65,41 @@ async def accept_part(
         ensure_can_accept_part(session.status)
     except ValueError as exc:
         raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal") from exc
+    if isinstance(data, bytes):
+        actual_sha = sha256(data).hexdigest()
+        byte_length = len(data)
+        stream = None
+    else:
+        actual_sha = data.sha256
+        byte_length = data.byte_length
+        stream = data.stream
+
+    def close_upload_stream() -> None:
+        if stream is not None:
+            stream.close()
+
     try:
-        validate_track_bytes(settings, len(data))
+        if byte_length > settings.max_upload_part_bytes:
+            close_upload_stream()
+            raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
+        validate_track_bytes(settings, byte_length)
     except IngestLimitViolation as exc:
+        close_upload_stream()
         raise ProblemDetail(
             status=413,
             code=exc.code,
             title="Track byte limit exceeded",
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
-    actual_sha = sha256(data).hexdigest()
     if actual_sha != content_sha256:
+        close_upload_stream()
         raise ProblemDetail(status=400, code="checksum_mismatch", title="Checksum mismatch")
 
     part_key = (track_role, part_number)
     existing = session.parts.get(part_key)
     if existing:
-        if existing.sha256 == content_sha256 and existing.byte_length == len(data) and existing.byte_offset == byte_offset:
+        if existing.sha256 == content_sha256 and existing.byte_length == byte_length and existing.byte_offset == byte_offset:
+            close_upload_stream()
             return existing
         conflict_code = "checksum_conflict" if existing.byte_offset == byte_offset else "range_conflict"
         conflict_title = "Checksum conflict" if conflict_code == "checksum_conflict" else "Upload part replay conflicts with accepted range"
@@ -93,12 +113,14 @@ async def accept_part(
             metadata={"track_role": track_role.value, "part_number": part_number},
         )
         await persist_audit_event(db, event)
+        close_upload_stream()
         raise ProblemDetail(status=409, code=conflict_code, title=conflict_title)
 
     new_start = byte_offset
-    new_end = byte_offset + len(data)
+    new_end = byte_offset + byte_length
     expected_size = session.expected_track_sizes.get(track_role)
     if expected_size is not None and new_end > expected_size:
+        close_upload_stream()
         raise ProblemDetail(status=409, code="expected_track_size_exceeded", title="Upload part exceeds expected track size")
     accepted_track_bytes = 0
     accepted_package_bytes = 0
@@ -109,10 +131,13 @@ async def accept_part(
             accepted_start = accepted_part.byte_offset
             accepted_end = accepted_part.byte_offset + accepted_part.byte_length
             if new_start < accepted_end and new_end > accepted_start:
+                close_upload_stream()
                 raise ProblemDetail(status=409, code="range_overlap", title="Upload part overlaps an accepted range")
-    if accepted_track_bytes + len(data) > settings.max_track_bytes:
+    if accepted_track_bytes + byte_length > settings.max_track_bytes:
+        close_upload_stream()
         raise ProblemDetail(status=413, code="track_bytes_exceeded", title="Track byte limit exceeded")
-    if accepted_package_bytes + len(data) > settings.max_package_bytes:
+    if accepted_package_bytes + byte_length > settings.max_package_bytes:
+        close_upload_stream()
         raise ProblemDetail(status=413, code="package_bytes_exceeded", title="Package byte limit exceeded")
 
     meeting = store_module.store.meetings[session.meeting_id]
@@ -132,17 +157,22 @@ async def accept_part(
             elif hasattr(storage, "ensure_bucket"):
                 storage.ensure_bucket()
             put_stream_async = getattr(storage, "put_stream_async", None)
+            upload_stream = stream
+            if upload_stream is None:
+                upload_stream = BytesIO(data)
+            upload_stream.seek(0)
             if put_stream_async is not None:
-                await put_stream_async(object_key, BytesIO(data), len(data))
+                await put_stream_async(object_key, upload_stream, byte_length)
             else:
-                storage.put_stream(object_key, BytesIO(data), len(data))
+                storage.put_stream(object_key, upload_stream, byte_length)
         except Exception as exc:
+            close_upload_stream()
             raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable") from exc
     part = UploadPartRecord(
         track_role=track_role,
         part_number=part_number,
         byte_offset=byte_offset,
-        byte_length=len(data),
+        byte_length=byte_length,
         sha256=content_sha256,
         object_key=object_key,
         data=b"",
@@ -157,7 +187,7 @@ async def accept_part(
         upload_session_id=session.id,
         actor_user_id=tenant_scope.user_id,
         device_id=tenant_scope.device_id,
-        metadata={"track_role": track_role.value, "part_number": part_number, "byte_length": len(data)},
+        metadata={"track_role": track_role.value, "part_number": part_number, "byte_length": byte_length},
     )
     try:
         await persist_upload_session(db, session, settings)
@@ -171,6 +201,8 @@ async def accept_part(
             failure_reason="db_persistence_failed_after_object_write",
             last_error=type(exc).__name__,
         )
+        close_upload_stream()
         raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
     await persist_audit_event(db, event)
+    close_upload_stream()
     return part

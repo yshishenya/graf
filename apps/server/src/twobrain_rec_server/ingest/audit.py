@@ -2,6 +2,17 @@ from uuid import UUID
 
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.store import AuditEvent
+from twobrain_rec_server.observability.redaction import redact_mapping
+
+
+def _truncate_metadata(value: object) -> object:
+    if isinstance(value, str):
+        return value[:240]
+    if isinstance(value, dict):
+        return {str(key)[:120]: _truncate_metadata(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_truncate_metadata(item) for item in value]
+    return value
 
 
 def record_audit_event(
@@ -14,13 +25,7 @@ def record_audit_event(
     device_id: UUID | None = None,
     metadata: dict[str, object] | None = None,
 ) -> AuditEvent:
-    safe_metadata = metadata or {}
-    forbidden_keys = {"raw_audio", "transcript", "token", "authorization", "secret", "password"}
-    filtered = {
-        key[:120]: value[:240] if isinstance(value, str) else value
-        for key, value in safe_metadata.items()
-        if key.lower() not in forbidden_keys
-    }
+    filtered = _truncate_metadata(redact_mapping(metadata or {}))
     event = AuditEvent(
         event_type=event_type,
         workspace_id=workspace_id,

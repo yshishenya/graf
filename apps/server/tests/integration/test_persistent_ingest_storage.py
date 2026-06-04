@@ -1,8 +1,11 @@
 from hashlib import sha256
 from uuid import UUID
 
-import twobrain_rec_server.ingest.store as store_module
 from sqlalchemy import func, select
+
+import twobrain_rec_server.ingest.store as store_module
+from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
     ManifestSnapshot,
@@ -13,9 +16,6 @@ from twobrain_rec_server.db.models import (
     UploadSession,
 )
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
-
-from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 
 
 def test_ingest_metadata_is_persisted_to_database(client) -> None:

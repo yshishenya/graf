@@ -1,9 +1,26 @@
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+
 from twobrain_rec_server.api.schemas import HealthResponse, ReadyDetailResponse, ReadyResponse
 
 router = APIRouter(prefix="/api/v1/health", tags=["health"])
+
+REQUIRED_INGEST_TABLES = (
+    "organizations",
+    "workspaces",
+    "user_identities",
+    "workspace_memberships",
+    "registered_devices",
+    "meetings",
+    "upload_sessions",
+    "upload_parts",
+    "track_artifacts",
+    "manifest_snapshots",
+    "processing_placeholders",
+    "temporary_upload_objects",
+    "ingest_audit_events",
+)
 
 
 @router.get("/live", response_model=HealthResponse)
@@ -21,6 +38,8 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         try:
             async with sessionmaker() as session:
                 await session.execute(text("SELECT 1"))
+                for table_name in REQUIRED_INGEST_TABLES:
+                    await session.execute(text(f"SELECT 1 FROM {table_name} LIMIT 1"))
             postgres_status = "ok"
         except Exception:
             postgres_status = "unreachable"

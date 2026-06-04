@@ -1,5 +1,6 @@
-import twobrain_rec_server.main as main_module
 from fastapi.testclient import TestClient
+
+import twobrain_rec_server.main as main_module
 from twobrain_rec_server.config import Settings
 
 

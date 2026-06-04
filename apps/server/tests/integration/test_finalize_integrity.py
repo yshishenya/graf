@@ -3,10 +3,10 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from twobrain_rec_server.db.models import IngestAuditEvent, Meeting, UploadSession
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
+from twobrain_rec_server.db.models import IngestAuditEvent, Meeting, UploadSession
 
 
 def _create_session_with_parts(

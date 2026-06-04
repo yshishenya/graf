@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from twobrain_rec_server.api.schemas import (
     AbortUploadRequest,
     CreateMeetingRequest,
@@ -179,7 +180,8 @@ async def put_part(
     data = await read_bounded_upload_body(
         request,
         expected_sha256=x_content_sha256,
-        max_bytes=request.app.state.settings.max_track_bytes,
+        max_bytes=request.app.state.settings.max_upload_part_bytes,
+        spool_memory_bytes=request.app.state.settings.max_upload_spool_memory_bytes,
     )
     part = await accept_part(
         settings=request.app.state.settings,

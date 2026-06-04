@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import Depends, Header, Request
+
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.db.models import (

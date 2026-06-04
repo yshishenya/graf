@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     max_recording_duration_seconds: PositiveInt = Field(default=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
+    max_upload_part_bytes: PositiveInt = Field(default=67_108_864)
+    max_upload_spool_memory_bytes: PositiveInt = Field(default=8_388_608)
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
 
     redact_headers: tuple[str, ...] = (

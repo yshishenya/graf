@@ -1,19 +1,18 @@
 from uuid import UUID
 
-from twobrain_rec_server.db.models import (
-    Organization,
-    RegisteredDevice,
-    UserIdentity,
-    Workspace,
-    WorkspaceMembership,
-)
-
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import (
     FORGED_USER_ID,
     ORG_ID,
     REVOKED_DEVICE_ID,
     WORKSPACE_ID,
+)
+from twobrain_rec_server.db.models import (
+    Organization,
+    RegisteredDevice,
+    UserIdentity,
+    Workspace,
+    WorkspaceMembership,
 )
 
 OTHER_WORKSPACE = UUID("20000000-0000-0000-0000-000000000099")

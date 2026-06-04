@@ -3,6 +3,7 @@ from typing import BinaryIO
 
 from anyio import to_thread
 from minio import Minio
+
 from twobrain_rec_server.config import Settings, get_settings
 
 

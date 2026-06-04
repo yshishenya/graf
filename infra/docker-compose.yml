@@ -34,12 +34,46 @@ services:
           cpus: "2.0"
           memory: 2g
     depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
       rec-postgres:
         condition: service_healthy
       rec-minio:
         condition: service_healthy
       rec-minio-init:
         condition: service_completed_successfully
+    networks:
+      - rec-private
+
+  rec-migrate:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: "no"
+    env_file:
+      - ../apps/server/.env.example
+    environment:
+      TWOBRAIN_ENV: production
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:${TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment}@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: ${TWOBRAIN_MINIO_API_ACCESS_KEY:?set in deployment environment}
+      TWOBRAIN_MINIO_SECRET_KEY: ${TWOBRAIN_MINIO_API_SECRET_KEY:?set in deployment environment}
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      rec-postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
     networks:
       - rec-private
 

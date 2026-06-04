@@ -105,8 +105,8 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=64), nullable=False, server_default="pending"),
         sa.Column("processing_status", sa.String(length=64), nullable=False, server_default="not_submitted"),
         sa.Column("idempotency_key", sa.String(length=240)),
-        sa.Column("expected_track_roles", sa.JSON(), nullable=False, server_default=sa.text("'[]'::json")),
-        sa.Column("expected_track_sizes", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+        sa.Column("expected_track_roles", sa.JSON(), nullable=False, server_default=sa.text("'[]'")),
+        sa.Column("expected_track_sizes", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
         sa.Column("max_package_bytes_snapshot", sa.BigInteger(), nullable=False),
         sa.Column("max_track_bytes_snapshot", sa.BigInteger(), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
@@ -177,7 +177,7 @@ def upgrade() -> None:
         sa.Column("actor_user_id", sa.Uuid(), sa.ForeignKey("user_identities.id")),
         sa.Column("device_id", sa.Uuid(), sa.ForeignKey("registered_devices.id")),
         sa.Column("event_type", sa.String(length=120), nullable=False),
-        sa.Column("metadata_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+        sa.Column("metadata_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
 

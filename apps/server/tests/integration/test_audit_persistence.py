@@ -1,12 +1,12 @@
 from uuid import UUID
 
 from sqlalchemy import select
-from twobrain_rec_server.db.models import IngestAuditEvent
-from twobrain_rec_server.ingest.audit import record_audit_event
-from twobrain_rec_server.ingest.store import persist_audit_event
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from twobrain_rec_server.db.models import IngestAuditEvent
+from twobrain_rec_server.ingest.audit import record_audit_event
+from twobrain_rec_server.ingest.store import persist_audit_event
 
 
 def test_ingest_audit_events_persist_actor_user_and_device(client) -> None:
@@ -74,8 +74,35 @@ def test_ingest_audit_events_preserve_operation_order_content_and_redaction(clie
     assert events[0].metadata_json == {"local_recording_id": "audit-order-content"}
     assert events[1].meeting_id == UUID(meeting["meeting_id"])
     assert events[1].upload_session_id == UUID(session["session_id"])
-    assert events[2].metadata_json == {"safe_key": "safe value", "very_long": "x" * 240}
+    assert events[2].metadata_json == {
+        "safe_key": "safe value",
+        "token": "[REDACTED]",
+        "authorization": "[REDACTED]",
+        "very_long": "x" * 240,
+    }
     for event in events:
         assert event.workspace_id == WORKSPACE_ID
         assert event.actor_user_id == USER_ID
         assert event.device_id == DEVICE_ID
+
+
+def test_ingest_audit_redacts_nested_and_substring_secret_metadata() -> None:
+    event = record_audit_event(
+        event_type="manual_nested_redaction_probe",
+        workspace_id=WORKSPACE_ID,
+        actor_user_id=USER_ID,
+        device_id=DEVICE_ID,
+        metadata={
+            "api_token": "must-not-persist",
+            "minio_secret_key": "must-not-persist",
+            "signed_url": "https://example.test/secret",
+            "safe": {"status": "ok", "nested_password": "must-not-persist"},
+            "items": [{"authorization_header": "Bearer secret", "byte_length": 4}],
+        },
+    )
+
+    assert event.metadata["api_token"] == "[REDACTED]"
+    assert event.metadata["minio_secret_key"] == "[REDACTED]"
+    assert event.metadata["signed_url"] == "[REDACTED]"
+    assert event.metadata["safe"] == {"status": "ok", "nested_password": "[REDACTED]"}
+    assert event.metadata["items"] == [{"authorization_header": "[REDACTED]", "byte_length": 4}]

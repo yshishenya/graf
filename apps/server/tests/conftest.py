@@ -1,9 +1,12 @@
 import asyncio
 
 import pytest
-import twobrain_rec_server.ingest.store as store_module
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+import twobrain_rec_server.ingest.store as store_module
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, REVOKED_DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.base import Base
 from twobrain_rec_server.db.models import (
@@ -15,9 +18,6 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
 from twobrain_rec_server.main import create_app
-
-from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, REVOKED_DEVICE_ID, USER_ID, WORKSPACE_ID
-from tests.fakes.fake_minio import FakeMinioStorage
 
 
 @pytest.fixture

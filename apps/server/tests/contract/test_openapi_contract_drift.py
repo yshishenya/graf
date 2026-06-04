@@ -31,3 +31,11 @@ def test_readiness_contract_has_public_503_and_internal_detail(client) -> None:
     assert "checks" in schema["components"]["schemas"]["ReadyDetailResponse"]["properties"]
     assert "200" in internal_ready
     assert "503" in internal_ready
+
+
+def test_validation_error_schema_matches_current_toolchain(client) -> None:
+    schema = client.get("/openapi.json").json()
+    validation_error = schema["components"]["schemas"]["ValidationError"]["properties"]
+
+    assert "input" in validation_error
+    assert "ctx" in validation_error

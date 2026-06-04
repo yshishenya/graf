@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
+
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.observability.redaction import redact_mapping
 

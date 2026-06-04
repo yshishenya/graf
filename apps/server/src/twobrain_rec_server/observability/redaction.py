@@ -25,6 +25,8 @@ def redact_mapping(values: Mapping[str, Any]) -> dict[str, Any]:
             redacted[key] = "[REDACTED]"
         elif isinstance(value, Mapping):
             redacted[key] = redact_mapping(value)
+        elif isinstance(value, list):
+            redacted[key] = [redact_mapping(item) if isinstance(item, Mapping) else item for item in value]
         else:
             redacted[key] = value
     return redacted

@@ -3,6 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints
+
 from twobrain_rec_server.domain.statuses import (
     MeetingStatus,
     ProcessingStatus,

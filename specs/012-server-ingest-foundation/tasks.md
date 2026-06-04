@@ -353,24 +353,24 @@
 
 ### Tests And Proof Gates
 
-- [ ] T181 [P] Add an empty-schema readiness regression test proving `/api/v1/health/ready` returns `503 not_ready` until required ingest tables or Alembic version state exist in `apps/server/tests/integration/test_health_readiness.py`
-- [ ] T182 [P] Add migration bootstrap proof that starts from a clean database, runs the documented Alembic path, and then proves identity seeding plus `/api/v1/meetings` works without `Base.metadata.create_all` in `apps/server/tests/integration/test_postgres_migrations.py`
-- [ ] T183 [P] Add upload memory/part-size tests proving successful large upload parts are not accumulated as a full in-memory `bytes` object and that configured part limits fail before MinIO writes in `apps/server/tests/integration/test_streaming_upload.py`
-- [ ] T184 [P] Add current-toolchain OpenAPI drift assertions for FastAPI/Pydantic `ValidationError.input` and `ValidationError.ctx` fields so runtime `/openapi.json` and `specs/012-server-ingest-foundation/contracts/openapi.yaml` stay aligned in `apps/server/tests/contract/test_openapi_contract_drift.py`
-- [ ] T185 [P] Add recursive audit redaction tests for substring secret keys, nested metadata, `api_token`, `minio_secret_key`, `signed_url`, and content-bearing fields in `apps/server/tests/integration/test_audit_persistence.py`
-- [ ] T186 [P] Add lint/toolchain reproducibility coverage or lockfile policy proving `uv run --extra dev ruff check .` uses a deterministic supported Ruff version and import ordering in `apps/server/pyproject.toml`
+- [X] T181 [P] Add an empty-schema readiness regression test proving `/api/v1/health/ready` returns `503 not_ready` until required ingest tables or Alembic version state exist in `apps/server/tests/integration/test_health_readiness.py`
+- [X] T182 [P] Add migration bootstrap proof that starts from a clean database, runs the documented Alembic path, and then proves identity seeding plus `/api/v1/meetings` works without `Base.metadata.create_all` in `apps/server/tests/integration/test_postgres_migrations.py`
+- [X] T183 [P] Add upload memory/part-size tests proving successful large upload parts are not accumulated as a full in-memory `bytes` object and that configured part limits fail before MinIO writes in `apps/server/tests/integration/test_streaming_upload.py`
+- [X] T184 [P] Add current-toolchain OpenAPI drift assertions for FastAPI/Pydantic `ValidationError.input` and `ValidationError.ctx` fields so runtime `/openapi.json` and `specs/012-server-ingest-foundation/contracts/openapi.yaml` stay aligned in `apps/server/tests/contract/test_openapi_contract_drift.py`
+- [X] T185 [P] Add recursive audit redaction tests for substring secret keys, nested metadata, `api_token`, `minio_secret_key`, `signed_url`, and content-bearing fields in `apps/server/tests/integration/test_audit_persistence.py`
+- [X] T186 [P] Add lint/toolchain reproducibility coverage or lockfile policy proving `uv run --extra dev ruff check .` uses a deterministic supported Ruff version and import ordering in `apps/server/pyproject.toml`
 
 ### Implementation Remediation
 
-- [ ] T187 Add a documented Alembic migration bootstrap path for local and production Compose, either as a one-shot migration service or explicit entrypoint command, in `infra/docker-compose.yml`
-- [ ] T188 Make readiness schema-aware and fail closed when required ingest tables or Alembic version state are missing instead of only executing `SELECT 1` in `apps/server/src/twobrain_rec_server/api/health.py`
-- [ ] T189 Add explicit configurable upload part-size limits separate from full track/package limits and expose the setting in `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T190 Replace successful upload full-body buffering with a bounded spool/streaming checksum path that does not return a full track-sized `bytes` object before MinIO persistence in `apps/server/src/twobrain_rec_server/api/upload_stream.py`
-- [ ] T191 Update upload part acceptance to consume the new bounded stream/spool contract and preserve checksum, object-key, cleanup-accounting, idempotency, and range semantics in `apps/server/src/twobrain_rec_server/ingest/parts.py`
-- [ ] T192 Regenerate and commit the runtime-aligned OpenAPI contract after the current toolchain changes in `specs/012-server-ingest-foundation/contracts/openapi.yaml`
-- [ ] T193 Fix Ruff import-order violations under the current supported dev toolchain across `apps/server/src/twobrain_rec_server/`
-- [ ] T194 Harden audit metadata filtering by reusing recursive redaction semantics and substring secret/content matching in `apps/server/src/twobrain_rec_server/ingest/audit.py`
-- [ ] T195 Run full final validation (`pytest`, Ruff, compileall, dev/prod Compose config, empty-schema readiness smoke, OpenAPI drift, secret/content scan) and update evidence plus remaining-risk notes in `specs/012-server-ingest-foundation/quickstart.md`
+- [X] T187 Add a documented Alembic migration bootstrap path for local and production Compose, either as a one-shot migration service or explicit entrypoint command, in `infra/docker-compose.yml`
+- [X] T188 Make readiness schema-aware and fail closed when required ingest tables or Alembic version state are missing instead of only executing `SELECT 1` in `apps/server/src/twobrain_rec_server/api/health.py`
+- [X] T189 Add explicit configurable upload part-size limits separate from full track/package limits and expose the setting in `apps/server/src/twobrain_rec_server/config.py`
+- [X] T190 Replace successful upload full-body buffering with a bounded spool/streaming checksum path that does not return a full track-sized `bytes` object before MinIO persistence in `apps/server/src/twobrain_rec_server/api/upload_stream.py`
+- [X] T191 Update upload part acceptance to consume the new bounded stream/spool contract and preserve checksum, object-key, cleanup-accounting, idempotency, and range semantics in `apps/server/src/twobrain_rec_server/ingest/parts.py`
+- [X] T192 Regenerate and commit the runtime-aligned OpenAPI contract after the current toolchain changes in `specs/012-server-ingest-foundation/contracts/openapi.yaml`
+- [X] T193 Fix Ruff import-order violations under the current supported dev toolchain across `apps/server/src/twobrain_rec_server/`
+- [X] T194 Harden audit metadata filtering by reusing recursive redaction semantics and substring secret/content matching in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T195 Run full final validation (`pytest`, Ruff, compileall, dev/prod Compose config, empty-schema readiness smoke, OpenAPI drift, secret/content scan) and update evidence plus remaining-risk notes in `specs/012-server-ingest-foundation/quickstart.md`
 
 ---
 

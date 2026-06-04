@@ -4,6 +4,7 @@ import asyncio
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     Organization,

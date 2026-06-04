@@ -1,17 +1,17 @@
 from hashlib import sha256
 from uuid import UUID
 
-import twobrain_rec_server.ingest.store as store_module
 from sqlalchemy import select
+
+import twobrain_rec_server.ingest.store as store_module
+from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 from twobrain_rec_server.db.models import ProcessingPlaceholder
 from twobrain_rec_server.ingest.processing_placeholder import (
     get_processing_placeholder,
     load_processing_placeholder,
 )
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
-
-from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 
 
 def test_processing_placeholder_has_no_workflow_or_mediascribe_ids(client) -> None:

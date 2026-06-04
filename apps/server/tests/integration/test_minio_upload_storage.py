@@ -1,11 +1,11 @@
 from hashlib import sha256
 
-import twobrain_rec_server.ingest.store as store_module
 from sqlalchemy import select
-from twobrain_rec_server.db.models import TemporaryUploadObject
 
+import twobrain_rec_server.ingest.store as store_module
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes
+from twobrain_rec_server.db.models import TemporaryUploadObject
 
 
 def test_upload_part_writes_bytes_to_storage_not_process_session_state(client) -> None:

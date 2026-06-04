@@ -2,13 +2,13 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID
 
-import twobrain_rec_server.ingest.store as store_module
 from sqlalchemy import select
-from twobrain_rec_server.db.models import Meeting, UploadSession
-from twobrain_rec_server.ingest.store import InMemoryIngestStore
 
+import twobrain_rec_server.ingest.store as store_module
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
+from twobrain_rec_server.db.models import Meeting, UploadSession
+from twobrain_rec_server.ingest.store import InMemoryIngestStore
 
 
 def _create_meeting(client, local_recording_id: str = "lifecycle") -> dict:

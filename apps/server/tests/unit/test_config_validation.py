@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+
 from twobrain_rec_server.config import Settings
 
 

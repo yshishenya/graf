@@ -259,6 +259,25 @@ Second review hackathon verdict recorded on 2026-06-04:
   known to miss true Postgres/Alembic, real MinIO, cold-start, OpenAPI contract,
   finalize integrity, and streaming-upload blockers.
 
+Final sanity remediation evidence recorded on 2026-06-04:
+
+- Final sanity review packages were captured as Phase 12 tasks T181-T195 and
+  GitHub issues #127-#131.
+- `cd apps/server && uv run --extra dev pytest -q` -> `115 passed`.
+- `cd apps/server && uv run --extra dev ruff check .` -> pass.
+- `cd apps/server && uv run python -m compileall -q src tests scripts` -> pass.
+- `docker compose -f infra/docker-compose.dev.yml config` -> pass.
+- `TWOBRAIN_POSTGRES_PASSWORD=dummy TWOBRAIN_MINIO_ROOT_USER=rootuser TWOBRAIN_MINIO_ROOT_PASSWORD=rootsecret TWOBRAIN_MINIO_API_ACCESS_KEY=twobrain_rec_api TWOBRAIN_MINIO_API_SECRET_KEY=apisecret docker compose -f infra/docker-compose.yml config` -> pass.
+- Empty-schema readiness is covered by
+  `apps/server/tests/integration/test_health_readiness.py::test_ready_reports_not_ready_when_database_schema_is_empty`.
+- Alembic clean-database bootstrap is covered by
+  `apps/server/tests/integration/test_postgres_migrations.py::test_clean_database_migrates_and_accepts_seeded_identity_request`.
+- OpenAPI drift is covered by
+  `apps/server/tests/contract/test_openapi_contract_drift.py::test_runtime_openapi_matches_committed_contract`
+  plus `ValidationError.input` / `ValidationError.ctx` assertions.
+- Secret/content scan found only expected local development placeholders and
+  redaction test strings; no production credentials were committed.
+
 Phase 11 partial remediation evidence recorded on 2026-06-04:
 
 - #112 finalize integrity and artifact provenance remediation completed for
