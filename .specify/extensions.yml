@@ -1,6 +1,7 @@
 installed:
 - agent-context
 - git
+- github-issue-canon
 settings:
   auto_execute_hooks: true
 hooks:
@@ -106,6 +107,13 @@ hooks:
     prompt: Commit outstanding changes before issue sync?
     description: Auto-commit before tasks-to-issues conversion
     condition: null
+  - extension: github-issue-canon
+    command: speckit.github-issue-canon.ensure
+    enabled: true
+    optional: false
+    prompt: Execute speckit.github-issue-canon.ensure?
+    description: Install/refresh GitHub issue canon before issue sync
+    condition: null
   after_constitution:
   - extension: git
     command: speckit.git.commit
@@ -161,4 +169,11 @@ hooks:
     optional: true
     prompt: Commit after syncing issues?
     description: Auto-commit after tasks-to-issues conversion
+    condition: null
+  - extension: github-issue-canon
+    command: speckit.github-issue-canon.validate
+    enabled: true
+    optional: false
+    prompt: Execute speckit.github-issue-canon.validate?
+    description: Validate GitHub issues after task-to-issue sync
     condition: null
