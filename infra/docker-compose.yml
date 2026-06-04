@@ -194,9 +194,10 @@ services:
         mc mb --ignore-existing "rec/$$TWOBRAIN_MINIO_BUCKET"
         mc admin user add rec "$$TWOBRAIN_MINIO_API_ACCESS_KEY" "$$TWOBRAIN_MINIO_API_SECRET_KEY" || true
         cat >/tmp/rec-api-policy.json <<'JSON'
-        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/*"]}]}
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/*"]}]}
         JSON
-        mc admin policy create rec twobrain-rec-api /tmp/rec-api-policy.json || true
+        mc admin policy rm rec twobrain-rec-api || true
+        mc admin policy create rec twobrain-rec-api /tmp/rec-api-policy.json
         mc admin policy attach rec twobrain-rec-api --user "$$TWOBRAIN_MINIO_API_ACCESS_KEY"
     logging:
       driver: json-file
