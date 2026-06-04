@@ -35,6 +35,12 @@ EOF
   exit 0
 fi
 
+if [[ -f .env ]]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
 docker compose -f infra/docker-compose.yml exec -T rec-api \
   python scripts/create_test_artifact.py \
   --out "${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}" \

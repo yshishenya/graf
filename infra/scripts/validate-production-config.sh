@@ -9,6 +9,12 @@ fi
 
 cd "$(dirname "$0")/../.."
 
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
 container_id=""
 if command -v docker >/dev/null 2>&1; then
   container_id="$(docker compose -f infra/docker-compose.yml ps -q rec-api 2>/dev/null || true)"

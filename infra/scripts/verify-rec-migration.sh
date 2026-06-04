@@ -18,6 +18,12 @@ EOF
   exit 0
 fi
 
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
 docker compose -f infra/docker-compose.yml run --rm rec-migrate alembic current
 cat <<EOF
 migration_verification_result=pass
