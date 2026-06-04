@@ -83,6 +83,8 @@ services:
         target: twobrain_minio_api_access_key
       - source: twobrain_minio_api_secret_key
         target: twobrain_minio_api_secret_key
+      - source: twobrain_smoke_credential
+        target: twobrain_smoke_credential
     command: ["alembic", "upgrade", "head"]
     depends_on:
       rec-postgres:
