@@ -35,7 +35,16 @@ Current accepted local baseline:
   server-mediated upload/session endpoints, resumable/idempotent part
   handling, tenant/device API boundary checks, metadata-only audit/logging,
   status contracts, and inert processing placeholders. Local validation on
-  2026-06-04 passed the server test suite and compose configuration checks.
+  2026-06-04 passed the server test suite, Ruff, compileall, and compose
+  configuration checks after final review remediation for persistence/storage,
+  forged auth, missing ranges, and readiness.
+- A second five-round review hackathon on 2026-06-04 found additional PR
+  blockers. Phase 11 remediation for tasks T119-T180 and GitHub issues
+  #112-#124 has now been completed locally and recorded in the feature
+  quickstart/tasks evidence. The accepted product status for `012` remains
+  "implemented locally, not production-deployed"; before PR/deployment-plan
+  handoff, the repository still needs a final full sanity run, dirty-worktree
+  review, and explicit commit/PR decision.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted: active capture
   UI remains local/native; post-meeting/admin surfaces live in the server web
   dashboard.

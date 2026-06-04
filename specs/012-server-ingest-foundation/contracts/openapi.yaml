@@ -1,610 +1,1332 @@
 openapi: 3.1.0
 info:
   title: 2brain Rec Server Ingest API
+  description: Backend ingest foundation for finalized local recording artifacts.
   version: 0.1.0
-  description: Backend ingest foundation for finalized local recording artifacts. 012 is server-mediated only and does not start Temporal workflows or MediaScribe jobs.
-servers:
-  - url: https://rec.2brain.dev
-    description: Future production deployment
-  - url: http://localhost:8080
-    description: Local development
-security:
-  - bearerAuth: []
 paths:
   /api/v1/health/live:
     get:
-      summary: Liveness check
-      security: []
+      tags:
+      - health
+      summary: Live
+      operationId: live_api_v1_health_live_get
       responses:
-        "200":
-          description: Process is alive
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthResponse"
+                $ref: '#/components/schemas/HealthResponse'
   /api/v1/health/ready:
     get:
-      summary: Ingest readiness check
-      description: Checks API configuration, Postgres, MinIO, and ingest limits. It must not require Temporal or MediaScribe in 012.
-      security: []
+      tags:
+      - health
+      summary: Ready
+      operationId: ready_api_v1_health_ready_get
       responses:
-        "200":
-          description: Ingest dependencies are ready
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ReadyResponse"
-        "503":
-          description: Ingest dependency is unavailable
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Service Unavailable
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: "#/components/schemas/Problem"
+                $ref: '#/components/schemas/ReadyResponse'
+  /api/v1/health/ready/internal:
+    get:
+      tags:
+      - health
+      summary: Ready Internal
+      operationId: ready_internal_api_v1_health_ready_internal_get
+      parameters:
+      - name: X-Internal-Health-Check
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Internal-Health-Check
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyDetailResponse'
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyDetailResponse'
+          description: Service Unavailable
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/meetings:
     post:
-      summary: Create or resolve an ingest meeting
-      operationId: createMeeting
+      tags:
+      - ingest
+      summary: Create Meeting
+      operationId: create_meeting_api_v1_meetings_post
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DeviceId"
-        - $ref: "#/components/parameters/IdempotencyKey"
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateMeetingRequest"
+              $ref: '#/components/schemas/CreateMeetingRequest'
       responses:
-        "201":
-          description: Meeting created
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MeetingResponse"
-        "200":
-          description: Existing idempotent meeting returned
+                $ref: '#/components/schemas/MeetingResponse'
+        '400':
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MeetingResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/meetings/{meeting_id}/upload-sessions:
     post:
-      summary: Create a server-mediated upload session
-      operationId: createUploadSession
+      tags:
+      - ingest
+      summary: Create Session
+      operationId: create_session_api_v1_meetings__meeting_id__upload_sessions_post
       parameters:
-        - $ref: "#/components/parameters/MeetingId"
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DeviceId"
-        - $ref: "#/components/parameters/IdempotencyKey"
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateUploadSessionRequest"
+              $ref: '#/components/schemas/CreateUploadSessionRequest'
       responses:
-        "201":
-          description: Upload session created
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UploadSessionResponse"
-        "200":
-          description: Existing idempotent session returned
+                $ref: '#/components/schemas/UploadSessionResponse'
+        '400':
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UploadSessionResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
-  /api/v1/upload-sessions/{session_id}:
-    get:
-      summary: Get upload session status
-      operationId: getUploadSession
-      parameters:
-        - $ref: "#/components/parameters/SessionId"
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DeviceId"
-      responses:
-        "200":
-          description: Current session status
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UploadSessionResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/upload-sessions/{session_id}/tracks/{track_role}/parts/{part_number}:
     put:
-      summary: Upload one server-mediated track part
-      operationId: putUploadPart
+      tags:
+      - ingest
+      summary: Put Part
+      operationId: put_part_api_v1_upload_sessions__session_id__tracks__track_role__parts__part_number__put
       parameters:
-        - $ref: "#/components/parameters/SessionId"
-        - $ref: "#/components/parameters/TrackRole"
-        - $ref: "#/components/parameters/PartNumber"
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DeviceId"
-        - name: X-Byte-Offset
-          in: header
-          required: true
-          schema:
-            type: integer
-            minimum: 0
-        - name: X-Content-SHA256
-          in: header
-          required: true
-          schema:
-            type: string
-            pattern: "^[a-f0-9]{64}$"
-      requestBody:
+      - name: session_id
+        in: path
         required: true
-        content:
-          application/octet-stream:
-            schema:
-              type: string
-              format: binary
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: track_role
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/TrackRole'
+      - name: part_number
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Part Number
+      - name: X-Byte-Offset
+        in: header
+        required: true
+        schema:
+          type: integer
+          title: X-Byte-Offset
+      - name: X-Content-SHA256
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Content-Sha256
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
       responses:
-        "200":
-          description: Idempotent matching part already accepted
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UploadPartResponse"
-        "201":
-          description: Part accepted
+                $ref: '#/components/schemas/UploadPartResponse'
+        '400':
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UploadPartResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/upload-sessions/{session_id}:
+    get:
+      tags:
+      - ingest
+      summary: Get Session
+      operationId: get_session_api_v1_upload_sessions__session_id__get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/upload-sessions/{session_id}/missing-ranges:
     get:
-      summary: Return missing upload ranges for resumable clients
-      operationId: getMissingRanges
+      tags:
+      - ingest
+      summary: Get Missing Ranges
+      operationId: get_missing_ranges_api_v1_upload_sessions__session_id__missing_ranges_get
       parameters:
-        - $ref: "#/components/parameters/SessionId"
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DeviceId"
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
       responses:
-        "200":
-          description: Missing ranges by track
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MissingRangesResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-  /api/v1/upload-sessions/{session_id}/finalize:
+                $ref: '#/components/schemas/MissingRangesResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/upload-sessions/{session_id}/abort:
     post:
-      summary: Finalize a complete upload session
-      operationId: finalizeUploadSession
+      tags:
+      - ingest
+      summary: Abort Session
+      operationId: abort_session_api_v1_upload_sessions__session_id__abort_post
       parameters:
-        - $ref: "#/components/parameters/SessionId"
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DeviceId"
-        - $ref: "#/components/parameters/IdempotencyKey"
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/FinalizeUploadRequest"
+              $ref: '#/components/schemas/AbortUploadRequest'
       responses:
-        "200":
-          description: Session finalized or idempotently returned
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FinalizeUploadResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-  /api/v1/upload-sessions/{session_id}/abort:
+                $ref: '#/components/schemas/UploadSessionResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/upload-sessions/{session_id}/finalize:
     post:
-      summary: Abort an upload session
-      operationId: abortUploadSession
+      tags:
+      - ingest
+      summary: Finalize Session
+      operationId: finalize_session_api_v1_upload_sessions__session_id__finalize_post
       parameters:
-        - $ref: "#/components/parameters/SessionId"
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DeviceId"
-      requestBody:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: X-User-Id
+        in: header
         required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AbortUploadRequest"
+              $ref: '#/components/schemas/FinalizeUploadRequest'
       responses:
-        "200":
-          description: Session aborted or already terminal
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UploadSessionResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: '#/components/schemas/FinalizeUploadResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: provider-neutral-token
-  parameters:
-    WorkspaceId:
-      name: X-Workspace-Id
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-    DeviceId:
-      name: X-Device-Id
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: true
-      schema:
-        type: string
-        minLength: 8
-        maxLength: 128
-    MeetingId:
-      name: meeting_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    SessionId:
-      name: session_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    TrackRole:
-      name: track_role
-      in: path
-      required: true
-      schema:
-        $ref: "#/components/schemas/TrackRole"
-    PartNumber:
-      name: part_number
-      in: path
-      required: true
-      schema:
-        type: integer
-        minimum: 1
-  responses:
-    BadRequest:
-      description: Invalid request or failed validation
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    Unauthorized:
-      description: Missing or invalid authentication
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    Forbidden:
-      description: Authenticated identity is not authorized for workspace/device/session
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    NotFound:
-      description: Resource not found or not visible to caller
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    Conflict:
-      description: Idempotency or checksum conflict
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    PayloadTooLarge:
-      description: Configured duration, track, or package limit exceeded
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
   schemas:
-    HealthResponse:
-      type: object
-      required: [status]
+    AbortUploadRequest:
       properties:
-        status:
-          type: string
-          enum: [ok]
-    ReadyResponse:
+        reason:
+          anyOf:
+          - type: string
+            maxLength: 240
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Reason
       type: object
-      required: [status, checks]
-      properties:
-        status:
-          type: string
-          enum: [ready]
-        checks:
-          type: object
-          additionalProperties:
-            type: string
-          example:
-            postgres: ok
-            minio: ok
-            config: ok
-    Problem:
-      type: object
-      required: [type, title, status, code]
-      properties:
-        type:
-          type: string
-          format: uri
-        title:
-          type: string
-        status:
-          type: integer
-        code:
-          type: string
-          enum:
-            - invalid_request
-            - unauthorized
-            - forbidden
-            - not_found
-            - checksum_conflict
-            - idempotency_conflict
-            - upload_session_terminal
-            - recording_duration_limit_exceeded
-            - track_size_limit_exceeded
-            - package_size_limit_exceeded
-            - manifest_validation_failed
-            - dependency_unavailable
-        detail:
-          type: string
-        trace_id:
-          type: string
-    TrackRole:
-      type: string
-      enum: [microphone, system, manifest]
-    UploadStrategy:
-      type: string
-      enum: [server_mediated]
-    MeetingStatus:
-      type: string
-      enum: [draft, uploading, ingested_pending_processing, degraded, failed, aborted, expired]
-    ProcessingStatus:
-      type: string
-      enum: [not_submitted, pending_processing]
-    UploadSessionStatus:
-      type: string
-      enum: [pending, uploading, retrying, finalizing, finalized, degraded, failed, aborted, expired]
-    TrackDescriptor:
-      type: object
-      required: [track_role, codec, sample_rate_hz, channel_count, duration_seconds, byte_length, sha256]
-      properties:
-        track_role:
-          $ref: "#/components/schemas/TrackRole"
-        codec:
-          type: string
-          example: pcm_s16le
-        sample_rate_hz:
-          type: integer
-          minimum: 8000
-        channel_count:
-          type: integer
-          minimum: 1
-          maximum: 2
-        duration_seconds:
-          type: number
-          minimum: 0
-        byte_length:
-          type: integer
-          minimum: 1
-        sha256:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
+      title: AbortUploadRequest
     CreateMeetingRequest:
-      type: object
-      required: [local_recording_id, started_at, ended_at, duration_seconds]
       properties:
         local_recording_id:
           type: string
-          minLength: 8
-          maxLength: 128
-        title:
-          type: string
           maxLength: 240
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Local Recording Id
+        title:
+          anyOf:
+          - type: string
+            maxLength: 500
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Title
         started_at:
-          type: string
-          format: date-time
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Started At
         ended_at:
-          type: string
-          format: date-time
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Ended At
         duration_seconds:
-          type: number
-          minimum: 0
-    MeetingResponse:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
       type: object
-      required: [meeting_id, workspace_id, local_recording_id, status, processing_status]
+      required:
+      - local_recording_id
+      - duration_seconds
+      title: CreateMeetingRequest
+    CreateUploadSessionRequest:
+      properties:
+        expected_tracks:
+          items:
+            $ref: '#/components/schemas/TrackRole'
+          type: array
+          title: Expected Tracks
+        expected_track_sizes:
+          additionalProperties:
+            type: integer
+          propertyNames:
+            $ref: '#/components/schemas/TrackRole'
+          type: object
+          title: Expected Track Sizes
+        manifest_sha256:
+          anyOf:
+          - type: string
+            pattern: ^[a-f0-9]{64}$
+          - type: 'null'
+          title: Manifest Sha256
+      type: object
+      title: CreateUploadSessionRequest
+    FinalizeUploadRequest:
+      properties:
+        manifest_sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          title: Manifest Sha256
+        tracks:
+          items:
+            $ref: '#/components/schemas/TrackDescriptor'
+          type: array
+          minItems: 3
+          title: Tracks
+      type: object
+      required:
+      - manifest_sha256
+      - tracks
+      title: FinalizeUploadRequest
+    FinalizeUploadResponse:
+      properties:
+        meeting:
+          $ref: '#/components/schemas/MeetingResponse'
+        upload_session:
+          $ref: '#/components/schemas/UploadSessionResponse'
+        object_count:
+          type: integer
+          minimum: 0.0
+          title: Object Count
+        workflow_started:
+          type: boolean
+          title: Workflow Started
+          default: false
+        mediascribe_job_created:
+          type: boolean
+          title: Mediascribe Job Created
+          default: false
+      type: object
+      required:
+      - meeting
+      - upload_session
+      - object_count
+      title: FinalizeUploadResponse
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          default: ok
+      type: object
+      title: HealthResponse
+    MeetingResponse:
       properties:
         meeting_id:
           type: string
           format: uuid
+          title: Meeting Id
         workspace_id:
           type: string
           format: uuid
+          title: Workspace Id
         local_recording_id:
           type: string
+          title: Local Recording Id
         status:
-          $ref: "#/components/schemas/MeetingStatus"
+          $ref: '#/components/schemas/MeetingStatus'
         processing_status:
-          $ref: "#/components/schemas/ProcessingStatus"
-    CreateUploadSessionRequest:
+          $ref: '#/components/schemas/ProcessingStatus'
+        started_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Started At
+        ended_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Ended At
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Created At
       type: object
-      required: [upload_strategy, tracks]
+      required:
+      - meeting_id
+      - workspace_id
+      - local_recording_id
+      - status
+      - processing_status
+      title: MeetingResponse
+    MeetingStatus:
+      type: string
+      enum:
+      - draft
+      - uploading
+      - ingested_pending_processing
+      - degraded
+      - failed
+      - aborted
+      - expired
+      title: MeetingStatus
+    MissingRange:
       properties:
-        upload_strategy:
-          $ref: "#/components/schemas/UploadStrategy"
-        tracks:
-          type: array
-          minItems: 3
-          items:
-            $ref: "#/components/schemas/TrackDescriptor"
-        manifest_sha256:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
-    UploadSessionResponse:
+        start:
+          type: integer
+          minimum: 0.0
+          title: Start
+        end:
+          type: integer
+          minimum: 0.0
+          title: End
       type: object
-      required: [session_id, meeting_id, status, upload_strategy, expires_at, accepted_bytes_by_track, processing_status]
+      required:
+      - start
+      - end
+      title: MissingRange
+    MissingRangesResponse:
       properties:
         session_id:
           type: string
           format: uuid
+          title: Session Id
+        missing_ranges_by_track:
+          additionalProperties:
+            items:
+              $ref: '#/components/schemas/MissingRange'
+            type: array
+          propertyNames:
+            $ref: '#/components/schemas/TrackRole'
+          type: object
+          title: Missing Ranges By Track
+      type: object
+      required:
+      - session_id
+      - missing_ranges_by_track
+      title: MissingRangesResponse
+    Problem:
+      properties:
+        type:
+          type: string
+          title: Type
+          default: about:blank
+        title:
+          type: string
+          title: Title
+        status:
+          type: integer
+          title: Status
+        code:
+          type: string
+          title: Code
+        detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detail
+        request_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Request Id
+      type: object
+      required:
+      - title
+      - status
+      - code
+      title: Problem
+    ProcessingStatus:
+      type: string
+      enum:
+      - not_submitted
+      - pending_processing
+      title: ProcessingStatus
+    ReadyDetailResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        checks:
+          additionalProperties:
+            type: string
+          type: object
+          title: Checks
+      type: object
+      required:
+      - status
+      - checks
+      title: ReadyDetailResponse
+    ReadyResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+      type: object
+      required:
+      - status
+      title: ReadyResponse
+    TrackDescriptor:
+      properties:
+        track_role:
+          $ref: '#/components/schemas/TrackRole'
+        codec:
+          type: string
+          title: Codec
+        sample_rate_hz:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Sample Rate Hz
+        channel_count:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Channel Count
+        duration_seconds:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
+        byte_length:
+          type: integer
+          minimum: 0.0
+          title: Byte Length
+        sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          title: Sha256
+      type: object
+      required:
+      - track_role
+      - codec
+      - sample_rate_hz
+      - channel_count
+      - duration_seconds
+      - byte_length
+      - sha256
+      title: TrackDescriptor
+    TrackRole:
+      type: string
+      enum:
+      - microphone
+      - system
+      - manifest
+      title: TrackRole
+    UploadPartResponse:
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          title: Session Id
+        track_role:
+          $ref: '#/components/schemas/TrackRole'
+        part_number:
+          type: integer
+          minimum: 0.0
+          title: Part Number
+        byte_offset:
+          type: integer
+          minimum: 0.0
+          title: Byte Offset
+        byte_length:
+          type: integer
+          minimum: 0.0
+          title: Byte Length
+        sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          title: Sha256
+        status:
+          type: string
+          title: Status
+          default: accepted
+      type: object
+      required:
+      - session_id
+      - track_role
+      - part_number
+      - byte_offset
+      - byte_length
+      - sha256
+      title: UploadPartResponse
+    UploadSessionResponse:
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          title: Session Id
         meeting_id:
           type: string
           format: uuid
+          title: Meeting Id
         status:
-          $ref: "#/components/schemas/UploadSessionStatus"
+          $ref: '#/components/schemas/UploadSessionStatus'
         upload_strategy:
-          $ref: "#/components/schemas/UploadStrategy"
+          $ref: '#/components/schemas/UploadStrategy'
+          default: server_mediated
         expires_at:
           type: string
           format: date-time
+          title: Expires At
         accepted_bytes_by_track:
-          type: object
           additionalProperties:
             type: integer
-        processing_status:
-          $ref: "#/components/schemas/ProcessingStatus"
-        workflow_id:
-          type: "null"
-          description: Always null in 012.
-        mediascribe_job_id:
-          type: "null"
-          description: Always null in 012.
-    UploadPartResponse:
-      type: object
-      required: [session_id, track_role, part_number, byte_offset, byte_length, sha256, status]
-      properties:
-        session_id:
-          type: string
-          format: uuid
-        track_role:
-          $ref: "#/components/schemas/TrackRole"
-        part_number:
-          type: integer
-        byte_offset:
-          type: integer
-        byte_length:
-          type: integer
-        sha256:
-          type: string
-        status:
-          type: string
-          enum: [accepted]
-    MissingRangesResponse:
-      type: object
-      required: [session_id, ranges_by_track]
-      properties:
-        session_id:
-          type: string
-          format: uuid
-        ranges_by_track:
           type: object
-          additionalProperties:
-            type: array
-            items:
-              type: object
-              required: [start, end]
-              properties:
-                start:
-                  type: integer
-                  minimum: 0
-                end:
-                  type: integer
-                  minimum: 0
-    FinalizeUploadRequest:
+          title: Accepted Bytes By Track
+        processing_status:
+          $ref: '#/components/schemas/ProcessingStatus'
+          default: not_submitted
+        workflow_id:
+          type: 'null'
+          title: Workflow Id
+        mediascribe_job_id:
+          type: 'null'
+          title: Mediascribe Job Id
+        desktop_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Desktop Label
+        desktop_truth_rule:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Desktop Truth Rule
       type: object
-      required: [manifest_sha256, tracks]
+      required:
+      - session_id
+      - meeting_id
+      - status
+      - expires_at
+      title: UploadSessionResponse
+    UploadSessionStatus:
+      type: string
+      enum:
+      - pending
+      - uploading
+      - retrying
+      - finalizing
+      - finalized
+      - degraded
+      - failed
+      - aborted
+      - expired
+      title: UploadSessionStatus
+    UploadStrategy:
+      type: string
+      enum:
+      - server_mediated
+      title: UploadStrategy
+    ValidationError:
       properties:
-        manifest_sha256:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
-        tracks:
-          type: array
+        loc:
           items:
-            $ref: "#/components/schemas/TrackDescriptor"
-    FinalizeUploadResponse:
-      type: object
-      required: [meeting, upload_session, object_count]
-      properties:
-        meeting:
-          $ref: "#/components/schemas/MeetingResponse"
-        upload_session:
-          $ref: "#/components/schemas/UploadSessionResponse"
-        object_count:
-          type: integer
-          minimum: 0
-        workflow_started:
-          type: boolean
-          const: false
-        mediascribe_job_created:
-          type: boolean
-          const: false
-    AbortUploadRequest:
-      type: object
-      properties:
-        reason:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
           type: string
-          maxLength: 240
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

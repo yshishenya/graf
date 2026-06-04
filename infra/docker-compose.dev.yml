@@ -8,8 +8,8 @@ services:
     environment:
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
       TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
-      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec
-      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_dev_secret
+      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
+      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
     ports:
@@ -19,6 +19,8 @@ services:
         condition: service_healthy
       rec-minio:
         condition: service_healthy
+      rec-minio-init:
+        condition: service_completed_successfully
 
   rec-postgres:
     image: postgres:17-alpine
@@ -40,8 +42,8 @@ services:
     image: minio/minio:RELEASE.2025-05-24T17-08-30Z
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: twobrain_rec
-      MINIO_ROOT_PASSWORD: twobrain_rec_dev_secret
+      MINIO_ROOT_USER: twobrain_rec_root
+      MINIO_ROOT_PASSWORD: twobrain_rec_root_dev_secret
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -52,6 +54,24 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
+  rec-minio-init:
+    image: minio/mc:RELEASE.2025-05-21T01-59-54Z
+    depends_on:
+      rec-minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set rec http://rec-minio:9000 twobrain_rec_root twobrain_rec_root_dev_secret
+        mc mb --ignore-existing rec/twobrain-rec-ingest
+        mc admin user add rec twobrain_rec_api twobrain_rec_api_dev_secret || true
+        cat >/tmp/rec-api-policy.json <<'JSON'
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/*"]}]}
+        JSON
+        mc admin policy create rec twobrain-rec-api /tmp/rec-api-policy.json || true
+        mc admin policy attach rec twobrain-rec-api --user twobrain_rec_api
 
 volumes:
   rec-postgres-dev-data:

@@ -1,8 +1,8 @@
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, StringConstraints
 from twobrain_rec_server.domain.statuses import (
     MeetingStatus,
     ProcessingStatus,
@@ -17,7 +17,11 @@ class HealthResponse(BaseModel):
 
 
 class ReadyResponse(BaseModel):
-    status: str = "ready"
+    status: str
+
+
+class ReadyDetailResponse(BaseModel):
+    status: str
     checks: dict[str, str]
 
 
@@ -40,9 +44,12 @@ class TrackDescriptor(BaseModel):
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+SafeClientText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")]
+
+
 class CreateMeetingRequest(BaseModel):
-    local_recording_id: str
-    title: str | None = None
+    local_recording_id: Annotated[SafeClientText, Field(min_length=1, max_length=240)]
+    title: Annotated[SafeClientText, Field(max_length=500)] | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
     duration_seconds: int = Field(gt=0)
@@ -54,11 +61,14 @@ class MeetingResponse(BaseModel):
     local_recording_id: str
     status: MeetingStatus
     processing_status: ProcessingStatus
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
     created_at: datetime | None = None
 
 
 class CreateUploadSessionRequest(BaseModel):
     expected_tracks: list[TrackRole] = Field(default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM])
+    expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
     manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
@@ -110,4 +120,4 @@ class FinalizeUploadResponse(BaseModel):
 
 
 class AbortUploadRequest(BaseModel):
-    reason: str | None = Field(default=None, max_length=240)
+    reason: Annotated[SafeClientText, Field(max_length=240)] | None = None

@@ -240,6 +240,105 @@
 
 ---
 
+## Phase 10: Review Remediation Before PR/Deployment Plan
+
+**Purpose**: Close final sanity review blockers found after the initial 012 implementation commit. These tasks must be completed before representing 012 as a durable ingest foundation or before writing the production deployment plan.
+
+- [X] T106 [P] Add integration tests proving accepted meeting, upload session, upload part metadata, and audit records survive in Postgres-backed persistence in `apps/server/tests/integration/test_persistent_ingest_storage.py`
+- [X] T107 [P] Add integration tests proving accepted upload bytes are written to MinIO-compatible storage without retaining audio bytes in API session state in `apps/server/tests/integration/test_minio_upload_storage.py`
+- [X] T108 [P] Add authorization tests for forged user, organization, workspace membership, and revoked device contexts in `apps/server/tests/integration/test_tenant_authorization.py`
+- [X] T109 [P] Add API tests proving missing-ranges uses stored expected track sizes rather than already-uploaded byte totals in `apps/server/tests/integration/test_upload_resume.py`
+- [X] T110 [P] Add readiness tests proving `/api/v1/health/ready` fails when Postgres or MinIO checks fail and passes when both are reachable in `apps/server/tests/integration/test_health_readiness.py`
+- [X] T111 [P] Fix Ruff target-version compatibility and add a lint validation note in `apps/server/pyproject.toml`
+- [X] T112 Implement Postgres-backed ingest repository and replace in-memory meeting/session/audit persistence in `apps/server/src/twobrain_rec_server/ingest/store.py`
+- [X] T113 Wire SQLAlchemy session dependencies through ingest routes and services in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T114 Implement server-mediated MinIO writes for accepted upload parts and persist object metadata without storing raw bytes in `apps/server/src/twobrain_rec_server/ingest/parts.py`
+- [X] T115 Persist expected upload track descriptors from upload session creation and use them for missing-range responses in `apps/server/src/twobrain_rec_server/ingest/sessions.py`
+- [X] T116 Implement provider-neutral application auth checks against persisted user membership and registered device status in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
+- [X] T117 Implement real Postgres and MinIO readiness probes for 012 dependencies in `apps/server/src/twobrain_rec_server/api/health.py`
+- [X] T118 Run pytest, Ruff, compileall, local compose config, production compose config, and secret/content scan, then update evidence in `specs/012-server-ingest-foundation/quickstart.md`
+
+---
+
+## Phase 11: Second Review Hackathon Remediation Before PR
+
+**Purpose**: Close blockers found by the five-round multi-agent review hackathon. These tasks supersede the earlier "ready for PR" assumption and block PR/deployment-plan readiness until completed.
+
+**GitHub tracking**: Main blocker packages are #112-#119; additional confirmed findings are #120-#124.
+
+### Tests And Proof Gates
+
+- [X] T119 [P] Add finalize integrity negative tests for mismatched manifest SHA, track SHA, byte length, role/object mapping, and expected size mismatches in `apps/server/tests/integration/test_finalize_integrity.py`
+- [X] T120 [P] Add resumable range tests for byte offsets, gaps, overlapping parts, out-of-order parts, negative offsets, negative expected sizes, and offset-mismatched idempotent replay in `apps/server/tests/integration/test_upload_resume.py`
+- [X] T121 [P] Add session lifecycle and idempotency tests for expired sessions, terminal-state finalize/abort, one-active-session-per-meeting, and conflicting meeting creates in `apps/server/tests/integration/test_upload_session_lifecycle.py`
+- [X] T122 [P] Add same-workspace meeting hijack, inactive membership, wrong organization, wrong user/device binding, and missing DB fail-closed auth tests in `apps/server/tests/integration/test_tenant_authorization.py`
+- [X] T123 [P] Add true cold-start persistence tests that reset all ingest store references and prove meeting/session/status/missing-ranges/finalize reads reload from Postgres in `apps/server/tests/integration/test_persistent_ingest_storage.py`
+- [X] T124 [P] Add persisted audit content tests for event type, tenant, actor user, device, event ordering, and redacted metadata values in `apps/server/tests/integration/test_audit_persistence.py`
+- [X] T125 [P] Add TrackArtifact and ManifestSnapshot persistence assertions for finalized rows, descriptor metadata, object keys, checksums, and manifest provenance in `apps/server/tests/integration/test_persistent_ingest_storage.py`
+- [X] T126 [P] Add positive and negative readiness tests for `200 ready`, `503 not_ready`, and non-mutating dependency checks in `apps/server/tests/integration/test_health_readiness.py`
+- [X] T127 [P] Add actual OpenAPI contract tests that compare runtime `/openapi.json` with `specs/012-server-ingest-foundation/contracts/openapi.yaml` for schemas, status codes, headers, and field names in `apps/server/tests/contract/test_openapi_contract_drift.py`
+- [X] T128 [P] Add Alembic migration smoke tests against a Postgres-compatible test database or compose service, without `Base.metadata.create_all`, in `apps/server/tests/integration/test_postgres_migrations.py`
+- [X] T129 [P] Add real MinIO round-trip tests for bucket provisioning, object write/read, object key compatibility, and storage failure behavior in `apps/server/tests/integration/test_minio_upload_storage.py`
+- [X] T130 [P] Add upload memory/streaming tests that prove large parts are not fully buffered before checksum/size enforcement in `apps/server/tests/integration/test_streaming_upload.py`
+
+### Implementation Remediation
+
+- [X] T131 Fix ingest store ownership so all services use a single module-owned store reference and tests can perform a true process-store reset in `apps/server/src/twobrain_rec_server/ingest/store.py`
+- [X] T132 Implement finalize integrity validation against uploaded part SHA, byte length, manifest SHA, expected track sizes, and role mapping in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
+- [X] T133 Persist finalized TrackArtifact rows from validated TrackDescriptor metadata and create ManifestSnapshot rows on finalize in `apps/server/src/twobrain_rec_server/ingest/store.py`
+- [X] T134 Rewrite missing-range calculation to use persisted byte intervals and reject gaps, overlaps, negative offsets, invalid part numbers, and mismatched offset replay in `apps/server/src/twobrain_rec_server/ingest/ranges.py`
+- [X] T135 Enforce cumulative per-track and per-package/session upload limits, expected track sizes, and package bounds before object writes in `apps/server/src/twobrain_rec_server/ingest/parts.py`
+- [X] T136 Replace full-body upload buffering with bounded streaming checksum and size enforcement in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T137 Make upload part persistence cleanup-aware and race-safe for duplicate concurrent PUTs, DB failures after object writes, and temporary object accounting in `apps/server/src/twobrain_rec_server/ingest/parts.py`
+- [X] T138 Enforce upload session TTL, terminal-state transition guards, finalized_at persistence, and one active non-terminal upload session per meeting in `apps/server/src/twobrain_rec_server/ingest/lifecycle.py`
+- [X] T139 Load persisted meetings when creating upload sessions, persist meeting status on session creation, and reject conflicting idempotent meeting creates in `apps/server/src/twobrain_rec_server/ingest/sessions.py`
+- [X] T140 Persist started_at, ended_at, processing placeholder status, upload session processing fields, and lifecycle timing consistently in `apps/server/src/twobrain_rec_server/ingest/store.py`
+- [X] T141 Fail closed when persistent auth context is unavailable and enforce meeting owner/device authorization before creating upload sessions in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
+- [X] T142 Sanitize and bound client-supplied audit metadata, abort reasons, local recording identifiers, title, request IDs, and auth-context logging in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T143 Persist actor user and device identifiers on every ingest audit event in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T144 Align runtime schemas, committed OpenAPI YAML, status codes, auth headers, idempotency key semantics, Problem schema fields, part numbering, readiness response shape, and missing-ranges field names in `specs/012-server-ingest-foundation/contracts/openapi.yaml`
+- [X] T145 Implement Idempotency-Key handling for meeting creation, upload session creation, and upload part replay/conflict responses in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T146 Add explicit Alembic migration command/entrypoint, copy `alembic.ini` and migration files into the image, and document migration execution in `infra/server/Dockerfile`
+- [X] T147 Add deterministic local identity/device bootstrap command for 012 smoke tests and document production-safe bootstrap boundaries in `apps/server/scripts/seed_dev_identity.py`
+- [X] T148 Update `apps/server/scripts/upload_test_artifact.py` to accept organization, user, workspace, and device IDs separately and to match the finalized auth/header contract
+- [X] T149 Move MinIO bucket provisioning out of readiness or guarantee it before first upload, and use least-privilege API MinIO credentials separate from MinIO root credentials in `infra/docker-compose.yml`
+- [X] T150 Return contract-compliant readiness status codes, add API healthchecks, and avoid leaking dependency detail from public readiness surfaces in `apps/server/src/twobrain_rec_server/api/health.py`
+- [X] T151 Remove import-time app construction or align it with the selected uvicorn mode, and add FastAPI lifespan cleanup for DB engine/runtime clients in `apps/server/src/twobrain_rec_server/main.py`
+- [X] T152 Split production runtime dependencies from dev/test tooling and add reproducible dependency constraints for the server image in `apps/server/pyproject.toml`
+- [X] T153 Harden production compose API exposure, resource limits, log rotation, and production fail-closed config validation in `infra/docker-compose.yml`
+- [X] T154 Update `specs/012-server-ingest-foundation/quickstart.md`, `docs/current-product-status.md`, and `docs/prd-voice-layer-final.md` with the second review verdict, validation requirements, and remaining PR blockers
+
+### Additional Confirmed Findings
+
+- [X] T155 Persist degraded finalize failure state and audit event before returning manifest validation errors in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
+- [X] T156 Persist explicit audit event objects returned by the current operation instead of reading the global latest event from `store.audit_events[-1]` in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T157 Add cleanup accounting rows for temporary upload objects and orphaned object writes in `apps/server/src/twobrain_rec_server/db/models/ingest.py`
+- [X] T158 Load processing placeholder views from Postgres after restart instead of only reading process-local meetings in `apps/server/src/twobrain_rec_server/ingest/processing_placeholder.py`
+- [X] T159 Extend access policy placeholders to represent admin eligibility, deletion-state placeholders, and future share/download/export denial reasons in `apps/server/src/twobrain_rec_server/ingest/access_policy.py`
+- [X] T160 Split expected track roles from expected track sizes in API schemas, data model, database model, and migration semantics in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T161 Validate `local_recording_id`, `title`, `expected_track_sizes`, `part_number`, `X-Byte-Offset`, and `X-Request-Id` length/charset/range constraints at the API boundary in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T162 Map upload-part limit violations, storage dependency failures, and DB persistence failures to contract Problem responses instead of generic 500s in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T163 Make readiness checks non-mutating or move provisioning to startup, and add protected/internal readiness routing if dependency detail must remain visible in `apps/server/src/twobrain_rec_server/api/health.py`
+- [X] T164 Disable or protect FastAPI `/docs`, `/redoc`, and `/openapi.json` in production while preserving local developer access in `apps/server/src/twobrain_rec_server/main.py`
+- [X] T165 Move synchronous MinIO SDK calls off the async event loop or wrap them in bounded worker execution in `apps/server/src/twobrain_rec_server/storage/minio_client.py`
+- [X] T166 Use structured JSON logging that actually emits request_id, status, duration, safe headers, and redacted/template paths instead of dropping `extra` fields in `apps/server/src/twobrain_rec_server/observability/logging.py`
+- [X] T167 Redact or template resource UUIDs in request path logs for meeting/upload-session endpoints in `apps/server/src/twobrain_rec_server/observability/logging.py`
+- [X] T168 Add branch-complete auth tests for inactive membership, wrong organization, device bound to another workspace, and device bound to another user in `apps/server/tests/integration/test_tenant_authorization.py`
+- [X] T169 Add exact degraded/failure response assertions for domain error codes instead of loose `{400, 422}` acceptance in `apps/server/tests/integration/test_degraded_ingest.py`
+- [X] T170 Add positive readiness tests, protected readiness tests, and 503 response assertions in `apps/server/tests/integration/test_health_readiness.py`
+- [X] T171 Add audit event ordering/content/redaction assertions beyond count-only checks in `apps/server/tests/integration/test_audit_persistence.py`
+- [X] T172 Make fake object storage enforce exact stream length invariants and failure injection hooks in `apps/server/tests/fakes/fake_minio.py`
+- [X] T173 Remove ad-hoc `asyncio.run()` calls from integration tests and use pytest-asyncio/anyio-compatible helpers in `apps/server/tests/integration/test_persistent_ingest_storage.py`
+- [X] T174 Add OpenAPI Problem schema/code enum tests for `request_id` versus `trace_id` naming and runtime error code coverage in `apps/server/tests/contract/test_openapi_contract_drift.py`
+- [X] T175 Add tests for `started_at` and `ended_at` persistence and response behavior in `apps/server/tests/integration/test_persistent_ingest_storage.py`
+- [X] T176 Add tests proving ManifestSnapshot rows are persisted and used for future processing/deletion provenance in `apps/server/tests/integration/test_persistent_ingest_storage.py`
+- [X] T177 Add tests proving ProcessingPlaceholder status is synchronized with finalized/degraded/aborted meeting state in `apps/server/tests/integration/test_processing_placeholder.py`
+- [X] T178 Add tests proving the upload helper uses separate organization, user, workspace, and device IDs and no ignored bearer-token-only auth path in `apps/server/tests/integration/test_upload_helper_contract.py`
+- [X] T179 Add production config validation tests that reject localhost endpoints, default dev secrets, and root MinIO credentials when `TWOBRAIN_ENV=production` in `apps/server/tests/unit/test_config_validation.py`
+- [X] T180 Add compose validation tests or lint checks for API healthcheck, localhost/proxy binding policy, resource limits, log rotation, runtime-only dependencies, and locked dependency constraints in `apps/server/tests/integration/test_compose_hardening.py`
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -253,6 +352,8 @@
 - **Phase 7 US6**: Depends on Phase 2 identity/tenant models; should be complete before external use.
 - **Phase 8 US5**: Depends on US1 status/finalize outputs and US3/US6 boundaries.
 - **Phase 9 Polish**: Depends on selected story completion.
+- **Phase 10 Review Remediation**: Depends on all prior 012 implementation phases and blocks PR/deployment-plan readiness until T106-T118 are complete.
+- **Phase 11 Second Review Hackathon Remediation**: Depends on Phase 10 and blocks PR/deployment-plan readiness until T119-T180 are complete.
 
 ### User Story Dependencies
 
@@ -272,6 +373,9 @@
 - Test tasks within each user story can run in parallel before implementation.
 - US3 security boundary tests can run in parallel with US1 happy-path tests once test scaffolding exists.
 - Post-implementation checklist re-review tasks T096-T099 can run in parallel.
+- Review remediation tests T106-T111 can run in parallel before implementation tasks T112-T117.
+- Second review tests T119-T130 can run in parallel before implementation tasks T131-T154.
+- Additional confirmed finding tasks T155-T180 can be split by domain and run alongside matching Phase 11 implementation work once their owning tests are in place.
 
 ## Parallel Example: User Story 1
 

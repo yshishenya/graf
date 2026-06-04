@@ -1,5 +1,8 @@
 from twobrain_rec_server.domain.statuses import MeetingStatus, UploadSessionStatus
-from twobrain_rec_server.ingest.desktop_status import meeting_desktop_status, upload_session_desktop_status
+from twobrain_rec_server.ingest.desktop_status import (
+    meeting_desktop_status,
+    upload_session_desktop_status,
+)
 
 
 def test_finalized_upload_maps_to_uploaded_label_without_processing_claim() -> None:

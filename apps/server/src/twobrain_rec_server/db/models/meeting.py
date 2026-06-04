@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
-
 from twobrain_rec_server.db.base import Base
 
 
@@ -37,6 +36,7 @@ class ProcessingPlaceholder(Base):
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(64), default="not_submitted")
+    meeting_status: Mapped[str] = mapped_column(String(64), default="draft")
     workflow_id: Mapped[str | None] = mapped_column(String(240))
     mediascribe_job_id: Mapped[str | None] = mapped_column(String(240))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

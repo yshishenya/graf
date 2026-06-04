@@ -8,11 +8,13 @@ WORKDIR /app
 
 RUN addgroup --system twobrain && adduser --system --ingroup twobrain twobrain
 
-COPY apps/server/pyproject.toml apps/server/README.md /app/
+COPY apps/server/pyproject.toml apps/server/README.md apps/server/constraints.txt /app/
+COPY apps/server/alembic.ini /app/alembic.ini
 COPY apps/server/src /app/src
+COPY apps/server/scripts /app/scripts
 
 RUN pip install --upgrade pip \
-    && pip install ".[dev]"
+    && pip install --constraint constraints.txt "."
 
 USER twobrain
 

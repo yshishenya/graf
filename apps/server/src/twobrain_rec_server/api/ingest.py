@@ -1,24 +1,30 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.schemas import (
+    AbortUploadRequest,
     CreateMeetingRequest,
     CreateUploadSessionRequest,
-    AbortUploadRequest,
     FinalizeUploadRequest,
     FinalizeUploadResponse,
+    MeetingResponse,
     MissingRange,
     MissingRangesResponse,
-    MeetingResponse,
+    Problem,
     UploadPartResponse,
     UploadSessionResponse,
 )
+from twobrain_rec_server.api.upload_stream import read_bounded_upload_body
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.auth.dependencies import get_device_context, get_principal, get_tenant_scope
+from twobrain_rec_server.auth.dependencies import (
+    get_device_context,
+    get_principal,
+    get_tenant_scope,
+)
 from twobrain_rec_server.domain.statuses import TrackRole
-from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
+from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.lifecycle import abort_upload_session
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
 from twobrain_rec_server.ingest.parts import accept_part
@@ -26,13 +32,46 @@ from twobrain_rec_server.ingest.policy import IngestLimitViolation
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
 from twobrain_rec_server.ingest.sessions import create_upload_session
 from twobrain_rec_server.ingest.status import get_upload_session_status
+from twobrain_rec_server.storage.minio_client import get_storage
 
-router = APIRouter(prefix="/api/v1", tags=["ingest"])
+PROBLEM_RESPONSES = {
+    400: {"model": Problem, "description": "Bad request"},
+    401: {"model": Problem, "description": "Unauthorized"},
+    403: {"model": Problem, "description": "Forbidden"},
+    404: {"model": Problem, "description": "Not found"},
+    409: {"model": Problem, "description": "Conflict"},
+    413: {"model": Problem, "description": "Payload too large"},
+    422: {"model": Problem, "description": "Validation error"},
+    503: {"model": Problem, "description": "Dependency unavailable"},
+}
+
+router = APIRouter(prefix="/api/v1", tags=["ingest"], responses=PROBLEM_RESPONSES)
 
 
 TenantDependency = Depends(get_tenant_scope)
 PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
+
+
+async def get_request_db_session(request: Request):
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        yield None
+        return
+    async with sessionmaker() as session:
+        yield session
+
+
+def get_request_storage(request: Request) -> object:
+    storage = getattr(request.app.state, "storage", None)
+    if storage is None:
+        storage = get_storage(request.app.state.settings)
+        request.app.state.storage = storage
+    return storage
+
+
+DbDependency = Depends(get_request_db_session)
+StorageDependency = Depends(get_request_storage)
 
 
 def meeting_response(meeting: object) -> MeetingResponse:
@@ -42,6 +81,8 @@ def meeting_response(meeting: object) -> MeetingResponse:
         local_recording_id=meeting.local_recording_id,
         status=meeting.status,
         processing_status=meeting.processing_status,
+        started_at=meeting.started_at,
+        ended_at=meeting.ended_at,
         created_at=meeting.created_at,
     )
 
@@ -69,14 +110,18 @@ async def create_meeting(
     payload: CreateMeetingRequest,
     request: Request,
     tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
 ) -> MeetingResponse:
     try:
-        meeting = create_or_get_meeting(
+        meeting = await create_or_get_meeting(
             settings=request.app.state.settings,
             tenant_scope=tenant_scope,
+            db=db,
             local_recording_id=payload.local_recording_id,
             duration_seconds=payload.duration_seconds,
             title=payload.title,
+            started_at=payload.started_at,
+            ended_at=payload.ended_at,
         )
     except IngestLimitViolation as exc:
         from twobrain_rec_server.api.problems import ProblemDetail
@@ -97,14 +142,20 @@ async def create_meeting(
 )
 async def create_session(
     meeting_id: UUID,
-    _payload: CreateUploadSessionRequest,
+    payload: CreateUploadSessionRequest,
     request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
 ) -> UploadSessionResponse:
-    session = create_upload_session(
+    session = await create_upload_session(
         settings=request.app.state.settings,
         tenant_scope=tenant_scope,
+        db=db,
         meeting_id=meeting_id,
+        expected_track_roles=payload.expected_tracks,
+        expected_track_sizes=payload.expected_track_sizes,
+        idempotency_key=idempotency_key,
     )
     return session_response(session)
 
@@ -122,11 +173,19 @@ async def put_part(
     x_byte_offset: int = Header(alias="X-Byte-Offset"),
     x_content_sha256: str = Header(alias="X-Content-SHA256"),
     tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+    storage: object = StorageDependency,
 ) -> UploadPartResponse:
-    data = await request.body()
-    part = accept_part(
+    data = await read_bounded_upload_body(
+        request,
+        expected_sha256=x_content_sha256,
+        max_bytes=request.app.state.settings.max_track_bytes,
+    )
+    part = await accept_part(
         settings=request.app.state.settings,
         tenant_scope=tenant_scope,
+        db=db,
+        storage=storage,
         session_id=session_id,
         track_role=track_role,
         part_number=part_number,
@@ -152,8 +211,9 @@ async def put_part(
 async def get_session(
     session_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
 ) -> UploadSessionResponse:
-    return session_response(get_upload_session_status(session_id, tenant_scope))
+    return session_response(await get_upload_session_status(session_id, tenant_scope, db))
 
 
 @router.get(
@@ -164,9 +224,13 @@ async def get_session(
 async def get_missing_ranges(
     session_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
 ) -> MissingRangesResponse:
-    session = get_upload_session_status(session_id, tenant_scope)
-    expected = {role: sum(part.byte_length for (part_role, _), part in session.parts.items() if part_role == role) for role, _ in session.parts}
+    session = await get_upload_session_status(session_id, tenant_scope, db)
+    expected = session.expected_track_sizes or {
+        role: sum(part.byte_length for (part_role, _), part in session.parts.items() if part_role == role)
+        for role in session.expected_track_roles
+    }
     ranges = missing_ranges_for_expected_sizes(session, expected)
     return MissingRangesResponse(
         session_id=session.id,
@@ -186,9 +250,10 @@ async def abort_session(
     session_id: UUID,
     payload: AbortUploadRequest,
     tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
 ) -> UploadSessionResponse:
     return session_response(
-        abort_upload_session(tenant_scope=tenant_scope, session_id=session_id, reason=payload.reason)
+        await abort_upload_session(tenant_scope=tenant_scope, db=db, session_id=session_id, reason=payload.reason)
     )
 
 
@@ -201,10 +266,13 @@ async def finalize_session(
     session_id: UUID,
     payload: FinalizeUploadRequest,
     tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
 ) -> FinalizeUploadResponse:
-    meeting, session = finalize_upload(
+    meeting, session = await finalize_upload(
         tenant_scope=tenant_scope,
+        db=db,
         session_id=session_id,
+        manifest_sha256=payload.manifest_sha256,
         tracks=payload.tracks,
     )
     return FinalizeUploadResponse(

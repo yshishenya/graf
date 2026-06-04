@@ -3,7 +3,6 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
-
 from twobrain_rec_server.observability.redaction import redact_mapping
 
 

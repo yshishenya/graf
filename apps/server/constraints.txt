@@ -1,0 +1,10 @@
+alembic==1.14.1
+asyncpg==0.30.0
+fastapi==0.115.6
+minio==7.2.12
+pydantic==2.10.5
+pydantic-settings==2.7.1
+python-multipart==0.0.20
+sqlalchemy==2.0.37
+structlog==25.1.0
+uvicorn==0.34.0

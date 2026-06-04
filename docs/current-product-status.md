@@ -55,10 +55,18 @@ implementation record.
   server-mediated object boundary, provider-neutral tenant/device request
   checks, upload/session APIs, resumable/idempotent part acceptance, safe
   audit/logging helpers, status contracts, and inert processing placeholders.
-  Local validation on 2026-06-04 passed `27` server tests plus compose config
-  rendering. It does not deploy production, implement the desktop uploader,
-  start Temporal workflows, call MediaScribe, or expose dashboard/share/delete
-  surfaces.
+  Final review remediation on 2026-06-04 added persistence/storage, forged-auth,
+  missing-range, readiness, and lint coverage; local validation passed `36`
+  server tests, Ruff, compileall, and compose config rendering. It does not
+  deploy production, implement the desktop uploader, start Temporal workflows,
+  call MediaScribe, or expose dashboard/share/delete surfaces.
+- A second five-round review hackathon on 2026-06-04 found that 012 was not
+  PR-ready until Phase 11 remediation completed. Phase 11 tasks T119-T180 and
+  GitHub issues #112-#124 have now been remediated locally with traceability in
+  `specs/012-server-ingest-foundation/tasks.md` and validation evidence in
+  `specs/012-server-ingest-foundation/quickstart.md`. The remaining gate before
+  PR/deployment-plan handoff is a final full repository sanity run, review of
+  the dirty worktree, and an explicit commit/PR decision.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -75,9 +83,9 @@ implementation record.
 - Production deployment, desktop upload queue wiring, MediaScribe
   transcription, dashboard notes, Temporal workflow starts, server retention,
   and deletion workflows are not accepted yet.
-- The `012` backend foundation exists, but it remains a local/repository
-  implementation until production deployment and desktop uploader slices are
-  completed and accepted.
+- The `012` backend foundation exists as a local/repository implementation with
+  Phase 11 remediation completed locally; production deployment and desktop
+  uploader slices are still not accepted.
 - Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
   detect-and-ask, automatic naming, and future auto-record behavior have not
   been implemented or accepted.

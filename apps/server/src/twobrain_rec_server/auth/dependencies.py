@@ -1,9 +1,14 @@
 from uuid import UUID
 
-from fastapi import Depends, Header
-
+from fastapi import Depends, Header, Request
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
+from twobrain_rec_server.db.models import (
+    RegisteredDevice,
+    UserIdentity,
+    Workspace,
+    WorkspaceMembership,
+)
 
 
 def _parse_uuid(value: str | None, header_name: str) -> UUID:
@@ -53,9 +58,14 @@ async def get_device_context(
     )
 
 
+PrincipalDependency = Depends(get_principal)
+DeviceDependency = Depends(get_device_context)
+
+
 async def get_tenant_scope(
-    principal: AuthenticatedPrincipal = Depends(get_principal),
-    device: DeviceContext = Depends(get_device_context),
+    request: Request,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
 ) -> TenantScope:
     if device.workspace_id not in principal.workspace_ids:
         raise ProblemDetail(
@@ -63,6 +73,39 @@ async def get_tenant_scope(
             code="workspace_scope_denied",
             title="Workspace scope denied",
         )
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_context_unavailable",
+            title="Authentication context unavailable",
+        )
+    async with sessionmaker() as db:
+        user = await db.get(UserIdentity, principal.user_id)
+        workspace = await db.get(Workspace, device.workspace_id)
+        membership = await db.get(
+            WorkspaceMembership,
+            {"workspace_id": device.workspace_id, "user_id": principal.user_id},
+        )
+        registered_device = await db.get(RegisteredDevice, device.device_id)
+        if (
+            user is None
+            or user.organization_id != principal.organization_id
+            or user.status != "active"
+            or workspace is None
+            or workspace.organization_id != principal.organization_id
+            or membership is None
+            or membership.status != "active"
+            or registered_device is None
+            or registered_device.workspace_id != device.workspace_id
+            or registered_device.user_id != principal.user_id
+            or registered_device.status != "active"
+        ):
+            raise ProblemDetail(
+                status=403,
+                code="workspace_scope_denied",
+                title="Workspace scope denied",
+            )
     return TenantScope(
         organization_id=principal.organization_id,
         workspace_id=device.workspace_id,

@@ -1,7 +1,6 @@
 from twobrain_rec_server.api.schemas import TrackDescriptor
 from twobrain_rec_server.domain.statuses import TrackRole
 
-
 REQUIRED_FINALIZE_ROLES = {TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM}
 
 

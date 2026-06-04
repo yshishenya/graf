@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
-
 from twobrain_rec_server.db.base import Base
 
 

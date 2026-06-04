@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AnyUrl, Field, PositiveInt
+from pydantic import AnyUrl, Field, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +40,23 @@ class Settings(BaseSettings):
         "set-cookie",
         "x-content-sha256",
     )
+
+    @model_validator(mode="after")
+    def validate_production_safety(self) -> "Settings":
+        if self.env.lower() != "production":
+            return self
+        unsafe_hosts = ("localhost", "127.0.0.1", "0.0.0.0", "::1")
+        if any(host in self.database_url for host in unsafe_hosts):
+            raise ValueError("production database_url must not point at localhost or wildcard hosts")
+        if self.minio_endpoint.split(":", maxsplit=1)[0] in unsafe_hosts:
+            raise ValueError("production minio_endpoint must not point at localhost or wildcard hosts")
+        dev_secrets = {"twobrain_rec", "twobrain_rec_dev_secret", "minioadmin", "password", "changeme"}
+        if self.minio_access_key in dev_secrets or self.minio_secret_key in dev_secrets:
+            raise ValueError("production MinIO API credentials must not use development defaults")
+        root_markers = ("root", "admin")
+        if any(marker in self.minio_access_key.lower() for marker in root_markers):
+            raise ValueError("production MinIO API access key must not be a root/admin credential")
+        return self
 
 
 @lru_cache

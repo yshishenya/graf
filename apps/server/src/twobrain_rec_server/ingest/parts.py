@@ -1,19 +1,38 @@
 from hashlib import sha256
+from io import BytesIO
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import TrackRole, UploadSessionStatus
+from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
-from twobrain_rec_server.ingest.policy import validate_track_bytes
+from twobrain_rec_server.ingest.lifecycle_guards import ensure_upload_session_mutable
+from twobrain_rec_server.ingest.policy import IngestLimitViolation, validate_track_bytes
 from twobrain_rec_server.ingest.state_machine import ensure_can_accept_part
-from twobrain_rec_server.ingest.store import UploadPartRecord, UploadSessionRecord, store
+from twobrain_rec_server.ingest.store import (
+    UploadPartRecord,
+    UploadSessionRecord,
+    load_upload_session_record,
+    mark_temporary_upload_object_cleanup_status,
+    persist_audit_event,
+    persist_temporary_upload_object,
+    persist_upload_part,
+    persist_upload_session,
+)
 from twobrain_rec_server.storage.object_keys import build_track_object_key
 
 
-def get_session_for_tenant(session_id: UUID, tenant_scope: TenantScope) -> UploadSessionRecord:
-    session = store.sessions.get(session_id)
+async def get_session_for_tenant(
+    session_id: UUID,
+    tenant_scope: TenantScope,
+    db: AsyncSession | None = None,
+) -> UploadSessionRecord:
+    session = store_module.store.sessions.get(session_id)
+    if session is None:
+        session = await load_upload_session_record(db, session_id)
     if session is None or session.workspace_id != tenant_scope.workspace_id:
         raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
     if session.device_id != tenant_scope.device_id:
@@ -21,10 +40,12 @@ def get_session_for_tenant(session_id: UUID, tenant_scope: TenantScope) -> Uploa
     return session
 
 
-def accept_part(
+async def accept_part(
     *,
     settings: Settings,
     tenant_scope: TenantScope,
+    db: AsyncSession | None = None,
+    storage: object | None = None,
     session_id: UUID,
     track_role: TrackRole,
     part_number: int,
@@ -32,12 +53,25 @@ def accept_part(
     content_sha256: str,
     data: bytes,
 ) -> UploadPartRecord:
-    session = get_session_for_tenant(session_id, tenant_scope)
+    if part_number < 0:
+        raise ProblemDetail(status=400, code="invalid_part_number", title="Part number must be non-negative")
+    if byte_offset < 0:
+        raise ProblemDetail(status=400, code="invalid_byte_offset", title="Byte offset must be non-negative")
+    session = await get_session_for_tenant(session_id, tenant_scope, db)
+    await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     try:
         ensure_can_accept_part(session.status)
     except ValueError as exc:
         raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal") from exc
-    validate_track_bytes(settings, len(data))
+    try:
+        validate_track_bytes(settings, len(data))
+    except IngestLimitViolation as exc:
+        raise ProblemDetail(
+            status=413,
+            code=exc.code,
+            title="Track byte limit exceeded",
+            detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
+        ) from exc
     actual_sha = sha256(data).hexdigest()
     if actual_sha != content_sha256:
         raise ProblemDetail(status=400, code="checksum_mismatch", title="Checksum mismatch")
@@ -45,18 +79,43 @@ def accept_part(
     part_key = (track_role, part_number)
     existing = session.parts.get(part_key)
     if existing:
-        if existing.sha256 == content_sha256 and existing.byte_length == len(data):
+        if existing.sha256 == content_sha256 and existing.byte_length == len(data) and existing.byte_offset == byte_offset:
             return existing
-        record_audit_event(
+        conflict_code = "checksum_conflict" if existing.byte_offset == byte_offset else "range_conflict"
+        conflict_title = "Checksum conflict" if conflict_code == "checksum_conflict" else "Upload part replay conflicts with accepted range"
+        event = record_audit_event(
             event_type="part_conflict",
             workspace_id=tenant_scope.workspace_id,
             meeting_id=session.meeting_id,
             upload_session_id=session.id,
+            actor_user_id=tenant_scope.user_id,
+            device_id=tenant_scope.device_id,
             metadata={"track_role": track_role.value, "part_number": part_number},
         )
-        raise ProblemDetail(status=409, code="checksum_conflict", title="Checksum conflict")
+        await persist_audit_event(db, event)
+        raise ProblemDetail(status=409, code=conflict_code, title=conflict_title)
 
-    meeting = store.meetings[session.meeting_id]
+    new_start = byte_offset
+    new_end = byte_offset + len(data)
+    expected_size = session.expected_track_sizes.get(track_role)
+    if expected_size is not None and new_end > expected_size:
+        raise ProblemDetail(status=409, code="expected_track_size_exceeded", title="Upload part exceeds expected track size")
+    accepted_track_bytes = 0
+    accepted_package_bytes = 0
+    for (part_role, _), accepted_part in session.parts.items():
+        accepted_package_bytes += accepted_part.byte_length
+        if part_role == track_role:
+            accepted_track_bytes += accepted_part.byte_length
+            accepted_start = accepted_part.byte_offset
+            accepted_end = accepted_part.byte_offset + accepted_part.byte_length
+            if new_start < accepted_end and new_end > accepted_start:
+                raise ProblemDetail(status=409, code="range_overlap", title="Upload part overlaps an accepted range")
+    if accepted_track_bytes + len(data) > settings.max_track_bytes:
+        raise ProblemDetail(status=413, code="track_bytes_exceeded", title="Track byte limit exceeded")
+    if accepted_package_bytes + len(data) > settings.max_package_bytes:
+        raise ProblemDetail(status=413, code="package_bytes_exceeded", title="Package byte limit exceeded")
+
+    meeting = store_module.store.meetings[session.meeting_id]
     object_key = build_track_object_key(
         organization_id=tenant_scope.organization_id,
         workspace_id=tenant_scope.workspace_id,
@@ -65,6 +124,20 @@ def accept_part(
         track_role=track_role,
         part_number=part_number,
     )
+    if storage is not None:
+        try:
+            ensure_bucket_async = getattr(storage, "ensure_bucket_async", None)
+            if ensure_bucket_async is not None:
+                await ensure_bucket_async()
+            elif hasattr(storage, "ensure_bucket"):
+                storage.ensure_bucket()
+            put_stream_async = getattr(storage, "put_stream_async", None)
+            if put_stream_async is not None:
+                await put_stream_async(object_key, BytesIO(data), len(data))
+            else:
+                storage.put_stream(object_key, BytesIO(data), len(data))
+        except Exception as exc:
+            raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable") from exc
     part = UploadPartRecord(
         track_role=track_role,
         part_number=part_number,
@@ -72,15 +145,32 @@ def accept_part(
         byte_length=len(data),
         sha256=content_sha256,
         object_key=object_key,
-        data=data,
+        data=b"",
     )
     session.parts[part_key] = part
     session.status = UploadSessionStatus.UPLOADING
-    record_audit_event(
+    await persist_temporary_upload_object(db, session, part, object_role="accepted_part")
+    event = record_audit_event(
         event_type="part_accepted",
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting.id,
         upload_session_id=session.id,
+        actor_user_id=tenant_scope.user_id,
+        device_id=tenant_scope.device_id,
         metadata={"track_role": track_role.value, "part_number": part_number, "byte_length": len(data)},
     )
+    try:
+        await persist_upload_session(db, session, settings)
+        await persist_upload_part(db, session, part)
+    except Exception as exc:
+        await mark_temporary_upload_object_cleanup_status(
+            db,
+            session,
+            object_key,
+            "orphaned",
+            failure_reason="db_persistence_failed_after_object_write",
+            last_error=type(exc).__name__,
+        )
+        raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
+    await persist_audit_event(db, event)
     return part

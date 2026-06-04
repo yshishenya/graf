@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "aiosqlite>=0.22,<1",
     "httpx>=0.28,<1",
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.25,<1",
@@ -38,7 +39,8 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+# Ruff <1 does not recognize py313 yet; keep lint parsing stable until the toolchain catches up.
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
