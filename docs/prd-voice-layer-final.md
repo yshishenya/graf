@@ -57,8 +57,11 @@ Current non-accepted product areas:
 - Feature `011-assisted-auto-recording` is specified only. Detect-and-ask,
   future auto-record, automatic naming, and assisted detection evidence are not
   implemented yet.
-- Meeting-app mute truth remains a future privacy slice before broader
-  recording acceptance.
+- Feature `022-meeting-mute-truth` is a backlog privacy slice only. It must
+  resolve canonical meeting-app mute truth, unsupported-target behavior, muted
+  interval artifact truth, user-facing limitation copy, and QA target evidence
+  before broader recording acceptance can claim privacy-correct behavior when a
+  user mutes inside Zoom/browser targets.
 - Signed/notarized production installer evidence remains separate from local
   ad-hoc development package evidence.
 
@@ -96,6 +99,10 @@ Reserved follow-up slices:
   workflows, deletion verification reports, local desktop purge coordination,
   backup expiry accounting, and MediaScribe/Langfuse/external dependency
   deletion truth.
+- `022-meeting-mute-truth`: future privacy slice for respecting meeting-app mute
+  state. This supersedes the old `009-respect-meeting-mute` draft branch as the
+  canonical backlog record and authorizes no implementation until clarification
+  and planning are complete.
 - `direct-object-upload`: future upload optimization where desktop clients may
   receive narrowly scoped object-storage upload URLs only after a separate
   security, lifecycle, deletion, and credential-boundary review. `012` remains

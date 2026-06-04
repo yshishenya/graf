@@ -35,9 +35,13 @@ implementation record.
 - One-minute manual recording smoke is accepted for Yandex Telemost, Chrome,
   Opera, and Zoom for features `007` and `008`: visible manual recording,
   one-action stop, and saved local recording artifacts.
-- The meeting-app mute issue discovered during validation is parked on
-  `009-respect-meeting-mute` for a future slice and is not part of the current
-  mainline sequence.
+- The meeting-app mute issue discovered during validation is preserved as
+  `022-meeting-mute-truth`, a backlog privacy slice that supersedes the old
+  `009-respect-meeting-mute` draft branch. It is not part of the current
+  mainline sequence and authorizes no implementation until clarification and
+  planning resolve canonical mute truth, unsupported-target behavior, muted
+  interval artifact truth, user-facing limitation copy, and the QA target
+  matrix.
 - MediaScribe dual-track API contract is recorded in
   `docs/integrations/mediascribe-dual-track-api.md` for future backend
   transcription work. The real API key is intentionally not committed.
@@ -76,8 +80,8 @@ implementation record.
 
 - Yandex Browser is intentionally skipped/not accepted in the current
   browser/meeting smoke cycle.
-- Meeting-app mute truth must be resolved in a future slice before local
-  recording can be accepted as privacy-correct when a user mutes inside
+- Feature `022-meeting-mute-truth` must resolve meeting-app mute truth before
+  local recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
 - Long-duration 30/60 minute integrity acceptance is not complete.
 - Production deployment, desktop upload queue wiring, MediaScribe
@@ -135,15 +139,16 @@ Keep separate unless the next spec explicitly changes scope:
   workflows, deletion verification reports, local desktop purge coordination,
   backup expiry accounting, and external dependency deletion truth.
 - Assisted auto-start and generalized meeting detection.
-- Feature `009` meeting-app mute truth.
+- Feature `022-meeting-mute-truth` meeting-app mute truth.
 
 ## Deferred Work Register
 
 Use this register as the anti-drift memory for work intentionally left out of
 the current accepted implementation or `012` ingest slice.
 
-- `009-respect-meeting-mute`: resolve meeting-app mute truth before broader
-  local recording acceptance.
+- `022-meeting-mute-truth`: resolve meeting-app mute truth before broader
+  local recording acceptance. This supersedes the old
+  `009-respect-meeting-mute` draft branch as the canonical backlog record.
 - `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
   naming, and any future auto-start behavior from the accepted requirements.
 - `013-federated-auth-foundation`: implement provider-neutral auth, account
