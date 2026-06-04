@@ -1,0 +1,82 @@
+name: Spec Kit Work Item
+description: Create a Spec Kit-traceable implementation, review, hardening, or documentation issue.
+title: "[012][P0][area] Imperative outcome"
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use the canonical title format: `[<feature>][<priority>][<area>] <imperative outcome>`.
+        Example: `[012][P0][ingest/finalize] Reject mismatched artifact manifests before finalize`
+
+  - type: textarea
+    id: canonical-body
+    attributes:
+      label: Canonical Issue Body
+      description: Fill every section and keep the Markdown headings unchanged.
+      value: |
+        ## Summary
+
+        One or two sentences describing what must become true.
+
+        ## Context
+
+        - Feature: `012-server-ingest-foundation`
+        - Spec tasks: T000
+        - Source: review / analyze / implementation / user report / production incident
+        - Gate: blocks PR / blocks deployment / follow-up / nice-to-have
+        - Related issues:
+
+        ## Problem
+
+        Concrete current behavior, gap, or risk. Explain why it matters.
+
+        ## Confirmed Findings
+
+        - 
+        - 
+        - 
+
+        ## Scope
+
+        In scope:
+        - 
+
+        Out of scope:
+        - 
+
+        ## Acceptance Criteria
+
+        - [ ] Given ..., when ..., then ...
+        - [ ] 
+        - [ ] 
+
+        ## Validation Required
+
+        - [ ] Test file or command:
+        - [ ] Contract/checklist/compose/manual smoke evidence:
+        - [ ] Documentation/status update if required:
+
+        ## Implementation Notes
+
+        Constraints, important paths, sequencing, or known traps. Keep practical.
+
+        ## Links
+
+        - Spec:
+        - Plan:
+        - Tasks:
+        - Related:
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: canon-confirmation
+    attributes:
+      label: Canon Confirmation
+      options:
+        - label: The title follows `[<feature>][<priority>][<area>] <imperative outcome>`.
+          required: true
+        - label: Acceptance criteria and validation evidence are concrete enough to determine closure.
+          required: true
