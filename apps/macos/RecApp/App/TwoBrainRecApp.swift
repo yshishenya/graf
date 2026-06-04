@@ -24,7 +24,14 @@ struct TwoBrainRecApp: App {
                 runCheck: {
                     isChecking = true
                     DispatchQueue.global(qos: .userInitiated).async {
-                        _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                        if ProcessInfo.processInfo.arguments.contains("--enable-route-check-start") {
+                            _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                        } else {
+                            AppLog.writeRaw(
+                                event: "readiness_check_route_start_skipped",
+                                detail: "route bridge startup disabled by default for safe launch"
+                            )
+                        }
                         let checked = LocalAudioSnapshot.runReadinessCheck()
                         AppLog.write(event: "readiness_check", snapshot: checked)
                         DispatchQueue.main.async {
@@ -100,10 +107,10 @@ private struct ContentView: View {
         .onAppear {
             passthroughCoordinator.recordLaunchState()
             AppLog.write(event: "app_opened", snapshot: snapshot)
-            if ProcessInfo.processInfo.arguments.contains("--disable-auto-passthrough") {
+            if !ProcessInfo.processInfo.arguments.contains("--enable-auto-passthrough") {
                 AppLog.writeRaw(
                     event: "passthrough_bridge_auto_start_skipped",
-                    detail: "automatic non-recording route engine disabled for this launch"
+                    detail: "automatic non-recording route engine disabled by default for safe launch"
                 )
             } else {
                 DispatchQueue.global(qos: .userInitiated).async {
