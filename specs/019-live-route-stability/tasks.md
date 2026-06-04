@@ -59,7 +59,7 @@
 ### Implementation for User Story 1
 
 - [ ] T017 [US1] Implement per-side client activity snapshots and freshness windows in `apps/macos/Shared/Sources/Routing/LiveRouteClientActivity.swift`
-- [ ] T018 [US1] Replace `anyExpectedVirtualDeviceRunning()` as sole route-preservation truth with client activity evidence in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+- [ ] T018 [US1] Replace sole route-preservation truth based on aggregate virtual-device running state with client activity evidence in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
 - [ ] T019 [US1] Emit route lifecycle, active, preserved, and frame-continuity events from the live route engine in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
 - [ ] T020 [US1] Add 30-minute development gate validation logic for accepted targets in `apps/macos/Scripts/validate-live-route-readiness.sh`
 - [ ] T021 [US1] Document US1 validation evidence requirements in `specs/019-live-route-stability/evidence/us1-live-route-preservation.md`
@@ -174,9 +174,10 @@
 - [ ] T057 [P] Add `019` quickstart command references and evidence paths in `specs/019-live-route-stability/quickstart.md`
 - [ ] T058 Run Swift tests for macOS package and record results in `specs/019-live-route-stability/evidence/test-results.md`
 - [ ] T059 Run foundation validation scripts and record results in `specs/019-live-route-stability/evidence/test-results.md`
-- [ ] T060 Run 30-minute development gate evidence collection and record results in `specs/019-live-route-stability/evidence/development-30-minute.md`
-- [ ] T061 Record 75-minute manual release gate plan and results in `specs/019-live-route-stability/evidence/release-75-minute.md`
-- [ ] T062 Review all evidence for no speaker-to-mic leakage, backend ingest, upload, transcription, MediaScribe, Langfuse, or Bluetooth implementation scope creep in `specs/019-live-route-stability/evidence/scope-review.md`
+- [ ] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, and Telemost and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
+- [ ] T061 Run or record 75-minute manual release gate evidence for Chrome, Opera, Zoom, and Telemost with accepted, blocked, failed, degraded, and not-tested outcomes in `specs/019-live-route-stability/evidence/release-75-minute.md`
+- [ ] T062 Run local-offline validation with backend, network, MediaScribe, Langfuse, and transfer services unavailable and record results in `specs/019-live-route-stability/evidence/local-offline.md`
+- [ ] T063 Review all evidence for no speaker-to-mic leakage, backend ingest, upload, transcription, MediaScribe, Langfuse, or Bluetooth implementation scope creep in `specs/019-live-route-stability/evidence/scope-review.md`
 
 ---
 
@@ -251,9 +252,9 @@ Task: "T051 [P] [US5] Add acceptance matrix tests for Bluetooth/AirPods backlog 
 ### Incremental Delivery
 
 1. Add US1 to preserve active routes.
-2. Add US4 to prove prevention against self-inflicted drops.
-3. Add US2 to autorepair supported external disruptions.
-4. Add US3 to connect live route stability to local recording truth.
+2. Add US2 to autorepair supported external disruptions.
+3. Add US3 to connect live route stability to local recording truth.
+4. Add US4 to prove prevention against self-inflicted drops before final acceptance.
 5. Add US5 to produce release-ready metadata-only evidence.
 
 ### Scope Guardrails

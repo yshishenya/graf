@@ -292,6 +292,12 @@ This feature requires structured, metadata-only logging. The purpose is to make
 future live-route failures diagnosable without raw audio, meeting text,
 transcripts, credentials, tokens, signed URLs, passwords, or meeting content.
 
+The logging requirements are intentionally layered rather than interchangeable:
+route evidence defines which event families must exist, causal evidence defines
+why a route changed, structured logging defines the minimum event shape,
+correlation evidence links route sessions to recording artifacts, and debug
+evidence defines what QA needs to reconstruct a successful autorepair.
+
 Logging must answer these questions:
 
 - Did the route start, and why?
