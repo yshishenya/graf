@@ -45,11 +45,12 @@ cleanup() {
   if [ -n "${root_user_file:-}" ] && [ -n "${root_password_file:-}" ]; then
     docker run --rm \
       --network twobrain-rec-private \
+      --entrypoint /bin/sh \
       -e "TWOBRAIN_MINIO_BUCKET=${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" \
       -v "$root_user_file":/run/secrets/twobrain_minio_root_user:ro \
       -v "$root_password_file":/run/secrets/twobrain_minio_root_password:ro \
       minio/mc:RELEASE.2025-05-21T01-59-54Z \
-      sh -c 'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null && mc rb --force "rec/'"$restore_bucket"'" >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
+      -c 'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null && mc rb --force "rec/'"$restore_bucket"'" >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -66,12 +67,13 @@ root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_u
 root_password_file="${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"
 docker run --rm \
   --network twobrain-rec-private \
+  --entrypoint /bin/sh \
   -e "TWOBRAIN_MINIO_BUCKET=${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" \
   -v "$RESTORE_BACKUP_REFERENCE/minio-objects":/backup/minio-objects:ro \
   -v "$root_user_file":/run/secrets/twobrain_minio_root_user:ro \
   -v "$root_password_file":/run/secrets/twobrain_minio_root_password:ro \
   minio/mc:RELEASE.2025-05-21T01-59-54Z \
-  sh -c 'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null && mc mb --ignore-existing "rec/'"$restore_bucket"'" >/dev/null && mc mirror --overwrite /backup/minio-objects "rec/'"$restore_bucket"'" >/dev/null && mc ls --recursive "rec/'"$restore_bucket"'" >/dev/null'
+  -c 'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null && mc mb --ignore-existing "rec/'"$restore_bucket"'" >/dev/null && mc mirror --overwrite /backup/minio-objects "rec/'"$restore_bucket"'" >/dev/null && mc ls --recursive "rec/'"$restore_bucket"'" >/dev/null'
 cat <<EOF
 restore_rehearsal_result=pass
 backup_reference=$RESTORE_BACKUP_REFERENCE
