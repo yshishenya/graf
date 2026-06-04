@@ -139,3 +139,20 @@ Expected:
 - Tests and lint pass.
 - Compose config renders with safe placeholders.
 - Secret/content scan finds no live credentials, raw audio, transcript text, signed URLs, or tokens.
+
+## 13. Manual CD Without GitHub Actions
+
+When GitHub-hosted Actions minutes are unavailable, run deployment through the
+manual remote gate:
+
+```sh
+infra/scripts/cd-remote.sh --dry-run
+infra/scripts/cd-remote.sh --execute
+```
+
+Expected:
+
+- Local CI passes before remote mutation unless explicitly skipped by the operator.
+- Remote backup and restore rehearsal pass before rebuild/up.
+- Production Compose config scan does not expose live secret values in service environment.
+- Production smoke returns `readiness_verdict=infra_smoke_ready`.

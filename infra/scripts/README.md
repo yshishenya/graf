@@ -28,3 +28,18 @@ infra/scripts/ci-local.sh
 
 It runs server tests, Ruff, compileall, production Compose rendering, and the
 deployment evidence scan. It does not contact production or run remote smoke.
+
+## Manual CD
+
+When GitHub Actions minutes are unavailable, deploy from the workstation through
+the remote-first CD gate:
+
+```sh
+infra/scripts/cd-remote.sh --dry-run
+infra/scripts/cd-remote.sh --execute
+```
+
+The execute mode runs local CI first, then on `2brain.dev` performs fetch/reset,
+backup, restore rehearsal, production Compose secret-exposure scan, rebuild/up,
+production smoke, and public health checks. It does not store production secrets
+in GitHub.
