@@ -35,28 +35,32 @@ EOF
   exit 0
 fi
 
-(
-  cd apps/server
-  PYTHONPATH=src uv run python scripts/seed_smoke_identity.py --run-id "$RUN_ID" --execute
-) >/tmp/twobrain-rec-smoke-identity.json
+docker compose -f infra/docker-compose.yml exec -T rec-api \
+  python scripts/create_test_artifact.py \
+  --out "${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}" \
+  --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" >/tmp/twobrain-rec-smoke-artifact.json
+docker compose -f infra/docker-compose.yml exec -T rec-api \
+  python scripts/seed_smoke_identity.py --run-id "$RUN_ID" --execute >/tmp/twobrain-rec-smoke-identity.json
 infra/scripts/validate-production-config.sh
 infra/scripts/verify-rec-migration.sh --execute
-(
-  cd apps/server
-  PYTHONPATH=src uv run python scripts/upload_test_artifact.py \
+docker compose -f infra/docker-compose.yml exec -T rec-api \
+  python scripts/upload_test_artifact.py \
   --api "${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}" \
   --organization "$(python3 -c 'import json; print(json.load(open("/tmp/twobrain-rec-smoke-identity.json"))["X-Organization-Id"])')" \
   --workspace "$(python3 -c 'import json; print(json.load(open("/tmp/twobrain-rec-smoke-identity.json"))["X-Workspace-Id"])')" \
   --user "$(python3 -c 'import json; print(json.load(open("/tmp/twobrain-rec-smoke-identity.json"))["X-User-Id"])')" \
   --device "$(python3 -c 'import json; print(json.load(open("/tmp/twobrain-rec-smoke-identity.json"))["X-Device-Id"])')" \
-  --artifact "${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/opt/projects/2brain-rec/smoke-artifact}"
-)
-(
-  cd apps/server
-  PYTHONPATH=src uv run python scripts/cleanup_smoke_artifacts.py --run-id "$RUN_ID" --execute
-)
+  --artifact "${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}" >/tmp/twobrain-rec-smoke-upload.json
+docker compose -f infra/docker-compose.yml exec -T rec-api \
+  python scripts/cleanup_smoke_artifacts.py \
+  --run-id "$RUN_ID" \
+  --execute \
+  --meeting-id "$(python3 -c 'import json; print(json.load(open("/tmp/twobrain-rec-smoke-upload.json"))["meeting_id"])')" \
+  --session-id "$(python3 -c 'import json; print(json.load(open("/tmp/twobrain-rec-smoke-upload.json"))["session_id"])')" >/tmp/twobrain-rec-smoke-cleanup.json
 cat <<EOF
 smoke_result=pass
 readiness_verdict=infra_smoke_ready
 run_id=$RUN_ID
+upload_result=$(cat /tmp/twobrain-rec-smoke-upload.json)
+cleanup_result=$(cat /tmp/twobrain-rec-smoke-cleanup.json)
 EOF
