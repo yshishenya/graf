@@ -67,7 +67,11 @@ implementation record.
   recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
 - Long-duration 30/75 minute integrity acceptance is not complete. Feature
-  `019-live-route-stability` is the active draft slice for this gap.
+  `019-live-route-stability` now implements the local metadata, policy,
+  autorepair, route-release prevention, recording timeline, and validation
+  evidence foundations for this gap. Manual 30-minute and 75-minute release
+  evidence still must be collected before long-duration acceptance can be
+  claimed.
 - Upload, resumable ingest, MediaScribe transcription, dashboard notes, server
   retention, and deletion workflows are not implemented in the macOS client
   slice.

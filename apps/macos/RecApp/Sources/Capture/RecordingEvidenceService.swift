@@ -68,7 +68,10 @@ public struct RecordingEvidenceService: Sendable {
             "trackFormats": manifest.tracks.map(\.format).joined(separator: ","),
             "externalEgressStarted": String(manifest.externalEgressStarted),
             "transcriptionStarted": String(manifest.transcriptionStarted),
-            "diagnosticSafe": String(manifest.diagnosticSafe)
+            "diagnosticSafe": String(manifest.diagnosticSafe),
+            "routeSessionId": manifest.recordingTimelineEvidence?.routeSessionId ?? "",
+            "alignmentBand": manifest.recordingTimelineEvidence?.alignmentBand.rawValue ?? "",
+            "routeInterruptionCategory": manifest.recordingTimelineEvidence?.interruptionCategory.rawValue ?? ""
         ]
     }
 

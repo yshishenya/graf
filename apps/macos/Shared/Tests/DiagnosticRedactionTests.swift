@@ -234,6 +234,35 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("recordingPrerequisites[0].signedUrl"))
     }
 
+    func testRouteEvidenceKeepsMetadataAndRemovesForbiddenContent() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "routeEvidenceEvents": .array([
+                .object([
+                    "family": .string("client_activity"),
+                    "name": .string("client_activity.fresh"),
+                    "sessionId": .string("route-session-019"),
+                    "participantSpeech": .string("forbidden meeting words")
+                ])
+            ]),
+            "validationRunEvidence": .object([
+                "runId": .string("019-dev-run"),
+                "result": .string("accepted"),
+                "rawTranscript": .string("forbidden transcript")
+            ]),
+            "routeEvidenceFile": .string("route-evidence.jsonl"),
+            "credentialPath": .string("/tmp/secret")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["routeEvidenceEvents"])
+        XCTAssertNotNil(result.manifest["validationRunEvidence"])
+        XCTAssertNotNil(result.manifest["routeEvidenceFile"])
+        XCTAssertNil(result.manifest["credentialPath"])
+        XCTAssertTrue(result.removedFields.contains("routeEvidenceEvents[0].participantSpeech"))
+        XCTAssertTrue(result.removedFields.contains("validationRunEvidence.rawTranscript"))
+    }
+
     func testLocalRecordingEvidenceKeepsSafeMetadataAndRemovesSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "localRecordingManifest": .object([

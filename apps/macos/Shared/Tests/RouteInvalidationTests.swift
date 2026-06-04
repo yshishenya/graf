@@ -72,5 +72,30 @@ final class RouteInvalidationTests: XCTestCase {
         XCTAssertTrue(events.contains { $0.newStatus == .degraded })
         XCTAssertTrue(events.contains { $0.newStatus == .stale })
     }
+
+    func testRouteStateTruthDistinguishesStaleBlockedFailedAndReleased() {
+        let stale = RouteEvidenceEvent(
+            eventId: "stale",
+            sessionId: "route-session",
+            family: .routeLifecycle,
+            name: "route.stale",
+            observedAt: Date(timeIntervalSince1970: 1),
+            source: .routeEngine,
+            routeState: .stale
+        )
+        let released = RouteEvidenceEvent(
+            eventId: "released",
+            sessionId: "route-session",
+            family: .routeLifecycle,
+            name: "route.released",
+            observedAt: Date(timeIntervalSince1970: 2),
+            source: .routeEngine,
+            routeState: .released
+        )
+
+        XCTAssertNotEqual(stale.routeState, released.routeState)
+        XCTAssertEqual(stale.routeState, .stale)
+        XCTAssertEqual(released.routeState, .released)
+    }
 }
 #endif

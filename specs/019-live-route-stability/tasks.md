@@ -17,9 +17,9 @@
 
 **Purpose**: Add shared test/evidence scaffolding used by all `019` tasks.
 
-- [ ] T001 [P] Create live route stability fixture builders in `apps/macos/Shared/Tests/LiveRouteStabilityFixtures.swift`
-- [ ] T002 [P] Create sample validation evidence fixtures in `apps/macos/Shared/Tests/Fixtures/LiveRouteStabilityEvidenceFixtures.swift`
-- [ ] T003 [P] Add `019` validation output directory documentation in `specs/019-live-route-stability/evidence/README.md`
+- [X] T001 [P] Create live route stability fixture builders in `apps/macos/Shared/Tests/LiveRouteStabilityFixtures.swift`
+- [X] T002 [P] Create sample validation evidence fixtures in `apps/macos/Shared/Tests/Fixtures/LiveRouteStabilityEvidenceFixtures.swift`
+- [X] T003 [P] Add `019` validation output directory documentation in `specs/019-live-route-stability/evidence/README.md`
 
 ---
 
@@ -29,16 +29,16 @@
 
 **Critical**: No user story work should begin until these tasks are complete.
 
-- [ ] T004 [P] Add contract tests for route evidence event families and required fields in `apps/macos/Shared/Tests/ContractTests/LiveRouteEvidenceContractTests.swift`
-- [ ] T005 [P] Add contract tests for autorepair states, transitions, timing tiers, and non-recoverable reasons in `apps/macos/Shared/Tests/ContractTests/AutorepairStateMachineContractTests.swift`
-- [ ] T006 [P] Add contract tests for validation run evidence results, duration gates, and target/device coverage in `apps/macos/Shared/Tests/ContractTests/ValidationRunEvidenceContractTests.swift`
-- [ ] T007 [P] Add contract tests for recording timeline evidence fields and alignment bands in `apps/macos/Shared/Tests/ContractTests/RecordingTimelineEvidenceContractTests.swift`
-- [ ] T008 Create live route evidence models from data-model.md in `apps/macos/Shared/Sources/Models/LiveRouteEvidenceModels.swift`
-- [ ] T009 Create autorepair state machine models from contract in `apps/macos/Shared/Sources/Routing/AutorepairStateMachine.swift`
-- [ ] T010 Create metadata-only route evidence event model and serializer in `apps/macos/Shared/Sources/Diagnostics/RouteEvidenceEvent.swift`
-- [ ] T011 Create local route evidence writer with JSON Lines output in `apps/macos/RecApp/Sources/Diagnostics/RouteEvidenceStore.swift`
-- [ ] T012 Extend diagnostic redaction to cover route evidence fields and forbidden content in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
-- [ ] T013 Add redaction regression tests for route evidence and validation evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
+- [X] T004 [P] Add contract tests for route evidence event families and required fields in `apps/macos/Shared/Tests/ContractTests/LiveRouteEvidenceContractTests.swift`
+- [X] T005 [P] Add contract tests for autorepair states, transitions, timing tiers, and non-recoverable reasons in `apps/macos/Shared/Tests/ContractTests/AutorepairStateMachineContractTests.swift`
+- [X] T006 [P] Add contract tests for validation run evidence results, duration gates, and target/device coverage in `apps/macos/Shared/Tests/ContractTests/ValidationRunEvidenceContractTests.swift`
+- [X] T007 [P] Add contract tests for recording timeline evidence fields and alignment bands in `apps/macos/Shared/Tests/ContractTests/RecordingTimelineEvidenceContractTests.swift`
+- [X] T008 Create live route evidence models from data-model.md in `apps/macos/Shared/Sources/Models/LiveRouteEvidenceModels.swift`
+- [X] T009 Create autorepair state machine models from contract in `apps/macos/Shared/Sources/Routing/AutorepairStateMachine.swift`
+- [X] T010 Create metadata-only route evidence event model and serializer in `apps/macos/Shared/Sources/Diagnostics/RouteEvidenceEvent.swift`
+- [X] T011 Create local route evidence writer with JSON Lines output in `apps/macos/RecApp/Sources/Diagnostics/RouteEvidenceStore.swift`
+- [X] T012 Extend diagnostic redaction to cover route evidence fields and forbidden content in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
+- [X] T013 Add redaction regression tests for route evidence and validation evidence in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
 
 **Checkpoint**: Shared evidence contracts compile and can be used by every story.
 
@@ -52,17 +52,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Add client-activity freshness tests that distinguish active clients from audio energy in `apps/macos/Shared/Tests/LiveRouteClientActivityTests.swift`
-- [ ] T015 [P] [US1] Add long-route preservation policy tests for natural silence and one-sided activity windows in `apps/macos/Shared/Tests/LivePassthroughPolicyTests.swift`
-- [ ] T016 [P] [US1] Add route engine integration tests for 30-minute simulated active clients with zero unexpected releases in `apps/macos/Shared/Tests/LiveRouteStabilityTests.swift`
+- [X] T014 [P] [US1] Add client-activity freshness tests that distinguish active clients from audio energy in `apps/macos/Shared/Tests/LiveRouteClientActivityTests.swift`
+- [X] T015 [P] [US1] Add long-route preservation policy tests for natural silence and one-sided activity windows in `apps/macos/Shared/Tests/LivePassthroughPolicyTests.swift`
+- [X] T016 [P] [US1] Add route engine integration tests for 30-minute simulated active clients with zero unexpected releases in `apps/macos/Shared/Tests/LiveRouteStabilityTests.swift`
 
 ### Implementation for User Story 1
 
-- [ ] T017 [US1] Implement per-side client activity snapshots and freshness windows in `apps/macos/Shared/Sources/Routing/LiveRouteClientActivity.swift`
-- [ ] T018 [US1] Replace sole route-preservation truth based on aggregate virtual-device running state with client activity evidence in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
-- [ ] T019 [US1] Emit route lifecycle, active, preserved, and frame-continuity events from the live route engine in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
-- [ ] T020 [US1] Add 30-minute development gate validation logic for accepted targets in `apps/macos/Scripts/validate-live-route-readiness.sh`
-- [ ] T021 [US1] Document US1 validation evidence requirements in `specs/019-live-route-stability/evidence/us1-live-route-preservation.md`
+- [X] T017 [US1] Implement per-side client activity snapshots and freshness windows in `apps/macos/Shared/Sources/Routing/LiveRouteClientActivity.swift`
+- [X] T018 [US1] Replace sole route-preservation truth based on aggregate virtual-device running state with client activity evidence in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+- [X] T019 [US1] Emit route lifecycle, active, preserved, and frame-continuity events from the live route engine in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+- [X] T020 [US1] Add 30-minute development gate validation logic for accepted targets in `apps/macos/Scripts/validate-live-route-readiness.sh`
+- [X] T021 [US1] Document US1 validation evidence requirements in `specs/019-live-route-stability/evidence/us1-live-route-preservation.md`
 
 **Checkpoint**: US1 is independently testable as the MVP slice.
 
@@ -76,19 +76,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T022 [P] [US2] Add autorepair transition tests for recoverable disruptions and fresh-evidence success in `apps/macos/Shared/Tests/LiveRouteAutorepairTests.swift`
-- [ ] T023 [P] [US2] Add non-recoverable blocked-state tests for permissions, unsupported routes, missing devices, and meeting device changes in `apps/macos/Shared/Tests/LiveRouteBlockedStateTests.swift`
-- [ ] T024 [P] [US2] Add macOS default route follow tests for built-in, wired, USB, Bluetooth, and AirPods-class outcomes in `apps/macos/Shared/Tests/LiveRouteDefaultRouteTests.swift`
+- [X] T022 [P] [US2] Add autorepair transition tests for recoverable disruptions and fresh-evidence success in `apps/macos/Shared/Tests/LiveRouteAutorepairTests.swift`
+- [X] T023 [P] [US2] Add non-recoverable blocked-state tests for permissions, unsupported routes, missing devices, and meeting device changes in `apps/macos/Shared/Tests/LiveRouteBlockedStateTests.swift`
+- [X] T024 [P] [US2] Add macOS default route follow tests for built-in, wired, USB, Bluetooth, and AirPods-class outcomes in `apps/macos/Shared/Tests/LiveRouteDefaultRouteTests.swift`
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Implement bounded autorepair orchestration in `apps/macos/RecApp/Sources/Capture/LiveRouteAutorepairCoordinator.swift`
-- [ ] T026 [US2] Add Core Audio default-route observation handoff outside realtime callbacks in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`
-- [ ] T027 [US2] Resolve accepted macOS system default input/output snapshots in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`
-- [ ] T028 [US2] Integrate autorepair recovery and blocked-state outcomes into `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
-- [ ] T029 [US2] Record `Run Check` and other user-action audit events as diagnostic fallback evidence in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`
-- [ ] T030 [US2] Add induced autorepair and manual `Run Check` diagnostic fallback scenario support to validation script in `apps/macos/Scripts/validate-live-route-readiness.sh`
-- [ ] T031 [US2] Document US2 autorepair validation evidence in `specs/019-live-route-stability/evidence/us2-autorepair.md`
+- [X] T025 [US2] Implement bounded autorepair orchestration in `apps/macos/RecApp/Sources/Capture/LiveRouteAutorepairCoordinator.swift`
+- [X] T026 [US2] Add Core Audio default-route observation handoff outside realtime callbacks in `apps/macos/RecApp/Sources/AudioHealth/AudioEnvironmentMonitor.swift`
+- [X] T027 [US2] Resolve accepted macOS system default input/output snapshots in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`
+- [X] T028 [US2] Integrate autorepair recovery and blocked-state outcomes into `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+- [X] T029 [US2] Record `Run Check` and other user-action audit events as diagnostic fallback evidence in `apps/macos/RecApp/Sources/AudioSetup/RouteVerificationService.swift`
+- [X] T030 [US2] Add induced autorepair and manual `Run Check` diagnostic fallback scenario support to validation script in `apps/macos/Scripts/validate-live-route-readiness.sh`
+- [X] T031 [US2] Document US2 autorepair validation evidence in `specs/019-live-route-stability/evidence/us2-autorepair.md`
 
 **Checkpoint**: US2 can be validated without pressing `Run Check` in accepted recovery cases.
 
@@ -102,18 +102,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T032 [P] [US3] Add recording timeline alignment band tests for accepted, degraded_warning, and failed thresholds in `apps/macos/Shared/Tests/RecordingTimelineEvidenceTests.swift`
-- [ ] T033 [P] [US3] Add manifest correlation tests for route session id, autorepair attempt ids, and route interruption category in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
-- [ ] T034 [P] [US3] Add recording-active autorepair safety tests for route-status taxonomy, indicator/stop preservation, and timeline gap truth in `apps/macos/Shared/Tests/RecordingRouteStabilityTests.swift`
+- [X] T032 [P] [US3] Add recording timeline alignment band tests for accepted, degraded_warning, and failed thresholds in `apps/macos/Shared/Tests/RecordingTimelineEvidenceTests.swift`
+- [X] T033 [P] [US3] Add manifest correlation tests for route session id, autorepair attempt ids, and route interruption category in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
+- [X] T034 [P] [US3] Add recording-active autorepair safety tests for route-status taxonomy, indicator/stop preservation, and timeline gap truth in `apps/macos/Shared/Tests/RecordingRouteStabilityTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T035 [US3] Add recording timeline evidence model support in `apps/macos/Shared/Sources/Models/RecordingTimelineEvidence.swift`
-- [ ] T036 [US3] Extend recording evidence capture with route gaps and autorepair correlation in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
-- [ ] T037 [US3] Extend manifest writing with alignment band and interruption category in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
-- [ ] T038 [US3] Preserve route-status distinctions, visible recording indicator, and one-action stop during live route autorepair in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`
-- [ ] T039 [US3] Extend artifact validation for `019` route timeline evidence in `apps/macos/Scripts/validate-recording-artifact-format.sh`
-- [ ] T040 [US3] Document US3 recording timeline validation evidence in `specs/019-live-route-stability/evidence/us3-recording-timeline.md`
+- [X] T035 [US3] Add recording timeline evidence model support in `apps/macos/Shared/Sources/Models/RecordingTimelineEvidence.swift`
+- [X] T036 [US3] Extend recording evidence capture with route gaps and autorepair correlation in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
+- [X] T037 [US3] Extend manifest writing with alignment band and interruption category in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
+- [X] T038 [US3] Preserve route-status distinctions, visible recording indicator, and one-action stop during live route autorepair in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`
+- [X] T039 [US3] Extend artifact validation for `019` route timeline evidence in `apps/macos/Scripts/validate-recording-artifact-format.sh`
+- [X] T040 [US3] Document US3 recording timeline validation evidence in `specs/019-live-route-stability/evidence/us3-recording-timeline.md`
 
 **Checkpoint**: US3 can be validated from the final local recording package and route evidence alone.
 
@@ -127,17 +127,17 @@
 
 ### Tests for User Story 4
 
-- [ ] T041 [P] [US4] Add release-denied policy tests for active, ambiguous, and stale client evidence in `apps/macos/Shared/Tests/LiveRouteReleaseDecisionTests.swift`
-- [ ] T042 [P] [US4] Add regression tests for the observed approximately 300-second release pattern in `apps/macos/Shared/Tests/LiveRouteIdleRegressionTests.swift`
-- [ ] T043 [P] [US4] Add app restart and route-state truth tests for stale/false-ready states in `apps/macos/Shared/Tests/RouteInvalidationTests.swift`
+- [X] T041 [P] [US4] Add release-denied policy tests for active, ambiguous, and stale client evidence in `apps/macos/Shared/Tests/LiveRouteReleaseDecisionTests.swift`
+- [X] T042 [P] [US4] Add regression tests for the observed approximately 300-second release pattern in `apps/macos/Shared/Tests/LiveRouteIdleRegressionTests.swift`
+- [X] T043 [P] [US4] Add app restart and route-state truth tests for stale/false-ready states in `apps/macos/Shared/Tests/RouteInvalidationTests.swift`
 
 ### Implementation for User Story 4
 
-- [ ] T044 [US4] Implement deny-by-default route release decisions in `apps/macos/Shared/Sources/Routing/LiveRouteReleaseDecision.swift`
-- [ ] T045 [US4] Replace idle timeout release logic with evidence-gated preservation in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
-- [ ] T046 [US4] Persist stale, preserved, released, blocked, and failed route truth for app restarts in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
-- [ ] T047 [US4] Emit release decision evidence for keep-active, denied, and released-after-client-closed outcomes in `apps/macos/RecApp/Sources/Diagnostics/RouteEvidenceStore.swift`
-- [ ] T048 [US4] Document US4 self-inflicted-drop regression evidence in `specs/019-live-route-stability/evidence/us4-self-inflicted-drop-prevention.md`
+- [X] T044 [US4] Implement deny-by-default route release decisions in `apps/macos/Shared/Sources/Routing/LiveRouteReleaseDecision.swift`
+- [X] T045 [US4] Replace idle timeout release logic with evidence-gated preservation in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+- [X] T046 [US4] Persist stale, preserved, released, blocked, and failed route truth for app restarts in `apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift`
+- [X] T047 [US4] Emit release decision evidence for keep-active, denied, and released-after-client-closed outcomes in `apps/macos/RecApp/Sources/Diagnostics/RouteEvidenceStore.swift`
+- [X] T048 [US4] Document US4 self-inflicted-drop regression evidence in `specs/019-live-route-stability/evidence/us4-self-inflicted-drop-prevention.md`
 
 **Checkpoint**: US4 proves `019` fixed prevention, not just recovery after self-inflicted drops.
 
@@ -151,16 +151,16 @@
 
 ### Tests for User Story 5
 
-- [ ] T049 [P] [US5] Add validation run evidence aggregation tests for target and device-class acceptance in `apps/macos/Shared/Tests/ValidationRunEvidenceTests.swift`
-- [ ] T050 [P] [US5] Add diagnostic bundle tests for local-first route evidence and forbidden content redaction in `apps/macos/Shared/Tests/LiveRouteDiagnosticBundleTests.swift`
-- [ ] T051 [P] [US5] Add acceptance matrix tests for Bluetooth/AirPods backlog and not-tested combinations in `apps/macos/Shared/Tests/LiveRouteAcceptanceMatrixTests.swift`
+- [X] T049 [P] [US5] Add validation run evidence aggregation tests for target and device-class acceptance in `apps/macos/Shared/Tests/ValidationRunEvidenceTests.swift`
+- [X] T050 [P] [US5] Add diagnostic bundle tests for local-first route evidence and forbidden content redaction in `apps/macos/Shared/Tests/LiveRouteDiagnosticBundleTests.swift`
+- [X] T051 [P] [US5] Add acceptance matrix tests for Bluetooth/AirPods backlog and not-tested combinations in `apps/macos/Shared/Tests/LiveRouteAcceptanceMatrixTests.swift`
 
 ### Implementation for User Story 5
 
-- [ ] T052 [US5] Implement validation run evidence aggregation in `apps/macos/Shared/Sources/Diagnostics/ValidationRunEvidence.swift`
-- [ ] T053 [US5] Attach route evidence JSON to diagnostic bundles without raw content in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
-- [ ] T054 [US5] Generate target and device-class acceptance summary in `apps/macos/Scripts/validate-live-route-readiness.sh`
-- [ ] T055 [US5] Add release acceptance evidence template for Chrome, Opera, Zoom, Telemost, built-in, wired, USB, Bluetooth, and AirPods-class status in `specs/019-live-route-stability/evidence/acceptance-matrix.md`
+- [X] T052 [US5] Implement validation run evidence aggregation in `apps/macos/Shared/Sources/Diagnostics/ValidationRunEvidence.swift`
+- [X] T053 [US5] Attach route evidence JSON to diagnostic bundles without raw content in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
+- [X] T054 [US5] Generate target and device-class acceptance summary in `apps/macos/Scripts/validate-live-route-readiness.sh`
+- [X] T055 [US5] Add release acceptance evidence template for Chrome, Opera, Zoom, Telemost, built-in, wired, USB, Bluetooth, and AirPods-class status in `specs/019-live-route-stability/evidence/acceptance-matrix.md`
 
 **Checkpoint**: US5 gives QA and engineering enough metadata-only evidence to diagnose `019` without expanding privacy scope.
 
@@ -170,14 +170,14 @@
 
 **Purpose**: Final validation, documentation, and scope guardrails across all stories.
 
-- [ ] T056 [P] Update current product status with `019` planned validation scope in `docs/current-product-status.md`
-- [ ] T057 [P] Add `019` quickstart command references and evidence paths in `specs/019-live-route-stability/quickstart.md`
-- [ ] T058 Run Swift tests for macOS package and record results in `specs/019-live-route-stability/evidence/test-results.md`
-- [ ] T059 Run foundation validation scripts and record results in `specs/019-live-route-stability/evidence/test-results.md`
-- [ ] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
-- [ ] T061 Run 75-minute manual release gate evidence for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested outcomes without counting blocked, failed, degraded, or not-tested outcomes as acceptance in `specs/019-live-route-stability/evidence/release-75-minute.md`
-- [ ] T062 Run local-offline validation with backend, network, MediaScribe, Langfuse, and transfer services unavailable and record results in `specs/019-live-route-stability/evidence/local-offline.md`
-- [ ] T063 Review all evidence for no speaker-to-mic leakage, backend ingest, upload, transcription, MediaScribe, Langfuse, or Bluetooth implementation scope creep in `specs/019-live-route-stability/evidence/scope-review.md`
+- [X] T056 [P] Update current product status with `019` planned validation scope in `docs/current-product-status.md`
+- [X] T057 [P] Add `019` quickstart command references and evidence paths in `specs/019-live-route-stability/quickstart.md`
+- [X] T058 Run Swift tests for macOS package and record results in `specs/019-live-route-stability/evidence/test-results.md`
+- [X] T059 Run foundation validation scripts and record results in `specs/019-live-route-stability/evidence/test-results.md`
+- [X] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
+- [X] T061 Run 75-minute manual release gate evidence for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested outcomes without counting blocked, failed, degraded, or not-tested outcomes as acceptance in `specs/019-live-route-stability/evidence/release-75-minute.md`
+- [X] T062 Run local-offline validation with backend, network, MediaScribe, Langfuse, and transfer services unavailable and record results in `specs/019-live-route-stability/evidence/local-offline.md`
+- [X] T063 Review all evidence for no speaker-to-mic leakage, backend ingest, upload, transcription, MediaScribe, Langfuse, or Bluetooth implementation scope creep in `specs/019-live-route-stability/evidence/scope-review.md`
 
 ---
 

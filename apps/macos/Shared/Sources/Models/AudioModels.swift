@@ -920,6 +920,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var transcriptionStarted: Bool
     public var diagnosticSafe: Bool
     public var failureReason: LocalRecordingFailureReason
+    public var recordingTimelineEvidence: RecordingTimelineIntegrityEvidence?
 
     public init(
         schemaVersion: String = Self.schemaVersion,
@@ -936,7 +937,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         externalEgressStarted: Bool = false,
         transcriptionStarted: Bool = false,
         diagnosticSafe: Bool = true,
-        failureReason: LocalRecordingFailureReason = .none
+        failureReason: LocalRecordingFailureReason = .none,
+        recordingTimelineEvidence: RecordingTimelineIntegrityEvidence? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.sessionId = sessionId
@@ -953,6 +955,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.transcriptionStarted = transcriptionStarted
         self.diagnosticSafe = diagnosticSafe
         self.failureReason = failureReason
+        self.recordingTimelineEvidence = recordingTimelineEvidence
     }
 
     public var isComplete: Bool {

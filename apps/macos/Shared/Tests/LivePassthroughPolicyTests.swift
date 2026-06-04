@@ -94,6 +94,48 @@ final class LivePassthroughPolicyTests: XCTestCase {
         ))
     }
 
+    func testAutoIdlePolicyPreservesNaturalSilenceWithFreshClientEvidence() {
+        let policy = PassthroughAutoIdlePolicy(releaseAfterIdleTicks: 3)
+        let snapshot = ClientActivitySnapshot(
+            source: .validationFixture,
+            microphoneOpen: false,
+            microphoneRunning: false,
+            speakerOpen: false,
+            speakerRunning: false,
+            stillUsesVirtualMicrophone: true,
+            stillUsesVirtualSpeaker: true,
+            freshnessMs: 200,
+            naturalSilenceAllowed: true
+        )
+
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            clientActivity: snapshot,
+            consecutiveIdleTicks: 300
+        ))
+    }
+
+    func testAutoIdlePolicyPreservesOneSidedActivity() {
+        let policy = PassthroughAutoIdlePolicy(releaseAfterIdleTicks: 3)
+        let snapshot = ClientActivitySnapshot(
+            source: .validationFixture,
+            microphoneOpen: false,
+            microphoneRunning: false,
+            speakerOpen: true,
+            speakerRunning: true,
+            stillUsesVirtualMicrophone: true,
+            stillUsesVirtualSpeaker: true,
+            freshnessMs: 200,
+            naturalSilenceAllowed: true
+        )
+
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            clientActivity: snapshot,
+            consecutiveIdleTicks: 300
+        ))
+    }
+
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
         LivePassthroughSession(
             sessionId: "session-1",

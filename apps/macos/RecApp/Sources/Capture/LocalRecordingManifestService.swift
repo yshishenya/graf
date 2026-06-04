@@ -21,7 +21,10 @@ public struct LocalRecordingManifestService: Sendable {
         startedAt: Date,
         stoppedAt: Date,
         tracks: [LocalRecordingTrack],
-        failureReason: LocalRecordingFailureReason = .none
+        failureReason: LocalRecordingFailureReason = .none,
+        routeSessionId: String? = nil,
+        autorepairAttemptIds: [String] = [],
+        routeInterruptionCategory: RouteInterruptionCategory = .none
     ) -> LocalRecordingManifest {
         let hasBothRoles = Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker])
         let complete = hasBothRoles && tracks.allSatisfy(\.isMediaScribeReady)
@@ -54,7 +57,13 @@ public struct LocalRecordingManifestService: Sendable {
             transcriptionReadiness: readiness,
             mediaScribeSourceMode: "dual",
             tracks: tracks,
-            failureReason: resolvedFailure
+            failureReason: resolvedFailure,
+            recordingTimelineEvidence: routeTimelineEvidence(
+                routeSessionId: routeSessionId,
+                tracks: tracks,
+                autorepairAttemptIds: autorepairAttemptIds,
+                interruptionCategory: routeInterruptionCategory
+            )
         )
     }
 
@@ -77,5 +86,23 @@ public struct LocalRecordingManifestService: Sendable {
             return .formatNotReady
         }
         return .emptyRequiredTrack
+    }
+
+    private func routeTimelineEvidence(
+        routeSessionId: String?,
+        tracks: [LocalRecordingTrack],
+        autorepairAttemptIds: [String],
+        interruptionCategory: RouteInterruptionCategory
+    ) -> RecordingTimelineIntegrityEvidence? {
+        guard let routeSessionId else { return nil }
+        let micDurationMs = tracks.first { $0.role == .localMic }?.durationMs ?? 0
+        let incomingDurationMs = tracks.first { $0.role == .remoteSpeaker }?.durationMs ?? 0
+        return RecordingTimelineEvidenceBuilder().evidence(
+            routeSessionId: routeSessionId,
+            autorepairAttemptIds: autorepairAttemptIds,
+            microphoneDurationMs: micDurationMs,
+            incomingDurationMs: incomingDurationMs,
+            interruptionCategory: interruptionCategory
+        )
     }
 }

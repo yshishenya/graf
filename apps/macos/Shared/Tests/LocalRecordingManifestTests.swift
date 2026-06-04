@@ -114,6 +114,25 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
     }
 
+    func testManifestCarriesRouteTimelineCorrelation() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+                routeSessionId: "route-session-019",
+                autorepairAttemptIds: ["repair-1"],
+                routeInterruptionCategory: .autorepairCovered
+            )
+
+        XCTAssertEqual(manifest.recordingTimelineEvidence?.routeSessionId, "route-session-019")
+        XCTAssertEqual(manifest.recordingTimelineEvidence?.autorepairAttemptIds, ["repair-1"])
+        XCTAssertEqual(manifest.recordingTimelineEvidence?.interruptionCategory, .autorepairCovered)
+        XCTAssertEqual(manifest.recordingTimelineEvidence?.alignmentBand, .accepted)
+    }
+
     func testLegacySchemaIsNotTranscriptionReady() {
         XCTAssertEqual(
             LocalRecordingManifest.transcriptionReadiness(forSchemaVersion: "local-recording-manifest.v1"),

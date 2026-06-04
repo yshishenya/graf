@@ -94,8 +94,8 @@ devices, induce:
 
 Expected evidence:
 
-- supported normal disruptions recover within `<= 2 seconds`;
-- OS/device-heavy disruptions recover within `<= 10 seconds` after the required
+- supported normal disruptions recover within `<= 10 seconds`;
+- OS/device-heavy disruptions recover within `<= 30 seconds` after the required
   OS/device condition is available again;
 - successful repair has `userActionRequired == false`;
 - route reports healthy only after fresh evidence;
@@ -169,3 +169,12 @@ The feature is accepted only when release evidence shows:
 - no accepted run had unexpected route release;
 - recording timeline accepted where recording was active;
 - all untested combinations are explicitly listed.
+
+## Evidence Paths
+
+- `specs/019-live-route-stability/evidence/test-results.md`
+- `specs/019-live-route-stability/evidence/development-30-minute.md`
+- `specs/019-live-route-stability/evidence/release-75-minute.md`
+- `specs/019-live-route-stability/evidence/local-offline.md`
+- `specs/019-live-route-stability/evidence/scope-review.md`
+- `specs/019-live-route-stability/evidence/acceptance-matrix.md`

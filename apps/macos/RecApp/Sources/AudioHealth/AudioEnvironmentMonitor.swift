@@ -179,6 +179,10 @@ public final class AudioEnvironmentMonitor {
         .sorted { $0.trigger.rawValue < $1.trigger.rawValue }
     }
 
+    public func autorepairTriggers(for changes: [AudioEnvironmentChange]) -> [AutorepairTrigger] {
+        Array(Set(changes.compactMap(Self.autorepairTrigger(for:)))).sorted { $0.rawValue < $1.rawValue }
+    }
+
     public func monitorPermission(
         microphonePermission: PermissionStatus,
         outputPermission: PermissionStatus
@@ -352,6 +356,25 @@ public final class AudioEnvironmentMonitor {
             return .browserDeviceChanged
         case .driverStateChanged, .virtualInputStateChanged, .virtualOutputStateChanged, .permissionChanged,
              .routeVerificationChanged, .bufferRiskChanged, .bluetoothProfileChanged, .unsupportedTargetAdded:
+            return nil
+        }
+    }
+
+    private static func autorepairTrigger(for change: AudioEnvironmentChange) -> AutorepairTrigger? {
+        switch change {
+        case .coreaudiodRestarted:
+            return .coreaudiodRestart
+        case .sleepWake:
+            return .sleepWake
+        case .deviceChanged:
+            return .physicalDeviceDisappeared
+        case .driverStateChanged, .virtualInputStateChanged, .virtualOutputStateChanged:
+            return .halReload
+        case .activeMeetingContextChanged, .browserTargetEvidenceChanged:
+            return .browserStreamRecreated
+        case .routeVerificationChanged:
+            return .macOSDefaultRouteChanged
+        case .permissionChanged, .passthroughChanged, .bufferRiskChanged, .bluetoothProfileChanged, .unsupportedTargetAdded:
             return nil
         }
     }

@@ -12,6 +12,10 @@ public enum PhysicalDeviceClass: String, Codable, Sendable {
     case usb
     case bluetooth
     case airpodsClass = "airpods_class"
+    case aggregate
+    case multiOutput = "multi_output"
+    case hdmiAirplay = "hdmi_airplay"
+    case otherVirtual = "other_virtual"
     case unknown
 }
 
