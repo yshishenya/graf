@@ -20,6 +20,8 @@ services:
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
     secrets:
+      - source: twobrain_postgres_password
+        target: twobrain_postgres_password
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
       - source: twobrain_minio_api_secret_key
@@ -75,6 +77,8 @@ services:
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
     secrets:
+      - source: twobrain_postgres_password
+        target: twobrain_postgres_password
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
       - source: twobrain_minio_api_secret_key
@@ -102,7 +106,6 @@ services:
     environment:
       POSTGRES_DB: twobrain_rec
       POSTGRES_USER: twobrain_rec
-      POSTGRES_PASSWORD: ${TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment}
       POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
     secrets:
       - source: twobrain_postgres_password
