@@ -1,0 +1,48 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from twobrain_rec_server.api.health import router as health_router
+from twobrain_rec_server.api.ingest import router as ingest_router
+from twobrain_rec_server.api.problems import ProblemDetail, problem_exception_handler
+from twobrain_rec_server.config import Settings, get_settings
+from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+from twobrain_rec_server.observability.logging import configure_logging, request_logging_middleware
+from twobrain_rec_server.storage.minio_client import get_storage
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+    configure_logging(settings)
+    engine = create_engine(settings)
+    storage = get_storage(settings)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            yield
+        finally:
+            close_storage = getattr(app.state.storage, "close", None)
+            if close_storage is not None:
+                close_storage()
+            await app.state.db_engine.dispose()
+
+    production = settings.env.lower() == "production"
+    app = FastAPI(
+        title="2brain Rec Server Ingest API",
+        version="0.1.0",
+        description="Backend ingest foundation for finalized local recording artifacts.",
+        docs_url=None if production else "/docs",
+        redoc_url=None if production else "/redoc",
+        openapi_url=None if production else "/openapi.json",
+        lifespan=lifespan,
+    )
+    app.state.settings = settings
+    app.state.db_engine = engine
+    app.state.db_sessionmaker = create_sessionmaker(engine)
+    app.state.storage = storage
+    app.middleware("http")(request_logging_middleware)
+    app.add_exception_handler(ProblemDetail, problem_exception_handler)
+    app.include_router(health_router)
+    app.include_router(ingest_router)
+    return app

@@ -49,6 +49,24 @@ implementation record.
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
+- Feature `012-server-ingest-foundation` is implemented as the first backend
+  foundation slice in this repository: FastAPI ingest service scaffold,
+  local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO
+  server-mediated object boundary, provider-neutral tenant/device request
+  checks, upload/session APIs, resumable/idempotent part acceptance, safe
+  audit/logging helpers, status contracts, and inert processing placeholders.
+  Final review remediation on 2026-06-04 added persistence/storage, forged-auth,
+  missing-range, readiness, and lint coverage; local validation passed `36`
+  server tests, Ruff, compileall, and compose config rendering. It does not
+  deploy production, implement the desktop uploader, start Temporal workflows,
+  call MediaScribe, or expose dashboard/share/delete surfaces.
+- A second five-round review hackathon on 2026-06-04 found that 012 was not
+  PR-ready until Phase 11 remediation completed. Phase 11 tasks T119-T180 and
+  GitHub issues #112-#124 have now been remediated locally with traceability in
+  `specs/012-server-ingest-foundation/tasks.md` and validation evidence in
+  `specs/012-server-ingest-foundation/quickstart.md`. The remaining gate before
+  PR/deployment-plan handoff is a final full repository sanity run, review of
+  the dirty worktree, and an explicit commit/PR decision.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -62,12 +80,12 @@ implementation record.
   recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
 - Long-duration 30/60 minute integrity acceptance is not complete.
-- Upload, resumable ingest, MediaScribe transcription, dashboard notes, server
-  retention, and deletion workflows are not implemented in the macOS client
-  slice.
-- No backend scaffold, Docker Compose deployment, Postgres schema, MinIO bucket
-  wiring, Temporal workflow, upload API, or web dashboard implementation exists
-  in this repository yet.
+- Production deployment, desktop upload queue wiring, MediaScribe
+  transcription, dashboard notes, Temporal workflow starts, server retention,
+  and deletion workflows are not accepted yet.
+- The `012` backend foundation exists as a local/repository implementation with
+  Phase 11 remediation completed locally; production deployment and desktop
+  uploader slices are still not accepted.
 - Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
   detect-and-ask, automatic naming, and future auto-record behavior have not
   been implemented or accepted.
@@ -76,31 +94,77 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `012-server-ingest-foundation`.
+Recommended next feature: `013-federated-auth-foundation` or
+`014-desktop-upload-queue`, depending on whether identity/session work or
+desktop upload UX should be unblocked first.
 
-Goal: move from accepted local saved artifacts to an owner-controlled server
-ingest foundation without weakening local recording visibility, stop control,
-metadata-only diagnostics, explicit egress policy, storage truth, or deletion
-accounting.
+Goal: connect the accepted local artifact and implemented server ingest
+foundation to real user/device identity and the macOS upload queue without
+weakening local recording visibility, stop control, metadata-only diagnostics,
+explicit egress policy, storage truth, or deletion accounting.
 
 Recommended scope:
 
-- Self-hosted backend skeleton for `rec.2brain.dev` and local development.
-- Minimal auth/device registration sufficient for a trusted desktop uploader.
-- Meeting and upload-session APIs for finalized local dual-track artifacts.
-- Resumable/idempotent ingest with checksums, missing-range recovery, and
-  truthful finalized/degraded/failed states.
-- Postgres metadata and MinIO object storage foundations.
-- Server-side MediaScribe credential boundary, but no required MediaScribe job
-  submission in the first ingest foundation unless the new spec explicitly
-  expands scope.
-- Desktop-visible upload/session state contract for a later local upload queue
-  UI slice.
+- Provider-neutral user/workspace/session/device identity sufficient for a
+  trusted desktop uploader.
+- macOS upload queue that picks up local `010` artifacts, calls the `012`
+  ingest API, shows pending/uploading/retrying/uploaded/degraded/failed truth,
+  and preserves local files until server status is known.
+- Production deployment hardening for the dedicated Rec Docker stack when live
+  rollout starts.
 
 Keep separate unless the next spec explicitly changes scope:
 
-- MediaScribe submit/poll/result import.
-- Full web dashboard meeting detail/transcript/notes UI.
-- Server retention/deletion execution.
+- `013-federated-auth-foundation`: provider-neutral user authentication and
+  account/device identity, with priority login providers for the Russian market
+  such as Yandex ID, VK ID, and Telegram Login, plus later Sber ID and T-ID
+  where partner setup allows.
+- `014-desktop-upload-queue`: macOS app sends local recordings to the server,
+  shows upload status, retries failures, and preserves local artifacts until
+  upload truth is known.
+- `015-mediascribe-processing-pipeline`: server-side MediaScribe
+  submit/poll/result import from finalized ingested artifacts. This slice owns
+  starting the durable processing workflow after ingest finalization, using
+  internal meeting/upload/artifact identifiers and idempotent workflow IDs.
+- `016-meeting-dashboard-review`: web dashboard meeting list/detail,
+  processing state, transcript, notes, playback, and review surfaces.
+- `017-access-sharing-downloads`: role-based meeting access, team visibility,
+  download/export permissions, login-required share links, optional public-link
+  policy, and share-page lifecycle/audit.
+- `018-retention-deletion-execution`: server-side retention jobs, deletion
+  workflows, deletion verification reports, local desktop purge coordination,
+  backup expiry accounting, and external dependency deletion truth.
 - Assisted auto-start and generalized meeting detection.
 - Feature `009` meeting-app mute truth.
+
+## Deferred Work Register
+
+Use this register as the anti-drift memory for work intentionally left out of
+the current accepted implementation or `012` ingest slice.
+
+- `009-respect-meeting-mute`: resolve meeting-app mute truth before broader
+  local recording acceptance.
+- `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
+  naming, and any future auto-start behavior from the accepted requirements.
+- `013-federated-auth-foundation`: implement provider-neutral auth, account
+  linking, sessions, workspace membership, and registered device identity.
+- `014-desktop-upload-queue`: make the macOS app send local artifacts to the
+  server, show upload status, retry safely, and preserve local artifacts until
+  upload truth is known.
+- `015-mediascribe-processing-pipeline`: start the durable processing workflow
+  after ingest, submit/poll/import MediaScribe results, and keep credentials
+  server-side.
+- `016-meeting-dashboard-review`: show meetings, processing state, transcript,
+  notes, playback, and review surfaces.
+- `017-access-sharing-downloads`: add RBAC/team visibility, audio/transcript/
+  summary downloads, share links/pages, lifecycle, and audit.
+- `018-retention-deletion-execution`: implement retention/deletion workflows,
+  deletion reports, local purge coordination, backup expiry, and external
+  dependency deletion truth.
+- `RLS-hardening`: if PostgreSQL Row-Level Security is deferred by `012` plan,
+  create a traceable task or GitHub issue candidate with compensating
+  application-level authorization checks.
+- `direct-object-upload`: future upload optimization only after a separate
+  security and lifecycle review; `012` remains `server_mediated`.
+- Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
+  30/60 minute integrity, and signed/notarized installer evidence.

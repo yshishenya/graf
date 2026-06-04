@@ -1,0 +1,284 @@
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Header, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from twobrain_rec_server.api.schemas import (
+    AbortUploadRequest,
+    CreateMeetingRequest,
+    CreateUploadSessionRequest,
+    FinalizeUploadRequest,
+    FinalizeUploadResponse,
+    MeetingResponse,
+    MissingRange,
+    MissingRangesResponse,
+    Problem,
+    UploadPartResponse,
+    UploadSessionResponse,
+)
+from twobrain_rec_server.api.upload_stream import read_bounded_upload_body
+from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.auth.dependencies import (
+    get_device_context,
+    get_principal,
+    get_tenant_scope,
+)
+from twobrain_rec_server.domain.statuses import TrackRole
+from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
+from twobrain_rec_server.ingest.finalize import finalize_upload
+from twobrain_rec_server.ingest.lifecycle import abort_upload_session
+from twobrain_rec_server.ingest.meetings import create_or_get_meeting
+from twobrain_rec_server.ingest.parts import accept_part
+from twobrain_rec_server.ingest.policy import IngestLimitViolation
+from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
+from twobrain_rec_server.ingest.sessions import create_upload_session
+from twobrain_rec_server.ingest.status import get_upload_session_status
+from twobrain_rec_server.storage.minio_client import get_storage
+
+PROBLEM_RESPONSES = {
+    400: {"model": Problem, "description": "Bad request"},
+    401: {"model": Problem, "description": "Unauthorized"},
+    403: {"model": Problem, "description": "Forbidden"},
+    404: {"model": Problem, "description": "Not found"},
+    409: {"model": Problem, "description": "Conflict"},
+    413: {"model": Problem, "description": "Payload too large"},
+    422: {"model": Problem, "description": "Validation error"},
+    503: {"model": Problem, "description": "Dependency unavailable"},
+}
+
+router = APIRouter(prefix="/api/v1", tags=["ingest"], responses=PROBLEM_RESPONSES)
+
+
+TenantDependency = Depends(get_tenant_scope)
+PrincipalDependency = Depends(get_principal)
+DeviceDependency = Depends(get_device_context)
+
+
+async def get_request_db_session(request: Request):
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        yield None
+        return
+    async with sessionmaker() as session:
+        yield session
+
+
+def get_request_storage(request: Request) -> object:
+    storage = getattr(request.app.state, "storage", None)
+    if storage is None:
+        storage = get_storage(request.app.state.settings)
+        request.app.state.storage = storage
+    return storage
+
+
+DbDependency = Depends(get_request_db_session)
+StorageDependency = Depends(get_request_storage)
+
+
+def meeting_response(meeting: object) -> MeetingResponse:
+    return MeetingResponse(
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        local_recording_id=meeting.local_recording_id,
+        status=meeting.status,
+        processing_status=meeting.processing_status,
+        started_at=meeting.started_at,
+        ended_at=meeting.ended_at,
+        created_at=meeting.created_at,
+    )
+
+
+def session_response(session: object) -> UploadSessionResponse:
+    accepted: dict[str, int] = {}
+    for (role, _part_number), part in session.parts.items():
+        accepted[role.value] = accepted.get(role.value, 0) + part.byte_length
+    desktop = upload_session_desktop_status(session.status)
+    return UploadSessionResponse(
+        session_id=session.id,
+        meeting_id=session.meeting_id,
+        status=session.status,
+        upload_strategy=session.upload_strategy,
+        expires_at=session.expires_at,
+        accepted_bytes_by_track=accepted,
+        processing_status=session.processing_status,
+        desktop_label=desktop.label,
+        desktop_truth_rule=desktop.truth_rule,
+    )
+
+
+@router.post("/meetings", response_model=MeetingResponse, dependencies=[PrincipalDependency, DeviceDependency])
+async def create_meeting(
+    payload: CreateMeetingRequest,
+    request: Request,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> MeetingResponse:
+    try:
+        meeting = await create_or_get_meeting(
+            settings=request.app.state.settings,
+            tenant_scope=tenant_scope,
+            db=db,
+            local_recording_id=payload.local_recording_id,
+            duration_seconds=payload.duration_seconds,
+            title=payload.title,
+            started_at=payload.started_at,
+            ended_at=payload.ended_at,
+        )
+    except IngestLimitViolation as exc:
+        from twobrain_rec_server.api.problems import ProblemDetail
+
+        raise ProblemDetail(
+            status=400,
+            code=exc.code,
+            title="Ingest limit exceeded",
+            detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
+        ) from exc
+    return meeting_response(meeting)
+
+
+@router.post(
+    "/meetings/{meeting_id}/upload-sessions",
+    response_model=UploadSessionResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def create_session(
+    meeting_id: UUID,
+    payload: CreateUploadSessionRequest,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> UploadSessionResponse:
+    session = await create_upload_session(
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        meeting_id=meeting_id,
+        expected_track_roles=payload.expected_tracks,
+        expected_track_sizes=payload.expected_track_sizes,
+        idempotency_key=idempotency_key,
+    )
+    return session_response(session)
+
+
+@router.put(
+    "/upload-sessions/{session_id}/tracks/{track_role}/parts/{part_number}",
+    response_model=UploadPartResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def put_part(
+    session_id: UUID,
+    track_role: TrackRole,
+    part_number: int,
+    request: Request,
+    x_byte_offset: int = Header(alias="X-Byte-Offset"),
+    x_content_sha256: str = Header(alias="X-Content-SHA256"),
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+    storage: object = StorageDependency,
+) -> UploadPartResponse:
+    data = await read_bounded_upload_body(
+        request,
+        expected_sha256=x_content_sha256,
+        max_bytes=request.app.state.settings.max_upload_part_bytes,
+        spool_memory_bytes=request.app.state.settings.max_upload_spool_memory_bytes,
+    )
+    part = await accept_part(
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        storage=storage,
+        session_id=session_id,
+        track_role=track_role,
+        part_number=part_number,
+        byte_offset=x_byte_offset,
+        content_sha256=x_content_sha256,
+        data=data,
+    )
+    return UploadPartResponse(
+        session_id=session_id,
+        track_role=part.track_role,
+        part_number=part.part_number,
+        byte_offset=part.byte_offset,
+        byte_length=part.byte_length,
+        sha256=part.sha256,
+    )
+
+
+@router.get(
+    "/upload-sessions/{session_id}",
+    response_model=UploadSessionResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_session(
+    session_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> UploadSessionResponse:
+    return session_response(await get_upload_session_status(session_id, tenant_scope, db))
+
+
+@router.get(
+    "/upload-sessions/{session_id}/missing-ranges",
+    response_model=MissingRangesResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_missing_ranges(
+    session_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> MissingRangesResponse:
+    session = await get_upload_session_status(session_id, tenant_scope, db)
+    expected = session.expected_track_sizes or {
+        role: sum(part.byte_length for (part_role, _), part in session.parts.items() if part_role == role)
+        for role in session.expected_track_roles
+    }
+    ranges = missing_ranges_for_expected_sizes(session, expected)
+    return MissingRangesResponse(
+        session_id=session.id,
+        missing_ranges_by_track={
+            role: [MissingRange(start=start, end=end) for start, end in role_ranges]
+            for role, role_ranges in ranges.items()
+        },
+    )
+
+
+@router.post(
+    "/upload-sessions/{session_id}/abort",
+    response_model=UploadSessionResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def abort_session(
+    session_id: UUID,
+    payload: AbortUploadRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> UploadSessionResponse:
+    return session_response(
+        await abort_upload_session(tenant_scope=tenant_scope, db=db, session_id=session_id, reason=payload.reason)
+    )
+
+
+@router.post(
+    "/upload-sessions/{session_id}/finalize",
+    response_model=FinalizeUploadResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def finalize_session(
+    session_id: UUID,
+    payload: FinalizeUploadRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> FinalizeUploadResponse:
+    meeting, session = await finalize_upload(
+        tenant_scope=tenant_scope,
+        db=db,
+        session_id=session_id,
+        manifest_sha256=payload.manifest_sha256,
+        tracks=payload.tracks,
+    )
+    return FinalizeUploadResponse(
+        meeting=meeting_response(meeting),
+        upload_session=session_response(session),
+        object_count=len(session.parts),
+    )

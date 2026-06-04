@@ -29,15 +29,31 @@ Current accepted local baseline:
   `incoming.wav` with metadata-only diagnostics and readiness truth.
 - The current MediaScribe integration contract for future backend work is the
   dual-track contract in `docs/integrations/mediascribe-dual-track-api.md`.
+- Feature `012-server-ingest-foundation` is implemented in-repository as the
+  first backend foundation: FastAPI ingest API, local/prod Docker Compose
+  scaffolds with Rec-owned Postgres/MinIO, Alembic schema models,
+  server-mediated upload/session endpoints, resumable/idempotent part
+  handling, tenant/device API boundary checks, metadata-only audit/logging,
+  status contracts, and inert processing placeholders. Local validation on
+  2026-06-04 passed the server test suite, Ruff, compileall, and compose
+  configuration checks after final review remediation for persistence/storage,
+  forged auth, missing ranges, and readiness.
+- A second five-round review hackathon on 2026-06-04 found additional PR
+  blockers. Phase 11 remediation for tasks T119-T180 and GitHub issues
+  #112-#124 has now been completed locally and recorded in the feature
+  quickstart/tasks evidence. The accepted product status for `012` remains
+  "implemented locally, not production-deployed"; before PR/deployment-plan
+  handoff, the repository still needs a final full sanity run, dirty-worktree
+  review, and explicit commit/PR decision.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted: active capture
   UI remains local/native; post-meeting/admin surfaces live in the server web
   dashboard.
 
 Current non-accepted product areas:
 
-- Backend ingest, upload sessions, Postgres, MinIO, Temporal workflows,
+- Production deployment, desktop upload queue integration, Temporal workflows,
   MediaScribe processing, dashboard notes, server retention, and deletion are
-  not implemented yet.
+  not accepted yet.
 - Feature `011-assisted-auto-recording` is specified only. Detect-and-ask,
   future auto-record, automatic naming, and assisted detection evidence are not
   implemented yet.
@@ -46,14 +62,44 @@ Current non-accepted product areas:
 - Signed/notarized production installer evidence remains separate from local
   ad-hoc development package evidence.
 
-Recommended next product slice:
+Current backend boundary:
 
-- `012-server-ingest-foundation`: authenticated resumable server ingest for
-  finalized local dual-track artifacts, with Postgres metadata, MinIO object
-  storage, upload/session status contracts, and server-side MediaScribe
-  credential boundaries. MediaScribe job processing, full dashboard UI,
-  deletion execution, and assisted auto-recording should remain separate slices
-  unless that spec explicitly expands scope.
+- `012-server-ingest-foundation` remains server-mediated and records successful
+  ingest as `ingested_pending_processing` with inert processing placeholders.
+  It does not start Temporal workflows, call MediaScribe, implement production
+  desktop upload queue UI, expose dashboard/share/download/delete surfaces, or
+  execute retention/deletion jobs.
+
+Reserved follow-up slices:
+
+- `013-federated-auth-foundation`: provider-neutral user authentication,
+  account linking, workspace membership, sessions, and registered device
+  identity. Priority login providers for the Russian market are Yandex ID, VK
+  ID, and Telegram Login, with Sber ID and T-ID reserved for later provider
+  enablement where partner setup allows.
+- `014-desktop-upload-queue`: macOS app sends accepted local recording packages
+  to the `012` server ingest API using the `013` user/device identity and shows
+  pending/uploading/retrying/uploaded status.
+- `015-mediascribe-processing-pipeline`: server-side workers submit finalized
+  ingested dual-track artifacts to MediaScribe, poll processing, and import
+  transcript/diarization/summary results. This slice owns starting durable
+  processing workflows after ingest finalization, using internal identifiers
+  such as `meeting_id`, `upload_session_id`, and `artifact_id`; desktop clients
+  never start workflows directly.
+- `016-meeting-dashboard-review`: server web dashboard shows uploaded meetings,
+  processing state, transcript, notes, playback, and review surfaces.
+- `017-access-sharing-downloads`: role-based meeting access, team visibility,
+  download/export permissions for audio/transcript/summary, login-required
+  share links, optional public-link policy, and share-page lifecycle/audit for
+  viral distribution.
+- `018-retention-deletion-execution`: server-side retention jobs, deletion
+  workflows, deletion verification reports, local desktop purge coordination,
+  backup expiry accounting, and MediaScribe/Langfuse/external dependency
+  deletion truth.
+- `direct-object-upload`: future upload optimization where desktop clients may
+  receive narrowly scoped object-storage upload URLs only after a separate
+  security, lifecycle, deletion, and credential-boundary review. `012` remains
+  server-mediated.
 
 ## 2. Positioning
 
@@ -951,6 +997,13 @@ Core entities:
 Requirements:
 
 - All tenant-owned rows include `organization_id` and `workspace_id`.
+- Application APIs must enforce tenant isolation from authenticated membership,
+  registered device identity, and server-minted session state; client-supplied
+  tenant identifiers are not trusted by themselves.
+- `RLS-hardening`: PostgreSQL Row-Level Security is a tracked hardening gate for
+  tenant-owned tables. If a slice defers RLS, its plan/tasks must include
+  compensating application-level authorization checks and a traceable follow-up
+  task or GitHub issue candidate.
 - `AudioChunk` unique by `(track_id, sequence_number)`.
 - `AuthSession` and `RefreshToken` support revocation and rotation.
 - `DeviceToken` is scoped to device and workspace and can be revoked.
@@ -1024,6 +1077,17 @@ Use a durable workflow engine for:
 Each workflow stage defines inputs, outputs, artifact versions, retry policy, timeout, cancellation behavior, idempotency key, worker image/version, resource class, and user-visible status.
 
 Processing must be replayable without duplicating artifacts or corrupting meeting state.
+
+Workflow start boundary:
+
+- Desktop clients never start Temporal or other durable workflows directly.
+- Ingest finalization may create durable metadata and processing placeholders,
+  but `012-server-ingest-foundation` does not enqueue MediaScribe, notes,
+  retention, deletion, or indexing work.
+- `015-mediascribe-processing-pipeline` owns the first processing workflow
+  start after a finalized ingest, with an idempotent workflow identifier derived
+  from the internal meeting record rather than client-supplied titles or file
+  names.
 
 ## 20. STT And Diarization
 
@@ -1862,7 +1926,9 @@ Deployment runbook acceptance on `2brain.dev`:
 - Device registration works.
 - Upload session creation works.
 - A fixed small test audio file uploads in chunks, finalizes, and creates MinIO artifacts.
-- Temporal starts ingest and MediaScribe workflows.
+- Temporal starts MediaScribe and later retention/deletion workflows in the
+  backend processing slices; this is not an acceptance requirement for
+  `012-server-ingest-foundation`.
 - MediaScribe submit/poll/result import succeeds with the configured API key without logging the key.
 - Notes generation either succeeds with Langfuse trace reference or reports configured Langfuse degraded behavior.
 - Deletion of the test meeting produces a deletion verification report.
