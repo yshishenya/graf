@@ -1,7 +1,7 @@
 {
   "integration": "codex",
   "version": "0.9.3",
-  "installed_at": "2026-06-04T15:37:52.001923+00:00",
+  "installed_at": "2026-06-04T16:03:51.230759+00:00",
   "files": {
     ".agents/skills/speckit-analyze/SKILL.md": "753f1d49d830abc130132ad2864c780ea61fd57bbc71aa9888be24fdf0774800",
     ".agents/skills/speckit-checklist/SKILL.md": "734393e5698b390283db49135e1140d6ad529b65eae439bb0a53bc5acab2b529",

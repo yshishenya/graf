@@ -8,6 +8,21 @@
 
 **Input**: User description: "Deployment plan for the 2brain Rec production rollout in 2brain.pro infrastructure with public rec.2brain.dev endpoint: Docker Compose layout, secrets and environment policy, volumes and backups, migration runbook, first production smoke, and rollback."
 
+## Clarifications
+
+### Session 2026-06-04
+
+- Q: What implementation scope should `021-production-deployment-plan` own? → A: Full deploy-ready implementation through first production smoke readiness.
+- Q: What must the first production smoke validate? → A: Only the accepted `012` ingest boundary: health, migrations, Postgres, MinIO, small upload, and log/secret safety.
+- Q: How should restore/rollback rehearsal affect rollout readiness? → A: Successful production-like restore/rollback rehearsal is a blocking readiness gate.
+- Q: What source should `021` use for production secrets? → A: Docker secrets plus environment templates, with no live secret values committed or documented.
+- Q: Where should deployment evidence be stored? → A: In shared deployment documentation under `docs/deployments/2brain-rec/`.
+- Q: What identity should production smoke use before `013` auth exists? → A: A dedicated internal smoke identity and device used only for production smoke validation.
+- Q: How should `rec.2brain.dev` be exposed during first production smoke? → A: Publicly exposed immediately during smoke, with smoke readiness not treated as user rollout readiness.
+- Q: What should happen to smoke artifacts after validation? → A: Smoke artifacts must be cleaned up and cleanup evidence must be recorded.
+- Q: How should MediaScribe and Langfuse be treated in `021`? → A: Check configuration and health as degraded-awareness signals, but do not block accepted `012` ingest smoke.
+- Q: What final readiness verdict can successful `021` produce? → A: `infra_smoke_ready`, not `user_rollout_ready`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Operator Can Prepare The Production Stack (Priority: P1)
@@ -75,7 +90,10 @@ A deployment operator can roll back or halt the first production rollout when he
 ### Edge Cases
 
 - Required secrets are missing, malformed, expired, or accidentally set to local development defaults.
+- The internal smoke identity or device is missing, reused outside smoke validation, or confused with a real user/device.
 - DNS or TLS for `rec.2brain.dev` is not ready or points to the wrong host.
+- `rec.2brain.dev` is publicly reachable during smoke while user-facing auth, uploader, processing, dashboard, sharing, retention, and deletion slices remain unavailable.
+- A successful infrastructure smoke is mistaken for user rollout readiness even though auth, desktop uploader, processing, dashboard, sharing, retention, and deletion slices are unavailable.
 - Production Compose configuration renders but would expose internal-only services publicly.
 - Postgres is reachable but migration state is unexpected.
 - MinIO is reachable but bucket, credential, lifecycle, or volume ownership policy is incomplete.
@@ -84,32 +102,38 @@ A deployment operator can roll back or halt the first production rollout when he
 - A migration partially applies and readiness fails.
 - A smoke upload succeeds but logs contain forbidden content.
 - MediaScribe, Langfuse, or Temporal are unavailable during this deployment slice; the plan must preserve truthful boundaries instead of failing 012-only ingest smoke for future-scope dependencies.
+- MediaScribe or Langfuse health/configuration is unavailable during `012` ingest smoke; deployment evidence must mark degraded awareness without blocking ingest-boundary readiness.
 - Rollback cannot delete all temporary artifacts immediately; the record must state what remains and who owns cleanup.
+- Smoke artifact cleanup fails or leaves database/object-storage residue after validation.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The deployment plan MUST define the production public endpoint as `https://rec.2brain.dev` hosted within 2brain-controlled infrastructure and distinguish it from the broader `2brain.pro` service dependency boundary.
+- **FR-001a**: `https://rec.2brain.dev` MAY be publicly reachable during first production smoke, but the deployment MUST NOT represent that state as user rollout readiness until smoke, rollback, and out-of-scope boundary checks pass.
 - **FR-002**: The deployment plan MUST define the production Rec service layout, including public-facing services, internal-only services, persistent storage services, and dependencies required for first ingest readiness.
 - **FR-003**: The deployment plan MUST define which network ports may be publicly exposed and which services must remain private to the deployment network.
-- **FR-004**: The deployment plan MUST define all required production secrets and environment values by purpose, source, owner, rotation expectation, and failure behavior without recording live secret values.
+- **FR-004**: The deployment plan MUST define all required production secrets and environment values by purpose, source, owner, rotation expectation, and failure behavior using Docker secrets plus environment templates, without recording live secret values.
 - **FR-005**: The deployment plan MUST require production startup and smoke validation to fail closed when required secrets are missing or set to unsafe local-development defaults.
 - **FR-006**: The deployment plan MUST define persistent volumes, ownership expectations, backup inclusion/exclusion, encryption expectations where supported, and disk-full behavior for Rec metadata and object storage.
 - **FR-007**: The deployment plan MUST define backup-before-migration requirements for metadata and object storage before any production migration or first-smoke change that can create persistent artifacts.
 - **FR-008**: The deployment plan MUST define a migration runbook with preflight, backup evidence, migration execution, verification, failure handling, and rollback decision points.
-- **FR-009**: The deployment plan MUST define a restore or rollback rehearsal requirement before production rollout is represented as ready.
-- **FR-010**: The deployment plan MUST define the first production smoke procedure for liveness, readiness, configuration, migration state, storage persistence, safe upload finalization, and log redaction.
+- **FR-009**: A successful production-like restore/rollback rehearsal MUST be a blocking readiness gate before production rollout is represented as ready.
+- **FR-010**: The deployment plan MUST define the first production smoke procedure for liveness, readiness, configuration, migration state, Postgres persistence, MinIO persistence, safe small-artifact upload finalization, and log redaction.
 - **FR-011**: The production smoke MUST use only non-sensitive test artifacts and MUST NOT require raw customer meeting content.
-- **FR-012**: The deployment plan MUST define expected smoke outcomes without claiming MediaScribe processing, Temporal workflow starts, dashboard review, sharing, retention execution, or deletion execution unless those later feature slices are active.
-- **FR-013**: The deployment plan MUST define how MediaScribe and Langfuse are represented as owner-controlled external dependencies, including health/degraded reporting, server-side secret boundaries, and no desktop-held credentials.
+- **FR-012**: The first production smoke MUST validate only the accepted `012` ingest boundary and MUST NOT require or claim MediaScribe processing, Temporal workflow starts, dashboard review, sharing, retention execution, or deletion execution.
+- **FR-012a**: The first production smoke MUST use a dedicated internal smoke identity and registered smoke device that are not real user accounts, not desktop uploader credentials, and not reusable local development seed credentials.
+- **FR-013**: The deployment plan MUST define how MediaScribe and Langfuse are represented as owner-controlled external dependencies, including configuration/health degraded-awareness checks, server-side secret boundaries, and no desktop-held credentials; these checks MUST NOT block accepted `012` ingest smoke readiness.
 - **FR-014**: The deployment plan MUST define production log and diagnostic forbidden-content rules covering raw audio, transcript text, credentials, tokens, signed URLs, passwords, and sensitive meeting metadata by default.
 - **FR-015**: The deployment plan MUST define rollback or halt criteria for failed health checks, failed migrations, failed backup verification, failed storage checks, failed smoke upload, forbidden log content, or unsafe exposure.
-- **FR-016**: The deployment plan MUST define deployment evidence that operators must record, including version, configuration fingerprint, migration version, backup reference, smoke result, rollback rehearsal result, and open risks.
+- **FR-016**: The deployment plan MUST define deployment evidence that operators must record under `docs/deployments/2brain-rec/`, including version, configuration fingerprint, migration version, backup reference, smoke result, rollback rehearsal result, and open risks.
 - **FR-017**: The deployment plan MUST preserve 012 boundaries: server-mediated ingest, dedicated Rec Postgres and MinIO, no desktop object-storage credentials, no direct object-storage upload URLs, and no processing workflow starts from ingest-only smoke.
-- **FR-018**: The deployment plan MUST define how temporary smoke artifacts are labeled, retained, cleaned up, or truthfully accounted for if cleanup cannot complete immediately.
+- **FR-018**: The deployment plan MUST require smoke artifacts to be cleaned up after validation and MUST record cleanup evidence or a truthful residue/owner follow-up if cleanup cannot complete immediately.
 - **FR-019**: The deployment plan MUST define operator-facing degraded states for unavailable optional/future dependencies without weakening readiness gates for active required dependencies.
-- **FR-020**: The deployment plan MUST include explicit out-of-scope boundaries for federated auth implementation, desktop uploader implementation, MediaScribe processing implementation, meeting dashboard implementation, sharing/downloads, retention/deletion execution, and driver packaging.
+- **FR-020**: This slice MUST include the deployment implementation work required to make the first production smoke executable and repeatable, including production compose/config hardening, secret/env validation, migration/backup/rollback scripts or commands, smoke validation helpers, and deployment evidence capture.
+- **FR-021**: The deployment plan MUST include explicit out-of-scope boundaries for federated auth implementation, desktop uploader implementation, MediaScribe processing implementation, meeting dashboard implementation, sharing/downloads, retention/deletion execution, and driver packaging.
+- **FR-022**: A successful `021` deployment MUST produce the readiness verdict `infra_smoke_ready` and MUST NOT be represented as `user_rollout_ready`, `production_ready`, or `internal_user_pilot_ready`.
 
 ### Key Entities
 
@@ -131,17 +155,23 @@ A deployment operator can roll back or halt the first production rollout when he
 - **SC-004**: Migration rehearsal records backup evidence before migration execution in 100% of production-like validation runs.
 - **SC-005**: Restore or rollback rehearsal completes or produces an explicit blocked verdict before production rollout is marked ready.
 - **SC-006**: First production smoke verifies liveness, readiness, migration state, metadata persistence, object persistence, and safe upload finalization with 100% of expected checks recorded.
+- **SC-006a**: Production smoke evidence identifies the dedicated smoke identity/device class in 100% of runs without exposing live credentials or treating the smoke identity as a real user.
+- **SC-006b**: Public reachability during smoke is accompanied by explicit "not user-rollout ready" evidence in 100% of smoke records until all active readiness gates pass.
 - **SC-007**: First production smoke produces 0 MediaScribe jobs, 0 Temporal workflow starts, 0 notes jobs, 0 retention jobs, and 0 deletion jobs when validating only the 012 ingest boundary.
+- **SC-007a**: MediaScribe and Langfuse degraded-awareness status is recorded in 100% of production smoke records without creating jobs, traces, or content egress during accepted `012` ingest smoke.
 - **SC-008**: Log and evidence scan finds 0 raw audio bytes, transcript text, bearer tokens, MinIO credentials, MediaScribe credentials, Langfuse credentials, signed URLs, or secret values.
 - **SC-009**: Rollback or halt criteria cover 100% of documented failure classes: DNS/TLS, secret validation, service health, migration, backup, storage, disk-full, unsafe exposure, smoke upload, and forbidden log content.
-- **SC-010**: The deployment record states cleanup or lifecycle accounting for 100% of smoke artifacts and temporary objects created during validation.
+- **SC-010**: The deployment record under `docs/deployments/2brain-rec/` states cleanup or lifecycle accounting for 100% of smoke artifacts and temporary objects created during validation.
+- **SC-011**: Smoke artifact cleanup succeeds or records truthful residue/owner follow-up in 100% of production smoke runs.
+- **SC-012**: 100% of successful `021` deployment evidence uses `infra_smoke_ready` as the highest readiness verdict and rejects user-rollout-ready wording.
 
 ## Assumptions
 
 - Feature `012-server-ingest-foundation` is implemented locally and accepted as the active backend ingest foundation, but it is not yet production-deployed.
 - Feature numbers `013` through `018` remain reserved for auth, uploader, processing, dashboard, sharing, and retention/deletion slices; this deployment-plan slice uses `021` to avoid changing the existing reserved sequence.
 - The production runtime is hosted within 2brain-controlled infrastructure, while the public Rec endpoint remains `https://rec.2brain.dev` unless a later architecture decision changes the domain.
-- This slice creates deployment and operational readiness artifacts first; implementation changes should be driven by later plan/tasks if gaps are discovered.
-- First production smoke is scoped to the accepted ingest boundary and does not prove end-to-end transcription, notes, dashboard review, sharing, retention, or deletion execution.
+- This slice creates both deployment/operational readiness artifacts and the required repository implementation changes for first production smoke readiness.
+- First production smoke is scoped to the accepted `012` ingest boundary and does not prove end-to-end transcription, notes, dashboard review, sharing, retention, or deletion execution.
+- Until `013-federated-auth-foundation` exists, production smoke uses a dedicated internal smoke identity/device created only for validation.
 - Live customer meeting content is not required for deployment validation.
 - MediaScribe at `https://mediascribe.2brain.pro` and Langfuse at `https://langfuse.2brain.pro` remain owner-controlled dependencies for the internal MVP and must be represented truthfully even when not required for ingest-only smoke.
