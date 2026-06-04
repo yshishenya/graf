@@ -9,4 +9,5 @@ def test_readiness_excludes_temporal_and_mediascribe_dependencies(client) -> Non
     assert response.status_code == 200
     checks = response.json()["checks"]
     assert checks["temporal"] == "not_required"
-    assert checks["mediascribe"] == "not_required"
+    assert checks["mediascribe"] in {"not_required", "not_configured"}
+    assert checks["langfuse"] in {"not_required", "not_configured"}

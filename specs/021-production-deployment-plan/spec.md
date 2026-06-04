@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Deployment plan for the 2brain Rec production rollout in 2brain.pro infrastructure with public rec.2brain.dev endpoint: Docker Compose layout, secrets and environment policy, volumes and backups, migration runbook, first production smoke, and rollback."
+**Input**: User description: "Deployment plan for the 2brain Rec production rollout in 2brain.pro infrastructure with public rec.2brain.pro endpoint: Docker Compose layout, secrets and environment policy, volumes and backups, migration runbook, first production smoke, and rollback."
 
 ## Clarifications
 
@@ -18,7 +18,7 @@
 - Q: What source should `021` use for production secrets? → A: Docker secrets plus environment templates, with no live secret values committed or documented.
 - Q: Where should deployment evidence be stored? → A: In shared deployment documentation under `docs/deployments/2brain-rec/`.
 - Q: What identity should production smoke use before `013` auth exists? → A: A dedicated internal smoke identity and device used only for production smoke validation.
-- Q: How should `rec.2brain.dev` be exposed during first production smoke? → A: Publicly exposed immediately during smoke, with smoke readiness not treated as user rollout readiness.
+- Q: How should `rec.2brain.pro` be exposed during first production smoke? → A: Publicly exposed immediately during smoke, with smoke readiness not treated as user rollout readiness.
 - Q: What should happen to smoke artifacts after validation? → A: Smoke artifacts must be cleaned up and cleanup evidence must be recorded.
 - Q: How should MediaScribe and Langfuse be treated in `021`? → A: Check configuration and health as degraded-awareness signals, but do not block accepted `012` ingest smoke.
 - Q: What final readiness verdict can successful `021` produce? → A: `infra_smoke_ready`, not `user_rollout_ready`.
@@ -91,8 +91,8 @@ A deployment operator can roll back or halt the first production rollout when he
 
 - Required secrets are missing, malformed, expired, or accidentally set to local development defaults.
 - The internal smoke identity or device is missing, reused outside smoke validation, or confused with a real user/device.
-- DNS or TLS for `rec.2brain.dev` is not ready or points to the wrong host.
-- `rec.2brain.dev` is publicly reachable during smoke while user-facing auth, uploader, processing, dashboard, sharing, retention, and deletion slices remain unavailable.
+- DNS or TLS for `rec.2brain.pro` is not ready or points to the wrong host.
+- `rec.2brain.pro` is publicly reachable during smoke while user-facing auth, uploader, processing, dashboard, sharing, retention, and deletion slices remain unavailable.
 - A successful infrastructure smoke is mistaken for user rollout readiness even though auth, desktop uploader, processing, dashboard, sharing, retention, and deletion slices are unavailable.
 - Production Compose configuration renders but would expose internal-only services publicly.
 - Postgres is reachable but migration state is unexpected.
@@ -110,8 +110,8 @@ A deployment operator can roll back or halt the first production rollout when he
 
 ### Functional Requirements
 
-- **FR-001**: The deployment plan MUST define the production public endpoint as `https://rec.2brain.dev` hosted within 2brain-controlled infrastructure and distinguish it from the broader `2brain.pro` service dependency boundary.
-- **FR-001a**: `https://rec.2brain.dev` MAY be publicly reachable during first production smoke, but the deployment MUST NOT represent that state as user rollout readiness until smoke, rollback, and out-of-scope boundary checks pass.
+- **FR-001**: The deployment plan MUST define the production public endpoint as `https://rec.2brain.pro` hosted within 2brain-controlled infrastructure and distinguish it from the broader `2brain.pro` service dependency boundary.
+- **FR-001a**: `https://rec.2brain.pro` MAY be publicly reachable during first production smoke, but the deployment MUST NOT represent that state as user rollout readiness until smoke, rollback, and out-of-scope boundary checks pass.
 - **FR-002**: The deployment plan MUST define the production Rec service layout, including public-facing services, internal-only services, persistent storage services, and dependencies required for first ingest readiness.
 - **FR-003**: The deployment plan MUST define which network ports may be publicly exposed and which services must remain private to the deployment network.
 - **FR-004**: The deployment plan MUST define all required production secrets and environment values by purpose, source, owner, rotation expectation, and failure behavior using Docker secrets plus environment templates, without recording live secret values.
@@ -169,7 +169,7 @@ A deployment operator can roll back or halt the first production rollout when he
 
 - Feature `012-server-ingest-foundation` is implemented locally and accepted as the active backend ingest foundation, but it is not yet production-deployed.
 - Feature numbers `013` through `018` remain reserved for auth, uploader, processing, dashboard, sharing, and retention/deletion slices; this deployment-plan slice uses `021` to avoid changing the existing reserved sequence.
-- The production runtime is hosted within 2brain-controlled infrastructure, while the public Rec endpoint remains `https://rec.2brain.dev` unless a later architecture decision changes the domain.
+- The production runtime is hosted within 2brain-controlled infrastructure, while the public Rec endpoint remains `https://rec.2brain.pro` unless a later architecture decision changes the domain.
 - This slice creates both deployment/operational readiness artifacts and the required repository implementation changes for first production smoke readiness.
 - First production smoke is scoped to the accepted `012` ingest boundary and does not prove end-to-end transcription, notes, dashboard review, sharing, retention, or deletion execution.
 - Until `013-federated-auth-foundation` exists, production smoke uses a dedicated internal smoke identity/device created only for validation.

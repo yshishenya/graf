@@ -18,11 +18,11 @@
 
 **Purpose**: Establish the deployment file layout, safe evidence location, and script conventions used by all stories.
 
-- [ ] T001 Create deployment documentation directory and README shell in `docs/deployments/2brain-rec/README.md`
-- [ ] T002 Create production environment template directory in `infra/env/README.md`
-- [ ] T003 [P] Create deployment helper script directory and conventions in `infra/scripts/README.md`
-- [ ] T004 [P] Create smoke helper conventions in `apps/server/scripts/README.md`
-- [ ] T005 [P] Create deployment test fixture package marker in `apps/server/tests/fixtures/deployment.py`
+- [X] T001 Create deployment documentation directory and README shell in `docs/deployments/2brain-rec/README.md`
+- [X] T002 Create production environment template directory in `infra/env/README.md`
+- [X] T003 [P] Create deployment helper script directory and conventions in `infra/scripts/README.md`
+- [X] T004 [P] Create smoke helper conventions in `apps/server/scripts/README.md`
+- [X] T005 [P] Create deployment test fixture package marker in `apps/server/tests/fixtures/deployment.py`
 
 ---
 
@@ -32,13 +32,13 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T006 [P] Add readiness verdict constants and forbidden verdict list in `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T007 [P] Add deployment evidence forbidden-content patterns in `apps/server/src/twobrain_rec_server/observability/redaction.py`
-- [ ] T008 Add smoke identity configuration fields with production validation in `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T009 [P] Add deployment evidence fixture builders in `apps/server/tests/fixtures/deployment.py`
-- [ ] T010 Add production deployment validation module skeleton in `apps/server/src/twobrain_rec_server/deployment.py`
-- [ ] T011 Add deployment helper unit test skeleton in `apps/server/tests/unit/test_deployment_helpers.py`
-- [ ] T012 Add deployment readiness contract test skeleton in `apps/server/tests/contract/test_deployment_readiness_contract.py`
+- [X] T006 [P] Add readiness verdict constants and forbidden verdict list in `apps/server/src/twobrain_rec_server/config.py`
+- [X] T007 [P] Add deployment evidence forbidden-content patterns in `apps/server/src/twobrain_rec_server/observability/redaction.py`
+- [X] T008 Add smoke identity configuration fields with production validation in `apps/server/src/twobrain_rec_server/config.py`
+- [X] T009 [P] Add deployment evidence fixture builders in `apps/server/tests/fixtures/deployment.py`
+- [X] T010 Add production deployment validation module skeleton in `apps/server/src/twobrain_rec_server/deployment.py`
+- [X] T011 Add deployment helper unit test skeleton in `apps/server/tests/unit/test_deployment_helpers.py`
+- [X] T012 Add deployment readiness contract test skeleton in `apps/server/tests/contract/test_deployment_readiness_contract.py`
 
 **Checkpoint**: Shared constants, validation hooks, and test fixtures are ready for story work.
 
@@ -46,28 +46,28 @@
 
 ## Phase 3: User Story 1 - Operator Can Prepare The Production Stack (Priority: P1) MVP
 
-**Goal**: The operator can prepare the production stack with a clear Compose layout, secret/env policy, volume boundary, and public/private exposure model for `https://rec.2brain.dev`.
+**Goal**: The operator can prepare the production stack with a clear Compose layout, secret/env policy, volume boundary, and public/private exposure model for `https://rec.2brain.pro`.
 
 **Independent Test**: Render the production Compose config with dummy non-secret values and review `docs/deployments/2brain-rec/README.md`, `infra/env/rec.production.env.example`, and `infra/docker-compose.yml` to confirm services, ports, volumes, secrets, and dependencies are complete without live values.
 
 ### Tests for User Story 1
 
-- [ ] T013 [P] [US1] Add contract tests for required secret/env template fields in `apps/server/tests/contract/test_secrets_env_contract.py`
-- [ ] T014 [P] [US1] Add integration tests for Docker secret declarations and public/private port exposure in `apps/server/tests/integration/test_compose_hardening.py`
-- [ ] T015 [P] [US1] Add unit tests for production fail-closed secret validation cases in `apps/server/tests/unit/test_config_validation.py`
-- [ ] T016 [P] [US1] Add documentation exposure tests for deployment docs avoiding live secrets in `apps/server/tests/integration/test_production_docs_exposure.py`
+- [X] T013 [P] [US1] Add contract tests for required secret/env template fields in `apps/server/tests/contract/test_secrets_env_contract.py`
+- [X] T014 [P] [US1] Add integration tests for Docker secret declarations and public/private port exposure in `apps/server/tests/integration/test_compose_hardening.py`
+- [X] T015 [P] [US1] Add unit tests for production fail-closed secret validation cases in `apps/server/tests/unit/test_config_validation.py`
+- [X] T016 [P] [US1] Add documentation exposure tests for deployment docs avoiding live secrets in `apps/server/tests/integration/test_production_docs_exposure.py`
 
 ### Implementation for User Story 1
 
-- [ ] T017 [US1] Create production env template with placeholders, owners, rotation notes, and required/optional markers in `infra/env/rec.production.env.example`
-- [ ] T018 [US1] Convert production Compose services from env-only secrets to Docker secrets plus env template references in `infra/docker-compose.yml`
-- [ ] T019 [US1] Document Rec API public binding, reverse-proxy expectation, and internal-only service exposure in `docs/deployments/2brain-rec/README.md`
-- [ ] T020 [US1] Document Rec-owned Postgres and MinIO volume ownership, backup inclusion, encryption expectation, restore expectation, and disk-full halt behavior in `docs/deployments/2brain-rec/README.md`
-- [ ] T021 [US1] Extend production settings validation for Docker secret file presence, unreadable secret files, and dev default rejection in `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T022 [US1] Implement production config validation CLI for fail-closed preflight checks in `infra/scripts/validate-production-config.sh`
-- [ ] T023 [US1] Add degraded-awareness config fields for MediaScribe and Langfuse without making them readiness blockers in `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T024 [US1] Update internal readiness detail to report MediaScribe and Langfuse as degraded-awareness only in `apps/server/src/twobrain_rec_server/api/health.py`
-- [ ] T025 [US1] Record out-of-scope rollout wording and allowed `infra_smoke_ready` verdict language in `docs/deployments/2brain-rec/README.md`
+- [X] T017 [US1] Create production env template with placeholders, owners, rotation notes, and required/optional markers in `infra/env/rec.production.env.example`
+- [X] T018 [US1] Convert production Compose services from env-only secrets to Docker secrets plus env template references in `infra/docker-compose.yml`
+- [X] T019 [US1] Document Rec API public binding, reverse-proxy expectation, and internal-only service exposure in `docs/deployments/2brain-rec/README.md`
+- [X] T020 [US1] Document Rec-owned Postgres and MinIO volume ownership, backup inclusion, encryption expectation, restore expectation, and disk-full halt behavior in `docs/deployments/2brain-rec/README.md`
+- [X] T021 [US1] Extend production settings validation for Docker secret file presence, unreadable secret files, and dev default rejection in `apps/server/src/twobrain_rec_server/config.py`
+- [X] T022 [US1] Implement production config validation CLI for fail-closed preflight checks in `infra/scripts/validate-production-config.sh`
+- [X] T023 [US1] Add degraded-awareness config fields for MediaScribe and Langfuse without making them readiness blockers in `apps/server/src/twobrain_rec_server/config.py`
+- [X] T024 [US1] Update internal readiness detail to report MediaScribe and Langfuse as degraded-awareness only in `apps/server/src/twobrain_rec_server/api/health.py`
+- [X] T025 [US1] Record out-of-scope rollout wording and allowed `infra_smoke_ready` verdict language in `docs/deployments/2brain-rec/README.md`
 
 **Checkpoint**: US1 is independently testable through Compose rendering, secret validation, docs review, and readiness contract tests.
 
@@ -81,19 +81,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T026 [P] [US2] Add backup-before-migration evidence tests in `apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py`
-- [ ] T027 [P] [US2] Add migration runbook command tests for blocked and pass outcomes in `apps/server/tests/unit/test_deployment_runbook.py`
-- [ ] T028 [P] [US2] Add restore/rollback rehearsal verdict contract tests in `apps/server/tests/contract/test_deployment_readiness_contract.py`
+- [X] T026 [P] [US2] Add backup-before-migration evidence tests in `apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py`
+- [X] T027 [P] [US2] Add migration runbook command tests for blocked and pass outcomes in `apps/server/tests/unit/test_deployment_runbook.py`
+- [X] T028 [P] [US2] Add restore/rollback rehearsal verdict contract tests in `apps/server/tests/contract/test_deployment_readiness_contract.py`
 
 ### Implementation for User Story 2
 
-- [ ] T029 [US2] Implement metadata-only backup evidence template in `docs/deployments/2brain-rec/backup-evidence-template.md`
-- [ ] T030 [US2] Implement backup helper for Rec Postgres and MinIO metadata references in `infra/scripts/backup-rec-stack.sh`
-- [ ] T031 [US2] Implement migration verification helper around Alembic state and readiness checks in `infra/scripts/verify-rec-migration.sh`
-- [ ] T032 [US2] Implement production-like restore rehearsal helper with explicit pass/blocked output in `infra/scripts/rehearse-rec-restore.sh`
-- [ ] T033 [US2] Implement rollback decision helper for halt, restore, rollback, and blocked outcomes in `infra/scripts/rollback-rec-stack.sh`
-- [ ] T034 [US2] Document migration preflight, backup-before-change, migration execution, verification, and rollback decision points in `docs/deployments/2brain-rec/migration-runbook.md`
-- [ ] T035 [US2] Add migration and rollback evidence fields to deployment helper models in `apps/server/src/twobrain_rec_server/deployment.py`
+- [X] T029 [US2] Implement metadata-only backup evidence template in `docs/deployments/2brain-rec/backup-evidence-template.md`
+- [X] T030 [US2] Implement backup helper for Rec Postgres and MinIO metadata references in `infra/scripts/backup-rec-stack.sh`
+- [X] T031 [US2] Implement migration verification helper around Alembic state and readiness checks in `infra/scripts/verify-rec-migration.sh`
+- [X] T032 [US2] Implement production-like restore rehearsal helper with explicit pass/blocked output in `infra/scripts/rehearse-rec-restore.sh`
+- [X] T033 [US2] Implement rollback decision helper for halt, restore, rollback, and blocked outcomes in `infra/scripts/rollback-rec-stack.sh`
+- [X] T034 [US2] Document migration preflight, backup-before-change, migration execution, verification, and rollback decision points in `docs/deployments/2brain-rec/migration-runbook.md`
+- [X] T035 [US2] Add migration and rollback evidence fields to deployment helper models in `apps/server/src/twobrain_rec_server/deployment.py`
 
 **Checkpoint**: US2 is independently testable through dry-run backup, migration verification, restore rehearsal, and rollback decision evidence.
 
@@ -103,26 +103,26 @@
 
 **Goal**: The operator can run the first production smoke for the accepted `012` ingest boundary with a dedicated internal smoke identity/device, safe upload, no forbidden side effects, cleanup, and metadata-only evidence.
 
-**Independent Test**: Run the smoke helper against a local production-like endpoint or `https://rec.2brain.dev` using a non-sensitive artifact and confirm health, migration state, Postgres persistence, MinIO persistence, upload finalization, no side effects, log redaction, cleanup, and evidence fields.
+**Independent Test**: Run the smoke helper against a local production-like endpoint or `https://rec.2brain.pro` using a non-sensitive artifact and confirm health, migration state, Postgres persistence, MinIO persistence, upload finalization, no side effects, log redaction, cleanup, and evidence fields.
 
 ### Tests for User Story 3
 
-- [ ] T036 [P] [US3] Add smoke evidence schema contract tests in `apps/server/tests/contract/test_smoke_evidence_contract.py`
-- [ ] T037 [P] [US3] Add smoke identity/device boundary unit tests in `apps/server/tests/unit/test_smoke_identity_seed.py`
-- [ ] T038 [P] [US3] Add first-smoke ingest boundary integration tests in `apps/server/tests/integration/test_production_smoke_boundary.py`
-- [ ] T039 [P] [US3] Add smoke cleanup unit tests for database and object residue outcomes in `apps/server/tests/unit/test_smoke_cleanup.py`
-- [ ] T040 [P] [US3] Add forbidden-content scan tests for evidence and logs in `apps/server/tests/unit/test_deployment_evidence_scan.py`
+- [X] T036 [P] [US3] Add smoke evidence schema contract tests in `apps/server/tests/contract/test_smoke_evidence_contract.py`
+- [X] T037 [P] [US3] Add smoke identity/device boundary unit tests in `apps/server/tests/unit/test_smoke_identity_seed.py`
+- [X] T038 [P] [US3] Add first-smoke ingest boundary integration tests in `apps/server/tests/integration/test_production_smoke_boundary.py`
+- [X] T039 [P] [US3] Add smoke cleanup unit tests for database and object residue outcomes in `apps/server/tests/unit/test_smoke_cleanup.py`
+- [X] T040 [P] [US3] Add forbidden-content scan tests for evidence and logs in `apps/server/tests/unit/test_deployment_evidence_scan.py`
 
 ### Implementation for User Story 3
 
-- [ ] T041 [US3] Implement internal smoke identity/device seed helper that never reuses dev seed identity in `apps/server/scripts/seed_smoke_identity.py`
-- [ ] T042 [US3] Implement production smoke runner for health, readiness, migration state, upload, persistence, side effects, degraded-awareness, and verdict capture in `infra/scripts/run-production-smoke.sh`
-- [ ] T043 [US3] Implement safe smoke upload wrapper using the existing artifact helper flow in `apps/server/scripts/upload_test_artifact.py`
-- [ ] T044 [US3] Implement smoke artifact cleanup helper for database records and MinIO objects in `apps/server/scripts/cleanup_smoke_artifacts.py`
-- [ ] T045 [US3] Implement metadata-only evidence writer and forbidden verdict validation in `apps/server/src/twobrain_rec_server/deployment.py`
-- [ ] T046 [US3] Implement forbidden-content scan helper for evidence summaries and captured logs in `infra/scripts/scan-deployment-evidence.sh`
-- [ ] T047 [US3] Create smoke evidence template with all required contract fields in `docs/deployments/2brain-rec/infra-smoke-template.md`
-- [ ] T048 [US3] Document first production smoke steps, cleanup expectations, and no-side-effect assertions in `docs/deployments/2brain-rec/first-production-smoke.md`
+- [X] T041 [US3] Implement internal smoke identity/device seed helper that never reuses dev seed identity in `apps/server/scripts/seed_smoke_identity.py`
+- [X] T042 [US3] Implement production smoke runner for health, readiness, migration state, upload, persistence, side effects, degraded-awareness, and verdict capture in `infra/scripts/run-production-smoke.sh`
+- [X] T043 [US3] Implement safe smoke upload wrapper using the existing artifact helper flow in `apps/server/scripts/upload_test_artifact.py`
+- [X] T044 [US3] Implement smoke artifact cleanup helper for database records and MinIO objects in `apps/server/scripts/cleanup_smoke_artifacts.py`
+- [X] T045 [US3] Implement metadata-only evidence writer and forbidden verdict validation in `apps/server/src/twobrain_rec_server/deployment.py`
+- [X] T046 [US3] Implement forbidden-content scan helper for evidence summaries and captured logs in `infra/scripts/scan-deployment-evidence.sh`
+- [X] T047 [US3] Create smoke evidence template with all required contract fields in `docs/deployments/2brain-rec/infra-smoke-template.md`
+- [X] T048 [US3] Document first production smoke steps, cleanup expectations, and no-side-effect assertions in `docs/deployments/2brain-rec/first-production-smoke.md`
 
 **Checkpoint**: US3 is independently testable through the first-smoke runner and smoke evidence contract.
 
@@ -136,16 +136,16 @@
 
 ### Tests for User Story 4
 
-- [ ] T049 [P] [US4] Add rollback failure-class coverage tests in `apps/server/tests/unit/test_deployment_rollback_decisions.py`
-- [ ] T050 [P] [US4] Add integration tests that blocked backup, restore, cleanup, or forbidden log checks prevent `infra_smoke_ready` in `apps/server/tests/integration/test_deployment_readiness_gates.py`
-- [ ] T051 [P] [US4] Add deployment evidence wording tests that reject `production_ready`, `user_rollout_ready`, and `internal_user_pilot_ready` in `apps/server/tests/contract/test_deployment_readiness_contract.py`
+- [X] T049 [P] [US4] Add rollback failure-class coverage tests in `apps/server/tests/unit/test_deployment_rollback_decisions.py`
+- [X] T050 [P] [US4] Add integration tests that blocked backup, restore, cleanup, or forbidden log checks prevent `infra_smoke_ready` in `apps/server/tests/integration/test_deployment_readiness_gates.py`
+- [X] T051 [P] [US4] Add deployment evidence wording tests that reject `production_ready`, `user_rollout_ready`, and `internal_user_pilot_ready` in `apps/server/tests/contract/test_deployment_readiness_contract.py`
 
 ### Implementation for User Story 4
 
-- [ ] T052 [US4] Implement rollback/halt trigger mapping for DNS/TLS, secrets, health, migration, backup, storage, disk-full, unsafe exposure, smoke upload, and forbidden-content failures in `apps/server/src/twobrain_rec_server/deployment.py`
-- [ ] T053 [US4] Extend rollback helper to emit cleanup obligations and residue owner fields in `infra/scripts/rollback-rec-stack.sh`
-- [ ] T054 [US4] Document rollback/halt scenarios, prior-state references, and truthful status wording in `docs/deployments/2brain-rec/rollback-runbook.md`
-- [ ] T055 [US4] Add cleanup residue and follow-up wording to deployment evidence README in `docs/deployments/2brain-rec/README.md`
+- [X] T052 [US4] Implement rollback/halt trigger mapping for DNS/TLS, secrets, health, migration, backup, storage, disk-full, unsafe exposure, smoke upload, and forbidden-content failures in `apps/server/src/twobrain_rec_server/deployment.py`
+- [X] T053 [US4] Extend rollback helper to emit cleanup obligations and residue owner fields in `infra/scripts/rollback-rec-stack.sh`
+- [X] T054 [US4] Document rollback/halt scenarios, prior-state references, and truthful status wording in `docs/deployments/2brain-rec/rollback-runbook.md`
+- [X] T055 [US4] Add cleanup residue and follow-up wording to deployment evidence README in `docs/deployments/2brain-rec/README.md`
 
 **Checkpoint**: US4 is independently testable through rollback/halt dry-runs and readiness gate tests.
 
@@ -155,12 +155,12 @@
 
 **Purpose**: Final validation, documentation alignment, and Spec Kit traceability after desired user stories are complete.
 
-- [ ] T056 [P] Update current product status with 021 `infra_smoke_ready` boundary and remaining non-ready slices in `docs/current-product-status.md`
-- [ ] T057 [P] Update PRD trace notes for deployment readiness without expanding user rollout claims in `docs/prd-voice-layer-final.md`
-- [ ] T058 Run full server validation from quickstart in `apps/server/tests/`
-- [ ] T059 Run production Compose config validation from quickstart against `infra/docker-compose.yml`
-- [ ] T060 Run forbidden-content scan across deployment docs and evidence templates in `docs/deployments/2brain-rec/`
-- [ ] T061 Verify all Spec Kit analysis findings are resolved before implementation closure using `specs/021-production-deployment-plan/tasks.md`
+- [X] T056 [P] Update current product status with 021 `infra_smoke_ready` boundary and remaining non-ready slices in `docs/current-product-status.md`
+- [X] T057 [P] Update PRD trace notes for deployment readiness without expanding user rollout claims in `docs/prd-voice-layer-final.md`
+- [X] T058 Run full server validation from quickstart in `apps/server/tests/`
+- [X] T059 Run production Compose config validation from quickstart against `infra/docker-compose.yml`
+- [X] T060 Run forbidden-content scan across deployment docs and evidence templates in `docs/deployments/2brain-rec/`
+- [X] T061 Verify all Spec Kit analysis findings are resolved before implementation closure using `specs/021-production-deployment-plan/tasks.md`
 
 ---
 

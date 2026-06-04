@@ -1,7 +1,20 @@
 from functools import lru_cache
+from pathlib import Path
+from uuid import UUID
 
 from pydantic import AnyUrl, Field, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
+FORBIDDEN_READINESS_VERDICTS = ("production_ready", "user_rollout_ready", "internal_user_pilot_ready")
+SMOKE_IDENTITY_CLASS = "internal_smoke"
+
+LOCAL_DEV_SMOKE_IDS = {
+    UUID("10000000-0000-0000-0000-000000000001"),
+    UUID("20000000-0000-0000-0000-000000000001"),
+    UUID("30000000-0000-0000-0000-000000000001"),
+    UUID("40000000-0000-0000-0000-000000000001"),
+}
 
 
 class Settings(BaseSettings):
@@ -28,6 +41,24 @@ class Settings(BaseSettings):
     minio_secure: bool = False
 
     public_base_url: AnyUrl | None = None
+
+    postgres_password_file: Path | None = None
+    minio_access_key_file: Path | None = None
+    minio_secret_key_file: Path | None = None
+    smoke_credential_file: Path | None = None
+
+    smoke_identity_class: str | None = None
+    smoke_organization_id: UUID | None = None
+    smoke_workspace_id: UUID | None = None
+    smoke_user_id: UUID | None = None
+    smoke_device_id: UUID | None = None
+
+    mediascribe_base_url: AnyUrl | None = None
+    mediascribe_health_url: AnyUrl | None = None
+    mediascribe_credential_file: Path | None = None
+    langfuse_base_url: AnyUrl | None = None
+    langfuse_health_url: AnyUrl | None = None
+    langfuse_credential_file: Path | None = None
 
     max_recording_duration_seconds: PositiveInt = Field(default=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
@@ -58,6 +89,24 @@ class Settings(BaseSettings):
         root_markers = ("root", "admin")
         if any(marker in self.minio_access_key.lower() for marker in root_markers):
             raise ValueError("production MinIO API access key must not be a root/admin credential")
+        for path in (
+            self.postgres_password_file,
+            self.minio_access_key_file,
+            self.minio_secret_key_file,
+            self.smoke_credential_file,
+        ):
+            if path is not None and not path.is_file():
+                raise ValueError("production Docker secret files must exist and be readable")
+        if self.smoke_identity_class is not None and self.smoke_identity_class != SMOKE_IDENTITY_CLASS:
+            raise ValueError("production smoke identity class must be internal_smoke")
+        smoke_ids = (
+            self.smoke_organization_id,
+            self.smoke_workspace_id,
+            self.smoke_user_id,
+            self.smoke_device_id,
+        )
+        if any(identifier in LOCAL_DEV_SMOKE_IDS for identifier in smoke_ids if identifier is not None):
+            raise ValueError("production smoke identity/device must not reuse local development seed identifiers")
         return self
 
 

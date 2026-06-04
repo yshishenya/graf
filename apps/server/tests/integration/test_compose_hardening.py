@@ -17,7 +17,7 @@ def _compose() -> dict:
 def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> None:
     api = _compose()["services"]["rec-api"]
 
-    assert api["ports"] == ["127.0.0.1:8080:8080"]
+    assert api["ports"] == ["127.0.0.1:18081:8080"]
     assert "healthcheck" in api
     healthcheck = " ".join(api["healthcheck"]["test"])
     assert "/api/v1/health/ready" in healthcheck
@@ -84,3 +84,25 @@ def test_production_compose_uses_required_secret_placeholders_without_dev_defaul
     assert "localhost" not in api_env["TWOBRAIN_DATABASE_URL"]
     assert api_env["TWOBRAIN_MINIO_ENDPOINT"] == "rec-minio:9000"
     assert "twobrain_rec_dev_secret" not in compose_text
+
+
+def test_production_compose_declares_docker_secret_files_for_required_secret_classes() -> None:
+    compose = _compose()
+    secrets = compose["secrets"]
+
+    for secret_name in [
+        "twobrain_postgres_password",
+        "twobrain_minio_root_user",
+        "twobrain_minio_root_password",
+        "twobrain_minio_api_access_key",
+        "twobrain_minio_api_secret_key",
+        "twobrain_smoke_credential",
+    ]:
+        assert secret_name in secrets
+
+    api = compose["services"]["rec-api"]
+    api_secret_sources = {secret["source"] for secret in api["secrets"]}
+    assert {"twobrain_minio_api_access_key", "twobrain_minio_api_secret_key", "twobrain_smoke_credential"} <= api_secret_sources
+
+    postgres = compose["services"]["rec-postgres"]
+    assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])

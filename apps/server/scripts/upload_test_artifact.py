@@ -3,8 +3,17 @@ import argparse
 import json
 from hashlib import sha256
 from pathlib import Path
+from uuid import UUID
 
 import httpx
+
+from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS
+
+
+def _validate_smoke_identity(*values: str) -> None:
+    identifiers = {UUID(value) for value in values}
+    if identifiers & LOCAL_DEV_SMOKE_IDS:
+        raise ValueError("smoke upload must not use local development seed identifiers")
 
 
 def main() -> None:
@@ -17,7 +26,31 @@ def main() -> None:
     parser.add_argument("--token")
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--stop-after-parts", type=int)
+    parser.add_argument("--smoke-dry-run", action="store_true")
     args = parser.parse_args()
+
+    if args.smoke_dry_run:
+        _validate_smoke_identity(args.organization, args.workspace, args.user, args.device)
+        print(
+            json.dumps(
+                {
+                    "would_upload": True,
+                    "api": args.api,
+                    "artifact_path": str(args.artifact),
+                    "smoke_identity_class": SMOKE_IDENTITY_CLASS,
+                    "side_effect_assertions": {
+                        "mediascribe_jobs_created": 0,
+                        "temporal_workflows_started": 0,
+                        "notes_jobs_created": 0,
+                        "retention_jobs_created": 0,
+                        "deletion_jobs_created": 0,
+                        "content_bearing_langfuse_traces_created": 0,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return
 
     headers = {
         "X-Organization-Id": args.organization,

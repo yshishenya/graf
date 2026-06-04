@@ -45,15 +45,23 @@ Current accepted local baseline:
   "implemented locally, not production-deployed"; before PR/deployment-plan
   handoff, the repository still needs a final full sanity run, dirty-worktree
   review, and explicit commit/PR decision.
+- Feature `021-production-deployment-plan` adds the remote-first deployment
+  readiness runbook for `2brain.dev` and `/opt/projects/2brain-rec`: hardened
+  Compose layout, env/secret template, backup/migration/restore rehearsal,
+  rollback/halt decisions, internal smoke identity, first-smoke evidence,
+  cleanup accounting, and forbidden-content scans. Its highest allowed
+  successful status is `infra_smoke_ready`; it does not approve production
+  rollout, internal pilot users, desktop upload, transcription, dashboard,
+  retention, or deletion execution.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted: active capture
   UI remains local/native; post-meeting/admin surfaces live in the server web
   dashboard.
 
 Current non-accepted product areas:
 
-- Production deployment, desktop upload queue integration, Temporal workflows,
-  MediaScribe processing, dashboard notes, server retention, and deletion are
-  not accepted yet.
+- Desktop upload queue integration, Temporal workflows, MediaScribe processing,
+  dashboard notes, server retention, deletion, and user rollout are not accepted
+  yet.
 - Feature `011-assisted-auto-recording` is specified only. Detect-and-ask,
   future auto-record, automatic naming, and assisted detection evidence are not
   implemented yet.
@@ -719,14 +727,14 @@ Infrastructure:
 - All `2brain_rec`-owned infrastructure components must run in Docker containers for MVP deployment.
 - Target deployment host: `2brain.dev`.
 - MinIO must be provisioned as part of the `2brain_rec` Docker deployment.
-- Public web/API domain: `https://rec.2brain.dev`.
-- Canonical API URL: same origin under `https://rec.2brain.dev/api/...`.
-- Desktop app must use `https://rec.2brain.dev/api/...` rather than a separate API subdomain unless a later architecture decision requires separation.
+- Public web/API domain: `https://rec.2brain.pro`.
+- Canonical API URL: same origin under `https://rec.2brain.pro/api/...`.
+- Desktop app must use `https://rec.2brain.pro/api/...` rather than a separate API subdomain unless a later architecture decision requires separation.
 - Auth uses email/password.
 
 Docker Compose MVP topology:
 
-- `reverse-proxy`: terminates TLS for `rec.2brain.dev`, routes web/API traffic, exposes only `80` and `443`, and documents certificate renewal.
+- `reverse-proxy`: terminates TLS for `rec.2brain.pro`, routes web/API traffic, exposes only `80` and `443`, and documents certificate renewal.
 - `app`: serves the web dashboard and API under `/api/...`; runs explicit migration commands rather than implicit migrations on every request.
 - `worker`: handles upload finalization, audio normalization, MediaScribe submit/poll/result import, notes generation, retention, deletion, and local purge fanout.
 - `temporal`: runs durable workflows for ingest, processing, retention, and deletion.
@@ -1881,8 +1889,8 @@ Admin health:
 Internal MVP deployment:
 
 - Server target: `2brain.dev`.
-- Public URL: `https://rec.2brain.dev`.
-- API URL: `https://rec.2brain.dev/api`.
+- Public URL: `https://rec.2brain.pro`.
+- API URL: `https://rec.2brain.pro/api`.
 - Audio/object storage: dedicated MinIO for `2brain_rec`.
 - Metadata database: dedicated Postgres for `2brain_rec`.
 - STT: MediaScribe API at `https://mediascribe.2brain.pro`.
@@ -1919,9 +1927,12 @@ Reference performance profile:
 
 Deployment runbook acceptance on `2brain.dev`:
 
-- DNS for `rec.2brain.dev` resolves to the deployment host and serves valid TLS.
+- DNS for `rec.2brain.pro` resolves to the deployment host and serves valid TLS.
 - `GET /api/health/live` succeeds.
-- `GET /api/health/ready` succeeds only when Postgres, MinIO, Temporal, and required secrets are available.
+- For the `021` infrastructure smoke, `GET /api/v1/health/ready` succeeds only
+  when Rec API, Postgres, MinIO, bucket/init state, ingest config, and required
+  secrets are available. Temporal, MediaScribe, and Langfuse are recorded as
+  degraded-awareness boundaries until their later processing slices own them.
 - Seed admin login works with deployment-secret password and first-login rotation.
 - Device registration works.
 - Upload session creation works.
@@ -2228,7 +2239,7 @@ Required decisions:
 8. Consent default for internal team and later customer use.
 9. Sharing default.
 10. Audit scope.
-11. Deployment profile: Docker containers on `2brain.dev`, web/API on `rec.2brain.dev`, dedicated Postgres and MinIO.
+11. Deployment profile: Docker containers on `2brain.dev`, web/API on `rec.2brain.pro`, dedicated Postgres and MinIO.
 12. Legal/compliance posture.
 13. Pricing/package assumption.
 14. Support posture.

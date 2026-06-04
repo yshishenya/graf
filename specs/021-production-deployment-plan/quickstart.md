@@ -28,7 +28,7 @@ Expected:
 
 - Rec API, migration job, Postgres, MinIO, and MinIO init services render.
 - Postgres and MinIO use Rec-owned volumes.
-- Public exposure is limited to the intended API/reverse-proxy path for `rec.2brain.dev`.
+- Public exposure is limited to the intended API/reverse-proxy path for `rec.2brain.pro`.
 - Internal services are not accidentally exposed publicly.
 - Temporal and MediaScribe are not required for accepted 012 ingest readiness.
 
@@ -88,7 +88,7 @@ Expected:
 
 ## 8. First Production Smoke
 
-Upload a small non-sensitive artifact through `https://rec.2brain.dev` or the production-like endpoint.
+Upload a small non-sensitive artifact through `https://rec.2brain.pro` or the production-like endpoint.
 
 Expected:
 

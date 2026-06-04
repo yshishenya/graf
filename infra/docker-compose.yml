@@ -1,3 +1,5 @@
+name: twobrain-rec
+
 services:
   rec-api:
     build:
@@ -5,17 +7,27 @@ services:
       dockerfile: infra/server/Dockerfile
     restart: unless-stopped
     env_file:
-      - ../apps/server/.env.example
+      - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:${TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment}@rec-postgres:5432/twobrain_rec
       TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
       TWOBRAIN_MINIO_ACCESS_KEY: ${TWOBRAIN_MINIO_API_ACCESS_KEY:?set in deployment environment}
       TWOBRAIN_MINIO_SECRET_KEY: ${TWOBRAIN_MINIO_API_SECRET_KEY:?set in deployment environment}
+      TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_api_access_key
+      TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
+      TWOBRAIN_SMOKE_CREDENTIAL_FILE: /run/secrets/twobrain_smoke_credential
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
+    secrets:
+      - source: twobrain_minio_api_access_key
+        target: twobrain_minio_api_access_key
+      - source: twobrain_minio_api_secret_key
+        target: twobrain_minio_api_secret_key
+      - source: twobrain_smoke_credential
+        target: twobrain_smoke_credential
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:18081:8080"
     healthcheck:
       test:
         - CMD-SHELL
@@ -51,15 +63,22 @@ services:
       dockerfile: infra/server/Dockerfile
     restart: "no"
     env_file:
-      - ../apps/server/.env.example
+      - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:${TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment}@rec-postgres:5432/twobrain_rec
       TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
       TWOBRAIN_MINIO_ACCESS_KEY: ${TWOBRAIN_MINIO_API_ACCESS_KEY:?set in deployment environment}
       TWOBRAIN_MINIO_SECRET_KEY: ${TWOBRAIN_MINIO_API_SECRET_KEY:?set in deployment environment}
+      TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_api_access_key
+      TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
+    secrets:
+      - source: twobrain_minio_api_access_key
+        target: twobrain_minio_api_access_key
+      - source: twobrain_minio_api_secret_key
+        target: twobrain_minio_api_secret_key
     command: ["alembic", "upgrade", "head"]
     depends_on:
       rec-postgres:
@@ -84,6 +103,10 @@ services:
       POSTGRES_DB: twobrain_rec
       POSTGRES_USER: twobrain_rec
       POSTGRES_PASSWORD: ${TWOBRAIN_POSTGRES_PASSWORD:?set in deployment environment}
+      POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
+    secrets:
+      - source: twobrain_postgres_password
+        target: twobrain_postgres_password
     volumes:
       - rec-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -111,6 +134,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${TWOBRAIN_MINIO_ROOT_USER:?set in deployment environment}
       MINIO_ROOT_PASSWORD: ${TWOBRAIN_MINIO_ROOT_PASSWORD:?set in deployment environment}
+      MINIO_ROOT_USER_FILE: /run/secrets/twobrain_minio_root_user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/twobrain_minio_root_password
+    secrets:
+      - source: twobrain_minio_root_user
+        target: twobrain_minio_root_user
+      - source: twobrain_minio_root_password
+        target: twobrain_minio_root_password
     volumes:
       - rec-minio-data:/data
     healthcheck:
@@ -142,6 +172,15 @@ services:
       TWOBRAIN_MINIO_API_ACCESS_KEY: ${TWOBRAIN_MINIO_API_ACCESS_KEY:?set in deployment environment}
       TWOBRAIN_MINIO_API_SECRET_KEY: ${TWOBRAIN_MINIO_API_SECRET_KEY:?set in deployment environment}
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+    secrets:
+      - source: twobrain_minio_root_user
+        target: twobrain_minio_root_user
+      - source: twobrain_minio_root_password
+        target: twobrain_minio_root_password
+      - source: twobrain_minio_api_access_key
+        target: twobrain_minio_api_access_key
+      - source: twobrain_minio_api_secret_key
+        target: twobrain_minio_api_secret_key
     entrypoint:
       - /bin/sh
       - -c
@@ -176,3 +215,17 @@ volumes:
     name: twobrain-rec-postgres-data
   rec-minio-data:
     name: twobrain-rec-minio-data
+
+secrets:
+  twobrain_postgres_password:
+    file: ${TWOBRAIN_POSTGRES_PASSWORD_FILE:-./secrets/twobrain_postgres_password}
+  twobrain_minio_root_user:
+    file: ${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}
+  twobrain_minio_root_password:
+    file: ${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}
+  twobrain_minio_api_access_key:
+    file: ${TWOBRAIN_MINIO_API_ACCESS_KEY_FILE:-./secrets/twobrain_minio_api_access_key}
+  twobrain_minio_api_secret_key:
+    file: ${TWOBRAIN_MINIO_API_SECRET_KEY_FILE:-./secrets/twobrain_minio_api_secret_key}
+  twobrain_smoke_credential:
+    file: ${TWOBRAIN_SMOKE_CREDENTIAL_FILE:-./secrets/twobrain_smoke_credential}

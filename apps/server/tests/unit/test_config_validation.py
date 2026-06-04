@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from twobrain_rec_server.config import Settings
+from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS, Settings
 
 
 def _production_settings(**overrides):
@@ -60,3 +60,39 @@ def test_production_rejects_default_dev_minio_credentials(
 def test_production_rejects_root_minio_api_credentials() -> None:
     with pytest.raises(ValidationError, match="root/admin"):
         _production_settings(minio_access_key="twobrain_root_api")
+
+
+def test_production_accepts_existing_secret_files(tmp_path) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("redacted-test-value")
+
+    settings = _production_settings(
+        postgres_password_file=secret,
+        minio_access_key_file=secret,
+        minio_secret_key_file=secret,
+        smoke_credential_file=secret,
+    )
+
+    assert settings.postgres_password_file == secret
+
+
+def test_production_rejects_missing_secret_files(tmp_path) -> None:
+    missing = tmp_path / "missing-secret"
+
+    with pytest.raises(ValidationError, match="Docker secret files"):
+        _production_settings(minio_secret_key_file=missing)
+
+
+def test_production_rejects_non_internal_smoke_identity_class() -> None:
+    with pytest.raises(ValidationError, match="internal_smoke"):
+        _production_settings(smoke_identity_class="local_dev")
+
+
+def test_production_rejects_local_dev_smoke_ids() -> None:
+    local_user_id = next(iter(LOCAL_DEV_SMOKE_IDS))
+
+    with pytest.raises(ValidationError, match="local development seed"):
+        _production_settings(
+            smoke_identity_class=SMOKE_IDENTITY_CLASS,
+            smoke_user_id=local_user_id,
+        )

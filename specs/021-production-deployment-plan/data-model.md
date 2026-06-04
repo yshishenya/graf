@@ -5,7 +5,7 @@ This model describes operational records and contracts for 021. It does not intr
 ## Deployment Environment
 
 - `environment_name`: stable name for the target runtime, e.g. `production` or `production-like`.
-- `public_endpoint`: expected public URL, `https://rec.2brain.dev`.
+- `public_endpoint`: expected public URL, `https://rec.2brain.pro`.
 - `host_boundary`: 2brain-controlled infrastructure boundary.
 - `compose_project`: Docker Compose project name for the Rec-owned stack.
 - `exposure_state`: `public_during_smoke`, `restricted`, or `blocked`.

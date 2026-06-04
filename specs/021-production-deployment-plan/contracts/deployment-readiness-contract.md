@@ -34,7 +34,7 @@ Forbidden verdicts for 021:
 
 ## Public Endpoint Rule
 
-`https://rec.2brain.dev` MAY be publicly reachable during first smoke. Public reachability MUST be recorded separately from readiness verdict and MUST NOT be described as user rollout readiness.
+`https://rec.2brain.pro` MAY be publicly reachable during first smoke. Public reachability MUST be recorded separately from readiness verdict and MUST NOT be described as user rollout readiness.
 
 ## Out-of-Scope Boundary
 

@@ -12,7 +12,7 @@
 
 ## Decision: Public endpoint can be reachable, but verdict is `infra_smoke_ready`
 
-**Rationale**: The clarified spec allows `https://rec.2brain.dev` to be publicly reachable during first smoke. Public reachability creates product-risk ambiguity, so the plan uses a strict verdict vocabulary: successful 021 can only produce `infra_smoke_ready`; it must not be called `production_ready`, `user_rollout_ready`, or `internal_user_pilot_ready`.
+**Rationale**: The clarified spec allows `https://rec.2brain.pro` to be publicly reachable during first smoke. Public reachability creates product-risk ambiguity, so the plan uses a strict verdict vocabulary: successful 021 can only produce `infra_smoke_ready`; it must not be called `production_ready`, `user_rollout_ready`, or `internal_user_pilot_ready`.
 
 **Alternatives considered**:
 

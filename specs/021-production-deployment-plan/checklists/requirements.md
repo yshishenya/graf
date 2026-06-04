@@ -31,5 +31,5 @@
 
 ## Notes
 
-- The specification intentionally names Docker Compose, Rec-owned Postgres/MinIO, `rec.2brain.dev`, MediaScribe, and Langfuse because these are product/constitution constraints for this deployment slice, not incidental implementation choices.
+- The specification intentionally names Docker Compose, Rec-owned Postgres/MinIO, `rec.2brain.pro`, MediaScribe, and Langfuse because these are product/constitution constraints for this deployment slice, not incidental implementation choices.
 - The first smoke is scoped to the accepted `012` ingest boundary and explicitly avoids implying processing, dashboard, sharing, retention, or deletion readiness.

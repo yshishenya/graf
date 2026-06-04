@@ -6,7 +6,7 @@
 
 ## Summary
 
-Make the 2brain Rec production deployment path executable up to the `infra_smoke_ready` verdict. This slice hardens the existing Rec-owned Docker Compose stack, secret/env validation, migration/backup/rollback workflow, smoke identity/device setup, first production smoke, cleanup, and evidence capture for `https://rec.2brain.dev`. It intentionally stops at the accepted `012` ingest boundary: no federated auth implementation, desktop uploader implementation, MediaScribe processing, Temporal workflow starts, dashboard readiness, sharing, retention, deletion execution, or driver packaging.
+Make the 2brain Rec production deployment path executable up to the `infra_smoke_ready` verdict. This slice hardens the existing Rec-owned Docker Compose stack, secret/env validation, migration/backup/rollback workflow, smoke identity/device setup, first production smoke, cleanup, and evidence capture for `https://rec.2brain.pro`. It intentionally stops at the accepted `012` ingest boundary: no federated auth implementation, desktop uploader implementation, MediaScribe processing, Temporal workflow starts, dashboard readiness, sharing, retention, deletion execution, or driver packaging.
 
 ## Technical Context
 
@@ -18,13 +18,13 @@ Make the 2brain Rec production deployment path executable up to the `infra_smoke
 
 **Testing**: Compose config rendering; pytest for server/config/runbook helpers; dry-run backup/restore/rollback rehearsal tests; production-smoke helper validation against local or production-like stack; secret/log redaction scans.
 
-**Target Platform**: Self-hosted Linux host in 2brain-controlled infrastructure with public endpoint `https://rec.2brain.dev`, backed by isolated Rec Docker Compose services.
+**Target Platform**: Self-hosted Linux host in 2brain-controlled infrastructure with public endpoint `https://rec.2brain.pro`, backed by isolated Rec Docker Compose services.
 
 **Project Type**: Backend infrastructure and operations readiness slice.
 
 **Performance Goals**: First smoke must validate a small non-sensitive artifact only. The deployment remains compatible with `012` limits for 30/60 minute artifacts but does not need to prove high-throughput production scale in this slice.
 
-**Constraints**: Public `rec.2brain.dev` may be reachable during smoke, but successful `021` evidence can only claim `infra_smoke_ready`; Docker secrets plus env templates are the secret source; restore/rollback rehearsal is a blocking gate; smoke artifacts must be cleaned up or truthfully recorded; MediaScribe/Langfuse checks are degraded-awareness only and must not create content egress.
+**Constraints**: Public `rec.2brain.pro` may be reachable during smoke, but successful `021` evidence can only claim `infra_smoke_ready`; Docker secrets plus env templates are the secret source; restore/rollback rehearsal is a blocking gate; smoke artifacts must be cleaned up or truthfully recorded; MediaScribe/Langfuse checks are degraded-awareness only and must not create content egress.
 
 **Scale/Scope**: Internal MVP infra smoke for the Rec-owned stack. User rollout, internal pilot, transcription, dashboard review, retention, deletion execution, desktop upload queue, and real auth remain future feature slices.
 
@@ -100,7 +100,7 @@ Research output is captured in `specs/021-production-deployment-plan/research.md
 Resolved decisions:
 
 - Keep the first smoke scoped to the accepted `012` ingest boundary.
-- Treat `rec.2brain.dev` public reachability as separate from user rollout readiness.
+- Treat `rec.2brain.pro` public reachability as separate from user rollout readiness.
 - Use Docker secrets plus env templates as the production secret source.
 - Require production-like restore/rollback rehearsal before `infra_smoke_ready`.
 - Use a dedicated internal smoke identity/device, not real users and not local dev seed credentials.
