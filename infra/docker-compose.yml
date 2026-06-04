@@ -23,12 +23,24 @@ services:
     secrets:
       - source: twobrain_postgres_password
         target: twobrain_postgres_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_secret_key
         target: twobrain_minio_api_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
+        uid: "100"
+        gid: "101"
+        mode: 0440
     ports:
       - "127.0.0.1:18081:8080"
     healthcheck:
@@ -81,12 +93,24 @@ services:
     secrets:
       - source: twobrain_postgres_password
         target: twobrain_postgres_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_secret_key
         target: twobrain_minio_api_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
+        uid: "100"
+        gid: "101"
+        mode: 0440
     command: ["alembic", "upgrade", "head"]
     depends_on:
       rec-postgres:
