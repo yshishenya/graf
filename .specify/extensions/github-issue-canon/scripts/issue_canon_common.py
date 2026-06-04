@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+REQUIRED_SECTIONS = [
+    "## Summary",
+    "## Context",
+    "## Problem",
+    "## Confirmed Findings",
+    "## Scope",
+    "## Acceptance Criteria",
+    "## Validation Required",
+    "## Implementation Notes",
+    "## Links",
+]
+
+DEFAULT_LABELS = {
+    "needs-triage": ("ededed", "Needs initial classification against the issue canon"),
+    "priority:P0": ("b60205", "Critical blocker: correctness, security, privacy, or data loss"),
+    "priority:P1": ("d93f0b", "High priority blocker before PR or deployment readiness"),
+    "priority:P2": ("fbca04", "Medium priority follow-up or hardening"),
+    "priority:P3": ("0e8a16", "Low priority polish or cleanup"),
+    "gate:pr-blocker": ("b60205", "Must be resolved before PR-ready claim"),
+    "gate:deployment-blocker": ("d93f0b", "Must be resolved before deployment-plan or production readiness claim"),
+    "type:bug": ("d73a4a", "Confirmed defect or incorrect behavior"),
+    "type:hardening": ("fbca04", "Hardening, safety, privacy, durability, or operational robustness"),
+    "type:docs": ("0075ca", "Documentation/status/runbook issue"),
+    "type:test-gap": ("0e8a16", "Missing, weak, or misleading validation coverage"),
+    "type:feature": ("a2eeef", "New capability or feature work"),
+}
+
+DEFAULT_AREAS = {
+    "auth": ("5319e7", "Authentication, authorization, tenant, user, and device boundaries"),
+    "contract": ("0366d6", "OpenAPI, API contracts, schemas, Problem responses"),
+    "docs": ("0075ca", "Documentation, quickstart, status, PRD, runbook"),
+    "infra": ("0052cc", "Docker, compose, runtime, migrations, deployment infrastructure"),
+    "ingest": ("1d76db", "Server ingest API, lifecycle, finalize, and status"),
+    "macos": ("c2e0c6", "macOS app, driver, audio routing, native capture"),
+    "observability": ("0b7285", "Logging, tracing, metrics, diagnostics, redaction"),
+    "security": ("ee0701", "Security, privacy, redaction, secrets, audit"),
+    "storage": ("006b75", "Object storage, MinIO, artifact persistence"),
+    "tests": ("0e8a16", "Test coverage, test fakes, validation proof gates"),
+    "ux": ("d4c5f9", "User experience, interaction, copy, accessibility"),
+}
+
+TITLE_RE = re.compile(r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] .+")
+
+
+def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, cwd=cwd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def repo_root() -> Path:
+    result = run(["git", "rev-parse", "--show-toplevel"])
+    return Path(result.stdout.strip())
+
+
+def extension_root(root: Path) -> Path:
+    path = root / ".specify" / "extensions" / "github-issue-canon"
+    if not path.exists():
+        raise SystemExit(f"github-issue-canon extension not installed at {path}")
+    return path
+
+
+def repo_slug(root: Path) -> str:
+    remote = run(["git", "config", "--get", "remote.origin.url"], cwd=root).stdout.strip()
+    if not remote:
+        raise SystemExit("git remote.origin.url is not set")
+    if remote.startswith("git@github.com:"):
+        slug = remote.removeprefix("git@github.com:").removesuffix(".git")
+    elif "github.com/" in remote:
+        slug = remote.split("github.com/", 1)[1].removesuffix(".git")
+    else:
+        raise SystemExit(f"remote is not a GitHub URL: {remote}")
+    if "/" not in slug:
+        raise SystemExit(f"could not parse GitHub owner/repo from remote: {remote}")
+    return slug
+
+
+def copy_template(ext: Path, rel_src: str, root: Path, rel_dst: str) -> bool:
+    src = ext / "templates" / rel_src
+    dst = root / rel_dst
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    content = src.read_text(encoding="utf-8")
+    if dst.exists() and dst.read_text(encoding="utf-8") == content:
+        return False
+    dst.write_text(content, encoding="utf-8")
+    return True
+
+
+def ensure_agents_block(root: Path) -> bool:
+    path = root / "AGENTS.md"
+    if not path.exists():
+        return False
+    marker = "All GitHub issues created for this repository"
+    text = path.read_text(encoding="utf-8")
+    if marker in text:
+        return False
+    anchor = "Never create issues in a repository that does not match the configured git remote."
+    block = """
+
+All GitHub issues created for this repository, whether manually, through
+`$speckit-taskstoissues`, or through direct `gh issue create`, must follow the
+project issue canon in `docs/github-issue-canon.md`.
+
+Required issue title format:
+
+```text
+[<feature>][<priority>][<area>] <imperative outcome>
+```
+
+Required issue body sections, in order:
+
+- `Summary`
+- `Context`
+- `Problem`
+- `Confirmed Findings`
+- `Scope`
+- `Acceptance Criteria`
+- `Validation Required`
+- `Implementation Notes`
+- `Links`
+
+Spec Kit issue sync must preserve traceability to feature number, task IDs,
+validation evidence, and closure criteria. Use labels as structured metadata:
+`feature:<number>`, `priority:P0`-`priority:P3`, `area:<name>`,
+`gate:<name>`, and `type:<name>`. Do not patch globally installed Spec Kit
+skills to enforce this; they may be overwritten by Spec Kit updates. Keep the
+canonical rule in project-owned files: `AGENTS.md`,
+`docs/github-issue-canon.md`, and `.github/ISSUE_TEMPLATE/`.
+"""
+    if anchor in text:
+        text = text.replace(anchor, anchor + block, 1)
+    else:
+        text += "\n" + block.strip() + "\n"
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
+def ensure_label(slug: str, name: str, color: str, description: str) -> None:
+    create = ["gh", "label", "create", name, "--repo", slug, "--color", color, "--description", description]
+    result = subprocess.run(create, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode == 0:
+        return
+    edit = ["gh", "label", "edit", name, "--repo", slug, "--color", color, "--description", description]
+    run(edit)
+
+
+def ensure_labels(slug: str, feature: str | None = None) -> None:
+    for name, (color, desc) in DEFAULT_LABELS.items():
+        ensure_label(slug, name, color, desc)
+    for area, (color, desc) in DEFAULT_AREAS.items():
+        ensure_label(slug, f"area:{area}", color, desc)
+    if feature:
+        ensure_label(slug, f"feature:{feature}", "bfd4f2", f"Spec Kit feature {feature}")
+
+
+def current_feature(root: Path) -> str | None:
+    feature_json = root / ".specify" / "feature.json"
+    if feature_json.exists():
+        try:
+            data = json.loads(feature_json.read_text(encoding="utf-8"))
+            branch = str(data.get("branch") or data.get("feature_branch") or "")
+            match = re.search(r"(\d{3})", branch)
+            if match:
+                return match.group(1)
+            spec_path = str(data.get("spec_path") or data.get("feature_dir") or "")
+            match = re.search(r"specs/(\d{3})-", spec_path)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+    specs = root / "specs"
+    if specs.exists():
+        candidates = sorted(p.name[:3] for p in specs.iterdir() if p.is_dir() and re.match(r"\d{3}-", p.name))
+        if candidates:
+            return candidates[-1]
+    return None
+
+
+def list_open_issues(slug: str) -> list[dict]:
+    result = run([
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        slug,
+        "--state",
+        "open",
+        "--limit",
+        "300",
+        "--json",
+        "number,title,body,labels,state",
+    ])
+    return json.loads(result.stdout)
+
+
+def label_names(issue: dict) -> set[str]:
+    return {label["name"] for label in issue.get("labels", [])}
+
+
+def is_speckit_issue(issue: dict) -> bool:
+    labels = label_names(issue)
+    body = issue.get("body") or ""
+    title = issue.get("title") or ""
+    return (
+        any(name.startswith("feature:") for name in labels)
+        or bool(TITLE_RE.match(title))
+        or "Spec tasks:" in body
+        or "Spec Kit" in body
+        or re.search(r"\bT\d{3}\b", body) is not None
+    )
+
+
+def validate_issue(issue: dict) -> list[str]:
+    errors: list[str] = []
+    title = issue.get("title") or ""
+    body = issue.get("body") or ""
+    labels = label_names(issue)
+    match = TITLE_RE.match(title)
+    if not match:
+        errors.append("title does not match [<feature>][<priority>][<area>] <imperative outcome>")
+    else:
+        feature = match.group("feature")
+        priority = match.group("priority")
+        area_root = match.group("area").split("/", 1)[0]
+        if f"feature:{feature}" not in labels:
+            errors.append(f"missing label feature:{feature}")
+        if f"priority:{priority}" not in labels:
+            errors.append(f"missing label priority:{priority}")
+        if f"area:{area_root}" not in labels and f"area:{match.group('area')}" not in labels:
+            errors.append(f"missing area label for {match.group('area')}")
+    if not any(name.startswith("type:") for name in labels):
+        errors.append("missing type:* label")
+    for section in REQUIRED_SECTIONS:
+        if section not in body:
+            errors.append(f"missing body section {section}")
+    return errors
+
+
+def git_add_paths(root: Path, paths: list[str]) -> None:
+    existing = [p for p in paths if (root / p).exists()]
+    if existing:
+        run(["git", "add", *existing], cwd=root)
