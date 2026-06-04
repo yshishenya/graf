@@ -14,11 +14,11 @@ Create the backend ingest foundation for finalized local 2brain Rec meeting arti
 
 **Primary Dependencies**: FastAPI, Pydantic v2 plus `pydantic-settings`, SQLAlchemy 2 async ORM, Alembic, asyncpg, MinIO Python SDK, structlog or standard JSON logging, pytest, pytest-asyncio, httpx.
 
-**Storage**: Dedicated Postgres database for ingest metadata and audit events; dedicated MinIO bucket for server-owned audio/manifest objects. No desktop-held object-storage credentials and no direct object-storage upload URLs in 012.
+**Storage**: Dedicated Postgres and MinIO containers for 2brain Rec in both local development and production deployment. In production on `2brain.pro`, the Rec stack MUST run its own Docker Compose-managed Postgres, MinIO, API container, volumes, credentials, and backup/lifecycle boundaries rather than reusing a shared platform MinIO/Postgres instance. No desktop-held object-storage credentials and no direct object-storage upload URLs in 012.
 
 **Testing**: pytest unit, contract, and integration tests under `apps/server/tests`; Docker Compose-backed smoke validation for Postgres and MinIO; content/secret leakage checks for logs and API responses.
 
-**Target Platform**: Self-hosted Linux/Docker runtime and local Docker Compose development. Public deployment target remains the future `rec.2brain.dev` stack, but this plan creates the ingest service foundation only.
+**Target Platform**: Self-hosted Linux/Docker runtime with Docker Compose for both local development and production. Public deployment target remains the future `rec.2brain.dev` stack hosted under the `2brain.pro` infrastructure, but this feature creates a Rec-owned Docker stack only and does not depend on shared production MinIO/Postgres services.
 
 **Project Type**: Backend API service plus infrastructure scaffold.
 
@@ -26,7 +26,7 @@ Create the backend ingest foundation for finalized local 2brain Rec meeting arti
 
 **Constraints**: Driver-first macOS MVP remains untouched; visible capture semantics remain local/client-owned; backend upload strategy is `server_mediated`; Temporal and MediaScribe are not runtime dependencies for ingest success in this slice; Langfuse/diagnostics remain metadata-only; no raw audio, transcripts, secrets, signed URLs, or bearer tokens in logs.
 
-**Scale/Scope**: Internal MVP foundation for small teams and self-hosted deployments. Default configurable ingest limits: 4 hour maximum meeting duration, 2.5 GiB per track, 5 GiB per complete recording package, 24 hour upload-session TTL. Deployment can tighten these values without code changes.
+**Scale/Scope**: Internal MVP foundation for small teams and self-hosted deployments. Default configurable ingest limits: 4 hour maximum meeting duration, 2.5 GiB per track, 5 GiB per complete recording package, 24 hour upload-session TTL. Deployment can tighten these values without code changes. Production capacity, backups, object lifecycle, and volume placement are scoped to the dedicated Rec Docker stack, not to shared platform services.
 
 ## Constitution Check
 
@@ -36,12 +36,12 @@ Create the backend ingest foundation for finalized local 2brain Rec meeting arti
 |------|--------|--------|
 | Driver-first macOS MVP | PASS | 012 works only after local capture has produced an artifact; it does not add a no-driver capture fallback. |
 | Visible capture and one-action stop | PASS | Server ingest does not start, stop, or hide recording; it preserves post-capture status truth for clients. |
-| Owner-controlled storage and egress | PASS | Audio lands in owner-controlled MinIO through backend APIs; desktop clients never receive MediaScribe or object-storage credentials. |
+| Owner-controlled storage and egress | PASS | Audio lands in Rec-owned MinIO through backend APIs; production uses a dedicated Docker Compose stack rather than shared platform storage; desktop clients never receive MediaScribe or object-storage credentials. |
 | MediaScribe and Langfuse boundaries | PASS | 012 stores `not_submitted` / `pending_processing` placeholders and does not call MediaScribe, start Temporal workflows, or emit content traces. |
 | Deletion truthfulness | PASS | Data model records storage locations and downstream placeholders so later deletion work can truthfully describe what is and is not erased. |
 | Security/privacy gates | PASS | Tenant checks, audit metadata, no secret/content logging, explicit limits, and cross-tenant denial are planned as first-class validation scenarios. |
 | Spec Kit flow | PASS | Specify, clarify, and requirements checklist are complete; this plan creates research, data model, contracts, quickstart, and updates agent context. |
-| Docker self-hosting | PASS | Plan introduces Docker Compose infrastructure for API, Postgres, and MinIO. |
+| Docker self-hosting | PASS | Plan introduces Docker Compose infrastructure for API, Postgres, and MinIO in both local and production Rec-owned stacks. |
 
 No constitution violations are required for this feature.
 
@@ -104,6 +104,7 @@ Resolved decisions:
 - Use FastAPI/Pydantic for typed HTTP contracts and streaming file input.
 - Use SQLAlchemy 2 async plus Alembic for Postgres metadata and migrations.
 - Use MinIO Python SDK from the server only; no direct object upload URLs in 012.
+- Run production on `2brain.pro` as an isolated Docker Compose project with its own `rec-api`, `rec-postgres`, `rec-minio`, named volumes, network, env/secrets, health checks, and backup/lifecycle policy. Existing shared MinIO/Postgres services may be used only as operational references, not as runtime dependencies for 012.
 - Enforce tenant isolation in the application layer in 012; track PostgreSQL RLS as `RLS-hardening` rather than silently dropping it.
 - Do not include Temporal or MediaScribe runtime dependencies in 012 readiness. Processing workflow start belongs to 015.
 - Default ingest limits are configurable and documented above.
@@ -123,12 +124,12 @@ Design artifacts created by this plan:
 |------|--------|--------|
 | Driver-first macOS MVP | PASS | Contracts consume finalized artifact metadata only; no capture fallback introduced. |
 | Visible capture and one-action stop | PASS | Status contract does not imply remote invisible capture. |
-| Owner-controlled storage and egress | PASS | API contract exposes only backend ingest endpoints and keeps object storage credentials server-side. |
+| Owner-controlled storage and egress | PASS | API contract exposes only backend ingest endpoints and keeps object storage credentials server-side inside the dedicated Rec Docker stack. |
 | MediaScribe and Langfuse boundaries | PASS | Contracts and quickstart explicitly assert no MediaScribe calls, no Temporal workflow starts, and metadata-only observability. |
 | Deletion truthfulness | PASS | Data model includes lifecycle/audit placeholders and avoids universal erasure promises. |
 | Security/privacy gates | PASS | Cross-tenant denial, idempotency, limits, audit, and leakage checks are validation requirements. |
 | Spec Kit flow | PASS | Artifacts are present and ready for checklist/tasks/analyze. |
-| Docker self-hosting | PASS | Planned source layout includes Docker Compose and Dockerfile paths. |
+| Docker self-hosting | PASS | Planned source layout includes Docker Compose and Dockerfile paths for isolated local and production Rec stacks. |
 
 No constitution violations are introduced by the design artifacts.
 

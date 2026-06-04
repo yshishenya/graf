@@ -25,7 +25,7 @@
 - [ ] T005 Create local server environment template without secrets in `apps/server/.env.example`
 - [ ] T006 Create API container Dockerfile in `infra/server/Dockerfile`
 - [ ] T007 Create local development Docker Compose stack for API, Postgres, and MinIO in `infra/docker-compose.dev.yml`
-- [ ] T008 Create production-oriented Docker Compose scaffold with secret placeholders in `infra/docker-compose.yml`
+- [ ] T008 Create production Docker Compose scaffold for an isolated Rec stack with API, Postgres, MinIO, dedicated network, dedicated volumes, health checks, and secret placeholders in `infra/docker-compose.yml`
 - [ ] T009 Add server build/cache/secret ignore rules in `.gitignore`
 
 ---
@@ -232,7 +232,7 @@
 - [ ] T098 [P] Re-review UX/status checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/ux.md`
 - [ ] T099 [P] Re-review driver-boundary checklist after implementation and mark any newly resolved or regressed items in `specs/012-server-ingest-foundation/checklists/driver.md`
 - [ ] T100 Run full server unit, contract, and integration suite and record validation evidence in `specs/012-server-ingest-foundation/quickstart.md`
-- [ ] T101 Run Docker Compose quickstart validation and update commands or caveats in `specs/012-server-ingest-foundation/quickstart.md`
+- [ ] T101 Run local and production Docker Compose quickstart validation, including `docker compose -f infra/docker-compose.yml config`, and update commands or caveats in `specs/012-server-ingest-foundation/quickstart.md`
 - [ ] T102 Run log/API response secret-content scan and record evidence in `specs/012-server-ingest-foundation/quickstart.md`
 - [ ] T103 Update current product status for completed 012 scope and remaining follow-ups in `docs/current-product-status.md`
 - [ ] T104 Update PRD implementation slice status and deferred work register if 012 scope changes in `docs/prd-voice-layer-final.md`

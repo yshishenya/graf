@@ -4,6 +4,8 @@ This quickstart defines the validation scenarios for 012. The commands reference
 
 ## 1. Start Local Ingest Stack
 
+Local development runs the full Rec stack through `infra/docker-compose.dev.yml`: API, Postgres, and MinIO.
+
 ```sh
 docker compose -f infra/docker-compose.dev.yml up --build
 ```
@@ -17,7 +19,24 @@ Expected:
 - `GET http://localhost:8080/api/v1/health/ready` returns `200` when Postgres, MinIO, and ingest config are valid.
 - Readiness does not require Temporal or MediaScribe.
 
-## 2. Run Server Test Suite
+## 2. Validate Production Compose Configuration
+
+Production on `2brain.pro` runs a separate Rec-owned Docker Compose project through `infra/docker-compose.yml`: API, Postgres, MinIO, dedicated volumes, dedicated network, and secret placeholders.
+
+```sh
+docker compose -f infra/docker-compose.yml config
+```
+
+Expected:
+
+- Compose defines Rec-owned API, Postgres, and MinIO services.
+- Compose defines dedicated Rec volumes for Postgres and MinIO data.
+- Compose uses secret placeholders or external secret references, not literal credentials.
+- API environment points at the Rec Postgres and Rec MinIO service names inside the compose network.
+- Production 012 runtime configuration does not point at a shared platform MinIO/Postgres instance.
+- Readiness depends on Rec Postgres and Rec MinIO only; Temporal and MediaScribe are not required in 012.
+
+## 3. Run Server Test Suite
 
 ```sh
 cd apps/server
@@ -30,7 +49,7 @@ Expected:
 - Contract tests validate `contracts/openapi.yaml`.
 - Integration tests use the Docker Compose Postgres/MinIO stack or deterministic test doubles where explicitly scoped.
 
-## 3. Happy Path Upload
+## 4. Happy Path Upload
 
 ```sh
 python apps/server/scripts/create_test_artifact.py \
@@ -55,7 +74,7 @@ Expected:
 - MinIO contains tenant-scoped stored objects.
 - Postgres contains meeting, upload session, track artifact, processing placeholder, and audit metadata.
 
-## 4. 60-Minute Fixture
+## 5. 60-Minute Fixture
 
 ```sh
 python apps/server/scripts/create_test_artifact.py \
@@ -75,7 +94,7 @@ Expected:
 - The 60-minute dual-track package finalizes within configured limits.
 - The API never loads whole tracks into memory at once.
 
-## 5. Retry And Resume
+## 6. Retry And Resume
 
 Run the upload helper with an intentional interruption after at least one accepted part:
 
@@ -97,7 +116,7 @@ Expected:
 - `GET /api/v1/upload-sessions/{session_id}/missing-ranges` returns only missing ranges.
 - Finalize succeeds once all required bytes and checksums match.
 
-## 6. Idempotency Conflict
+## 7. Idempotency Conflict
 
 Replay an accepted part number with a different checksum.
 
@@ -107,7 +126,7 @@ Expected:
 - Existing accepted bytes and object metadata are not replaced.
 - Audit event records safe metadata only.
 
-## 7. Cross-Tenant And Revoked Device Denial
+## 8. Cross-Tenant And Revoked Device Denial
 
 Use a valid token from workspace A with a workspace B session, then revoke a device and retry status/upload requests.
 
@@ -117,7 +136,7 @@ Expected:
 - Revoked devices cannot create, upload, finalize, abort, or read sessions.
 - No audio/object details are leaked in errors.
 
-## 8. Over-Limit Rejection
+## 9. Over-Limit Rejection
 
 Generate artifacts that exceed duration, track bytes, and package bytes.
 
@@ -131,7 +150,7 @@ Expected:
 - No finalized meeting is produced.
 - Response includes the exceeded limit name/value but not internal storage paths or secrets.
 
-## 9. No Workflow Or MediaScribe Side Effects
+## 10. No Workflow Or MediaScribe Side Effects
 
 After successful finalize, inspect configured processing placeholders and runtime dependencies.
 
@@ -143,7 +162,7 @@ Expected:
 - No Temporal workflow execution is created.
 - No MediaScribe request is sent.
 
-## 10. Log And Secret Leak Check
+## 11. Log And Secret Leak Check
 
 ```sh
 docker compose -f infra/docker-compose.dev.yml logs api > /tmp/2brain-rec-api.log
@@ -154,7 +173,7 @@ Expected:
 - Logs contain safe metadata: IDs, statuses, byte counts, checksums, error codes, trace IDs.
 - Logs do not contain raw audio bytes, transcript text, bearer tokens, MinIO credentials, MediaScribe credentials, signed URLs, or secret values.
 
-## 11. RLS Hardening Register
+## 12. RLS Hardening Register
 
 Before moving beyond internal MVP, confirm the follow-up is still visible:
 
