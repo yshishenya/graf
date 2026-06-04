@@ -39,7 +39,15 @@ infra/scripts/cd-remote.sh --dry-run
 infra/scripts/cd-remote.sh --execute
 ```
 
-The execute mode runs local CI first, then on `2brain.dev` performs fetch/reset,
-backup, restore rehearsal, production Compose secret-exposure scan, rebuild/up,
-production smoke, and public health checks. It does not store production secrets
-in GitHub.
+The execute mode requires a clean local worktree, verifies that the current
+branch matches `origin/<branch>`, pins the deployment to that exact commit SHA,
+then runs local CI. On `2brain.dev`, it verifies the remote `origin/<branch>`
+still resolves to the pinned SHA before reset, then performs backup, restore
+rehearsal, production Compose secret-exposure scan, rebuild/up, runtime
+secret-environment scan, production smoke, and public health checks.
+
+`--skip-local-ci` is an emergency operator bypass for the local CI step only.
+It does not bypass the clean worktree, branch sync, pinned SHA, backup, restore
+rehearsal, secret scans, smoke, or public health gates.
+
+Manual CD does not store production secrets in GitHub.

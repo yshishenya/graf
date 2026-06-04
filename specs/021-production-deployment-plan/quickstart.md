@@ -153,6 +153,11 @@ infra/scripts/cd-remote.sh --execute
 Expected:
 
 - Local CI passes before remote mutation unless explicitly skipped by the operator.
+- The local worktree is clean, the active branch matches the deploy branch, and
+  the deploy branch matches `origin/<branch>`.
+- Remote deployment resets to the pinned commit SHA that passed the local gate,
+  not to a moving branch reference.
 - Remote backup and restore rehearsal pass before rebuild/up.
 - Production Compose config scan does not expose live secret values in service environment.
+- Runtime container environment scan does not expose secret values after rebuild/up.
 - Production smoke returns `readiness_verdict=infra_smoke_ready`.
