@@ -58,10 +58,16 @@ implementation record.
 
 - Yandex Browser is intentionally skipped/not accepted in the current
   browser/meeting smoke cycle.
+- Bluetooth and AirPods-class live route stability is product backlog for a
+  dedicated future slice. It must cover long-duration route stability,
+  autorepair, profile switching, reconnect behavior, latency, route
+  preservation, recording timeline integrity, and metadata-only evidence before
+  wireless headset routes can be treated as release-ready.
 - Meeting-app mute truth must be resolved in a future slice before local
   recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
-- Long-duration 30/60 minute integrity acceptance is not complete.
+- Long-duration 30/75 minute integrity acceptance is not complete. Feature
+  `019-live-route-stability` is the active draft slice for this gap.
 - Upload, resumable ingest, MediaScribe transcription, dashboard notes, server
   retention, and deletion workflows are not implemented in the macOS client
   slice.
