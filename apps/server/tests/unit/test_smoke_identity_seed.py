@@ -35,3 +35,11 @@ def test_smoke_identity_seed_headers_match_ingest_contract() -> None:
         "X-User-Id",
         "X-Device-Id",
     }
+
+
+def test_build_smoke_identity_seed_changes_between_runs() -> None:
+    first = build_smoke_identity_seed("smoke-20260604-0001")
+    second = build_smoke_identity_seed("smoke-20260604-0002")
+
+    assert first.organization_id != second.organization_id
+    assert first.workspace_id != second.workspace_id

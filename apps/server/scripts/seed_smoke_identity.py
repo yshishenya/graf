@@ -27,13 +27,14 @@ async def seed_identity(settings: Settings, run_id: str, *, execute: bool) -> di
 
     engine = create_async_engine(settings.database_url)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+    slug_suffix = run_id.lower().replace("_", "-")[:80]
     async with sessionmaker() as db:
         for model, key, values in [
-            (Organization, seed.organization_id, {"slug": "internal-smoke-org", "name": "Internal Smoke Org"}),
+            (Organization, seed.organization_id, {"slug": f"internal-smoke-org-{slug_suffix}", "name": "Internal Smoke Org"}),
             (
                 Workspace,
                 seed.workspace_id,
-                {"organization_id": seed.organization_id, "slug": "internal-smoke-workspace", "name": "Internal Smoke Workspace"},
+                {"organization_id": seed.organization_id, "slug": f"internal-smoke-workspace-{slug_suffix}", "name": "Internal Smoke Workspace"},
             ),
             (
                 UserIdentity,
