@@ -1,8 +1,17 @@
 import Foundation
 import TwoBrainRecShared
 
+public protocol LiveAudioSignalSampleSource {
+    func writeIndexSnapshot(checkedAt: Date) -> SharedAudioMemory.WriteIndexSnapshot
+    func peekLatestMic(dst: UnsafeMutablePointer<Float>, count: Int) -> Int
+    func peekLatestSpeaker(dst: UnsafeMutablePointer<Float>, count: Int) -> Int
+    func peekLatestCapture(dst: UnsafeMutablePointer<Float>, count: Int) -> Int
+}
+
+extension SharedAudioMemory: LiveAudioSignalSampleSource {}
+
 public final class LiveAudioSignalMonitor {
-    private let sharedMemory: SharedAudioMemory?
+    private let sampleSource: LiveAudioSignalSampleSource?
     private let scratch: UnsafeMutablePointer<Float>
     private let scratchCapacity: Int
     private var lastMicReadIndex: UInt64 = 0
@@ -15,10 +24,10 @@ public final class LiveAudioSignalMonitor {
     private var lastIncomingFrameAt: Date?
 
     public init(
-        sharedMemory: SharedAudioMemory? = SharedAudioMemory(),
+        sampleSource: LiveAudioSignalSampleSource? = SharedAudioMemory(),
         scratchCapacity: Int = 2048
     ) {
-        self.sharedMemory = sharedMemory
+        self.sampleSource = sampleSource
         self.scratchCapacity = scratchCapacity
         self.scratch = UnsafeMutablePointer<Float>.allocate(capacity: scratchCapacity)
         self.scratch.initialize(repeating: 0, count: scratchCapacity)
@@ -31,16 +40,14 @@ public final class LiveAudioSignalMonitor {
 
     public func currentLevels(
         routeActive: Bool,
-        routeLevels: LiveRouteSignalLevels = .inactive,
-        recordingLevels: LiveRecordingLevels = .inactive,
         now: Date = Date()
     ) -> LiveRouteSignalLevels {
-        if let sharedMemory {
-            updateSharedMemoryLevels(sharedMemory: sharedMemory, now: now)
+        if let sampleSource {
+            updateSharedMemoryLevels(sampleSource: sampleSource, now: now)
         }
 
         return LiveRouteSignalLevels(
-            isActive: routeActive || routeLevels.isActive || recordingLevels.isRecording,
+            isActive: routeActive,
             microphoneLevel: lastMicrophoneLevel,
             speakerLevel: lastIncomingLevel,
             microphoneUpdatedAt: lastMicrophoneFrameAt,
@@ -48,13 +55,13 @@ public final class LiveAudioSignalMonitor {
         )
     }
 
-    private func updateSharedMemoryLevels(sharedMemory: SharedAudioMemory, now: Date) {
-        let indexes = sharedMemory.writeIndexSnapshot(checkedAt: now)
+    private func updateSharedMemoryLevels(sampleSource: LiveAudioSignalSampleSource, now: Date) {
+        let indexes = sampleSource.writeIndexSnapshot(checkedAt: now)
 
         let micClientReadAdvanced = indexes.micReadIndex != lastMicReadIndex
         let micWriterAdvanced = indexes.micWriteIndex != lastMicWriteIndex
         if micClientReadAdvanced && micWriterAdvanced {
-            let count = sharedMemory.peekLatestMic(dst: scratch, count: scratchCapacity)
+            let count = sampleSource.peekLatestMic(dst: scratch, count: scratchCapacity)
             if count > 0 {
                 lastMicrophoneLevel = Self.rmsLevel(samples: scratch, count: count)
                 lastMicrophoneFrameAt = now
@@ -64,14 +71,13 @@ public final class LiveAudioSignalMonitor {
         lastMicWriteIndex = indexes.micWriteIndex
 
         if indexes.captureWriteIndex != lastCaptureWriteIndex {
-            let count = sharedMemory.peekLatestCapture(dst: scratch, count: scratchCapacity)
+            let count = sampleSource.peekLatestCapture(dst: scratch, count: scratchCapacity)
             if count > 0 {
                 lastIncomingLevel = Self.rmsLevel(samples: scratch, count: count)
                 lastIncomingFrameAt = now
             }
         } else if indexes.speakerWriteIndex != lastSpeakerWriteIndex {
-        } else if indexes.speakerWriteIndex != lastSpeakerWriteIndex {
-            let count = sharedMemory.peekLatestSpeaker(dst: scratch, count: scratchCapacity)
+            let count = sampleSource.peekLatestSpeaker(dst: scratch, count: scratchCapacity)
             if count > 0 {
                 lastIncomingLevel = Self.rmsLevel(samples: scratch, count: count)
                 lastIncomingFrameAt = now

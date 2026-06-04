@@ -254,6 +254,44 @@
 
 ---
 
+## Phase 10: Live Audio Indicator Review Remediation
+
+**Purpose**: Resolve the detailed code-review findings from commit `e92011f` before pushing routed live-audio indicators. These tasks are required before claiming that the UI truthfully proves audio is flowing through `2brain Rec Microphone` and `2brain Rec Speaker`.
+
+- [X] T072 [US1] Remove local recording microphone meter evidence from routed Live Audio truth in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/229
+  - Review finding: `CaptureControlView` combines `LiveRecordingLevels` from `AVAudioRecorder` with routed virtual-device levels, so pressing `Record` can show `Microphone Routed` even when the meeting app uses a hardware microphone.
+  - Why it matters: the UI must prove that the meeting app is actually reading `2brain Rec Microphone`, not merely that the local physical mic has sound.
+  - Implementation requirements: derive routed microphone state only from virtual mic client read/write evidence; keep local recording mic meter out of the routed status; preserve local recording status separately if needed.
+  - Acceptance criteria: hardware microphone plus active recording does not show routed mic; virtual mic client read evidence shows routed mic.
+  - Validation: `swift test --package-path apps/macos --disable-swift-testing`.
+
+- [X] T073 [US1] Restore virtual speaker write fallback in `apps/macos/RecApp/Sources/Capture/LiveAudioSignalMonitor.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/230
+  - Review finding: duplicate `else if indexes.speakerWriteIndex != lastSpeakerWriteIndex` creates an empty branch and makes the speaker fallback branch unreachable.
+  - Why it matters: incoming meter can remain silent even when virtual speaker write evidence advances.
+  - Implementation requirements: remove the empty duplicate branch; preserve non-consuming peek behavior; update incoming level when speaker writes advance and capture writes do not.
+  - Acceptance criteria: speaker-write-only evidence updates incoming; no capture/speaker write evidence keeps incoming not routed.
+  - Validation: `swift test --package-path apps/macos --disable-swift-testing`.
+
+- [X] T074 [P] [US5] Isolate shared-memory peek tests from the production audio bridge in `apps/macos/Shared/Tests/SharedAudioMemoryCompatibilityTests.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/231
+  - Review finding: shared-memory tests write synthetic samples to the global `/2brain-rec-audio-bridge` object used by the app and driver.
+  - Why it matters: tests can be flaky and can perturb live audio state when the app or Core Audio driver is running.
+  - Implementation requirements: replace live shared-memory mutation with an isolated test seam or pure helper test that proves peek does not advance read indexes.
+  - Acceptance criteria: tests do not write synthetic samples into the production shared-memory bridge; peek behavior remains covered.
+  - Validation: `swift test --package-path apps/macos --filter 'SharedAudioMemoryCompatibilityTests'`.
+
+- [X] T075 [P] [US1] Add routed Live Audio false-positive regression tests in `apps/macos/Shared/Tests/LiveAudioSignalMonitorTests.swift`
+  - GitHub issue: https://github.com/yshishenya/crisp/issues/232
+  - Review finding: no tests cover hardware-device selection while local recording is active, virtual mic read evidence, or virtual speaker/capture write evidence.
+  - Why it matters: this is the exact user-visible route-truth contract that prevents false confidence before recording.
+  - Implementation requirements: add deterministic tests for false-positive routed mic, true routed mic, true routed incoming, and hardware-only not-routed states.
+  - Acceptance criteria: local recording mic level alone cannot satisfy routed mic; virtual mic read/write evidence satisfies routed mic; virtual speaker capture/write evidence satisfies routed incoming.
+  - Validation: `swift test --package-path apps/macos --filter 'LiveAudioSignalMonitorTests|SharedAudioMemoryCompatibilityTests'`.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

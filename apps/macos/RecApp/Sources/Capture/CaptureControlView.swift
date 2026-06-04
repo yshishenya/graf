@@ -6,7 +6,6 @@ public struct CaptureControlView: View {
     private let blockedReason: String?
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
-    private let levels: LiveRecordingLevels
     private let routeSignalLevels: LiveRouteSignalLevels
     private let onRecord: () -> Void
     private let onStop: () -> Void
@@ -16,7 +15,6 @@ public struct CaptureControlView: View {
         blockedReason: String? = nil,
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
-        levels: LiveRecordingLevels = .inactive,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         onRecord: @escaping () -> Void,
         onStop: @escaping () -> Void
@@ -25,7 +23,6 @@ public struct CaptureControlView: View {
         self.blockedReason = blockedReason
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
-        self.levels = levels
         self.routeSignalLevels = routeSignalLevels
         self.onRecord = onRecord
         self.onStop = onStop
@@ -34,7 +31,6 @@ public struct CaptureControlView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             LiveRecordingMetersView(
-                levels: levels,
                 routeSignalLevels: routeSignalLevels
             )
 
@@ -93,7 +89,6 @@ public struct CaptureControlView: View {
 }
 
 private struct LiveRecordingMetersView: View {
-    let levels: LiveRecordingLevels
     let routeSignalLevels: LiveRouteSignalLevels
     private var now: Date { Date() }
 
@@ -134,7 +129,7 @@ private struct LiveRecordingMetersView: View {
     }
 
     private var liveSummary: String {
-        guard levels.isRecording || routeSignalLevels.isActive else {
+        guard routeSignalLevels.isActive else {
             return "Waiting for route"
         }
         if microphoneIsLive && incomingIsLive {
@@ -160,14 +155,14 @@ private struct LiveRecordingMetersView: View {
     }
 
     private var microphoneDetail: String {
-        guard levels.isRecording || routeSignalLevels.isActive else { return "Waiting for live route" }
+        guard routeSignalLevels.isActive else { return "Waiting for live route" }
         return microphoneIsLive
             ? "2brain Rec Microphone is being read by the meeting app."
             : "No meeting app is reading 2brain Rec Microphone."
     }
 
     private var incomingDetail: String {
-        guard levels.isRecording || routeSignalLevels.isActive else { return "Waiting for live route" }
+        guard routeSignalLevels.isActive else { return "Waiting for live route" }
         if incomingIsLive {
             return "2brain Rec Speaker is receiving meeting audio."
         }
@@ -175,29 +170,27 @@ private struct LiveRecordingMetersView: View {
     }
 
     private var microphoneLevel: Double {
-        max(levels.microphoneLevel, routeSignalLevels.microphoneLevel)
+        routeSignalLevels.microphoneLevel
     }
 
     private var incomingLevel: Double {
-        max(levels.incomingLevel, routeSignalLevels.speakerLevel)
+        routeSignalLevels.speakerLevel
     }
 
     private var microphoneIsLive: Bool {
-        levels.microphoneIsLive(now: now, staleAfter: 0.45) ||
-            routeSignalLevels.microphoneIsLive(now: now, staleAfter: 0.45)
+        routeSignalLevels.microphoneIsLive(now: now, staleAfter: 0.45)
     }
 
     private var incomingIsLive: Bool {
-        levels.incomingIsLive(now: now, staleAfter: 0.45) ||
-            routeSignalLevels.speakerIsLive(now: now, staleAfter: 0.45)
+        routeSignalLevels.speakerIsLive(now: now, staleAfter: 0.45)
     }
 
     private var shouldWarnIncoming: Bool {
-        (levels.isRecording || routeSignalLevels.isActive) && !incomingIsLive
+        routeSignalLevels.isActive && !incomingIsLive
     }
 
     private var shouldWarnMicrophone: Bool {
-        (levels.isRecording || routeSignalLevels.isActive) && !microphoneIsLive
+        routeSignalLevels.isActive && !microphoneIsLive
     }
 
     private func meterRow(

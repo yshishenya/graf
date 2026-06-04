@@ -33,6 +33,24 @@ public final class SharedAudioMemory {
         public var captureReadIndex: UInt64
         public var captureWriteIndex: UInt64
         public var checkedAt: Date
+
+        public init(
+            micReadIndex: UInt64,
+            micWriteIndex: UInt64,
+            speakerReadIndex: UInt64,
+            speakerWriteIndex: UInt64,
+            captureReadIndex: UInt64,
+            captureWriteIndex: UInt64,
+            checkedAt: Date
+        ) {
+            self.micReadIndex = micReadIndex
+            self.micWriteIndex = micWriteIndex
+            self.speakerReadIndex = speakerReadIndex
+            self.speakerWriteIndex = speakerWriteIndex
+            self.captureReadIndex = captureReadIndex
+            self.captureWriteIndex = captureWriteIndex
+            self.checkedAt = checkedAt
+        }
     }
 
     public struct StreamCounterSnapshot: Codable, Equatable, Sendable {
@@ -239,12 +257,27 @@ public final class SharedAudioMemory {
         dst: UnsafeMutablePointer<Float>,
         count: Int
     ) -> Int {
+        Self.copyLatestSamples(
+            from: UnsafePointer(buffer),
+            writeIndex: writeIndex,
+            dst: dst,
+            count: count
+        )
+    }
+
+    public static func copyLatestSamples(
+        from buffer: UnsafePointer<Float>,
+        writeIndex: UInt64,
+        dst: UnsafeMutablePointer<Float>,
+        count: Int,
+        capacity: Int = kSharedRingCapacity
+    ) -> Int {
         OSMemoryBarrier()
-        guard count > 0, writeIndex > 0 else { return 0 }
-        let sampleCount = min(count, kSharedRingCapacity, Int(min(UInt64(kSharedRingCapacity), writeIndex)))
+        guard count > 0, writeIndex > 0, capacity > 0 else { return 0 }
+        let sampleCount = min(count, capacity, Int(min(UInt64(capacity), writeIndex)))
         let start = writeIndex &- UInt64(sampleCount)
         for index in 0..<sampleCount {
-            dst[index] = buffer[Int(start &+ UInt64(index)) & (kSharedRingCapacity - 1)]
+            dst[index] = buffer[Int(start &+ UInt64(index)) & (capacity - 1)]
         }
         return sampleCount
     }
