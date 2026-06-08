@@ -15,3 +15,15 @@ or personal contact details.
 | permission revoked while recording | any required permission missing | stop/finalize as degraded or failed, not saved | permission changed/retry copy required | `permission_denied` or specific capture failure reason | not-tested | Manual permission run pending |
 
 Blocked, failed, degraded, and not-tested rows are not acceptance.
+
+## 2026-06-08 Metadata Validator Run
+
+- Run ID: `20260608T174858Z`
+- Timestamp: `2026-06-08T17:48:58Z`
+- Commit: `967c381`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--permission-matrix`
+- Validator result: `blocked`
+- Reason: Manual TCC grant/deny/revoke rows are still required before acceptance.
+- Safe checks: required rows present; blocked/degraded/not-tested rows are not counted as acceptance; this helper avoids HAL probes and driver reinstall steps.

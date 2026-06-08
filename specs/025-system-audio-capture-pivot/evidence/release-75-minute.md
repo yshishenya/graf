@@ -1,0 +1,24 @@
+# Release 75-Minute Validation
+
+Feature: `025-system-audio-capture-pivot`
+
+This evidence file is metadata-only. Do not paste raw audio, transcripts,
+meeting content, credentials, tokens, signed URLs, or personal contact details.
+
+| Run | Duration | Scope | mic.wav | incoming.wav | Alignment | CPU Gate | Responsiveness | Stop/Quit Release | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| pending | 75 minutes | not-tested | not-tested | not-tested | not-tested | not-tested | not-tested | not-tested | not-tested | Manual validation pending |
+
+Blocked, failed, degraded, and not-tested rows are not acceptance.
+
+## 2026-06-08 Metadata Validator Run
+
+- Run ID: `20260608T174858Z`
+- Timestamp: `2026-06-08T17:48:58Z`
+- Commit: `967c381`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--duration-minutes 75 --manual-release`
+- Validator result: `blocked`
+- Reason: Real sustained recording run is still required before acceptance.
+- Safe checks: evidence file exists; not-tested rows are not counted as acceptance.
