@@ -67,7 +67,7 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Implementation for User Story 1
 
-- [ ] T023 [US1] Implement ScreenCaptureKit system-audio capture lifecycle in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
+- [X] T023 [US1] Implement ScreenCaptureKit system-audio capture lifecycle in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
 - [X] T024 [US1] Implement microphone capture lifecycle and permission preflight in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
 - [X] T025 [US1] Implement user-confirmed capture scope approval service in `apps/macos/RecApp/Sources/Capture/CaptureScopeApprovalService.swift`
 - [ ] T026 [US1] Integrate system-audio and microphone services into local recording start/stop in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
