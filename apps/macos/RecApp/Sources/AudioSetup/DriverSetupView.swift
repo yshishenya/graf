@@ -25,19 +25,19 @@ public struct DriverSetupView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Audio Driver")
+                Text("Driver Diagnostics")
                     .font(.headline)
                 Spacer()
                 actionButton
             }
 
             VStack(spacing: 10) {
-                availabilityRow(title: "Driver package", stateText: driverText(driverState), systemImage: iconName(for: driverState))
-                availabilityRow(title: "Virtual microphone", stateText: virtualDeviceText(microphoneState), systemImage: iconName(for: microphoneState))
-                availabilityRow(title: "Virtual speaker", stateText: virtualDeviceText(speakerState), systemImage: iconName(for: speakerState))
+                availabilityRow(title: "Driver package", stateText: Self.driverText(driverState), systemImage: iconName(for: driverState))
+                availabilityRow(title: "Virtual microphone", stateText: Self.virtualDeviceText(microphoneState), systemImage: iconName(for: microphoneState))
+                availabilityRow(title: "Virtual speaker", stateText: Self.virtualDeviceText(speakerState), systemImage: iconName(for: speakerState))
             }
 
-            Text("Visible devices mean macOS loaded the driver. Audio passthrough still needs a separate readiness check.")
+            Text(Self.mvpBoundaryCopy)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -48,11 +48,11 @@ public struct DriverSetupView: View {
     private var actionButton: some View {
         switch driverState {
         case .notInstalled, .uninstalled:
-            Button("Install", action: onInstall)
+            Button("Install Driver", action: onInstall)
         case .needsRepair, .needsUpdate, .incompatible:
-            Button("Repair", action: onRepair)
+            Button("Repair Driver", action: onRepair)
         case .requiresRestart:
-            Label("Restart Required", systemImage: "arrow.clockwise.circle")
+            Label("Restart Later", systemImage: "arrow.clockwise.circle")
         case .installed, .uninstalling:
             EmptyView()
         }
@@ -73,43 +73,47 @@ public struct DriverSetupView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func driverText(_ state: DriverInstallationState) -> String {
+    public static var mvpBoundaryCopy: String {
+        "System audio recording does not require these virtual devices. Driver controls are parked for future passthrough diagnostics."
+    }
+
+    public static func driverText(_ state: DriverInstallationState) -> String {
         switch state {
         case .installed:
-            return "Installed"
+            return "Installed, parked for MVP"
         case .requiresRestart:
-            return "Installed, restart Core Audio"
+            return "Restart pending, parked"
         case .needsRepair:
-            return "Repair needed"
+            return "Repair available later"
         case .needsUpdate:
-            return "Update needed"
+            return "Update available later"
         case .incompatible:
-            return "Unsupported on this Mac"
+            return "Unsupported for future driver work"
         case .uninstalling:
             return "Removing"
         case .uninstalled:
-            return "Removed"
+            return "Removed, not blocking recording"
         case .notInstalled:
-            return "Not installed"
+            return "Not installed, not blocking recording"
         }
     }
 
-    private func virtualDeviceText(_ state: VirtualDeviceAvailabilityState) -> String {
+    public static func virtualDeviceText(_ state: VirtualDeviceAvailabilityState) -> String {
         switch state {
         case .available:
-            return "Visible in macOS"
+            return "Visible for diagnostics"
         case .installed:
-            return "Installed"
+            return "Installed for diagnostics"
         case .requiresRestart:
-            return "Restart Core Audio"
+            return "Restart later"
         case .missing:
-            return "Missing"
+            return "Not required for recording"
         case .hidden:
-            return "Hidden until app route recovers"
+            return "Hidden, not blocking recording"
         case .unavailable:
-            return "Unavailable"
+            return "Unavailable, not blocking recording"
         case .incompatible:
-            return "Unsupported"
+            return "Unsupported for future driver work"
         }
     }
 

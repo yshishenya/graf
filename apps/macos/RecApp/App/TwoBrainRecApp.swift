@@ -442,16 +442,12 @@ fileprivate struct LocalAudioSnapshot {
     let lastEventSummary: String
 
     var summary: String {
-        if routeVerification?.canShowReady == true {
-            return "Ready for audio routing"
-        }
-        if virtualMicrophoneState == .available && virtualSpeakerState == .available {
-            return "Installed, but not ready for calls yet"
-        }
-        if driverState == .installed {
-            return "Driver bundle is installed; Core Audio may need a refresh"
-        }
-        return "Driver is not installed on this Mac"
+        SystemAudioDriverParkedReadiness(
+            driverState: driverState,
+            microphoneState: virtualMicrophoneState,
+            speakerState: virtualSpeakerState,
+            routeVerificationReady: routeVerification?.canShowReady == true
+        ).summary
     }
 
     static func placeholder() -> LocalAudioSnapshot {

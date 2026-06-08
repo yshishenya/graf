@@ -26,3 +26,21 @@ acceptance path.
 - Failure reason: `none`
 
 No forbidden runtime route/HAL dependencies found in the system-audio acceptance path.
+
+## 2026-06-08T17:18:00Z No-HAL MVP Boundary
+
+- Command: `./apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- Checked files: `7`
+- Status: `passed`
+- Failure reason: `none`
+
+No forbidden runtime route/HAL dependencies found in the system-audio acceptance path.
+
+## 2026-06-08T17:18:31Z No-HAL MVP Boundary
+
+- Command: `./apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- Checked files: `7`
+- Status: `passed`
+- Failure reason: `none`
+
+No forbidden runtime route/HAL dependencies found in the system-audio acceptance path.

@@ -577,3 +577,55 @@ public struct SystemAudioNoHALEvidence: Codable, Equatable, Sendable {
             failureReason == .none
     }
 }
+
+public struct SystemAudioDriverParkedReadiness: Codable, Equatable, Sendable {
+    public var driverState: DriverInstallationState
+    public var microphoneState: VirtualDeviceAvailabilityState
+    public var speakerState: VirtualDeviceAvailabilityState
+    public var routeVerificationReady: Bool
+
+    public init(
+        driverState: DriverInstallationState,
+        microphoneState: VirtualDeviceAvailabilityState,
+        speakerState: VirtualDeviceAvailabilityState,
+        routeVerificationReady: Bool
+    ) {
+        self.driverState = driverState
+        self.microphoneState = microphoneState
+        self.speakerState = speakerState
+        self.routeVerificationReady = routeVerificationReady
+    }
+
+    public var mvpRecordingIgnoresDriverDiagnostics: Bool {
+        true
+    }
+
+    public var summary: String {
+        if routeVerificationReady {
+            return "System audio recording uses macOS permissions; driver diagnostics are parked for MVP"
+        }
+        return "System audio recording is checked from Record; driver diagnostics are parked for MVP"
+    }
+
+    public var driverDiagnosticSummary: String {
+        switch driverState {
+        case .installed:
+            return "Driver installed; not required for system-audio MVP recording"
+        case .requiresRestart:
+            return "Driver restart pending; not required for system-audio MVP recording"
+        case .needsRepair, .needsUpdate, .incompatible:
+            return "Driver maintenance is parked for future routing work"
+        case .notInstalled, .uninstalled:
+            return "Driver absent; system-audio MVP recording can still use macOS capture permissions"
+        case .uninstalling:
+            return "Driver removal in progress; system-audio MVP recording remains permission-gated"
+        }
+    }
+
+    public var virtualDeviceDiagnosticSummary: String {
+        if microphoneState == .available && speakerState == .available {
+            return "Virtual devices visible for legacy passthrough diagnostics only"
+        }
+        return "Virtual devices are not an MVP recording prerequisite"
+    }
+}

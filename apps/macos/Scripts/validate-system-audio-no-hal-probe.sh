@@ -33,7 +33,7 @@ apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift
 apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift
 "
 
-patterns='startExperimentalRoute|PassthroughRouteEngine|CoreAudioSystemSnapshot|install_or_repair_driver|driverReloaded|needsRepair|CoreAudio.*restart|virtual.*selection.*required|HAL.*probe.*required|SharedMemoryRecordingSampleSource'
+patterns='startExperimentalRoute|PassthroughRouteEngine|CoreAudioSystemSnapshot|install_or_repair_driver|driverReloaded|CoreAudio.*restart|virtual.*selection.*required|HAL.*probe.*required|SharedMemoryRecordingSampleSource'
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT

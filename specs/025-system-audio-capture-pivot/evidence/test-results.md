@@ -73,3 +73,18 @@
   replace later settled idle/stop/quit checks, active recording checks,
   30-minute development run, 75-minute manual release run, or a full-Xcode
   XCTest execution.
+
+## 2026-06-08 US5 Driver-Parked Slice
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: driver-parked readiness model, driver diagnostics UI copy, MVP summary
+  language, future-driver README boundary, and driver-parked evidence template.
+- Commands:
+  - `swift test --package-path apps/macos`
+  - `swift build --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `./apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- Result: passed
+- Notes: `swift test` compiles the XCTest bundle in the current
+  CommandLineTools environment. Full `xcrun xctest` execution remains pending
+  until full Xcode is selected.

@@ -161,15 +161,15 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 5
 
-- [ ] T056 [P] [US5] Add tests that MVP readiness ignores unavailable driver diagnostics in `apps/macos/Shared/Tests/SystemAudioDriverParkedTests.swift`
-- [ ] T057 [P] [US5] Add tests that UI copy does not require virtual devices for MVP recording in `apps/macos/Shared/Tests/SystemAudioNoVirtualDeviceCopyTests.swift`
+- [X] T056 [P] [US5] Add tests that MVP readiness ignores unavailable driver diagnostics in `apps/macos/Shared/Tests/SystemAudioDriverParkedTests.swift`
+- [X] T057 [P] [US5] Add tests that UI copy does not require virtual devices for MVP recording in `apps/macos/Shared/Tests/SystemAudioNoVirtualDeviceCopyTests.swift`
 
 ### Implementation for User Story 5
 
-- [ ] T058 [US5] Update `DriverSetupView` or surrounding composition so driver repair is not presented as an MVP recording prerequisite in `apps/macos/RecApp/Sources/DriverSetup/DriverSetupView.swift`
-- [ ] T059 [US5] Update `LocalAudioSnapshot.summary` for system-audio MVP readiness language in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T060 [US5] Add future-driver boundary notes to macOS README in `apps/macos/README.md`
-- [ ] T061 [US5] Record driver-parked validation evidence template in `specs/025-system-audio-capture-pivot/evidence/driver-parked.md`
+- [X] T058 [US5] Update `DriverSetupView` or surrounding composition so driver repair is not presented as an MVP recording prerequisite in `apps/macos/RecApp/Sources/DriverSetup/DriverSetupView.swift`
+- [X] T059 [US5] Update `LocalAudioSnapshot.summary` for system-audio MVP readiness language in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T060 [US5] Add future-driver boundary notes to macOS README in `apps/macos/README.md`
+- [X] T061 [US5] Record driver-parked validation evidence template in `specs/025-system-audio-capture-pivot/evidence/driver-parked.md`
 
 **Checkpoint**: US5 independently proves driver work is parked and cannot regress MVP recording status.
 
