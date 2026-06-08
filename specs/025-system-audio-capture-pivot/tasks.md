@@ -87,18 +87,18 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 2
 
-- [ ] T030 [P] [US2] Add permission gate unit tests for microphone/system-audio combinations in `apps/macos/Shared/Tests/SystemAudioPermissionGateTests.swift`
-- [ ] T031 [P] [US2] Add UI state tests for permission blocker copy and recovery actions in `apps/macos/Shared/Tests/SystemAudioPermissionUXTests.swift`
-- [ ] T032 [P] [US2] Add manifest tests for explicit degraded attempts with missing permissions in `apps/macos/Shared/Tests/SystemAudioDegradedAttemptTests.swift`
+- [X] T030 [P] [US2] Add permission gate unit tests for microphone/system-audio combinations in `apps/macos/Shared/Tests/SystemAudioPermissionGateTests.swift`
+- [X] T031 [P] [US2] Add UI state tests for permission blocker copy and recovery actions in `apps/macos/Shared/Tests/SystemAudioPermissionUXTests.swift`
+- [X] T032 [P] [US2] Add manifest tests for explicit degraded attempts with missing permissions in `apps/macos/Shared/Tests/SystemAudioDegradedAttemptTests.swift`
 
 ### Implementation for User Story 2
 
-- [ ] T033 [US2] Implement combined microphone and Screen/System Audio permission gate in `apps/macos/RecApp/Sources/Capture/SystemAudioPermissionGate.swift`
-- [ ] T034 [US2] Ensure app bundle permission usage declarations cover microphone and Screen/System Audio prompts in `apps/macos/Installer/Scripts/build-local-installer.sh`
-- [ ] T035 [US2] Wire permission gate into recording start blocker flow in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T036 [US2] Add user-facing permission/degraded state copy models in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T037 [US2] Update `CaptureControlView` permission blocker and degraded-attempt UI in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T038 [US2] Record permission matrix evidence template and expected outcomes in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
+- [X] T033 [US2] Implement combined microphone and Screen/System Audio permission gate in `apps/macos/RecApp/Sources/Capture/SystemAudioPermissionGate.swift`
+- [X] T034 [US2] Ensure app bundle permission usage declarations cover microphone and Screen/System Audio prompts in `apps/macos/Installer/Scripts/build-local-installer.sh`
+- [X] T035 [US2] Wire permission gate into recording start blocker flow in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T036 [US2] Add user-facing permission/degraded state copy models in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [X] T037 [US2] Update `CaptureControlView` permission blocker and degraded-attempt UI in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T038 [US2] Record permission matrix evidence template and expected outcomes in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
 
 **Checkpoint**: US2 independently proves missing permissions cannot create false accepted recordings.
 

@@ -224,6 +224,62 @@ public struct SystemAudioPermissionSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+public enum SystemAudioPermissionOutcome: String, Codable, Sendable {
+    case accepted
+    case degradedAttempt
+    case blocked
+}
+
+public enum SystemAudioPermissionRecoveryAction: String, Codable, Sendable {
+    case grantMicrophone = "grant_microphone"
+    case grantSystemAudio = "grant_system_audio"
+    case grantBoth = "grant_both"
+    case retryPermissionCheck = "retry_permission_check"
+}
+
+public struct SystemAudioPermissionPresentation: Codable, Equatable, Sendable {
+    public var title: String
+    public var message: String
+    public var recoveryAction: SystemAudioPermissionRecoveryAction
+
+    public init(
+        title: String,
+        message: String,
+        recoveryAction: SystemAudioPermissionRecoveryAction
+    ) {
+        self.title = title
+        self.message = message
+        self.recoveryAction = recoveryAction
+    }
+}
+
+public struct SystemAudioPermissionGateResult: Codable, Equatable, Sendable {
+    public var snapshot: SystemAudioPermissionSnapshot
+    public var outcome: SystemAudioPermissionOutcome
+    public var presentation: SystemAudioPermissionPresentation?
+    public var manifestFailureReason: LocalRecordingFailureReason
+
+    public init(
+        snapshot: SystemAudioPermissionSnapshot,
+        outcome: SystemAudioPermissionOutcome,
+        presentation: SystemAudioPermissionPresentation?,
+        manifestFailureReason: LocalRecordingFailureReason
+    ) {
+        self.snapshot = snapshot
+        self.outcome = outcome
+        self.presentation = presentation
+        self.manifestFailureReason = manifestFailureReason
+    }
+
+    public var allowsAcceptedRecording: Bool {
+        outcome == .accepted && snapshot.allowsAcceptedRecording
+    }
+
+    public var allowsExplicitDegradedAttempt: Bool {
+        outcome == .degradedAttempt
+    }
+}
+
 public struct CaptureHealthSnapshot: Codable, Equatable, Sendable {
     public var recordingSessionId: String
     public var phase: CaptureHealthPhase

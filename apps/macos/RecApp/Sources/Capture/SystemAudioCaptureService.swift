@@ -25,6 +25,22 @@ public protocol SystemAudioCaptureRuntime: Sendable {
     func stop() async
 }
 
+public protocol SystemAudioPermissionAuthorizing: Sendable {
+    func currentPermissionState() -> CapturePermissionState
+}
+
+public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermissionAuthorizing {
+    public init() {}
+
+    public func currentPermissionState() -> CapturePermissionState {
+        #if canImport(CoreGraphics)
+        return CGPreflightScreenCaptureAccess() ? .granted : .unknown
+        #else
+        return .unknown
+        #endif
+    }
+}
+
 public final class NoopSystemAudioCaptureRuntime: SystemAudioCaptureRuntime {
     public init() {}
 

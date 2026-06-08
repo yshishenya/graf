@@ -64,9 +64,9 @@ public struct CaptureControlView: View {
             }
 
             if let localRecordingStatus, !localRecordingStatus.isEmpty {
-                Label(localRecordingStatus, systemImage: "waveform.path.badge.plus")
+                Label(localRecordingStatus, systemImage: localRecordingStatusIcon)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(localRecordingStatusStyle)
                     .accessibilityLabel(localRecordingStatus)
             }
 
@@ -85,6 +85,28 @@ public struct CaptureControlView: View {
     public static func shouldShowRecordButton(for session: CaptureSession?) -> Bool {
         guard let session else { return true }
         return !CaptureStatusItem.showsStopButton(for: session)
+    }
+
+    private var localRecordingStatusIcon: String {
+        guard let localRecordingStatus else { return "waveform.path.badge.plus" }
+        if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("permission") {
+            return "lock.trianglebadge.exclamationmark"
+        }
+        if localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
+            return "exclamationmark.triangle.fill"
+        }
+        return "waveform.path.badge.plus"
+    }
+
+    private var localRecordingStatusStyle: Color {
+        guard let localRecordingStatus else { return .secondary }
+        if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
+            return .orange
+        }
+        return .secondary
     }
 }
 

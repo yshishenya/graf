@@ -30,7 +30,8 @@ public struct LocalRecordingManifestService: Sendable {
         captureHealth: CaptureHealthSnapshot? = nil
     ) -> LocalRecordingManifest {
         let hasBothRoles = Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker])
-        let complete = hasBothRoles && tracks.allSatisfy(\.isMediaScribeReady)
+        let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? true
+        let complete = hasBothRoles && tracks.allSatisfy(\.isMediaScribeReady) && permissionsAllowAcceptedRecording
         let status: LocalRecordingSessionStatus = if complete {
             .saved
         } else if tracks.contains(where: { $0.status == .failed }) {
@@ -47,6 +48,7 @@ public struct LocalRecordingManifestService: Sendable {
         }
         let resolvedFailure: LocalRecordingFailureReason = complete ? .none : Self.resolveFailureReason(
             tracks: tracks,
+            permissions: permissions,
             fallback: failureReason
         )
 
@@ -80,10 +82,14 @@ public struct LocalRecordingManifestService: Sendable {
 
     private static func resolveFailureReason(
         tracks: [LocalRecordingTrack],
+        permissions: SystemAudioPermissionSnapshot?,
         fallback: LocalRecordingFailureReason
     ) -> LocalRecordingFailureReason {
         if fallback != .none {
             return fallback
+        }
+        if let permissions, !permissions.allowsAcceptedRecording {
+            return .permissionDenied
         }
         if tracks.contains(where: { !$0.timelineAligned }) {
             return .timelineMisaligned

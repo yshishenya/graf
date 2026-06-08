@@ -73,6 +73,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <true/>
   <key>NSMicrophoneUsageDescription</key>
   <string>2brain Rec needs microphone access to verify and capture meeting audio.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>2brain Rec needs Screen/System Audio access to capture incoming meeting audio into a local recording.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

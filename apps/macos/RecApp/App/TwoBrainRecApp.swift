@@ -50,6 +50,8 @@ private struct ContentView: View {
     @State private var localRecordingWriter = LocalRecordingWriter()
     @State private var systemAudioCaptureService = SystemAudioCaptureService()
     @State private var microphoneCaptureService = MicrophoneCaptureService()
+    @State private var systemAudioPermissionAuthorizer = CoreGraphicsSystemAudioPermissionAuthorizer()
+    @State private var systemAudioPermissionGate = SystemAudioPermissionGate()
     @State private var captureScopeApprovalService = CaptureScopeApprovalService()
     @State private var captureSession: CaptureSession?
     @State private var recordingBlocker: String?
@@ -212,13 +214,16 @@ private struct ContentView: View {
             sessionId: "pending",
             inputDisplayName: "Default Microphone"
         )
+        let permissionGate = systemAudioPermissionGate.evaluate(
+            microphone: microphoneSession.permissionState,
+            systemAudio: systemAudioPermissionAuthorizer.currentPermissionState()
+        )
         let prerequisite = RecordingPrerequisiteGate().evaluate(
             RecordingPrerequisiteSnapshot(
                 routeState: .active,
                 routeEvidenceKind: .lowResourceTruth,
                 policyAllowsRecording: true,
-                microphonePermissionGranted: microphoneSession.permissionState != .denied &&
-                    microphoneSession.permissionState != .restricted,
+                microphonePermissionGranted: permissionGate.snapshot.microphone == .granted,
                 storageRisk: snapshot.healthState.bufferRisk,
                 indicatorAvailable: true,
                 sourceAppEligibility: .eligible,
@@ -228,19 +233,23 @@ private struct ContentView: View {
 
         do {
             _ = try captureController.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
-            guard prerequisite.allowsRecording else {
+            guard prerequisite.allowsRecording && permissionGate.allowsAcceptedRecording else {
                 let blocked = try captureController.blockStart(
-                    reason: prerequisite.blockedReason,
-                    recoveryAction: prerequisite.recoveryAction ?? "Resolve recording blocker"
+                    reason: permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason : .permissionDenied,
+                    recoveryAction: permissionGate.presentation?.message ??
+                        prerequisite.recoveryAction ??
+                        "Resolve recording blocker"
                 )
                 captureSession = blocked
                 recordingEvidenceEvents.append(
                     RecordingEvidenceService().startBlocked(session: blocked, prerequisite: prerequisite)
                 )
-                recordingBlocker = recordingBlockerText(for: prerequisite)
+                recordingBlocker = permissionGate.presentation.map {
+                    "\($0.title). \($0.message)"
+                } ?? recordingBlockerText(for: prerequisite)
                 AppLog.writeRaw(
                     event: AuditEventName.recordingStartBlocked.rawValue,
-                    detail: "reason=\(prerequisite.blockedReason.rawValue) action=\(prerequisite.recoveryAction ?? "none")"
+                    detail: "reason=\(permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason.rawValue : RecordingStartBlocker.permissionDenied.rawValue) microphonePermission=\(permissionGate.snapshot.microphone.rawValue) systemAudioPermission=\(permissionGate.snapshot.systemAudio.rawValue) action=\(permissionGate.presentation?.recoveryAction.rawValue ?? prerequisite.recoveryAction ?? "none")"
                 )
                 return
             }
@@ -250,7 +259,8 @@ private struct ContentView: View {
                 "scopeApprovalId": scopeApproval.scopeApprovalId,
                 "scopeKind": scopeApproval.scopeKind.rawValue,
                 "sourceDisplayName": scopeApproval.sourceDisplayName,
-                "microphonePermissionState": microphoneSession.permissionState.rawValue,
+                "microphonePermissionState": permissionGate.snapshot.microphone.rawValue,
+                "systemAudioPermissionState": permissionGate.snapshot.systemAudio.rawValue,
                 "routeState": prerequisite.routeState.rawValue,
                 "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue,
                 "externalEgressStarted": "false",
@@ -260,7 +270,7 @@ private struct ContentView: View {
             let active = try captureController.markCapturing()
             _ = try await systemAudioCaptureService.start(
                 sessionId: active.id,
-                permissionState: .granted,
+                permissionState: permissionGate.snapshot.systemAudio,
                 scopeApproval: scopeApproval,
                 startedAt: active.startedAt ?? Date()
             )

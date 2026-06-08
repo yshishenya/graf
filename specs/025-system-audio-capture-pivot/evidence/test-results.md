@@ -24,3 +24,18 @@
 - Result: passed
 - Notes: This validates service seams and local package writing. Native
   ScreenCaptureKit runtime integration remains open under T023/#259.
+
+## 2026-06-08 US2 Permission Gate Slice
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: Permission gate matrix, permission blocker copy, denied-permission
+  manifest truth, app start blocker wiring, and local installer permission
+  usage declarations.
+- Commands:
+  - `swift test --package-path apps/macos --disable-swift-testing`
+  - `swift build --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+- Result: passed
+- Notes: This validates that missing microphone or Screen/System Audio
+  permission cannot become a normal `saved` acceptance path. Manual permission
+  toggling remains required in the later permission matrix validation task.
