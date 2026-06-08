@@ -35,6 +35,7 @@ private struct ContentView: View {
     @State private var localRecordingLocation: String?
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
     @State private var liveAudioSignalMonitor = LiveAudioSignalMonitor()
+    @State private var terminationCleanupInProgress = false
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -161,13 +162,19 @@ private struct ContentView: View {
                 liveRouteSignalLevels = nextLevels
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            finalizeLocalRecordingForAppExit()
-            Task { await releaseSystemAudioForAppExit() }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
+            guard !terminationCleanupInProgress else { return }
+            terminationCleanupInProgress = true
+            Task {
+                await releaseCaptureResourcesForAppExit()
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .twoBrainRecApplicationTerminationCleanupFinished, object: nil)
+                }
+            }
         }
         .onDisappear {
-            finalizeLocalRecordingForAppExit()
-            Task { await releaseSystemAudioForAppExit() }
+            guard !terminationCleanupInProgress else { return }
+            Task { await releaseCaptureResourcesForAppExit() }
         }
     }
 
@@ -349,8 +356,9 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func releaseSystemAudioForAppExit() async {
+    private func releaseCaptureResourcesForAppExit() async {
         _ = await systemAudioCaptureService.releaseForTermination()
+        finalizeLocalRecordingForAppExit()
     }
 
     @MainActor
@@ -424,6 +432,21 @@ private struct ContentView: View {
 @MainActor
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
+    private var terminationReplyPending = false
+
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationTerminationCleanupFinished),
+            name: .twoBrainRecApplicationTerminationCleanupFinished,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     func applicationWillFinishLaunching(_: Notification) {
         UserDefaults.standard.register(defaults: [
@@ -471,9 +494,39 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationReplyPending else {
+            return .terminateLater
+        }
+        terminationReplyPending = true
+        AppLog.writeRaw(
+            event: "app_termination_cleanup_requested",
+            detail: "reply=terminateLater"
+        )
+        NotificationCenter.default.post(name: .twoBrainRecApplicationShouldTerminate, object: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            self?.replyToTerminateIfPending(reason: "timeout")
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_: Notification) {
         mainWindow = nil
         _ = PassthroughRouteEngine.shared.stop(logger: AppLog.writeRaw)
+    }
+
+    @objc private func applicationTerminationCleanupFinished() {
+        replyToTerminateIfPending(reason: "cleanup_finished")
+    }
+
+    private func replyToTerminateIfPending(reason: String) {
+        guard terminationReplyPending else { return }
+        terminationReplyPending = false
+        AppLog.writeRaw(
+            event: "app_termination_cleanup_completed",
+            detail: "reason=\(reason)"
+        )
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     private func presentMainWindow(reason: String) {
@@ -520,6 +573,11 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             presentMainWindow(reason: "visibility_recovery")
         }
     }
+}
+
+private extension Notification.Name {
+    static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.rec.applicationShouldTerminate")
+    static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.rec.applicationTerminationCleanupFinished")
 }
 
 private struct AppContentRoot: View {

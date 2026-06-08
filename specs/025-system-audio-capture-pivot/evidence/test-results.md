@@ -639,3 +639,33 @@
 - Notes: This directly addresses the observed risk of `mic.wav` and
   `incoming.wav` size skew at Stop. Real accepted artifact proof still requires
   #308 controlled recording validation.
+
+## 2026-06-08 Terminate-Later Cleanup Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: app termination ordering for active recording cleanup.
+- Code review finding:
+  - A synchronous local writer finalization in `willTerminateNotification`
+    protects the manifest from async scheduling loss, but it still runs after
+    AppKit has already decided to terminate and cannot reliably wait for the
+    async ScreenCaptureKit/system-audio runtime release.
+  - It also risks closing `incoming.wav` before the runtime has stopped
+    appending the final buffered system-audio frames.
+- Code review fix:
+  - `AppLifecycleDelegate.applicationShouldTerminate` now returns
+    `terminateLater` and posts an internal cleanup notification.
+  - `ContentView` awaits `systemAudioCaptureService.releaseForTermination()`
+    first, then synchronously finalizes local WAV/manifest output, then signals
+    cleanup completion back to the delegate.
+  - The delegate replies to AppKit only after cleanup completes, with a
+    defensive timeout fallback.
+- Runtime proof:
+  - Packaged app launched and CoreGraphics found `window_count=1`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - AppLog recorded `app_termination_cleanup_requested reply=terminateLater`
+    followed by `app_termination_cleanup_completed reason=cleanup_finished`.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+- Notes: This makes the app-exit cleanup order match the normal Stop order:
+  stop system-audio runtime first, then close local recording artifacts.
