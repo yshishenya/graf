@@ -16,7 +16,7 @@ Templates requiring updates:
 - ✅ reviewed .specify/templates/spec-template.md; no capture-path-specific wording.
 - ✅ reviewed .specify/templates/tasks-template.md; no capture-path-specific wording.
 Follow-up items:
-- PRD, current status, AGENTS, ADR 002, and spec 020 updated for system-audio-first MVP pivot.
+- PRD, current status, AGENTS, ADR 002, and spec 025 updated for system-audio-first MVP pivot.
 -->
 # 2brain Rec Constitution
 
