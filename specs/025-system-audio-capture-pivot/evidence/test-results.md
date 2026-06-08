@@ -255,3 +255,27 @@
 - Remaining CPU evidence gap: #309/T073 is still open because active-recording
   and stop gates require a real controlled recording run; they are not accepted
   by idle/quit evidence alone.
+
+## 2026-06-08 Artifact Directory Validator Self-Test
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: metadata-only validation of a completed local recording directory.
+- Code review fix:
+  - Added `validate-system-audio-capture-pivot.sh --artifact-directory <path>`.
+  - The validator checks `manifest.json`, `mic.wav`, `incoming.wav`, saved
+    dual-track status, `remoteSpeaker` source `systemAudio`, granted
+    permissions, scope approval, no external egress, no transcription,
+    diagnostic-safe metadata, and `durationDifferenceSeconds <= 3`.
+  - Added `SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1` so synthetic self-tests do
+    not pollute real artifact evidence.
+- Commands:
+  - positive synthetic artifact:
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 apps/macos/Scripts/validate-system-audio-capture-pivot.sh --artifact-directory <tmpdir>`
+  - negative synthetic artifact with wrong incoming `sourceKind`:
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 apps/macos/Scripts/validate-system-audio-capture-pivot.sh --artifact-directory <tmpdir>`
+- Result:
+  - Positive synthetic artifact passed.
+  - Negative synthetic artifact returned `blocked` with finding:
+    `remoteSpeaker track must be saved systemAudio wav-pcm-s16le metadata`.
+- Notes: This is validator tooling evidence only. It does not close #308/T072
+  until a real controlled recording artifact is validated.

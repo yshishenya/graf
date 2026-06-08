@@ -116,7 +116,14 @@ Recommended manual run sequence:
    ~/Library/Application Support/2brain Rec/Recordings/
    ```
 
-9. Record only metadata in `evidence/artifact-matrix.md`: status, file presence,
+9. Validate the newest directory metadata-only:
+
+   ```sh
+   apps/macos/Scripts/validate-system-audio-capture-pivot.sh \
+     --artifact-directory "$HOME/Library/Application Support/2brain Rec/Recordings/<directory-id>"
+   ```
+
+10. Record only metadata in `evidence/artifact-matrix.md`: status, file presence,
    track roles/source kinds, duration difference, permission states, and failure
    reasons. Do not copy raw audio or private meeting content into evidence.
 

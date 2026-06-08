@@ -27,6 +27,12 @@ Modes:
       Check controlled artifact evidence structure. Returns blocked while
       required artifact rows remain not-tested.
 
+  --artifact-directory <path>
+      Validate a completed local recording directory metadata-only. Requires
+      manifest.json, mic.wav, incoming.wav, saved dual-track manifest,
+      systemAudio incoming metadata, granted permissions, scope approval, no
+      external egress, no transcription, and durationDifferenceSeconds <= 3.
+
   --duration-minutes 30
       Check the 30-minute development evidence file.
 
@@ -171,6 +177,95 @@ validate_artifact_matrix() {
     passed "artifact matrix has no not-tested rows"
 }
 
+validate_artifact_directory() {
+    directory="${1:-}"
+    [ -n "$directory" ] || fail_invalid "--artifact-directory requires a path"
+    [ -d "$directory" ] || fail_invalid "artifact directory does not exist: $directory"
+
+    manifest="$directory/manifest.json"
+    mic="$directory/mic.wav"
+    incoming="$directory/incoming.wav"
+    require_file "$manifest"
+    require_file "$mic"
+    require_file "$incoming"
+    command -v jq >/dev/null 2>&1 || fail_invalid "jq is required for artifact manifest validation"
+    jq empty "$manifest" >/dev/null 2>&1 || fail_invalid "manifest.json is not valid JSON"
+
+    failure_file="$(mktemp)"
+    trap 'rm -f "$failure_file"' EXIT
+
+    check_jq() {
+        expression="$1"
+        message="$2"
+        if ! jq -e "$expression" "$manifest" >/dev/null; then
+            printf '%s\n' "$message" >> "$failure_file"
+        fi
+    }
+
+    check_jq '.schemaVersion == "local-recording-manifest.v2"' "schemaVersion must be local-recording-manifest.v2"
+    check_jq '.status == "saved"' "manifest status must be saved"
+    check_jq '.externalEgressStarted == false' "externalEgressStarted must be false"
+    check_jq '.transcriptionStarted == false' "transcriptionStarted must be false"
+    check_jq '.diagnosticSafe == true' "diagnosticSafe must be true"
+    check_jq '(.durationDifferenceSeconds // 999999) <= 3' "durationDifferenceSeconds must be <= 3"
+    check_jq '.scopeApproval != null' "scopeApproval must be present"
+    check_jq '.permissions.microphone == "granted"' "microphone permission must be granted"
+    check_jq '.permissions.systemAudio == "granted"' "system audio permission must be granted"
+    check_jq '([.tracks[].role] | sort) == ["localMic","remoteSpeaker"]' "tracks must contain localMic and remoteSpeaker"
+    check_jq 'any(.tracks[]; .role == "localMic" and .sourceKind == "microphone" and .status == "saved" and .fileName == "mic.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineAligned == true and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "localMic track must be saved microphone wav-pcm-s16le metadata"
+    check_jq 'any(.tracks[]; .role == "remoteSpeaker" and .sourceKind == "systemAudio" and .status == "saved" and .fileName == "incoming.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineAligned == true and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "remoteSpeaker track must be saved systemAudio wav-pcm-s16le metadata"
+
+    mic_bytes="$(wc -c < "$mic" | tr -d ' ')"
+    incoming_bytes="$(wc -c < "$incoming" | tr -d ' ')"
+    manifest_mic_bytes="$(jq -r '.tracks[] | select(.role == "localMic") | .byteCount' "$manifest" | head -1)"
+    manifest_incoming_bytes="$(jq -r '.tracks[] | select(.role == "remoteSpeaker") | .byteCount' "$manifest" | head -1)"
+    if [ "${mic_bytes:-0}" -lt "${manifest_mic_bytes:-1}" ]; then
+        printf '%s\n' "mic.wav file size is smaller than manifest byteCount" >> "$failure_file"
+    fi
+    if [ "${incoming_bytes:-0}" -lt "${manifest_incoming_bytes:-1}" ]; then
+        printf '%s\n' "incoming.wav file size is smaller than manifest byteCount" >> "$failure_file"
+    fi
+
+    directory_id="$(jq -r '.directoryId // "unknown"' "$manifest")"
+    manifest_status="$(jq -r '.status // "unknown"' "$manifest")"
+    duration_difference="$(jq -r '.durationDifferenceSeconds // "unknown"' "$manifest")"
+    append_evidence="${SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND:-0}"
+
+    if [ "$append_evidence" != "1" ]; then
+        append_run_header "$ARTIFACT_MATRIX" "2026-06-08 Artifact Directory Validator Run"
+        {
+            printf -- '- Mode: `--artifact-directory`\n'
+            printf -- '- Directory ID: `%s`\n' "$directory_id"
+            printf -- '- Manifest status: `%s`\n' "$manifest_status"
+            printf -- '- Duration difference seconds: `%s`\n' "$duration_difference"
+        } >> "$ARTIFACT_MATRIX"
+    fi
+
+    if [ -s "$failure_file" ]; then
+        if [ "$append_evidence" != "1" ]; then
+            {
+                printf -- '- Validator result: `blocked`\n'
+                printf -- '- Reason: artifact directory did not satisfy accepted controlled-recording metadata.\n'
+                printf -- '- Findings:\n'
+                sed 's/^/  - /' "$failure_file"
+            } >> "$ARTIFACT_MATRIX"
+        fi
+        printf '%s\n' "system_audio_capture_pivot_validation=blocked"
+        printf '%s\n' "reason=artifact directory did not satisfy accepted controlled-recording metadata"
+        cat "$failure_file"
+        exit 2
+    fi
+
+    if [ "$append_evidence" != "1" ]; then
+        {
+            printf -- '- Validator result: `passed`\n'
+            printf -- '- Safe checks: manifest/files/source metadata/permissions/scope/no-egress/duration contract passed without reading audio content.\n'
+        } >> "$ARTIFACT_MATRIX"
+    fi
+
+    passed "artifact directory metadata passed for directoryId=$directory_id"
+}
+
 ensure_duration_file() {
     path="$1"
     minutes="$2"
@@ -286,6 +381,9 @@ case "$mode" in
         ;;
     --artifact-matrix)
         validate_artifact_matrix
+        ;;
+    --artifact-directory)
+        validate_artifact_directory "${2:-}"
         ;;
     --duration-minutes)
         [ "${2:-}" ] || fail_invalid "--duration-minutes requires a number"
