@@ -23,9 +23,9 @@ public struct RouteVerificationView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Readiness Check")
+                    Text("Recording Status")
                         .font(.headline)
-                    Text("Checks what is safe to use right now. It does not start recording.")
+                    Text("Refreshes local audio status. Recording permissions and meters are checked when you press Record.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -35,7 +35,7 @@ public struct RouteVerificationView: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Text("Run Check")
+                        Text("Refresh Status")
                     }
                 }
                 .disabled(!canVerify || isVerifying)
@@ -53,21 +53,21 @@ public struct RouteVerificationView: View {
             }
 
             if let snapshot, snapshot.canShowReady {
-                Label("Audio route ready, not recording", systemImage: "checkmark.circle.fill")
+                Label("Local audio status refreshed, not recording", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                    .accessibilityLabel("Audio routes ready, not recording")
+                    .accessibilityLabel("Local audio status refreshed, not recording")
             } else if isVerifying {
                 Label("Checking", systemImage: "waveform")
                     .foregroundStyle(.blue)
                     .accessibilityLabel("Audio route check is running")
             } else if let snapshot, snapshot.hasDegradedOrStaleRoute {
-                Label("Needs audio check", systemImage: "exclamationmark.triangle.fill")
+                Label("Status needs refresh", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                    .accessibilityLabel("Audio routes need another check")
+                    .accessibilityLabel("Local audio status needs refresh")
             } else {
-                Label("Not ready for calls yet", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("Audio routes are not ready yet")
+                Label("Ready to try recording", systemImage: "record.circle")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Ready to try recording")
             }
         }
         .padding(16)

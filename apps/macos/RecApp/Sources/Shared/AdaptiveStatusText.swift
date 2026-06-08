@@ -198,11 +198,11 @@ public extension AdaptiveStatusText {
         case "select_physical_speaker":
             return "Select a physical speaker"
         case "run_route_verification":
-            return "Run the readiness check"
+            return "Refresh local audio status"
         case "implement_passthrough":
             return "Passthrough implementation is still required"
         case "rerun_readiness_check":
-            return "Run the readiness check again"
+            return "Refresh local audio status again"
         case "retry_route_verification":
             return "Retry route verification"
         case "update_driver":

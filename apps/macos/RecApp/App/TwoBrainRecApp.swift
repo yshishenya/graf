@@ -598,14 +598,9 @@ private struct AppContentRoot: View {
             },
             runCheck: {
                 isChecking = true
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let state = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                    let checked = LocalAudioSnapshot.runReadinessCheck(routeEngineState: state)
-                    AppLog.write(event: "readiness_check", snapshot: checked)
-                    DispatchQueue.main.async {
-                        snapshot = checked
-                        isChecking = false
-                    }
+                LocalAudioSnapshot.refreshAsync(event: "status_refresh") { updated in
+                    snapshot = updated
+                    isChecking = false
                 }
             }
         )
@@ -859,9 +854,6 @@ fileprivate struct LocalAudioSnapshot {
         routeSnapshot: RouteVerificationSnapshot
     ) -> [String] {
         var actions: [String] = []
-        if !system.hasVirtualMicrophone || !system.hasVirtualSpeaker {
-            actions.append("Install or repair the audio driver")
-        }
         if system.defaultInput?.isTwoBrainVirtual == true {
             actions.append("Set macOS input back to a physical microphone while testing")
         }
@@ -872,9 +864,6 @@ fileprivate struct LocalAudioSnapshot {
            let systemOutput = system.defaultSystemOutput,
            output.id != systemOutput.id {
             actions.append("Default output and system output are different: \(output.name) / \(systemOutput.name)")
-        }
-        if routeSnapshot.mic.status != .passed || routeSnapshot.speaker.status != .passed {
-            actions.append("Run the readiness check again")
         }
         return actions
     }

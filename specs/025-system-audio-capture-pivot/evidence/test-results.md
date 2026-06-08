@@ -147,7 +147,7 @@
   - `CGWindowListCopyWindowInfo` reported a visible content window named
     `2brain Rec`, size `900x652`, after the AppDelegate fallback check.
   - Window screenshot showed the first viewport with `Driver Diagnostics`,
-    `Readiness Check`, `Recording idle`, visible `Record System Audio`, and
+    `Recording Status`, `Recording idle`, visible `Record System Audio`, and
     `Capture Audio` meters. The Record command is no longer below the first
     viewport.
 - App log evidence from `~/Library/Logs/2brain Rec/2brain-rec.log`:
@@ -730,3 +730,49 @@
     `maxHelperProcessCount=0`.
 - Notes: Screen/System Audio remains preflighted until ScreenCaptureKit start,
   so launch still does not start recording or request permissions silently.
+
+## 2026-06-08 Legacy Route Check Parked For MVP UI
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: remove old readiness/route-check prompts from the MVP recording UI
+  path while keeping explicit recording permission checks on `Record`.
+- Code review finding:
+  - The visible `Run Check` action still started the old
+    `PassthroughRouteEngine` route verification path.
+  - That path belongs to the previous virtual route/driver flow and is not
+    required for the system-audio MVP.
+  - Keeping it in the first-run UI could confuse validation because meters are
+    expected to become live only when recording starts, and it could reintroduce
+    route/hang risk outside the explicit recording path.
+- Code review fix:
+  - Renamed the panel to `Recording Status` and the action to
+    `Refresh Status`.
+  - `Refresh Status` now performs a metadata-only local audio refresh and no
+    longer starts the passthrough route engine.
+  - Removed MVP recovery copy that told users to repair the audio driver or run
+    the readiness check again.
+  - Updated adaptive recovery labels to use status refresh wording instead of
+    readiness-check wording.
+- Validation:
+  - `rg -n "Run Check|Readiness Check|Not ready for calls yet|Run the readiness check again|Install or repair the audio driver" apps/macos/RecApp apps/macos/Shared/Tests || true`
+    returned no matches in the app code after the fix.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`; this Command Line Tools environment did
+    not emit full XCTest execution details for this run.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+    produced `apps/macos/RecApp/.build/2brain Rec.app` and
+    `apps/macos/.build/installer/2brain-rec-local.pkg`.
+  - Packaged app launch produced one visible `2brain Rec` window.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+- Result: passed for UI copy, no-HAL boundary, packaged launch, idle CPU, and
+  quit CPU after parking the legacy route check.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
