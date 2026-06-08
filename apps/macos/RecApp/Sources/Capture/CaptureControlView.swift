@@ -231,11 +231,17 @@ private struct LiveRecordingMetersView: View {
     }
 
     private var microphoneIsLive: Bool {
-        routeSignalLevels.microphoneIsLive(now: now, staleAfter: 0.45)
+        routeSignalLevels.microphoneIsLive(
+            now: now,
+            staleAfter: SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds
+        )
     }
 
     private var incomingIsLive: Bool {
-        routeSignalLevels.speakerIsLive(now: now, staleAfter: 0.45)
+        routeSignalLevels.speakerIsLive(
+            now: now,
+            staleAfter: SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds
+        )
     }
 
     private var shouldWarnIncoming: Bool {

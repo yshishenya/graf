@@ -41,5 +41,10 @@ final class SystemAudioLocalizationTests: XCTestCase {
         XCTAssertEqual(SystemAudioStatusLabels.meterState(isLive: true), SystemAudioStatusLabels.activeState)
         XCTAssertEqual(SystemAudioStatusLabels.meterState(isLive: false), SystemAudioStatusLabels.silentState)
     }
+
+    func testRecordingMeterFreshnessAllowsBatchedSystemAudioDelivery() {
+        XCTAssertGreaterThanOrEqual(SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds, 1.5)
+        XCTAssertLessThanOrEqual(SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds, 2.0)
+    }
 }
 #endif

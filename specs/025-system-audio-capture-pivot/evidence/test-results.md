@@ -1872,3 +1872,45 @@
 - Remaining gates not completed by this automated slice: permission matrix,
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
+
+## 2026-06-09 Recording Meter Freshness Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: live microphone and incoming/system-audio meter responsiveness during
+  recording.
+- Code review finding:
+  - `CaptureControlView` treated microphone and incoming samples as stale after
+    `0.45` seconds.
+  - Microphone levels are refreshed on every UI poll through `AVAudioRecorder`,
+    but incoming ScreenCaptureKit/system-audio levels update only when the
+    writer receives another audio batch.
+  - The short freshness window could show a false `Silent` state between valid
+    incoming audio batches, matching the manual symptom where the incoming meter
+    appeared unresponsive while recording.
+- Code review fix:
+  - Added shared `recordingMeterFreshnessWindowSeconds = 1.5` for recording
+    meters.
+  - Updated `CaptureControlView` to use the shared freshness window for both
+    microphone and incoming meters.
+  - Added regression coverage that the recording meter window remains large
+    enough for batched system-audio delivery without holding stale state for
+    longer than `2.0` seconds.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including
+    `SystemAudioLocalizationTests`; full XCTest execution is not available in
+    this Command Line Tools host because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remained blocked only by the known manual evidence gaps tracked in #307,
+    #308, #309, #310, #311, and #313.
+- Result: passed for code review fix, build, contract, no-HAL, and app-only
+  installer validation.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
