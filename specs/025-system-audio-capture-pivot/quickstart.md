@@ -71,11 +71,54 @@ Expected:
 - explicit degraded attempts are labelled before start and in `manifest.json`;
 - recovery actions are specific and do not mention driver reinstall.
 
+Record each row in `evidence/permission-matrix.md`. Do not reset TCC from a
+script and do not paste user-specific meeting names, raw audio, transcripts, or
+screen contents into evidence. Use System Settings to grant/revoke permissions
+manually, then relaunch the packaged app and press Record only for the row being
+tested.
+
 ## 5. Controlled Recording Artifact
 
 Start a controlled meeting/audio source, select or confirm the capture scope,
 press Record, produce local microphone audio and incoming/system audio, then
 press Stop.
+
+Recommended manual run sequence:
+
+1. Confirm `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` reports
+   the current `coreaudiod` baseline before launching the app.
+2. Build and launch the packaged app:
+
+   ```sh
+   TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh
+   open -n "apps/macos/RecApp/.build/2brain Rec.app"
+   ```
+
+3. Start a controlled audio source with non-sensitive synthetic or generic audio.
+4. Press `Record System Audio` in the app and confirm macOS permission prompts
+   only when they appear naturally.
+5. While recording is active, run:
+
+   ```sh
+   apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
+   ```
+
+6. Press Stop in the app.
+7. Immediately run:
+
+   ```sh
+   apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
+   ```
+
+8. Inspect the newest local recording directory under:
+
+   ```text
+   ~/Library/Application Support/2brain Rec/Recordings/
+   ```
+
+9. Record only metadata in `evidence/artifact-matrix.md`: status, file presence,
+   track roles/source kinds, duration difference, permission states, and failure
+   reasons. Do not copy raw audio or private meeting content into evidence.
 
 Expected package:
 
@@ -110,6 +153,7 @@ Expected:
 
 ```sh
 cd apps/macos
+./Scripts/sample-system-audio-cpu-gate.sh baseline
 ./Scripts/sample-system-audio-cpu-gate.sh idle
 ./Scripts/sample-system-audio-cpu-gate.sh activeRecording
 ./Scripts/sample-system-audio-cpu-gate.sh stop
@@ -123,6 +167,10 @@ Expected:
 - active recording: no sustained app/helper total `> 25%`;
 - stop/quit returns below idle gate within 10 seconds;
 - app and meeting target remain responsive.
+
+The `baseline` phase is diagnostic-only and does not count as acceptance. It is
+used to separate pre-existing `coreaudiod` load from app-caused load. The
+accepted phases remain `idle`, `activeRecording`, `stop`, and `quit`.
 
 For CPU gates, `sustained` means at least three consecutive samples above the
 threshold at 2-second sampling intervals after the relevant settle window.

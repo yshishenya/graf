@@ -26,6 +26,24 @@ content, credentials, tokens, signed URLs, or personal contact details.
 
 Blocked, failed, degraded, and not-tested rows are not acceptance.
 
+## Manual Controlled Run Procedure
+
+1. Run `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` before
+   launching the packaged app.
+2. Build and launch the packaged app from the repository:
+   `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+   and `open -n "apps/macos/RecApp/.build/2brain Rec.app"`.
+3. Use a controlled, non-sensitive audio source.
+4. Press `Record System Audio`.
+5. While recording is active, run
+   `apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording`.
+6. Press Stop, then run `apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop`.
+7. Inspect the newest directory under
+   `~/Library/Application Support/2brain Rec/Recordings/`.
+8. Record only metadata: file presence, manifest status, track roles/source
+   kinds, duration difference, permissions, CPU gate result, and failure reasons.
+   Do not paste raw audio or meeting content here.
+
 ## 2026-06-08 Metadata Validator Run
 
 - Run ID: `20260608T174858Z`

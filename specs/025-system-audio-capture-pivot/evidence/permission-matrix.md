@@ -16,6 +16,17 @@ or personal contact details.
 
 Blocked, failed, degraded, and not-tested rows are not acceptance.
 
+## Manual Run Rules
+
+- Do not reset TCC from a script.
+- Change microphone and Screen/System Audio permissions only through System
+  Settings.
+- Relaunch the packaged app after each permission change before pressing Record.
+- Record only visible blocker copy, recovery action, manifest status/failure
+  reason, and whether the app blocked before false success.
+- Do not paste raw audio, transcripts, screen contents, meeting names, personal
+  details, credentials, tokens, or signed URLs into this file.
+
 ## 2026-06-08 Metadata Validator Run
 
 - Run ID: `20260608T174858Z`
