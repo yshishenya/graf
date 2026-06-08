@@ -219,6 +219,9 @@ bool MatchesNonRunningSurface(const ExpectedDeviceState& state) {
 }
 
 bool MatchesHiddenSafeSurface(const ExpectedDeviceState& state) {
+    if (!state.found) {
+        return true;
+    }
     return state.found &&
            HasReadableState(state) &&
            state.hidden &&

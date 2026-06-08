@@ -122,6 +122,7 @@ public final class PassthroughBridge {
         try queue.sync {
             guard !isRunning else { bridgeLog("start: already running"); return }
             do {
+                recordAppIOHeartbeat()
                 try setupMicCapture()
                 bridgeLog("start: mic AU ready")
                 try setupSpeakerPlayback()
@@ -150,6 +151,8 @@ public final class PassthroughBridge {
                 bridgeLog("start: error: \(error)")
                 cleanupAudioUnits()
                 isRunning = false
+                lastHeartbeatAt = nil
+                shm.clearAppHeartbeat()
                 throw error
             }
         }

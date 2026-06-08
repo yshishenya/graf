@@ -153,12 +153,19 @@ private struct ContentView: View {
             }
         }
         .onReceive(
-            Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+            Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
         ) { _ in
-            let routeState = PassthroughRouteEngine.shared.state
-            liveRouteSignalLevels = liveAudioSignalMonitor.currentLevels(
-                routeActive: routeState == .active
-            )
+            let routeActive = PassthroughRouteEngine.shared.nonblockingState == .active
+            guard routeActive else {
+                if liveRouteSignalLevels != .inactive {
+                    liveRouteSignalLevels = .inactive
+                }
+                return
+            }
+            let nextLevels = liveAudioSignalMonitor.currentLevels(routeActive: true)
+            if nextLevels != liveRouteSignalLevels {
+                liveRouteSignalLevels = nextLevels
+            }
         }
     }
 

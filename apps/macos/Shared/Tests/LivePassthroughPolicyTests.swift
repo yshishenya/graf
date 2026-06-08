@@ -69,7 +69,7 @@ final class LivePassthroughPolicyTests: XCTestCase {
         XCTAssertEqual(state, .armed)
     }
 
-    func testAutomaticLaunchWarmsRouteAfterClientDetectionGrace() {
+    func testAutomaticLaunchDoesNotWarmRouteWithoutVirtualClient() {
         let detector = FixedVirtualDeviceActivityDetector(isRunning: false)
         let bridge = CountingPassthroughBridge()
         let engine = PassthroughRouteEngine(
@@ -84,32 +84,30 @@ final class LivePassthroughPolicyTests: XCTestCase {
         }
 
         XCTAssertEqual(armed, .armed)
-        XCTAssertTrue(waitUntil(timeout: 5) { bridge.startCount > 0 })
-        XCTAssertEqual(engine.state, .active)
-        XCTAssertTrue(log.contains { event, detail in
-            event == "passthrough_bridge_started" &&
-                detail == "automatic non-recording route engine active"
-        })
+        Thread.sleep(forTimeInterval: 3.8)
+        XCTAssertEqual(bridge.startCount, 0)
+        XCTAssertEqual(engine.state, .armed)
+        XCTAssertFalse(log.contains { event, _ in event == "passthrough_bridge_started" })
     }
 
-    func testSlowSuccessfulAutomaticWarmupStaysActive() {
-        let bridge = CountingPassthroughBridge(startDelay: 3.2)
+    func testAutomaticLaunchStartsWhenVirtualClientIsRunning() {
+        let bridge = CountingPassthroughBridge()
         let engine = PassthroughRouteEngine(
             sharedMemory: nil,
-            activityDetector: FixedVirtualDeviceActivityDetector(isRunning: false),
+            activityDetector: FixedVirtualDeviceActivityDetector(isRunning: true),
             bridgeFactory: { _, _ in bridge }
         )
         var log: [(String, String)] = []
 
-        _ = engine.startAutomaticRoute { event, detail in
+        let state = engine.startAutomaticRoute { event, detail in
             log.append((event, detail))
         }
 
-        XCTAssertTrue(waitUntil(timeout: 7) { bridge.startCount > 0 })
-        XCTAssertEqual(engine.state, .active)
+        XCTAssertEqual(state, .active)
+        XCTAssertEqual(bridge.startCount, 1)
         XCTAssertTrue(log.contains { event, detail in
-            event == "passthrough_bridge_started_slow" &&
-                detail.contains("route active")
+            event == "passthrough_bridge_started" &&
+                detail == "automatic non-recording route engine active"
         })
     }
 

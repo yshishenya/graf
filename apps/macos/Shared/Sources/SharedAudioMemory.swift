@@ -16,7 +16,7 @@ public enum SharedRingPolicy {
 }
 
 public final class SharedAudioMemory {
-    public static let expectedSharedMemorySize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
+    public static let expectedSharedMemorySize = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 24
 
     public struct AvailabilitySnapshot: Codable, Equatable, Sendable {
         public var micAvailableFrames: UInt64
@@ -90,6 +90,7 @@ public final class SharedAudioMemory {
         public let captureWriteIdx: UnsafeMutablePointer<UInt64>
         public let appHeartbeatNanos: UnsafeMutablePointer<UInt64>
         public let appIOState: UnsafeMutablePointer<UInt64>
+        public let appWriterPID: UnsafeMutablePointer<UInt64>
         public let micBuffer: UnsafeMutablePointer<Float>
         public let speakerBuffer: UnsafeMutablePointer<Float>
         public let captureBuffer: UnsafeMutablePointer<Float>
@@ -104,6 +105,7 @@ public final class SharedAudioMemory {
             captureWriteIdx = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             appHeartbeatNanos = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             appIOState = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
+            appWriterPID = base.advanced(by: offset).assumingMemoryBound(to: UInt64.self); offset += MemoryLayout<UInt64>.size
             micBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
             speakerBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self); offset += kSharedRingCapacity * MemoryLayout<Float>.size
             captureBuffer = base.advanced(by: offset).assumingMemoryBound(to: Float.self)
@@ -192,7 +194,7 @@ public final class SharedAudioMemory {
         OSMemoryBarrier()
         let w = l.captureWriteIdx.pointee
         let r = l.captureReadIdx.pointee
-        let avail = w &- r
+        let avail = Self.clampedAvailable(writeIndex: w, readIndex: r)
         let n = min(count, Int(avail))
         for i in 0..<n {
             dst[i] = l.captureBuffer[Int(r &+ UInt64(i)) & (kSharedRingCapacity - 1)]
@@ -204,17 +206,26 @@ public final class SharedAudioMemory {
 
     public func micAvailable() -> UInt64 {
         OSMemoryBarrier()
-        return layout.micWriteIdx.pointee - layout.micReadIdx.pointee
+        return Self.clampedAvailable(
+            writeIndex: layout.micWriteIdx.pointee,
+            readIndex: layout.micReadIdx.pointee
+        )
     }
 
     public func speakerAvailable() -> UInt64 {
         OSMemoryBarrier()
-        return layout.speakerWriteIdx.pointee - layout.speakerReadIdx.pointee
+        return Self.clampedAvailable(
+            writeIndex: layout.speakerWriteIdx.pointee,
+            readIndex: layout.speakerReadIdx.pointee
+        )
     }
 
     public func captureAvailable() -> UInt64 {
         OSMemoryBarrier()
-        return layout.captureWriteIdx.pointee - layout.captureReadIdx.pointee
+        return Self.clampedAvailable(
+            writeIndex: layout.captureWriteIdx.pointee,
+            readIndex: layout.captureReadIdx.pointee
+        )
     }
 
     public func writeIndexSnapshot(checkedAt: Date = Date()) -> WriteIndexSnapshot {
@@ -265,6 +276,14 @@ public final class SharedAudioMemory {
         )
     }
 
+    public static func clampedAvailable(
+        writeIndex: UInt64,
+        readIndex: UInt64,
+        capacity: Int = kSharedRingCapacity
+    ) -> UInt64 {
+        min(writeIndex &- readIndex, UInt64(max(capacity, 0)))
+    }
+
     public static func copyLatestSamples(
         from buffer: UnsafePointer<Float>,
         writeIndex: UInt64,
@@ -285,6 +304,7 @@ public final class SharedAudioMemory {
     public func writeAppHeartbeat(at date: Date = Date()) {
         let nanos = UInt64(max(date.timeIntervalSince1970, 0) * 1_000_000_000)
         OSMemoryBarrier()
+        layout.appWriterPID.pointee = UInt64(ProcessInfo.processInfo.processIdentifier)
         layout.appHeartbeatNanos.pointee = nanos
         layout.appIOState.pointee = 1
         OSMemoryBarrier()
@@ -294,6 +314,7 @@ public final class SharedAudioMemory {
         OSMemoryBarrier()
         layout.appIOState.pointee = 0
         layout.appHeartbeatNanos.pointee = 0
+        layout.appWriterPID.pointee = 0
         OSMemoryBarrier()
     }
 

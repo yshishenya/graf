@@ -70,12 +70,12 @@ public extension PassthroughBridgeControlling {
 public final class PassthroughRouteEngine: @unchecked Sendable {
     public typealias Logger = @Sendable (_ event: String, _ detail: String) -> Void
     public typealias BridgeFactory = @Sendable (_ selectedPhysicalInputId: String?, _ selectedPhysicalOutputId: String?) throws -> PassthroughBridgeControlling
-    public static let automaticClientDetectionGraceTicks = 3
-
     public static let shared = PassthroughRouteEngine()
 
     private let queue = DispatchQueue(label: "com.2brainrec.passthrough-route-engine")
     private var stateStorage: PassthroughRouteEngineState
+    private let stateSnapshotLock = NSLock()
+    private var stateSnapshot: PassthroughRouteEngineState
     private let sharedMemory: SharedAudioMemory?
     private var bridge: PassthroughBridgeControlling?
     private var heartbeatTimer: DispatchSourceTimer?
@@ -89,7 +89,6 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
     private var consecutiveIdleTicks = 0
     private var routeSessionId: String?
     private var lastRouteEvidenceEvent: RouteEvidenceEvent?
-    private var automaticStartTicks = 0
 
     public init(
         sharedMemory: SharedAudioMemory? = SharedAudioMemory(),
@@ -109,11 +108,18 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         self.idFactory = idFactory
         self.routeEvidenceStore = routeEvidenceStore
         self.stateStorage = .inactive
+        self.stateSnapshot = .inactive
         sharedMemory?.clearAppHeartbeat()
     }
 
     public var state: PassthroughRouteEngineState {
         queue.sync { stateStorage }
+    }
+
+    public var nonblockingState: PassthroughRouteEngineState {
+        stateSnapshotLock.lock()
+        defer { stateSnapshotLock.unlock() }
+        return stateSnapshot
     }
 
     public var currentRouteSessionId: String? {
@@ -126,11 +132,18 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         }
     }
 
+    private func setStateLocked(_ newState: PassthroughRouteEngineState) {
+        stateStorage = newState
+        stateSnapshotLock.lock()
+        stateSnapshot = newState
+        stateSnapshotLock.unlock()
+    }
+
     public func recordLaunchState(logger: Logger) -> PassthroughRouteEngineState {
         queue.sync {
             if bridge != nil {
                 bridge?.refreshAppIOHeartbeat()
-                stateStorage = .active
+                setStateLocked(.active)
                 logger(
                     "passthrough_bridge_launch_active",
                     "non-recording route engine is already active"
@@ -138,7 +151,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
                 return stateStorage
             }
 
-            stateStorage = .inactive
+            setStateLocked(.inactive)
             logger(
                 "passthrough_bridge_launch_available",
                 "non-recording route engine will arm and wait for virtual-device client IO"
@@ -155,7 +168,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         queue.sync {
             if bridge != nil {
                 bridge?.refreshAppIOHeartbeat()
-                stateStorage = .active
+                setStateLocked(.active)
                 logger("passthrough_bridge_already_active", "route engine refreshed app IO heartbeat")
                 return stateStorage
             }
@@ -170,7 +183,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
                 )
             }
 
-            stateStorage = .armed
+            setStateLocked(.armed)
             startAutomaticStartTimer(
                 selectedPhysicalInputId: selectedPhysicalInputId,
                 selectedPhysicalOutputId: selectedPhysicalOutputId,
@@ -220,7 +233,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             bridge?.stop()
             bridge = nil
             sharedMemory?.clearAppHeartbeat()
-            stateStorage = .idleSafe
+            setStateLocked(.idleSafe)
             recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.stopped", state: .stopped))
             routeSessionId = nil
             logger?("passthrough_bridge_stopped", "route engine cleared app IO heartbeat")
@@ -235,7 +248,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             bridge?.stop()
             bridge = nil
             sharedMemory?.clearAppHeartbeat()
-            stateStorage = .stale("coreaudiod_restarted")
+            setStateLocked(.stale("coreaudiod_restarted"))
             recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.stale", state: .stale))
             logger?("passthrough_bridge_stale", "coreaudiod restarted; route requires recheck")
             logger?("passthrough_autorepair_triggered", AutorepairTrigger.coreaudiodRestart.rawValue)
@@ -250,19 +263,19 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         queue.sync {
             switch attempt.outcome {
             case .succeeded:
-                stateStorage = .active
+                setStateLocked(.active)
                 recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.recovered", state: .healthyAfterFreshEvidence))
                 logger?("passthrough_autorepair_succeeded", attempt.trigger.rawValue)
             case .degradedSlow:
-                stateStorage = .stale("autorepair_degraded_slow")
+                setStateLocked(.stale("autorepair_degraded_slow"))
                 recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.stale", state: .stale))
                 logger?("passthrough_autorepair_degraded", attempt.trigger.rawValue)
             case .blockedNonRecoverable:
-                stateStorage = .blocked(attempt.nonRecoverableReason?.rawValue ?? "blocked_non_recoverable")
+                setStateLocked(.blocked(attempt.nonRecoverableReason?.rawValue ?? "blocked_non_recoverable"))
                 recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.blocked", state: .blocked))
                 logger?("passthrough_autorepair_blocked", attempt.nonRecoverableReason?.rawValue ?? "blocked_non_recoverable")
             case .failed, .retryBudgetExhausted:
-                stateStorage = .failed(attempt.outcome.rawValue)
+                setStateLocked(.failed(attempt.outcome.rawValue))
                 recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.failed", state: .failed))
                 logger?("passthrough_autorepair_failed", attempt.outcome.rawValue)
             case .notStarted:
@@ -279,7 +292,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             bridge?.stop()
             bridge = nil
             sharedMemory?.clearAppHeartbeat()
-            stateStorage = .fallback(reason)
+            setStateLocked(.fallback(reason))
             logger?("passthrough_bridge_fallback", reason)
             return stateStorage
         }
@@ -294,14 +307,14 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
     ) -> PassthroughRouteEngineState {
         if bridge != nil {
             bridge?.refreshAppIOHeartbeat()
-            stateStorage = .active
+            setStateLocked(.active)
             logger("passthrough_bridge_already_active", "route engine refreshed app IO heartbeat")
             return stateStorage
         }
 
         stopAutomaticStartTimer()
         ensureRouteSessionLocked()
-        stateStorage = .starting
+        setStateLocked(.starting)
         logger("passthrough_bridge_starting", reason)
         let startedAt = Date()
         do {
@@ -311,7 +324,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             self.bridge = bridge
             consecutiveIdleTicks = 0
             startHeartbeatTimer(for: bridge, logger: logger)
-            stateStorage = .active
+            setStateLocked(.active)
             recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.active", state: .active))
             let attempt = PassthroughBridge.startupAttemptEvidence(
                 attemptId: UUID().uuidString,
@@ -337,9 +350,9 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
                 outcome: .failed,
                 blockedReason: String(describing: error)
             )
-            stateStorage = attempt.outcome == .blocked
+            setStateLocked(attempt.outcome == .blocked
                 ? .blocked(attempt.blockedReason ?? "startup_timeout")
-                : .failed(String(describing: error))
+                : .failed(String(describing: error)))
             logger(
                 attempt.outcome == .blocked ? "passthrough_bridge_blocked" : "passthrough_bridge_failed",
                 attempt.blockedReason ?? String(describing: error)
@@ -384,21 +397,17 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         timer.schedule(deadline: .now() + 0.5, repeating: 1.0)
         timer.setEventHandler { [weak self] in
             guard let self, self.bridge == nil else { return }
-            self.automaticStartTicks += 1
             let virtualDeviceRunning = self.activityDetector.anyExpectedVirtualDeviceRunning()
-            guard virtualDeviceRunning || self.automaticStartTicks >= Self.automaticClientDetectionGraceTicks else { return }
+            guard virtualDeviceRunning else { return }
             _ = self.startRouteLocked(
                 selectedPhysicalInputId: selectedPhysicalInputId,
                 selectedPhysicalOutputId: selectedPhysicalOutputId,
-                reason: virtualDeviceRunning
-                    ? "virtual device client became active"
-                    : "automatic route warmup after client detection grace",
+                reason: "virtual device client became active",
                 startedDetail: "automatic non-recording route engine active",
                 logger: logger
             )
         }
         automaticStartTimer = timer
-        automaticStartTicks = 0
         recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.armed", state: .armed))
         timer.resume()
     }
@@ -440,7 +449,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             if autoIdlePolicy.clientActivityPolicy.shouldPreserveRoute(for: snapshot) {
             consecutiveIdleTicks = 0
             if bridge != nil {
-                stateStorage = .active
+                setStateLocked(.active)
                 recordEvidenceLocked(lifecycleEventLocked(name: "route.lifecycle.preserved", state: .preserved, clientActivity: snapshot))
                 logger?("passthrough_route_preserved", "fresh client activity preserved physical route")
             }
@@ -477,7 +486,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         bridge = nil
         consecutiveIdleTicks = 0
         sharedMemory?.clearAppHeartbeat()
-        stateStorage = .idleSafe
+        setStateLocked(.idleSafe)
         recordEvidenceLocked(releaseDecisionEventLocked(decision, clientActivity: snapshot))
         routeSessionId = nil
         logger?("passthrough_bridge_idle_released", "virtual-device client IO closed; physical route released")
@@ -593,7 +602,6 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
     private func stopAutomaticStartTimer() {
         automaticStartTimer?.cancel()
         automaticStartTimer = nil
-        automaticStartTicks = 0
     }
 
     private func stopHeartbeatTimer() {

@@ -6,7 +6,7 @@ import XCTest
 
 final class SharedAudioMemoryCompatibilityTests: XCTestCase {
     func testSharedMemoryLayoutSizeStaysOnAcceptedHeartbeatLayout() {
-        let expected = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
+        let expected = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 24
 
         XCTAssertEqual(SharedAudioMemory.expectedSharedMemorySize, expected)
     }
@@ -29,6 +29,13 @@ final class SharedAudioMemoryCompatibilityTests: XCTestCase {
 
     func testRingWritableSampleCountTracksUnreadDistance() {
         XCTAssertEqual(SharedRingPolicy.writableSampleCount(writeIndex: 10, readIndex: 6, capacity: 8), 4)
+    }
+
+    func testAvailableSampleCountClampsImpossibleSharedMemoryDistance() {
+        XCTAssertEqual(
+            SharedAudioMemory.clampedAvailable(writeIndex: UInt64.max, readIndex: 0, capacity: 8),
+            8
+        )
     }
 
     func testCopyLatestSamplesReadsTailWithoutRuntimeSharedMemory() {
