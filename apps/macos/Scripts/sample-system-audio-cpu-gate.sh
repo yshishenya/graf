@@ -22,6 +22,7 @@ Environment:
 
 Required gates:
 - idle/stop/quit after settle: coreaudiod < 5% and app+helper < 5%
+- quit after settle: app/helper process count must be 0
 - active recording: no sustained coreaudiod > 10%
 - active recording: no sustained app+helper > 25%
 - baseline: diagnostic only; records coreaudiod/app/helper CPU without counting
@@ -90,6 +91,17 @@ helper_pids() {
     ' || true
 }
 
+word_count() {
+  words="$1"
+  if [ -z "$words" ]; then
+    printf '0'
+    return
+  fi
+  # shellcheck disable=SC2086
+  set -- $words
+  printf '%s' "$#"
+}
+
 if [ "$SETTLE_SECONDS" -gt 0 ]; then
   sleep "$SETTLE_SECONDS"
 fi
@@ -99,13 +111,18 @@ trap 'rm -f "$tmp_file"' EXIT
 
 i=1
 while [ "$i" -le "$SAMPLES" ]; do
-  core_cpu="$(cpu_sum_for_pids "$(coreaudiod_pids)")"
-  app_cpu="$(cpu_sum_for_pids "$(app_pids)")"
-  helper_cpu="$(cpu_sum_for_pids "$(helper_pids)")"
+  core_pids="$(coreaudiod_pids)"
+  app_pids_value="$(app_pids)"
+  helper_pids_value="$(helper_pids)"
+  core_cpu="$(cpu_sum_for_pids "$core_pids")"
+  app_cpu="$(cpu_sum_for_pids "$app_pids_value")"
+  helper_cpu="$(cpu_sum_for_pids "$helper_pids_value")"
+  app_process_count="$(word_count "$app_pids_value")"
+  helper_process_count="$(word_count "$helper_pids_value")"
   app_helper_cpu="$(awk -v a="$app_cpu" -v b="$helper_cpu" 'BEGIN { printf "%.2f", a + b }')"
   sampled_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s halProbeObserved=false\n' \
-    "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" | tee -a "$tmp_file"
+  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s appProcessCount=%s helperProcessCount=%s halProbeObserved=false\n' \
+    "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" "$app_process_count" "$helper_process_count" | tee -a "$tmp_file"
   if [ "$i" -lt "$SAMPLES" ]; then
     sleep "$INTERVAL_SECONDS"
   fi
@@ -114,18 +131,22 @@ done
 
 evaluation="$(awk -v phase="$PHASE" '
 BEGIN {
-  maxCore = 0; maxApp = 0; coreSeq = 0; appSeq = 0; coreSustained = 0; appSustained = 0; count = 0;
+  maxCore = 0; maxApp = 0; coreSeq = 0; appSeq = 0; coreSustained = 0; appSustained = 0; count = 0; maxAppProcesses = 0; maxHelperProcesses = 0;
 }
 {
   count += 1;
-  core = 0; app = 0;
+  core = 0; app = 0; appProcesses = 0; helperProcesses = 0;
   for (i = 1; i <= NF; i += 1) {
     split($i, kv, "=");
     if (kv[1] == "coreaudiodCpuPercent") core = kv[2] + 0;
     if (kv[1] == "appHelperCpuPercent") app = kv[2] + 0;
+    if (kv[1] == "appProcessCount") appProcesses = kv[2] + 0;
+    if (kv[1] == "helperProcessCount") helperProcesses = kv[2] + 0;
   }
   if (core > maxCore) maxCore = core;
   if (app > maxApp) maxApp = app;
+  if (appProcesses > maxAppProcesses) maxAppProcesses = appProcesses;
+  if (helperProcesses > maxHelperProcesses) maxHelperProcesses = helperProcesses;
   if (phase == "baseline") {
     next;
   } else if (phase == "activeRecording") {
@@ -143,10 +164,16 @@ END {
     status = count > 0 ? "observed" : "failed";
   } else {
     status = (count > 0 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
+    if (phase == "quit" && (maxAppProcesses > 0 || maxHelperProcesses > 0)) {
+      status = "failed";
+    }
   }
   reason = status == "passed" ? "none" : "cpuGateFailed";
+  if (phase == "quit" && status == "failed" && (maxAppProcesses > 0 || maxHelperProcesses > 0)) {
+    reason = "appStillRunning";
+  }
   if (status == "observed") reason = "diagnosticOnly";
-  printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s", status, reason, count, maxCore, maxApp, coreSustained ? "true" : "false", appSustained ? "true" : "false";
+  printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f maxAppProcessCount=%d maxHelperProcessCount=%d sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s", status, reason, count, maxCore, maxApp, maxAppProcesses, maxHelperProcesses, coreSustained ? "true" : "false", appSustained ? "true" : "false";
 }' "$tmp_file")"
 
 printf '%s\n' "$evaluation"

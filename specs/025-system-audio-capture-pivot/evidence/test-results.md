@@ -542,3 +542,35 @@
 - Notes: This removes a manual selection hazard for #308/T072. It does not
   close #308/T072 because the accepted artifact still requires a real controlled
   recording run.
+
+## 2026-06-08 Quit CPU Gate Process-Truth Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: #309/T073 quit CPU gate correctness.
+- Code review finding:
+  - `sample-system-audio-cpu-gate.sh quit` evaluated only CPU thresholds.
+  - A still-running `2brain Rec` process with `0.00%` CPU could therefore
+    produce `status=passed`, even though the quit gate requires the app/helper
+    process to be gone after the settle window.
+- Code review fix:
+  - Added `appProcessCount` and `helperProcessCount` to each CPU sample line.
+  - Added `maxAppProcessCount` and `maxHelperProcessCount` to the evaluation
+    summary.
+  - `quit` now fails with `failureReason=appStillRunning` when either count is
+    non-zero after the settle window, even if CPU usage is low.
+- Runtime proof:
+  - With the packaged app still running, `quit` returned `status=failed
+    failureReason=appStillRunning ... maxAppProcessCount=1`.
+  - After quitting the app, `quit` returned `status=passed failureReason=none
+    ... maxAppProcessCount=0 maxHelperProcessCount=0`.
+- Additional checks:
+  - Packaged app launch still showed one visible `2brain Rec` window via
+    CoreGraphics.
+  - Idle CPU stayed below gate with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.00`.
+  - AppLog showed `app_launch_finished`, `app_main_window_presented`,
+    `app_window_visibility_checked visibleWindowCount=1`, and
+    `passthrough_bridge_auto_start_skipped`.
+- Notes: This hardens #309/T073 and #313/T077. #309 remains open because
+  accepted active-recording and stop CPU gates still require a real controlled
+  recording run.

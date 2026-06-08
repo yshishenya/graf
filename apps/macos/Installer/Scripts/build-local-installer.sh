@@ -71,6 +71,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <string>14.5</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>ApplePersistenceIgnoreState</key>
+  <true/>
+  <key>NSQuitAlwaysKeepsWindows</key>
+  <false/>
   <key>NSMicrophoneUsageDescription</key>
   <string>2brain Rec needs microphone access to verify and capture meeting audio.</string>
   <key>NSScreenCaptureUsageDescription</key>
