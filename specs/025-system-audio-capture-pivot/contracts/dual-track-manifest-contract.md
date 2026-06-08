@@ -36,7 +36,9 @@ Top-level fields:
 Track fields:
 
 - `trackId`
-- `role`: `localMic`, `incomingSystemAudio`
+- `role`: existing backend-compatible audio track role: `localMic`,
+  `remoteSpeaker`
+- `sourceKind`: `microphone`, `systemAudio`
 - `fileName`: `mic.wav` or `incoming.wav`
 - `status`: `saved`, `missing`, `degraded`, `blocked`, `failed`
 - `format`
@@ -76,3 +78,6 @@ Allowed failure reasons:
   must produce `degraded`, `blocked`, or `failed`, not `saved`.
 - `externalEgressStarted` and `transcriptionStarted` must remain `false` in
   this feature.
+- The incoming/system-audio file must keep the existing `remoteSpeaker` role
+  and `incoming.wav` mapping so local artifacts remain compatible with the
+  current dual-track backend and MediaScribe contract.

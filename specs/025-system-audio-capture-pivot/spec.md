@@ -24,7 +24,7 @@ acceptance path and parked as future advanced routing work.
 - Q: What audio scope counts as MVP system-audio capture? → A: Approved meeting app/window/display scope selected or confirmed by the user; arbitrary background system audio is not a recording trigger.
 - Q: Can an accepted MVP recording start with missing microphone or Screen/System Audio permission? → A: No; normal accepted recording requires both permissions, while explicit degraded attempts must be labelled before start and in the manifest.
 - Q: How should silent, protected, or blocked incoming audio be represented? → A: It is not success; the app records frame/level evidence and marks the incoming track degraded or blocked with a specific reason.
-- Q: What runtime stability gate replaces the unsafe HAL live-publication checks? → A: No HAL probes for MVP; idle `coreaudiod` and app CPU must settle below 5% each, and active recording must avoid sustained `coreaudiod` CPU above 10% or app/helper CPU above 25%.
+- Q: What runtime stability gate replaces the unsafe HAL live-publication checks? → A: No HAL probes for MVP; idle `coreaudiod` and app CPU must settle below 5% each, and active recording must avoid sustained `coreaudiod` CPU above 10% or combined app/helper CPU above 25%.
 - Q: What duration evidence is required before release acceptance? → A: Reuse the two-level gate: 30-minute development validation plus 75-minute manual release validation with system-audio capture.
 
 ## User Scenarios & Testing
@@ -263,8 +263,8 @@ system-audio MVP recording flow still works.
 - **SC-004**: After a 10-second idle settle window, `coreaudiod` and the app
   each remain below 5% CPU during idle validation.
 - **SC-005**: Active recording avoids CoreAudio CPU runaway, app freeze, and
-  meeting-app freeze; sustained `coreaudiod` CPU above 10% or app/helper CPU
-  above 25% fails the validation run.
+  meeting-app freeze; sustained `coreaudiod` CPU above 10% or combined
+  app/helper CPU above 25% fails the validation run.
 - **SC-006**: Stop returns the app and capture services below the idle CPU gate
   within 10 seconds.
 - **SC-007**: MVP validation can run with the HAL driver absent or ignored.

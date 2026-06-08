@@ -21,12 +21,12 @@ Test and contract tasks appear before implementation tasks in each story.
 **Purpose**: Prepare feature scaffolding, evidence directories, and package visibility.
 
 - [ ] T001 Create feature evidence directory with README in `specs/025-system-audio-capture-pivot/evidence/README.md`
-- [ ] T002 [P] Add system-audio validation script placeholder and usage contract in `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`
-- [ ] T003 [P] Add CPU gate sampling script placeholder and output contract in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
-- [ ] T004 [P] Add no-HAL validation script placeholder and output contract in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
-- [ ] T005 [P] Add system-audio capture model file placeholder in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T006 [P] Add system-audio capture service file placeholder in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
-- [ ] T007 [P] Add microphone capture service file placeholder in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
+- [ ] T002 [P] Add executable system-audio validation script skeleton and usage contract in `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`
+- [ ] T003 [P] Add executable CPU gate sampling script skeleton and output contract in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
+- [ ] T004 [P] Add executable no-HAL validation script skeleton and output contract in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- [ ] T005 [P] Add compile-safe system-audio capture model module shell in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [ ] T006 [P] Add compile-safe system-audio capture service module shell in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
+- [ ] T007 [P] Add compile-safe microphone capture service module shell in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
 
 ---
 
@@ -43,7 +43,7 @@ Test and contract tasks appear before implementation tasks in each story.
 - [ ] T012 Update diagnostic redaction allow/deny lists for system-audio evidence in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
 - [ ] T013 Refactor `LocalRecordingWriter` to accept independent microphone and incoming sample sources without requiring `SharedAudioMemory` in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
 - [ ] T014 [P] Add unit tests for independent local recording sample sources in `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`
-- [ ] T015 [P] Add manifest model tests for `incomingSystemAudio`, scope approval, permission state, and CPU evidence in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
+- [ ] T015 [P] Add manifest model tests for `remoteSpeaker` incoming track role, `systemAudio` source metadata, scope approval, permission state, and CPU evidence in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
 - [ ] T016 Update local recording manifest models for system-audio source metadata in `apps/macos/Shared/Sources/Models/LocalRecordingModels.swift`
 - [ ] T017 Update contract validation tool to require system-audio manifest fields in `apps/macos/Shared/Tools/ContractValidation/main.swift`
 - [ ] T018 Run `swift build` for the macOS package and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
@@ -94,10 +94,11 @@ Test and contract tasks appear before implementation tasks in each story.
 ### Implementation for User Story 2
 
 - [ ] T033 [US2] Implement combined microphone and Screen/System Audio permission gate in `apps/macos/RecApp/Sources/Capture/SystemAudioPermissionGate.swift`
-- [ ] T034 [US2] Wire permission gate into recording start blocker flow in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T035 [US2] Add user-facing permission/degraded state copy models in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T036 [US2] Update `CaptureControlView` permission blocker and degraded-attempt UI in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T037 [US2] Record permission matrix evidence template and expected outcomes in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
+- [ ] T034 [US2] Ensure app bundle permission usage declarations cover microphone and Screen/System Audio prompts in `apps/macos/Installer/Scripts/build-local-installer.sh`
+- [ ] T035 [US2] Wire permission gate into recording start blocker flow in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [ ] T036 [US2] Add user-facing permission/degraded state copy models in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [ ] T037 [US2] Update `CaptureControlView` permission blocker and degraded-attempt UI in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [ ] T038 [US2] Record permission matrix evidence template and expected outcomes in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
 
 **Checkpoint**: US2 independently proves missing permissions cannot create false accepted recordings.
 
@@ -111,17 +112,17 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 3
 
-- [ ] T038 [P] [US3] Add manifest tests for both tracks saved and aligned in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
-- [ ] T039 [P] [US3] Add manifest tests for silent, protected, blocked, missing, and dropped incoming audio in `apps/macos/Shared/Tests/SystemAudioManifestFailureReasonTests.swift`
-- [ ] T040 [P] [US3] Add track alignment tolerance tests for `durationDifferenceSeconds <= 3` in `apps/macos/Shared/Tests/SystemAudioTrackAlignmentTests.swift`
+- [ ] T039 [P] [US3] Add manifest tests for both tracks saved and aligned in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
+- [ ] T040 [P] [US3] Add manifest tests for silent, protected, blocked, missing, and dropped incoming audio in `apps/macos/Shared/Tests/SystemAudioManifestFailureReasonTests.swift`
+- [ ] T041 [P] [US3] Add track alignment tolerance tests for `durationDifferenceSeconds <= 3` in `apps/macos/Shared/Tests/SystemAudioTrackAlignmentTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T041 [US3] Extend `LocalRecordingManifestService` to write scope, permission, failure reason, and CPU metadata in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
-- [ ] T042 [US3] Update `LocalRecordingWriter` to mark incoming/system audio as degraded or blocked for no frames, silent frames, protected frames, and misalignment in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
-- [ ] T043 [US3] Add `CaptureHealthMonitor` for frame continuity, levels, dropped frames, silence windows, and alignment metadata in `apps/macos/RecApp/Sources/Capture/CaptureHealthMonitor.swift`
-- [ ] T044 [US3] Update `RecordingEvidenceService` to emit safe local recording evidence for system-audio degraded states in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
-- [ ] T045 [US3] Record artifact matrix evidence template for saved/degraded/blocked/failed outcomes in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
+- [ ] T042 [US3] Extend `LocalRecordingManifestService` to write scope, permission, failure reason, CPU metadata, and `systemAudio` source metadata while preserving the `remoteSpeaker` incoming role in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
+- [ ] T043 [US3] Update `LocalRecordingWriter` to mark incoming/system audio as degraded or blocked for no frames, silent frames, protected frames, and misalignment in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
+- [ ] T044 [US3] Add `CaptureHealthMonitor` for frame continuity, levels, dropped frames, silence windows, and alignment metadata in `apps/macos/RecApp/Sources/Capture/CaptureHealthMonitor.swift`
+- [ ] T045 [US3] Update `RecordingEvidenceService` to emit safe local recording evidence for system-audio degraded states in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
+- [ ] T046 [US3] Record artifact matrix evidence template for saved/degraded/blocked/failed outcomes in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
 
 **Checkpoint**: US3 independently proves artifact truth for all required track outcomes.
 
@@ -135,18 +136,18 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 4
 
-- [ ] T046 [P] [US4] Add CPU gate model tests for idle, active, stop, quit, and sustained threshold semantics in `apps/macos/Shared/Tests/SystemAudioCPUGateTests.swift`
-- [ ] T047 [P] [US4] Add no-HAL validation tests for evidence models in `apps/macos/Shared/Tests/SystemAudioNoHALValidationTests.swift`
-- [ ] T048 [P] [US4] Add capture resource release tests for stop and quit outcomes in `apps/macos/Shared/Tests/SystemAudioResourceReleaseTests.swift`
+- [ ] T047 [P] [US4] Add CPU gate model tests for idle, active, stop, quit, and sustained threshold semantics in `apps/macos/Shared/Tests/SystemAudioCPUGateTests.swift`
+- [ ] T048 [P] [US4] Add no-HAL validation tests for evidence models in `apps/macos/Shared/Tests/SystemAudioNoHALValidationTests.swift`
+- [ ] T049 [P] [US4] Add capture resource release tests for stop and quit outcomes in `apps/macos/Shared/Tests/SystemAudioResourceReleaseTests.swift`
 
 ### Implementation for User Story 4
 
-- [ ] T049 [US4] Implement CPU gate evidence model and sustained sample evaluation in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T050 [US4] Implement `sample-system-audio-cpu-gate.sh` using metadata-only process sampling in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
-- [ ] T051 [US4] Implement `validate-system-audio-no-hal-probe.sh` to fail on HAL probe dependency in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
-- [ ] T052 [US4] Ensure app termination releases system-audio and microphone resources in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T053 [US4] Record CPU gate evidence template in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
-- [ ] T054 [US4] Record no-HAL evidence template in `specs/025-system-audio-capture-pivot/evidence/no-hal-probe.md`
+- [ ] T050 [US4] Implement CPU gate evidence model and sustained sample evaluation in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [ ] T051 [US4] Implement `sample-system-audio-cpu-gate.sh` using metadata-only process sampling in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
+- [ ] T052 [US4] Implement `validate-system-audio-no-hal-probe.sh` to fail on HAL probe dependency in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- [ ] T053 [US4] Ensure app termination releases system-audio and microphone resources in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [ ] T054 [US4] Record CPU gate evidence template in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
+- [ ] T055 [US4] Record no-HAL evidence template in `specs/025-system-audio-capture-pivot/evidence/no-hal-probe.md`
 
 **Checkpoint**: US4 independently proves runtime stability gates are measurable and no-HAL validation is enforceable.
 
@@ -160,15 +161,15 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 5
 
-- [ ] T055 [P] [US5] Add tests that MVP readiness ignores unavailable driver diagnostics in `apps/macos/Shared/Tests/SystemAudioDriverParkedTests.swift`
-- [ ] T056 [P] [US5] Add tests that UI copy does not require virtual devices for MVP recording in `apps/macos/Shared/Tests/SystemAudioNoVirtualDeviceCopyTests.swift`
+- [ ] T056 [P] [US5] Add tests that MVP readiness ignores unavailable driver diagnostics in `apps/macos/Shared/Tests/SystemAudioDriverParkedTests.swift`
+- [ ] T057 [P] [US5] Add tests that UI copy does not require virtual devices for MVP recording in `apps/macos/Shared/Tests/SystemAudioNoVirtualDeviceCopyTests.swift`
 
 ### Implementation for User Story 5
 
-- [ ] T057 [US5] Update `DriverSetupView` or surrounding composition so driver repair is not presented as an MVP recording prerequisite in `apps/macos/RecApp/Sources/DriverSetup/DriverSetupView.swift`
-- [ ] T058 [US5] Update `LocalAudioSnapshot.summary` for system-audio MVP readiness language in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T059 [US5] Add future-driver boundary notes to macOS README in `apps/macos/README.md`
-- [ ] T060 [US5] Record driver-parked validation evidence template in `specs/025-system-audio-capture-pivot/evidence/driver-parked.md`
+- [ ] T058 [US5] Update `DriverSetupView` or surrounding composition so driver repair is not presented as an MVP recording prerequisite in `apps/macos/RecApp/Sources/DriverSetup/DriverSetupView.swift`
+- [ ] T059 [US5] Update `LocalAudioSnapshot.summary` for system-audio MVP readiness language in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [ ] T060 [US5] Add future-driver boundary notes to macOS README in `apps/macos/README.md`
+- [ ] T061 [US5] Record driver-parked validation evidence template in `specs/025-system-audio-capture-pivot/evidence/driver-parked.md`
 
 **Checkpoint**: US5 independently proves driver work is parked and cannot regress MVP recording status.
 
@@ -178,11 +179,11 @@ Test and contract tasks appear before implementation tasks in each story.
 
 **Purpose**: Complete UI quality gates that apply across P1 stories.
 
-- [ ] T061 [P] Add accessibility tests for recording indicator, Stop, level meters, blockers, scope picker, and degraded banners in `apps/macos/Shared/Tests/SystemAudioAccessibilityTests.swift`
-- [ ] T062 [P] Add localization-safe state label tests in `apps/macos/Shared/Tests/SystemAudioLocalizationTests.swift`
-- [ ] T063 [P] Add long-name and small-window UI state tests in `apps/macos/Shared/Tests/SystemAudioResponsiveStateTests.swift`
-- [ ] T064 Update `CaptureControlView` accessibility labels, keyboard focus, long-name handling, and small-window state behavior in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T065 Update shared state labels for localization-safe system-audio status in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [ ] T062 [P] Add accessibility tests for recording indicator, Stop, level meters, blockers, scope picker, and degraded banners in `apps/macos/Shared/Tests/SystemAudioAccessibilityTests.swift`
+- [ ] T063 [P] Add localization-safe state label tests in `apps/macos/Shared/Tests/SystemAudioLocalizationTests.swift`
+- [ ] T064 [P] Add long-name and small-window UI state tests in `apps/macos/Shared/Tests/SystemAudioResponsiveStateTests.swift`
+- [ ] T065 Update `CaptureControlView` accessibility labels, keyboard focus, long-name handling, and small-window state behavior in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [ ] T066 Update shared state labels for localization-safe system-audio status in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
 
 ---
 
@@ -190,17 +191,17 @@ Test and contract tasks appear before implementation tasks in each story.
 
 **Purpose**: Run and record release gates required by quickstart and contracts.
 
-- [ ] T066 Run `swift build` from `apps/macos` and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
-- [ ] T067 Run `swift test` from `apps/macos` or record the local XCTest/toolchain blocker in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
-- [ ] T068 Run `swift run ContractValidation` from `apps/macos` and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
-- [ ] T069 Run `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` and record result in `specs/025-system-audio-capture-pivot/evidence/no-hal-probe.md`
-- [ ] T070 Run permission matrix validation and record results in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
-- [ ] T071 Run controlled artifact validation and record results in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
-- [ ] T072 Run CPU gate validation for idle, active recording, stop, and quit and record results in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
-- [ ] T073 Run 30-minute development validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/development-30-minute.md`
-- [ ] T074 Run 75-minute manual release validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/release-75-minute.md`
-- [ ] T075 Run forbidden-content scan across code, specs, diagnostics, and evidence and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
-- [ ] T076 Review all evidence against quickstart and contracts and record final scope review in `specs/025-system-audio-capture-pivot/evidence/scope-review.md`
+- [ ] T067 Run `swift build` from `apps/macos` and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
+- [ ] T068 Run `swift test` from `apps/macos` or record the local XCTest/toolchain blocker in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
+- [ ] T069 Run `swift run ContractValidation` from `apps/macos` and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
+- [ ] T070 Run `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` and record result in `specs/025-system-audio-capture-pivot/evidence/no-hal-probe.md`
+- [ ] T071 Run permission matrix validation and record results in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
+- [ ] T072 Run controlled artifact validation and record results in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
+- [ ] T073 Run CPU gate validation for idle, active recording, stop, and quit and record results in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
+- [ ] T074 Run 30-minute development validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/development-30-minute.md`
+- [ ] T075 Run 75-minute manual release validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/release-75-minute.md`
+- [ ] T076 Run forbidden-content scan across code, specs, diagnostics, and evidence and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
+- [ ] T077 Review all evidence against quickstart and contracts and record final scope review in `specs/025-system-audio-capture-pivot/evidence/scope-review.md`
 
 ---
 
@@ -230,9 +231,9 @@ Test and contract tasks appear before implementation tasks in each story.
 - T019-T022 can run in parallel.
 - T030-T032 can run in parallel.
 - T038-T040 can run in parallel.
-- T046-T048 can run in parallel.
-- T055-T056 can run in parallel.
-- T061-T063 can run in parallel.
+- T047-T049 can run in parallel.
+- T056-T057 can run in parallel.
+- T062-T064 can run in parallel.
 
 ## Parallel Example: US1
 

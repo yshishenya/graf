@@ -98,11 +98,17 @@ Fields:
 - `scopeApproval`
 - `microphoneSession`
 - `systemAudioSession`
+- `tracks`: `mic.wav` uses `role=localMic` and `sourceKind=microphone`;
+  `incoming.wav` uses the existing backend-compatible `role=remoteSpeaker` and
+  `sourceKind=systemAudio`.
 - `captureHealthSnapshot`
 
 Validation rules:
 
 - `saved` requires both tracks present, non-empty, and aligned within 3 seconds.
+- Incoming/system-audio artifacts must preserve the `remoteSpeaker` role for
+  backend compatibility while using source metadata to distinguish
+  Screen/System Audio from future driver-based capture.
 - `degraded` requires a specific missing/degraded track reason.
 - `blocked` or `failed` must not be presented as accepted success.
 

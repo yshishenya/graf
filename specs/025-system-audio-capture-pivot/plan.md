@@ -43,7 +43,7 @@ local recording pipeline.
 
 - Idle after 10-second settle: `coreaudiod` < 5% CPU and app < 5% CPU.
 - Active recording: no sustained `coreaudiod` > 10% CPU and no sustained
-  app/helper > 25% CPU.
+  combined app/helper > 25% CPU.
 - Stop/quit: capture resources released and CPU returns below idle gate within
   10 seconds.
 - Accepted tracks: `durationDifferenceSeconds <= 3`.
