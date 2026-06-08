@@ -20,13 +20,13 @@ Test and contract tasks appear before implementation tasks in each story.
 
 **Purpose**: Prepare feature scaffolding, evidence directories, and package visibility.
 
-- [ ] T001 Create feature evidence directory with README in `specs/025-system-audio-capture-pivot/evidence/README.md`
-- [ ] T002 [P] Add executable system-audio validation script skeleton and usage contract in `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`
-- [ ] T003 [P] Add executable CPU gate sampling script skeleton and output contract in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
-- [ ] T004 [P] Add executable no-HAL validation script skeleton and output contract in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
-- [ ] T005 [P] Add compile-safe system-audio capture model module shell in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T006 [P] Add compile-safe system-audio capture service module shell in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
-- [ ] T007 [P] Add compile-safe microphone capture service module shell in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
+- [X] T001 Create feature evidence directory with README in `specs/025-system-audio-capture-pivot/evidence/README.md`
+- [X] T002 [P] Add executable system-audio validation script skeleton and usage contract in `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`
+- [X] T003 [P] Add executable CPU gate sampling script skeleton and output contract in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
+- [X] T004 [P] Add executable no-HAL validation script skeleton and output contract in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- [X] T005 [P] Add compile-safe system-audio capture model module shell in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [X] T006 [P] Add compile-safe system-audio capture service module shell in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
+- [X] T007 [P] Add compile-safe microphone capture service module shell in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
 
 ---
 
