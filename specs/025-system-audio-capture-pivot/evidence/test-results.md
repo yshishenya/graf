@@ -777,6 +777,49 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-08 Audio Health Recovery Driver-Parked Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: Audio Health recovery actions produced by `AudioEnvironmentMonitor`.
+- Code review finding:
+  - `AudioEnvironmentMonitor.gatherRecoveryActions(...)` still emitted old
+    recovery actions such as installing or repairing the virtual audio driver,
+    re-verifying virtual device visibility, and repairing the driver path.
+  - This was a second path, separate from the primary `LocalAudioSnapshot`, that
+    could reintroduce driver-first guidance into MVP health/status UI.
+- Code review fix:
+  - Driver states that are not usable for MVP now produce parked diagnostics
+    copy instead of install/repair instructions.
+  - Missing virtual devices now state that virtual devices are not required for
+    system-audio recording.
+  - Failed passthrough now points to parked passthrough diagnostics for future
+    driver experiments, not driver repair before recording.
+  - Added regression coverage for `AudioEnvironmentMonitor` recovery actions to
+    ensure they mention parked/not-required semantics and do not mention install
+    or repair.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the package test
+    bundle; local environment is Command Line Tools only, so `xctest` is not
+    available for full XCTest execution.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - Targeted search for legacy driver install/repair/readiness copy returned no
+    matches in app code/tests after the fix.
+  - Fresh packaged build and launch produced one visible `2brain Rec` window.
+  - Runtime process snapshot showed app CPU `0.0`, `coreaudiod` CPU `0.0`, and
+    no thermal/performance warning recorded by `pmset -g therm`.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.00`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+- Result: passed for Audio Health recovery copy, build, contract, no-HAL,
+  packaged launch, idle CPU, quit CPU, and thermal/process sanity.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-08 MVP Status Snapshot Driver-Repair Copy Review
 
 - Feature: `025-system-audio-capture-pivot`

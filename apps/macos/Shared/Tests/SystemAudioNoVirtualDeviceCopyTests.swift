@@ -32,5 +32,24 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
         XCTAssertFalse(label.localizedCaseInsensitiveContains("driver"))
         XCTAssertFalse(label.localizedCaseInsensitiveContains("repair"))
     }
+
+    func testAudioEnvironmentRecoveryKeepsDriverDiagnosticsParkedForMVP() {
+        let monitor = AudioEnvironmentMonitor(now: { Date(timeIntervalSince1970: 1) })
+        let state = monitor.state(from: AudioEnvironmentSnapshot(
+            driverState: .notInstalled,
+            virtualMicState: .missing,
+            virtualSpeakerState: .missing,
+            microphonePermission: .granted,
+            outputPermission: .granted,
+            passthroughStatus: .failed,
+            bufferRisk: .healthy
+        ))
+        let recovery = state.recoveryActions.joined(separator: " ")
+
+        XCTAssertTrue(recovery.localizedCaseInsensitiveContains("parked"))
+        XCTAssertTrue(recovery.localizedCaseInsensitiveContains("not required"))
+        XCTAssertFalse(recovery.localizedCaseInsensitiveContains("install"))
+        XCTAssertFalse(recovery.localizedCaseInsensitiveContains("repair"))
+    }
 }
 #endif
