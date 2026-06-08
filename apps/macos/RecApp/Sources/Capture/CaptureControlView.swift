@@ -7,6 +7,8 @@ public struct CaptureControlView: View {
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
     private let routeSignalLevels: LiveRouteSignalLevels
+    private let recordDisabled: Bool
+    private let stopDisabled: Bool
     private let onRecord: () -> Void
     private let onStop: () -> Void
 
@@ -16,6 +18,8 @@ public struct CaptureControlView: View {
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
+        recordDisabled: Bool = false,
+        stopDisabled: Bool = false,
         onRecord: @escaping () -> Void,
         onStop: @escaping () -> Void
     ) {
@@ -24,6 +28,8 @@ public struct CaptureControlView: View {
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
         self.routeSignalLevels = routeSignalLevels
+        self.recordDisabled = recordDisabled
+        self.stopDisabled = stopDisabled
         self.onRecord = onRecord
         self.onStop = onStop
     }
@@ -32,7 +38,7 @@ public struct CaptureControlView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 12) {
                 if let session {
-                    CaptureStatusItem(session: session, onStop: onStop)
+                    CaptureStatusItem(session: session, stopDisabled: stopDisabled, onStop: onStop)
                 } else {
                     Label(SystemAudioStatusLabels.recordingIdle, systemImage: "record.circle")
                         .font(.caption)
@@ -48,6 +54,7 @@ public struct CaptureControlView: View {
                         Label(SystemAudioStatusLabels.recordButtonTitle, systemImage: "record.circle")
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!Self.shouldEnableRecordButton(for: session, recordDisabled: recordDisabled))
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .accessibilityLabel(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordButton)
@@ -101,6 +108,13 @@ public struct CaptureControlView: View {
     public static func shouldShowRecordButton(for session: CaptureSession?) -> Bool {
         guard let session else { return true }
         return !CaptureStatusItem.showsStopButton(for: session)
+    }
+
+    public static func shouldEnableRecordButton(
+        for session: CaptureSession?,
+        recordDisabled: Bool
+    ) -> Bool {
+        shouldShowRecordButton(for: session) && !recordDisabled
     }
 
     private var localRecordingStatusIcon: String {

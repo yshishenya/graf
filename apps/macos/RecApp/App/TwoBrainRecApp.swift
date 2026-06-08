@@ -36,6 +36,8 @@ private struct ContentView: View {
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
     @State private var liveAudioSignalMonitor = LiveAudioSignalMonitor()
     @State private var terminationCleanupInProgress = false
+    @State private var recordingStartInProgress = false
+    @State private var recordingStopInProgress = false
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -68,6 +70,8 @@ private struct ContentView: View {
                         localRecordingStatus: localRecordingStatusText,
                         localRecordingLocation: localRecordingLocation,
                         routeSignalLevels: liveRouteSignalLevels,
+                        recordDisabled: recordingStartInProgress || recordingStopInProgress,
+                        stopDisabled: recordingStopInProgress,
                         onRecord: {
                             Task { await startManualRecording() }
                         },
@@ -201,6 +205,13 @@ private struct ContentView: View {
 
     @MainActor
     private func startManualRecording() async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        if let captureSession, CaptureStatusItem.showsStopButton(for: captureSession) {
+            return
+        }
+        recordingStartInProgress = true
+        defer { recordingStartInProgress = false }
+
         localRecordingManifest = nil
         localRecordingLocation = nil
         let scopeApproval: CaptureScopeApproval
@@ -318,6 +329,10 @@ private struct ContentView: View {
 
     @MainActor
     private func stopManualRecording() async {
+        guard !recordingStopInProgress else { return }
+        recordingStopInProgress = true
+        defer { recordingStopInProgress = false }
+
         do {
             _ = try captureController.requestStop(reason: .userRequested)
             _ = try? await systemAudioCaptureService.stop()
