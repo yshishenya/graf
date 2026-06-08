@@ -33,6 +33,16 @@ Modes:
       systemAudio incoming metadata, granted permissions, scope approval, no
       external egress, no transcription, and durationDifferenceSeconds <= 3.
 
+  --latest-artifact-directory
+      Print the newest completed local recording directory containing
+      manifest.json, mic.wav, and incoming.wav. Uses
+      TWO_BRAIN_REC_RECORDINGS_DIR when set; otherwise uses the app's default
+      ~/Library/Application Support/2brain Rec/Recordings directory.
+
+  --validate-latest-artifact
+      Find the newest completed local recording directory and validate it with
+      the same metadata-only contract as --artifact-directory.
+
   --duration-minutes 30
       Check the 30-minute development evidence file.
 
@@ -100,6 +110,38 @@ append_run_header() {
         printf -- '- macOS: `%s`\n' "$(macos_version)"
         printf -- '- Hardware: `%s`\n' "$(hardware_model)"
     } >> "$path"
+}
+
+recordings_root() {
+    printf '%s\n' "${TWO_BRAIN_REC_RECORDINGS_DIR:-$HOME/Library/Application Support/2brain Rec/Recordings}"
+}
+
+latest_completed_artifact_directory() {
+    root="$(recordings_root)"
+    [ -d "$root" ] || fail_invalid "recordings directory does not exist: $root"
+
+    latest_directory=""
+    latest_mtime=""
+    for directory in "$root"/*; do
+        [ -d "$directory" ] || continue
+        [ -f "$directory/manifest.json" ] || continue
+        [ -f "$directory/mic.wav" ] || continue
+        [ -f "$directory/incoming.wav" ] || continue
+
+        mtime="$(stat -f "%m" "$directory" 2>/dev/null || printf '0')"
+        case "$mtime" in
+            *[!0-9]*|"") mtime=0 ;;
+        esac
+        if [ -z "$latest_mtime" ] || [ "$mtime" -gt "$latest_mtime" ]; then
+            latest_mtime="$mtime"
+            latest_directory="$directory"
+        fi
+    done
+
+    [ -n "$latest_directory" ] ||
+        fail_invalid "no completed local recording directories with manifest.json, mic.wav, and incoming.wav found under: $root"
+
+    printf '%s\n' "$latest_directory"
 }
 
 count_not_tested_rows() {
@@ -273,11 +315,12 @@ validate_artifact_directory() {
     manifest_status="$(jq -r '.status // "unknown"' "$manifest")"
     duration_difference="$(jq -r '.durationDifferenceSeconds // "unknown"' "$manifest")"
     append_evidence="${SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND:-0}"
+    artifact_mode="${SYSTEM_AUDIO_CAPTURE_PIVOT_ARTIFACT_MODE:---artifact-directory}"
 
     if [ "$append_evidence" != "1" ]; then
         append_run_header "$ARTIFACT_MATRIX" "2026-06-08 Artifact Directory Validator Run"
         {
-            printf -- '- Mode: `--artifact-directory`\n'
+            printf -- '- Mode: `%s`\n' "$artifact_mode"
             printf -- '- Directory ID: `%s`\n' "$directory_id"
             printf -- '- Manifest status: `%s`\n' "$manifest_status"
             printf -- '- Duration difference seconds: `%s`\n' "$duration_difference"
@@ -307,6 +350,13 @@ validate_artifact_directory() {
     fi
 
     passed "artifact directory metadata passed for directoryId=$directory_id"
+}
+
+validate_latest_artifact_directory() {
+    directory="$(latest_completed_artifact_directory)"
+    SYSTEM_AUDIO_CAPTURE_PIVOT_ARTIFACT_MODE="--validate-latest-artifact"
+    export SYSTEM_AUDIO_CAPTURE_PIVOT_ARTIFACT_MODE
+    validate_artifact_directory "$directory"
 }
 
 ensure_duration_file() {
@@ -426,6 +476,12 @@ case "$mode" in
         ;;
     --artifact-directory)
         validate_artifact_directory "${2:-}"
+        ;;
+    --latest-artifact-directory)
+        latest_completed_artifact_directory
+        ;;
+    --validate-latest-artifact)
+        validate_latest_artifact_directory
         ;;
     --duration-minutes)
         [ "${2:-}" ] || fail_invalid "--duration-minutes requires a number"

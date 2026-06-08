@@ -38,11 +38,12 @@ Blocked, failed, degraded, and not-tested rows are not acceptance.
 5. While recording is active, run
    `apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording`.
 6. Press Stop, then run `apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop`.
-7. Inspect the newest directory under
-   `~/Library/Application Support/2brain Rec/Recordings/`.
+7. Inspect the newest completed local recording directory with
+   `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --latest-artifact-directory`.
 8. Run
-   `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --artifact-directory "$HOME/Library/Application Support/2brain Rec/Recordings/<directory-id>"`
-   against that directory.
+   `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --validate-latest-artifact`
+   to validate that directory metadata-only. To pin a specific directory, use
+   `--artifact-directory "$HOME/Library/Application Support/2brain Rec/Recordings/<directory-id>"`.
 9. Record only metadata: file presence, manifest status, track roles/source
    kinds, duration difference, permissions, CPU gate result, and failure reasons.
    Do not paste raw audio or meeting content here.

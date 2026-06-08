@@ -510,3 +510,35 @@
     process and `maxCoreaudiodCpuPercent=0.00`.
 - Notes: Real artifact acceptance still requires a controlled recording and
   `--artifact-directory` against the produced directory.
+
+## 2026-06-08 Latest Artifact Helper Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: metadata-only helper flow for #308/T072 controlled artifact validation.
+- Code review finding:
+  - The manual run procedure asked the tester to inspect the newest directory
+    under `~/Library/Application Support/2brain Rec/Recordings/` and paste the
+    selected directory ID into `--artifact-directory`.
+  - That created an avoidable risk of validating a stale or partial recording
+    package during the controlled run.
+- Code review fix:
+  - Added `validate-system-audio-capture-pivot.sh --latest-artifact-directory`
+    to print the newest completed local recording directory containing
+    `manifest.json`, `mic.wav`, and `incoming.wav`.
+  - Added `--validate-latest-artifact` to validate that newest completed
+    package through the same strict metadata-only contract as
+    `--artifact-directory`.
+  - Added `TWO_BRAIN_REC_RECORDINGS_DIR` override so the helper can be
+    self-tested against temporary directories without reading real user
+    recordings.
+  - Updated `quickstart.md` and `artifact-matrix.md` to use the helper in the
+    controlled run procedure.
+- Synthetic self-tests:
+  - A newer partial directory was ignored; the helper selected the newest
+    completed directory and validation passed.
+  - A newer completed but invalid directory was selected and validation returned
+    `blocked` for `durationDifferenceSeconds must be <= 3`, proving the helper
+    does not silently fall back to an older valid package.
+- Notes: This removes a manual selection hazard for #308/T072. It does not
+  close #308/T072 because the accepted artifact still requires a real controlled
+  recording run.

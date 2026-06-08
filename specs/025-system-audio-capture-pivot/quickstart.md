@@ -110,17 +110,18 @@ Recommended manual run sequence:
    apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
    ```
 
-8. Inspect the newest local recording directory under:
-
-   ```text
-   ~/Library/Application Support/2brain Rec/Recordings/
-   ```
-
-9. Validate the newest directory metadata-only:
+8. Inspect the newest completed local recording directory:
 
    ```sh
    apps/macos/Scripts/validate-system-audio-capture-pivot.sh \
-     --artifact-directory "$HOME/Library/Application Support/2brain Rec/Recordings/<directory-id>"
+     --latest-artifact-directory
+   ```
+
+9. Validate the newest completed directory metadata-only:
+
+   ```sh
+   apps/macos/Scripts/validate-system-audio-capture-pivot.sh \
+     --validate-latest-artifact
    ```
 
 10. Record only metadata in `evidence/artifact-matrix.md`: status, file presence,
@@ -133,6 +134,13 @@ Expected package:
 manifest.json
 mic.wav
 incoming.wav
+```
+
+To validate a specific directory instead of the newest completed one, run:
+
+```sh
+apps/macos/Scripts/validate-system-audio-capture-pivot.sh \
+  --artifact-directory "$HOME/Library/Application Support/2brain Rec/Recordings/<directory-id>"
 ```
 
 Expected manifest:
