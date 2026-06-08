@@ -78,6 +78,7 @@ struct RecordingArtifactFormatFixtureFile: Decodable {
 
     struct Track: Decodable {
         let role: String
+        let sourceKind: String
         let mediaScribeField: String
         let fileName: String
         let format: String
@@ -470,9 +471,10 @@ func validateLocalRecordingManifestFixture() throws {
         Set(fixture.allowedStatuses) == Set([
             LocalRecordingSessionStatus.saved.rawValue,
             LocalRecordingSessionStatus.degraded.rawValue,
+            LocalRecordingSessionStatus.blocked.rawValue,
             LocalRecordingSessionStatus.failed.rawValue
         ]),
-        "Local recording manifest must allow saved, degraded, and failed terminal statuses"
+        "Local recording manifest must allow saved, degraded, blocked, and failed terminal statuses"
     )
     try require(
         Set(fixture.allowedReadinessStates) == Set([
@@ -486,6 +488,7 @@ func validateLocalRecordingManifestFixture() throws {
     try require(
         Set(fixture.requiredTrackFields).isSuperset(of: [
             "mediaScribeField",
+            "sourceKind",
             "format",
             "sampleRate",
             "channelCount",
@@ -535,13 +538,15 @@ func validateRecordingArtifactFormatFixture() throws {
     let tracksByRole = Dictionary(uniqueKeysWithValues: fixture.tracks.map { ($0.role, $0) })
     try require(
         tracksByRole[AudioTrackRole.localMic.rawValue]?.mediaScribeField == MediaScribeTrackField.micFile.rawValue &&
+            tracksByRole[AudioTrackRole.localMic.rawValue]?.sourceKind == AudioCaptureSourceKind.microphone.rawValue &&
             tracksByRole[AudioTrackRole.localMic.rawValue]?.fileName == "mic.wav",
-        "Local mic track must map to MediaScribe mic_file and mic.wav"
+        "Local mic track must map to microphone source, MediaScribe mic_file, and mic.wav"
     )
     try require(
         tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.mediaScribeField == MediaScribeTrackField.incomingFile.rawValue &&
+            tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.sourceKind == AudioCaptureSourceKind.systemAudio.rawValue &&
             tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.fileName == "incoming.wav",
-        "Remote speaker track must map to MediaScribe incoming_file and incoming.wav"
+        "Remote speaker track must map to systemAudio source, MediaScribe incoming_file, and incoming.wav"
     )
     for track in fixture.tracks {
         try require(

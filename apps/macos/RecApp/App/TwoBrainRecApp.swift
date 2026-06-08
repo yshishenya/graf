@@ -275,7 +275,7 @@ private struct ContentView: View {
                 .localRecordingSaved
             case .degraded:
                 .localRecordingDegraded
-            case .failed, .active:
+            case .blocked, .failed, .active:
                 .localRecordingFailed
             }
             AppLog.writeRaw(
@@ -328,6 +328,8 @@ private struct ContentView: View {
             return "Local recording saved"
         case .degraded:
             return "Local recording saved with missing or degraded track"
+        case .blocked:
+            return "Local recording blocked"
         case .failed:
             return "Local recording failed"
         case .active:

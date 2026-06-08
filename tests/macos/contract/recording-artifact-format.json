@@ -10,6 +10,7 @@
   "tracks": [
     {
       "role": "local_mic",
+      "sourceKind": "microphone",
       "mediaScribeField": "mic_file",
       "fileName": "mic.wav",
       "format": "wav-pcm-s16le",
@@ -21,6 +22,7 @@
     },
     {
       "role": "remote_speaker",
+      "sourceKind": "systemAudio",
       "mediaScribeField": "incoming_file",
       "fileName": "incoming.wav",
       "format": "wav-pcm-s16le",

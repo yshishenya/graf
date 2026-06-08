@@ -55,10 +55,28 @@ public struct LiveRecordingLevels: Equatable, Sendable {
     }
 }
 
+public protocol LocalRecordingSampleSource: Sendable {
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int
+}
+
+public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    private let sharedMemory: SharedAudioMemory
+
+    public init(sharedMemory: SharedAudioMemory) {
+        self.sharedMemory = sharedMemory
+    }
+
+    public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        let available = min(Int(sharedMemory.captureAvailable()), capacity)
+        guard available > 0 else { return 0 }
+        return sharedMemory.readCapture(dst: destination, count: available)
+    }
+}
+
 public final class LocalRecordingWriter {
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
-    private let sharedMemoryFactory: @Sendable () -> SharedAudioMemory?
+    private let incomingSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
     private let recordMicrophone: Bool
     private let queue = DispatchQueue(label: "pro.2brain.rec.local-recording-writer", qos: .utility)
     private var active: ActiveRecording?
@@ -67,11 +85,14 @@ public final class LocalRecordingWriter {
         store: LocalRecordingStore = LocalRecordingStore(),
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
         sharedMemoryFactory: @escaping @Sendable () -> SharedAudioMemory? = { SharedAudioMemory() },
+        incomingSampleSourceFactory: (@Sendable () -> LocalRecordingSampleSource?)? = nil,
         recordMicrophone: Bool = true
     ) {
         self.store = store
         self.manifestService = manifestService
-        self.sharedMemoryFactory = sharedMemoryFactory
+        self.incomingSampleSourceFactory = incomingSampleSourceFactory ?? {
+            sharedMemoryFactory().map { SharedMemoryRecordingSampleSource(sharedMemory: $0) }
+        }
         self.recordMicrophone = recordMicrophone
     }
 
@@ -120,15 +141,13 @@ public final class LocalRecordingWriter {
             }
 
             let remoteWriter = try PCM16MonoWAVFileWriter(url: directory.remoteSpeakerURL)
-            let sharedMemory = sharedMemoryFactory()
+            let incomingSampleSource = incomingSampleSourceFactory()
             let timer = DispatchSource.makeTimerSource(queue: queue)
             let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
             timer.schedule(deadline: .now(), repeating: .milliseconds(50))
             timer.setEventHandler { [weak self] in
-                guard let self, let active = self.active, let sharedMemory = active.sharedMemory else { return }
-                let available = min(Int(sharedMemory.captureAvailable()), active.scratchCapacity)
-                guard available > 0 else { return }
-                let read = sharedMemory.readCapture(dst: active.scratch, count: available)
+                guard let self, let active = self.active, let incomingSampleSource = active.incomingSampleSource else { return }
+                let read = incomingSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
                 if read > 0 {
                     try? active.remoteWriter.write(samples: active.scratch, count: read)
                     active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: read)
@@ -142,7 +161,7 @@ public final class LocalRecordingWriter {
                 directory: directory,
                 microphoneRecorder: microphone,
                 remoteWriter: remoteWriter,
-                sharedMemory: sharedMemory,
+                incomingSampleSource: incomingSampleSource,
                 timer: timer,
                 scratch: scratch,
                 scratchCapacity: 8192
@@ -272,7 +291,7 @@ private final class ActiveRecording {
     let directory: LocalRecordingDirectory
     let microphoneRecorder: AVAudioRecorder?
     let remoteWriter: PCM16MonoWAVFileWriter
-    let sharedMemory: SharedAudioMemory?
+    let incomingSampleSource: LocalRecordingSampleSource?
     let timer: DispatchSourceTimer
     let scratch: UnsafeMutablePointer<Float>
     let scratchCapacity: Int
@@ -287,7 +306,7 @@ private final class ActiveRecording {
         directory: LocalRecordingDirectory,
         microphoneRecorder: AVAudioRecorder?,
         remoteWriter: PCM16MonoWAVFileWriter,
-        sharedMemory: SharedAudioMemory?,
+        incomingSampleSource: LocalRecordingSampleSource?,
         timer: DispatchSourceTimer,
         scratch: UnsafeMutablePointer<Float>,
         scratchCapacity: Int
@@ -297,7 +316,7 @@ private final class ActiveRecording {
         self.directory = directory
         self.microphoneRecorder = microphoneRecorder
         self.remoteWriter = remoteWriter
-        self.sharedMemory = sharedMemory
+        self.incomingSampleSource = incomingSampleSource
         self.timer = timer
         self.scratch = scratch
         self.scratchCapacity = scratchCapacity

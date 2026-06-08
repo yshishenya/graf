@@ -830,6 +830,7 @@ public struct AudioTrack: Codable, Equatable, Sendable {
 public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     public var trackId: String
     public var role: AudioTrackRole
+    public var sourceKind: AudioCaptureSourceKind?
     public var mediaScribeField: MediaScribeTrackField
     public var status: LocalRecordingTrackStatus
     public var fileName: String
@@ -847,6 +848,7 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     public init(
         trackId: String,
         role: AudioTrackRole,
+        sourceKind: AudioCaptureSourceKind? = nil,
         mediaScribeField: MediaScribeTrackField? = nil,
         status: LocalRecordingTrackStatus,
         fileName: String,
@@ -863,6 +865,7 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     ) {
         self.trackId = trackId
         self.role = role
+        self.sourceKind = sourceKind ?? Self.defaultSourceKind(for: role)
         self.mediaScribeField = mediaScribeField ?? Self.defaultMediaScribeField(for: role)
         self.status = status
         self.fileName = fileName
@@ -900,6 +903,15 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
             .incomingFile
         }
     }
+
+    public static func defaultSourceKind(for role: AudioTrackRole) -> AudioCaptureSourceKind {
+        switch role {
+        case .localMic:
+            .microphone
+        case .remoteSpeaker:
+            .systemAudio
+        }
+    }
 }
 
 public struct LocalRecordingManifest: Codable, Equatable, Sendable {
@@ -921,6 +933,9 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var diagnosticSafe: Bool
     public var failureReason: LocalRecordingFailureReason
     public var recordingTimelineEvidence: RecordingTimelineIntegrityEvidence?
+    public var scopeApproval: CaptureScopeApproval?
+    public var permissions: SystemAudioPermissionSnapshot?
+    public var captureHealth: CaptureHealthSnapshot?
 
     public init(
         schemaVersion: String = Self.schemaVersion,
@@ -938,7 +953,10 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         transcriptionStarted: Bool = false,
         diagnosticSafe: Bool = true,
         failureReason: LocalRecordingFailureReason = .none,
-        recordingTimelineEvidence: RecordingTimelineIntegrityEvidence? = nil
+        recordingTimelineEvidence: RecordingTimelineIntegrityEvidence? = nil,
+        scopeApproval: CaptureScopeApproval? = nil,
+        permissions: SystemAudioPermissionSnapshot? = nil,
+        captureHealth: CaptureHealthSnapshot? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.sessionId = sessionId
@@ -956,6 +974,9 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.diagnosticSafe = diagnosticSafe
         self.failureReason = failureReason
         self.recordingTimelineEvidence = recordingTimelineEvidence
+        self.scopeApproval = scopeApproval
+        self.permissions = permissions
+        self.captureHealth = captureHealth
     }
 
     public var isComplete: Bool {
@@ -965,6 +986,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
             !externalEgressStarted &&
             !transcriptionStarted &&
             Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
+            tracks.allSatisfy { $0.sourceKind != nil } &&
             tracks.allSatisfy(\.isMediaScribeReady)
     }
 

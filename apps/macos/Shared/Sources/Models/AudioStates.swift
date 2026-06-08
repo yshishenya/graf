@@ -254,6 +254,7 @@ public enum LocalRecordingSessionStatus: String, Codable, Sendable {
     case active
     case saved
     case degraded
+    case blocked
     case failed
 }
 
@@ -263,6 +264,7 @@ public enum LocalRecordingTrackStatus: String, Codable, Sendable {
     case saved
     case missing
     case degraded
+    case blocked
     case failed
 }
 
@@ -274,6 +276,16 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case emptyRequiredTrack = "empty_required_track"
     case formatNotReady = "format_not_ready"
     case timelineMisaligned = "timeline_misaligned"
+    case permissionDenied = "permission_denied"
+    case scopeUnavailable = "scope_unavailable"
+    case protectedAudioBlocked = "protected_audio_blocked"
+    case silentInput = "silent_input"
+    case noFrames = "no_frames"
+    case captureFailed = "capture_failed"
+    case cpuGateFailed = "cpu_gate_failed"
+    case stoppedBeforeFrames = "stopped_before_frames"
+    case halProbeObserved = "hal_probe_observed"
+    case deviceUnavailable = "device_unavailable"
     case legacyNotReady = "legacy_not_ready"
     case appClosed = "app_closed"
     case unknown

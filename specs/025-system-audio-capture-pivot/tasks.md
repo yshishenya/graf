@@ -36,17 +36,17 @@ Test and contract tasks appear before implementation tasks in each story.
 
 **CRITICAL**: No user story implementation starts until this phase is complete.
 
-- [ ] T008 [P] Add `SystemAudioCaptureSession`, `MicrophoneCaptureSession`, `CaptureScopeApproval`, and `CaptureHealthSnapshot` models in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T009 [P] Add capture state and failure reason enum extensions for system-audio MVP in `apps/macos/Shared/Sources/Models/AudioStates.swift`
-- [ ] T010 [P] Add contract tests for system-audio models and state transitions in `apps/macos/Shared/Tests/SystemAudioCaptureContractTests.swift`
-- [ ] T011 [P] Add diagnostic redaction tests for system-audio capture metadata in `apps/macos/Shared/Tests/SystemAudioDiagnosticRedactionTests.swift`
-- [ ] T012 Update diagnostic redaction allow/deny lists for system-audio evidence in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
-- [ ] T013 Refactor `LocalRecordingWriter` to accept independent microphone and incoming sample sources without requiring `SharedAudioMemory` in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
-- [ ] T014 [P] Add unit tests for independent local recording sample sources in `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`
-- [ ] T015 [P] Add manifest model tests for `remoteSpeaker` incoming track role, `systemAudio` source metadata, scope approval, permission state, and CPU evidence in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
-- [ ] T016 Update local recording manifest models for system-audio source metadata in `apps/macos/Shared/Sources/Models/LocalRecordingModels.swift`
-- [ ] T017 Update contract validation tool to require system-audio manifest fields in `apps/macos/Shared/Tools/ContractValidation/main.swift`
-- [ ] T018 Run `swift build` for the macOS package and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
+- [X] T008 [P] Add `SystemAudioCaptureSession`, `MicrophoneCaptureSession`, `CaptureScopeApproval`, and `CaptureHealthSnapshot` models in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [X] T009 [P] Add capture state and failure reason enum extensions for system-audio MVP in `apps/macos/Shared/Sources/Models/AudioStates.swift`
+- [X] T010 [P] Add contract tests for system-audio models and state transitions in `apps/macos/Shared/Tests/SystemAudioCaptureContractTests.swift`
+- [X] T011 [P] Add diagnostic redaction tests for system-audio capture metadata in `apps/macos/Shared/Tests/SystemAudioDiagnosticRedactionTests.swift`
+- [X] T012 Update diagnostic redaction allow/deny lists for system-audio evidence in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
+- [X] T013 Refactor `LocalRecordingWriter` to accept independent microphone and incoming sample sources without requiring `SharedAudioMemory` in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
+- [X] T014 [P] Add unit tests for independent local recording sample sources in `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`
+- [X] T015 [P] Add manifest model tests for `remoteSpeaker` incoming track role, `systemAudio` source metadata, scope approval, permission state, and CPU evidence in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
+- [X] T016 Update local recording manifest models for system-audio source metadata in `apps/macos/Shared/Sources/Models/AudioModels.swift`
+- [X] T017 Update contract validation tool to require system-audio manifest fields in `apps/macos/Shared/Tools/ContractValidation/main.swift`
+- [X] T018 Run `swift build` for the macOS package and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
 
 **Checkpoint**: Foundation ready. Models, redaction, manifest contract, and writer seam exist before story work.
 

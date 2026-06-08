@@ -24,7 +24,10 @@ public struct LocalRecordingManifestService: Sendable {
         failureReason: LocalRecordingFailureReason = .none,
         routeSessionId: String? = nil,
         autorepairAttemptIds: [String] = [],
-        routeInterruptionCategory: RouteInterruptionCategory = .none
+        routeInterruptionCategory: RouteInterruptionCategory = .none,
+        scopeApproval: CaptureScopeApproval? = nil,
+        permissions: SystemAudioPermissionSnapshot? = nil,
+        captureHealth: CaptureHealthSnapshot? = nil
     ) -> LocalRecordingManifest {
         let hasBothRoles = Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker])
         let complete = hasBothRoles && tracks.allSatisfy(\.isMediaScribeReady)
@@ -63,7 +66,10 @@ public struct LocalRecordingManifestService: Sendable {
                 tracks: tracks,
                 autorepairAttemptIds: autorepairAttemptIds,
                 interruptionCategory: routeInterruptionCategory
-            )
+            ),
+            scopeApproval: scopeApproval,
+            permissions: permissions,
+            captureHealth: captureHealth
         )
     }
 
