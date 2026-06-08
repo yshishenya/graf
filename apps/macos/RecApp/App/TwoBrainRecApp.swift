@@ -319,12 +319,74 @@ private struct ContentView: View {
             )
         } catch {
             _ = try? await systemAudioCaptureService.stop()
-            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: .storageUnsafe) {
+            let failureCategory = recordingStartFailureCategory(for: error)
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
-            recordingBlocker = "Recording could not start local file capture: \(error)"
-            AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
+            recordingBlocker = "Recording could not start: \(recordingStartFailureMessage(for: error))"
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "category=\(failureCategory.rawValue) error=\(error)"
+            )
         }
+    }
+
+    private func recordingStartFailureCategory(for error: Error) -> RecordingStartBlocker {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording:
+                return .alreadyRecording
+            case .directoryUnavailable:
+                return .storageUnsafe
+            case .notRecording:
+                return .unknown
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            switch captureError {
+            case .permissionDenied:
+                return .permissionDenied
+            case .alreadyRunning:
+                return .alreadyRecording
+            case .runtimeStartFailed, .scopeNotApproved, .screenCaptureKitUnavailable, .noShareableDisplay:
+                return .captureFailed
+            case .notRunning:
+                return .unknown
+            }
+        }
+        return .unknown
+    }
+
+    private func recordingStartFailureMessage(for error: Error) -> String {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording:
+                return "a recording is already active."
+            case .directoryUnavailable:
+                return "local recording storage is unavailable."
+            case .notRecording:
+                return "local recording was not active."
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            switch captureError {
+            case .permissionDenied:
+                return "Screen/System Audio permission is not granted."
+            case .alreadyRunning:
+                return "system audio capture is already running."
+            case .scopeNotApproved:
+                return "the capture scope was not approved."
+            case .runtimeStartFailed:
+                return "macOS system audio capture could not start."
+            case .screenCaptureKitUnavailable:
+                return "ScreenCaptureKit is unavailable on this Mac."
+            case .noShareableDisplay:
+                return "no shareable display was available for system audio capture."
+            case .notRunning:
+                return "system audio capture was not running."
+            }
+        }
+        return "\(error)"
     }
 
     @MainActor
@@ -422,6 +484,8 @@ private struct ContentView: View {
             return "Recording blocked: target is not approved. \(action)."
         case .alreadyRecording:
             return "Recording already active."
+        case .captureFailed:
+            return "Recording blocked: system audio capture could not start. \(action)."
         case .unknown:
             return "Recording blocked: unknown prerequisite failure. \(action)."
         }

@@ -1330,6 +1330,54 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Start Failure Classification Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: failed manual recording start after permission and prerequisite checks.
+- Code review finding:
+  - If `SystemAudioCaptureService.start(...)` failed after the capture
+    controller had moved toward active recording, the UI/log path classified the
+    failure as `storage_unsafe` and displayed "local file capture" wording.
+  - That could send the tester toward the wrong recovery path when the real
+    problem was ScreenCaptureKit/system-audio capture startup, scope, or
+    permission.
+- Code review fix:
+  - Added `RecordingStartBlocker.captureFailed`.
+  - `startManualRecording()` now maps system-audio runtime/scope/display
+    failures to `capture_failed`, permission failures to `permission_denied`,
+    already-running failures to `already_recording`, and local directory
+    failures to `storage_unsafe`.
+  - User-facing start failure copy now names the failing layer more accurately
+    instead of always saying local file capture.
+  - Added regression coverage for the new blocker raw value and fixed the
+    prerequisite blocker copy switch for the new case.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including `CaptureControlTests`; full
+    XCTest execution is not available in this Command Line Tools host because
+    `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch without pressing Record produced one visible
+    `2brain Rec` window at `706x608`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.00`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, as expected, because manual permission, artifact,
+    active/stop CPU, 30-minute, 75-minute, and final scope evidence are not
+    complete.
+- Result: passed for start failure classification and automated checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Guided Harness Stale Artifact Guard Review
 
 - Feature: `025-system-audio-capture-pivot`

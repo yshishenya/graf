@@ -7,6 +7,10 @@ import XCTest
 
 @MainActor
 final class CaptureControlTests: XCTestCase {
+    func testCaptureFailedStartBlockerIsSerializable() {
+        XCTAssertEqual(RecordingStartBlocker.captureFailed.rawValue, "capture_failed")
+    }
+
     func testActiveCaptureKeepsVisibleIndicatorAndStopAvailable() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 10) },

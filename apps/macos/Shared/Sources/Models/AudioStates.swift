@@ -210,6 +210,7 @@ public enum RecordingStartBlocker: String, Codable, Sendable {
     case indicatorUnavailable = "indicator_unavailable"
     case sourceAppIneligible = "source_app_ineligible"
     case alreadyRecording = "already_recording"
+    case captureFailed = "capture_failed"
     case unknown
 }
 
