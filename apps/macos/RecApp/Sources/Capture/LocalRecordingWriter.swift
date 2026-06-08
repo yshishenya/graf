@@ -59,6 +59,38 @@ public protocol LocalRecordingSampleSource: Sendable {
     func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int
 }
 
+public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer: [Float] = []
+    private let capacity: Int
+
+    public init(capacity: Int = 48_000 * 20) {
+        self.capacity = capacity
+    }
+
+    public func append(_ samples: [Float]) {
+        guard !samples.isEmpty else { return }
+        lock.lock()
+        buffer.append(contentsOf: samples)
+        if buffer.count > capacity {
+            buffer.removeFirst(buffer.count - capacity)
+        }
+        lock.unlock()
+    }
+
+    public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let count = min(capacity, buffer.count)
+        guard count > 0 else { return 0 }
+        for index in 0..<count {
+            destination[index] = buffer[index]
+        }
+        buffer.removeFirst(count)
+        return count
+    }
+}
+
 public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
     private let sharedMemory: SharedAudioMemory
 
@@ -76,6 +108,7 @@ public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource
 public final class LocalRecordingWriter {
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
+    private let microphoneSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
     private let incomingSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
     private let recordMicrophone: Bool
     private let queue = DispatchQueue(label: "pro.2brain.rec.local-recording-writer", qos: .utility)
@@ -85,11 +118,13 @@ public final class LocalRecordingWriter {
         store: LocalRecordingStore = LocalRecordingStore(),
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
         sharedMemoryFactory: @escaping @Sendable () -> SharedAudioMemory? = { SharedAudioMemory() },
+        microphoneSampleSourceFactory: @escaping @Sendable () -> LocalRecordingSampleSource? = { nil },
         incomingSampleSourceFactory: (@Sendable () -> LocalRecordingSampleSource?)? = nil,
         recordMicrophone: Bool = true
     ) {
         self.store = store
         self.manifestService = manifestService
+        self.microphoneSampleSourceFactory = microphoneSampleSourceFactory
         self.incomingSampleSourceFactory = incomingSampleSourceFactory ?? {
             sharedMemoryFactory().map { SharedMemoryRecordingSampleSource(sharedMemory: $0) }
         }
@@ -132,11 +167,21 @@ public final class LocalRecordingWriter {
                 throw LocalRecordingWriterError.directoryUnavailable
             }
 
-            let microphone = try Self.makeMicrophoneRecorder(url: directory.localMicURL)
-            if recordMicrophone {
+            let microphoneSampleSource = microphoneSampleSourceFactory()
+            let microphoneWriter: PCM16MonoWAVFileWriter?
+            let microphone: AVAudioRecorder?
+            if let microphoneSampleSource {
+                microphone = nil
+                microphoneWriter = try PCM16MonoWAVFileWriter(url: directory.localMicURL)
+                _ = microphoneSampleSource
+            } else {
+                microphoneWriter = nil
+                microphone = try Self.makeMicrophoneRecorder(url: directory.localMicURL)
+            }
+            if recordMicrophone, microphoneSampleSource == nil {
                 microphone?.isMeteringEnabled = true
                 microphone?.record()
-            } else {
+            } else if microphoneSampleSource == nil {
                 FileManager.default.createFile(atPath: directory.localMicURL.path, contents: nil)
             }
 
@@ -146,11 +191,21 @@ public final class LocalRecordingWriter {
             let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
             timer.schedule(deadline: .now(), repeating: .milliseconds(50))
             timer.setEventHandler { [weak self] in
-                guard let self, let active = self.active, let incomingSampleSource = active.incomingSampleSource else { return }
-                let read = incomingSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
-                if read > 0 {
-                    try? active.remoteWriter.write(samples: active.scratch, count: read)
-                    active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: read)
+                guard let self, let active = self.active else { return }
+                if let microphoneSampleSource = active.microphoneSampleSource,
+                   let microphoneWriter = active.microphoneWriter {
+                    let read = microphoneSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
+                    if read > 0 {
+                        try? microphoneWriter.write(samples: active.scratch, count: read)
+                        active.lastMicrophoneLevel = Self.rmsLevel(samples: active.scratch, count: read)
+                        active.lastMicrophoneFrameAt = Date()
+                    }
+                }
+                guard let incomingSampleSource = active.incomingSampleSource else { return }
+                let incomingRead = incomingSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
+                if incomingRead > 0 {
+                    try? active.remoteWriter.write(samples: active.scratch, count: incomingRead)
+                    active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: incomingRead)
                     active.lastIncomingFrameAt = Date()
                 }
             }
@@ -160,6 +215,8 @@ public final class LocalRecordingWriter {
                 startedAt: startedAt,
                 directory: directory,
                 microphoneRecorder: microphone,
+                microphoneWriter: microphoneWriter,
+                microphoneSampleSource: microphoneSampleSource,
                 remoteWriter: remoteWriter,
                 incomingSampleSource: incomingSampleSource,
                 timer: timer,
@@ -177,15 +234,18 @@ public final class LocalRecordingWriter {
             guard let active else { throw LocalRecordingWriterError.notRecording }
             active.timer.cancel()
             active.microphoneRecorder?.stop()
+            try active.microphoneWriter?.close()
             try active.remoteWriter.close()
             active.scratch.deallocate()
             self.active = nil
 
+            let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
+            let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
             let micTrack = track(
                 role: .localMic,
                 url: active.directory.localMicURL,
-                durationMs: Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000)),
-                frameCount: Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000)),
+                durationMs: active.microphoneWriter?.durationMs ?? elapsedDurationMs,
+                frameCount: Int64(active.microphoneWriter?.frameCount ?? Int(elapsedFrameCount)),
                 fileName: "mic.wav",
                 timelineAligned: true
             )
@@ -290,6 +350,8 @@ private final class ActiveRecording {
     let startedAt: Date
     let directory: LocalRecordingDirectory
     let microphoneRecorder: AVAudioRecorder?
+    let microphoneWriter: PCM16MonoWAVFileWriter?
+    let microphoneSampleSource: LocalRecordingSampleSource?
     let remoteWriter: PCM16MonoWAVFileWriter
     let incomingSampleSource: LocalRecordingSampleSource?
     let timer: DispatchSourceTimer
@@ -305,6 +367,8 @@ private final class ActiveRecording {
         startedAt: Date,
         directory: LocalRecordingDirectory,
         microphoneRecorder: AVAudioRecorder?,
+        microphoneWriter: PCM16MonoWAVFileWriter?,
+        microphoneSampleSource: LocalRecordingSampleSource?,
         remoteWriter: PCM16MonoWAVFileWriter,
         incomingSampleSource: LocalRecordingSampleSource?,
         timer: DispatchSourceTimer,
@@ -315,6 +379,8 @@ private final class ActiveRecording {
         self.startedAt = startedAt
         self.directory = directory
         self.microphoneRecorder = microphoneRecorder
+        self.microphoneWriter = microphoneWriter
+        self.microphoneSampleSource = microphoneSampleSource
         self.remoteWriter = remoteWriter
         self.incomingSampleSource = incomingSampleSource
         self.timer = timer

@@ -60,16 +60,16 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 1
 
-- [ ] T019 [P] [US1] Add ScreenCaptureKit incoming-audio service tests with fake sample buffers in `apps/macos/Shared/Tests/SystemAudioCaptureServiceTests.swift`
-- [ ] T020 [P] [US1] Add microphone capture service tests with fake permission/device states in `apps/macos/Shared/Tests/MicrophoneCaptureServiceTests.swift`
-- [ ] T021 [P] [US1] Add capture scope approval tests for app/window/display selection in `apps/macos/Shared/Tests/CaptureScopeApprovalTests.swift`
-- [ ] T022 [P] [US1] Add integration-style writer test for dual sources producing `mic.wav` and `incoming.wav` in `apps/macos/Shared/Tests/SystemAudioRecordingPackageTests.swift`
+- [X] T019 [P] [US1] Add ScreenCaptureKit incoming-audio service tests with fake sample buffers in `apps/macos/Shared/Tests/SystemAudioCaptureServiceTests.swift`
+- [X] T020 [P] [US1] Add microphone capture service tests with fake permission/device states in `apps/macos/Shared/Tests/MicrophoneCaptureServiceTests.swift`
+- [X] T021 [P] [US1] Add capture scope approval tests for app/window/display selection in `apps/macos/Shared/Tests/CaptureScopeApprovalTests.swift`
+- [X] T022 [P] [US1] Add integration-style writer test for dual sources producing `mic.wav` and `incoming.wav` in `apps/macos/Shared/Tests/SystemAudioRecordingPackageTests.swift`
 
 ### Implementation for User Story 1
 
 - [ ] T023 [US1] Implement ScreenCaptureKit system-audio capture lifecycle in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
-- [ ] T024 [US1] Implement microphone capture lifecycle and permission preflight in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
-- [ ] T025 [US1] Implement user-confirmed capture scope approval service in `apps/macos/RecApp/Sources/Capture/CaptureScopeApprovalService.swift`
+- [X] T024 [US1] Implement microphone capture lifecycle and permission preflight in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
+- [X] T025 [US1] Implement user-confirmed capture scope approval service in `apps/macos/RecApp/Sources/Capture/CaptureScopeApprovalService.swift`
 - [ ] T026 [US1] Integrate system-audio and microphone services into local recording start/stop in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
 - [ ] T027 [US1] Update `CaptureControlView` to show system-audio-first recording controls and no virtual-device requirement in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
 - [ ] T028 [US1] Add metadata-only start/stop evidence for scope approval and no-egress recording in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
