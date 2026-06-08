@@ -39,6 +39,8 @@ Modes:
       manifest.json, mic.wav, and incoming.wav. Uses
       TWO_BRAIN_REC_RECORDINGS_DIR when set; otherwise uses the app's default
       ~/Library/Application Support/2brain Rec/Recordings directory.
+      When SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME is set to an epoch
+      second, older completed directories are ignored.
 
   --validate-latest-artifact
       Find the newest completed local recording directory and validate it with
@@ -125,6 +127,10 @@ recordings_root() {
 latest_completed_artifact_directory() {
     root="$(recordings_root)"
     [ -d "$root" ] || fail_invalid "recordings directory does not exist: $root"
+    min_mtime="${SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME:-0}"
+    case "$min_mtime" in
+        *[!0-9]*|"") fail_invalid "SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME must be epoch seconds" ;;
+    esac
 
     latest_directory=""
     latest_mtime=""
@@ -138,6 +144,7 @@ latest_completed_artifact_directory() {
         case "$mtime" in
             *[!0-9]*|"") mtime=0 ;;
         esac
+        [ "$mtime" -ge "$min_mtime" ] || continue
         if [ -z "$latest_mtime" ] || [ "$mtime" -gt "$latest_mtime" ]; then
             latest_mtime="$mtime"
             latest_directory="$directory"
@@ -145,7 +152,7 @@ latest_completed_artifact_directory() {
     done
 
     [ -n "$latest_directory" ] ||
-        fail_invalid "no completed local recording directories with manifest.json, mic.wav, and incoming.wav found under: $root"
+        fail_invalid "no completed local recording directories with manifest.json, mic.wav, and incoming.wav found under: $root after epoch: $min_mtime"
 
     printf '%s\n' "$latest_directory"
 }

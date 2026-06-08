@@ -25,7 +25,8 @@ Steps performed:
   5. record activeRecording CPU;
   6. wait for the tester to press Stop;
   7. record stop CPU;
-  8. validate the newest local recording artifact metadata-only;
+  8. validate the newest local recording artifact metadata-only, limited to
+     artifacts modified after this harness started;
   9. print the exact remaining evidence files to update.
 
 Environment:
@@ -61,6 +62,9 @@ cd "$ROOT_DIR"
 
 printf '%s\n' "== system-audio controlled manual gate =="
 printf '%s\n' "repo=$ROOT_DIR"
+manual_gate_started_epoch="$(date +%s)"
+export SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$manual_gate_started_epoch"
+printf '%s\n' "artifact_min_mtime_epoch=$manual_gate_started_epoch"
 
 printf '\n%s\n' "-- app-only package boundary --"
 apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only

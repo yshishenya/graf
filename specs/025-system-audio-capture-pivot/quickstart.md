@@ -95,15 +95,17 @@ The harness does not click the UI, does not start recording by itself, does not
 inspect audio content, does not install the package, and does not run HAL
 probes. It builds the app-only package, launches the repo app bundle, prompts
 for manual Record/Stop, samples baseline/active/stop CPU, and validates the
-newest artifact metadata-only.
+newest artifact metadata-only. The harness records its start epoch and ignores
+older completed artifacts so stale recordings cannot satisfy the current gate.
 
 Manual equivalent:
 
 1. Confirm `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` reports
    the current `coreaudiod` baseline before launching the app.
-2. Build and launch the packaged app:
+2. Record the manual gate start epoch, then build and launch the packaged app:
 
    ```sh
+   export SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$(date +%s)"
    TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh
    open -n "apps/macos/RecApp/.build/2brain Rec.app"
    ```
