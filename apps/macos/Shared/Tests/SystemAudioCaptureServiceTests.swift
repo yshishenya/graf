@@ -39,7 +39,9 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertTrue(runtime.didStart)
         XCTAssertTrue(runtime.didStop)
         XCTAssertEqual(started.scopeApprovalId, "scope-1")
-        XCTAssertEqual(stopped.frameCount, 480)
+        XCTAssertEqual(started.sampleRate, 48_000)
+        XCTAssertEqual(started.channelCount, 2)
+        XCTAssertEqual(stopped.frameCount, 240)
         XCTAssertEqual(stopped.failureReason, .none)
     }
 
@@ -80,7 +82,7 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         )
         let stopped = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 12))
 
-        XCTAssertEqual(stopped.frameCount, 512)
+        XCTAssertEqual(stopped.frameCount, 256)
         XCTAssertEqual(stopped.lastFrameAt, Date(timeIntervalSince1970: 11))
         XCTAssertEqual(stopped.failureReason, .none)
         XCTAssertTrue(stopped.canBeAccepted)

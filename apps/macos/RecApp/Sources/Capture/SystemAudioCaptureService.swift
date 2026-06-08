@@ -61,6 +61,9 @@ public final class NoopSystemAudioCaptureRuntime: SystemAudioCaptureRuntime {
 }
 
 public actor SystemAudioCaptureService {
+    private static let captureSampleRate: Double = 48_000
+    private static let captureChannelCount = 2
+
     private let runtime: SystemAudioCaptureRuntime
     public nonisolated let incomingSampleSource: LocalRecordingSampleSource
     private let bufferedSampleSource: BufferedLocalRecordingSampleSource
@@ -107,7 +110,9 @@ public actor SystemAudioCaptureService {
             scopeApprovalId: scopeApproval.scopeApprovalId,
             scopeKind: scopeApproval.scopeKind,
             sourceDisplayName: scopeApproval.sourceDisplayName,
-            startedAt: startedAt
+            startedAt: startedAt,
+            sampleRate: Self.captureSampleRate,
+            channelCount: Self.captureChannelCount
         )
         activeSession = session
         return session
@@ -117,7 +122,7 @@ public actor SystemAudioCaptureService {
         guard !samples.isEmpty else { return }
         bufferedSampleSource.append(samples, at: date)
         if var session = activeSession {
-            session.frameCount += Int64(samples.count)
+            session.frameCount += Self.frameCount(forSampleCount: samples.count)
             session.lastFrameAt = date
             activeSession = session
         }
@@ -131,8 +136,9 @@ public actor SystemAudioCaptureService {
 
         await runtime.stop()
         let stats = bufferedSampleSource.stats()
-        if stats.frameCount > session.frameCount {
-            session.frameCount = stats.frameCount
+        let bufferedFrameCount = Self.frameCount(forSampleCount: Int(stats.frameCount))
+        if bufferedFrameCount > session.frameCount {
+            session.frameCount = bufferedFrameCount
             session.lastFrameAt = stats.lastFrameAt
         }
         activeSession = nil
@@ -151,8 +157,9 @@ public actor SystemAudioCaptureService {
 
         await runtime.stop()
         let stats = bufferedSampleSource.stats()
-        if stats.frameCount > session.frameCount {
-            session.frameCount = stats.frameCount
+        let bufferedFrameCount = Self.frameCount(forSampleCount: Int(stats.frameCount))
+        if bufferedFrameCount > session.frameCount {
+            session.frameCount = bufferedFrameCount
             session.lastFrameAt = stats.lastFrameAt
         }
         activeSession = nil
@@ -173,6 +180,11 @@ public actor SystemAudioCaptureService {
         #else
         return NoopSystemAudioCaptureRuntime()
         #endif
+    }
+
+    private nonisolated static func frameCount(forSampleCount sampleCount: Int) -> Int64 {
+        guard sampleCount > 0 else { return 0 }
+        return Int64((sampleCount + captureChannelCount - 1) / captureChannelCount)
     }
 }
 

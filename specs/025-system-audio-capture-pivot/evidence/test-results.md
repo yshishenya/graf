@@ -1283,6 +1283,53 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 System Audio Session Metadata Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: ScreenCaptureKit system-audio session telemetry.
+- Code review finding:
+  - `SystemAudioCaptureSession` was started with default `sampleRate=0` and
+    `channelCount=0`, even though the runtime config captures 48 kHz stereo.
+  - `appendIncomingSamples(...)` counted raw float samples as `frameCount`.
+    Because ScreenCaptureKit audio is configured as stereo and the writer
+    downmixes interleaved stereo to mono, this could overstate the session frame
+    count by two and make diagnostics inconsistent with artifact metadata.
+- Code review fix:
+  - `SystemAudioCaptureService` now records `sampleRate=48000` and
+    `channelCount=2` in the system-audio session.
+  - Session `frameCount` now converts buffered interleaved sample counts to
+    audio frames using the configured channel count.
+  - Updated regression expectations for actor-appended samples and buffered
+    runtime stats that bypass the actor.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including
+    `SystemAudioCaptureServiceTests` and `SystemAudioResourceReleaseTests`;
+    full XCTest execution is not available in this Command Line Tools host
+    because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch without pressing Record produced one visible
+    `2brain Rec` window at `706x608`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.00`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, as expected, because manual permission, artifact,
+    active/stop CPU, 30-minute, 75-minute, and final scope evidence are not
+    complete.
+- Result: passed for system-audio session metadata correctness and automated
+  checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Guided Harness Stale Artifact Guard Review
 
 - Feature: `025-system-audio-capture-pivot`

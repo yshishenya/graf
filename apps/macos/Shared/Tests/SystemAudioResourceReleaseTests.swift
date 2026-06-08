@@ -60,7 +60,7 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
 
         let released = await service.releaseForTermination(stoppedAt: Date(timeIntervalSince1970: 3))
 
-        XCTAssertEqual(released?.frameCount, 320)
+        XCTAssertEqual(released?.frameCount, 160)
         XCTAssertEqual(released?.lastFrameAt, Date(timeIntervalSince1970: 2))
         XCTAssertEqual(released?.failureReason, .none)
         XCTAssertEqual(runtime.stopCount, 1)
