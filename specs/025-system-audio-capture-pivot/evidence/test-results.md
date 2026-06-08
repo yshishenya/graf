@@ -1037,6 +1037,47 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 System Audio Sample Endianness Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: ScreenCaptureKit/CoreMedia sample conversion for incoming/system audio.
+- Code review finding:
+  - `SystemAudioSampleExtractor` assumed little/native-endian PCM while reading
+    float32 and signed int16 samples.
+  - That is correct for the current Apple Silicon host, but the CoreAudio format
+    description can explicitly mark buffers as big-endian.
+  - If such a buffer appears, incoming levels and `incoming.wav` content could
+    be decoded incorrectly even though capture itself is running.
+- Code review fix:
+  - Float32 and signed int16 decoding now respects
+    `kAudioFormatFlagIsBigEndian`.
+  - Added regression coverage for big-endian float32 and big-endian signed int16
+    sample buffers.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`; full XCTest execution is not available in
+    this Command Line Tools host because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch produced one visible `2brain Rec` window.
+  - Runtime process snapshot after launch showed app CPU `0.0`, `coreaudiod`
+    CPU `0.0`, and no thermal/performance warning recorded by `pmset -g therm`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no entries.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+- Result: passed for code review fix, build, contract, no-HAL, app-only
+  installer, packaged launch, idle CPU, quit CPU, and basic log/thermal review.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Stop Failure Cleanup Review
 
 - Feature: `025-system-audio-capture-pivot`

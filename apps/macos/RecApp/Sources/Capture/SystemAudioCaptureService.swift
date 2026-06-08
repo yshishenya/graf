@@ -370,13 +370,16 @@ enum SystemAudioSampleExtractor {
     ) -> [Float] {
         guard !buffers.isEmpty else { return [] }
         let flags = streamDescription.mFormatFlags
+        let isBigEndian = flags & kAudioFormatFlagIsBigEndian != 0
         if streamDescription.mBitsPerChannel == 32 &&
             flags & kAudioFormatFlagIsFloat != 0 {
             return extractSamples(
                 buffers: buffers,
                 sampleStride: MemoryLayout<Float>.stride
             ) { pointer, index in
-                pointer.assumingMemoryBound(to: Float.self)[index]
+                let bitPattern = pointer.assumingMemoryBound(to: UInt32.self)[index]
+                let hostBits = isBigEndian ? UInt32(bigEndian: bitPattern) : UInt32(littleEndian: bitPattern)
+                return Float(bitPattern: hostBits)
             }
         }
 
@@ -387,7 +390,8 @@ enum SystemAudioSampleExtractor {
                 sampleStride: MemoryLayout<Int16>.stride
             ) { pointer, index in
                 let sample = pointer.assumingMemoryBound(to: Int16.self)[index]
-                return Float(Int16(littleEndian: sample)) / Float(Int16.max)
+                let hostSample = isBigEndian ? Int16(bigEndian: sample) : Int16(littleEndian: sample)
+                return Float(hostSample) / Float(Int16.max)
             }
         }
 
