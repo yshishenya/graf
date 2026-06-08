@@ -213,52 +213,211 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         of outputType: SCStreamOutputType
     ) {
         guard outputType == .audio else { return }
-        let samples = Self.extractFloatSamples(from: sampleBuffer)
+        let samples = SystemAudioSampleExtractor.extractFloatSamples(from: sampleBuffer)
         guard !samples.isEmpty else { return }
         sampleHandler(samples)
     }
+}
+#endif
 
-    private static func extractFloatSamples(from sampleBuffer: CMSampleBuffer) -> [Float] {
+#if canImport(CoreMedia) && canImport(AudioToolbox)
+enum SystemAudioSampleExtractor {
+    static func extractFloatSamples(from sampleBuffer: CMSampleBuffer) -> [Float] {
         guard CMSampleBufferDataIsReady(sampleBuffer),
               let format = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
-              let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer)
+              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee
         else {
             return []
+        }
+
+        if let blockSamples = extractFromContiguousBlockBuffer(
+            sampleBuffer: sampleBuffer,
+            streamDescription: streamDescription
+        ) {
+            return blockSamples
+        }
+
+        return extractFromAudioBufferList(
+            sampleBuffer: sampleBuffer,
+            streamDescription: streamDescription
+        )
+    }
+
+    static func extractFloatSamples(
+        streamDescription: AudioStreamBasicDescription,
+        bufferData: [Data]
+    ) -> [Float] {
+        let bytesPerSample = Int(streamDescription.mBitsPerChannel / 8)
+        guard bytesPerSample > 0 else { return [] }
+        if bufferData.count == 1 {
+            return bufferData[0].withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress, rawBuffer.count > 0 else {
+                    return []
+                }
+                return extractFloatSamples(
+                    streamDescription: streamDescription,
+                    buffers: [(baseAddress, rawBuffer.count)]
+                )
+            }
+        }
+
+        let decodedBuffers = bufferData.map { data -> [Float] in
+            data.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress, rawBuffer.count > 0 else {
+                    return []
+                }
+                return extractFloatSamples(
+                    streamDescription: streamDescription,
+                    buffers: [(baseAddress, rawBuffer.count)]
+                )
+            }
+        }
+        guard let frameCount = decodedBuffers.map(\.count).min(), frameCount > 0 else {
+            return []
+        }
+        var samples: [Float] = []
+        samples.reserveCapacity(frameCount * decodedBuffers.count)
+        for frame in 0..<frameCount {
+            for buffer in decodedBuffers {
+                samples.append(buffer[frame])
+            }
+        }
+        return samples
+    }
+
+    private static func extractFromContiguousBlockBuffer(
+        sampleBuffer: CMSampleBuffer,
+        streamDescription: AudioStreamBasicDescription
+    ) -> [Float]? {
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+            return nil
         }
 
         var lengthAtOffset = 0
         var totalLength = 0
         var dataPointer: UnsafeMutablePointer<Int8>?
-        guard CMBlockBufferGetDataPointer(
+        let status = CMBlockBufferGetDataPointer(
             blockBuffer,
             atOffset: 0,
             lengthAtOffsetOut: &lengthAtOffset,
             totalLengthOut: &totalLength,
             dataPointerOut: &dataPointer
-        ) == kCMBlockBufferNoErr,
-            let dataPointer,
-            totalLength > 0
-        else {
+        )
+        guard status == kCMBlockBufferNoErr, let dataPointer, totalLength > 0 else {
+            return nil
+        }
+
+        return extractFloatSamples(
+            streamDescription: streamDescription,
+            buffers: [(UnsafeRawPointer(dataPointer), totalLength)]
+        )
+    }
+
+    private static func extractFromAudioBufferList(
+        sampleBuffer: CMSampleBuffer,
+        streamDescription: AudioStreamBasicDescription
+    ) -> [Float] {
+        var bufferListSize = 0
+        var retainedBlockBuffer: CMBlockBuffer?
+        let sizeStatus = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: &bufferListSize,
+            bufferListOut: nil,
+            bufferListSize: 0,
+            blockBufferAllocator: kCFAllocatorDefault,
+            blockBufferMemoryAllocator: kCFAllocatorDefault,
+            flags: 0,
+            blockBufferOut: &retainedBlockBuffer
+        )
+        guard sizeStatus == noErr, bufferListSize > 0 else {
             return []
         }
 
+        let rawBufferList = UnsafeMutableRawPointer.allocate(
+            byteCount: bufferListSize,
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { rawBufferList.deallocate() }
+
+        let bufferListPointer = rawBufferList.bindMemory(to: AudioBufferList.self, capacity: 1)
+        let dataStatus = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: bufferListPointer,
+            bufferListSize: bufferListSize,
+            blockBufferAllocator: kCFAllocatorDefault,
+            blockBufferMemoryAllocator: kCFAllocatorDefault,
+            flags: 0,
+            blockBufferOut: &retainedBlockBuffer
+        )
+        guard dataStatus == noErr else {
+            return []
+        }
+
+        let audioBuffers = UnsafeMutableAudioBufferListPointer(bufferListPointer)
+        let buffers: [(UnsafeRawPointer, Int)] = audioBuffers.compactMap { audioBuffer in
+            guard let data = audioBuffer.mData, audioBuffer.mDataByteSize > 0 else {
+                return nil
+            }
+            return (UnsafeRawPointer(data), Int(audioBuffer.mDataByteSize))
+        }
+        return extractFloatSamples(streamDescription: streamDescription, buffers: buffers)
+    }
+
+    private static func extractFloatSamples(
+        streamDescription: AudioStreamBasicDescription,
+        buffers: [(UnsafeRawPointer, Int)]
+    ) -> [Float] {
+        guard !buffers.isEmpty else { return [] }
         let flags = streamDescription.mFormatFlags
         if streamDescription.mBitsPerChannel == 32 &&
             flags & kAudioFormatFlagIsFloat != 0 {
-            let count = totalLength / MemoryLayout<Float>.stride
-            let pointer = UnsafeRawPointer(dataPointer).assumingMemoryBound(to: Float.self)
-            return (0..<count).map { pointer[$0] }
+            return extractSamples(
+                buffers: buffers,
+                sampleStride: MemoryLayout<Float>.stride
+            ) { pointer, index in
+                pointer.assumingMemoryBound(to: Float.self)[index]
+            }
         }
 
         if streamDescription.mBitsPerChannel == 16 &&
             flags & kAudioFormatFlagIsSignedInteger != 0 {
-            let count = totalLength / MemoryLayout<Int16>.stride
-            let pointer = UnsafeRawPointer(dataPointer).assumingMemoryBound(to: Int16.self)
-            return (0..<count).map { Float(Int16(littleEndian: pointer[$0])) / Float(Int16.max) }
+            return extractSamples(
+                buffers: buffers,
+                sampleStride: MemoryLayout<Int16>.stride
+            ) { pointer, index in
+                let sample = pointer.assumingMemoryBound(to: Int16.self)[index]
+                return Float(Int16(littleEndian: sample)) / Float(Int16.max)
+            }
         }
 
         return []
+    }
+
+    private static func extractSamples(
+        buffers: [(UnsafeRawPointer, Int)],
+        sampleStride: Int,
+        read: (UnsafeRawPointer, Int) -> Float
+    ) -> [Float] {
+        if buffers.count == 1 {
+            let (pointer, byteCount) = buffers[0]
+            let sampleCount = byteCount / sampleStride
+            guard sampleCount > 0 else { return [] }
+            return (0..<sampleCount).map { read(pointer, $0) }
+        }
+
+        let sampleCounts = buffers.map { $0.1 / sampleStride }
+        guard let frameCount = sampleCounts.min(), frameCount > 0 else {
+            return []
+        }
+        var samples: [Float] = []
+        samples.reserveCapacity(frameCount * buffers.count)
+        for frame in 0..<frameCount {
+            for (pointer, _) in buffers {
+                samples.append(read(pointer, frame))
+            }
+        }
+        return samples
     }
 }
 #endif
