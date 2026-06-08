@@ -87,6 +87,43 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(stopped.failureReason, .none)
         XCTAssertTrue(stopped.canBeAccepted)
     }
+
+    func testStartResetsBufferedSamplesAndStatsBetweenSessions() async throws {
+        let sampleSource = BufferedLocalRecordingSampleSource()
+        let service = SystemAudioCaptureService(
+            runtime: FakeSystemAudioRuntime(),
+            sampleSource: sampleSource
+        )
+
+        _ = try await service.start(
+            sessionId: "first",
+            permissionState: .granted,
+            scopeApproval: approvedScope(),
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        sampleSource.append(
+            Array(repeating: 0.8, count: 512),
+            at: Date(timeIntervalSince1970: 11)
+        )
+        _ = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 12))
+
+        _ = try await service.start(
+            sessionId: "second",
+            permissionState: .granted,
+            scopeApproval: approvedScope(),
+            startedAt: Date(timeIntervalSince1970: 20)
+        )
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 512)
+        defer { scratch.deallocate() }
+
+        XCTAssertEqual(service.incomingSampleSource.readSamples(into: scratch, capacity: 512), 0)
+
+        let stopped = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 21))
+        XCTAssertEqual(stopped.sessionId, "second")
+        XCTAssertEqual(stopped.frameCount, 0)
+        XCTAssertEqual(stopped.lastFrameAt, nil)
+        XCTAssertEqual(stopped.failureReason, .noFrames)
+    }
 }
 
 private func approvedScope() -> CaptureScopeApproval {

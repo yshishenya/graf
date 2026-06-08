@@ -98,6 +98,7 @@ public actor SystemAudioCaptureService {
             throw SystemAudioCaptureServiceError.alreadyRunning
         }
 
+        bufferedSampleSource.reset()
         do {
             try await runtime.start()
         } catch {

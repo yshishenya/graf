@@ -1129,6 +1129,50 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 System Audio Session Buffer Reset Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: repeated manual recordings in one app process.
+- Code review finding:
+  - `SystemAudioCaptureService` reuses one buffered incoming sample source
+    across recording sessions.
+  - The buffer and cumulative frame stats were not reset when a new session
+    started.
+  - A second recording could therefore inherit unread incoming samples or stale
+    frame stats from a previous recording, making `incoming.wav` or session
+    frame truth misleading.
+- Code review fix:
+  - Added `BufferedLocalRecordingSampleSource.reset()`.
+  - `SystemAudioCaptureService.start(...)` resets the buffer and stats before
+    starting the ScreenCaptureKit runtime.
+  - Added regression coverage proving a second session starts with no stale
+    unread samples and no inherited frame count.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including
+    `SystemAudioCaptureServiceTests`; full XCTest execution is not available
+    in this Command Line Tools host because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch produced one visible `2brain Rec` window from
+    CoreGraphics with bounds `706x608`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Idle CPU gate passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU gate passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - Broad unified-log crash/hang/error predicate for `2brain Rec` showed Apple
+    framework `AppIntents/linkd.autoShortcut` connection errors during launch;
+    a narrower app-subsystem predicate returned no project subsystem entries.
+- Result: passed for stale incoming buffer prevention and automated checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Screen/System Audio Permission Request Review
 
 - Feature: `025-system-audio-capture-pivot`

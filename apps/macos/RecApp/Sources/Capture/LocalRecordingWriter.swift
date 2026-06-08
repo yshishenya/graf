@@ -88,6 +88,15 @@ public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSourc
         return (totalAppendedFrameCount, lastAppendAt)
     }
 
+    public func reset() {
+        lock.lock()
+        buffer.removeAll(keepingCapacity: true)
+        readOffset = 0
+        totalAppendedFrameCount = 0
+        lastAppendAt = nil
+        lock.unlock()
+    }
+
     public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
         lock.lock()
         defer { lock.unlock() }
