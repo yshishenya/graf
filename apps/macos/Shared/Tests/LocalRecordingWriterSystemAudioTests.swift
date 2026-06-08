@@ -84,6 +84,32 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertGreaterThan(incoming.durationMs, 0)
         XCTAssertNotEqual(incoming.failureReason, .noFrames)
     }
+
+    func testStopPadsIntermittentIncomingAudioToRecordingTimeline() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-padding-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let incomingSource = BufferedLocalRecordingSampleSource()
+        incomingSource.append(Array(repeating: 0.25, count: 4_800))
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        XCTAssertGreaterThanOrEqual(incoming.durationMs, 990)
+        XCTAssertLessThanOrEqual(manifest.durationDifferenceSeconds, 3)
+        XCTAssertNotEqual(incoming.failureReason, .timelineMisaligned)
+    }
 }
 
 private final class FixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {

@@ -669,3 +669,35 @@
     `maxHelperProcessCount=0`.
 - Notes: This makes the app-exit cleanup order match the normal Stop order:
   stop system-audio runtime first, then close local recording artifacts.
+
+## 2026-06-08 Incoming Timeline Padding Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: intermittent incoming/system-audio alignment against continuous
+  microphone recording.
+- Code review finding:
+  - `incoming.wav` grew only when incoming/system-audio samples were delivered,
+    while `mic.wav` records against the wall-clock recording duration.
+  - During pauses or batched system-audio delivery, `incoming.wav` could become
+    shorter than the recording timeline even when some incoming audio was
+    captured, creating avoidable duration and file-size skew.
+- Code review fix:
+  - After draining pending samples at Stop, the writer pads silence up to the
+    elapsed recording timeline for tracks that already received frames.
+  - A true no-frames incoming case remains `noFrames` and is not converted into
+    a false saved track.
+  - Added regression coverage proving an intermittent incoming source is padded
+    to roughly the recording duration and does not become `timelineMisaligned`.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` completed in the local SwiftPM
+    runner.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - Packaged app launched and CoreGraphics found `window_count=1`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+- Notes: This directly reduces file-size/duration skew for recordings with
+  intermittent incoming audio. Real accepted artifact proof still requires #308.

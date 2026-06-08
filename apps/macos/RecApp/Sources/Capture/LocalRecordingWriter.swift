@@ -259,6 +259,7 @@ public final class LocalRecordingWriter {
 
             let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
             let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
+            try padTimelineSilence(for: active, targetFrameCount: Int(elapsedFrameCount))
             let micTrack = track(
                 role: .localMic,
                 url: active.directory.localMicURL,
@@ -300,6 +301,19 @@ public final class LocalRecordingWriter {
             )
             try manifestService.write(manifest, to: active.directory.manifestURL)
             return manifest
+        }
+    }
+
+    private func padTimelineSilence(for active: ActiveRecording, targetFrameCount: Int) throws {
+        guard targetFrameCount > 0 else { return }
+        if let microphoneWriter = active.microphoneWriter,
+           microphoneWriter.frameCount > 0,
+           microphoneWriter.frameCount < targetFrameCount {
+            try microphoneWriter.writeSilence(frameCount: targetFrameCount - microphoneWriter.frameCount)
+        }
+        if active.remoteWriter.frameCount > 0,
+           active.remoteWriter.frameCount < targetFrameCount {
+            try active.remoteWriter.writeSilence(frameCount: targetFrameCount - active.remoteWriter.frameCount)
         }
     }
 
@@ -528,6 +542,19 @@ private final class PCM16MonoWAVFileWriter {
         }
         guard !data.isEmpty else { return }
         try handle.write(contentsOf: data)
+    }
+
+    func writeSilence(frameCount count: Int) throws {
+        guard count > 0 else { return }
+        let chunkFrameCount = 4096
+        var remaining = count
+        let silence = Data(repeating: 0, count: chunkFrameCount * MemoryLayout<Int16>.stride)
+        while remaining > 0 {
+            let frames = min(remaining, chunkFrameCount)
+            try handle.write(contentsOf: silence.prefix(frames * MemoryLayout<Int16>.stride))
+            frameCount += frames
+            remaining -= frames
+        }
     }
 
     func close() throws {
