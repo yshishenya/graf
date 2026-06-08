@@ -134,6 +134,21 @@ private struct ContentView: View {
         .onReceive(
             Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
         ) { _ in
+            if localRecordingWriter.isRecording {
+                let recordingLevels = localRecordingWriter.currentLevels()
+                let nextLevels = LiveRouteSignalLevels(
+                    isActive: recordingLevels.isRecording,
+                    microphoneLevel: recordingLevels.microphoneLevel,
+                    speakerLevel: recordingLevels.incomingLevel,
+                    microphoneUpdatedAt: recordingLevels.microphoneUpdatedAt,
+                    speakerUpdatedAt: recordingLevels.incomingUpdatedAt
+                )
+                if nextLevels != liveRouteSignalLevels {
+                    liveRouteSignalLevels = nextLevels
+                }
+                return
+            }
+
             let routeActive = PassthroughRouteEngine.shared.nonblockingState == .active
             guard routeActive else {
                 if liveRouteSignalLevels != .inactive {

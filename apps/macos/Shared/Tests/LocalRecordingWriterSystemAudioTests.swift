@@ -32,6 +32,32 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertEqual(incoming.status, .saved)
         XCTAssertGreaterThan(incoming.frameCount, 0)
     }
+
+    func testWriterReportsIncomingRecorderLevelFromSystemAudioSource() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-level-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = FixtureSampleSource(samples: Array(repeating: 0.5, count: 2_048))
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            incomingSampleSourceFactory: { source },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        Thread.sleep(forTimeInterval: 0.15)
+        let now = Date(timeIntervalSince1970: 10.2)
+        let levels = writer.currentLevels(now: now)
+        _ = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        XCTAssertTrue(levels.isRecording)
+        XCTAssertGreaterThan(levels.incomingLevel, 0)
+        XCTAssertTrue(levels.incomingIsLive(now: now, staleAfter: 2))
+    }
 }
 
 private final class FixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {

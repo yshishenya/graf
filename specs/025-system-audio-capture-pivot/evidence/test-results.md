@@ -375,3 +375,43 @@
     process and `maxCoreaudiodCpuPercent=0.00`.
   - `swift test` still only compiled the test bundle in this local Command Line
     Tools environment; it is not counted as full XCTest execution.
+
+## 2026-06-08 Recorder Meter Source Wiring Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: live meter source correctness during system-audio recording.
+- Code review finding:
+  - The UI meter section was visible, but its live data path still preferred
+    the older passthrough/shared-memory route monitor.
+  - That could make the `Incoming` meter stay silent during the system-audio
+    MVP path even when `incoming.wav` was being fed by the local recording
+    writer.
+- Code review fix:
+  - During local recording, `TwoBrainRecApp` now maps
+    `LocalRecordingWriter.currentLevels()` into the meter model.
+  - This means `Microphone` and `Incoming` meters reflect the recorder path that
+    writes `mic.wav` and `incoming.wav`, not the parked virtual-device route.
+  - The passthrough monitor remains only as a diagnostic fallback when the old
+    route engine is explicitly active and local recording is not running.
+- Test coverage:
+  - Added a `LocalRecordingWriterSystemAudioTests` assertion that an independent
+    incoming/system-audio sample source produces a live incoming recorder level.
+- Commands:
+  - `swift build --package-path apps/macos`
+  - `swift test --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - `open -n "apps/macos/RecApp/.build/2brain Rec.app"`
+  - Packaged app window screenshot:
+    `/tmp/twobrain-app-window-recorder-level-wiring.png`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+- Result:
+  - Packaged app launched and showed the recorder meter section.
+  - Idle CPU gate passed at `2026-06-08T19:10:50Z` with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU gate passed at `2026-06-08T19:11:31Z` with no remaining app
+    process and `maxCoreaudiodCpuPercent=0.00`.
+- Notes: Real moving meter validation still requires a controlled recording
+  with actual microphone and system audio. That remains part of #308/#309.
