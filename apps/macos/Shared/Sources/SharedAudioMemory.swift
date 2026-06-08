@@ -301,8 +301,8 @@ public final class SharedAudioMemory {
         return sampleCount
     }
 
-    public func writeAppHeartbeat(at date: Date = Date()) {
-        let nanos = UInt64(max(date.timeIntervalSince1970, 0) * 1_000_000_000)
+    public func writeAppHeartbeat(at _: Date = Date()) {
+        let nanos = DispatchTime.now().uptimeNanoseconds
         OSMemoryBarrier()
         layout.appWriterPID.pointee = UInt64(ProcessInfo.processInfo.processIdentifier)
         layout.appHeartbeatNanos.pointee = nanos

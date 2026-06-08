@@ -446,7 +446,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
         snapshot: ClientActivitySnapshot,
         logger: Logger? = nil
     ) -> PassthroughRouteEngineState {
-            if autoIdlePolicy.clientActivityPolicy.shouldPreserveRoute(for: snapshot) {
+        if autoIdlePolicy.clientActivityPolicy.shouldPreserveRoute(for: snapshot) {
             consecutiveIdleTicks = 0
             if bridge != nil {
                 setStateLocked(.active)

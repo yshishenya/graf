@@ -14,7 +14,6 @@
 #include <mach/mach_time.h>
 
 #include <atomic>
-#include <chrono>
 #include <cstring>
 #include <ctime>
 #include <algorithm>
@@ -264,6 +263,8 @@ OSStatus WriteStreamConfiguration(AudioObjectID device_id, AudioObjectPropertySc
     return kAudioHardwareNoError;
 }
 
+uint64_t HostTicksToNanos(uint64_t host_ticks);
+
 bool HasObject(AudioObjectID object_id) {
     return object_id == kPlugInObject || IsDevice(object_id) || IsStream(object_id);
 }
@@ -299,10 +300,7 @@ bool PrivateAppIOAvailable() {
         return false;
     }
 
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-    const uint64_t now_nanos = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(now).count()
-    );
+    const uint64_t now_nanos = HostTicksToNanos(mach_absolute_time());
     return now_nanos >= heartbeat && (now_nanos - heartbeat) <= kAppIOHeartbeatTimeoutNanos;
 }
 
