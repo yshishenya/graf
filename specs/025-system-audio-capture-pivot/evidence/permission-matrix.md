@@ -38,3 +38,15 @@ Blocked, failed, degraded, and not-tested rows are not acceptance.
 - Validator result: `blocked`
 - Reason: Manual TCC grant/deny/revoke rows are still required before acceptance.
 - Safe checks: required rows present; blocked/degraded/not-tested rows are not counted as acceptance; this helper avoids HAL probes and driver reinstall steps.
+
+## 2026-06-08 Metadata Validator Run
+
+- Run ID: `20260608T230809Z`
+- Timestamp: `2026-06-08T23:08:09Z`
+- Commit: `f7a7454`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--permission-matrix`
+- Validator result: `blocked`
+- Reason: Manual TCC grant/deny/revoke rows are still required before acceptance.
+- Safe checks: required rows present; blocked/degraded/not-tested rows are not counted as acceptance; this helper avoids HAL probes and driver reinstall steps.

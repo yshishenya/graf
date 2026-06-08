@@ -1037,6 +1037,44 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Fresh Automated Baseline And Idle Runtime Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: repeated safe baseline before continuing manual acceptance gates.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the package tests;
+    full XCTest execution is not available in this Command Line Tools host
+    because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked only on manual acceptance evidence: permission matrix,
+    artifact matrix, activeRecording CPU, stop CPU, 30-minute run, 75-minute
+    run, and final scope review.
+  - Fresh packaged app launch produced one visible `2brain Rec` window from
+    CoreGraphics with bounds `706x608`.
+  - Runtime process snapshot showed app CPU `0.1` and RSS about `90736 KB`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Idle CPU gate passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.00`.
+  - Quit CPU gate passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - Accessibility UI inspection through `osascript` was not available because
+    this host has not granted Accessibility trust to `osascript`; no UI click
+    or manual Record/Stop claim was made.
+  - Broad unified-log crash/hang/error predicate for `2brain Rec` showed Apple
+    framework `AppIntents/linkd.autoShortcut` connection errors during launch;
+    a narrower app-subsystem predicate returned no project subsystem entries.
+- Result: passed for automated build, contract, no-HAL, app-only package,
+  packaged launch, idle CPU, quit CPU, and thermal review.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Screen/System Audio Permission Request Review
 
 - Feature: `025-system-audio-capture-pivot`
