@@ -277,7 +277,9 @@ private struct ContentView: View {
             )
             let directory = try localRecordingWriter.start(
                 sessionId: active.id,
-                startedAt: active.startedAt ?? Date()
+                startedAt: active.startedAt ?? Date(),
+                scopeApproval: scopeApproval,
+                permissions: permissionGate.snapshot
             )
             captureSession = active
             localRecordingLocation = directory.directoryURL.path

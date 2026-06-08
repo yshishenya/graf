@@ -460,3 +460,53 @@
     process and `maxCoreaudiodCpuPercent=0.00`.
 - Notes: Real accepted artifact validation still requires a controlled recording
   run and `--artifact-directory` against the produced directory.
+
+## 2026-06-08 Recording Manifest Metadata Propagation Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: real local recording manifest fields required by
+  `validate-system-audio-capture-pivot.sh --artifact-directory`.
+- Code review finding:
+  - `startManualRecording` created a real `CaptureScopeApproval` and
+    `SystemAudioPermissionSnapshot`, but `LocalRecordingWriter.stop()` did not
+    pass them into `LocalRecordingManifestService`.
+  - A real `manifest.json` could therefore miss `scopeApproval` and
+    `permissions`, even though the start gate had evaluated them.
+- Code review fix:
+  - `LocalRecordingWriter.start(...)` now accepts optional `scopeApproval` and
+    `permissions` metadata and stores them for finalization.
+  - `LocalRecordingWriter.stop(...)` passes that metadata into the written
+    manifest.
+  - `TwoBrainRecApp.startManualRecording()` now supplies the actual approved
+    scope and permission snapshot from the accepted recording start.
+- Test coverage:
+  - Updated the dual-source package test to assert that writer-produced
+    manifests preserve `scopeApproval`, microphone permission, and system-audio
+    permission metadata.
+- Commands:
+  - `swift build --package-path apps/macos`
+  - `swift test --package-path apps/macos`
+  - attempted direct test-bundle execution:
+    `apps/macos/.build/arm64-apple-macosx/debug/TwoBrainRecMacOSPackageTests.xctest/Contents/MacOS/TwoBrainRecMacOSPackageTests`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - `open -n "apps/macos/RecApp/.build/2brain Rec.app"`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+- Result:
+  - Build, test bundle compilation, contract validation, and no-HAL validation
+    passed.
+  - Direct test-bundle execution is still not available in this local CLT
+    environment: the `.xctest` Mach-O bundle returned `exec format error`
+    without an XCTest runner.
+  - Final evidence review remained correctly blocked because manual permission,
+    artifact, active/stop CPU, 30-minute, and 75-minute gates are still open.
+  - Packaged app launched with visible `2brain Rec` window.
+  - Idle CPU gate passed at `2026-06-08T19:29:12Z` with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU gate passed at `2026-06-08T19:29:58Z` with no remaining app
+    process and `maxCoreaudiodCpuPercent=0.00`.
+- Notes: Real artifact acceptance still requires a controlled recording and
+  `--artifact-directory` against the produced directory.

@@ -22,10 +22,25 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
             incomingSampleSourceFactory: { incomingSource },
             recordMicrophone: true
         )
+        let scopeApproval = CaptureScopeApproval(
+            scopeApprovalId: "scope-package",
+            scopeKind: .display,
+            sourceDisplayName: "Current Display",
+            approvedAt: Date(timeIntervalSince1970: 9),
+            approvalMode: .userConfirmedSuggestedScope,
+            eligibleReason: .manualMeetingScope
+        )
+        let permissions = SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
 
         let directory = try writer.start(
             sessionId: "session",
-            startedAt: Date(timeIntervalSince1970: 10)
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: scopeApproval,
+            permissions: permissions
         )
         Thread.sleep(forTimeInterval: 0.2)
         let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
@@ -38,6 +53,9 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         XCTAssertEqual(manifest.tracks.first { $0.role == .remoteSpeaker }?.sourceKind, .systemAudio)
         XCTAssertEqual(manifest.status, .saved)
         XCTAssertTrue(manifest.isComplete)
+        XCTAssertEqual(manifest.scopeApproval?.scopeApprovalId, "scope-package")
+        XCTAssertEqual(manifest.permissions?.microphone, .granted)
+        XCTAssertEqual(manifest.permissions?.systemAudio, .granted)
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)
     }

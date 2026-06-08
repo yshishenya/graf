@@ -167,7 +167,12 @@ public final class LocalRecordingWriter {
         }
     }
 
-    public func start(sessionId: String, startedAt: Date) throws -> LocalRecordingDirectory {
+    public func start(
+        sessionId: String,
+        startedAt: Date,
+        scopeApproval: CaptureScopeApproval? = nil,
+        permissions: SystemAudioPermissionSnapshot? = nil
+    ) throws -> LocalRecordingDirectory {
         try queue.sync {
             guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
             let directory: LocalRecordingDirectory
@@ -231,7 +236,9 @@ public final class LocalRecordingWriter {
                 incomingSampleSource: incomingSampleSource,
                 timer: timer,
                 scratch: scratch,
-                scratchCapacity: 8192
+                scratchCapacity: 8192,
+                scopeApproval: scopeApproval,
+                permissions: permissions
             )
             active = activeRecording
             timer.resume()
@@ -286,6 +293,8 @@ public final class LocalRecordingWriter {
                 startedAt: active.startedAt,
                 stoppedAt: stoppedAt,
                 tracks: [micTrack, remoteTrack],
+                scopeApproval: active.scopeApproval,
+                permissions: active.permissions,
                 captureHealth: captureHealth
             )
             try manifestService.write(manifest, to: active.directory.manifestURL)
@@ -395,6 +404,8 @@ private final class ActiveRecording {
     let timer: DispatchSourceTimer
     let scratch: UnsafeMutablePointer<Float>
     let scratchCapacity: Int
+    let scopeApproval: CaptureScopeApproval?
+    let permissions: SystemAudioPermissionSnapshot?
     var lastMicrophoneLevel: Double
     var lastIncomingLevel: Double
     var lastMicrophoneFrameAt: Date?
@@ -411,7 +422,9 @@ private final class ActiveRecording {
         incomingSampleSource: LocalRecordingSampleSource?,
         timer: DispatchSourceTimer,
         scratch: UnsafeMutablePointer<Float>,
-        scratchCapacity: Int
+        scratchCapacity: Int,
+        scopeApproval: CaptureScopeApproval?,
+        permissions: SystemAudioPermissionSnapshot?
     ) {
         self.sessionId = sessionId
         self.startedAt = startedAt
@@ -424,6 +437,8 @@ private final class ActiveRecording {
         self.timer = timer
         self.scratch = scratch
         self.scratchCapacity = scratchCapacity
+        self.scopeApproval = scopeApproval
+        self.permissions = permissions
         self.lastMicrophoneLevel = 0
         self.lastIncomingLevel = 0
         self.lastMicrophoneFrameAt = nil
