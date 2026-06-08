@@ -252,14 +252,14 @@ public final class LocalRecordingWriter {
             active.timer.cancel()
             try drainPendingSamples(for: active)
             active.microphoneRecorder?.stop()
+            let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
+            let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
+            try padTimelineSilence(for: active, targetFrameCount: Int(elapsedFrameCount))
             try active.microphoneWriter?.close()
             try active.remoteWriter.close()
             active.scratch.deallocate()
             self.active = nil
 
-            let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
-            let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
-            try padTimelineSilence(for: active, targetFrameCount: Int(elapsedFrameCount))
             let micTrack = track(
                 role: .localMic,
                 url: active.directory.localMicURL,

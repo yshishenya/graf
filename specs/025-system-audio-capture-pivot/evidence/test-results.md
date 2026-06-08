@@ -986,3 +986,53 @@
 - Remaining gates not completed by this automated slice: permission matrix,
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
+
+## 2026-06-09 Local Recording Timeline Padding Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: local dual-track artifact finalization and timeline alignment.
+- Code review finding:
+  - `LocalRecordingWriter.stop()` drained pending incoming samples and then
+    closed the microphone/incoming WAV writers before calling
+    `padTimelineSilence(...)`.
+  - If incoming/system audio was intermittent but present, timeline padding
+    could attempt to write silence after the WAV handle had been closed.
+  - This could produce failed finalization or misleading degraded/misaligned
+    artifact metadata for a recording that otherwise had valid incoming audio.
+- Code review fix:
+  - `padTimelineSilence(...)` now runs before `PCM16MonoWAVFileWriter.close()`
+    for both sample-source microphone writers and incoming/system audio.
+  - The manifest still computes track duration and alignment only after writers
+    are padded, closed, and their frame counts are final.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`; local environment is Command Line Tools
+    only, `xcrun --find xctest` exits `72`, so XCTest case execution is not
+    available here.
+  - Existing regression coverage includes
+    `LocalRecordingWriterSystemAudioTests.testStopPadsIntermittentIncomingAudioToRecordingTimeline`,
+    but this host can only compile/link that test bundle until a full Xcode
+    XCTest runner is available.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch produced one visible `2brain Rec` window.
+  - Runtime process snapshot after launch showed app CPU `0.0`, `coreaudiod`
+    CPU `0.0`, and no thermal/performance warning recorded by `pmset -g therm`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no entries.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    still blocks, as expected, because permission matrix, controlled artifact,
+    active/stop CPU, 30-minute, and 75-minute manual gates remain unaccepted.
+- Result: passed for code review fix, build, contract, no-HAL, app-only
+  installer, packaged launch, idle CPU, quit CPU, and basic log/thermal review.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
