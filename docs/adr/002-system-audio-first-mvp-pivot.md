@@ -90,7 +90,7 @@ The MVP is accepted only if a normal user can:
 
 ## Required Follow-Up
 
-- Create feature spec `022-system-audio-capture-pivot`.
+- Create feature spec `025-system-audio-capture-pivot`.
 - Update PRD/current status to stop presenting driver-first as the MVP path.
 - Add contracts for permission truth, system-audio capture sessions, local
   dual-track writer behavior, and degraded recording manifests.

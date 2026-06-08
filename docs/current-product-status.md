@@ -51,7 +51,7 @@ implementation record.
 ## Not Accepted Yet
 
 - System-audio-first recording implementation is not yet complete. Feature
-  `022-system-audio-capture-pivot` defines the new MVP path but still needs
+  `025-system-audio-capture-pivot` defines the new MVP path but still needs
   clarify/plan/tasks/implementation/validation.
 - Existing driver-based live route evidence from `019` is superseded and must
   not be counted as MVP acceptance.
@@ -66,7 +66,7 @@ implementation record.
   recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
 - Long-duration 30/75 minute integrity acceptance is not complete. It must be
-  rerun against the system-audio-first capture path after `020` implementation.
+  rerun against the system-audio-first capture path after `025` implementation.
 - Upload, resumable ingest, MediaScribe transcription, dashboard notes, server
   retention, and deletion workflows are not implemented in the macOS client
   slice.
@@ -81,7 +81,7 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `022-system-audio-capture-pivot`.
+Recommended next feature: `025-system-audio-capture-pivot`.
 
 Goal: replace the MVP recording path with direct system-audio plus microphone
 capture, preserving local recording visibility, one-action stop,
