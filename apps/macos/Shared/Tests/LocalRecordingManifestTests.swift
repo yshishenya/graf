@@ -16,7 +16,9 @@ final class LocalRecordingManifestTests: XCTestCase {
                 tracks: [
                     completeTrack(role: .localMic),
                     completeTrack(role: .remoteSpeaker)
-                ]
+                ],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
             )
 
         XCTAssertEqual(manifest.status, .saved)
@@ -102,7 +104,9 @@ final class LocalRecordingManifestTests: XCTestCase {
                 directoryId: "dir",
                 startedAt: Date(timeIntervalSince1970: 10),
                 stoppedAt: Date(timeIntervalSince1970: 20),
-                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)]
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
             )
 
         try LocalRecordingManifestService().write(manifest, to: url)
@@ -112,6 +116,22 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(object?["schemaVersion"] as? String, LocalRecordingManifest.schemaVersion)
         XCTAssertEqual(object?["mediaScribeSourceMode"] as? String, "dual")
         XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
+    }
+
+    func testCompleteTracksWithoutScopeAndPermissionsStayDegraded() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)]
+            )
+
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
+        XCTAssertEqual(manifest.failureReason, .permissionDenied)
+        XCTAssertFalse(manifest.isComplete)
     }
 
     func testManifestCarriesRouteTimelineCorrelation() {
@@ -124,7 +144,9 @@ final class LocalRecordingManifestTests: XCTestCase {
                 tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
                 routeSessionId: "route-session-019",
                 autorepairAttemptIds: ["repair-1"],
-                routeInterruptionCategory: .autorepairCovered
+                routeInterruptionCategory: .autorepairCovered,
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
             )
 
         XCTAssertEqual(manifest.recordingTimelineEvidence?.routeSessionId, "route-session-019")
@@ -156,6 +178,25 @@ private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {
         frameCount: 16_000,
         timelineStartMs: 0,
         timelineAligned: true
+    )
+}
+
+private func acceptedScopeApproval() -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: "scope",
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 9),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
+    )
+}
+
+private func grantedPermissions() -> SystemAudioPermissionSnapshot {
+    SystemAudioPermissionSnapshot(
+        microphone: .granted,
+        systemAudio: .granted,
+        evaluatedAt: Date(timeIntervalSince1970: 9)
     )
 }
 #endif

@@ -23,6 +23,7 @@ final class SystemAudioDegradedAttemptTests: XCTestCase {
                     completeTrack(role: .localMic),
                     completeTrack(role: .remoteSpeaker)
                 ],
+                scopeApproval: acceptedScopeApproval(),
                 permissions: permissions
             )
 
@@ -49,6 +50,7 @@ final class SystemAudioDegradedAttemptTests: XCTestCase {
                     completeTrack(role: .localMic),
                     completeTrack(role: .remoteSpeaker)
                 ],
+                scopeApproval: acceptedScopeApproval(),
                 permissions: permissions
             )
 
@@ -72,6 +74,17 @@ private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {
         frameCount: 16_000,
         timelineStartMs: 0,
         timelineAligned: true
+    )
+}
+
+private func acceptedScopeApproval() -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: "scope",
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 9),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
     )
 }
 #endif

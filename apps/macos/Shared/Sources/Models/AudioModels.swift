@@ -991,6 +991,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
             mediaScribeSourceMode == "dual" &&
             !externalEgressStarted &&
             !transcriptionStarted &&
+            scopeApproval?.isAcceptedForMeetingRecording == true &&
+            permissions?.allowsAcceptedRecording == true &&
             Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
             tracks.allSatisfy { $0.sourceKind != nil } &&
             tracks.allSatisfy(\.isMediaScribeReady)

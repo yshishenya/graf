@@ -82,7 +82,9 @@ final class SystemAudioManifestContractTests: XCTestCase {
                 tracks: [
                     completeTrack(role: .localMic),
                     completeTrack(role: .remoteSpeaker)
-                ]
+                ],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
             )
 
         XCTAssertEqual(manifest.status, .saved)
@@ -106,6 +108,25 @@ private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {
         frameCount: 16_000,
         timelineStartMs: 0,
         timelineAligned: true
+    )
+}
+
+private func acceptedScopeApproval() -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: "scope",
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 9),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
+    )
+}
+
+private func grantedPermissions() -> SystemAudioPermissionSnapshot {
+    SystemAudioPermissionSnapshot(
+        microphone: .granted,
+        systemAudio: .granted,
+        evaluatedAt: Date(timeIntervalSince1970: 9)
     )
 }
 #endif

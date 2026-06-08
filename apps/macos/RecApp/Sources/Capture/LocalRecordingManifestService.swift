@@ -31,9 +31,11 @@ public struct LocalRecordingManifestService: Sendable {
     ) -> LocalRecordingManifest {
         let hasBothRoles = Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker])
         let durationDifferenceSeconds = Self.durationDifferenceSeconds(tracks: tracks)
-        let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? true
+        let scopeAllowsAcceptedRecording = scopeApproval?.isAcceptedForMeetingRecording ?? false
+        let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? false
         let complete = hasBothRoles &&
             tracks.allSatisfy(\.isMediaScribeReady) &&
+            scopeAllowsAcceptedRecording &&
             permissionsAllowAcceptedRecording &&
             durationDifferenceSeconds <= 3
         let status: LocalRecordingSessionStatus = if complete {
@@ -54,6 +56,7 @@ public struct LocalRecordingManifestService: Sendable {
         }
         let resolvedFailure: LocalRecordingFailureReason = complete ? .none : Self.resolveFailureReason(
             tracks: tracks,
+            scopeApproval: scopeApproval,
             permissions: permissions,
             fallback: failureReason
         )
@@ -89,6 +92,7 @@ public struct LocalRecordingManifestService: Sendable {
 
     private static func resolveFailureReason(
         tracks: [LocalRecordingTrack],
+        scopeApproval: CaptureScopeApproval?,
         permissions: SystemAudioPermissionSnapshot?,
         fallback: LocalRecordingFailureReason
     ) -> LocalRecordingFailureReason {
@@ -97,6 +101,12 @@ public struct LocalRecordingManifestService: Sendable {
         }
         if let permissions, !permissions.allowsAcceptedRecording {
             return .permissionDenied
+        }
+        if permissions == nil, tracks.allSatisfy(\.isMediaScribeReady) {
+            return .permissionDenied
+        }
+        if scopeApproval == nil, tracks.allSatisfy(\.isMediaScribeReady) {
+            return .scopeUnavailable
         }
         if let trackReason = tracks.first(where: { $0.failureReason != .none })?.failureReason {
             return trackReason

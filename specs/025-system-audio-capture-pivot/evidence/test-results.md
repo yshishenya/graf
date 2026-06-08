@@ -1037,6 +1037,51 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Manifest Acceptance Metadata Hardening Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: local recording manifest `saved`, `ready`, and `isComplete` truth.
+- Code review finding:
+  - `LocalRecordingManifestService` could mark a complete pair of WAV tracks as
+    `saved` when `scopeApproval` and `permissions` metadata were absent.
+  - `LocalRecordingManifest.isComplete` had the same weakness for direct model
+    usage.
+  - The artifact validator already required scope and granted permissions, but
+    the model itself could still produce misleading completion in future code or
+    synthetic tests.
+- Code review fix:
+  - `LocalRecordingManifestService` now requires accepted scope approval and
+    granted microphone + system-audio permissions before returning
+    `saved`/`ready`.
+  - `LocalRecordingManifest.isComplete` now requires the same scope and
+    permission metadata.
+  - Added regression coverage that complete tracks without scope/permissions
+    remain degraded and not complete.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`; full XCTest execution is not available in
+    this Command Line Tools host because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch produced one visible `2brain Rec` window.
+  - Runtime process snapshot after launch showed app CPU `0.1`, `coreaudiod`
+    CPU `0.0`, and no thermal/performance warning recorded by `pmset -g therm`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no entries.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+- Result: passed for code review fix, build, contract, no-HAL, app-only
+  installer, packaged launch, idle CPU, quit CPU, and basic log/thermal review.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 ScreenCaptureKit Audio Buffer Extraction Review
 
 - Feature: `025-system-audio-capture-pivot`
