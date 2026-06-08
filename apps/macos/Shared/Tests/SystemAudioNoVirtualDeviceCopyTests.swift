@@ -33,6 +33,15 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
         XCTAssertFalse(label.localizedCaseInsensitiveContains("repair"))
     }
 
+    func testLegacyDriverRepairActionIsParkedForMVPStatusCopy() {
+        let label = AdaptiveStatusText.recoveryActionLabel("install_or_repair_driver")
+
+        XCTAssertTrue(label.localizedCaseInsensitiveContains("parked"))
+        XCTAssertTrue(label.localizedCaseInsensitiveContains("MVP recording"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("run installer"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("repair"))
+    }
+
     func testAudioEnvironmentRecoveryKeepsDriverDiagnosticsParkedForMVP() {
         let monitor = AudioEnvironmentMonitor(now: { Date(timeIntervalSince1970: 1) })
         let state = monitor.state(from: AudioEnvironmentSnapshot(

@@ -867,10 +867,10 @@ fileprivate struct LocalAudioSnapshot {
             : .syntheticSignal
         return RouteVerificationSnapshot(
             mic: RouteVerification(
-                id: "local-mic-publication",
+                id: "local-mic-recording-status",
                 path: .micToVirtualInput,
                 validationType: validationType,
-                target: "2brain Rec Microphone",
+                target: "Local Microphone",
                 status: micResult.status,
                 failureReason: micResult.reason,
                 recoveryAction: micResult.action,
@@ -878,10 +878,10 @@ fileprivate struct LocalAudioSnapshot {
                 finishedAt: now
             ),
             speaker: RouteVerification(
-                id: "local-speaker-publication",
+                id: "system-audio-recording-status",
                 path: .remoteOutputToVirtualSpeaker,
                 validationType: validationType,
-                target: "2brain Rec Speaker",
+                target: "System Audio",
                 status: speakerResult.status,
                 failureReason: speakerResult.reason,
                 recoveryAction: speakerResult.action,
@@ -896,11 +896,6 @@ fileprivate struct LocalAudioSnapshot {
         checked: Bool,
         routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
-        guard system.hasVirtualMicrophone else {
-            return checked
-                ? (.failed, "virtual_microphone_not_visible", "install_or_repair_driver")
-                : (.notStarted, nil, "refresh_local_audio_status")
-        }
         guard let input = system.defaultInput, input.inputChannels > 0, !input.isTwoBrainVirtual else {
             return checked
                 ? (.failed, "physical_microphone_not_selected", "select_physical_microphone")
@@ -909,9 +904,7 @@ fileprivate struct LocalAudioSnapshot {
         if routeEngineState == .active {
             return (.passed, nil, nil)
         }
-        return checked
-            ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
-            : (.notStarted, nil, "refresh_local_audio_status")
+        return checked ? (.passed, nil, nil) : (.notStarted, nil, "refresh_local_audio_status")
     }
 
     private static func speakerRouteResult(
@@ -919,12 +912,9 @@ fileprivate struct LocalAudioSnapshot {
         checked: Bool,
         routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
-        guard system.hasVirtualSpeaker else {
-            return checked
-                ? (.failed, "virtual_speaker_not_visible", "install_or_repair_driver")
-                : (.notStarted, nil, "refresh_local_audio_status")
-        }
-        guard let output = system.defaultOutput, output.outputChannels > 0, !output.isTwoBrainVirtual else {
+        let output = system.defaultOutput?.usablePhysicalOutput ??
+            system.defaultSystemOutput?.usablePhysicalOutput
+        guard output != nil else {
             return checked
                 ? (.failed, "physical_speaker_not_selected", "select_physical_speaker")
                 : (.notStarted, nil, "refresh_local_audio_status")
@@ -932,9 +922,7 @@ fileprivate struct LocalAudioSnapshot {
         if routeEngineState == .active {
             return (.passed, nil, nil)
         }
-        return checked
-            ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
-            : (.notStarted, nil, "refresh_local_audio_status")
+        return checked ? (.passed, nil, nil) : (.notStarted, nil, "refresh_local_audio_status")
     }
 
     private static func recoveryActions(
@@ -960,16 +948,17 @@ fileprivate struct LocalAudioSnapshot {
         system: CoreAudioSystemSnapshot,
         routeEngineState: PassthroughRouteEngineState
     ) -> String {
-        if !system.hasVirtualMicrophone || !system.hasVirtualSpeaker {
-            return "Check failed: virtual devices are missing"
+        guard let input = system.defaultInput, input.inputChannels > 0, !input.isTwoBrainVirtual else {
+            return "Check failed: select a physical microphone"
         }
-        if system.defaultOutput?.isTwoBrainVirtual == true {
-            return "Check failed: macOS output is set to the virtual speaker"
+        guard system.defaultOutput?.usablePhysicalOutput != nil ||
+              system.defaultSystemOutput?.usablePhysicalOutput != nil else {
+            return "Check failed: select a physical speaker or output"
         }
         if routeEngineState == .active {
             return "Check complete: non-recording passthrough is active"
         }
-        return "Check complete: devices are visible; app I/O heartbeat is still required"
+        return "Check complete: local audio status refreshed; recording permissions are checked when you press Record"
     }
 
     var logDescription: String {
@@ -999,6 +988,10 @@ private struct CoreAudioDeviceInfo: Equatable {
 
     var isTwoBrainVirtual: Bool {
         name.localizedCaseInsensitiveContains("2brain Rec")
+    }
+
+    var usablePhysicalOutput: CoreAudioDeviceInfo? {
+        outputChannels > 0 && !isTwoBrainVirtual ? self : nil
     }
 
     func healthSummary(direction: AudioDirection) -> HealthPhysicalDeviceSummary {

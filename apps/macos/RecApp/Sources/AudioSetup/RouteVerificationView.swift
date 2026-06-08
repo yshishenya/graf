@@ -130,9 +130,9 @@ public struct RouteVerificationView: View {
         if verification.status == .passed {
             switch verification.path {
             case .micToVirtualInput:
-                return "Active: physical microphone reaches 2brain Rec Microphone, not recording"
+                return "Available: physical microphone can be used for recording, not recording"
             case .remoteOutputToVirtualSpeaker:
-                return "Active: 2brain Rec Speaker routes to physical output, not recording"
+                return "Available: system audio capture is checked when recording starts, not recording"
             case .speakerPassthrough:
                 return "Active: speaker passthrough is usable, not recording"
             case .captureMirror:
@@ -150,10 +150,6 @@ public struct RouteVerificationView: View {
 
     private func humanReason(_ reason: String) -> String {
         switch reason {
-        case "virtual_microphone_not_visible":
-            return "2brain Rec Microphone is not visible in macOS."
-        case "virtual_speaker_not_visible":
-            return "2brain Rec Speaker is not visible in macOS."
         case "physical_microphone_not_selected":
             return "macOS input is not a physical microphone."
         case "physical_speaker_not_selected":
@@ -187,6 +183,9 @@ public struct RouteVerificationView: View {
         case "virtual_device_visible_but_audio_path_not_implemented":
             return "device is visible, but real audio passthrough is not implemented yet."
         default:
+            if reason.hasPrefix("virtual_") {
+                return "driver diagnostics are parked for MVP recording."
+            }
             return reason.replacingOccurrences(of: "_", with: " ")
         }
     }

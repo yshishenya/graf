@@ -201,6 +201,8 @@ public extension AdaptiveStatusText {
             return "Refresh local audio status"
         case "refresh_local_audio_status":
             return "Refresh local audio status"
+        case "install_or_repair_driver":
+            return "Driver diagnostics are parked for MVP recording"
         case "implement_passthrough":
             return "Passthrough implementation is still required"
         case "rerun_readiness_check":

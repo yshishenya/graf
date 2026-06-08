@@ -1075,6 +1075,60 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 MVP Status Refresh Driver-Parked Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: normal `Refresh Status` / readiness copy after the system-audio MVP
+  pivot.
+- Code review finding:
+  - The normal status refresh path still classified missing `2brain Rec`
+    virtual devices as `virtual_microphone_not_visible` /
+    `virtual_speaker_not_visible` and returned `install_or_repair_driver`.
+  - That did not start recording or run HAL probes, but it could send a tester
+    back to the old driver-repair workflow even though driver diagnostics are
+    parked for the MVP.
+- Code review fix:
+  - Normal status refresh now checks physical microphone/output availability
+    and labels rows as `Local Microphone` and `System Audio`.
+  - Passed row copy now says the physical microphone is available and system
+    audio is checked when recording starts, instead of saying audio reaches the
+    virtual 2brain devices.
+  - Legacy `install_or_repair_driver` copy is mapped to a parked-driver message.
+  - `validate-system-audio-no-hal-probe.sh` now scans the MVP-facing status
+    files for old virtual-device repair recovery strings.
+  - Added regression coverage for legacy driver-repair action copy.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including
+    `SystemAudioNoVirtualDeviceCopyTests`; full XCTest execution is not
+    available in this Command Line Tools host because `xcrun --find xctest`
+    exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch produced one visible `2brain Rec` window from
+    CoreGraphics with bounds `706x608`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Idle CPU gate passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU gate passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - Broad unified-log crash/hang/error predicate for `2brain Rec` showed Apple
+    framework `AppIntents/linkd.autoShortcut` connection errors during launch;
+    a narrower app-subsystem predicate returned no project subsystem entries.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, as expected, because manual permission, artifact,
+    active/stop CPU, 30-minute, 75-minute, and final scope evidence are not
+    complete.
+- Result: passed for the MVP status-refresh driver-parked fix and automated
+  checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Screen/System Audio Permission Request Review
 
 - Feature: `025-system-audio-capture-pivot`

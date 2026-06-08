@@ -34,6 +34,11 @@ apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift
 "
 
 patterns='startExperimentalRoute|PassthroughRouteEngine|CoreAudioSystemSnapshot|install_or_repair_driver|driverReloaded|CoreAudio.*restart|virtual.*selection.*required|HAL.*probe.*required|SharedMemoryRecordingSampleSource'
+copy_targets="
+apps/macos/RecApp/App/TwoBrainRecApp.swift
+apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift
+"
+copy_patterns='install_or_repair_driver|virtual_microphone_not_visible|virtual_speaker_not_visible|2brain Rec Microphone is not visible|2brain Rec Speaker is not visible'
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
@@ -47,7 +52,16 @@ for target in $targets; do
   fi
 done
 
-checked_count="$(printf '%s\n' "$targets" | awk 'NF { count += 1 } END { print count + 0 }')"
+for target in $copy_targets; do
+  if [ -f "$ROOT_DIR/$target" ]; then
+    if grep -nE "$copy_patterns" "$ROOT_DIR/$target" > "$tmp_file.match"; then
+      sed "s#^#$target:#" "$tmp_file.match" >> "$tmp_file"
+    fi
+    rm -f "$tmp_file.match"
+  fi
+done
+
+checked_count="$(printf '%s\n%s\n' "$targets" "$copy_targets" | awk 'NF { count += 1 } END { print count + 0 }')"
 if [ -s "$tmp_file" ]; then
   status="failed"
   reason="halProbeObserved"
