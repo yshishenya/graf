@@ -110,6 +110,33 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertLessThanOrEqual(manifest.durationDifferenceSeconds, 3)
         XCTAssertNotEqual(incoming.failureReason, .timelineMisaligned)
     }
+
+    func testBufferedIncomingSourceReadsInOrderAfterPartialReads() {
+        let source = BufferedLocalRecordingSampleSource(capacity: 8)
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 4)
+        defer { scratch.deallocate() }
+
+        source.append([1, 2, 3, 4])
+        XCTAssertEqual(source.readSamples(into: scratch, capacity: 2), 2)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 2)), [1, 2])
+
+        source.append([5, 6])
+        XCTAssertEqual(source.readSamples(into: scratch, capacity: 4), 4)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [3, 4, 5, 6])
+    }
+
+    func testBufferedIncomingSourceDropsOldestUnreadSamplesWhenCapacityIsExceeded() {
+        let source = BufferedLocalRecordingSampleSource(capacity: 4)
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 4)
+        defer { scratch.deallocate() }
+
+        source.append([1, 2, 3])
+        source.append([4, 5, 6])
+
+        XCTAssertEqual(source.readSamples(into: scratch, capacity: 4), 4)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [3, 4, 5, 6])
+        XCTAssertEqual(source.stats().frameCount, 6)
+    }
 }
 
 private final class FixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {

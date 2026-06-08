@@ -62,6 +62,7 @@ public protocol LocalRecordingSampleSource: Sendable {
 public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
     private let lock = NSLock()
     private var buffer: [Float] = []
+    private var readOffset = 0
     private let capacity: Int
     private var totalAppendedFrameCount: Int64 = 0
     private var lastAppendAt: Date?
@@ -74,9 +75,8 @@ public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSourc
         guard !samples.isEmpty else { return }
         lock.lock()
         buffer.append(contentsOf: samples)
-        if buffer.count > capacity {
-            buffer.removeFirst(buffer.count - capacity)
-        }
+        trimUnreadSamplesToCapacity()
+        compactIfNeeded()
         totalAppendedFrameCount += Int64(samples.count)
         lastAppendAt = date
         lock.unlock()
@@ -91,13 +91,41 @@ public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSourc
     public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
         lock.lock()
         defer { lock.unlock() }
-        let count = min(capacity, buffer.count)
-        guard count > 0 else { return 0 }
-        for index in 0..<count {
-            destination[index] = buffer[index]
+        let count = min(capacity, unreadCount)
+        guard count > 0 else {
+            compactIfNeeded()
+            return 0
         }
-        buffer.removeFirst(count)
+        for index in 0..<count {
+            destination[index] = buffer[readOffset + index]
+        }
+        readOffset += count
+        compactIfNeeded()
         return count
+    }
+
+    private var unreadCount: Int {
+        buffer.count - readOffset
+    }
+
+    private func trimUnreadSamplesToCapacity() {
+        let overflow = unreadCount - capacity
+        if overflow > 0 {
+            readOffset += overflow
+        }
+    }
+
+    private func compactIfNeeded() {
+        guard readOffset > 0 else { return }
+        if readOffset == buffer.count {
+            buffer.removeAll(keepingCapacity: true)
+            readOffset = 0
+            return
+        }
+        if readOffset >= 16_384 || readOffset > buffer.count / 2 {
+            buffer.removeFirst(readOffset)
+            readOffset = 0
+        }
     }
 }
 

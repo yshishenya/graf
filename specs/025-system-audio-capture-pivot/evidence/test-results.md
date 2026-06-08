@@ -1093,6 +1093,51 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Incoming Buffer CPU/Responsiveness Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: active-recording incoming/system-audio buffering before
+  `incoming.wav` writing and live meter updates.
+- Code review finding:
+  - `BufferedLocalRecordingSampleSource.readSamples(...)` removed consumed
+    samples with `Array.removeFirst(count)` on every writer drain.
+  - During long active recordings this can repeatedly shift a large Swift array
+    on the capture/write path, increasing CPU and responsiveness risk.
+  - This is especially relevant to the 30-minute and 75-minute manual gates.
+- Code review fix:
+  - Replaced per-read `removeFirst` with a `readOffset`.
+  - The buffer now advances reads in O(1), trims only unread samples to capacity,
+    and compacts storage only when fully consumed or when the offset is large.
+  - Added regression coverage for partial reads preserving order, capacity
+    overflow dropping the oldest unread samples, and append statistics.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including the new
+    `LocalRecordingWriterSystemAudioTests` cases; full XCTest execution is not
+    available in this Command Line Tools host because `xcrun --find xctest`
+    exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch without pressing Record produced one visible
+    `2brain Rec` window at `706x608`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, as expected, because the manual active recording and
+    duration gates are not complete.
+- Result: passed for code review fix, build, contract, no-HAL, app-only
+  installer, packaged launch, idle CPU, quit CPU, and thermal/runtime smoke.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Guided Harness Stale Artifact Guard Review
 
 - Feature: `025-system-audio-capture-pivot`
