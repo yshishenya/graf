@@ -5,40 +5,15 @@ import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 @main
-struct TwoBrainRecApp: App {
-    @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self) private var appLifecycleDelegate
-    @State private var snapshot = LocalAudioSnapshot.placeholder()
-    @State private var isChecking = false
-
-    var body: some Scene {
-        WindowGroup("2brain Rec") {
-            ContentView(
-                snapshot: snapshot,
-                isChecking: isChecking,
-                onAutoStarted: { updated in
-                    snapshot = updated
-                },
-                refresh: {
-                    LocalAudioSnapshot.refreshAsync(event: "refresh") { updated in
-                        snapshot = updated
-                    }
-                },
-                runCheck: {
-                    isChecking = true
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        let state = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                        let checked = LocalAudioSnapshot.runReadinessCheck(routeEngineState: state)
-                        AppLog.write(event: "readiness_check", snapshot: checked)
-                        DispatchQueue.main.async {
-                            snapshot = checked
-                            isChecking = false
-                        }
-                    }
-                }
-            )
-            .frame(minWidth: 720, minHeight: 620)
+private enum TwoBrainRecAppMain {
+    @MainActor
+    static func main() {
+        let app = NSApplication.shared
+        let appDelegate = AppLifecycleDelegate()
+        app.delegate = appDelegate
+        withExtendedLifetime(appDelegate) {
+            app.run()
         }
-        .windowResizability(.contentMinSize)
     }
 }
 
@@ -226,8 +201,8 @@ private struct ContentView: View {
         )
         let prerequisite = RecordingPrerequisiteGate().evaluate(
             RecordingPrerequisiteSnapshot(
-                routeState: .active,
-                routeEvidenceKind: .lowResourceTruth,
+                routeState: .inactive,
+                routeEvidenceKind: .systemAudioCapture,
                 policyAllowsRecording: true,
                 microphonePermissionGranted: permissionGate.snapshot.microphone == .granted,
                 storageRisk: snapshot.healthState.bufferRisk,
@@ -302,7 +277,7 @@ private struct ContentView: View {
             recordingBlocker = nil
             AppLog.writeRaw(
                 event: AuditEventName.recordingStarted.rawValue,
-                detail: "sessionId=\(active.id) captureSource=system_audio scopeApprovalId=\(scopeApproval.scopeApprovalId) routeState=\(prerequisite.routeState.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
+                detail: "sessionId=\(active.id) captureSource=system_audio scopeApprovalId=\(scopeApproval.scopeApprovalId) routeState=\(prerequisite.routeState.rawValue) routeEvidenceKind=\(prerequisite.routeEvidenceKind.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
             )
         } catch {
             _ = try? await systemAudioCaptureService.stop()
@@ -425,7 +400,7 @@ private struct ContentView: View {
 
 @MainActor
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
-    private var fallbackWindow: NSWindow?
+    private var mainWindow: NSWindow?
 
     func applicationWillFinishLaunching(_: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -437,17 +412,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             detail: "activationPolicy=regular"
         )
         NSApp.activate(ignoringOtherApps: true)
+        presentMainWindow(reason: "launch")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            let visibleWindowCount = NSApp.windows.filter { $0.isVisible }.count
-            AppLog.writeRaw(
-                event: "app_window_visibility_checked",
-                detail: "visibleWindowCount=\(visibleWindowCount)"
-            )
-            if visibleWindowCount == 0 {
-                self.presentFallbackWindow()
-            } else {
-                NSApp.windows.first?.makeKeyAndOrderFront(nil)
-            }
+            self.logWindowVisibility()
         }
     }
 
@@ -456,26 +423,23 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         hasVisibleWindows flag: Bool
     ) -> Bool {
         if !flag {
-            if let window = fallbackWindow {
-                window.makeKeyAndOrderFront(nil)
-            } else {
-                sender.windows.first?.makeKeyAndOrderFront(nil)
-                if sender.windows.allSatisfy({ !$0.isVisible }) {
-                    presentFallbackWindow()
-                }
-            }
+            presentMainWindow(reason: "reopen")
         }
         return true
     }
 
     func applicationWillTerminate(_: Notification) {
-        fallbackWindow = nil
+        mainWindow = nil
         _ = PassthroughRouteEngine.shared.stop(logger: AppLog.writeRaw)
     }
 
-    private func presentFallbackWindow() {
-        if let fallbackWindow {
-            fallbackWindow.makeKeyAndOrderFront(nil)
+    private func presentMainWindow(reason: String) {
+        if let mainWindow {
+            mainWindow.makeKeyAndOrderFront(nil)
+            AppLog.writeRaw(
+                event: "app_main_window_presented",
+                detail: "reason=\(reason) reused=true"
+            )
             return
         }
 
@@ -487,21 +451,34 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "2brain Rec"
         window.minSize = NSSize(width: 720, height: 620)
+        window.isReleasedWhenClosed = false
+        window.setFrameAutosaveName("2brain-rec-main-window")
         window.contentViewController = NSHostingController(
-            rootView: FallbackContentRoot()
+            rootView: AppContentRoot()
         )
         window.center()
-        fallbackWindow = window
+        mainWindow = window
         AppLog.writeRaw(
-            event: "app_fallback_window_presented",
-            detail: "reason=swiftui_windowgroup_not_visible"
+            event: "app_main_window_presented",
+            detail: "reason=\(reason) reused=false"
         )
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    private func logWindowVisibility() {
+        let visibleWindowCount = NSApp.windows.filter { $0.isVisible }.count
+        AppLog.writeRaw(
+            event: "app_window_visibility_checked",
+            detail: "visibleWindowCount=\(visibleWindowCount)"
+        )
+        if visibleWindowCount == 0 {
+            presentMainWindow(reason: "visibility_recovery")
+        }
+    }
 }
 
-private struct FallbackContentRoot: View {
+private struct AppContentRoot: View {
     @State private var snapshot = LocalAudioSnapshot.placeholder()
     @State private var isChecking = false
 

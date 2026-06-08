@@ -702,8 +702,11 @@ public struct RecordingPrerequisiteSnapshot: Codable, Equatable, Sendable {
     }
 
     public var allowsRecording: Bool {
-        blockedReason == .none &&
-            [.ready, .active].contains(routeState) &&
+        let routeAllowsRecording = routeEvidenceKind == .systemAudioCapture ||
+            [.ready, .active].contains(routeState)
+
+        return blockedReason == .none &&
+            routeAllowsRecording &&
             routeEvidenceKind != .publicationOnly &&
             routeEvidenceKind != .stale &&
             routeEvidenceKind != .unknown &&

@@ -85,3 +85,63 @@ Required acceptance gates:
 2026-06-08T17:40:19Z phase=idle sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.10 helperCpuPercent=0.00 appHelperCpuPercent=0.10 halProbeObserved=false
 2026-06-08T17:40:20Z phase=idle sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.10 helperCpuPercent=0.00 appHelperCpuPercent=0.10 halProbeObserved=false
 ```
+
+## 2026-06-08T17:54:59Z idle
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+- Samples: `3`, interval seconds: `1`, settle seconds: `0`
+- Evaluation: `status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=1.90 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false`
+
+```text
+2026-06-08T17:54:57Z phase=idle sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=1.90 helperCpuPercent=0.00 appHelperCpuPercent=1.90 halProbeObserved=false
+2026-06-08T17:54:58Z phase=idle sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.10 helperCpuPercent=0.00 appHelperCpuPercent=0.10 halProbeObserved=false
+2026-06-08T17:54:59Z phase=idle sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+```
+
+## 2026-06-08T17:56:56Z idle
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+- Samples: `3`, interval seconds: `1`, settle seconds: `0`
+- Evaluation: `status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=1.90 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false`
+
+```text
+2026-06-08T17:56:54Z phase=idle sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=1.90 helperCpuPercent=0.00 appHelperCpuPercent=1.90 halProbeObserved=false
+2026-06-08T17:56:55Z phase=idle sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+2026-06-08T17:56:56Z phase=idle sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+```
+
+## 2026-06-08T17:58:21Z idle
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+- Samples: `3`, interval seconds: `1`, settle seconds: `0`
+- Evaluation: `status=failed failureReason=cpuGateFailed sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=30.30 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=true`
+
+```text
+2026-06-08T17:58:18Z phase=idle sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=4.60 helperCpuPercent=0.00 appHelperCpuPercent=4.60 halProbeObserved=false
+2026-06-08T17:58:19Z phase=idle sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=30.30 helperCpuPercent=0.00 appHelperCpuPercent=30.30 halProbeObserved=false
+2026-06-08T17:58:21Z phase=idle sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+```
+
+## 2026-06-08T17:59:02Z idle
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+- Samples: `3`, interval seconds: `2`, settle seconds: `10`
+- Evaluation: `status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false`
+
+```text
+2026-06-08T17:58:57Z phase=idle sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+2026-06-08T17:58:59Z phase=idle sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+2026-06-08T17:59:02Z phase=idle sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+```
+
+## 2026-06-08T18:04:27Z idle
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+- Samples: `3`, interval seconds: `2`, settle seconds: `10`
+- Evaluation: `status=failed failureReason=cpuGateFailed sampleCount=3 maxCoreaudiodCpuPercent=5.70 maxAppHelperCpuPercent=0.10 sustainedCoreaudiodExceeded=true sustainedAppHelperExceeded=false`
+
+```text
+2026-06-08T18:04:23Z phase=idle sample=1 coreaudiodCpuPercent=5.70 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+2026-06-08T18:04:25Z phase=idle sample=2 coreaudiodCpuPercent=5.40 appCpuPercent=0.10 helperCpuPercent=0.00 appHelperCpuPercent=0.10 halProbeObserved=false
+2026-06-08T18:04:27Z phase=idle sample=3 coreaudiodCpuPercent=5.30 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 halProbeObserved=false
+```

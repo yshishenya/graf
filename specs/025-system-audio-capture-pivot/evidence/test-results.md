@@ -169,3 +169,53 @@
 - Notes: This smoke proves launch/window/idle behavior only. It does not close
   permission matrix, controlled artifact validation, active/stop/quit CPU gate,
   30-minute development, or 75-minute release validation.
+
+## 2026-06-08 AppKit Main Window And System-Audio Route Truth Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: packaged app launch stability, window visibility, idle CPU evidence,
+  system-audio MVP prerequisite truth, and current XCTest/toolchain evidence.
+- Code review fixes:
+  - Replaced the SwiftUI `WindowGroup` launch path with an AppKit-managed main
+    `NSWindow` hosting the existing SwiftUI content. This removes dependence on
+    the previous fallback window path.
+  - Added `system_audio_capture` as an explicit recording route evidence kind so
+    the system-audio MVP no longer marks old live-route state as `active` just
+    to satisfy the legacy route gate.
+- Commands:
+  - `swift build --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `swift test --package-path apps/macos`
+  - `swift test --package-path apps/macos list`
+  - `xcrun xctest apps/macos/.build/arm64-apple-macosx/debug/TwoBrainRecMacOSPackageTests.xctest`
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - `open -n "apps/macos/RecApp/.build/2brain Rec.app"`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- Build and contract result: passed.
+- XCTest runner result: blocked by local toolchain. SwiftPM compiles and links
+  `TwoBrainRecMacOSPackageTests.xctest`, but `swift test list` prints no test
+  cases and `xcrun xctest` is unavailable under the active
+  `/Library/Developer/CommandLineTools` developer path.
+- Packaged runtime result:
+  - App bundle launched successfully.
+  - App process after 12 seconds: `0.0%` CPU, `0.3%` MEM, `96736` RSS.
+  - AppLog showed `app_main_window_presented reason=launch reused=false` and
+    `app_window_visibility_checked visibleWindowCount=1`.
+  - `CGWindowListCopyWindowInfo` found a visible content window named
+    `2brain Rec`; screenshot captured at `/tmp/twobrain-final-main-window.png`.
+  - System log scan for crash/hang/exception/fault after launch returned no app
+    crash or hang evidence. macOS still emits benign AppKit/state-restoration
+    debug noise.
+- CPU gate result:
+  - A settled idle run at `2026-06-08T17:59:02Z` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.00`.
+  - A later settled idle run at `2026-06-08T18:04:27Z` failed because
+    `coreaudiod` stayed between `5.30%` and `5.70%` while app CPU was
+    `0.00-0.10%`.
+  - After terminating `2brain Rec`, `coreaudiod` remained above the gate
+    (`5.9%` observed), so this is recorded as an external baseline blocker for
+    #309/T073 rather than proof of app overheating.
+- Result: partial pass. Launch/window/no-HAL/build/contract evidence improved,
+  but #309/T073 remains open until idle baseline, active recording, stop, and
+  quit CPU gates pass in the same validation environment.

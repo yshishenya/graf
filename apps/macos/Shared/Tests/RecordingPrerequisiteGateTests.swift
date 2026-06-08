@@ -42,6 +42,15 @@ final class RecordingPrerequisiteGateTests: XCTestCase {
         XCTAssertEqual(decision.recoveryAction, "Confirm audio route evidence before recording")
     }
 
+    func testSystemAudioCaptureDoesNotRequireLiveRouteState() {
+        let decision = RecordingPrerequisiteGate().evaluate(
+            validSnapshot(routeState: .inactive, routeEvidenceKind: .systemAudioCapture)
+        )
+
+        XCTAssertTrue(decision.allowsRecording)
+        XCTAssertEqual(decision.blockedReason, .none)
+    }
+
     func testPolicyDisabledBlocksRecordingStart() {
         let decision = RecordingPrerequisiteGate().evaluate(
             validSnapshot(policyAllowsRecording: false)

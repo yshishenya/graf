@@ -245,6 +245,7 @@ public enum RecordingEvidenceInitiator: String, Codable, Sendable {
 public enum RecordingRouteEvidenceKind: String, Codable, Sendable {
     case lowResourceTruth = "low_resource_truth"
     case liveRoute = "live_route"
+    case systemAudioCapture = "system_audio_capture"
     case publicationOnly = "publication_only"
     case stale
     case unknown
