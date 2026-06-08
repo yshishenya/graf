@@ -93,6 +93,57 @@ final class LiveAudioSignalMonitorTests: XCTestCase {
         XCTAssertTrue(levels.speakerIsLive(now: now, staleAfter: 0.45))
         XCTAssertGreaterThan(levels.speakerLevel, 0)
     }
+
+    func testStaleIncomingLevelResetsInsteadOfHoldingLastBar() {
+        let source = FakeLiveAudioSignalSource(
+            snapshot: .init(
+                micReadIndex: 0,
+                micWriteIndex: 0,
+                speakerReadIndex: 0,
+                speakerWriteIndex: 0,
+                captureReadIndex: 0,
+                captureWriteIndex: 4,
+                checkedAt: Date(timeIntervalSince1970: 10)
+            ),
+            captureSamples: [0.7, 0.7, 0.7, 0.7]
+        )
+        let monitor = LiveAudioSignalMonitor(sampleSource: source, scratchCapacity: 4)
+        let first = monitor.currentLevels(routeActive: true, now: Date(timeIntervalSince1970: 10))
+        source.snapshot.captureWriteIndex = 4
+        source.captureSamples = []
+
+        let stale = monitor.currentLevels(routeActive: true, now: Date(timeIntervalSince1970: 10.6))
+
+        XCTAssertGreaterThan(first.speakerLevel, 0)
+        XCTAssertFalse(stale.speakerIsLive(now: Date(timeIntervalSince1970: 10.6), staleAfter: 0.45))
+        XCTAssertEqual(stale.speakerLevel, 0)
+    }
+
+    func testStaleMicrophoneLevelResetsInsteadOfHoldingLastBar() {
+        let source = FakeLiveAudioSignalSource(
+            snapshot: .init(
+                micReadIndex: 2,
+                micWriteIndex: 4,
+                speakerReadIndex: 0,
+                speakerWriteIndex: 0,
+                captureReadIndex: 0,
+                captureWriteIndex: 0,
+                checkedAt: Date(timeIntervalSince1970: 10)
+            ),
+            micSamples: [0.4, 0.4, 0.4, 0.4]
+        )
+        let monitor = LiveAudioSignalMonitor(sampleSource: source, scratchCapacity: 4)
+        let first = monitor.currentLevels(routeActive: true, now: Date(timeIntervalSince1970: 10))
+        source.snapshot.micReadIndex = 2
+        source.snapshot.micWriteIndex = 4
+        source.micSamples = []
+
+        let stale = monitor.currentLevels(routeActive: true, now: Date(timeIntervalSince1970: 10.6))
+
+        XCTAssertGreaterThan(first.microphoneLevel, 0)
+        XCTAssertFalse(stale.microphoneIsLive(now: Date(timeIntervalSince1970: 10.6), staleAfter: 0.45))
+        XCTAssertEqual(stale.microphoneLevel, 0)
+    }
 }
 
 private final class FakeLiveAudioSignalSource: LiveAudioSignalSampleSource {

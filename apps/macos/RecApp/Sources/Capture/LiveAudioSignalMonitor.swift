@@ -11,6 +11,7 @@ public protocol LiveAudioSignalSampleSource {
 extension SharedAudioMemory: LiveAudioSignalSampleSource {}
 
 public final class LiveAudioSignalMonitor {
+    private static let staleLevelResetInterval: TimeInterval = 0.45
     private let sampleSource: LiveAudioSignalSampleSource?
     private let scratch: UnsafeMutablePointer<Float>
     private let scratchCapacity: Int
@@ -45,6 +46,7 @@ public final class LiveAudioSignalMonitor {
         if let sampleSource {
             updateSharedMemoryLevels(sampleSource: sampleSource, now: now)
         }
+        resetStaleLevels(now: now)
 
         return LiveRouteSignalLevels(
             isActive: routeActive,
@@ -85,6 +87,20 @@ public final class LiveAudioSignalMonitor {
         }
         lastCaptureWriteIndex = indexes.captureWriteIndex
         lastSpeakerWriteIndex = indexes.speakerWriteIndex
+    }
+
+    private func resetStaleLevels(now: Date) {
+        if !isFresh(lastMicrophoneFrameAt, now: now) {
+            lastMicrophoneLevel = 0
+        }
+        if !isFresh(lastIncomingFrameAt, now: now) {
+            lastIncomingLevel = 0
+        }
+    }
+
+    private func isFresh(_ date: Date?, now: Date) -> Bool {
+        guard let date else { return false }
+        return now.timeIntervalSince(date) <= Self.staleLevelResetInterval
     }
 
     private static func rmsLevel(samples: UnsafePointer<Float>, count: Int) -> Double {
