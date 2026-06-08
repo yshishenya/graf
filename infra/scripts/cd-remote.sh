@@ -121,7 +121,13 @@ if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MIN
 fi
 
 docker compose -f infra/docker-compose.yml up -d --build rec-api rec-migrate rec-minio rec-minio-init
-docker inspect rec-api --format '{{range .Config.Env}}{{println .}}{{end}}' >/tmp/twobrain-rec-api-env.txt
+rec_api_container="$(docker compose -f infra/docker-compose.yml ps -q rec-api)"
+if [ -z "$rec_api_container" ]; then
+  echo "deploy_result=blocked"
+  echo "reason=rec_api_container_missing"
+  exit 1
+fi
+docker inspect "$rec_api_container" --format '{{range .Config.Env}}{{println .}}{{end}}' >/tmp/twobrain-rec-api-env.txt
 if grep -Eq '^(TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY)|MINIO_ROOT_PASSWORD|MINIO_ROOT_USER)=' /tmp/twobrain-rec-api-env.txt; then
   echo "deploy_result=blocked"
   echo "reason=runtime_secret_env_exposure"
