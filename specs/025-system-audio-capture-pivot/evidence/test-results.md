@@ -1216,6 +1216,51 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Artifact Duration Difference Validator Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: metadata-only validation of controlled artifact manifests.
+- Code review finding:
+  - `validate-system-audio-capture-pivot.sh --artifact-directory` checked that
+    `durationDifferenceSeconds <= 3`.
+  - The check did not explicitly require the value to be numeric and
+    non-negative.
+  - The app writer computes this field with an absolute duration difference,
+    but the release gate should reject malformed or hand-edited manifest values
+    instead of accepting a negative number.
+- Code review fix:
+  - The artifact validator now requires `durationDifferenceSeconds` to be a
+    number between `0` and `3`, inclusive.
+- Validation:
+  - Synthetic accepted artifact with `durationDifferenceSeconds=-1` returned
+    `blocked` with `durationDifferenceSeconds must be a number between 0 and 3`.
+  - Synthetic accepted artifact with `durationDifferenceSeconds=0` passed
+    metadata validation.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked package tests; full
+    XCTest execution is not available in this Command Line Tools host because
+    `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch produced one visible `2brain Rec` window from
+    CoreGraphics with bounds `706x608`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Idle CPU gate passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.50`.
+  - Quit CPU gate passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - Broad unified-log crash/hang/error predicate for `2brain Rec` showed Apple
+    framework `AppIntents/linkd.autoShortcut` connection errors during launch;
+    a narrower app-subsystem predicate returned no project subsystem entries.
+- Result: passed for artifact duration-difference validator hardening and
+  automated checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Screen/System Audio Permission Request Review
 
 - Feature: `025-system-audio-capture-pivot`

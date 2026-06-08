@@ -305,7 +305,7 @@ validate_artifact_directory() {
     check_jq '.externalEgressStarted == false' "externalEgressStarted must be false"
     check_jq '.transcriptionStarted == false' "transcriptionStarted must be false"
     check_jq '.diagnosticSafe == true' "diagnosticSafe must be true"
-    check_jq '(.durationDifferenceSeconds // 999999) <= 3' "durationDifferenceSeconds must be <= 3"
+    check_jq '(.durationDifferenceSeconds | type) == "number" and .durationDifferenceSeconds >= 0 and .durationDifferenceSeconds <= 3' "durationDifferenceSeconds must be a number between 0 and 3"
     check_jq '.scopeApproval != null' "scopeApproval must be present"
     check_jq '.permissions.microphone == "granted"' "microphone permission must be granted"
     check_jq '.permissions.systemAudio == "granted"' "system audio permission must be granted"
