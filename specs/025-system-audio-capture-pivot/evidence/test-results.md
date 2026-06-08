@@ -1173,6 +1173,49 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Manifest Required-Role Cardinality Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: manifest truth for accepted controlled artifacts.
+- Code review finding:
+  - `LocalRecordingManifestService` used a `Set` of track roles to decide
+    whether both required roles were present.
+  - That proved the role names appeared, but did not prove there was exactly one
+    `localMic` and exactly one `remoteSpeaker` track.
+  - The current writer emits two tracks, but the manifest model should enforce
+    the acceptance invariant itself so duplicate-role manifests cannot become
+    `saved`.
+- Code review fix:
+  - `saved` now requires exactly two tracks: one `localMic` and one
+    `remoteSpeaker`.
+  - Added regression coverage proving a duplicate required role remains
+    degraded even when individual tracks look media-ready.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including `LocalRecordingManifestTests`;
+    full XCTest execution is not available in this Command Line Tools host
+    because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch produced one visible `2brain Rec` window from
+    CoreGraphics with bounds `706x608`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Idle CPU gate passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.00`.
+  - Quit CPU gate passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - Broad unified-log crash/hang/error predicate for `2brain Rec` showed Apple
+    framework `AppIntents/linkd.autoShortcut` connection errors during launch;
+    a narrower app-subsystem predicate returned no project subsystem entries.
+- Result: passed for required-role cardinality and automated checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Screen/System Audio Permission Request Review
 
 - Feature: `025-system-audio-capture-pivot`

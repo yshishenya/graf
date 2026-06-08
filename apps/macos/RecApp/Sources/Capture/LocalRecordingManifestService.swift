@@ -29,11 +29,14 @@ public struct LocalRecordingManifestService: Sendable {
         permissions: SystemAudioPermissionSnapshot? = nil,
         captureHealth: CaptureHealthSnapshot? = nil
     ) -> LocalRecordingManifest {
-        let hasBothRoles = Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker])
+        let hasExactlyOneRequiredTrackPerRole =
+            tracks.count == 2 &&
+            tracks.filter { $0.role == .localMic }.count == 1 &&
+            tracks.filter { $0.role == .remoteSpeaker }.count == 1
         let durationDifferenceSeconds = Self.durationDifferenceSeconds(tracks: tracks)
         let scopeAllowsAcceptedRecording = scopeApproval?.isAcceptedForMeetingRecording ?? false
         let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? false
-        let complete = hasBothRoles &&
+        let complete = hasExactlyOneRequiredTrackPerRole &&
             tracks.allSatisfy(\.isMediaScribeReady) &&
             scopeAllowsAcceptedRecording &&
             permissionsAllowAcceptedRecording &&

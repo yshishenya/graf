@@ -134,6 +134,27 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertFalse(manifest.isComplete)
     }
 
+    func testDuplicateRequiredRoleDoesNotProduceSavedManifest() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [
+                    completeTrack(role: .localMic),
+                    completeTrack(role: .remoteSpeaker),
+                    completeTrack(role: .remoteSpeaker)
+                ],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
+            )
+
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
+        XCTAssertFalse(manifest.isComplete)
+    }
+
     func testManifestCarriesRouteTimelineCorrelation() {
         let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
             .manifest(
