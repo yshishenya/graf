@@ -30,12 +30,6 @@ public struct CaptureControlView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            LiveRecordingMetersView(
-                routeSignalLevels: routeSignalLevels
-            )
-
-            Divider()
-
             HStack(alignment: .center, spacing: 12) {
                 if let session {
                     CaptureStatusItem(session: session, onStop: onStop)
@@ -91,6 +85,12 @@ public struct CaptureControlView: View {
                     .accessibilityLabel(SystemAudioStatusLabels.localRecordingLocationAccessibilityLabel(localRecordingLocation))
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingLocation)
             }
+
+            Divider()
+
+            LiveRecordingMetersView(
+                routeSignalLevels: routeSignalLevels
+            )
         }
         .padding(16)
         .accessibilityElement(children: .contain)

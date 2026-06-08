@@ -423,9 +423,114 @@ private struct ContentView: View {
     }
 }
 
+@MainActor
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
+    private var fallbackWindow: NSWindow?
+
+    func applicationWillFinishLaunching(_: Notification) {
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    func applicationDidFinishLaunching(_: Notification) {
+        AppLog.writeRaw(
+            event: "app_launch_finished",
+            detail: "activationPolicy=regular"
+        )
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let visibleWindowCount = NSApp.windows.filter { $0.isVisible }.count
+            AppLog.writeRaw(
+                event: "app_window_visibility_checked",
+                detail: "visibleWindowCount=\(visibleWindowCount)"
+            )
+            if visibleWindowCount == 0 {
+                self.presentFallbackWindow()
+            } else {
+                NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        if !flag {
+            if let window = fallbackWindow {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                sender.windows.first?.makeKeyAndOrderFront(nil)
+                if sender.windows.allSatisfy({ !$0.isVisible }) {
+                    presentFallbackWindow()
+                }
+            }
+        }
+        return true
+    }
+
     func applicationWillTerminate(_: Notification) {
+        fallbackWindow = nil
         _ = PassthroughRouteEngine.shared.stop(logger: AppLog.writeRaw)
+    }
+
+    private func presentFallbackWindow() {
+        if let fallbackWindow {
+            fallbackWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "2brain Rec"
+        window.minSize = NSSize(width: 720, height: 620)
+        window.contentViewController = NSHostingController(
+            rootView: FallbackContentRoot()
+        )
+        window.center()
+        fallbackWindow = window
+        AppLog.writeRaw(
+            event: "app_fallback_window_presented",
+            detail: "reason=swiftui_windowgroup_not_visible"
+        )
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+private struct FallbackContentRoot: View {
+    @State private var snapshot = LocalAudioSnapshot.placeholder()
+    @State private var isChecking = false
+
+    var body: some View {
+        ContentView(
+            snapshot: snapshot,
+            isChecking: isChecking,
+            onAutoStarted: { updated in
+                snapshot = updated
+            },
+            refresh: {
+                LocalAudioSnapshot.refreshAsync(event: "refresh") { updated in
+                    snapshot = updated
+                }
+            },
+            runCheck: {
+                isChecking = true
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let state = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                    let checked = LocalAudioSnapshot.runReadinessCheck(routeEngineState: state)
+                    AppLog.write(event: "readiness_check", snapshot: checked)
+                    DispatchQueue.main.async {
+                        snapshot = checked
+                        isChecking = false
+                    }
+                }
+            }
+        )
+        .frame(minWidth: 720, minHeight: 620)
     }
 }
 
