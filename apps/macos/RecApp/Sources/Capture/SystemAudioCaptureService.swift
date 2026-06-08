@@ -126,6 +126,21 @@ public actor SystemAudioCaptureService {
         return session
     }
 
+    @discardableResult
+    public func releaseForTermination(stoppedAt: Date = Date()) async -> SystemAudioCaptureSession? {
+        guard var session = activeSession else {
+            return nil
+        }
+        activeSession = nil
+
+        await runtime.stop()
+        session.stoppedAt = stoppedAt
+        if session.frameCount == 0 {
+            session.failureReason = .stoppedBeforeFrames
+        }
+        return session
+    }
+
     private nonisolated static func makeDefaultRuntime(
         sampleSource: BufferedLocalRecordingSampleSource
     ) -> SystemAudioCaptureRuntime {

@@ -342,3 +342,238 @@ public struct CaptureHealthSnapshot: Codable, Equatable, Sendable {
         !halProbeObserved && gateStatus == .passed
     }
 }
+
+public struct SystemAudioCPUGatePolicy: Codable, Equatable, Sendable {
+    public var idleCoreaudiodMaxPercent: Double
+    public var idleAppHelperMaxPercent: Double
+    public var activeCoreaudiodMaxPercent: Double
+    public var activeAppHelperMaxPercent: Double
+    public var sustainedSampleCount: Int
+
+    public init(
+        idleCoreaudiodMaxPercent: Double = 5,
+        idleAppHelperMaxPercent: Double = 5,
+        activeCoreaudiodMaxPercent: Double = 10,
+        activeAppHelperMaxPercent: Double = 25,
+        sustainedSampleCount: Int = 3
+    ) {
+        self.idleCoreaudiodMaxPercent = idleCoreaudiodMaxPercent
+        self.idleAppHelperMaxPercent = idleAppHelperMaxPercent
+        self.activeCoreaudiodMaxPercent = activeCoreaudiodMaxPercent
+        self.activeAppHelperMaxPercent = activeAppHelperMaxPercent
+        self.sustainedSampleCount = max(1, sustainedSampleCount)
+    }
+}
+
+public struct SystemAudioCPUSample: Codable, Equatable, Sendable {
+    public var recordingSessionId: String
+    public var phase: CaptureHealthPhase
+    public var sampledAt: Date
+    public var coreaudiodCpuPercent: Double
+    public var appCpuPercent: Double
+    public var helperCpuPercent: Double
+    public var memoryMb: Double
+    public var halProbeObserved: Bool
+
+    public init(
+        recordingSessionId: String,
+        phase: CaptureHealthPhase,
+        sampledAt: Date,
+        coreaudiodCpuPercent: Double,
+        appCpuPercent: Double,
+        helperCpuPercent: Double = 0,
+        memoryMb: Double = 0,
+        halProbeObserved: Bool = false
+    ) {
+        self.recordingSessionId = recordingSessionId
+        self.phase = phase
+        self.sampledAt = sampledAt
+        self.coreaudiodCpuPercent = coreaudiodCpuPercent
+        self.appCpuPercent = appCpuPercent
+        self.helperCpuPercent = helperCpuPercent
+        self.memoryMb = memoryMb
+        self.halProbeObserved = halProbeObserved
+    }
+
+    public var appHelperCpuPercent: Double {
+        appCpuPercent + helperCpuPercent
+    }
+}
+
+public struct SystemAudioCPUGateEvaluation: Codable, Equatable, Sendable {
+    public var phase: CaptureHealthPhase
+    public var sampleCount: Int
+    public var gateStatus: CaptureHealthGateStatus
+    public var failureReason: LocalRecordingFailureReason
+    public var maxCoreaudiodCpuPercent: Double
+    public var maxAppHelperCpuPercent: Double
+    public var sustainedCoreaudiodExceeded: Bool
+    public var sustainedAppHelperExceeded: Bool
+    public var halProbeObserved: Bool
+
+    public init(
+        phase: CaptureHealthPhase,
+        sampleCount: Int,
+        gateStatus: CaptureHealthGateStatus,
+        failureReason: LocalRecordingFailureReason,
+        maxCoreaudiodCpuPercent: Double,
+        maxAppHelperCpuPercent: Double,
+        sustainedCoreaudiodExceeded: Bool,
+        sustainedAppHelperExceeded: Bool,
+        halProbeObserved: Bool
+    ) {
+        self.phase = phase
+        self.sampleCount = sampleCount
+        self.gateStatus = gateStatus
+        self.failureReason = failureReason
+        self.maxCoreaudiodCpuPercent = maxCoreaudiodCpuPercent
+        self.maxAppHelperCpuPercent = maxAppHelperCpuPercent
+        self.sustainedCoreaudiodExceeded = sustainedCoreaudiodExceeded
+        self.sustainedAppHelperExceeded = sustainedAppHelperExceeded
+        self.halProbeObserved = halProbeObserved
+    }
+
+    public var passed: Bool {
+        gateStatus == .passed && failureReason == .none
+    }
+}
+
+public enum SystemAudioCPUGateEvaluator {
+    public static func evaluate(
+        samples: [SystemAudioCPUSample],
+        phase: CaptureHealthPhase,
+        policy: SystemAudioCPUGatePolicy = SystemAudioCPUGatePolicy()
+    ) -> SystemAudioCPUGateEvaluation {
+        let phaseSamples = samples.filter { $0.phase == phase }
+        let maxCoreaudiod = phaseSamples.map(\.coreaudiodCpuPercent).max() ?? 0
+        let maxAppHelper = phaseSamples.map(\.appHelperCpuPercent).max() ?? 0
+        let halProbeObserved = phaseSamples.contains { $0.halProbeObserved }
+
+        guard !phaseSamples.isEmpty else {
+            return SystemAudioCPUGateEvaluation(
+                phase: phase,
+                sampleCount: 0,
+                gateStatus: .failed,
+                failureReason: .cpuGateFailed,
+                maxCoreaudiodCpuPercent: 0,
+                maxAppHelperCpuPercent: 0,
+                sustainedCoreaudiodExceeded: false,
+                sustainedAppHelperExceeded: false,
+                halProbeObserved: false
+            )
+        }
+
+        if halProbeObserved {
+            return SystemAudioCPUGateEvaluation(
+                phase: phase,
+                sampleCount: phaseSamples.count,
+                gateStatus: .failed,
+                failureReason: .halProbeObserved,
+                maxCoreaudiodCpuPercent: maxCoreaudiod,
+                maxAppHelperCpuPercent: maxAppHelper,
+                sustainedCoreaudiodExceeded: false,
+                sustainedAppHelperExceeded: false,
+                halProbeObserved: true
+            )
+        }
+
+        let coreaudiodLimit: Double
+        let appHelperLimit: Double
+        let sustained: Bool
+        switch phase {
+        case .activeRecording:
+            coreaudiodLimit = policy.activeCoreaudiodMaxPercent
+            appHelperLimit = policy.activeAppHelperMaxPercent
+            sustained = true
+        case .idle, .stop, .quit:
+            coreaudiodLimit = policy.idleCoreaudiodMaxPercent
+            appHelperLimit = policy.idleAppHelperMaxPercent
+            sustained = false
+        }
+
+        let coreaudiodExceeded = sustained
+            ? hasSustainedExceedance(
+                phaseSamples.map(\.coreaudiodCpuPercent),
+                limit: coreaudiodLimit,
+                sampleCount: policy.sustainedSampleCount
+            )
+            : phaseSamples.contains { $0.coreaudiodCpuPercent >= coreaudiodLimit }
+        let appHelperExceeded = sustained
+            ? hasSustainedExceedance(
+                phaseSamples.map(\.appHelperCpuPercent),
+                limit: appHelperLimit,
+                sampleCount: policy.sustainedSampleCount
+            )
+            : phaseSamples.contains { $0.appHelperCpuPercent >= appHelperLimit }
+
+        let passed = !coreaudiodExceeded && !appHelperExceeded
+        return SystemAudioCPUGateEvaluation(
+            phase: phase,
+            sampleCount: phaseSamples.count,
+            gateStatus: passed ? .passed : .failed,
+            failureReason: passed ? .none : .cpuGateFailed,
+            maxCoreaudiodCpuPercent: maxCoreaudiod,
+            maxAppHelperCpuPercent: maxAppHelper,
+            sustainedCoreaudiodExceeded: sustained && coreaudiodExceeded,
+            sustainedAppHelperExceeded: sustained && appHelperExceeded,
+            halProbeObserved: false
+        )
+    }
+
+    private static func hasSustainedExceedance(
+        _ values: [Double],
+        limit: Double,
+        sampleCount: Int
+    ) -> Bool {
+        var consecutive = 0
+        for value in values {
+            if value > limit {
+                consecutive += 1
+                if consecutive >= sampleCount {
+                    return true
+                }
+            } else {
+                consecutive = 0
+            }
+        }
+        return false
+    }
+}
+
+public struct SystemAudioNoHALEvidence: Codable, Equatable, Sendable {
+    public var halRuntimeProbeExecuted: Bool
+    public var virtualDeviceSelectionRequired: Bool
+    public var driverRepairRequired: Bool
+    public var coreAudioRestartRequired: Bool
+    public var recordingUsedVirtualDevice: Bool
+    public var gateStatus: CaptureHealthGateStatus
+    public var failureReason: LocalRecordingFailureReason
+
+    public init(
+        halRuntimeProbeExecuted: Bool,
+        virtualDeviceSelectionRequired: Bool,
+        driverRepairRequired: Bool,
+        coreAudioRestartRequired: Bool,
+        recordingUsedVirtualDevice: Bool,
+        gateStatus: CaptureHealthGateStatus = .passed,
+        failureReason: LocalRecordingFailureReason = .none
+    ) {
+        self.halRuntimeProbeExecuted = halRuntimeProbeExecuted
+        self.virtualDeviceSelectionRequired = virtualDeviceSelectionRequired
+        self.driverRepairRequired = driverRepairRequired
+        self.coreAudioRestartRequired = coreAudioRestartRequired
+        self.recordingUsedVirtualDevice = recordingUsedVirtualDevice
+        self.gateStatus = gateStatus
+        self.failureReason = failureReason
+    }
+
+    public var passesMVPBoundary: Bool {
+        !halRuntimeProbeExecuted &&
+            !virtualDeviceSelectionRequired &&
+            !driverRepairRequired &&
+            !coreAudioRestartRequired &&
+            !recordingUsedVirtualDevice &&
+            gateStatus == .passed &&
+            failureReason == .none
+    }
+}

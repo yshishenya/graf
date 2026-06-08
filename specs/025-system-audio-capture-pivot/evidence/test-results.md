@@ -53,3 +53,23 @@
 - Result: passed
 - Notes: This validates model and writer behavior. Manual controlled artifact
   validation remains required in the later artifact matrix validation task.
+
+## 2026-06-08 US4 Runtime Stability Gate Slice
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: CPU gate model semantics, metadata-only CPU sampling script, no-HAL
+  acceptance-path validation script, app-exit system-audio resource release,
+  and CPU/no-HAL evidence templates.
+- Commands:
+  - `swift test --package-path apps/macos`
+  - `swift build --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `./apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 ./apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+- Result: passed
+- Notes: CPU sampling was a fast metadata-only validation run. The active
+  developer path is `/Library/Developer/CommandLineTools`, so `xcrun xctest`
+  is unavailable even though SwiftPM compiles the XCTest bundle. This does not
+  replace later settled idle/stop/quit checks, active recording checks,
+  30-minute development run, 75-minute manual release run, or a full-Xcode
+  XCTest execution.

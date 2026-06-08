@@ -171,6 +171,12 @@ private struct ContentView: View {
                 liveRouteSignalLevels = nextLevels
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            Task { await releaseCaptureResourcesForAppExit() }
+        }
+        .onDisappear {
+            Task { await releaseCaptureResourcesForAppExit() }
+        }
     }
 
     private var header: some View {
@@ -345,6 +351,29 @@ private struct ContentView: View {
         } catch {
             recordingBlocker = "Recording could not stop: \(error)"
             AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
+        }
+    }
+
+    @MainActor
+    private func releaseCaptureResourcesForAppExit() async {
+        _ = await systemAudioCaptureService.releaseForTermination()
+        guard localRecordingWriter.isRecording else {
+            return
+        }
+        let recordingDirectory = localRecordingWriter.currentDirectoryURL()
+        do {
+            let manifest = try localRecordingWriter.stop()
+            localRecordingManifest = manifest
+            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
+            AppLog.writeRaw(
+                event: AuditEventName.localRecordingDegraded.rawValue,
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "app_exit_resource_release_failed error=\(error)"
+            )
         }
     }
 

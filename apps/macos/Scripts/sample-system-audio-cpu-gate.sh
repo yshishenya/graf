@@ -3,31 +3,142 @@ set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 EVIDENCE_DIR="$ROOT_DIR/specs/025-system-audio-capture-pivot/evidence"
+PHASE="${1:-}"
+SAMPLES="${SYSTEM_AUDIO_CPU_GATE_SAMPLES:-3}"
+INTERVAL_SECONDS="${SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS:-2}"
+SETTLE_SECONDS="${SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS:-}"
 
-case "${1:-}" in
-  -h|--help)
+case "$PHASE" in
+  -h|--help|"")
     cat <<'USAGE'
-sample-system-audio-cpu-gate.sh
+sample-system-audio-cpu-gate.sh <idle|activeRecording|stop|quit>
 
 Samples metadata-only CPU evidence for the system-audio MVP.
 
-Required gates:
-- idle after 10 seconds: coreaudiod < 5% and app < 5%
-- active recording: no sustained coreaudiod > 10%
-- active recording: no sustained combined app/helper > 25%
-- stop/quit returns below idle gate within 10 seconds
+Environment:
+  SYSTEM_AUDIO_CPU_GATE_SAMPLES=3
+  SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=2
+  SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=10 for idle/stop/quit, 0 for activeRecording
 
-This script must not run HAL live-publication probes.
+Required gates:
+- idle/stop/quit after settle: coreaudiod < 5% and app+helper < 5%
+- active recording: no sustained coreaudiod > 10%
+- active recording: no sustained app+helper > 25%
+
+This script uses ps/pgrep metadata only and must not run HAL live-publication probes.
 USAGE
+    [ -z "$PHASE" ] && exit 2
     exit 0
+    ;;
+  idle|activeRecording|stop|quit)
+    ;;
+  *)
+    echo "error=unknown_phase phase=$PHASE" >&2
+    exit 2
     ;;
 esac
 
 mkdir -p "$EVIDENCE_DIR"
 
-cat <<'RESULT'
-system_audio_cpu_gate_sampling=not_implemented
-reason=Phase 1 skeleton only; real process sampling is implemented by later tasks.
-RESULT
+if [ -z "$SETTLE_SECONDS" ]; then
+  case "$PHASE" in
+    activeRecording) SETTLE_SECONDS=0 ;;
+    *) SETTLE_SECONDS=10 ;;
+  esac
+fi
 
-exit 2
+cpu_sum_for_pids() {
+  pids="$1"
+  if [ -z "$pids" ]; then
+    printf '0.00'
+    return
+  fi
+  total="0"
+  for pid in $pids; do
+    value="$(ps -o %cpu= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
+    [ -n "$value" ] || value="0"
+    total="$(awk -v a="$total" -v b="$value" 'BEGIN { printf "%.2f", a + b }')"
+  done
+  printf '%s' "$total"
+}
+
+coreaudiod_pids() {
+  pgrep -x coreaudiod 2>/dev/null || true
+}
+
+app_pids() {
+  pgrep -f 'TwoBrainRecApp|2brain Rec' 2>/dev/null | awk -v self="$$" '$1 != self' || true
+}
+
+helper_pids() {
+  pgrep -f '2brain.*Helper|TwoBrain.*Helper|TwoBrainRec.*Helper' 2>/dev/null | awk -v self="$$" '$1 != self' || true
+}
+
+if [ "$SETTLE_SECONDS" -gt 0 ]; then
+  sleep "$SETTLE_SECONDS"
+fi
+
+tmp_file="$(mktemp)"
+trap 'rm -f "$tmp_file"' EXIT
+
+i=1
+while [ "$i" -le "$SAMPLES" ]; do
+  core_cpu="$(cpu_sum_for_pids "$(coreaudiod_pids)")"
+  app_cpu="$(cpu_sum_for_pids "$(app_pids)")"
+  helper_cpu="$(cpu_sum_for_pids "$(helper_pids)")"
+  app_helper_cpu="$(awk -v a="$app_cpu" -v b="$helper_cpu" 'BEGIN { printf "%.2f", a + b }')"
+  sampled_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s halProbeObserved=false\n' \
+    "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" | tee -a "$tmp_file"
+  if [ "$i" -lt "$SAMPLES" ]; then
+    sleep "$INTERVAL_SECONDS"
+  fi
+  i=$((i + 1))
+done
+
+evaluation="$(awk -v phase="$PHASE" '
+BEGIN {
+  maxCore = 0; maxApp = 0; coreSeq = 0; appSeq = 0; coreSustained = 0; appSustained = 0; count = 0;
+}
+{
+  count += 1;
+  core = 0; app = 0;
+  for (i = 1; i <= NF; i += 1) {
+    split($i, kv, "=");
+    if (kv[1] == "coreaudiodCpuPercent") core = kv[2] + 0;
+    if (kv[1] == "appHelperCpuPercent") app = kv[2] + 0;
+  }
+  if (core > maxCore) maxCore = core;
+  if (app > maxApp) maxApp = app;
+  if (phase == "activeRecording") {
+    if (core > 10) coreSeq += 1; else coreSeq = 0;
+    if (app > 25) appSeq += 1; else appSeq = 0;
+    if (coreSeq >= 3) coreSustained = 1;
+    if (appSeq >= 3) appSustained = 1;
+  } else {
+    if (core >= 5) coreSustained = 1;
+    if (app >= 5) appSustained = 1;
+  }
+}
+END {
+  status = (count > 0 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
+  reason = status == "passed" ? "none" : "cpuGateFailed";
+  printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s", status, reason, count, maxCore, maxApp, coreSustained ? "true" : "false", appSustained ? "true" : "false";
+}' "$tmp_file")"
+
+printf '%s\n' "$evaluation"
+
+{
+  printf '\n## %s %s\n\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$PHASE"
+  printf '%s\n' "- Command: \`$0 $PHASE\`"
+  printf '%s\n' "- Samples: \`$SAMPLES\`, interval seconds: \`$INTERVAL_SECONDS\`, settle seconds: \`$SETTLE_SECONDS\`"
+  printf '%s\n\n' "- Evaluation: \`$evaluation\`"
+  printf '```text\n'
+  cat "$tmp_file"
+  printf '```\n'
+} >> "$EVIDENCE_DIR/cpu-gates.md"
+
+case "$evaluation" in
+  status=passed*) exit 0 ;;
+  *) exit 1 ;;
+esac

@@ -136,18 +136,18 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 4
 
-- [ ] T047 [P] [US4] Add CPU gate model tests for idle, active, stop, quit, and sustained threshold semantics in `apps/macos/Shared/Tests/SystemAudioCPUGateTests.swift`
-- [ ] T048 [P] [US4] Add no-HAL validation tests for evidence models in `apps/macos/Shared/Tests/SystemAudioNoHALValidationTests.swift`
-- [ ] T049 [P] [US4] Add capture resource release tests for stop and quit outcomes in `apps/macos/Shared/Tests/SystemAudioResourceReleaseTests.swift`
+- [X] T047 [P] [US4] Add CPU gate model tests for idle, active, stop, quit, and sustained threshold semantics in `apps/macos/Shared/Tests/SystemAudioCPUGateTests.swift`
+- [X] T048 [P] [US4] Add no-HAL validation tests for evidence models in `apps/macos/Shared/Tests/SystemAudioNoHALValidationTests.swift`
+- [X] T049 [P] [US4] Add capture resource release tests for stop and quit outcomes in `apps/macos/Shared/Tests/SystemAudioResourceReleaseTests.swift`
 
 ### Implementation for User Story 4
 
-- [ ] T050 [US4] Implement CPU gate evidence model and sustained sample evaluation in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T051 [US4] Implement `sample-system-audio-cpu-gate.sh` using metadata-only process sampling in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
-- [ ] T052 [US4] Implement `validate-system-audio-no-hal-probe.sh` to fail on HAL probe dependency in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
-- [ ] T053 [US4] Ensure app termination releases system-audio and microphone resources in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T054 [US4] Record CPU gate evidence template in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
-- [ ] T055 [US4] Record no-HAL evidence template in `specs/025-system-audio-capture-pivot/evidence/no-hal-probe.md`
+- [X] T050 [US4] Implement CPU gate evidence model and sustained sample evaluation in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [X] T051 [US4] Implement `sample-system-audio-cpu-gate.sh` using metadata-only process sampling in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
+- [X] T052 [US4] Implement `validate-system-audio-no-hal-probe.sh` to fail on HAL probe dependency in `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- [X] T053 [US4] Ensure app termination releases system-audio and microphone resources in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T054 [US4] Record CPU gate evidence template in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
+- [X] T055 [US4] Record no-HAL evidence template in `specs/025-system-audio-capture-pivot/evidence/no-hal-probe.md`
 
 **Checkpoint**: US4 independently proves runtime stability gates are measurable and no-HAL validation is enforceable.
 
