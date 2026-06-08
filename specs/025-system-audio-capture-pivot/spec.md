@@ -221,6 +221,14 @@ system-audio MVP recording flow still works.
   states to manifest failure reasons.
 - **FR-017**: The system MUST run 30-minute development validation and
   75-minute manual release validation before release acceptance can be claimed.
+- **FR-018**: The system MUST define accessibility requirements for the
+  recording indicator, one-action Stop, level meters, permission blockers,
+  capture scope picker, and degraded-state banners.
+- **FR-019**: The system MUST use localization-safe state labels for permission,
+  capture scope, recording, degraded, blocked, saved, failed, no-HAL, and CPU
+  gate states.
+- **FR-020**: The system MUST preserve critical state meaning at small window
+  sizes and with long app, window, display, and device names.
 
 ### Key Entities
 
@@ -266,6 +274,9 @@ system-audio MVP recording flow still works.
 - **SC-009**: Accepted recordings include a user-selected or user-confirmed
   capture scope and do not count arbitrary background system audio as a meeting
   trigger.
+- **SC-010**: P1 UI states remain understandable through labels or accessible
+  descriptions for screen readers, keyboard users, small windows, and long
+  source names.
 
 ## Out Of Scope
 

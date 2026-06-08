@@ -124,6 +124,9 @@ Expected:
 - stop/quit returns below idle gate within 10 seconds;
 - app and meeting target remain responsive.
 
+For CPU gates, `sustained` means at least three consecutive samples above the
+threshold at 2-second sampling intervals after the relevant settle window.
+
 ## 8. Duration Gates
 
 ```sh

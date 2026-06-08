@@ -43,6 +43,9 @@ Passing criteria:
 - active recording: no sustained app/helper total `> 25%`;
 - stop/quit returns below idle gate within 10 seconds.
 
+For this feature, `sustained` means at least three consecutive samples above
+the threshold at 2-second sampling intervals after the relevant settle window.
+
 ## No-HAL Evidence
 
 Each run must record:

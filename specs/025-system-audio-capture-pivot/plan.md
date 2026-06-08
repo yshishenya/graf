@@ -59,6 +59,8 @@ local recording pipeline.
   text, meeting content, credentials, tokens, signed URLs, or passwords.
 - The app must remain stoppable locally even if capture, file writing, or future
   server policy surfaces fail.
+- "Sustained" CPU threshold means at least three consecutive samples above the
+  threshold at 2-second sampling intervals after the relevant settle window.
 
 **Scale/Scope**: Single-user local MVP recording flow; controlled Telemost,
 Chrome, Opera, Zoom/browser-style validation; 30-minute development run plus
