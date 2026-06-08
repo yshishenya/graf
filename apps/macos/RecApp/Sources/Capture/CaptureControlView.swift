@@ -40,19 +40,24 @@ public struct CaptureControlView: View {
                 if let session {
                     CaptureStatusItem(session: session, onStop: onStop)
                 } else {
-                    Label("Recording idle", systemImage: "record.circle")
+                    Label(SystemAudioStatusLabels.recordingIdle, systemImage: "record.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 }
 
                 Spacer()
 
                 if Self.shouldShowRecordButton(for: session) {
                     Button(action: onRecord) {
-                        Label("Record System Audio", systemImage: "record.circle")
+                        Label(SystemAudioStatusLabels.recordButtonTitle, systemImage: "record.circle")
                     }
                     .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("Start system audio recording")
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .accessibilityLabel(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordButton)
+                    .help(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
                 }
             }
 
@@ -60,14 +65,20 @@ public struct CaptureControlView: View {
                 Label(blockedReason, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(blockedReason)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
             }
 
             if let localRecordingStatus, !localRecordingStatus.isEmpty {
                 Label(localRecordingStatus, systemImage: localRecordingStatusIcon)
                     .font(.caption)
                     .foregroundStyle(localRecordingStatusStyle)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(localRecordingStatus)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingStatus)
             }
 
             if let localRecordingLocation, !localRecordingLocation.isEmpty {
@@ -76,10 +87,15 @@ public struct CaptureControlView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .lineLimit(2)
-                    .accessibilityLabel("Local recording location: \(localRecordingLocation)")
+                    .truncationMode(.middle)
+                    .accessibilityLabel(SystemAudioStatusLabels.localRecordingLocationAccessibilityLabel(localRecordingLocation))
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingLocation)
             }
         }
         .padding(16)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(SystemAudioStatusLabels.captureRegion)
+        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.captureControls)
     }
 
     public static func shouldShowRecordButton(for session: CaptureSession?) -> Bool {
@@ -118,11 +134,15 @@ private struct LiveRecordingMetersView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Capture Audio")
+                    Text(SystemAudioStatusLabels.captureAudioTitle)
                         .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                     Text(liveSummary)
                         .font(.caption)
                         .foregroundStyle(summaryColor)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 Image(systemName: incomingIsLive ? "waveform.circle.fill" : "waveform.circle")
@@ -131,7 +151,7 @@ private struct LiveRecordingMetersView: View {
             }
 
             meterRow(
-                title: "Microphone",
+                title: SystemAudioStatusLabels.microphoneTitle,
                 detail: microphoneDetail,
                 icon: "mic.fill",
                 level: microphoneLevel,
@@ -139,7 +159,7 @@ private struct LiveRecordingMetersView: View {
                 warning: shouldWarnMicrophone
             )
             meterRow(
-                title: "Incoming",
+                title: SystemAudioStatusLabels.incomingTitle,
                 detail: incomingDetail,
                 icon: "speaker.wave.2.fill",
                 level: incomingLevel,
@@ -148,22 +168,15 @@ private struct LiveRecordingMetersView: View {
             )
         }
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meters)
     }
 
     private var liveSummary: String {
-        guard routeSignalLevels.isActive else {
-            return "Meters start when recording"
-        }
-        if microphoneIsLive && incomingIsLive {
-            return "Microphone and system audio are active"
-        }
-        if microphoneIsLive {
-            return "Microphone active, system audio silent"
-        }
-        if incomingIsLive {
-            return "System audio active, microphone silent"
-        }
-        return "No capture audio observed"
+        SystemAudioStatusLabels.liveSummary(
+            routeIsActive: routeSignalLevels.isActive,
+            microphoneIsLive: microphoneIsLive,
+            incomingIsLive: incomingIsLive
+        )
     }
 
     private var summaryColor: Color {
@@ -177,18 +190,17 @@ private struct LiveRecordingMetersView: View {
     }
 
     private var microphoneDetail: String {
-        guard routeSignalLevels.isActive else { return "Waiting for recording audio" }
-        return microphoneIsLive
-            ? "Microphone audio is reaching the recorder."
-            : "No microphone audio is reaching the recorder."
+        SystemAudioStatusLabels.microphoneDetail(
+            routeIsActive: routeSignalLevels.isActive,
+            microphoneIsLive: microphoneIsLive
+        )
     }
 
     private var incomingDetail: String {
-        guard routeSignalLevels.isActive else { return "Waiting for recording audio" }
-        if incomingIsLive {
-            return "System audio is reaching the recorder."
-        }
-        return "No system audio is reaching the recorder."
+        SystemAudioStatusLabels.incomingDetail(
+            routeIsActive: routeSignalLevels.isActive,
+            incomingIsLive: incomingIsLive
+        )
     }
 
     private var microphoneLevel: Double {
@@ -233,21 +245,31 @@ private struct LiveRecordingMetersView: View {
                     Text(title)
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    Text(isLive ? "Active" : "Silent")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    Text(SystemAudioStatusLabels.meterState(isLive: isLive))
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .foregroundStyle(warning ? .orange : (isLive ? .green : .secondary))
+                        .lineLimit(1)
                 }
                 EqualizerBars(level: level, isLive: isLive, warning: warning)
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(warning ? .orange : .secondary)
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .layoutPriority(1)
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title): \(detail)")
+        .accessibilityLabel(SystemAudioStatusLabels.meterAccessibilityLabel(title: title, detail: detail))
+        .accessibilityIdentifier(
+            title == SystemAudioStatusLabels.microphoneTitle
+                ? SystemAudioAccessibilityIdentifier.microphoneMeter
+                : SystemAudioAccessibilityIdentifier.incomingMeter
+        )
     }
 }
 
@@ -266,9 +288,10 @@ private struct EqualizerBars: View {
                     .frame(width: 7, height: height(for: index))
             }
         }
-        .frame(height: 28, alignment: .bottom)
+        .frame(width: 137, height: 28, alignment: .bottom)
         .animation(.linear(duration: 0.05), value: level)
         .animation(.linear(duration: 0.05), value: isLive)
+        .accessibilityHidden(true)
     }
 
     private func height(for index: Int) -> CGFloat {

@@ -88,3 +88,19 @@
 - Notes: `swift test` compiles the XCTest bundle in the current
   CommandLineTools environment. Full `xcrun xctest` execution remains pending
   until full Xcode is selected.
+
+## 2026-06-08 UX Accessibility And Localization Slice
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: shared localization-safe labels, stable accessibility identifiers,
+  keyboard shortcuts for Record/Stop, long-path handling, fixed meter sizing,
+  and compact text behavior in capture controls.
+- Commands:
+  - `swift test --package-path apps/macos`
+  - `swift build --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `./apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- Result: passed
+- Notes: `swift test` compiles the XCTest bundle in the current
+  CommandLineTools environment. Full `xcrun xctest` execution remains pending
+  until full Xcode is selected.

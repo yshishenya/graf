@@ -179,11 +179,11 @@ Test and contract tasks appear before implementation tasks in each story.
 
 **Purpose**: Complete UI quality gates that apply across P1 stories.
 
-- [ ] T062 [P] Add accessibility tests for recording indicator, Stop, level meters, blockers, scope picker, and degraded banners in `apps/macos/Shared/Tests/SystemAudioAccessibilityTests.swift`
-- [ ] T063 [P] Add localization-safe state label tests in `apps/macos/Shared/Tests/SystemAudioLocalizationTests.swift`
-- [ ] T064 [P] Add long-name and small-window UI state tests in `apps/macos/Shared/Tests/SystemAudioResponsiveStateTests.swift`
-- [ ] T065 Update `CaptureControlView` accessibility labels, keyboard focus, long-name handling, and small-window state behavior in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T066 Update shared state labels for localization-safe system-audio status in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [X] T062 [P] Add accessibility tests for recording indicator, Stop, level meters, blockers, scope picker, and degraded banners in `apps/macos/Shared/Tests/SystemAudioAccessibilityTests.swift`
+- [X] T063 [P] Add localization-safe state label tests in `apps/macos/Shared/Tests/SystemAudioLocalizationTests.swift`
+- [X] T064 [P] Add long-name and small-window UI state tests in `apps/macos/Shared/Tests/SystemAudioResponsiveStateTests.swift`
+- [X] T065 Update `CaptureControlView` accessibility labels, keyboard focus, long-name handling, and small-window state behavior in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T066 Update shared state labels for localization-safe system-audio status in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
 
 ---
 

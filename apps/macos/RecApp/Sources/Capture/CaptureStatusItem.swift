@@ -33,23 +33,28 @@ public struct CaptureStatusItem: View {
                 Text(Self.statusLabel(for: session))
                     .font(.caption)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
 
             if isActive {
                 Spacer()
 
                 Button(action: onStop) {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(!canStop)
-                .accessibilityLabel("Stop recording")
+                .keyboardShortcut(.escape, modifiers: [])
+                .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.stopButton)
+                .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
             }
         }
         .padding(8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Self.accessibilityLabel(for: session))
+        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(.thickMaterial)

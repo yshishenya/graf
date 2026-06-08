@@ -629,3 +629,78 @@ public struct SystemAudioDriverParkedReadiness: Codable, Equatable, Sendable {
         return "Virtual devices are not an MVP recording prerequisite"
     }
 }
+
+public enum SystemAudioStatusLabels {
+    public static let captureRegion = "System audio recording controls"
+    public static let recordingIdle = "Recording idle"
+    public static let recordButtonTitle = "Record System Audio"
+    public static let recordButtonAccessibilityLabel = "Start system audio recording"
+    public static let stopButtonTitle = "Stop"
+    public static let stopButtonAccessibilityLabel = "Stop recording"
+    public static let captureAudioTitle = "Capture Audio"
+    public static let microphoneTitle = "Microphone"
+    public static let incomingTitle = "Incoming"
+    public static let activeState = "Active"
+    public static let silentState = "Silent"
+    public static let metersWaiting = "Meters start when recording"
+    public static let waitingForRecordingAudio = "Waiting for recording audio"
+
+    public static func liveSummary(
+        routeIsActive: Bool,
+        microphoneIsLive: Bool,
+        incomingIsLive: Bool
+    ) -> String {
+        guard routeIsActive else {
+            return metersWaiting
+        }
+        if microphoneIsLive && incomingIsLive {
+            return "Microphone and system audio are active"
+        }
+        if microphoneIsLive {
+            return "Microphone active, system audio silent"
+        }
+        if incomingIsLive {
+            return "System audio active, microphone silent"
+        }
+        return "No capture audio observed"
+    }
+
+    public static func microphoneDetail(routeIsActive: Bool, microphoneIsLive: Bool) -> String {
+        guard routeIsActive else { return waitingForRecordingAudio }
+        return microphoneIsLive
+            ? "Microphone audio is reaching the recorder."
+            : "No microphone audio is reaching the recorder."
+    }
+
+    public static func incomingDetail(routeIsActive: Bool, incomingIsLive: Bool) -> String {
+        guard routeIsActive else { return waitingForRecordingAudio }
+        return incomingIsLive
+            ? "System audio is reaching the recorder."
+            : "No system audio is reaching the recorder."
+    }
+
+    public static func meterState(isLive: Bool) -> String {
+        isLive ? activeState : silentState
+    }
+
+    public static func meterAccessibilityLabel(title: String, detail: String) -> String {
+        "\(title): \(detail)"
+    }
+
+    public static func localRecordingLocationAccessibilityLabel(_ path: String) -> String {
+        "Local recording location: \(path)"
+    }
+}
+
+public enum SystemAudioAccessibilityIdentifier {
+    public static let captureControls = "systemAudio.capture.controls"
+    public static let recordButton = "systemAudio.record.button"
+    public static let stopButton = "systemAudio.stop.button"
+    public static let statusSurface = "systemAudio.status.surface"
+    public static let blockerBanner = "systemAudio.blocker.banner"
+    public static let localRecordingStatus = "systemAudio.localRecording.status"
+    public static let localRecordingLocation = "systemAudio.localRecording.location"
+    public static let meters = "systemAudio.meters"
+    public static let microphoneMeter = "systemAudio.meter.microphone"
+    public static let incomingMeter = "systemAudio.meter.incoming"
+}
