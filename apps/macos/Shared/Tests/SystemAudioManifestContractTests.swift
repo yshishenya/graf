@@ -71,6 +71,24 @@ final class SystemAudioManifestContractTests: XCTestCase {
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)
     }
+
+    func testBothTracksSavedAndAlignedExposeDurationDifference() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [
+                    completeTrack(role: .localMic),
+                    completeTrack(role: .remoteSpeaker)
+                ]
+            )
+
+        XCTAssertEqual(manifest.status, .saved)
+        XCTAssertEqual(manifest.durationDifferenceSeconds, 0)
+        XCTAssertEqual(manifest.tracks.first { $0.role == .remoteSpeaker }?.sourceKind, .systemAudio)
+    }
 }
 
 private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {

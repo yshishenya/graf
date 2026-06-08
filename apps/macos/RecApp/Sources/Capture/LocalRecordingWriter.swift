@@ -257,7 +257,17 @@ public final class LocalRecordingWriter {
                 durationMs: active.remoteWriter.durationMs,
                 frameCount: Int64(active.remoteWriter.frameCount),
                 fileName: "incoming.wav",
-                timelineAligned: remoteTimelineAligned
+                timelineAligned: remoteTimelineAligned,
+                observedLevel: active.lastIncomingLevel
+            )
+            let captureHealth = CaptureHealthMonitor().snapshot(
+                sessionId: active.sessionId,
+                phase: .stop,
+                micDurationMs: micTrack.durationMs,
+                incomingDurationMs: remoteTrack.durationMs,
+                micFrameCount: micTrack.frameCount,
+                incomingFrameCount: remoteTrack.frameCount,
+                silentFrameCount: remoteTrack.failureReason == .silentInput ? remoteTrack.frameCount : 0
             )
 
             let manifest = manifestService.manifest(
@@ -265,7 +275,8 @@ public final class LocalRecordingWriter {
                 directoryId: active.directory.directoryId,
                 startedAt: active.startedAt,
                 stoppedAt: stoppedAt,
-                tracks: [micTrack, remoteTrack]
+                tracks: [micTrack, remoteTrack],
+                captureHealth: captureHealth
             )
             try manifestService.write(manifest, to: active.directory.manifestURL)
             return manifest
@@ -282,21 +293,38 @@ public final class LocalRecordingWriter {
         durationMs: Int,
         frameCount: Int64,
         fileName: String,
-        timelineAligned: Bool
+        timelineAligned: Bool,
+        observedLevel: Double? = nil
     ) -> LocalRecordingTrack {
         let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
             .int64Value ?? 0
         let complete = byteCount > 44 && frameCount > 0 && durationMs > 0
         let failureReason: LocalRecordingFailureReason
         if complete {
-            failureReason = timelineAligned ? .none : .timelineMisaligned
+            if observedLevel == 0 {
+                failureReason = .silentInput
+            } else {
+                failureReason = timelineAligned ? .none : .timelineMisaligned
+            }
         } else {
-            failureReason = .emptyRequiredTrack
+            failureReason = .noFrames
+        }
+        let status: LocalRecordingTrackStatus = switch failureReason {
+        case .none:
+            .saved
+        case .protectedAudioBlocked:
+            .blocked
+        case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed:
+            .failed
+        case .silentInput, .noFrames, .emptyRequiredTrack, .timelineMisaligned, .formatNotReady,
+             .permissionDenied, .scopeUnavailable, .cpuGateFailed, .stoppedBeforeFrames,
+             .halProbeObserved, .deviceUnavailable, .legacyNotReady, .appClosed, .unknown:
+            complete ? .degraded : .missing
         }
         return LocalRecordingTrack(
             trackId: "\(role.rawValue)-track",
             role: role,
-            status: complete ? .saved : .missing,
+            status: status,
             fileName: fileName,
             format: "wav-pcm-s16le",
             sampleRate: 16_000,
@@ -306,7 +334,7 @@ public final class LocalRecordingWriter {
             byteCount: byteCount,
             frameCount: complete ? frameCount : 0,
             timelineStartMs: 0,
-            timelineAligned: complete && timelineAligned,
+            timelineAligned: complete && timelineAligned && failureReason == .none,
             failureReason: failureReason
         )
     }

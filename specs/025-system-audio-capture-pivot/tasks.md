@@ -112,17 +112,17 @@ Test and contract tasks appear before implementation tasks in each story.
 
 ### Tests for User Story 3
 
-- [ ] T039 [P] [US3] Add manifest tests for both tracks saved and aligned in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
-- [ ] T040 [P] [US3] Add manifest tests for silent, protected, blocked, missing, and dropped incoming audio in `apps/macos/Shared/Tests/SystemAudioManifestFailureReasonTests.swift`
-- [ ] T041 [P] [US3] Add track alignment tolerance tests for `durationDifferenceSeconds <= 3` in `apps/macos/Shared/Tests/SystemAudioTrackAlignmentTests.swift`
+- [X] T039 [P] [US3] Add manifest tests for both tracks saved and aligned in `apps/macos/Shared/Tests/SystemAudioManifestContractTests.swift`
+- [X] T040 [P] [US3] Add manifest tests for silent, protected, blocked, missing, and dropped incoming audio in `apps/macos/Shared/Tests/SystemAudioManifestFailureReasonTests.swift`
+- [X] T041 [P] [US3] Add track alignment tolerance tests for `durationDifferenceSeconds <= 3` in `apps/macos/Shared/Tests/SystemAudioTrackAlignmentTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T042 [US3] Extend `LocalRecordingManifestService` to write scope, permission, failure reason, CPU metadata, and `systemAudio` source metadata while preserving the `remoteSpeaker` incoming role in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
-- [ ] T043 [US3] Update `LocalRecordingWriter` to mark incoming/system audio as degraded or blocked for no frames, silent frames, protected frames, and misalignment in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
-- [ ] T044 [US3] Add `CaptureHealthMonitor` for frame continuity, levels, dropped frames, silence windows, and alignment metadata in `apps/macos/RecApp/Sources/Capture/CaptureHealthMonitor.swift`
-- [ ] T045 [US3] Update `RecordingEvidenceService` to emit safe local recording evidence for system-audio degraded states in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
-- [ ] T046 [US3] Record artifact matrix evidence template for saved/degraded/blocked/failed outcomes in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
+- [X] T042 [US3] Extend `LocalRecordingManifestService` to write scope, permission, failure reason, CPU metadata, and `systemAudio` source metadata while preserving the `remoteSpeaker` incoming role in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
+- [X] T043 [US3] Update `LocalRecordingWriter` to mark incoming/system audio as degraded or blocked for no frames, silent frames, protected frames, and misalignment in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
+- [X] T044 [US3] Add `CaptureHealthMonitor` for frame continuity, levels, dropped frames, silence windows, and alignment metadata in `apps/macos/RecApp/Sources/Capture/CaptureHealthMonitor.swift`
+- [X] T045 [US3] Update `RecordingEvidenceService` to emit safe local recording evidence for system-audio degraded states in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
+- [X] T046 [US3] Record artifact matrix evidence template for saved/degraded/blocked/failed outcomes in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
 
 **Checkpoint**: US3 independently proves artifact truth for all required track outcomes.
 

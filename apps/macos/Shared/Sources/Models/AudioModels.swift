@@ -932,6 +932,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var transcriptionStarted: Bool
     public var diagnosticSafe: Bool
     public var failureReason: LocalRecordingFailureReason
+    public var durationDifferenceSeconds: Double
     public var recordingTimelineEvidence: RecordingTimelineIntegrityEvidence?
     public var scopeApproval: CaptureScopeApproval?
     public var permissions: SystemAudioPermissionSnapshot?
@@ -953,6 +954,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         transcriptionStarted: Bool = false,
         diagnosticSafe: Bool = true,
         failureReason: LocalRecordingFailureReason = .none,
+        durationDifferenceSeconds: Double = 0,
         recordingTimelineEvidence: RecordingTimelineIntegrityEvidence? = nil,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
@@ -973,6 +975,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.transcriptionStarted = transcriptionStarted
         self.diagnosticSafe = diagnosticSafe
         self.failureReason = failureReason
+        self.durationDifferenceSeconds = durationDifferenceSeconds
         self.recordingTimelineEvidence = recordingTimelineEvidence
         self.scopeApproval = scopeApproval
         self.permissions = permissions

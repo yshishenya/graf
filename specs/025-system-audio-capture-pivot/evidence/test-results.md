@@ -39,3 +39,17 @@
 - Notes: This validates that missing microphone or Screen/System Audio
   permission cannot become a normal `saved` acceptance path. Manual permission
   toggling remains required in the later permission matrix validation task.
+
+## 2026-06-08 US3 Artifact Truth Slice
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: Saved/aligned manifest truth, missing/silent/protected/dropped incoming
+  failure reasons, duration alignment gate, capture health metadata, and safe
+  local recording evidence.
+- Commands:
+  - `swift test --package-path apps/macos --disable-swift-testing`
+  - `swift build --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+- Result: passed
+- Notes: This validates model and writer behavior. Manual controlled artifact
+  validation remains required in the later artifact matrix validation task.

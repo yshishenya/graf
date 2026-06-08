@@ -30,10 +30,16 @@ public struct LocalRecordingManifestService: Sendable {
         captureHealth: CaptureHealthSnapshot? = nil
     ) -> LocalRecordingManifest {
         let hasBothRoles = Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker])
+        let durationDifferenceSeconds = Self.durationDifferenceSeconds(tracks: tracks)
         let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? true
-        let complete = hasBothRoles && tracks.allSatisfy(\.isMediaScribeReady) && permissionsAllowAcceptedRecording
+        let complete = hasBothRoles &&
+            tracks.allSatisfy(\.isMediaScribeReady) &&
+            permissionsAllowAcceptedRecording &&
+            durationDifferenceSeconds <= 3
         let status: LocalRecordingSessionStatus = if complete {
             .saved
+        } else if tracks.contains(where: { $0.status == .blocked }) {
+            .blocked
         } else if tracks.contains(where: { $0.status == .failed }) {
             .failed
         } else {
@@ -63,6 +69,7 @@ public struct LocalRecordingManifestService: Sendable {
             mediaScribeSourceMode: "dual",
             tracks: tracks,
             failureReason: resolvedFailure,
+            durationDifferenceSeconds: durationDifferenceSeconds,
             recordingTimelineEvidence: routeTimelineEvidence(
                 routeSessionId: routeSessionId,
                 tracks: tracks,
@@ -91,6 +98,9 @@ public struct LocalRecordingManifestService: Sendable {
         if let permissions, !permissions.allowsAcceptedRecording {
             return .permissionDenied
         }
+        if let trackReason = tracks.first(where: { $0.failureReason != .none })?.failureReason {
+            return trackReason
+        }
         if tracks.contains(where: { !$0.timelineAligned }) {
             return .timelineMisaligned
         }
@@ -98,6 +108,15 @@ public struct LocalRecordingManifestService: Sendable {
             return .formatNotReady
         }
         return .emptyRequiredTrack
+    }
+
+    private static func durationDifferenceSeconds(tracks: [LocalRecordingTrack]) -> Double {
+        guard let mic = tracks.first(where: { $0.role == .localMic }),
+              let incoming = tracks.first(where: { $0.role == .remoteSpeaker })
+        else {
+            return 0
+        }
+        return Double(abs(mic.durationMs - incoming.durationMs)) / 1000
     }
 
     private func routeTimelineEvidence(
