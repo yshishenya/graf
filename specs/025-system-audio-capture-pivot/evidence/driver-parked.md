@@ -24,3 +24,29 @@ Acceptance boundary:
 - Notes: SwiftPM compiles the XCTest bundle in this CommandLineTools
   environment; full `xcrun xctest` execution remains a full-Xcode validation
   item.
+
+## 2026-06-09 App-Only Installer Validator Run
+
+- Run ID: `20260608T210619Z`
+- Timestamp: `2026-06-08T21:06:19Z`
+- Commit: `70c850e`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
+
+## 2026-06-09 App-Only Installer Validator Run
+
+- Run ID: `20260608T210637Z`
+- Timestamp: `2026-06-08T21:06:37Z`
+- Commit: `70c850e`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.

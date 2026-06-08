@@ -798,6 +798,9 @@
     `TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART=1` is explicitly set.
   - Installer README now documents app-only MVP default and keeps driver
     packaging as parked future-driver diagnostics.
+  - `validate-system-audio-capture-pivot.sh` now includes
+    `--installer-app-only`, a reproducible metadata-only gate that builds the
+    default package and fails if the desktop-app-only boundary regresses.
 - Validation:
   - `sh -n` passed for `build-local-installer.sh`, `postinstall.sh`,
     `repair.sh`, and `installer-lifecycle-release-hardening.sh`.
@@ -814,11 +817,14 @@
     `2brain-rec-desktop-app.pkg`.
   - `apps/macos/.build/installer/distribution.xml` contained only
     `desktop-app` package references and no `audio-driver` package references.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed and recorded metadata-only evidence in `driver-parked.md`.
   - App-only packaged app launch produced one visible `2brain Rec` window.
   - Runtime process snapshot showed app CPU `0.0`, `coreaudiod` CPU `0.0`, and
     no thermal/performance warning recorded by `pmset -g therm`.
   - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
-    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.00`.
+    `maxCoreaudiodCpuPercent=0.00` and latest
+    `maxAppHelperCpuPercent=0.10`.
   - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
     passed with `maxAppProcessCount=0`.
 - Result: passed for app-only installer default, no implicit driver package,

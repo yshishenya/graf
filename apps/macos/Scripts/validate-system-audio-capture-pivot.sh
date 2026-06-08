@@ -10,6 +10,7 @@ RELEASE_DURATION="$EVIDENCE_DIR/release-75-minute.md"
 CPU_GATES="$EVIDENCE_DIR/cpu-gates.md"
 NO_HAL="$EVIDENCE_DIR/no-hal-probe.md"
 SCOPE_REVIEW="$EVIDENCE_DIR/scope-review.md"
+DRIVER_PARKED="$EVIDENCE_DIR/driver-parked.md"
 
 usage() {
     cat <<'USAGE'
@@ -48,6 +49,11 @@ Modes:
 
   --duration-minutes 75 --manual-release
       Check the 75-minute manual release evidence file.
+
+  --installer-app-only
+      Build the default local package and verify it contains only the desktop
+      app component, with no audio-driver package references. This is
+      metadata-only and does not install the package.
 
   --review-evidence
       Check final evidence readiness across permission, artifact, CPU,
@@ -420,6 +426,65 @@ validate_duration() {
     passed "$title has no not-tested rows"
 }
 
+validate_installer_app_only() {
+    mkdir -p "$EVIDENCE_DIR"
+    require_file "$DRIVER_PARKED"
+
+    build_output="$(mktemp)"
+    failure_file="$(mktemp)"
+    trap 'rm -f "$build_output" "$failure_file"' EXIT
+
+    if ! TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 \
+        TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=0 \
+        sh "$ROOT_DIR/apps/macos/Installer/Scripts/build-local-installer.sh" >"$build_output" 2>&1; then
+        printf '%s\n' "default app-only package build failed" >> "$failure_file"
+    fi
+
+    component_dir="$ROOT_DIR/apps/macos/.build/installer/components"
+    distribution="$ROOT_DIR/apps/macos/.build/installer/distribution.xml"
+    package="$ROOT_DIR/apps/macos/.build/installer/2brain-rec-local.pkg"
+
+    [ -f "$package" ] || printf '%s\n' "missing local product package" >> "$failure_file"
+    [ -f "$component_dir/2brain-rec-desktop-app.pkg" ] ||
+        printf '%s\n' "missing desktop app component package" >> "$failure_file"
+    if find "$component_dir" -maxdepth 1 -type f -name '*audio-driver*.pkg' | grep . >/dev/null 2>&1; then
+        printf '%s\n' "audio-driver component package is present in default build" >> "$failure_file"
+    fi
+    if [ -f "$distribution" ] && rg -n "audio-driver|2brain-rec-audio-driver" "$distribution" >/dev/null 2>&1; then
+        printf '%s\n' "distribution.xml contains audio-driver package references" >> "$failure_file"
+    fi
+
+    append_run_header "$DRIVER_PARKED" "2026-06-09 App-Only Installer Validator Run"
+    {
+        printf -- '- Mode: `--installer-app-only`\n'
+        printf -- '- Package: `%s`\n' "$package"
+        printf -- '- Component directory: `%s`\n' "$component_dir"
+    } >> "$DRIVER_PARKED"
+
+    if [ -s "$failure_file" ]; then
+        {
+            printf -- '- Validator result: `blocked`\n'
+            printf -- '- Reason: default local package is not app-only.\n'
+            printf -- '- Findings:\n'
+            sed 's/^/  - /' "$failure_file"
+            printf -- '- Build output tail:\n\n```text\n'
+            tail -n 40 "$build_output"
+            printf '```\n'
+        } >> "$DRIVER_PARKED"
+        printf '%s\n' "system_audio_capture_pivot_validation=blocked"
+        printf '%s\n' "reason=default local package is not app-only"
+        cat "$failure_file"
+        exit 2
+    fi
+
+    {
+        printf -- '- Validator result: `passed`\n'
+        printf -- '- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.\n'
+    } >> "$DRIVER_PARKED"
+
+    passed "default local package is app-only"
+}
+
 validate_review_evidence() {
     require_file "$PERMISSION_MATRIX"
     require_file "$ARTIFACT_MATRIX"
@@ -488,6 +553,9 @@ case "$mode" in
         manual_release=false
         [ "${3:-}" != "--manual-release" ] || manual_release=true
         validate_duration "$2" "$manual_release"
+        ;;
+    --installer-app-only)
+        validate_installer_app_only
         ;;
     --review-evidence)
         validate_review_evidence
