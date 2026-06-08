@@ -2,6 +2,41 @@
 
 Date: 2026-06-08
 
+## 2026-06-08 Revalidation Update
+
+Status: superseded / not accepted.
+
+Follow-up revalidation after commit `63ac726` found that the attempted live
+publication strategy is still unsafe. Both variants below can drive
+`coreaudiod` into high CPU or probe timeout states:
+
+- stable virtual device publication with hidden/default/StartIO gating;
+- app-side armed publication heartbeat before a physical bridge is opened.
+
+Rollback decision:
+
+- keep the driver in fail-closed mode when there is no trusted app heartbeat;
+- do not count this evidence as closing #234;
+- keep T060/T061/T062 open until a new live publication strategy is designed
+  and validated without CoreAudio CPU runaway;
+- do not run repeated runtime publication probes on a user machine until the
+  HAL surface is changed and bounded with safer diagnostics.
+
+Safe post-rollback baseline observed after reinstalling a fail-closed local
+package and restarting CoreAudio:
+
+```text
+coreaudiod: 0.0%-1.6% CPU after restart/settle
+Core Audio Driver (2brainRecProof.driver): 0.0% CPU
+runtime-device-probe --expect-hidden-safe-surface: ACCEPTED immediately after safe reinstall
+hal-io-probe --expect-start-blocked-no-heartbeat: ACCEPTED immediately after safe reinstall
+```
+
+Important: later repeated hidden-safe probe attempts still caused CoreAudio CPU
+spikes, so the probe itself must not be used as release evidence until #234 is
+redesigned. Treat the earlier accepted results below as historical debugging
+evidence, not final acceptance.
+
 ## Scope
 
 GitHub issue: https://github.com/yshishenya/crisp/issues/234
