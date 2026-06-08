@@ -6,6 +6,9 @@ import CoreMedia
 #if canImport(AudioToolbox)
 import AudioToolbox
 #endif
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 #if canImport(ScreenCaptureKit)
 import ScreenCaptureKit
 #endif
@@ -27,6 +30,7 @@ public protocol SystemAudioCaptureRuntime: Sendable {
 
 public protocol SystemAudioPermissionAuthorizing: Sendable {
     func currentPermissionState() -> CapturePermissionState
+    func requestPermission() async -> CapturePermissionState
 }
 
 public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermissionAuthorizing {
@@ -35,6 +39,14 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
     public func currentPermissionState() -> CapturePermissionState {
         #if canImport(CoreGraphics)
         return CGPreflightScreenCaptureAccess() ? .granted : .unknown
+        #else
+        return .unknown
+        #endif
+    }
+
+    public func requestPermission() async -> CapturePermissionState {
+        #if canImport(CoreGraphics)
+        return CGRequestScreenCaptureAccess() ? .granted : currentPermissionState()
         #else
         return .unknown
         #endif

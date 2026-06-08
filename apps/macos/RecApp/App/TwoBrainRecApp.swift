@@ -219,9 +219,10 @@ private struct ContentView: View {
             sessionId: "pending",
             inputDisplayName: "Default Microphone"
         )
+        let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()
         let permissionGate = systemAudioPermissionGate.evaluate(
             microphone: microphoneSession.permissionState,
-            systemAudio: systemAudioPermissionAuthorizer.currentPermissionState()
+            systemAudio: systemAudioPermissionState
         )
         let prerequisite = RecordingPrerequisiteGate().evaluate(
             RecordingPrerequisiteSnapshot(

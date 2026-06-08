@@ -1037,6 +1037,62 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Screen/System Audio Permission Request Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: explicit Record permission behavior for incoming/system audio.
+- Code review finding:
+  - `startManualRecording()` requested microphone permission on explicit Record,
+    but only preflighted Screen/System Audio permission with
+    `CGPreflightScreenCaptureAccess()`.
+  - On a fresh install, the app could therefore block recording as
+    `unknown`/missing Screen/System Audio access without initiating the native
+    macOS permission request at the moment the user pressed Record.
+  - Launch/readiness still must not request permissions or start capture.
+- Code review fix:
+  - Added `requestPermission()` to `SystemAudioPermissionAuthorizing`.
+  - `CoreGraphicsSystemAudioPermissionAuthorizer.requestPermission()` now uses
+    `CGRequestScreenCaptureAccess()` and falls back to the current preflight
+    state if access is not granted.
+  - `TwoBrainRecApp.startManualRecording()` now evaluates the permission gate
+    from the requested Screen/System Audio state, matching the microphone
+    request flow.
+  - Added regression coverage for the system-audio request path feeding the
+    permission gate.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including
+    `SystemAudioPermissionGateTests`; full XCTest execution is not available in
+    this Command Line Tools host because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch without pressing Record produced one visible
+    `2brain Rec` window at `706x608`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - Crash/hang/exception log review found no app crash or hang evidence.
+    A broader `error` predicate showed macOS AppIntents/linkd registration
+    noise during SwiftUI launch, and a naive `fatal` substring predicate is
+    noisy because it matches Apple's `availability` log text. These entries
+    were not associated with capture, CoreAudio, ScreenCaptureKit, crash, hang,
+    or quit failure.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, as expected, because permission matrix, controlled
+    artifact, active/stop CPU, 30-minute, 75-minute, and final scope review
+    manual evidence are not complete.
+- Result: passed for code review fix, build, contract, no-HAL, app-only
+  installer, packaged launch, idle CPU, quit CPU, and thermal/crash-hang review.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Guided Harness Stale Artifact Guard Review
 
 - Feature: `025-system-audio-capture-pivot`

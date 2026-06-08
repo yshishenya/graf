@@ -60,6 +60,19 @@ final class SystemAudioPermissionGateTests: XCTestCase {
         XCTAssertEqual(session.inputDisplayName, "Default Microphone")
     }
 
+    func testSystemAudioAuthorizerRequestPathCanReturnGrantedState() async {
+        let authorizer = FixtureSystemAudioPermissionAuthorizer(
+            currentState: .unknown,
+            requestedState: .granted
+        )
+
+        let requested = await authorizer.requestPermission()
+        let result = gate().evaluate(microphone: .granted, systemAudio: requested)
+
+        XCTAssertEqual(requested, .granted)
+        XCTAssertTrue(result.allowsAcceptedRecording)
+    }
+
     private func gate() -> SystemAudioPermissionGate {
         SystemAudioPermissionGate(clock: { Date(timeIntervalSince1970: 1) })
     }
@@ -70,6 +83,19 @@ private struct FixtureMicrophonePermissionAuthorizer: MicrophonePermissionAuthor
 
     func currentPermissionState() -> CapturePermissionState {
         .unknown
+    }
+
+    func requestPermission() async -> CapturePermissionState {
+        requestedState
+    }
+}
+
+private struct FixtureSystemAudioPermissionAuthorizer: SystemAudioPermissionAuthorizing {
+    let currentState: CapturePermissionState
+    let requestedState: CapturePermissionState
+
+    func currentPermissionState() -> CapturePermissionState {
+        currentState
     }
 
     func requestPermission() async -> CapturePermissionState {
