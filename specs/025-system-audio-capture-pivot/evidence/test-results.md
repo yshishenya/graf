@@ -777,6 +777,61 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Guided Controlled Manual Gate Harness
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: reduce manual sequencing mistakes for #307/#308/#309 controlled
+  recording validation.
+- Code review finding:
+  - Quickstart and artifact matrix documented the correct manual sequence, but
+    the tester still had to remember to run app-only installer validation,
+    baseline CPU, activeRecording CPU, stop CPU, and latest artifact validation
+    in the right order.
+  - Since Codex cannot use macOS Accessibility in this session to press Record
+    or Stop, the remaining manual gates needed a guided harness that keeps the
+    human-controlled boundary explicit without faking acceptance.
+- Code review fix:
+  - Added `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`.
+  - The harness verifies the app-only package boundary, records baseline CPU,
+    launches the repo app bundle, prompts the tester to press Record manually,
+    samples `activeRecording` CPU, prompts for manual Stop, samples `stop` CPU,
+    and validates the newest local artifact metadata-only.
+  - It does not click UI, start recording by itself, inspect audio content,
+    reset TCC, install the package, run HAL probes, or auto-continue through
+    Record/Stop prompts.
+  - Quickstart and artifact matrix now point to the harness before the manual
+    equivalent steps.
+- Validation:
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --help`
+    documents the metadata-only and no-auto-recording boundaries.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the package test
+    bundle; local environment is Command Line Tools only, so `xctest` is not
+    available for full XCTest execution.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remained correctly blocked on manual permission/artifact/duration gates and
+    missing real `activeRecording`/`stop` CPU evidence.
+  - App-only bundle launch produced one visible `2brain Rec` window.
+  - Runtime process snapshot showed app CPU `0.0`, `coreaudiod` CPU `0.0`, and
+    no thermal/performance warning recorded by `pmset -g therm`.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.00`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+- Result: passed for guided manual harness syntax/help, metadata-only safety,
+  build, contract, no-HAL, app-only installer gate, app launch, idle CPU, and
+  quit CPU.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-08 App-Only Installer Safety Review
 
 - Feature: `025-system-audio-capture-pivot`

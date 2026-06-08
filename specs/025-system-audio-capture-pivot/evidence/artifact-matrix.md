@@ -28,6 +28,20 @@ Blocked, failed, degraded, and not-tested rows are not acceptance.
 
 ## Manual Controlled Run Procedure
 
+Use the guided metadata-only harness when possible:
+
+```sh
+apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh
+```
+
+The harness does not click the UI, does not start recording by itself, does not
+inspect audio content, does not install the package, and does not run HAL
+probes. It reduces manual sequencing mistakes by running the app-only installer
+gate, baseline CPU, activeRecording CPU, stop CPU, and latest artifact
+validation around the tester's manual Record/Stop actions.
+
+Manual equivalent:
+
 1. Run `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` before
    launching the packaged app.
 2. Build and launch the packaged app from the repository:
