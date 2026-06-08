@@ -279,3 +279,40 @@
     `remoteSpeaker track must be saved systemAudio wav-pcm-s16le metadata`.
 - Notes: This is validator tooling evidence only. It does not close #308/T072
   until a real controlled recording artifact is validated.
+
+## 2026-06-08 Packaged App Lifecycle Smoke
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: packaged app launch responsiveness, AppKit window lifecycle, idle/quit
+  CPU, and no-HAL regression after review.
+- Code review fix:
+  - Disabled AppKit application state save/restore for the managed main-window
+    app lifecycle.
+  - Marked the managed `2brain Rec` main window as non-restorable.
+  - This removes the stale restored-window failure path from launch logs while
+    keeping the explicit AppKit-managed window path.
+- Commands:
+  - `swift build --package-path apps/macos`
+  - `swift test --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - `open -n "apps/macos/RecApp/.build/2brain Rec.app"`
+  - CoreGraphics window-list check for owner `2brain Rec`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+- Result:
+  - Packaged app launched with process `2brain Rec`.
+  - CoreGraphics found a visible window named `2brain Rec` at `720x620`.
+  - App log showed `app_main_window_presented reason=launch reused=false` and
+    `app_window_visibility_checked visibleWindowCount=1`.
+  - Unified log no longer showed the previous stale restoration error
+    `Unable to find className=(null)` for the fresh launch.
+  - Idle CPU gate passed at `2026-06-08T18:34:46Z` with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU gate passed at `2026-06-08T18:36:39Z` with no remaining app
+    process and `maxCoreaudiodCpuPercent=0.00`.
+  - `swift test` still only compiled the test bundle in this local Command Line
+    Tools environment; it is not counted as full XCTest execution.
+- Notes: #309/T073 remains open because active-recording and stop CPU evidence
+  still require a real controlled recording run.

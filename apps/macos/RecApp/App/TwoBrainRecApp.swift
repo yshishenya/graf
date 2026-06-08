@@ -403,7 +403,22 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
 
     func applicationWillFinishLaunching(_: Notification) {
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
         NSApp.setActivationPolicy(.regular)
+    }
+
+    func application(
+        _: NSApplication,
+        shouldSaveApplicationState _: NSCoder
+    ) -> Bool {
+        false
+    }
+
+    func application(
+        _: NSApplication,
+        shouldRestoreApplicationState _: NSCoder
+    ) -> Bool {
+        false
     }
 
     func applicationDidFinishLaunching(_: Notification) {
@@ -452,6 +467,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         window.title = "2brain Rec"
         window.minSize = NSSize(width: 720, height: 620)
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.setFrameAutosaveName("2brain-rec-main-window")
         window.contentViewController = NSHostingController(
             rootView: AppContentRoot()

@@ -34,3 +34,20 @@ are not acceptance.
   process.
 - Still not accepted: active-recording and stop CPU gates remain untested and
   require a real controlled recording run.
+
+## 2026-06-08 Packaged App Lifecycle Review
+
+- Main-window lifecycle: improved. AppKit application state save/restore is
+  disabled for the managed main-window path, and the main `2brain Rec` window is
+  marked non-restorable.
+- Runtime smoke: passed for packaged-app launch. CoreGraphics found one visible
+  `2brain Rec` window at `720x620`, and AppLog recorded
+  `app_main_window_presented reason=launch reused=false` plus
+  `app_window_visibility_checked visibleWindowCount=1`.
+- Log review: the previous stale AppKit restoration error
+  `Unable to find className=(null)` did not recur on the fresh launch after the
+  lifecycle fix. Remaining AppKit/AppIntents lines are OS framework noise and
+  were not accompanied by app crash, hang, missing-window, or CPU evidence.
+- CPU review: packaged-app idle and quit gates passed in the current baseline.
+  Active-recording and stop CPU gates remain unaccepted until a real controlled
+  recording run is executed.
