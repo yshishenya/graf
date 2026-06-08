@@ -10,19 +10,13 @@ implementation record.
 ## Accepted Now
 
 - macOS is the selected MVP platform.
-- The Core Audio HAL component publishes `2brain Rec Microphone` and
-  `2brain Rec Speaker`.
-- The installed local package can be upgraded, `coreaudiod` can be restarted,
-  and both virtual devices return visible/alive in default-safe idle state.
-- Low-resource routing is the current local default: public virtual devices
-  stay lightweight while physical input/output routes are opened only when a
-  virtual-device client needs audio or the user runs an explicit check.
-- Non-recording passthrough smoke is accepted for Telemost, Chrome, Opera, and
-  Zoom in the local environment.
-- `Run Check` is now a recheck/repair action, not the normal activation path
-  for ordinary browser/meeting audio.
-- The current route truth model separates publication, virtual client I/O, app
-  bridge, physical-device routing, and future recording triggers.
+- The MVP architecture has pivoted to system-audio-first capture after
+  `019-live-route-stability` revalidation showed the driver-first path can
+  trigger CoreAudio CPU runaway and probe hangs.
+- ADR `002-system-audio-first-mvp-pivot` is accepted.
+- Constitution v2.0.0 allows MVP recording without a virtual audio driver.
+- The HAL virtual-driver path is parked as future advanced-routing work and is
+  not part of MVP acceptance.
 - Diagnostics and validation artifacts remain metadata-only and must not include
   raw audio, transcript text, credentials, tokens, signed URLs, passwords, or
   meeting content.
@@ -56,7 +50,12 @@ implementation record.
 
 ## Not Accepted Yet
 
-- Yandex Browser is intentionally skipped/not accepted in the current
+- System-audio-first recording implementation is not yet complete. Feature
+  `020-system-audio-capture-pivot` defines the new MVP path but still needs
+  clarify/plan/tasks/implementation/validation.
+- Existing driver-based live route evidence from `019` is superseded and must
+  not be counted as MVP acceptance.
+- Yandex Browser is intentionally skipped/not accepted in the previous
   browser/meeting smoke cycle.
 - Bluetooth and AirPods-class live route stability is product backlog for a
   dedicated future slice. It must cover long-duration route stability,
@@ -66,12 +65,8 @@ implementation record.
 - Meeting-app mute truth must be resolved in a future slice before local
   recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
-- Long-duration 30/75 minute integrity acceptance is not complete. Feature
-  `019-live-route-stability` now implements the local metadata, policy,
-  autorepair, route-release prevention, recording timeline, and validation
-  evidence foundations for this gap. Manual 30-minute and 75-minute release
-  evidence still must be collected before long-duration acceptance can be
-  claimed.
+- Long-duration 30/75 minute integrity acceptance is not complete. It must be
+  rerun against the system-audio-first capture path after `020` implementation.
 - Upload, resumable ingest, MediaScribe transcription, dashboard notes, server
   retention, and deletion workflows are not implemented in the macOS client
   slice.
@@ -86,29 +81,26 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `012-server-ingest-foundation`.
+Recommended next feature: `020-system-audio-capture-pivot`.
 
-Goal: move from accepted local saved artifacts to an owner-controlled server
-ingest foundation without weakening local recording visibility, stop control,
-metadata-only diagnostics, explicit egress policy, storage truth, or deletion
-accounting.
+Goal: replace the MVP recording path with direct system-audio plus microphone
+capture, preserving local recording visibility, one-action stop,
+metadata-only diagnostics, dual-track artifacts, and low CPU/system stability.
 
 Recommended scope:
 
-- Self-hosted backend skeleton for `rec.2brain.dev` and local development.
-- Minimal auth/device registration sufficient for a trusted desktop uploader.
-- Meeting and upload-session APIs for finalized local dual-track artifacts.
-- Resumable/idempotent ingest with checksums, missing-range recovery, and
-  truthful finalized/degraded/failed states.
-- Postgres metadata and MinIO object storage foundations.
-- Server-side MediaScribe credential boundary, but no required MediaScribe job
-  submission in the first ingest foundation unless the new spec explicitly
-  expands scope.
-- Desktop-visible upload/session state contract for a later local upload queue
-  UI slice.
+- macOS permission truth for microphone and screen/system audio.
+- System-audio capture service for incoming audio.
+- Microphone capture service for local audio.
+- Dual-track local writer with manifest truth for saved/degraded/blocked
+  tracks.
+- UI states for permissions, active recording, levels, stop, and degraded
+  capture.
+- CPU/memory/no-hang validation with the HAL driver absent or ignored.
 
 Keep separate unless the next spec explicitly changes scope:
 
+- Driver/virtual-device routing.
 - MediaScribe submit/poll/result import.
 - Full web dashboard meeting detail/transcript/notes UI.
 - Server retention/deletion execution.
