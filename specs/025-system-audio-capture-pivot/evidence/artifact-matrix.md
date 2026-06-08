@@ -44,21 +44,24 @@ Manual equivalent:
 
 1. Run `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` before
    launching the packaged app.
-2. Build and launch the packaged app from the repository:
+2. Record the current manual gate start epoch before building or launching, so
+   the latest-artifact validator ignores older completed recordings:
+   `export SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$(date +%s)"`.
+3. Build and launch the packaged app from the repository:
    `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
    and `open -n "apps/macos/RecApp/.build/2brain Rec.app"`.
-3. Use a controlled, non-sensitive audio source.
-4. Press `Record System Audio`.
-5. While recording is active, run
+4. Use a controlled, non-sensitive audio source.
+5. Press `Record System Audio`.
+6. While recording is active, run
    `apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording`.
-6. Press Stop, then run `apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop`.
-7. Inspect the newest completed local recording directory with
+7. Press Stop, then run `apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop`.
+8. Inspect the newest completed local recording directory with
    `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --latest-artifact-directory`.
-8. Run
+9. Run
    `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --validate-latest-artifact`
    to validate that directory metadata-only. To pin a specific directory, use
    `--artifact-directory "$HOME/Library/Application Support/2brain Rec/Recordings/<directory-id>"`.
-9. Record only metadata: file presence, manifest status, track roles/source
+10. Record only metadata: file presence, manifest status, track roles/source
    kinds, duration difference, permissions, CPU gate result, and failure reasons.
    Do not paste raw audio or meeting content here.
 

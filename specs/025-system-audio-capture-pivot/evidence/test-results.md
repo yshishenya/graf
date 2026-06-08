@@ -1138,6 +1138,50 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 Manual Artifact Gate Instruction Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: manual controlled-artifact instructions and latest-artifact evidence.
+- Code review finding:
+  - `quickstart.md` and the guided harness already set
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME` before launch/Record, but
+    `evidence/artifact-matrix.md` manual-equivalent steps did not.
+  - A tester following only the matrix instructions could therefore validate
+    the newest completed artifact without an explicit manual gate start epoch.
+  - The validator would still honor the epoch when provided, but the evidence
+    append did not show that epoch to reviewers.
+- Code review fix:
+  - Updated `artifact-matrix.md` manual-equivalent steps to export
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$(date +%s)"` before build
+    and launch.
+  - Updated `validate-system-audio-capture-pivot.sh` to record the artifact
+    minimum mtime epoch in appended artifact validator evidence when present.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - Temp metadata-only latest-artifact validation with
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1`,
+    `TWO_BRAIN_REC_RECORDINGS_DIR=<tmp>`, and
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME=1` passed for a synthetic
+    valid manifest/files directory.
+  - Empty temp recordings root with future min epoch returned
+    `system_audio_capture_pivot_validation=invalid` and exit code `3`, so it
+    cannot be counted as acceptance.
+  - `swift build --package-path apps/macos` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, as expected, because manual permission, artifact,
+    active/stop CPU, 30-minute, 75-minute, and final scope evidence are not
+    complete.
+- Result: passed for instruction/validator hardening and automated checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Guided Harness Stale Artifact Guard Review
 
 - Feature: `025-system-audio-capture-pivot`

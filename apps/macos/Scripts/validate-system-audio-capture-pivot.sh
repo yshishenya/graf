@@ -337,6 +337,9 @@ validate_artifact_directory() {
             printf -- '- Directory ID: `%s`\n' "$directory_id"
             printf -- '- Manifest status: `%s`\n' "$manifest_status"
             printf -- '- Duration difference seconds: `%s`\n' "$duration_difference"
+            if [ -n "${SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME:-}" ]; then
+                printf -- '- Artifact minimum mtime epoch: `%s`\n' "$SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME"
+            fi
         } >> "$ARTIFACT_MATRIX"
     fi
 
