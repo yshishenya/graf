@@ -51,7 +51,7 @@ implementation record.
 ## Not Accepted Yet
 
 - System-audio-first recording implementation is not yet complete. Feature
-  `020-system-audio-capture-pivot` defines the new MVP path but still needs
+  `022-system-audio-capture-pivot` defines the new MVP path but still needs
   clarify/plan/tasks/implementation/validation.
 - Existing driver-based live route evidence from `019` is superseded and must
   not be counted as MVP acceptance.
@@ -81,7 +81,7 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `020-system-audio-capture-pivot`.
+Recommended next feature: `022-system-audio-capture-pivot`.
 
 Goal: replace the MVP recording path with direct system-audio plus microphone
 capture, preserving local recording visibility, one-action stop,

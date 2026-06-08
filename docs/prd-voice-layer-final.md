@@ -22,7 +22,7 @@ The product is functionally in the same category as Krisp's meeting assistant, b
 Current accepted local baseline:
 
 - macOS remains the MVP platform.
-- Feature `020-system-audio-capture-pivot` changes the MVP capture strategy to
+- Feature `022-system-audio-capture-pivot` changes the MVP capture strategy to
   system-audio-first after `019` validation showed CoreAudio/HAL CPU runaway
   risk.
 - The Core Audio HAL component and virtual audio devices are no longer in the

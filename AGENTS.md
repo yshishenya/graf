@@ -114,7 +114,7 @@ Planning must stop if constitution gates fail or important clarifications remain
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the active pivot spec at
-specs/020-system-audio-capture-pivot/spec.md and ADR 002 until the 020 plan is
+specs/022-system-audio-capture-pivot/spec.md and ADR 002 until the 022 plan is
 generated.
 <!-- SPECKIT END -->
 

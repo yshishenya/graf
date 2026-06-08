@@ -1,6 +1,6 @@
 # Feature Specification: System Audio Capture Pivot
 
-**Feature Branch**: `020-system-audio-capture-pivot`
+**Feature Branch**: `022-system-audio-capture-pivot`
 
 **Created**: 2026-06-08
 
