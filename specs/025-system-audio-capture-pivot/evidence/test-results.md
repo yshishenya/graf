@@ -777,6 +777,57 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-08 App-Only Installer Safety Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: local installer defaults and driver/CoreAudio side effects.
+- Code review finding:
+  - `build-local-installer.sh` always built and packaged the proof HAL driver
+    component alongside the desktop app.
+  - The driver package `postinstall` and repair/lifecycle scripts could restart
+    `coreaudiod`.
+  - This contradicted the system-audio MVP boundary: local MVP validation should
+    not require installing a driver or refreshing CoreAudio, and accidental
+    installer use should not look like the app froze the meeting stack.
+- Code review fix:
+  - `build-local-installer.sh` now defaults to an app-only package.
+  - The proof HAL driver component is included only with explicit
+    `TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=1`.
+  - `postinstall.sh`, `repair.sh`, and installer lifecycle validation now skip
+    `coreaudiod` restart unless
+    `TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART=1` is explicitly set.
+  - Installer README now documents app-only MVP default and keeps driver
+    packaging as parked future-driver diagnostics.
+- Validation:
+  - `sh -n` passed for `build-local-installer.sh`, `postinstall.sh`,
+    `repair.sh`, and `installer-lifecycle-release-hardening.sh`.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the package test
+    bundle; local environment is Command Line Tools only, so `xctest` is not
+    available for full XCTest execution.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+    produced `apps/macos/.build/installer/2brain-rec-local.pkg`.
+  - The default package components directory contained only
+    `2brain-rec-desktop-app.pkg`.
+  - `apps/macos/.build/installer/distribution.xml` contained only
+    `desktop-app` package references and no `audio-driver` package references.
+  - App-only packaged app launch produced one visible `2brain Rec` window.
+  - Runtime process snapshot showed app CPU `0.0`, `coreaudiod` CPU `0.0`, and
+    no thermal/performance warning recorded by `pmset -g therm`.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.00`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+- Result: passed for app-only installer default, no implicit driver package,
+  no implicit CoreAudio restart, build, contract, no-HAL, launch, idle CPU, and
+  quit CPU.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-08 Audio Health Recovery Driver-Parked Review
 
 - Feature: `025-system-audio-capture-pivot`
