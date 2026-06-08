@@ -313,16 +313,8 @@ validate_artifact_directory() {
     check_jq 'any(.tracks[]; .role == "localMic" and .sourceKind == "microphone" and .status == "saved" and .fileName == "mic.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineAligned == true and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "localMic track must be saved microphone wav-pcm-s16le metadata"
     check_jq 'any(.tracks[]; .role == "remoteSpeaker" and .sourceKind == "systemAudio" and .status == "saved" and .fileName == "incoming.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineAligned == true and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "remoteSpeaker track must be saved systemAudio wav-pcm-s16le metadata"
 
-    mic_bytes="$(wc -c < "$mic" | tr -d ' ')"
-    incoming_bytes="$(wc -c < "$incoming" | tr -d ' ')"
-    manifest_mic_bytes="$(jq -r '.tracks[] | select(.role == "localMic") | .byteCount' "$manifest" | head -1)"
-    manifest_incoming_bytes="$(jq -r '.tracks[] | select(.role == "remoteSpeaker") | .byteCount' "$manifest" | head -1)"
-    if [ "${mic_bytes:-0}" -lt "${manifest_mic_bytes:-1}" ]; then
-        printf '%s\n' "mic.wav file size is smaller than manifest byteCount" >> "$failure_file"
-    fi
-    if [ "${incoming_bytes:-0}" -lt "${manifest_incoming_bytes:-1}" ]; then
-        printf '%s\n' "incoming.wav file size is smaller than manifest byteCount" >> "$failure_file"
-    fi
+    validate_wav_metadata "$mic" "localMic" "mic.wav"
+    validate_wav_metadata "$incoming" "remoteSpeaker" "incoming.wav"
 
     directory_id="$(jq -r '.directoryId // "unknown"' "$manifest")"
     manifest_status="$(jq -r '.status // "unknown"' "$manifest")"
@@ -366,6 +358,105 @@ validate_artifact_directory() {
     fi
 
     passed "artifact directory metadata passed for directoryId=$directory_id"
+}
+
+wav_ascii() {
+    file="$1"
+    offset="$2"
+    dd if="$file" bs=1 skip="$offset" count=4 2>/dev/null
+}
+
+wav_u16_le() {
+    file="$1"
+    offset="$2"
+    od -An -j "$offset" -N 2 -t u2 "$file" 2>/dev/null | tr -d ' '
+}
+
+wav_u32_le() {
+    file="$1"
+    offset="$2"
+    od -An -j "$offset" -N 4 -t u4 "$file" 2>/dev/null | tr -d ' '
+}
+
+is_unsigned_integer() {
+    case "${1:-}" in
+        ""|*[!0-9]*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+validate_wav_metadata() {
+    file="$1"
+    role="$2"
+    file_name="$3"
+
+    manifest_byte_count="$(jq -r --arg role "$role" '.tracks[] | select(.role == $role) | .byteCount' "$manifest" | head -1)"
+    manifest_frame_count="$(jq -r --arg role "$role" '.tracks[] | select(.role == $role) | .frameCount' "$manifest" | head -1)"
+    manifest_duration_ms="$(jq -r --arg role "$role" '.tracks[] | select(.role == $role) | .durationMs' "$manifest" | head -1)"
+    manifest_sample_rate="$(jq -r --arg role "$role" '.tracks[] | select(.role == $role) | .sampleRate' "$manifest" | head -1)"
+    manifest_channel_count="$(jq -r --arg role "$role" '.tracks[] | select(.role == $role) | .channelCount' "$manifest" | head -1)"
+    manifest_bits_per_sample="$(jq -r --arg role "$role" '.tracks[] | select(.role == $role) | .bitsPerSample' "$manifest" | head -1)"
+
+    for value_name in byteCount frameCount durationMs sampleRate channelCount bitsPerSample; do
+        case "$value_name" in
+            byteCount) value="$manifest_byte_count" ;;
+            frameCount) value="$manifest_frame_count" ;;
+            durationMs) value="$manifest_duration_ms" ;;
+            sampleRate) value="$manifest_sample_rate" ;;
+            channelCount) value="$manifest_channel_count" ;;
+            bitsPerSample) value="$manifest_bits_per_sample" ;;
+        esac
+        if ! is_unsigned_integer "$value"; then
+            printf '%s\n' "$file_name manifest $value_name must be an unsigned integer" >> "$failure_file"
+            return
+        fi
+    done
+
+    file_bytes="$(wc -c < "$file" | tr -d ' ')"
+    if [ "${file_bytes:-0}" != "${manifest_byte_count:-missing}" ]; then
+        printf '%s\n' "$file_name file size must equal manifest byteCount (file=$file_bytes manifest=$manifest_byte_count)" >> "$failure_file"
+    fi
+    if [ "${file_bytes:-0}" -lt 44 ]; then
+        printf '%s\n' "$file_name must be at least a 44-byte PCM WAV file" >> "$failure_file"
+        return
+    fi
+
+    riff="$(wav_ascii "$file" 0)"
+    wave="$(wav_ascii "$file" 8)"
+    fmt="$(wav_ascii "$file" 12)"
+    data_marker="$(wav_ascii "$file" 36)"
+    audio_format="$(wav_u16_le "$file" 20)"
+    wav_channel_count="$(wav_u16_le "$file" 22)"
+    wav_sample_rate="$(wav_u32_le "$file" 24)"
+    byte_rate="$(wav_u32_le "$file" 28)"
+    block_align="$(wav_u16_le "$file" 32)"
+    wav_bits_per_sample="$(wav_u16_le "$file" 34)"
+    data_bytes="$(wav_u32_le "$file" 40)"
+
+    [ "$riff" = "RIFF" ] || printf '%s\n' "$file_name WAV header must start with RIFF" >> "$failure_file"
+    [ "$wave" = "WAVE" ] || printf '%s\n' "$file_name WAV header must contain WAVE" >> "$failure_file"
+    [ "$fmt" = "fmt " ] || printf '%s\n' "$file_name WAV header must contain fmt chunk" >> "$failure_file"
+    [ "$data_marker" = "data" ] || printf '%s\n' "$file_name WAV header must contain data chunk at byte 36" >> "$failure_file"
+    [ "$audio_format" = "1" ] || printf '%s\n' "$file_name WAV audio format must be PCM" >> "$failure_file"
+    [ "$wav_sample_rate" = "$manifest_sample_rate" ] || printf '%s\n' "$file_name WAV sampleRate must equal manifest sampleRate" >> "$failure_file"
+    [ "$wav_channel_count" = "$manifest_channel_count" ] || printf '%s\n' "$file_name WAV channelCount must equal manifest channelCount" >> "$failure_file"
+    [ "$wav_bits_per_sample" = "$manifest_bits_per_sample" ] || printf '%s\n' "$file_name WAV bitsPerSample must equal manifest bitsPerSample" >> "$failure_file"
+
+    expected_block_align=$((manifest_channel_count * manifest_bits_per_sample / 8))
+    expected_byte_rate=$((manifest_sample_rate * expected_block_align))
+    expected_data_bytes=$((manifest_frame_count * expected_block_align))
+    expected_file_bytes=$((44 + expected_data_bytes))
+    expected_duration_ms=$((manifest_frame_count * 1000 / manifest_sample_rate))
+
+    [ "$block_align" = "$expected_block_align" ] || printf '%s\n' "$file_name WAV blockAlign must match manifest format" >> "$failure_file"
+    [ "$byte_rate" = "$expected_byte_rate" ] || printf '%s\n' "$file_name WAV byteRate must match manifest format" >> "$failure_file"
+    [ "$data_bytes" = "$expected_data_bytes" ] || printf '%s\n' "$file_name WAV data byte count must match manifest frameCount" >> "$failure_file"
+    [ "$file_bytes" = "$expected_file_bytes" ] || printf '%s\n' "$file_name file size must equal 44-byte header plus manifest data bytes" >> "$failure_file"
+    [ "$manifest_duration_ms" = "$expected_duration_ms" ] || printf '%s\n' "$file_name manifest durationMs must match manifest frameCount/sampleRate" >> "$failure_file"
 }
 
 validate_latest_artifact_directory() {

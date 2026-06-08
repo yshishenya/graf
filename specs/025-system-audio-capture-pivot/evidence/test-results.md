@@ -1231,6 +1231,58 @@
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
 
+## 2026-06-09 WAV Metadata Validator Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: metadata-only validation of accepted `mic.wav` and `incoming.wav`
+  artifacts.
+- Code review finding:
+  - `validate-system-audio-capture-pivot.sh --artifact-directory` checked that
+    files existed and were not smaller than manifest `byteCount`.
+  - It did not require exact file size equality, did not inspect the 44-byte WAV
+    header, and did not verify that manifest `frameCount`/`durationMs` matched
+    the actual PCM WAV header metadata.
+  - A malformed, stale, or mismatched WAV could therefore pass if the manifest
+    looked correct and the file was large enough.
+- Code review fix:
+  - The artifact validator now checks exact file size equality against manifest
+    `byteCount`.
+  - It reads only WAV header metadata and verifies `RIFF`, `WAVE`, `fmt `,
+    `data`, PCM format, sample rate, channel count, bits per sample, byte rate,
+    block align, data byte count, frame count, and duration.
+  - It still does not inspect raw audio content.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - Temp metadata-only latest-artifact validation with matching manifest and
+    synthetic 16 kHz mono PCM WAV headers passed.
+  - Temp latest-artifact validation with mismatched `incoming.wav` manifest
+    `byteCount` returned `blocked` with exit code `2`.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`; full XCTest execution is not available in
+    this Command Line Tools host because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Fresh packaged app launch without pressing Record produced one visible
+    `2brain Rec` window at `706x608`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.00`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, as expected, because manual permission, artifact,
+    active/stop CPU, 30-minute, 75-minute, and final scope evidence are not
+    complete.
+- Result: passed for metadata-only artifact validator hardening and automated
+  checks.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.
+
 ## 2026-06-09 Guided Harness Stale Artifact Guard Review
 
 - Feature: `025-system-audio-capture-pivot`
