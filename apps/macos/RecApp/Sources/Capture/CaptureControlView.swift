@@ -49,10 +49,10 @@ public struct CaptureControlView: View {
 
                 if Self.shouldShowRecordButton(for: session) {
                     Button(action: onRecord) {
-                        Label("Record", systemImage: "record.circle")
+                        Label("Record System Audio", systemImage: "record.circle")
                     }
                     .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("Start recording")
+                    .accessibilityLabel("Start system audio recording")
                 }
             }
 
@@ -96,7 +96,7 @@ private struct LiveRecordingMetersView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Live Audio")
+                    Text("Capture Audio")
                         .font(.headline)
                     Text(liveSummary)
                         .font(.caption)
@@ -130,18 +130,18 @@ private struct LiveRecordingMetersView: View {
 
     private var liveSummary: String {
         guard routeSignalLevels.isActive else {
-            return "Waiting for route"
+            return "Meters start when recording"
         }
         if microphoneIsLive && incomingIsLive {
-            return "Virtual mic and speaker are carrying audio"
+            return "Microphone and system audio are active"
         }
         if microphoneIsLive {
-            return "Virtual mic active, speaker silent"
+            return "Microphone active, system audio silent"
         }
         if incomingIsLive {
-            return "Virtual speaker active, mic silent"
+            return "System audio active, microphone silent"
         }
-        return "No virtual-device audio"
+        return "No capture audio observed"
     }
 
     private var summaryColor: Color {
@@ -155,18 +155,18 @@ private struct LiveRecordingMetersView: View {
     }
 
     private var microphoneDetail: String {
-        guard routeSignalLevels.isActive else { return "Waiting for live route" }
+        guard routeSignalLevels.isActive else { return "Waiting for recording audio" }
         return microphoneIsLive
-            ? "2brain Rec Microphone is being read by the meeting app."
-            : "No meeting app is reading 2brain Rec Microphone."
+            ? "Microphone audio is reaching the recorder."
+            : "No microphone audio is reaching the recorder."
     }
 
     private var incomingDetail: String {
-        guard routeSignalLevels.isActive else { return "Waiting for live route" }
+        guard routeSignalLevels.isActive else { return "Waiting for recording audio" }
         if incomingIsLive {
-            return "2brain Rec Speaker is receiving meeting audio."
+            return "System audio is reaching the recorder."
         }
-        return "No audio is entering 2brain Rec Speaker."
+        return "No system audio is reaching the recorder."
     }
 
     private var microphoneLevel: Double {
@@ -211,7 +211,7 @@ private struct LiveRecordingMetersView: View {
                     Text(title)
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    Text(isLive ? "Routed" : "Not routed")
+                    Text(isLive ? "Active" : "Silent")
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .foregroundStyle(warning ? .orange : (isLive ? .green : .secondary))

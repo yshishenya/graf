@@ -71,9 +71,9 @@ Test and contract tasks appear before implementation tasks in each story.
 - [X] T024 [US1] Implement microphone capture lifecycle and permission preflight in `apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift`
 - [X] T025 [US1] Implement user-confirmed capture scope approval service in `apps/macos/RecApp/Sources/Capture/CaptureScopeApprovalService.swift`
 - [X] T026 [US1] Integrate system-audio and microphone services into local recording start/stop in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T027 [US1] Update `CaptureControlView` to show system-audio-first recording controls and no virtual-device requirement in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T028 [US1] Add metadata-only start/stop evidence for scope approval and no-egress recording in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
-- [ ] T029 [US1] Update manual controlled recording quickstart evidence template in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
+- [X] T027 [US1] Update `CaptureControlView` to show system-audio-first recording controls and no virtual-device requirement in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T028 [US1] Add metadata-only start/stop evidence for scope approval and no-egress recording in `apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift`
+- [X] T029 [US1] Update manual controlled recording quickstart evidence template in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
 
 **Checkpoint**: US1 independently records dual-track local artifacts without virtual-device selection.
 
