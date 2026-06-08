@@ -104,3 +104,30 @@
 - Notes: `swift test` compiles the XCTest bundle in the current
   CommandLineTools environment. Full `xcrun xctest` execution remains pending
   until full Xcode is selected.
+
+## 2026-06-08 Final Automated Validation Slice
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: final automated build, SwiftPM test-bundle compile, contract
+  validation, no-HAL validation, and forbidden-content scan.
+- Commands:
+  - `swift build --package-path apps/macos`
+  - `swift test --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `./apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+  - `rg -n "rawAudio|transcriptText|meetingContent|signedUrl|password|apiKey|secret|token" specs/025-system-audio-capture-pivot apps/macos/Shared/Sources apps/macos/RecApp/Sources apps/macos/RecApp/App --glob '!**/.build/**'`
+  - `rg -n "NEEDS CLARIFICATION|020-system-audio-capture-pivot|022-system-audio-capture-pivot" specs/025-system-audio-capture-pivot AGENTS.md docs .specify/memory/constitution.md`
+- Result: passed for automated gates.
+- XCTest runner note: active developer path is
+  `/Library/Developer/CommandLineTools`; SwiftPM compiles the XCTest bundle, but
+  full `xcrun xctest` execution remains pending until full Xcode is selected.
+- Forbidden-content scan note: matches were limited to policy/quickstart
+  wording, evidence safety instructions, and `DiagnosticRedactor` forbidden-key
+  allowlist entries. No raw audio, transcript content, signed URLs, passwords,
+  API keys, tokens, or secrets were found as payload data.
+- Clarification/stale-feature scan note: matches were limited to quickstart
+  command text and checklist statements that no clarification markers remain.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, settled CPU gates for idle/active/stop/quit,
+  30-minute development run, 75-minute manual release run, and final scope
+  review.
