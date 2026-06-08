@@ -606,3 +606,36 @@
     `maxHelperProcessCount=0`.
 - Notes: Real proof that app-exit finalization saves a controlled active
   recording still belongs to #308/#309 controlled recording validation.
+
+## 2026-06-08 Stop-Time Incoming Buffer Drain Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: incoming/system-audio tail preservation at Stop.
+- Code review finding:
+  - `LocalRecordingWriter.stop()` canceled the writer timer and closed WAV
+    writers without first draining samples already buffered in the incoming
+    `LocalRecordingSampleSource`.
+  - If ScreenCaptureKit appended system-audio frames immediately before Stop,
+    those frames could remain in the buffer and never reach `incoming.wav`,
+    creating avoidable track-size/duration skew.
+- Code review fix:
+  - Added a synchronous stop-time drain for microphone sample sources and
+    incoming/system-audio sample sources before WAV close and manifest
+    finalization.
+  - Added regression coverage where incoming samples are appended after
+    `start()` and immediately before `stop()`; the manifest now reports
+    incoming frames instead of `noFrames`.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` completed in the local SwiftPM
+    runner.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - Packaged app launched and CoreGraphics found `window_count=1`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.00`.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+- Notes: This directly addresses the observed risk of `mic.wav` and
+  `incoming.wav` size skew at Stop. Real accepted artifact proof still requires
+  #308 controlled recording validation.

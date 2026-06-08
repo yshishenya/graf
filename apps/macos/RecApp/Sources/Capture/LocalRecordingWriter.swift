@@ -250,6 +250,7 @@ public final class LocalRecordingWriter {
         try queue.sync {
             guard let active else { throw LocalRecordingWriterError.notRecording }
             active.timer.cancel()
+            try drainPendingSamples(for: active)
             active.microphoneRecorder?.stop()
             try active.microphoneWriter?.close()
             try active.remoteWriter.close()
@@ -299,6 +300,48 @@ public final class LocalRecordingWriter {
             )
             try manifestService.write(manifest, to: active.directory.manifestURL)
             return manifest
+        }
+    }
+
+    private func drainPendingSamples(for active: ActiveRecording) throws {
+        if let microphoneSampleSource = active.microphoneSampleSource,
+           let microphoneWriter = active.microphoneWriter {
+            try drain(
+                source: microphoneSampleSource,
+                writer: microphoneWriter,
+                scratch: active.scratch,
+                capacity: active.scratchCapacity
+            ) { count in
+                active.lastMicrophoneLevel = Self.rmsLevel(samples: active.scratch, count: count)
+                active.lastMicrophoneFrameAt = Date()
+            }
+        }
+
+        if let incomingSampleSource = active.incomingSampleSource {
+            try drain(
+                source: incomingSampleSource,
+                writer: active.remoteWriter,
+                scratch: active.scratch,
+                capacity: active.scratchCapacity
+            ) { count in
+                active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: count)
+                active.lastIncomingFrameAt = Date()
+            }
+        }
+    }
+
+    private func drain(
+        source: LocalRecordingSampleSource,
+        writer: PCM16MonoWAVFileWriter,
+        scratch: UnsafeMutablePointer<Float>,
+        capacity: Int,
+        updateLevel: (Int) -> Void
+    ) throws {
+        while true {
+            let read = source.readSamples(into: scratch, capacity: capacity)
+            guard read > 0 else { return }
+            try writer.write(samples: scratch, count: read)
+            updateLevel(read)
         }
     }
 

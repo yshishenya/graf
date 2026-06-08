@@ -58,6 +58,32 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertGreaterThan(levels.incomingLevel, 0)
         XCTAssertTrue(levels.incomingIsLive(now: now, staleAfter: 2))
     }
+
+    func testStopDrainsPendingIncomingSamplesBeforeManifestFinalization() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-stop-drain-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let incomingSource = BufferedLocalRecordingSampleSource()
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        incomingSource.append(Array(repeating: 0.25, count: 48_000))
+
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        XCTAssertGreaterThan(incoming.frameCount, 0)
+        XCTAssertGreaterThan(incoming.durationMs, 0)
+        XCTAssertNotEqual(incoming.failureReason, .noFrames)
+    }
 }
 
 private final class FixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
