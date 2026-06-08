@@ -776,3 +776,58 @@
 - Remaining gates not completed by this automated slice: permission matrix,
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
+
+## 2026-06-08 MVP Status Snapshot Driver-Repair Copy Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: default launch/status refresh copy when virtual devices are absent or
+  parked.
+- Code review finding:
+  - The primary `Refresh Status` action no longer started the old route engine,
+    but `LocalAudioSnapshot.current()` still built the default route snapshot
+    as `failed` when virtual devices were not visible.
+  - That could surface `install_or_repair_driver` through the Audio Health
+    route recovery row before any explicit recording attempt.
+  - This contradicted the MVP pivot rule that system-audio recording must not
+    require driver repair or virtual-device visibility before pressing Record.
+- Code review fix:
+  - For the normal not-checked/status-refresh path, missing virtual microphone
+    or speaker now stays `notStarted` with `refresh_local_audio_status` instead
+    of becoming a failed driver route.
+  - The explicit legacy readiness/debug path can still report driver failures
+    when it is intentionally invoked with the old passthrough route check.
+  - The no-virtual-device continuity copy now says system audio recording uses
+    macOS permissions and virtual devices are parked.
+  - The driver diagnostics header no longer presents `Install Driver` or
+    `Repair Driver` buttons in the MVP UI; it displays the driver area as
+    parked diagnostic information.
+  - Added regression coverage for `refresh_local_audio_status` copy so it does
+    not ask for driver repair.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the package test
+    bundle; local environment is Command Line Tools only, `xctest` is not
+    available, and SwiftPM did not emit XCTest execution details.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=7`.
+  - Targeted UI search for `Install Driver`, `Repair Driver`, `Run Check`,
+    `Readiness Check`, `Not ready for calls yet`, and old readiness/driver
+    repair prompts returned no matches in app code/tests after the fix.
+  - Fresh packaged build completed with
+    `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`.
+  - Packaged app launch produced one visible `2brain Rec` window.
+  - Runtime process snapshot after the final packaged launch showed app CPU
+    `0.1`, `coreaudiod`
+    CPU `0.0`, and no thermal/performance warning recorded by `pmset -g therm`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no entries.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+- Result: passed for launch/status UI semantics, build, contract, no-HAL,
+  packaged launch, idle CPU, quit CPU, and basic log/thermal review.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.

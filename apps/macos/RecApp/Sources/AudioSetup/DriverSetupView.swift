@@ -46,16 +46,9 @@ public struct DriverSetupView: View {
 
     @ViewBuilder
     private var actionButton: some View {
-        switch driverState {
-        case .notInstalled, .uninstalled:
-            Button("Install Driver", action: onInstall)
-        case .needsRepair, .needsUpdate, .incompatible:
-            Button("Repair Driver", action: onRepair)
-        case .requiresRestart:
-            Label("Restart Later", systemImage: "arrow.clockwise.circle")
-        case .installed, .uninstalling:
-            EmptyView()
-        }
+        Label("Parked", systemImage: "pause.circle")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     private func availabilityRow(title: String, stateText: String, systemImage: String) -> some View {

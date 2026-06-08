@@ -742,7 +742,7 @@ fileprivate struct LocalAudioSnapshot {
                     ? (routeIsWaitingForClient
                         ? "Virtual devices are published. Waiting for meeting audio."
                         : "Virtual devices are published. Live passthrough is waiting for app I/O.")
-                    : "Waiting for virtual devices"),
+                    : "System audio recording uses macOS permissions; virtual devices are parked."),
             bufferRisk: .healthy,
             livePassthroughStatus: routeIsActive ? .active : .inactive,
             recoveryActions: recoveryActions
@@ -813,19 +813,21 @@ fileprivate struct LocalAudioSnapshot {
         routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
         guard system.hasVirtualMicrophone else {
-            return (.failed, "virtual_microphone_not_visible", "install_or_repair_driver")
+            return checked
+                ? (.failed, "virtual_microphone_not_visible", "install_or_repair_driver")
+                : (.notStarted, nil, "refresh_local_audio_status")
         }
         guard let input = system.defaultInput, input.inputChannels > 0, !input.isTwoBrainVirtual else {
             return checked
                 ? (.failed, "physical_microphone_not_selected", "select_physical_microphone")
-                : (.notStarted, nil, "run_route_verification")
+                : (.notStarted, nil, "refresh_local_audio_status")
         }
         if routeEngineState == .active {
             return (.passed, nil, nil)
         }
         return checked
             ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
-            : (.notStarted, nil, "run_route_verification")
+            : (.notStarted, nil, "refresh_local_audio_status")
     }
 
     private static func speakerRouteResult(
@@ -834,19 +836,21 @@ fileprivate struct LocalAudioSnapshot {
         routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
         guard system.hasVirtualSpeaker else {
-            return (.failed, "virtual_speaker_not_visible", "install_or_repair_driver")
+            return checked
+                ? (.failed, "virtual_speaker_not_visible", "install_or_repair_driver")
+                : (.notStarted, nil, "refresh_local_audio_status")
         }
         guard let output = system.defaultOutput, output.outputChannels > 0, !output.isTwoBrainVirtual else {
             return checked
                 ? (.failed, "physical_speaker_not_selected", "select_physical_speaker")
-                : (.notStarted, nil, "run_route_verification")
+                : (.notStarted, nil, "refresh_local_audio_status")
         }
         if routeEngineState == .active {
             return (.passed, nil, nil)
         }
         return checked
             ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
-            : (.notStarted, nil, "run_route_verification")
+            : (.notStarted, nil, "refresh_local_audio_status")
     }
 
     private static func recoveryActions(

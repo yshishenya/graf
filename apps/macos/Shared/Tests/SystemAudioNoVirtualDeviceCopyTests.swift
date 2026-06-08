@@ -24,5 +24,13 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
         XCTAssertFalse(driver.localizedCaseInsensitiveContains("needed"))
         XCTAssertFalse(driver.localizedCaseInsensitiveContains("before recording"))
     }
+
+    func testMVPStatusRefreshCopyDoesNotAskForDriverRepair() {
+        let label = AdaptiveStatusText.recoveryActionLabel("refresh_local_audio_status")
+
+        XCTAssertEqual(label, "Refresh local audio status")
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("driver"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("repair"))
+    }
 }
 #endif
