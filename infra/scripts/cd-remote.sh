@@ -141,4 +141,21 @@ EOF
 SH
 )
 
-ssh "$REMOTE_HOST" "cd $(printf '%q' "$REMOTE_PATH") && $(printf '%q' bash) -s -- $(printf '%q' "$BRANCH") $(printf '%q' "$EXPECTED_SHA")" <<<"$remote_script"
+remote_payload="$(printf '%s' "$remote_script" | base64 | tr -d '\n')"
+remote_command="cd $(printf '%q' "$REMOTE_PATH") && tmp=\$(mktemp /tmp/twobrain-rec-deploy.XXXXXX) && trap 'rm -f \"\$tmp\"' EXIT && printf '%s' $(printf '%q' "$remote_payload") | base64 -d > \"\$tmp\" && $(printf '%q' bash) \"\$tmp\" $(printf '%q' "$BRANCH") $(printf '%q' "$EXPECTED_SHA")"
+
+set +e
+remote_output="$(ssh "$REMOTE_HOST" "$remote_command" 2>&1)"
+remote_status=$?
+set -e
+printf '%s\n' "$remote_output"
+
+if [[ "$remote_status" -ne 0 ]]; then
+  exit "$remote_status"
+fi
+
+if ! printf '%s\n' "$remote_output" | grep -Eq '^deploy_result=(pass|blocked)$'; then
+  echo "deploy_result=blocked"
+  echo "reason=remote_deploy_result_missing"
+  exit 1
+fi
