@@ -162,10 +162,12 @@ private struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            Task { await releaseCaptureResourcesForAppExit() }
+            finalizeLocalRecordingForAppExit()
+            Task { await releaseSystemAudioForAppExit() }
         }
         .onDisappear {
-            Task { await releaseCaptureResourcesForAppExit() }
+            finalizeLocalRecordingForAppExit()
+            Task { await releaseSystemAudioForAppExit() }
         }
     }
 
@@ -347,8 +349,12 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func releaseCaptureResourcesForAppExit() async {
+    private func releaseSystemAudioForAppExit() async {
         _ = await systemAudioCaptureService.releaseForTermination()
+    }
+
+    @MainActor
+    private func finalizeLocalRecordingForAppExit() {
         guard localRecordingWriter.isRecording else {
             return
         }

@@ -574,3 +574,35 @@
 - Notes: This hardens #309/T073 and #313/T077. #309 remains open because
   accepted active-recording and stop CPU gates still require a real controlled
   recording run.
+
+## 2026-06-08 App Exit Recording Finalization Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: local recording finalization when the user quits the app during an
+  active recording.
+- Code review finding:
+  - `willTerminateNotification` and `onDisappear` scheduled
+    `Task { await releaseCaptureResourcesForAppExit() }`.
+  - macOS can terminate the process before that async task finishes, which
+    could leave `mic.wav`, `incoming.wav`, or `manifest.json` incomplete during
+    an app-quit path.
+- Code review fix:
+  - Local recording finalization now happens synchronously in
+    `finalizeLocalRecordingForAppExit()` before the async system-audio runtime
+    release is scheduled.
+  - `releaseSystemAudioForAppExit()` still releases the ScreenCaptureKit runtime
+    asynchronously, but WAV/manifest finalization no longer depends on that
+    async task being scheduled before process exit.
+- Runtime checks after fix:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` completed in the local SwiftPM
+    runner.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - Packaged app launched and CoreGraphics found `window_count=1`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+- Notes: Real proof that app-exit finalization saves a controlled active
+  recording still belongs to #308/#309 controlled recording validation.
