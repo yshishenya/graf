@@ -150,22 +150,27 @@ private struct LiveRecordingMetersView: View {
                     .foregroundStyle(summaryColor)
             }
 
-            meterRow(
-                title: SystemAudioStatusLabels.microphoneTitle,
-                detail: microphoneDetail,
-                icon: "mic.fill",
-                level: microphoneLevel,
-                isLive: microphoneIsLive,
-                warning: shouldWarnMicrophone
-            )
-            meterRow(
-                title: SystemAudioStatusLabels.incomingTitle,
-                detail: incomingDetail,
-                icon: "speaker.wave.2.fill",
-                level: incomingLevel,
-                isLive: incomingIsLive,
-                warning: shouldWarnIncoming
-            )
+            HStack(alignment: .top, spacing: 18) {
+                meterRow(
+                    title: SystemAudioStatusLabels.microphoneTitle,
+                    detail: microphoneDetail,
+                    icon: "mic.fill",
+                    level: microphoneLevel,
+                    isLive: microphoneIsLive,
+                    warning: shouldWarnMicrophone
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                meterRow(
+                    title: SystemAudioStatusLabels.incomingTitle,
+                    detail: incomingDetail,
+                    icon: "speaker.wave.2.fill",
+                    level: incomingLevel,
+                    isLive: incomingIsLive,
+                    warning: shouldWarnIncoming
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meters)
@@ -241,7 +246,7 @@ private struct LiveRecordingMetersView: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
                     Text(title)
                         .font(.subheadline)
                         .fontWeight(.medium)
@@ -252,8 +257,9 @@ private struct LiveRecordingMetersView: View {
                         .fontWeight(.semibold)
                         .foregroundStyle(warning ? .orange : (isLive ? .green : .secondary))
                         .lineLimit(1)
+                    Spacer(minLength: 4)
+                    EqualizerBars(level: level, isLive: isLive, warning: warning)
                 }
-                EqualizerBars(level: level, isLive: isLive, warning: warning)
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(warning ? .orange : .secondary)
@@ -261,7 +267,6 @@ private struct LiveRecordingMetersView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .layoutPriority(1)
-            Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(SystemAudioStatusLabels.meterAccessibilityLabel(title: title, detail: detail))
@@ -278,17 +283,17 @@ private struct EqualizerBars: View {
     let isLive: Bool
     let warning: Bool
 
-    private let bars = 14
+    private let bars = 10
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 3) {
             ForEach(0..<bars, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(color(for: index))
-                    .frame(width: 7, height: height(for: index))
+                    .frame(width: 6, height: height(for: index))
             }
         }
-        .frame(width: 137, height: 28, alignment: .bottom)
+        .frame(width: 87, height: 22, alignment: .bottom)
         .animation(.linear(duration: 0.05), value: level)
         .animation(.linear(duration: 0.05), value: isLive)
         .accessibilityHidden(true)
@@ -301,7 +306,7 @@ private struct EqualizerBars: View {
         let activeBars = max(1, Int((displayLevel * Double(bars)).rounded(.up)))
         guard index < activeBars else { return base }
         let shape = CGFloat([0.42, 0.7, 1.0, 0.56, 0.84][index % 5])
-        return 7 + CGFloat(displayLevel) * 22 * shape
+        return 6 + CGFloat(displayLevel) * 17 * shape
     }
 
     private func color(for index: Int) -> Color {

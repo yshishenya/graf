@@ -49,7 +49,7 @@ public struct SystemAudioPermissionGate: Sendable {
         if micMissing && systemMissing {
             return SystemAudioPermissionPresentation(
                 title: "Recording blocked: permissions required",
-                message: "Grant Microphone and Screen/System Audio access in System Settings, then run the check again.",
+                message: "Grant Microphone and Screen/System Audio access in System Settings, then retry recording.",
                 recoveryAction: .grantBoth
             )
         }

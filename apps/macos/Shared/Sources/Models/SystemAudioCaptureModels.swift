@@ -637,12 +637,12 @@ public enum SystemAudioStatusLabels {
     public static let recordButtonAccessibilityLabel = "Start system audio recording"
     public static let stopButtonTitle = "Stop"
     public static let stopButtonAccessibilityLabel = "Stop recording"
-    public static let captureAudioTitle = "Capture Audio"
+    public static let captureAudioTitle = "Recorder Input Meters"
     public static let microphoneTitle = "Microphone"
     public static let incomingTitle = "Incoming"
     public static let activeState = "Active"
     public static let silentState = "Silent"
-    public static let metersWaiting = "Meters start when recording"
+    public static let metersWaiting = "Meters show audio only while recording"
     public static let waitingForRecordingAudio = "Waiting for recording audio"
 
     public static func liveSummary(

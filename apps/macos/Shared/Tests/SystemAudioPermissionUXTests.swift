@@ -15,6 +15,8 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         XCTAssertEqual(result.presentation?.title, "Recording blocked: permissions required")
         XCTAssertTrue(result.presentation?.message.contains("Microphone") == true)
         XCTAssertTrue(result.presentation?.message.contains("Screen/System Audio") == true)
+        XCTAssertTrue(result.presentation?.message.contains("retry recording") == true)
+        XCTAssertFalse(result.presentation?.message.localizedCaseInsensitiveContains("run the check") == true)
         XCTAssertEqual(result.presentation?.recoveryAction, .grantBoth)
     }
 

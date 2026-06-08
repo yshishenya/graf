@@ -316,3 +316,62 @@
     Tools environment; it is not counted as full XCTest execution.
 - Notes: #309/T073 remains open because active-recording and stop CPU evidence
   still require a real controlled recording run.
+
+## 2026-06-08 Final Evidence CPU Gate Hardening
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: `validate-system-audio-capture-pivot.sh --review-evidence`.
+- Code review fix:
+  - Final evidence review now requires explicit latest `status=passed`
+    evaluations for all accepted CPU phases: `idle`, `activeRecording`, `stop`,
+    and `quit`.
+  - `baseline` remains diagnostic-only and cannot satisfy acceptance.
+  - Mere mention of phase names in evidence text can no longer satisfy the CPU
+    gate.
+- Synthetic self-tests:
+  - Missing `activeRecording` and `stop` CPU evaluations returned
+    `system_audio_capture_pivot_validation=blocked` with explicit missing-phase
+    findings.
+  - A later failed `activeRecording` evaluation blocked final review even when
+    an older passed `activeRecording` entry existed.
+  - A synthetic complete set with latest `idle`, `activeRecording`, `stop`, and
+    `quit` evaluations all `status=passed` returned
+    `system_audio_capture_pivot_validation=passed`.
+- Notes: This hardens #313/T077. It does not close #309/T073; real
+  active-recording and stop CPU evidence is still required.
+
+## 2026-06-08 Recorder Meter Visibility Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: idle UI clarity for microphone and incoming/system-audio indicators.
+- Code review fix:
+  - Renamed the capture meter section to `Recorder Input Meters` so users know
+    the indicators represent audio reaching the recorder, not only selected
+    hardware devices.
+  - Changed idle copy to `Meters show audio only while recording`.
+  - Laid out `Microphone` and `Incoming` meters side by side so the incoming
+    system-audio indicator is visible in the main packaged-app window without
+    needing to infer it is below the fold.
+  - Compacted equalizer bars so both channels show labels, state, bars, and
+    waiting copy in the visible meter region.
+  - Updated permission blocker copy to say `retry recording` instead of sending
+    users back to the readiness check.
+- Commands:
+  - `swift build --package-path apps/macos`
+  - `swift test --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - `open -n "apps/macos/RecApp/.build/2brain Rec.app"`
+  - Packaged app window screenshot:
+    `/tmp/twobrain-app-window-meter-layout2.png`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+- Result:
+  - Packaged app launched and displayed both `Microphone` and `Incoming`
+    recorder meters in the main window.
+  - Idle CPU gate passed at `2026-06-08T18:47:31Z` with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU gate passed at `2026-06-08T18:54:41Z` with no remaining app
+    process and `maxCoreaudiodCpuPercent=0.00`.
+  - `swift test` still only compiled the test bundle in this local Command Line
+    Tools environment; it is not counted as full XCTest execution.

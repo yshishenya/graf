@@ -107,6 +107,49 @@ count_not_tested_rows() {
     grep -c '| not-tested |' "$path" 2>/dev/null || true
 }
 
+last_cpu_evaluation_for_phase() {
+    phase="$1"
+    awk -v wanted="$phase" '
+        /^## / {
+            current = ""
+            for (i = 1; i <= NF; i += 1) {
+                if ($i == wanted) {
+                    current = wanted
+                }
+            }
+        }
+        current == wanted && /^- Evaluation: `/ {
+            line = $0
+            sub(/^- Evaluation: `/, "", line)
+            sub(/`$/, "", line)
+            last = line
+        }
+        END {
+            if (last != "") {
+                print last
+            }
+        }
+    ' "$CPU_GATES"
+}
+
+validate_cpu_phase_passed() {
+    phase="$1"
+    evaluation="$(last_cpu_evaluation_for_phase "$phase")"
+    if [ -z "$evaluation" ]; then
+        printf '%s\n' "$CPU_GATES is missing $phase CPU evaluation"
+        return 1
+    fi
+    case "$evaluation" in
+        status=passed\ *)
+            return 0
+            ;;
+        *)
+            printf '%s\n' "$CPU_GATES latest $phase CPU evaluation is not passed: $evaluation"
+            return 1
+            ;;
+    esac
+}
+
 ensure_no_forbidden_hal_requirement() {
     if rg -n "HAL runtime probe|required virtual device|driver reinstall required|coreaudiod restart" \
         "$PERMISSION_MATRIX" "$ARTIFACT_MATRIX" "$DEV_DURATION" "$RELEASE_DURATION" "$SCOPE_REVIEW" \
@@ -358,10 +401,9 @@ EOF
         fi
     done
 
-    rg -n "activeRecording| stop | quit" "$CPU_GATES" >/dev/null 2>&1 || {
-        printf '%s\n' "$CPU_GATES is missing active/stop/quit evidence"
-        incomplete=1
-    }
+    for phase in idle activeRecording stop quit; do
+        validate_cpu_phase_passed "$phase" || incomplete=1
+    done
 
     if [ "$incomplete" -ne 0 ]; then
         blocked "final evidence review is incomplete; keep #313/T077 open"
