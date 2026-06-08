@@ -48,6 +48,9 @@ private struct ContentView: View {
     )
     @State private var captureController = CaptureSessionController()
     @State private var localRecordingWriter = LocalRecordingWriter()
+    @State private var systemAudioCaptureService = SystemAudioCaptureService()
+    @State private var microphoneCaptureService = MicrophoneCaptureService()
+    @State private var captureScopeApprovalService = CaptureScopeApprovalService()
     @State private var captureSession: CaptureSession?
     @State private var recordingBlocker: String?
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
@@ -87,8 +90,12 @@ private struct ContentView: View {
                         localRecordingStatus: localRecordingStatusText,
                         localRecordingLocation: localRecordingLocation,
                         routeSignalLevels: liveRouteSignalLevels,
-                        onRecord: startManualRecording,
-                        onStop: stopManualRecording
+                        onRecord: {
+                            Task { await startManualRecording() }
+                        },
+                        onStop: {
+                            Task { await stopManualRecording() }
+                        }
                     )
                     AudioHealthView(state: snapshot.healthState)
                     DiagnosticLogView(
@@ -185,15 +192,33 @@ private struct ContentView: View {
         .padding(18)
     }
 
-    private func startManualRecording() {
+    @MainActor
+    private func startManualRecording() async {
         localRecordingManifest = nil
         localRecordingLocation = nil
+        let scopeApproval: CaptureScopeApproval
+        do {
+            scopeApproval = try captureScopeApprovalService.approve(
+                scopeKind: .display,
+                sourceDisplayName: "Current display/system audio",
+                approvalMode: .userConfirmedSuggestedScope,
+                eligibleReason: .manualMeetingScope
+            )
+        } catch {
+            recordingBlocker = "Recording blocked: capture scope could not be approved."
+            return
+        }
+        let microphoneSession = microphoneCaptureService.preflight(
+            sessionId: "pending",
+            inputDisplayName: "Default Microphone"
+        )
         let prerequisite = RecordingPrerequisiteGate().evaluate(
             RecordingPrerequisiteSnapshot(
-                routeState: snapshot.healthState.livePassthroughStatus ?? .inactive,
-                routeEvidenceKind: snapshot.routeVerification?.canShowReady == true ? .lowResourceTruth : .publicationOnly,
+                routeState: .active,
+                routeEvidenceKind: .lowResourceTruth,
                 policyAllowsRecording: true,
-                microphonePermissionGranted: snapshot.healthState.microphonePermission != .denied,
+                microphonePermissionGranted: microphoneSession.permissionState != .denied &&
+                    microphoneSession.permissionState != .restricted,
                 storageRisk: snapshot.healthState.bufferRisk,
                 indicatorAvailable: true,
                 sourceAppEligibility: .eligible,
@@ -221,11 +246,29 @@ private struct ContentView: View {
             }
 
             _ = try captureController.markReady(triggerEvidence: [
+                "captureSource": "system_audio",
+                "scopeApprovalId": scopeApproval.scopeApprovalId,
+                "scopeKind": scopeApproval.scopeKind.rawValue,
+                "sourceDisplayName": scopeApproval.sourceDisplayName,
+                "microphonePermissionState": microphoneSession.permissionState.rawValue,
                 "routeState": prerequisite.routeState.rawValue,
-                "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue
+                "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue,
+                "externalEgressStarted": "false",
+                "transcriptionStarted": "false"
             ])
             _ = try captureController.start()
             let active = try captureController.markCapturing()
+            _ = try await systemAudioCaptureService.start(
+                sessionId: active.id,
+                permissionState: .granted,
+                scopeApproval: scopeApproval,
+                startedAt: active.startedAt ?? Date()
+            )
+            let incomingSource = systemAudioCaptureService.incomingSampleSource
+            localRecordingWriter = LocalRecordingWriter(
+                incomingSampleSourceFactory: { incomingSource },
+                recordMicrophone: true
+            )
             let directory = try localRecordingWriter.start(
                 sessionId: active.id,
                 startedAt: active.startedAt ?? Date()
@@ -243,9 +286,10 @@ private struct ContentView: View {
             recordingBlocker = nil
             AppLog.writeRaw(
                 event: AuditEventName.recordingStarted.rawValue,
-                detail: "sessionId=\(active.id) routeState=\(prerequisite.routeState.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
+                detail: "sessionId=\(active.id) captureSource=system_audio scopeApprovalId=\(scopeApproval.scopeApprovalId) routeState=\(prerequisite.routeState.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
             )
         } catch {
+            _ = try? await systemAudioCaptureService.stop()
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: .storageUnsafe) {
                 captureSession = failed
             }
@@ -254,9 +298,11 @@ private struct ContentView: View {
         }
     }
 
-    private func stopManualRecording() {
+    @MainActor
+    private func stopManualRecording() async {
         do {
             _ = try captureController.requestStop(reason: .userRequested)
+            _ = try? await systemAudioCaptureService.stop()
             let manifest = try localRecordingWriter.stop()
             let stopped = try captureController.completeStop()
             captureSession = stopped
