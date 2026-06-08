@@ -60,6 +60,31 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(scratch[0], 0.4, accuracy: 0.0001)
         _ = try await service.stop()
     }
+
+    func testStopUsesBufferedRuntimeStatsWhenSamplesBypassActorAppend() async throws {
+        let sampleSource = BufferedLocalRecordingSampleSource()
+        let service = SystemAudioCaptureService(
+            runtime: FakeSystemAudioRuntime(),
+            sampleSource: sampleSource
+        )
+        _ = try await service.start(
+            sessionId: "session",
+            permissionState: .granted,
+            scopeApproval: approvedScope(),
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+
+        sampleSource.append(
+            Array(repeating: 0.3, count: 512),
+            at: Date(timeIntervalSince1970: 11)
+        )
+        let stopped = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 12))
+
+        XCTAssertEqual(stopped.frameCount, 512)
+        XCTAssertEqual(stopped.lastFrameAt, Date(timeIntervalSince1970: 11))
+        XCTAssertEqual(stopped.failureReason, .none)
+        XCTAssertTrue(stopped.canBeAccepted)
+    }
 }
 
 private func approvedScope() -> CaptureScopeApproval {

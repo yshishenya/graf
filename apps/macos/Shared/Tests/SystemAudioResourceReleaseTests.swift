@@ -42,6 +42,29 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
         XCTAssertFalse(await service.isRunning)
         XCTAssertEqual(runtime.stopCount, 1)
     }
+
+    func testReleaseForTerminationKeepsBufferedRuntimeFrameTruth() async throws {
+        let runtime = CountingSystemAudioRuntime()
+        let sampleSource = BufferedLocalRecordingSampleSource()
+        let service = SystemAudioCaptureService(runtime: runtime, sampleSource: sampleSource)
+
+        _ = try await service.start(
+            sessionId: "session",
+            permissionState: .granted,
+            scopeApproval: resourceReleaseScope()
+        )
+        sampleSource.append(
+            Array(repeating: 0.2, count: 320),
+            at: Date(timeIntervalSince1970: 2)
+        )
+
+        let released = await service.releaseForTermination(stoppedAt: Date(timeIntervalSince1970: 3))
+
+        XCTAssertEqual(released?.frameCount, 320)
+        XCTAssertEqual(released?.lastFrameAt, Date(timeIntervalSince1970: 2))
+        XCTAssertEqual(released?.failureReason, .none)
+        XCTAssertEqual(runtime.stopCount, 1)
+    }
 }
 
 private func resourceReleaseScope() -> CaptureScopeApproval {

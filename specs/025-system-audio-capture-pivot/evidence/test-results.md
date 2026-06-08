@@ -415,3 +415,48 @@
     process and `maxCoreaudiodCpuPercent=0.00`.
 - Notes: Real moving meter validation still requires a controlled recording
   with actual microphone and system audio. That remains part of #308/#309.
+
+## 2026-06-08 System-Audio Runtime Frame Truth Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: system-audio service session truth when ScreenCaptureKit writes samples
+  directly to the buffered recording source.
+- Code review finding:
+  - `SystemAudioCaptureService.appendIncomingSamples(...)` updated
+    `SystemAudioCaptureSession.frameCount`, but the default ScreenCaptureKit
+    runtime writes samples directly into `BufferedLocalRecordingSampleSource`.
+  - That meant the local writer could receive frames for `incoming.wav` while
+    the service-level session could still finalize with `frameCount=0` and a
+    false `noFrames`/`stoppedBeforeFrames` reason.
+- Code review fix:
+  - `BufferedLocalRecordingSampleSource` now records total appended frames and
+    latest append timestamp.
+  - `SystemAudioCaptureService.stop(...)` and `releaseForTermination(...)` merge
+    that buffered runtime stat into the final `SystemAudioCaptureSession`.
+  - Runtime-direct samples and actor-appended samples now produce the same frame
+    truth.
+- Test coverage:
+  - Added service stop coverage for samples that bypass actor append and arrive
+    through the shared buffered runtime source.
+  - Added termination-release coverage to prove app exit preserves buffered
+    frame truth instead of marking `stoppedBeforeFrames`.
+- Commands:
+  - `swift build --package-path apps/macos`
+  - `swift test --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - `open -n "apps/macos/RecApp/.build/2brain Rec.app"`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+- Result:
+  - Build, test bundle compilation, contract validation, and no-HAL validation
+    passed.
+  - Packaged app launched with visible `2brain Rec` window in CoreGraphics and
+    AppLog `visibleWindowCount=1`.
+  - Idle CPU gate passed at `2026-06-08T19:19:09Z` with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU gate passed at `2026-06-08T19:20:10Z` with no remaining app
+    process and `maxCoreaudiodCpuPercent=0.00`.
+- Notes: Real accepted artifact validation still requires a controlled recording
+  run and `--artifact-directory` against the produced directory.

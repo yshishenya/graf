@@ -63,19 +63,29 @@ public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSourc
     private let lock = NSLock()
     private var buffer: [Float] = []
     private let capacity: Int
+    private var totalAppendedFrameCount: Int64 = 0
+    private var lastAppendAt: Date?
 
     public init(capacity: Int = 48_000 * 20) {
         self.capacity = capacity
     }
 
-    public func append(_ samples: [Float]) {
+    public func append(_ samples: [Float], at date: Date = Date()) {
         guard !samples.isEmpty else { return }
         lock.lock()
         buffer.append(contentsOf: samples)
         if buffer.count > capacity {
             buffer.removeFirst(buffer.count - capacity)
         }
+        totalAppendedFrameCount += Int64(samples.count)
+        lastAppendAt = date
         lock.unlock()
+    }
+
+    public func stats() -> (frameCount: Int64, lastFrameAt: Date?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (totalAppendedFrameCount, lastAppendAt)
     }
 
     public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {

@@ -103,7 +103,7 @@ public actor SystemAudioCaptureService {
 
     public func appendIncomingSamples(_ samples: [Float], at date: Date = Date()) {
         guard !samples.isEmpty else { return }
-        bufferedSampleSource.append(samples)
+        bufferedSampleSource.append(samples, at: date)
         if var session = activeSession {
             session.frameCount += Int64(samples.count)
             session.lastFrameAt = date
@@ -116,9 +116,14 @@ public actor SystemAudioCaptureService {
         guard var session = activeSession else {
             throw SystemAudioCaptureServiceError.notRunning
         }
-        activeSession = nil
 
         await runtime.stop()
+        let stats = bufferedSampleSource.stats()
+        if stats.frameCount > session.frameCount {
+            session.frameCount = stats.frameCount
+            session.lastFrameAt = stats.lastFrameAt
+        }
+        activeSession = nil
         session.stoppedAt = stoppedAt
         if session.frameCount == 0 {
             session.failureReason = .noFrames
@@ -131,9 +136,14 @@ public actor SystemAudioCaptureService {
         guard var session = activeSession else {
             return nil
         }
-        activeSession = nil
 
         await runtime.stop()
+        let stats = bufferedSampleSource.stats()
+        if stats.frameCount > session.frameCount {
+            session.frameCount = stats.frameCount
+            session.lastFrameAt = stats.lastFrameAt
+        }
+        activeSession = nil
         session.stoppedAt = stoppedAt
         if session.frameCount == 0 {
             session.failureReason = .stoppedBeforeFrames
