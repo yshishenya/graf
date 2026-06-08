@@ -155,6 +155,7 @@ private struct ContentView: View {
             Button(action: refresh) {
                 Image(systemName: "arrow.clockwise")
             }
+            .accessibilityLabel("Refresh audio device status")
             .help("Refresh audio device status")
         }
         .padding(18)

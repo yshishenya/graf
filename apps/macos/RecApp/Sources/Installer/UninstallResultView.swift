@@ -26,6 +26,9 @@ public struct UninstallResult: Equatable, Sendable {
 }
 
 public struct UninstallResultView: View {
+    public static let openSoundSettingsAccessibilityLabel = "Open Sound Settings"
+    public static let doneAccessibilityLabel = "Close uninstall result"
+
     private let result: UninstallResult
     private let onDone: () -> Void
     private let onOpenSettings: (() -> Void)?
@@ -76,12 +79,16 @@ public struct UninstallResultView: View {
                         onOpenSettings()
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel(Self.openSoundSettingsAccessibilityLabel)
+                    .help(Self.openSoundSettingsAccessibilityLabel)
                 }
                 Spacer()
                 Button("Done") {
                     onDone()
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityLabel(Self.doneAccessibilityLabel)
+                .help(Self.doneAccessibilityLabel)
             }
         }
         .padding(16)
