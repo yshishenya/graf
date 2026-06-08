@@ -250,6 +250,13 @@ public final class LocalRecordingWriter {
         try queue.sync {
             guard let active else { throw LocalRecordingWriterError.notRecording }
             active.timer.cancel()
+            defer {
+                active.microphoneRecorder?.stop()
+                try? active.microphoneWriter?.close()
+                try? active.remoteWriter.close()
+                active.scratch.deallocate()
+                self.active = nil
+            }
             try drainPendingSamples(for: active)
             active.microphoneRecorder?.stop()
             let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
@@ -257,8 +264,6 @@ public final class LocalRecordingWriter {
             try padTimelineSilence(for: active, targetFrameCount: Int(elapsedFrameCount))
             try active.microphoneWriter?.close()
             try active.remoteWriter.close()
-            active.scratch.deallocate()
-            self.active = nil
 
             let micTrack = track(
                 role: .localMic,
@@ -506,6 +511,7 @@ private final class ActiveRecording {
 private final class PCM16MonoWAVFileWriter {
     private let handle: FileHandle
     private(set) var frameCount = 0
+    private var isClosed = false
     private let inputSampleRate = 48_000
     private let inputChannelCount = 2
     private let outputSampleRate = 16_000
@@ -523,6 +529,7 @@ private final class PCM16MonoWAVFileWriter {
     }
 
     func write(samples: UnsafePointer<Float>, count: Int) throws {
+        guard !isClosed else { return }
         guard count > 0 else { return }
         let inputFrameCount = count / inputChannelCount
         guard inputFrameCount > 0 else { return }
@@ -545,6 +552,7 @@ private final class PCM16MonoWAVFileWriter {
     }
 
     func writeSilence(frameCount count: Int) throws {
+        guard !isClosed else { return }
         guard count > 0 else { return }
         let chunkFrameCount = 4096
         var remaining = count
@@ -558,6 +566,7 @@ private final class PCM16MonoWAVFileWriter {
     }
 
     func close() throws {
+        guard !isClosed else { return }
         let dataByteCount = UInt32(frameCount * MemoryLayout<Int16>.stride)
         let riffByteCount = UInt32(36) + dataByteCount
         var header = Data()
@@ -577,6 +586,7 @@ private final class PCM16MonoWAVFileWriter {
         try handle.seek(toOffset: 0)
         try handle.write(contentsOf: header)
         try handle.close()
+        isClosed = true
     }
 }
 

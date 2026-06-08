@@ -44,6 +44,26 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(stopped.stopActionAvailable)
     }
 
+    func testStopFailureMovesSessionOutOfStoppingState() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 21) },
+            idFactory: { "capture-stop-failed-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        _ = try controller.markCapturing()
+        _ = try controller.requestStop(reason: .userRequested)
+        let failed = try controller.fail(stopReason: .failed, failureCategory: .storageUnsafe)
+
+        XCTAssertEqual(failed.state, .failed)
+        XCTAssertEqual(failed.visibleIndicatorState, .error)
+        XCTAssertFalse(failed.stopActionAvailable)
+        XCTAssertEqual(failed.failureCategory, .storageUnsafe)
+    }
+
     func testBlockedManualStartRecordsFailureCategory() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 30) },

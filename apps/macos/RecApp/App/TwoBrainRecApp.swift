@@ -350,6 +350,10 @@ private struct ContentView: View {
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
             )
         } catch {
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: .storageUnsafe) {
+                captureSession = failed
+            }
+            _ = await systemAudioCaptureService.releaseForTermination()
             recordingBlocker = "Recording could not stop: \(error)"
             AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
         }
