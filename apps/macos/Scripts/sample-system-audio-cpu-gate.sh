@@ -11,26 +11,28 @@ SETTLE_SECONDS="${SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS:-}"
 case "$PHASE" in
   -h|--help|"")
     cat <<'USAGE'
-sample-system-audio-cpu-gate.sh <idle|activeRecording|stop|quit>
+sample-system-audio-cpu-gate.sh <baseline|idle|activeRecording|stop|quit>
 
 Samples metadata-only CPU evidence for the system-audio MVP.
 
 Environment:
   SYSTEM_AUDIO_CPU_GATE_SAMPLES=3
   SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=2
-  SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=10 for idle/stop/quit, 0 for activeRecording
+  SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=10 for baseline/idle/stop/quit, 0 for activeRecording
 
 Required gates:
 - idle/stop/quit after settle: coreaudiod < 5% and app+helper < 5%
 - active recording: no sustained coreaudiod > 10%
 - active recording: no sustained app+helper > 25%
+- baseline: diagnostic only; records coreaudiod/app/helper CPU without counting
+  as acceptance.
 
 This script uses ps/pgrep metadata only and must not run HAL live-publication probes.
 USAGE
     [ -z "$PHASE" ] && exit 2
     exit 0
     ;;
-  idle|activeRecording|stop|quit)
+  baseline|idle|activeRecording|stop|quit)
     ;;
   *)
     echo "error=unknown_phase phase=$PHASE" >&2
@@ -67,11 +69,25 @@ coreaudiod_pids() {
 }
 
 app_pids() {
-  pgrep -f 'TwoBrainRecApp|2brain Rec' 2>/dev/null | awk -v self="$$" '$1 != self' || true
+  ps -axo pid=,command= |
+    awk -v self="$$" '
+      $1 != self &&
+      $0 ~ /(\/2brain Rec\.app\/Contents\/MacOS\/2brain Rec|\/TwoBrainRecApp)$/ {
+        print $1
+      }
+    ' || true
 }
 
 helper_pids() {
-  pgrep -f '2brain.*Helper|TwoBrain.*Helper|TwoBrainRec.*Helper' 2>/dev/null | awk -v self="$$" '$1 != self' || true
+  ps -axo pid=,command= |
+    awk -v self="$$" '
+      $1 != self &&
+      $0 ~ /(\/2brain|\/TwoBrain|\/TwoBrainRec)/ &&
+      index($0, "Helper") > 0 &&
+      $0 ~ /Helper$/ {
+        print $1
+      }
+    ' || true
 }
 
 if [ "$SETTLE_SECONDS" -gt 0 ]; then
@@ -110,7 +126,9 @@ BEGIN {
   }
   if (core > maxCore) maxCore = core;
   if (app > maxApp) maxApp = app;
-  if (phase == "activeRecording") {
+  if (phase == "baseline") {
+    next;
+  } else if (phase == "activeRecording") {
     if (core > 10) coreSeq += 1; else coreSeq = 0;
     if (app > 25) appSeq += 1; else appSeq = 0;
     if (coreSeq >= 3) coreSustained = 1;
@@ -121,8 +139,13 @@ BEGIN {
   }
 }
 END {
-  status = (count > 0 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
+  if (phase == "baseline") {
+    status = count > 0 ? "observed" : "failed";
+  } else {
+    status = (count > 0 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
+  }
   reason = status == "passed" ? "none" : "cpuGateFailed";
+  if (status == "observed") reason = "diagnosticOnly";
   printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s", status, reason, count, maxCore, maxApp, coreSustained ? "true" : "false", appSustained ? "true" : "false";
 }' "$tmp_file")"
 
@@ -140,5 +163,6 @@ printf '%s\n' "$evaluation"
 
 case "$evaluation" in
   status=passed*) exit 0 ;;
+  status=observed*) exit 0 ;;
   *) exit 1 ;;
 esac

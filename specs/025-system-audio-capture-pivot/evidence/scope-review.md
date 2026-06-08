@@ -22,3 +22,15 @@ are not acceptance.
   `coreaudiod` baseline exceeded the idle threshold even after the app quit.
 - Remaining blockers: #307/T071, #308/T072, #309/T073, #310/T074, #311/T075,
   and #313/T077 remain open.
+
+## 2026-06-08 CPU Gate Interim Update
+
+- CPU sampler: improved. App PID matching now uses exact executable paths
+  instead of broad command-line matching.
+- Baseline diagnostic: added as evidence-only; it does not count as acceptance.
+- Settled idle gate: passed in the current clean baseline with packaged app
+  running (`maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.10`).
+- Quit gate: passed after terminating the packaged app, with no remaining app
+  process.
+- Still not accepted: active-recording and stop CPU gates remain untested and
+  require a real controlled recording run.

@@ -219,3 +219,39 @@
 - Result: partial pass. Launch/window/no-HAL/build/contract evidence improved,
   but #309/T073 remains open until idle baseline, active recording, stop, and
   quit CPU gates pass in the same validation environment.
+
+## 2026-06-08 CPU Sampler PID Hardening Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: CPU gate evidence script PID matching, baseline diagnostics, packaged
+  app idle/quit CPU smoke, and no-HAL regression.
+- Code review fix:
+  - Hardened `sample-system-audio-cpu-gate.sh` so app CPU is sampled only from
+    the real packaged executable path or SwiftPM `TwoBrainRecApp` executable.
+    This avoids false matches against shell commands that merely contain
+    `2brain Rec` in their command text.
+  - Added a diagnostic-only `baseline` phase. It records coreaudiod/app/helper
+    CPU without counting as acceptance and without weakening idle/stop/quit or
+    active-recording thresholds.
+- Commands:
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline`
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - `open -n "apps/macos/RecApp/.build/2brain Rec.app"`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+  - `swift build --package-path apps/macos`
+  - `swift run --package-path apps/macos ContractValidation`
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`
+- Result:
+  - Baseline diagnostic passed as `observed` with app/helper `0.00%` while the
+    app was not running.
+  - Settled packaged-app idle gate passed at `2026-06-08T18:12:50Z` with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit gate passed at `2026-06-08T18:13:27Z` with no remaining app process
+    and `maxCoreaudiodCpuPercent=0.00`.
+  - Build, contract validation, and no-HAL validation passed.
+- Remaining CPU evidence gap: #309/T073 is still open because active-recording
+  and stop gates require a real controlled recording run; they are not accepted
+  by idle/quit evidence alone.
