@@ -1,10 +1,12 @@
 import CoreAudio
+import AppKit
 import SwiftUI
 import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 @main
 struct TwoBrainRecApp: App {
+    @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self) private var appLifecycleDelegate
     @State private var snapshot = LocalAudioSnapshot.placeholder()
     @State private var isChecking = false
 
@@ -24,15 +26,8 @@ struct TwoBrainRecApp: App {
                 runCheck: {
                     isChecking = true
                     DispatchQueue.global(qos: .userInitiated).async {
-                        if ProcessInfo.processInfo.arguments.contains("--enable-route-check-start") {
-                            _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                        } else {
-                            AppLog.writeRaw(
-                                event: "readiness_check_route_start_skipped",
-                                detail: "route bridge startup disabled by default for safe launch"
-                            )
-                        }
-                        let checked = LocalAudioSnapshot.runReadinessCheck()
+                        let state = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                        let checked = LocalAudioSnapshot.runReadinessCheck(routeEngineState: state)
                         AppLog.write(event: "readiness_check", snapshot: checked)
                         DispatchQueue.main.async {
                             snapshot = checked
@@ -143,8 +138,8 @@ private struct ContentView: View {
             }
             if ProcessInfo.processInfo.arguments.contains("--start-passthrough") {
                 DispatchQueue.global(qos: .userInitiated).async {
-                    _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                    let updated = LocalAudioSnapshot.current()
+                    let state = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                    let updated = LocalAudioSnapshot.runReadinessCheck(routeEngineState: state)
                     AppLog.write(event: "explicit_passthrough_ready", snapshot: updated)
                     DispatchQueue.main.async {
                         onAutoStarted(updated)
@@ -338,6 +333,12 @@ private struct ContentView: View {
         case .active:
             return "Local recording in progress"
         }
+    }
+}
+
+private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_: Notification) {
+        _ = PassthroughRouteEngine.shared.stop(logger: AppLog.writeRaw)
     }
 }
 

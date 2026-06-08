@@ -331,7 +331,7 @@ UInt32 PublicDeviceIsHidden(AudioObjectID device_id) {
 }
 
 UInt32 PublishedVirtualDeviceCount() {
-    return PrivateAppIOAvailable() ? TwoBrainRec::AudioDriver::VirtualDeviceCount() : 0;
+    return TwoBrainRec::AudioDriver::VirtualDeviceCount();
 }
 
 std::atomic<uint64_t>* ClockAnchorForDevice(AudioObjectID device_id) {
@@ -744,9 +744,6 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("0.1.0-proof"));
     case kAudioObjectPropertyOwnedObjects:
         if (in_object_id == kPlugInObject) {
-            if (!PrivateAppIOAvailable()) {
-                return WriteEmptyList(out_data_size);
-            }
             return WriteObjectList(
                 in_data_size,
                 out_data_size,
@@ -765,9 +762,6 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioPlugInPropertyResourceBundle:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("."));
     case kAudioPlugInPropertyDeviceList:
-        if (!PrivateAppIOAvailable()) {
-            return WriteEmptyList(out_data_size);
-        }
         return WriteObjectList(
             in_data_size,
             out_data_size,
@@ -779,8 +773,7 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         return WriteEmptyList(out_data_size);
     case kAudioPlugInPropertyTranslateUIDToDevice: {
         AudioObjectID translated = kAudioObjectUnknown;
-        if (PrivateAppIOAvailable() &&
-            in_qualifier_data_size == sizeof(CFStringRef) &&
+        if (in_qualifier_data_size == sizeof(CFStringRef) &&
             in_qualifier_data != nullptr) {
             auto uid = *reinterpret_cast<const CFStringRef*>(in_qualifier_data);
             if (CFStringCompare(uid, CFSTR("pro.2brain.rec.microphone"), 0) == kCFCompareEqualTo) {
