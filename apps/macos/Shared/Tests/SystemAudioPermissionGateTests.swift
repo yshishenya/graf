@@ -46,8 +46,34 @@ final class SystemAudioPermissionGateTests: XCTestCase {
         XCTAssertEqual(result.presentation?.recoveryAction, .grantSystemAudio)
     }
 
+    func testMicrophonePermissionRequestReturnsGrantedPreflightSession() async {
+        let service = MicrophoneCaptureService(
+            authorizer: FixtureMicrophonePermissionAuthorizer(requestedState: .granted)
+        )
+
+        let session = await service.requestPermissionAndPreflight(
+            sessionId: "session",
+            inputDisplayName: "Default Microphone"
+        )
+
+        XCTAssertEqual(session.permissionState, .granted)
+        XCTAssertEqual(session.inputDisplayName, "Default Microphone")
+    }
+
     private func gate() -> SystemAudioPermissionGate {
         SystemAudioPermissionGate(clock: { Date(timeIntervalSince1970: 1) })
+    }
+}
+
+private struct FixtureMicrophonePermissionAuthorizer: MicrophonePermissionAuthorizing {
+    let requestedState: CapturePermissionState
+
+    func currentPermissionState() -> CapturePermissionState {
+        .unknown
+    }
+
+    func requestPermission() async -> CapturePermissionState {
+        requestedState
     }
 }
 #endif

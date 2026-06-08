@@ -701,3 +701,32 @@
     `maxHelperProcessCount=0`.
 - Notes: This directly reduces file-size/duration skew for recordings with
   intermittent incoming audio. Real accepted artifact proof still requires #308.
+
+## 2026-06-08 Microphone Permission Request Review
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: user-visible permission behavior before recording.
+- Code review finding:
+  - `startManualRecording()` used microphone `preflight()` only.
+  - On a fresh install, `.notDetermined` microphone permission could therefore
+    be presented as a blocker telling the user to go to System Settings instead
+    of showing the native macOS microphone prompt when the user presses Record.
+- Code review fix:
+  - `startManualRecording()` now calls
+    `requestPermissionAndPreflight(...)` for microphone permission.
+  - This keeps launch/readiness non-invasive, but makes Record trigger the
+    native microphone permission path when needed.
+  - Added test coverage for the microphone request/preflight path.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` completed in the local SwiftPM
+    runner.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - Packaged app launched and CoreGraphics found `window_count=1`.
+  - Idle CPU passed with `maxCoreaudiodCpuPercent=0.00` and
+    `maxAppHelperCpuPercent=0.10`.
+  - Quit CPU passed with `maxAppProcessCount=0` and
+    `maxHelperProcessCount=0`.
+- Notes: Screen/System Audio remains preflighted until ScreenCaptureKit start,
+  so launch still does not start recording or request permissions silently.

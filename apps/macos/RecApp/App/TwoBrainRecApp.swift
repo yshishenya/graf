@@ -215,7 +215,7 @@ private struct ContentView: View {
             recordingBlocker = "Recording blocked: capture scope could not be approved."
             return
         }
-        let microphoneSession = microphoneCaptureService.preflight(
+        let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight(
             sessionId: "pending",
             inputDisplayName: "Default Microphone"
         )
