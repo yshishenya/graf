@@ -18,7 +18,7 @@ Create the backend ingest foundation for finalized local 2brain Rec meeting arti
 
 **Testing**: pytest unit, contract, and integration tests under `apps/server/tests`; Docker Compose-backed smoke validation for Postgres and MinIO; content/secret leakage checks for logs and API responses.
 
-**Target Platform**: Self-hosted Linux/Docker runtime with Docker Compose for both local development and production. Public deployment target remains the future `rec.2brain.dev` stack hosted under the `2brain.pro` infrastructure, but this feature creates a Rec-owned Docker stack only and does not depend on shared production MinIO/Postgres services.
+**Target Platform**: Self-hosted Linux/Docker runtime with Docker Compose for both local development and production. Public deployment target remains the future `rec.2brain.pro` stack hosted under the `2brain.pro` infrastructure, but this feature creates a Rec-owned Docker stack only and does not depend on shared production MinIO/Postgres services.
 
 **Project Type**: Backend API service plus infrastructure scaffold.
 

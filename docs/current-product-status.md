@@ -71,6 +71,13 @@ implementation record.
   `specs/012-server-ingest-foundation/quickstart.md`. The remaining gate before
   PR/deployment-plan handoff is a final full repository sanity run, review of
   the dirty worktree, and an explicit commit/PR decision.
+- Feature `021-production-deployment-plan` is implemented as a remote-first
+  infrastructure readiness slice for `2brain.dev` and `/opt/projects/2brain-rec`.
+  It adds production Compose hardening, env/secret templates, remote backup,
+  migration, restore rehearsal, rollback/halt helpers, internal smoke identity,
+  first-smoke evidence templates, cleanup accounting, and forbidden-content
+  scans. The highest allowed successful status is `infra_smoke_ready`; this is
+  not production readiness, user rollout readiness, or internal pilot readiness.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -84,12 +91,12 @@ implementation record.
   local recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
 - Long-duration 30/60 minute integrity acceptance is not complete.
-- Production deployment, desktop upload queue wiring, MediaScribe
-  transcription, dashboard notes, Temporal workflow starts, server retention,
-  and deletion workflows are not accepted yet.
-- The `012` backend foundation exists as a local/repository implementation with
-  Phase 11 remediation completed locally; production deployment and desktop
-  uploader slices are still not accepted.
+- Desktop upload queue wiring, MediaScribe transcription, dashboard notes,
+  Temporal workflow starts, server retention, and deletion workflows are not
+  accepted yet.
+- The `012` backend foundation exists as a repository implementation with
+  `021` remote-first infrastructure smoke readiness scaffolding; real user
+  rollout and desktop uploader slices are still not accepted.
 - Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
   detect-and-ask, automatic naming, and future auto-record behavior have not
   been implemented or accepted.
@@ -100,7 +107,9 @@ implementation record.
 
 Recommended next feature: `013-federated-auth-foundation` or
 `014-desktop-upload-queue`, depending on whether identity/session work or
-desktop upload UX should be unblocked first.
+desktop upload UX should be unblocked first. The `021` deployment slice can be
+used as the infrastructure runbook baseline while those product slices remain
+separate.
 
 Goal: connect the accepted local artifact and implemented server ingest
 foundation to real user/device identity and the macOS upload queue without
@@ -114,8 +123,8 @@ Recommended scope:
 - macOS upload queue that picks up local `010` artifacts, calls the `012`
   ingest API, shows pending/uploading/retrying/uploaded/degraded/failed truth,
   and preserves local files until server status is known.
-- Production deployment hardening for the dedicated Rec Docker stack when live
-  rollout starts.
+- A remote `021` infrastructure smoke on `2brain.dev` only after DNS/TLS,
+  secrets, backup, migration, restore rehearsal, and cleanup evidence pass.
 
 Keep separate unless the next spec explicitly changes scope:
 
@@ -166,6 +175,9 @@ the current accepted implementation or `012` ingest slice.
 - `018-retention-deletion-execution`: implement retention/deletion workflows,
   deletion reports, local purge coordination, backup expiry, and external
   dependency deletion truth.
+- `021-production-deployment-plan`: use the remote-first runbook to reach
+  `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
+  claims blocked until later product slices are accepted.
 - `RLS-hardening`: if PostgreSQL Row-Level Security is deferred by `012` plan,
   create a traceable task or GitHub issue candidate with compensating
   application-level authorization checks.

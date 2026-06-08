@@ -2,6 +2,9 @@ import SwiftUI
 import TwoBrainRecShared
 
 public struct DriverSetupView: View {
+    public static let installButtonAccessibilityLabel = "Install audio driver"
+    public static let repairButtonAccessibilityLabel = "Repair audio driver"
+
     private let driverState: DriverInstallationState
     private let microphoneState: VirtualDeviceAvailabilityState
     private let speakerState: VirtualDeviceAvailabilityState
@@ -49,8 +52,12 @@ public struct DriverSetupView: View {
         switch driverState {
         case .notInstalled, .uninstalled:
             Button("Install", action: onInstall)
+                .accessibilityLabel(Self.installButtonAccessibilityLabel)
+                .help(Self.installButtonAccessibilityLabel)
         case .needsRepair, .needsUpdate, .incompatible:
             Button("Repair", action: onRepair)
+                .accessibilityLabel(Self.repairButtonAccessibilityLabel)
+                .help(Self.repairButtonAccessibilityLabel)
         case .requiresRestart:
             Label("Restart Required", systemImage: "arrow.clockwise.circle")
         case .installed, .uninstalling:

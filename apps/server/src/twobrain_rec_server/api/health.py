@@ -65,9 +65,11 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         "minio": minio_status,
         "ingest_limits": "configured",
         "temporal": "not_required",
-        "mediascribe": "not_required",
+        "mediascribe": "not_configured" if settings.mediascribe_base_url is None else "configured",
+        "langfuse": "not_configured" if settings.langfuse_base_url is None else "configured",
     }
-    status = "ready" if all(v in {"ok", "configured", "not_required"} for v in checks.values()) else "not_ready"
+    non_blocking_statuses = {"ok", "configured", "not_required", "not_configured"}
+    status = "ready" if all(v in non_blocking_statuses for v in checks.values()) else "not_ready"
     return status, checks
 
 

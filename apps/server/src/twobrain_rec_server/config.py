@@ -1,7 +1,21 @@
 from functools import lru_cache
+from pathlib import Path
+from urllib.parse import quote
+from uuid import UUID
 
 from pydantic import AnyUrl, Field, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
+FORBIDDEN_READINESS_VERDICTS = ("production_ready", "user_rollout_ready", "internal_user_pilot_ready")
+SMOKE_IDENTITY_CLASS = "internal_smoke"
+
+LOCAL_DEV_SMOKE_IDS = {
+    UUID("10000000-0000-0000-0000-000000000001"),
+    UUID("20000000-0000-0000-0000-000000000001"),
+    UUID("30000000-0000-0000-0000-000000000001"),
+    UUID("40000000-0000-0000-0000-000000000001"),
+}
 
 
 class Settings(BaseSettings):
@@ -29,6 +43,24 @@ class Settings(BaseSettings):
 
     public_base_url: AnyUrl | None = None
 
+    postgres_password_file: Path | None = None
+    minio_access_key_file: Path | None = None
+    minio_secret_key_file: Path | None = None
+    smoke_credential_file: Path | None = None
+
+    smoke_identity_class: str | None = None
+    smoke_organization_id: UUID | None = None
+    smoke_workspace_id: UUID | None = None
+    smoke_user_id: UUID | None = None
+    smoke_device_id: UUID | None = None
+
+    mediascribe_base_url: AnyUrl | None = None
+    mediascribe_health_url: AnyUrl | None = None
+    mediascribe_credential_file: Path | None = None
+    langfuse_base_url: AnyUrl | None = None
+    langfuse_health_url: AnyUrl | None = None
+    langfuse_credential_file: Path | None = None
+
     max_recording_duration_seconds: PositiveInt = Field(default=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
@@ -47,6 +79,21 @@ class Settings(BaseSettings):
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
+        for path in (
+            self.postgres_password_file,
+            self.minio_access_key_file,
+            self.minio_secret_key_file,
+            self.smoke_credential_file,
+        ):
+            if path is not None and not path.is_file():
+                raise ValueError("production Docker secret files must exist and be readable")
+        if self.postgres_password_file is not None:
+            postgres_password = self.postgres_password_file.read_text(encoding="utf-8").strip()
+            self.database_url = self.database_url.replace("__POSTGRES_PASSWORD__", quote(postgres_password, safe=""))
+        if self.minio_access_key_file is not None:
+            self.minio_access_key = self.minio_access_key_file.read_text(encoding="utf-8").strip()
+        if self.minio_secret_key_file is not None:
+            self.minio_secret_key = self.minio_secret_key_file.read_text(encoding="utf-8").strip()
         unsafe_hosts = ("localhost", "127.0.0.1", "0.0.0.0", "::1")
         if any(host in self.database_url for host in unsafe_hosts):
             raise ValueError("production database_url must not point at localhost or wildcard hosts")
@@ -58,6 +105,16 @@ class Settings(BaseSettings):
         root_markers = ("root", "admin")
         if any(marker in self.minio_access_key.lower() for marker in root_markers):
             raise ValueError("production MinIO API access key must not be a root/admin credential")
+        if self.smoke_identity_class is not None and self.smoke_identity_class != SMOKE_IDENTITY_CLASS:
+            raise ValueError("production smoke identity class must be internal_smoke")
+        smoke_ids = (
+            self.smoke_organization_id,
+            self.smoke_workspace_id,
+            self.smoke_user_id,
+            self.smoke_device_id,
+        )
+        if any(identifier in LOCAL_DEV_SMOKE_IDS for identifier in smoke_ids if identifier is not None):
+            raise ValueError("production smoke identity/device must not reuse local development seed identifiers")
         return self
 
 

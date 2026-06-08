@@ -10,10 +10,12 @@ def test_production_compose_separates_minio_root_and_api_credentials() -> None:
     api_env = compose["services"]["rec-api"]["environment"]
     minio_env = compose["services"]["rec-minio"]["environment"]
 
-    assert "TWOBRAIN_MINIO_API_ACCESS_KEY" in api_env["TWOBRAIN_MINIO_ACCESS_KEY"]
-    assert "TWOBRAIN_MINIO_API_SECRET_KEY" in api_env["TWOBRAIN_MINIO_SECRET_KEY"]
-    assert "TWOBRAIN_MINIO_ROOT_USER" in minio_env["MINIO_ROOT_USER"]
-    assert "TWOBRAIN_MINIO_ROOT_PASSWORD" in minio_env["MINIO_ROOT_PASSWORD"]
+    assert api_env["TWOBRAIN_MINIO_ACCESS_KEY"] == "__DOCKER_SECRET_FILE__"
+    assert api_env["TWOBRAIN_MINIO_SECRET_KEY"] == "__DOCKER_SECRET_FILE__"
+    assert "MINIO_ROOT_USER" not in minio_env
+    assert "MINIO_ROOT_PASSWORD" not in minio_env
+    assert minio_env["MINIO_ROOT_USER_FILE"] == "/run/secrets/twobrain_minio_root_user"
+    assert minio_env["MINIO_ROOT_PASSWORD_FILE"] == "/run/secrets/twobrain_minio_root_password"
     assert "rec-minio-init" in compose["services"]
 
 

@@ -592,7 +592,7 @@ policy, and audit identity without exposing another workspace's data.
 - Feature `010-recording-artifact-format` is the accepted local artifact
   baseline for upload input.
 - The first server ingest foundation targets internal MVP and self-hosted
-  deployment under `https://rec.2brain.dev`, with local development support.
+  deployment under `https://rec.2brain.pro`, with local development support.
 - Authentication and registered device identity are prerequisites for safe
   desktop ingest, but provider login and account linking are owned by the
   separate `013-federated-auth-foundation` slice.
