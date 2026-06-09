@@ -5556,3 +5556,54 @@
     from being accepted as a clean saved recording. It does not close #307,
     #308, #309, #310, #311, or #313 because the remaining gates require real
     manual recording and duration evidence.
+
+## 2026-06-09 Manual Gate Cleanup And Meter Source Review
+
+- Timestamp: `2026-06-09T10:20:00Z`
+- Scope: focused review after the safe-launch preflight hit a CPU gate failure
+  while `2brain Rec` app/helper CPU stayed at `0.00%`.
+- Review findings:
+  - Found one harness robustness issue: if `run-system-audio-controlled-manual-gate.sh
+    --preflight` exited early on a CPU gate failure, the packaged app could stay
+    running because the `EXIT` trap only stopped `caffeinate`.
+  - Fixed the harness to use a full runtime cleanup trap. Early exits now quit
+    the packaged app and stop `caffeinate` before returning the original failure
+    status.
+  - Added an executable `ContractValidation` invariant so the harness cannot
+    regress back to caffeinate-only cleanup.
+  - Reviewed the live meter source path and added an executable invariant that
+    recording meters must be driven by `LocalRecordingWriter.currentLevelsAsync()`,
+    not parked passthrough/driver diagnostics. Meters are also required to reset
+    inactive outside active local recording.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - Focused `swift test --package-path apps/macos --filter
+    LiveAudioSignalMonitorTests|CaptureControlTests|LocalRecordingWriterTests`
+    compiled the focused test bundle in the local SwiftPM/CLT environment. Full
+    XCTest execution remains unavailable locally because this machine uses
+    Command Line Tools without `xctest`.
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh
+    apps/macos/Scripts/sample-system-audio-cpu-gate.sh
+    apps/macos/Scripts/validate-system-audio-no-hal-probe.sh
+    apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - Forced fail-path validation passed: `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1
+    SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES=0
+    apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    returned failure as expected and left no packaged `2brain Rec` process.
+  - Fresh normal preflight remained blocked by CPU gate:
+    baseline `maxCoreaudiodCpuPercent=9.90`, idle
+    `maxCoreaudiodCpuPercent=10.00`, app/helper CPU `0.00`, and no packaged app
+    process left after exit. This is not accepted as a pass.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+- Acceptance impact:
+  - This hardens #309/#313 by making failed CPU-gate runs self-cleaning and by
+    pinning the UI meter source to actual local-writer capture levels. It does
+    not close #307, #308, #309, #310, #311, or #313 because current CPU evidence
+    is blocked and the remaining gates require real manual recording and
+    duration evidence.

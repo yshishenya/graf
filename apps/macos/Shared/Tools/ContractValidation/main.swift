@@ -1150,6 +1150,44 @@ func validateLiveAudioSignalMonitorFreshnessInvariant() throws {
     )
 }
 
+func validateRecordingMetersUseLocalWriterInvariant() throws {
+    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+    let source = try String(contentsOf: appSourceURL, encoding: .utf8)
+
+    try require(
+        source.contains("let recordingLevels = await writer.currentLevelsAsync()") &&
+            source.contains("microphoneLevel: recordingLevels.microphoneLevel") &&
+            source.contains("speakerLevel: recordingLevels.incomingLevel"),
+        "Recording UI meters must be driven by LocalRecordingWriter levels, not legacy passthrough levels"
+    )
+    try require(
+        source.contains("guard localRecordingActive, !recordingStartInProgress, !recordingStopInProgress else") &&
+            source.contains("liveRouteSignalLevels = .inactive"),
+        "Recording UI meters must reset to inactive outside active local recording"
+    )
+    try require(
+        !source.contains("liveRouteSignalLevels = PassthroughRouteEngine.shared.currentSignalLevels"),
+        "Recording UI meters must not be assigned from parked passthrough route levels"
+    )
+}
+
+func validateManualGateExitCleanupInvariant() throws {
+    let scriptURL = repositoryRoot.appendingPathComponent("apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh")
+    let source = try String(contentsOf: scriptURL, encoding: .utf8)
+
+    try require(
+        source.contains("cleanup_runtime()") &&
+            source.contains("trap - EXIT") &&
+            source.contains("quit_app") &&
+            source.contains("stop_caffeinate"),
+        "Manual gate cleanup must quit the packaged app and stop caffeinate on early exits"
+    )
+    try require(
+        source.contains("trap 'cleanup_runtime' EXIT"),
+        "Manual gate must install the full runtime cleanup trap after holding the wake assertion"
+    )
+}
+
 func validateLocalRecordingWriterTimerWriteFailureInvariant() throws {
     let writerSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift")
     let writerSource = try String(contentsOf: writerSourceURL, encoding: .utf8)
@@ -1297,6 +1335,8 @@ do {
     try await validateSystemAudioStartTimeoutCleanupOrdering()
     try validateAppStopFailureFailClosedSourceInvariant()
     try validateLiveAudioSignalMonitorFreshnessInvariant()
+    try validateRecordingMetersUseLocalWriterInvariant()
+    try validateManualGateExitCleanupInvariant()
     try validateLocalRecordingWriterTimerWriteFailureInvariant()
     print("ContractValidation: PASS")
 } catch {

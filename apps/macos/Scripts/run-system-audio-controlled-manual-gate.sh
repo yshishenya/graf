@@ -218,6 +218,14 @@ stop_caffeinate() {
   fi
 }
 
+cleanup_runtime() {
+  cleanup_status=$?
+  trap - EXIT
+  quit_app
+  stop_caffeinate
+  exit "$cleanup_status"
+}
+
 start_caffeinate() {
   if ! command -v caffeinate >/dev/null 2>&1; then
     printf '%s\n' "wake_assertion=blocked reason=missing_caffeinate command=caffeinate" >&2
@@ -225,7 +233,7 @@ start_caffeinate() {
   fi
   caffeinate -dimsu -w "$$" >/dev/null 2>&1 &
   caffeinate_pid="$!"
-  trap 'stop_caffeinate' EXIT
+  trap 'cleanup_runtime' EXIT
   printf '%s\n' "wake_assertion=held command=caffeinate flags=-dimsu pid=$caffeinate_pid"
 }
 
