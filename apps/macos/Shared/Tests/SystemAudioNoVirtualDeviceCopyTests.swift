@@ -27,12 +27,49 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
         XCTAssertFalse(driver.localizedCaseInsensitiveContains("before recording"))
     }
 
+    @MainActor
+    func testRestartPendingVirtualDevicesDoNotAskUserToRestartForParkedDiagnostics() {
+        let microphone = DriverSetupView.virtualDeviceText(.requiresRestart)
+        let speaker = DriverSetupView.virtualDeviceText(.requiresRestart)
+
+        XCTAssertEqual(microphone, "Not required for recording")
+        XCTAssertEqual(speaker, "Not required for recording")
+        XCTAssertFalse(microphone.localizedCaseInsensitiveContains("restart"))
+        XCTAssertFalse(speaker.localizedCaseInsensitiveContains("restart"))
+    }
+
     func testMVPStatusRefreshCopyDoesNotAskForDriverRepair() {
         let label = AdaptiveStatusText.recoveryActionLabel("refresh_local_audio_status")
 
         XCTAssertEqual(label, "Refresh local audio status")
         XCTAssertFalse(label.localizedCaseInsensitiveContains("driver"))
         XCTAssertFalse(label.localizedCaseInsensitiveContains("repair"))
+    }
+
+    func testAudioHealthHeaderSaysDriverIsNotRequiredForRecording() {
+        let label = AdaptiveStatusText.driverLabel(
+            .notInstalled,
+            virtualInputState: .missing,
+            virtualOutputState: .missing
+        )
+
+        XCTAssertEqual(label, "Driver not required for recording")
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("install"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("repair"))
+    }
+
+    @MainActor
+    func testDetailedAudioHealthCopyKeepsParkedLegacyRouteInactiveNotChecking() {
+        let liveRoute = AudioHealthView.livePassthroughLine(.inactive)
+        let microphone = AudioHealthView.virtualDeviceLine(
+            name: "2brain Rec Microphone",
+            state: .requiresRestart
+        )
+
+        XCTAssertEqual(liveRoute, "Inactive, not recording")
+        XCTAssertFalse(liveRoute.localizedCaseInsensitiveContains("checking"))
+        XCTAssertEqual(microphone, "2brain Rec Microphone · not required for recording")
+        XCTAssertFalse(microphone.localizedCaseInsensitiveContains("restart"))
     }
 
     func testLegacyDriverRepairActionIsParkedForMVPStatusCopy() {

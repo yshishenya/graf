@@ -136,7 +136,7 @@ unexpected_app_pids() {
         sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", line)
       }
       pid != self &&
-      line ~ /\/2brain Rec\.app\/Contents\/MacOS\/2brain Rec/ &&
+      line ~ /^\/.*\/2brain Rec\.app\/Contents\/MacOS\/2brain Rec([[:space:]]|$)/ &&
       !(line == expected || index(line, expected " ") == 1) {
         print pid
       }

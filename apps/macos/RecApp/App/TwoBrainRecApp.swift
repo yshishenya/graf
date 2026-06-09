@@ -137,10 +137,12 @@ private struct ContentView: View {
                 }
             }
         }
-        .onReceive(
-            Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
-        ) { _ in
-            pollRecordingLevelsIfNeeded()
+        .task(id: localRecordingActive) {
+            guard localRecordingActive else { return }
+            while !Task.isCancelled {
+                pollRecordingLevelsIfNeeded()
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
             guard !terminationCleanupInProgress else { return }
@@ -817,22 +819,23 @@ fileprivate struct LocalAudioSnapshot {
             atPath: "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"
         )
         let driverState: DriverInstallationState = driverExists ? .installed : .notInstalled
+        let virtualDeviceState: VirtualDeviceAvailabilityState = driverExists ? .requiresRestart : .missing
         let health = AudioHealthState(
             driverState: driverState,
-            virtualMicState: .requiresRestart,
-            virtualSpeakerState: .requiresRestart,
+            virtualMicState: virtualDeviceState,
+            virtualSpeakerState: virtualDeviceState,
             microphonePermission: .unknown,
             outputPermission: .unknown,
             passthroughStatus: .unknown,
-            continuityStatus: "Checking Core Audio in the background",
+            continuityStatus: "System audio recording uses macOS permissions; virtual devices are parked.",
             bufferRisk: .healthy,
-            livePassthroughStatus: .checking,
+            livePassthroughStatus: .inactive,
             recoveryActions: []
         )
         return LocalAudioSnapshot(
             driverState: driverState,
-            virtualMicrophoneState: .requiresRestart,
-            virtualSpeakerState: .requiresRestart,
+            virtualMicrophoneState: virtualDeviceState,
+            virtualSpeakerState: virtualDeviceState,
             routeVerification: nil,
             healthState: health,
             defaultInputName: nil,

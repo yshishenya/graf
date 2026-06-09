@@ -6000,3 +6000,78 @@
     manual gate is still blocked until baseline `coreaudiod` load is quiet
     enough for a fair recording run, and permission/artifact/duration/scope
     manual acceptance remains incomplete.
+
+## 2026-06-09 Installed App Idle And Status Follow-Up
+
+- Timestamp: `2026-06-09T15:00:00Z`
+- Scope: follow-up after the tester confirmed the incoming sound became normal
+  and clarified that Telemost was running during the earlier hot baseline.
+- Findings:
+  - With Telemost/Opera/2brain Rec closed, `coreaudiod` returned to `0.0%` and
+    `pmset -g therm` reported no thermal or performance warning. This supports
+    the hot baseline diagnosis: the earlier `coreaudiod ~9-11%` was a live
+    external audio session, not idle 2brain Rec load.
+  - Fresh preflight after Telemost was closed passed for baseline, idle, quit,
+    no-HAL, and thermal gates.
+  - The installed UI still had confusing parked-driver copy in the detailed
+    Audio Health view: `Driver not installed`, `restart pending`, and
+    `Checking Core Audio in the background` could look like required action or
+    a stuck check even though system-audio recording no longer depends on the
+    legacy HAL driver.
+  - The CPU gate duplicate-process detector correctly caught installed-vs-repo
+    process conflicts, but also needed a stricter executable-path match so shell
+    commands containing the app path did not count as extra app processes.
+  - The SwiftUI level polling timer woke every 0.2 seconds even when no
+    recording was active. Steady-state idle was already low, but removing the
+    always-on timer reduced idle wakeups and avoids UI work while not recording.
+- Changes:
+  - App launch placeholder now marks legacy virtual devices as `.missing` when
+    the driver is absent, and marks legacy live route `.inactive` with parked
+    continuity copy instead of `.checking`.
+  - Audio Health copy now says `Driver not required for recording`, legacy
+    virtual devices are `missing, not required for recording`, and legacy live
+    route is `Inactive, not recording`.
+  - Level polling no longer uses an always-on SwiftUI `Timer.publish(every:
+    0.2)`. Polling now runs only while `localRecordingActive` is true.
+  - `sample-system-audio-cpu-gate.sh` now matches unexpected app processes only
+    when the process command starts with an actual `2brain Rec.app` executable
+    path, avoiding false positives from shell commands that merely contain that
+    path.
+  - Non-recording preflight now waits 20 seconds before idle CPU sampling so it
+    measures steady-state idle after launch rendering, not initial window
+    warmup.
+- Validation:
+  - Focused UI-copy test passed:
+    `swift test --package-path apps/macos --filter
+    SystemAudioNoVirtualDeviceCopyTests` ran 11 tests with 0 failures.
+  - Full SwiftPM suite passed: `swift test --package-path apps/macos` ran 333
+    tests with 0 failures.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `git diff --check` passed.
+  - Shell syntax passed for `run-system-audio-controlled-manual-gate.sh` and
+    `sample-system-audio-cpu-gate.sh`.
+  - `run-system-audio-controlled-manual-gate.sh --self-test` passed.
+  - `validate-system-audio-capture-pivot.sh --self-test-cpu-evidence` passed.
+  - Installed-as-expected CPU sampler passed with
+    `maxUnexpectedAppProcessCount=0`; repo-expected while installed app was
+    running failed as intended with `failureReason=unexpectedAppProcessRunning`.
+  - `run-system-audio-controlled-manual-gate.sh --preflight` passed:
+    baseline `coreaudiod=0.00%`, idle app/helper `0.00%`, quit app/helper
+    `0.00%`, `maxUnexpectedAppProcessCount=0`, no HAL probe, and no thermal or
+    performance warning.
+  - A fresh app-only package was built and installed to
+    `/Applications/2brain Rec.app`; installed and repo app hashes matched:
+    `1513fe8061663a479c8056fedc52a5f771a2684bf3ddd913a3ca0c5278e21ea0`.
+  - `/Library/Audio/Plug-Ins/HAL` contained only `KrispAudio.driver` and
+    `ParrotAudioPlugin.driver`; `2brainRecProof.driver` was not reinstalled.
+  - Installed app steady-state idle smoke passed after 20 seconds: 5 samples
+    showed app/helper `0.00%`, `coreaudiod=0.00%`, one app process,
+    `maxUnexpectedAppProcessCount=0`, RSS about `91.7 MB`, and no thermal or
+    performance warning.
+- Acceptance impact:
+  - This resolves the non-recording launch/status/idle-load issues found during
+    the follow-up review and strengthens #309/#313 evidence. It does not close
+    the feature because the recording manual gates still remain: permission
+    matrix, controlled artifact matrix, activeRecording CPU, stop CPU,
+    30-minute duration, 75-minute duration, and final scope review.

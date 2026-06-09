@@ -31,13 +31,13 @@ public struct AudioHealthView: View {
                 )
                 line(
                     label: "Legacy virtual microphone",
-                    detail: virtualDeviceLine(name: "2brain Rec Microphone", state: state.virtualMicState),
+                    detail: Self.virtualDeviceLine(name: "2brain Rec Microphone", state: state.virtualMicState),
                     icon: statusIcon(state.virtualMicState == .available),
                     emphasis: .normal
                 )
                 line(
                     label: "Legacy virtual speaker",
-                    detail: virtualDeviceLine(name: "2brain Rec Speaker", state: state.virtualSpeakerState),
+                    detail: Self.virtualDeviceLine(name: "2brain Rec Speaker", state: state.virtualSpeakerState),
                     icon: statusIcon(state.virtualSpeakerState == .available),
                     emphasis: .normal
                 )
@@ -78,9 +78,9 @@ public struct AudioHealthView: View {
                 if let liveStatus = state.livePassthroughStatus {
                     line(
                         label: "Legacy live route",
-                        detail: livePassthroughLine(liveStatus),
+                        detail: Self.livePassthroughLine(liveStatus),
                         icon: livePassthroughIcon(liveStatus),
-                        emphasis: liveStatus == .active || liveStatus == .ready ? .normal : .warning
+                        emphasis: [.inactive, .active, .ready].contains(liveStatus) ? .normal : .warning
                     )
                 }
                 if let continuity = state.continuityStatus {
@@ -188,10 +188,10 @@ public struct AudioHealthView: View {
         }
     }
 
-    private func livePassthroughLine(_ status: LivePassthroughStatus) -> String {
+    public static func livePassthroughLine(_ status: LivePassthroughStatus) -> String {
         switch status {
         case .inactive:
-            return "Inactive"
+            return "Inactive, not recording"
         case .checking:
             return "Checking"
         case .ready:
@@ -269,12 +269,12 @@ public struct AudioHealthView: View {
         return "\(name) · available"
     }
 
-    private func virtualDeviceLine(name: String, state: VirtualDeviceAvailabilityState) -> String {
+    public static func virtualDeviceLine(name: String, state: VirtualDeviceAvailabilityState) -> String {
         switch state {
         case .available:
             return "\(name) · visible for diagnostics, not required for recording"
         case .requiresRestart:
-            return "\(name) · restart pending, not required for recording"
+            return "\(name) · not required for recording"
         case .missing:
             return "\(name) · missing, not required for recording"
         case .hidden:

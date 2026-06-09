@@ -98,7 +98,7 @@ public struct DriverSetupView: View {
         case .installed:
             return "Installed for diagnostics"
         case .requiresRestart:
-            return "Restart later"
+            return "Not required for recording"
         case .missing:
             return "Not required for recording"
         case .hidden:

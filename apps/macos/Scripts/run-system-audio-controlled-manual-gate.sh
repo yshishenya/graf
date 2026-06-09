@@ -342,7 +342,7 @@ run_preflight() {
   printf '\n%s\n' "-- idle CPU with packaged app running, no recording --"
   SYSTEM_AUDIO_CPU_GATE_SAMPLES="${SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES:-3}" \
   SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_INTERVAL_SECONDS:-2}" \
-  SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_SETTLE_SECONDS:-5}" \
+  SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_SETTLE_SECONDS:-20}" \
     apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle
 
   printf '\n%s\n' "-- quit packaged app --"

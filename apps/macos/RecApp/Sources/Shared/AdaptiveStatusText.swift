@@ -116,7 +116,7 @@ public extension AdaptiveStatusText {
         case .uninstalled:
             return "Driver removed"
         case .notInstalled:
-            return "Driver not installed"
+            return "Driver not required for recording"
         case .incompatible:
             return "Driver unsupported on this host"
         }
