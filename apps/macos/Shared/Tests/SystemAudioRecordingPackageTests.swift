@@ -159,5 +159,50 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         XCTAssertEqual(manifest.permissions?.microphone, .granted)
         XCTAssertEqual(manifest.permissions?.systemAudio, .granted)
     }
+
+    func testAsyncStartFailureDoesNotLeaveWriterRecording() async throws {
+        let blockedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-package-blocked-root-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: blockedRoot.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: blockedRoot) }
+
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: blockedRoot),
+            microphoneSampleSourceFactory: { BufferedLocalRecordingSampleSource() },
+            incomingSampleSourceFactory: { BufferedLocalRecordingSampleSource() },
+            recordMicrophone: true
+        )
+
+        do {
+            _ = try await writer.startAsync(
+                sessionId: "session-blocked-start",
+                startedAt: Date(timeIntervalSince1970: 40),
+                scopeApproval: scopeApproval(id: "scope-blocked-start"),
+                permissions: grantedPermissions()
+            )
+            XCTFail("Start should fail when the recording root is a file")
+        } catch LocalRecordingWriterError.directoryUnavailable {
+            XCTAssertFalse(writer.isRecording)
+        }
+    }
 }
 #endif
+
+private func scopeApproval(id: String) -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: id,
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 39),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
+    )
+}
+
+private func grantedPermissions() -> SystemAudioPermissionSnapshot {
+    SystemAudioPermissionSnapshot(
+        microphone: .granted,
+        systemAudio: .granted,
+        evaluatedAt: Date(timeIntervalSince1970: 39)
+    )
+}

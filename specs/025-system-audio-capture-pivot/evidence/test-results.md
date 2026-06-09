@@ -2693,3 +2693,53 @@
   - This reduces false/blank UI state and start/stop race risk during recording
     startup. It does not close #307, #308, #309 active/stop, #310, #311, or
     #313.
+
+## 2026-06-09 Writer Partial-Start Cleanup Review
+
+- Timestamp: `2026-06-09T02:39:47Z`
+- Commit before change: `d8085bb`
+- Scope: local writer resource cleanup and longer non-recording runtime smoke.
+- Finding:
+  - `LocalRecordingWriter.startOnQueue(...)` created the recording directory
+    and then initialized microphone/remote WAV writers, recorder, scratch
+    memory, and timer.
+  - If setup failed after the directory was created but before `active` was
+    assigned, partial directories or open file handles could be left behind.
+  - This was unlikely on the happy path but risky around storage, permissions,
+    and recorder setup failures.
+- Fix:
+  - Added fail-closed cleanup during writer start: on pre-active failure the
+    writer stops any recorder, closes any opened WAV writers, deallocates
+    scratch memory, and removes the partial recording directory.
+  - Added async-start failure coverage proving an unavailable recording root
+    returns `directoryUnavailable` and does not leave the writer recording.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the updated package
+    test bundle on this CLT host, including the async-start failure test.
+  - Full `xcrun xctest` execution remains unavailable because `xcode-select -p`
+    is `/Library/Developer/CommandLineTools` and `xcrun --find xctest` exits
+    72.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - Longer non-recording packaged app preflight passed with
+    `SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES=12`,
+    `SYSTEM_AUDIO_PREFLIGHT_CPU_INTERVAL_SECONDS=5`,
+    `SYSTEM_AUDIO_PREFLIGHT_CPU_SETTLE_SECONDS=5`, and
+    `SYSTEM_AUDIO_PREFLIGHT_QUIT_SETTLE_SECONDS=5`.
+  - Long idle CPU passed with `sampleCount=12`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.30`, and one app
+    process.
+  - Long quit CPU passed with `sampleCount=12`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, and zero
+    app/helper processes.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Latest app log showed packaged app launch, visible main window, auto route
+    skipped by default, termination cleanup completed, and passthrough engine
+    stopped; no app crash or hang marker appeared in the reviewed tail.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This reduces local artifact/resource leaks when writer start fails and gives
+    stronger idle/quit evidence. It does not close #307, #308, #309
+    active/stop, #310, #311, or #313.

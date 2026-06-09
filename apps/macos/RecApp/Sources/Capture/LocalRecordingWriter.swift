@@ -263,16 +263,33 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             throw LocalRecordingWriterError.directoryUnavailable
         }
 
+        var startSucceeded = false
+        var microphoneForCleanup: AVAudioRecorder?
+        var microphoneWriterForCleanup: PCM16MonoWAVFileWriter?
+        var remoteWriterForCleanup: PCM16MonoWAVFileWriter?
+        var scratchForCleanup: UnsafeMutablePointer<Float>?
+        defer {
+            if !startSucceeded {
+                microphoneForCleanup?.stop()
+                try? microphoneWriterForCleanup?.close()
+                try? remoteWriterForCleanup?.close()
+                scratchForCleanup?.deallocate()
+                try? FileManager.default.removeItem(at: directory.directoryURL)
+            }
+        }
+
         let microphoneSampleSource = microphoneSampleSourceFactory()
         let microphoneWriter: PCM16MonoWAVFileWriter?
         let microphone: AVAudioRecorder?
         if let microphoneSampleSource {
             microphone = nil
             microphoneWriter = try PCM16MonoWAVFileWriter(url: directory.localMicURL)
+            microphoneWriterForCleanup = microphoneWriter
             _ = microphoneSampleSource
         } else {
             microphoneWriter = nil
             microphone = try Self.makeMicrophoneRecorder(url: directory.localMicURL)
+            microphoneForCleanup = microphone
         }
         if recordMicrophone, microphoneSampleSource == nil {
             microphone?.isMeteringEnabled = true
@@ -282,9 +299,11 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         }
 
         let remoteWriter = try PCM16MonoWAVFileWriter(url: directory.remoteSpeakerURL)
+        remoteWriterForCleanup = remoteWriter
         let incomingSampleSource = incomingSampleSourceFactory()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
+        scratchForCleanup = scratch
         timer.schedule(deadline: .now(), repeating: .milliseconds(50))
         timer.setEventHandler { [weak self] in
             guard let self, let active = self.active else { return }
@@ -322,6 +341,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             permissions: permissions
         )
         active = activeRecording
+        startSucceeded = true
         timer.resume()
         return directory
     }
