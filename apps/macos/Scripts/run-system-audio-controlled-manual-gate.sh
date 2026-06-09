@@ -69,6 +69,10 @@ app_process_count() {
     '
 }
 
+any_2brain_rec_process_count() {
+  pgrep -x "2brain Rec" 2>/dev/null | wc -l | tr -d ' '
+}
+
 line_has_event_since_epoch() {
   line="$1"
   pattern="$2"
@@ -221,7 +225,7 @@ stop_caffeinate() {
 cleanup_runtime() {
   cleanup_status=$?
   trap - EXIT
-  quit_app
+  quit_any_2brain_rec_app
   stop_caffeinate
   exit "$cleanup_status"
 }
@@ -245,6 +249,22 @@ quit_app() {
   remaining=10
   while [ "$remaining" -gt 0 ]; do
     if [ "$(app_process_count)" -eq 0 ]; then
+      return 0
+    fi
+    sleep 1
+    remaining=$((remaining - 1))
+  done
+  pkill -x "2brain Rec" 2>/dev/null || true
+}
+
+quit_any_2brain_rec_app() {
+  if [ "$(any_2brain_rec_process_count)" -eq 0 ]; then
+    return 0
+  fi
+  osascript -e 'tell application "2brain Rec" to quit' >/dev/null 2>&1 || true
+  remaining=10
+  while [ "$remaining" -gt 0 ]; do
+    if [ "$(any_2brain_rec_process_count)" -eq 0 ]; then
       return 0
     fi
     sleep 1
@@ -313,7 +333,7 @@ launch_packaged_app() {
     printf '%s\n' "app_launch=blocked reason=missing_app_bundle bundle=$APP_BUNDLE" >&2
     exit 2
   }
-  quit_app
+  quit_any_2brain_rec_app
   open -n "$APP_BUNDLE"
   wait_for_app_launch
 }
@@ -376,6 +396,7 @@ printf '%s\n' "artifact_min_mtime_epoch=$manual_gate_started_epoch"
 start_caffeinate
 
 run_app_only_package_boundary
+quit_any_2brain_rec_app
 run_baseline_cpu
 launch_packaged_app
 

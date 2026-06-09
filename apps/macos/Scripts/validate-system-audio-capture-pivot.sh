@@ -443,6 +443,7 @@ validate_cpu_evaluation_passed() {
     max_app_cpu_percent="$(evaluation_field maxAppHelperCpuPercent "$evaluation")"
     max_app_process_count="$(evaluation_field maxAppProcessCount "$evaluation")"
     max_helper_process_count="$(evaluation_field maxHelperProcessCount "$evaluation")"
+    max_unexpected_app_process_count="$(evaluation_field maxUnexpectedAppProcessCount "$evaluation")"
     max_core_rss_mb="$(evaluation_field maxCoreaudiodRssMB "$evaluation")"
     max_app_rss_mb="$(evaluation_field maxAppHelperRssMB "$evaluation")"
     sustained_core_exceeded="$(evaluation_field sustainedCoreaudiodExceeded "$evaluation")"
@@ -484,12 +485,17 @@ validate_cpu_evaluation_passed() {
             ;;
     esac
 
-    case "$max_app_process_count:$max_helper_process_count" in
+    case "$max_app_process_count:$max_helper_process_count:$max_unexpected_app_process_count" in
         *[!0-9:]*|:*|*:)
             printf '%s\n' "$source_label is missing numeric process counts: $evaluation"
             return 1
             ;;
     esac
+
+    if [ "$max_unexpected_app_process_count" != "0" ]; then
+        printf '%s\n' "$source_label observed an unexpected extra 2brain Rec process: $evaluation"
+        return 1
+    fi
 
     case "$phase" in
         idle|stop|quit)
@@ -571,10 +577,10 @@ expect_cpu_evaluation_rejects() {
 }
 
 self_test_cpu_evidence() {
-    valid_idle="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=4.99 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired"
-    valid_active="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=12.00 maxAppHelperCpuPercent=26.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=true"
-    valid_stop="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.10 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=true"
-    valid_quit="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired"
+    valid_idle="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=4.99 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 maxUnexpectedAppProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired"
+    valid_active="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=12.00 maxAppHelperCpuPercent=26.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 maxUnexpectedAppProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=true"
+    valid_stop="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.10 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 maxUnexpectedAppProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=true"
+    valid_quit="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 maxUnexpectedAppProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired"
 
     expect_cpu_evaluation_accepts "valid-idle" idle "$valid_idle"
     expect_cpu_evaluation_accepts "valid-active-burst-without-sustained-exceedance" activeRecording "$valid_active"
@@ -588,6 +594,8 @@ self_test_cpu_evidence() {
     expect_cpu_evaluation_rejects "idle-ceiling" idle "$(printf '%s\n' "$valid_idle" | sed 's/maxCoreaudiodCpuPercent=4.99/maxCoreaudiodCpuPercent=5.00/')"
     expect_cpu_evaluation_rejects "sustained-core" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/sustainedCoreaudiodExceeded=false/sustainedCoreaudiodExceeded=true/')"
     expect_cpu_evaluation_rejects "missing-app-process" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/maxAppProcessCount=1/maxAppProcessCount=0/')"
+    expect_cpu_evaluation_rejects "unexpected-app-process" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/maxUnexpectedAppProcessCount=0/maxUnexpectedAppProcessCount=1/')"
+    expect_cpu_evaluation_rejects "missing-unexpected-app-process-field" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/maxUnexpectedAppProcessCount=0 //')"
     expect_cpu_evaluation_rejects "active-missing-event-binding" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/phaseEventObserved=true/phaseEventObserved=false/')"
     expect_cpu_evaluation_rejects "stop-missing-event-binding" stop "$(printf '%s\n' "$valid_stop" | sed 's/phaseEventObserved=true/phaseEventObserved=false/')"
     expect_cpu_evaluation_rejects "quit-process-left" quit "$(printf '%s\n' "$valid_quit" | sed 's/maxAppProcessCount=0/maxAppProcessCount=1/')"

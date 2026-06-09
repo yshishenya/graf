@@ -5942,3 +5942,61 @@
     #311, or #313 because permission matrices, controlled artifacts,
     active/stop CPU, long duration runs, and final scope-review markers remain
     manual gates.
+
+## 2026-06-09 Duplicate App Process Gate Hardening
+
+- Timestamp: `2026-06-09T14:35:00Z`
+- Scope: follow-up review after the tester reported incoming sound became
+  normal. The review focused on why preflight/manual CPU gates could still be
+  misleading while the installed app and repo-packaged app were both possible
+  launch targets.
+- Review findings:
+  - The controlled manual gate launched the repo-packaged app with `open -n`,
+    but cleanup only targeted the expected repo app process. If the installed
+    `/Applications/2brain Rec.app` instance was already running, both instances
+    could coexist during validation.
+  - The CPU sampler counted only the expected app binary, so a second installed
+    app instance could stay invisible to pass/fail evaluation.
+  - A hot baseline remained after all `2brain Rec` processes were closed:
+    `coreaudiod` was around `9-11%` while Opera had an active renderer around
+    `52%`. `/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver` was removed
+    during diagnosis, and only `KrispAudio.driver` and
+    `ParrotAudioPlugin.driver` remained in HAL. This means the current hot
+    baseline is not caused by an active 2brain app process or the old proof
+    driver alone.
+- Changes:
+  - `sample-system-audio-cpu-gate.sh` now records
+    `unexpectedAppProcessCount` for any extra `2brain Rec.app` process that
+    does not match the expected packaged app binary.
+  - CPU evaluation now fails with
+    `failureReason=unexpectedAppProcessRunning` when an unexpected app process
+    is present, and the validator rejects evidence missing or exceeding
+    `maxUnexpectedAppProcessCount=0`.
+  - `run-system-audio-controlled-manual-gate.sh` now quits any existing
+    `2brain Rec` process before baseline sampling and before launching the
+    packaged app, then also uses the same broad cleanup on exit.
+  - The CPU sampler exports `LC_ALL=C` so new CPU/RSS evidence always uses a
+    dot decimal separator regardless of the user's macOS locale.
+- Validation:
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh
+    apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh
+    apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh
+    --self-test-cpu-evidence` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh
+    --self-test` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh
+    --self-test-review-evidence` passed.
+  - Negative process-isolation check passed: with installed
+    `/Applications/2brain Rec.app` running and the sampler expecting the repo
+    packaged app, `sample-system-audio-cpu-gate.sh idle` exited non-zero with
+    `failureReason=unexpectedAppProcessRunning` and
+    `maxUnexpectedAppProcessCount=1`.
+  - Follow-up process check found no remaining `2brain Rec` process after the
+    negative test cleanup.
+- Acceptance impact:
+  - This hardens #309/#313 and prevents false-green CPU evidence when multiple
+    app instances are present. It does not close the feature because the full
+    manual gate is still blocked until baseline `coreaudiod` load is quiet
+    enough for a fair recording run, and permission/artifact/duration/scope
+    manual acceptance remains incomplete.
