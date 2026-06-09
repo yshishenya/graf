@@ -6102,7 +6102,9 @@
     apps/macos/Scripts/sample-system-audio-cpu-gate.sh
     apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
   - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
-    passed.
+    passed. The self-test now also injects a synthetic Telemost process through
+    a temporary `ps` shim and proves that the clean-baseline guard blocks before
+    baseline, while the documented overrides still work.
   - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
     passed after the guard: baseline, idle, and quit CPU samples all reported
     `coreaudiodCpuPercent=0.00`, app/helper CPU `0.00`, no unexpected app

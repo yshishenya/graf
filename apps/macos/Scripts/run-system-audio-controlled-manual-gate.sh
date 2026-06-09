@@ -207,7 +207,9 @@ block_if_app_log_event_since_epoch() {
 run_self_test() {
   original_app_log="$APP_LOG"
   temp_log="$(mktemp)"
-  trap 'rm -f "$temp_log"' EXIT
+  temp_bin="$(mktemp -d)"
+  block_output="$(mktemp)"
+  trap 'rm -f "$temp_log" "$block_output"; rm -rf "$temp_bin"' EXIT
   APP_LOG="$temp_log"
 
   printf '2026-06-09T04:00:00Z event=recording.started detail=old\n' >> "$APP_LOG"
@@ -225,6 +227,38 @@ run_self_test() {
   if ( block_if_app_log_event_since_epoch "event=recording\\.stopped" 1780978200 "self_test_stop_block" "$old_offset" ) >/dev/null 2>&1; then
     fail_self_test "unexpected recording.stopped event did not block"
   fi
+
+  cat > "$temp_bin/ps" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-axo" ]; then
+  printf '%s\n' "1234 /Applications/Yandex Telemost.app/Contents/MacOS/Telemost"
+  exit 0
+fi
+exec /bin/ps "$@"
+EOF
+  chmod +x "$temp_bin/ps"
+
+  original_path="$PATH"
+  PATH="$temp_bin:$PATH"
+  if ( require_clean_baseline_context ) >"$block_output" 2>&1; then
+    PATH="$original_path"
+    fail_self_test "running meeting process did not block clean-baseline guard"
+  fi
+  grep -F "reason=meetingProcessRunningBeforeBaseline" "$block_output" >/dev/null 2>&1 || {
+    PATH="$original_path"
+    fail_self_test "clean-baseline guard blocked without expected reason"
+  }
+
+  if ! ( SYSTEM_AUDIO_MANUAL_GATE_ALLOWED_MEETING_PROCESS=1; export SYSTEM_AUDIO_MANUAL_GATE_ALLOWED_MEETING_PROCESS; printf '\n' | require_clean_baseline_context ) >/dev/null 2>&1; then
+    PATH="$original_path"
+    fail_self_test "allowed meeting process override did not reach confirmation prompt"
+  fi
+
+  if ! ( SYSTEM_AUDIO_MANUAL_GATE_ASSUME_CLEAN_BASELINE=1; export SYSTEM_AUDIO_MANUAL_GATE_ASSUME_CLEAN_BASELINE; require_clean_baseline_context ) >/dev/null 2>&1; then
+    PATH="$original_path"
+    fail_self_test "assume-clean-baseline override did not skip guard"
+  fi
+  PATH="$original_path"
 
   apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata >/dev/null ||
     fail_self_test "artifact metadata validator self-test failed"
