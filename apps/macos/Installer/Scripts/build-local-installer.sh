@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
 set -eu
+export COPYFILE_DISABLE=1
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 INSTALLER_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
@@ -128,6 +129,8 @@ else
   codesign --force --sign - "$APP_BUNDLE" >/dev/null
 fi
 
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+
 APP_SIGNATURE=$(codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1)
 if printf '%s\n' "$APP_SIGNATURE" | grep -q '^Signature=adhoc' &&
    [ "$ALLOW_ADHOC_APP_SIGNING" != "1" ] &&
@@ -151,8 +154,10 @@ EOF
 fi
 
 cp -R "$APP_BUNDLE" "$STAGE_DIR/app/Applications/"
+xattr -cr "$STAGE_DIR/app" 2>/dev/null || true
 if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
   cp -R "$DRIVER_BUNDLE" "$STAGE_DIR/driver/Library/Audio/Plug-Ins/HAL/"
+  xattr -cr "$STAGE_DIR/driver" 2>/dev/null || true
   cp "$SCRIPT_DIR/postinstall.sh" "$SCRIPTS_DIR/audio-driver/postinstall"
   chmod 755 "$SCRIPTS_DIR/audio-driver/postinstall"
 

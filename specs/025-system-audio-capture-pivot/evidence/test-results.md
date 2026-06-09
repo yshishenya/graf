@@ -4205,3 +4205,54 @@
   - This hardens #308 and #313 against overstated WAV frame metadata. It does
     not close #308 because accepted controlled artifact evidence still requires
     a real manual Record/Stop run.
+
+## 2026-06-09 Installer Permission Metadata Review
+
+- Timestamp: `2026-06-09T06:48:44Z`
+- Commit before change: `54c7733`
+- Scope: app-only installer packaging, permission prompt metadata, and safe
+  launch preflight.
+- Finding:
+  - The generated app bundle had the required `NSMicrophoneUsageDescription`
+    and `NSScreenCaptureUsageDescription` keys, but the installer validator did
+    not explicitly check that the staging root stayed free of Finder sidecar
+    files.
+  - Local `pkgbuild` serializes macOS provenance metadata as AppleDouble entries
+    in package payload listings. Those are package metadata, not sidecar files
+    present in the staging root, so the useful gate is to reject actual staging
+    `._*` and `.DS_Store` files before package creation.
+- Fix:
+  - `build-local-installer.sh` now sets `COPYFILE_DISABLE=1` and clears
+    removable extended attributes from the app bundle and staging roots.
+  - `validate-system-audio-capture-pivot.sh --installer-app-only` now rejects
+    real Finder sidecar files in the app staging root.
+- Validation:
+  - `sh -n apps/macos/Installer/Scripts/build-local-installer.sh` passed.
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - `find apps/macos/.build/installer/stage/app \( -name '._*' -o -name '.DS_Store' \) -print`
+    returned no files.
+  - `Info.plist` contains `CFBundleIdentifier=pro.2brain.rec`,
+    `NSMicrophoneUsageDescription`, `NSScreenCaptureUsageDescription`,
+    `ApplePersistenceIgnoreState=true`, and `NSQuitAlwaysKeepsWindows=false`.
+  - `codesign --verify --deep --strict` passed for the generated app bundle.
+    The local package uses ad-hoc signing because this validation host is a
+    local development environment.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    CPU `0.00%`, max app/helper CPU `0.10%`, `maxAppHelperRssMB=97.94`, quit
+    CPU `0.00%`, app/helper process count `0`, and no thermal/performance
+    warning.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This hardens #307 and #313 before manual permission-matrix testing. It does
+    not close #307 because the five real TCC grant/deny/revoke rows still
+    require manual validation.

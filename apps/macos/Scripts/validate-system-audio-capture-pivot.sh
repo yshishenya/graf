@@ -853,7 +853,8 @@ validate_installer_app_only() {
 
     build_output="$(mktemp)"
     failure_file="$(mktemp)"
-    trap 'rm -f "$build_output" "$failure_file"' EXIT
+    stage_sidecars="$build_output.stage-sidecars"
+    trap 'rm -f "$build_output" "$failure_file" "$stage_sidecars"' EXIT
 
     if ! TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 \
         TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=0 \
@@ -862,6 +863,7 @@ validate_installer_app_only() {
     fi
 
     component_dir="$ROOT_DIR/apps/macos/.build/installer/components"
+    stage_app_dir="$ROOT_DIR/apps/macos/.build/installer/stage/app"
     distribution="$ROOT_DIR/apps/macos/.build/installer/distribution.xml"
     package="$ROOT_DIR/apps/macos/.build/installer/2brain-rec-local.pkg"
 
@@ -873,6 +875,11 @@ validate_installer_app_only() {
     fi
     if [ -f "$distribution" ] && rg -n "audio-driver|2brain-rec-audio-driver" "$distribution" >/dev/null 2>&1; then
         printf '%s\n' "distribution.xml contains audio-driver package references" >> "$failure_file"
+    fi
+    if find "$stage_app_dir" \( -name '._*' -o -name '.DS_Store' \) -print > "$stage_sidecars" &&
+        [ -s "$stage_sidecars" ]; then
+        printf '%s\n' "desktop app staging root contains AppleDouble or Finder sidecar files" >> "$failure_file"
+        sed 's/^/stage sidecar: /' "$stage_sidecars" >> "$failure_file"
     fi
 
     append_run_header "$DRIVER_PARKED" "App-Only Installer Validator Run"
@@ -900,7 +907,7 @@ validate_installer_app_only() {
 
     {
         printf -- '- Validator result: `passed`\n'
-        printf -- '- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.\n'
+        printf -- '- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.\n'
     } >> "$DRIVER_PARKED"
 
     passed "default local package is app-only"
