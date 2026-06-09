@@ -36,13 +36,19 @@ public struct LocalRecordingManifestService: Sendable {
         let durationDifferenceSeconds = Self.durationDifferenceSeconds(tracks: tracks)
         let scopeAllowsAcceptedRecording = scopeApproval?.isAcceptedForMeetingRecording ?? false
         let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? false
+        let externallyFailed = failureReason != .none
         let complete = hasExactlyOneRequiredTrackPerRole &&
             tracks.allSatisfy(\.isMediaScribeReady) &&
             scopeAllowsAcceptedRecording &&
             permissionsAllowAcceptedRecording &&
-            durationDifferenceSeconds <= 3
+            durationDifferenceSeconds <= 3 &&
+            !externallyFailed
         let status: LocalRecordingSessionStatus = if complete {
             .saved
+        } else if Self.isBlockedFailure(failureReason) {
+            .blocked
+        } else if Self.isFailedFailure(failureReason) {
+            .failed
         } else if tracks.contains(where: { $0.status == .blocked }) {
             .blocked
         } else if tracks.contains(where: { $0.status == .failed }) {
@@ -121,6 +127,32 @@ public struct LocalRecordingManifestService: Sendable {
             return .formatNotReady
         }
         return .emptyRequiredTrack
+    }
+
+    private static func isBlockedFailure(_ reason: LocalRecordingFailureReason) -> Bool {
+        switch reason {
+        case .permissionDenied, .scopeUnavailable, .protectedAudioBlocked:
+            return true
+        case .none, .directoryUnavailable, .writeFailed, .finalizationFailed,
+             .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .silentInput, .noFrames, .captureFailed, .cpuGateFailed,
+             .stoppedBeforeFrames, .halProbeObserved, .deviceUnavailable,
+             .legacyNotReady, .appClosed, .unknown:
+            return false
+        }
+    }
+
+    private static func isFailedFailure(_ reason: LocalRecordingFailureReason) -> Bool {
+        switch reason {
+        case .directoryUnavailable, .writeFailed, .finalizationFailed, .captureFailed,
+             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .appClosed:
+            return true
+        case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .permissionDenied, .scopeUnavailable, .protectedAudioBlocked,
+             .silentInput, .noFrames, .stoppedBeforeFrames, .legacyNotReady,
+             .unknown:
+            return false
+        }
     }
 
     private static func durationDifferenceSeconds(tracks: [LocalRecordingTrack]) -> Double {

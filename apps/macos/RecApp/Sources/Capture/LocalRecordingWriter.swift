@@ -367,17 +367,28 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         return directory
     }
 
-    public func stop(stoppedAt: Date = Date()) throws -> LocalRecordingManifest {
+    public func stop(
+        stoppedAt: Date = Date(),
+        failureReason: LocalRecordingFailureReason = .none
+    ) throws -> LocalRecordingManifest {
         try queue.sync {
-            try stopOnQueue(stoppedAt: stoppedAt)
+            try stopOnQueue(stoppedAt: stoppedAt, failureReason: failureReason)
         }
     }
 
-    public func stopAsync(stoppedAt: Date = Date()) async throws -> LocalRecordingManifest {
+    public func stopAsync(
+        stoppedAt: Date = Date(),
+        failureReason: LocalRecordingFailureReason = .none
+    ) async throws -> LocalRecordingManifest {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
-                    continuation.resume(returning: try self.stopOnQueue(stoppedAt: stoppedAt))
+                    continuation.resume(
+                        returning: try self.stopOnQueue(
+                            stoppedAt: stoppedAt,
+                            failureReason: failureReason
+                        )
+                    )
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -385,7 +396,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         }
     }
 
-    private func stopOnQueue(stoppedAt: Date) throws -> LocalRecordingManifest {
+    private func stopOnQueue(
+        stoppedAt: Date,
+        failureReason: LocalRecordingFailureReason
+    ) throws -> LocalRecordingManifest {
         guard let active else { throw LocalRecordingWriterError.notRecording }
         active.timer.cancel()
         defer {
@@ -440,6 +454,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             startedAt: active.startedAt,
             stoppedAt: stoppedAt,
             tracks: [micTrack, remoteTrack],
+            failureReason: failureReason,
             scopeApproval: active.scopeApproval,
             permissions: active.permissions,
             captureHealth: captureHealth

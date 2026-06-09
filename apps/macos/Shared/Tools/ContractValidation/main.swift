@@ -692,6 +692,53 @@ func validateLocalRecordingWriterBoundedDrain() throws {
     )
 }
 
+func validateLocalRecordingWriterForcedFailureTruth() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-forced-failure-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 48_000))
+    let incomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 48_000))
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        microphoneSampleSourceFactory: { microphoneSource },
+        incomingSampleSourceFactory: { incomingSource },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-forced-failure",
+        startedAt: Date(timeIntervalSince1970: 10),
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    let manifest = try writer.stop(
+        stoppedAt: Date(timeIntervalSince1970: 11),
+        failureReason: .captureFailed
+    )
+    guard let microphone = manifest.tracks.first(where: { $0.role == .localMic }),
+          let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Forced failure validation must produce both required tracks")
+    }
+
+    try require(
+        microphone.frameCount > 0 && incoming.frameCount > 0,
+        "Forced failure validation must use complete-looking mic and incoming tracks"
+    )
+    try require(
+        manifest.failureReason == .captureFailed,
+        "Forced system-audio failure must be preserved as manifest failureReason"
+    )
+    try require(
+        manifest.status == .failed && !manifest.isComplete,
+        "Forced system-audio failure must not produce a clean saved manifest"
+    )
+}
+
 func validateSystemAudioPermissionFailClosed() async throws {
     let gate = SystemAudioPermissionGate(clock: { Date(timeIntervalSince1970: 1) })
     let deniedSystemAudio = gate.evaluate(microphone: .granted, systemAudio: .denied)
@@ -892,6 +939,28 @@ private final class InfiniteContractSampleSource: LocalRecordingSampleSource, @u
     }
 }
 
+private final class FiniteContractSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Float]
+    private var offset = 0
+
+    init(samples: [Float]) {
+        self.samples = samples
+    }
+
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        lock.withLock {
+            guard capacity > 0, offset < samples.count else { return 0 }
+            let count = min(capacity, samples.count - offset)
+            for index in 0..<count {
+                destination[index] = samples[offset + index]
+            }
+            offset += count
+            return count
+        }
+    }
+}
+
 private final class RecoveringSlowStartingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
     private let firstStartDelaySeconds: TimeInterval
     private let lock = NSLock()
@@ -948,6 +1017,7 @@ do {
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()
     try validateLocalRecordingWriterBoundedDrain()
+    try validateLocalRecordingWriterForcedFailureTruth()
     try await validateSystemAudioPermissionFailClosed()
     try await validateSystemAudioStartTimeoutCleanupOrdering()
     try validateAppStopFailureFailClosedSourceInvariant()

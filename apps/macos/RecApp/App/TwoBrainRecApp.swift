@@ -402,8 +402,10 @@ private struct ContentView: View {
 
         do {
             _ = try captureController.requestStop(reason: .userRequested)
-            _ = try? await systemAudioCaptureService.stop()
-            let manifest = try await localRecordingWriter.stopAsync()
+            let systemAudioSession = try await systemAudioCaptureService.stop()
+            let manifest = try await localRecordingWriter.stopAsync(
+                failureReason: systemAudioSession.failureReason
+            )
             let stopped = try captureController.completeStop()
             captureSession = stopped
             localRecordingManifest = manifest

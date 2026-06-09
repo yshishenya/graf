@@ -113,6 +113,41 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertFalse(writer.isRecording)
     }
 
+    func testForcedCaptureFailurePreventsCleanSavedManifest() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-forced-failure-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session-forced-failure",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions()
+        )
+        Thread.sleep(forTimeInterval: 0.15)
+        let manifest = try writer.stop(
+            stoppedAt: Date(timeIntervalSince1970: 11),
+            failureReason: .captureFailed
+        )
+
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
+        XCTAssertGreaterThan(mic.frameCount, 0)
+        XCTAssertGreaterThan(incoming.frameCount, 0)
+        XCTAssertEqual(manifest.failureReason, .captureFailed)
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertFalse(manifest.isComplete)
+    }
+
     func testStopPadsIntermittentIncomingAudioToRecordingTimeline() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("system-audio-writer-padding-tests-\(UUID().uuidString)", isDirectory: true)
@@ -175,6 +210,25 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         monoSource.append(Array(repeating: 0.25, count: 512))
         XCTAssertEqual(monoSource.stats().frameCount, 512)
     }
+}
+
+private func acceptedScope() -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: "scope-system-audio",
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 9),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
+    )
+}
+
+private func acceptedPermissions() -> SystemAudioPermissionSnapshot {
+    SystemAudioPermissionSnapshot(
+        microphone: .granted,
+        systemAudio: .granted,
+        evaluatedAt: Date(timeIntervalSince1970: 9)
+    )
 }
 
 private final class FixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {

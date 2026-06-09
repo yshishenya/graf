@@ -4354,3 +4354,61 @@
     instability after a slow ScreenCaptureKit startup. It does not close those
     issues because active recording CPU, stop CPU, duration, and final manual
     review gates still require accepted manual evidence.
+
+## 2026-06-09 Stop Failure Manifest Truth Review
+
+- Timestamp: `2026-06-09T07:18:48Z`
+- Commit before change: `2ee186e`
+- Scope: Stop flow, local recording manifest truth, and controlled artifact
+  acceptance safety.
+- Finding:
+  - `stopManualRecording()` discarded the returned
+    `SystemAudioCaptureSession` from `systemAudioCaptureService.stop()` with
+    `try?`.
+  - If the system-audio runtime stop timed out, the service returned
+    `failureReason=capture_failed`, but the local writer could still produce a
+    complete-looking `mic.wav`, `incoming.wav`, and `manifest.json`.
+  - `LocalRecordingManifestService` treated complete tracks, accepted scope,
+    accepted permissions, and aligned duration as sufficient for `saved`, even
+    when an external capture failure reason was supplied.
+- Fix:
+  - `LocalRecordingWriter.stop()` and `stopAsync()` now accept an optional
+    forced `LocalRecordingFailureReason` and pass it into the manifest.
+  - `stopManualRecording()` now preserves the `SystemAudioCaptureSession`
+    returned by system-audio stop and passes its failure reason into local
+    recording finalization.
+  - `LocalRecordingManifestService` now prevents `saved` when an external
+    failure reason exists and maps failure-class reasons such as
+    `capture_failed`, `write_failed`, `finalization_failed`, `cpu_gate_failed`,
+    `hal_probe_observed`, `device_unavailable`, and `app_closed` to `failed`.
+  - Added XCTest source coverage and executable `ContractValidation` coverage
+    proving that complete-looking mic/incoming tracks plus forced
+    `capture_failed` cannot produce a clean saved manifest.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed and executed
+    the forced-failure manifest truth contract.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.17`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - App log tail for the fresh run showed launch, main-window presentation,
+    parked driver diagnostics, disabled auto-start, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This hardens #308 and #313 by preventing a stop-time system-audio capture
+    failure from being hidden behind otherwise valid-looking WAV files. It does
+    not close #308 or #313 because accepted controlled Record/Stop artifact
+    evidence and final manual review are still required.
