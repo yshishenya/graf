@@ -739,6 +739,34 @@ func validateLocalRecordingWriterForcedFailureTruth() throws {
     )
 }
 
+func validateLocalRecordingManifestFailureReasonFailClosed() throws {
+    let manifest = LocalRecordingManifest(
+        sessionId: "contract-manifest-failure-reason",
+        createdAt: Date(timeIntervalSince1970: 30),
+        startedAt: Date(timeIntervalSince1970: 10),
+        stoppedAt: Date(timeIntervalSince1970: 20),
+        status: .saved,
+        directoryId: "dir",
+        transcriptionReadiness: .ready,
+        tracks: [
+            contractCompleteTrack(role: .localMic),
+            contractCompleteTrack(role: .remoteSpeaker)
+        ],
+        failureReason: .captureFailed,
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    try require(
+        !manifest.isComplete,
+        "LocalRecordingManifest.isComplete must fail closed when failureReason is not none"
+    )
+}
+
 func validateSystemAudioPermissionFailClosed() async throws {
     let gate = SystemAudioPermissionGate(clock: { Date(timeIntervalSince1970: 1) })
     let deniedSystemAudio = gate.evaluate(microphone: .granted, systemAudio: .denied)
@@ -1044,6 +1072,7 @@ do {
     try validateDiagnosticBundleService()
     try validateLocalRecordingWriterBoundedDrain()
     try validateLocalRecordingWriterForcedFailureTruth()
+    try validateLocalRecordingManifestFailureReasonFailClosed()
     try await validateSystemAudioPermissionFailClosed()
     try await validateSystemAudioStartTimeoutCleanupOrdering()
     try validateAppStopFailureFailClosedSourceInvariant()

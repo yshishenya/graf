@@ -991,6 +991,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
             mediaScribeSourceMode == "dual" &&
             !externalEgressStarted &&
             !transcriptionStarted &&
+            failureReason == .none &&
             scopeApproval?.isAcceptedForMeetingRecording == true &&
             permissions?.allowsAcceptedRecording == true &&
             durationDifferenceSeconds <= 3 &&

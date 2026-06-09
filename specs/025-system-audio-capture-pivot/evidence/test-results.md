@@ -4571,3 +4571,53 @@
     if a capture source violates the expected finite-drain behavior. It does
     not close #309 or #313 because active/stop CPU and final manual review are
     still required.
+
+## 2026-06-09 Manifest Completion Fail-Closed Review
+
+- Timestamp: `2026-06-09T08:02:16Z`
+- Commit before change: `f73493e`
+- Scope: Local recording manifest truth for downstream checks that rely on
+  `LocalRecordingManifest.isComplete`.
+- Finding:
+  - `LocalRecordingManifestService` already avoided a clean `saved` manifest
+    when an external failure reason was present.
+  - The model-level `LocalRecordingManifest.isComplete` property did not
+    independently require `failureReason == .none`.
+  - A manually constructed or future decoded manifest with all accepted-looking
+    fields but a non-`none` failure reason could therefore be considered
+    complete by downstream code that only inspected `isComplete`.
+- Fix:
+  - Added `failureReason == .none` to `LocalRecordingManifest.isComplete`.
+  - Added an executable `ContractValidation` invariant that constructs a
+    `saved`/`ready`/permission-granted/scope-approved dual-track manifest with
+    `failureReason=capture_failed` and requires `isComplete == false`.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72` under `/Library/Developer/CommandLineTools`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.81`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #308 and #313 by making model-level completion fail closed
+    whenever capture failure truth exists. It does not close #308 or #313
+    because accepted controlled artifact evidence and final manual review are
+    still required.
