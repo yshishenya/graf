@@ -652,6 +652,86 @@ func validateDiagnosticBundleService() throws {
     )
 }
 
+func validateLocalRecordingDiagnosticBundleNoEgressTruth() throws {
+    let manifest = LocalRecordingManifest(
+        sessionId: "contract-local-recording-diagnostics",
+        createdAt: Date(timeIntervalSince1970: 1),
+        startedAt: Date(timeIntervalSince1970: 1),
+        stoppedAt: Date(timeIntervalSince1970: 2),
+        status: .saved,
+        directoryId: "contract-safe-dir",
+        transcriptionReadiness: .ready,
+        mediaScribeSourceMode: "dual",
+        tracks: [
+            LocalRecordingTrack(
+                trackId: "mic",
+                role: .localMic,
+                status: .saved,
+                fileName: "mic.wav",
+                format: "wav-pcm-s16le",
+                sampleRate: 16_000,
+                channelCount: 1,
+                bitsPerSample: 16,
+                durationMs: 1000,
+                byteCount: 100,
+                frameCount: 16_000,
+                timelineStartMs: 0,
+                timelineAligned: true
+            ),
+            LocalRecordingTrack(
+                trackId: "remote",
+                role: .remoteSpeaker,
+                status: .saved,
+                fileName: "incoming.wav",
+                format: "wav-pcm-s16le",
+                sampleRate: 16_000,
+                channelCount: 1,
+                bitsPerSample: 16,
+                durationMs: 1000,
+                byteCount: 100,
+                frameCount: 16_000,
+                timelineStartMs: 0,
+                timelineAligned: true
+            )
+        ]
+    )
+
+    let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(
+        manifest: manifest,
+        manifestOverrides: [
+            "rawAudio": .string("not allowed"),
+            "signedUrl": .string("not allowed")
+        ]
+    )
+
+    try require(
+        bundle.redactionState == .blockedSensitiveContent,
+        "Local recording diagnostic bundle must report blocked sensitive content when overrides include forbidden fields"
+    )
+    try require(
+        bundle.manifest["rawAudio"] == nil && bundle.manifest["signedUrl"] == nil,
+        "Local recording diagnostic bundle must remove raw audio and signed URL fields"
+    )
+
+    guard case .object(let diagnosticManifest)? = bundle.manifest["localRecordingManifest"] else {
+        throw ValidationError(description: "Local recording diagnostic bundle must include localRecordingManifest")
+    }
+    guard case .object(let summary)? = bundle.manifest["localRecordingEvidence"] else {
+        throw ValidationError(description: "Local recording diagnostic bundle must include localRecordingEvidence")
+    }
+
+    try require(
+        diagnosticManifest["externalEgressStarted"] == .bool(false) &&
+            diagnosticManifest["transcriptionStarted"] == .bool(false) &&
+            diagnosticManifest["diagnosticSafe"] == .bool(true),
+        "Local recording diagnostic manifest must preserve no-egress and diagnosticSafe truth"
+    )
+    try require(
+        summary["diagnosticSafe"] == .bool(true),
+        "Local recording diagnostic summary must preserve diagnosticSafe truth"
+    )
+}
+
 func validateLocalRecordingWriterBoundedDrain() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("contract-validation-bounded-drain-\(UUID().uuidString)", isDirectory: true)
@@ -1119,6 +1199,7 @@ do {
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()
+    try validateLocalRecordingDiagnosticBundleNoEgressTruth()
     try validateLocalRecordingWriterBoundedDrain()
     try validateLocalRecordingWriterForcedFailureTruth()
     try validateLocalRecordingManifestFailureReasonFailClosed()

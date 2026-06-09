@@ -5414,3 +5414,49 @@
     harness review. It does not close #307, #308, #309, #310, #311, or #313
     because the remaining gates require real manual recording and duration
     evidence.
+
+## 2026-06-09 Diagnostics No-Egress Review
+
+- Timestamp: `2026-06-09T09:54:25Z`
+- Scope: focused review of diagnostic redaction, local recording evidence,
+  manifest no-egress truth, and safe packaged-app launch/quit behavior.
+- Review findings:
+  - `DiagnosticRedactor` recursively removes forbidden top-level, object, and
+    array fields for raw audio, transcript text, meeting content, credentials,
+    tokens, signed URLs, and password-like payloads.
+  - Local recording diagnostics already emitted metadata-only manifest fields,
+    but the executable contract did not explicitly prove
+    `externalEgressStarted=false`, `transcriptionStarted=false`, and
+    `diagnosticSafe=true` survive the diagnostic bundle path.
+  - Added a focused XCTest case and `ContractValidation` invariant so local
+    recording diagnostic bundles must preserve no-egress truth while removing
+    forbidden overrides such as `rawAudio` and `signedUrl`.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - Focused `swift test --package-path apps/macos --filter
+    RecordingEvidenceTests`, `DiagnosticRedactionTests`, and
+    `SystemAudioDiagnosticRedactionTests` compiled the focused test bundles in
+    the local SwiftPM/CLT environment. Full XCTest execution remains unavailable
+    locally because this machine uses Command Line Tools without `xctest`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.03`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This hardens #313 diagnostic/privacy review evidence. It does not close
+    #307, #308, #309, #310, #311, or #313 because the remaining gates require
+    real manual recording and duration evidence.
