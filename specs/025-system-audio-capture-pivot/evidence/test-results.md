@@ -5878,3 +5878,67 @@
     the writer fix. It does not close #307, #308, #309, #310, #311, or #313
     because permission matrices, controlled artifacts, active/stop CPU, long
     duration runs, and final scope-review markers are still manual gates.
+
+## 2026-06-09 Pending Status Copy And Local Manifest Repair
+
+- Timestamp: `2026-06-09T14:18:00Z`
+- Scope: follow-up review of installed UI status, local manifest history, idle
+  runtime behavior, and system load after the stale manifest read fix.
+- Review findings:
+  - Installed UI still showed `Microphone / Speaker - Not checked yet` before
+    recording. That was technically non-recording-safe, but it looked too much
+    like the previous Run Check confusion and could make the tester think the
+    app had failed to initialize.
+  - Four pre-fix local recording manifests on disk still had stale
+    `captureHealth=passed/none` even though the manifest and track truth was
+    `timeline_misaligned`. Canonical read normalized this in memory, but raw
+    local diagnostics could still confuse review.
+- Changes:
+  - Pending Recording Status copy now says `Permission checked when recording
+    starts` for microphone and `Checked when recording starts` for speaker.
+  - Added `SystemAudioStatusLabels` constants and a regression test so pending
+    copy no longer says `Not checked yet`, does not point users to Run Check,
+    and does not mention driver repair.
+  - Added `apps/macos/Scripts/repair-stale-local-recording-manifests.sh`, a
+    metadata-only dry-run/apply tool for stale captureHealth fields. `--apply`
+    writes a timestamped backup next to every changed manifest before repair.
+  - Ran the repair tool against the local recordings directory: it repaired 4
+    stale manifests and a follow-up dry-run reported `stale=0`.
+- Validation:
+  - `swift test --package-path apps/macos --filter
+    SystemAudioResponsiveStateTests` passed: 4 tests, 0 failures.
+  - `swift test --package-path apps/macos` passed: 330 tests, 0 failures.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `git diff --check` passed.
+  - `sh -n apps/macos/Scripts/repair-stale-local-recording-manifests.sh`
+    passed.
+  - Synthetic repair-script check passed: dry-run found 1 stale manifest,
+    `--apply` repaired it with a backup, and follow-up dry-run found `stale=0`.
+  - Real local manifest repair passed: checked 13 manifests, repaired 4 stale
+    captureHealth records with backups, follow-up dry-run reported `stale=0`.
+  - Static search found no remaining `Not checked yet` or `Run Check` strings
+    in current app/shared sources.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed: app-only package boundary passed, idle CPU max app/helper was
+    `0.00%`, coreaudiod stayed `0.00%`, quit CPU stayed `0.00%`, no HAL probe
+    was observed, and thermal state reported no warning.
+  - Built and installed a fresh app-only package into
+    `/Applications/2brain Rec.app`; installed binary hash matched the fresh
+    release build:
+    `3f345c5741271e44720ae4efb53aa7356a5dc8df3f3727800e0dcfd5006f65d0`.
+  - Relaunched a single installed app instance from `/Applications`; screenshot
+    confirmed the pending statuses now say `Permission checked when recording
+    starts` and `Checked when recording starts`.
+  - Installed idle runtime check: 10 samples showed one app process, app CPU
+    `0.00-0.10%`, `coreaudiod` CPU `0.00%`, RSS about `92.5 MB`, no fresh
+    unified-log error/fault/crash/hang/permission entries, and no thermal or
+    performance warning.
+- Acceptance impact:
+  - This hardens #307/#308/#309/#313 by removing misleading pending status
+    copy, repairing stale local manifest status truth, and preserving clean
+    no-HAL/idle/runtime evidence. It does not close #307, #308, #309, #310,
+    #311, or #313 because permission matrices, controlled artifacts,
+    active/stop CPU, long duration runs, and final scope-review markers remain
+    manual gates.

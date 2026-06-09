@@ -640,6 +640,8 @@ public enum SystemAudioStatusLabels {
     public static let captureAudioTitle = "Recorder Input Meters"
     public static let microphoneTitle = "Microphone"
     public static let incomingTitle = "Incoming"
+    public static let microphonePendingStatus = "Permission checked when recording starts"
+    public static let speakerPendingStatus = "Checked when recording starts"
     public static let activeState = "Active"
     public static let silentState = "Silent"
     public static let metersWaiting = "Meters show audio only while recording"

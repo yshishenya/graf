@@ -82,7 +82,7 @@ public struct RouteVerificationView: View {
                 Text(title)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                Text(statusText(for: verification))
+                Text(statusText(title: title, for: verification))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
@@ -122,9 +122,12 @@ public struct RouteVerificationView: View {
         }
     }
 
-    private func statusText(for verification: RouteVerification?) -> String {
+    private func statusText(title: String, for verification: RouteVerification?) -> String {
         guard let verification else {
-            return "Not checked yet"
+            if title == "Speaker" {
+                return SystemAudioStatusLabels.speakerPendingStatus
+            }
+            return SystemAudioStatusLabels.microphonePendingStatus
         }
         let label = AdaptiveStatusText.routeStatusLabel(verification.status)
         if verification.status == .passed {

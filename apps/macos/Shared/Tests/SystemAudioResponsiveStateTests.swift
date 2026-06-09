@@ -30,5 +30,13 @@ final class SystemAudioResponsiveStateTests: XCTestCase {
         XCTAssertFalse(noIncoming.localizedCaseInsensitiveContains("speaker device"))
         XCTAssertFalse(noIncoming.localizedCaseInsensitiveContains("driver"))
     }
+
+    func testPendingRecordingStatusCopyPointsToRecordInsteadOfRunCheck() {
+        XCTAssertEqual(SystemAudioStatusLabels.microphonePendingStatus, "Permission checked when recording starts")
+        XCTAssertEqual(SystemAudioStatusLabels.speakerPendingStatus, "Checked when recording starts")
+        XCTAssertFalse(SystemAudioStatusLabels.microphonePendingStatus.localizedCaseInsensitiveContains("not checked"))
+        XCTAssertFalse(SystemAudioStatusLabels.speakerPendingStatus.localizedCaseInsensitiveContains("not checked"))
+        XCTAssertFalse(SystemAudioStatusLabels.speakerPendingStatus.localizedCaseInsensitiveContains("driver"))
+    }
 }
 #endif
