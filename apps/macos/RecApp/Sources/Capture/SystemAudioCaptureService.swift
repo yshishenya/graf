@@ -65,16 +65,19 @@ public actor SystemAudioCaptureService {
     private static let captureChannelCount = 2
 
     private let runtime: SystemAudioCaptureRuntime
+    private let runtimeStopTimeoutSeconds: TimeInterval
     public nonisolated let incomingSampleSource: LocalRecordingSampleSource
     private let bufferedSampleSource: BufferedLocalRecordingSampleSource
     private var activeSession: SystemAudioCaptureSession?
 
     public init(
         runtime: SystemAudioCaptureRuntime? = nil,
-        sampleSource: BufferedLocalRecordingSampleSource = BufferedLocalRecordingSampleSource()
+        sampleSource: BufferedLocalRecordingSampleSource = BufferedLocalRecordingSampleSource(),
+        runtimeStopTimeoutSeconds: TimeInterval = 2
     ) {
         self.bufferedSampleSource = sampleSource
         self.incomingSampleSource = sampleSource
+        self.runtimeStopTimeoutSeconds = runtimeStopTimeoutSeconds
         self.runtime = runtime ?? Self.makeDefaultRuntime(sampleSource: sampleSource)
     }
 
@@ -135,7 +138,10 @@ public actor SystemAudioCaptureService {
             throw SystemAudioCaptureServiceError.notRunning
         }
 
-        await runtime.stop()
+        let stopCompleted = await Self.stopRuntime(
+            runtime,
+            timeoutSeconds: runtimeStopTimeoutSeconds
+        )
         let stats = bufferedSampleSource.stats()
         let bufferedFrameCount = Self.frameCount(forSampleCount: Int(stats.frameCount))
         if bufferedFrameCount > session.frameCount {
@@ -144,7 +150,9 @@ public actor SystemAudioCaptureService {
         }
         activeSession = nil
         session.stoppedAt = stoppedAt
-        if session.frameCount == 0 {
+        if !stopCompleted {
+            session.failureReason = .captureFailed
+        } else if session.frameCount == 0 {
             session.failureReason = .noFrames
         }
         return session
@@ -156,7 +164,10 @@ public actor SystemAudioCaptureService {
             return nil
         }
 
-        await runtime.stop()
+        let stopCompleted = await Self.stopRuntime(
+            runtime,
+            timeoutSeconds: runtimeStopTimeoutSeconds
+        )
         let stats = bufferedSampleSource.stats()
         let bufferedFrameCount = Self.frameCount(forSampleCount: Int(stats.frameCount))
         if bufferedFrameCount > session.frameCount {
@@ -165,10 +176,29 @@ public actor SystemAudioCaptureService {
         }
         activeSession = nil
         session.stoppedAt = stoppedAt
-        if session.frameCount == 0 {
+        if !stopCompleted {
+            session.failureReason = .captureFailed
+        } else if session.frameCount == 0 {
             session.failureReason = .stoppedBeforeFrames
         }
         return session
+    }
+
+    private nonisolated static func stopRuntime(
+        _ runtime: SystemAudioCaptureRuntime,
+        timeoutSeconds: TimeInterval
+    ) async -> Bool {
+        guard timeoutSeconds > 0 else {
+            await runtime.stop()
+            return true
+        }
+
+        let completion = RuntimeStopCompletion()
+        Task.detached {
+            await runtime.stop()
+            completion.complete(true)
+        }
+        return await completion.wait(timeoutSeconds: timeoutSeconds)
     }
 
     private nonisolated static func makeDefaultRuntime(
@@ -186,6 +216,43 @@ public actor SystemAudioCaptureService {
     private nonisolated static func frameCount(forSampleCount sampleCount: Int) -> Int64 {
         guard sampleCount > 0 else { return 0 }
         return Int64((sampleCount + captureChannelCount - 1) / captureChannelCount)
+    }
+}
+
+private final class RuntimeStopCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    func wait(timeoutSeconds: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if completed {
+                lock.unlock()
+                continuation.resume(returning: true)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds) {
+                self.complete(false)
+            }
+        }
+    }
+
+    func complete(_ result: Bool) {
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return
+        }
+        completed = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        continuation?.resume(returning: result)
     }
 }
 

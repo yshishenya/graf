@@ -65,6 +65,47 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
         XCTAssertEqual(released?.failureReason, .none)
         XCTAssertEqual(runtime.stopCount, 1)
     }
+
+    func testStopTimeoutReleasesServiceStateWithoutWaitingForever() async throws {
+        let runtime = SlowStoppingSystemAudioRuntime(stopDelaySeconds: 2)
+        let service = SystemAudioCaptureService(
+            runtime: runtime,
+            runtimeStopTimeoutSeconds: 0.05
+        )
+
+        _ = try await service.start(
+            sessionId: "session",
+            permissionState: .granted,
+            scopeApproval: resourceReleaseScope()
+        )
+        let startedAt = Date()
+        let stopped = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 2))
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertLessThan(elapsed, 1)
+        XCTAssertFalse(await service.isRunning)
+        XCTAssertEqual(stopped.failureReason, .captureFailed)
+        XCTAssertEqual(runtime.stopCount, 1)
+    }
+
+    func testTerminationReleaseTimeoutMarksCaptureFailedAndClearsServiceState() async throws {
+        let runtime = SlowStoppingSystemAudioRuntime(stopDelaySeconds: 2)
+        let service = SystemAudioCaptureService(
+            runtime: runtime,
+            runtimeStopTimeoutSeconds: 0.05
+        )
+
+        _ = try await service.start(
+            sessionId: "session",
+            permissionState: .granted,
+            scopeApproval: resourceReleaseScope()
+        )
+        let released = await service.releaseForTermination(stoppedAt: Date(timeIntervalSince1970: 3))
+
+        XCTAssertFalse(await service.isRunning)
+        XCTAssertEqual(released?.failureReason, .captureFailed)
+        XCTAssertEqual(runtime.stopCount, 1)
+    }
 }
 
 private func resourceReleaseScope() -> CaptureScopeApproval {
@@ -88,6 +129,31 @@ private final class CountingSystemAudioRuntime: SystemAudioCaptureRuntime, @unch
 
     func stop() async {
         stopCount += 1
+    }
+}
+
+private final class SlowStoppingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    private let stopDelaySeconds: TimeInterval
+    private let lock = NSLock()
+    private var protectedStopCount = 0
+
+    init(stopDelaySeconds: TimeInterval) {
+        self.stopDelaySeconds = stopDelaySeconds
+    }
+
+    var stopCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return protectedStopCount
+    }
+
+    func start() async throws {}
+
+    func stop() async {
+        lock.lock()
+        protectedStopCount += 1
+        lock.unlock()
+        try? await Task.sleep(nanoseconds: UInt64(stopDelaySeconds * 1_000_000_000))
     }
 }
 #endif
