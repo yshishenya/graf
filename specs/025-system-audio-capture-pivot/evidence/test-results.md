@@ -2085,3 +2085,62 @@
   controlled artifact validation, active/stop CPU gate for a real recording,
   30-minute development run, 75-minute manual release run, and final scope
   review.
+
+## 2026-06-09 Artifact Duration Recompute Validator Hardening
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: metadata-only controlled artifact validation for dual-track alignment.
+- Code review finding:
+  - `validate-system-audio-capture-pivot.sh --artifact-directory` required
+    `manifest.durationDifferenceSeconds` to be a number between `0` and `3`,
+    and validated each WAV against its own track metadata.
+  - The validator did not independently recompute duration difference from the
+    `localMic.durationMs` and `remoteSpeaker.durationMs` values.
+  - A malformed or hand-edited manifest could therefore claim
+    `durationDifferenceSeconds=0` while the track durations were actually more
+    than `3` seconds apart.
+- Code review fix:
+  - The artifact validator now requires exactly one numeric `durationMs` for
+    `localMic` and exactly one numeric `durationMs` for `remoteSpeaker`.
+  - It recomputes absolute mic/incoming duration difference from track metadata
+    and requires it to be `<= 3000ms`.
+  - It also requires `durationDifferenceSeconds` to equal the recomputed track
+    difference in seconds.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - A synthetic accepted artifact with matching `mic.wav`, `incoming.wav`, and
+    `durationDifferenceSeconds=0` passed metadata validation.
+  - A synthetic artifact with `mic.durationMs=1000`,
+    `incoming.durationMs=5000`, and forged `durationDifferenceSeconds=0`
+    returned blocked with `durationDifferenceSeconds must equal the absolute
+    mic/incoming duration difference and be <= 3`.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the test bundle;
+    full XCTest execution is not available in this Command Line Tools host
+    because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Packaged app launched from
+    `apps/macos/RecApp/.build/2brain Rec.app`; AppLog recorded
+    `mainWindowVisible=true`, `activeSpace=true`, and `occlusion=8192`.
+  - Runtime snapshot after launch showed app CPU `0.0` and `coreaudiod` CPU
+    `0.0`.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.30`.
+  - Quit cleanup logged `app_termination_cleanup_completed` and
+    `passthrough_bridge_stopped`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no app entries.
+  - `pmset -g therm` reported no thermal or performance warning level.
+- Result: passed for artifact validator hardening, build, contract, no-HAL,
+  app-only installer, packaged app lifecycle, idle CPU, quit CPU, log scan, and
+  thermal smoke.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation on a real recording, active/stop CPU gate for
+  a real recording, 30-minute development run, 75-minute manual release run,
+  and final scope review.

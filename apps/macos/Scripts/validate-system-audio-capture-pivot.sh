@@ -306,6 +306,8 @@ validate_artifact_directory() {
     check_jq '.transcriptionStarted == false' "transcriptionStarted must be false"
     check_jq '.diagnosticSafe == true' "diagnosticSafe must be true"
     check_jq '(.durationDifferenceSeconds | type) == "number" and .durationDifferenceSeconds >= 0 and .durationDifferenceSeconds <= 3' "durationDifferenceSeconds must be a number between 0 and 3"
+    check_jq '([.tracks[] | select(.role == "localMic") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "remoteSpeaker") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "localMic") | .durationMs][0] | type) == "number" and ([.tracks[] | select(.role == "remoteSpeaker") | .durationMs][0] | type) == "number"' "manifest must contain exactly one numeric durationMs for localMic and remoteSpeaker"
+    check_jq '([.tracks[] | select(.role == "localMic") | .durationMs][0]) as $mic | ([.tracks[] | select(.role == "remoteSpeaker") | .durationMs][0]) as $incoming | (($mic - $incoming) as $diff | (if $diff < 0 then -$diff else $diff end) as $abs | ($abs <= 3000 and .durationDifferenceSeconds == ($abs / 1000)))' "durationDifferenceSeconds must equal the absolute mic/incoming duration difference and be <= 3"
     check_jq '.scopeApproval != null' "scopeApproval must be present"
     check_jq '.permissions.microphone == "granted"' "microphone permission must be granted"
     check_jq '.permissions.systemAudio == "granted"' "system audio permission must be granted"
