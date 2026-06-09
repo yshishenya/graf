@@ -2351,3 +2351,29 @@
 - Acceptance impact:
   - Test expectation follow-up only; controlled artifact validation is still
     required for #308/T072.
+
+## 2026-06-09T01:06:37Z Int16 Sample Normalization Review Fix
+
+- Commit before change: `300074b`
+- Scope:
+  - `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
+  - `apps/macos/Shared/Tests/SystemAudioSampleExtractorTests.swift`
+- Issue links: #308, #313.
+- Finding:
+  - `SystemAudioSampleExtractor` normalized signed 16-bit PCM samples by
+    dividing by `Int16.max`.
+  - `Int16.min` therefore produced a value slightly below `-1.0`.
+  - Downstream writer code clamps samples, but the extractor contract should
+    already return normalized audio in `[-1, 1]` so level meters and future
+    checks do not see out-of-range values.
+- Change:
+  - Clamped signed Int16 extraction to `[-1, 1]`.
+  - Extended the Int16 extraction regression test to include `Int16.min`.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the updated test
+    bundle on this CLT host.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+- Acceptance impact:
+  - This strengthens sample normalization before the real controlled artifact
+    run. It does not close #308/T072 or #313/T077.

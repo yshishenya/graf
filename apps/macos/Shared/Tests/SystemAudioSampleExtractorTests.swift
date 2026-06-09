@@ -46,17 +46,18 @@ final class SystemAudioSampleExtractorTests: XCTestCase {
 
     func testExtractsSignedInt16SamplesAsNormalizedFloats() {
         let format = audioFormat(bitsPerChannel: 16, flags: kAudioFormatFlagIsSignedInteger)
-        let data = int16Data([0, Int16.max, Int16.min / 2])
+        let data = int16Data([0, Int16.max, Int16.min / 2, Int16.min])
 
         let samples = SystemAudioSampleExtractor.extractFloatSamples(
             streamDescription: format,
             bufferData: [data]
         )
 
-        XCTAssertEqual(samples.count, 3)
+        XCTAssertEqual(samples.count, 4)
         XCTAssertEqual(samples[0], 0, accuracy: 0.0001)
         XCTAssertEqual(samples[1], 1, accuracy: 0.0001)
         XCTAssertEqual(samples[2], -0.5, accuracy: 0.0001)
+        XCTAssertEqual(samples[3], -1, accuracy: 0.0001)
     }
 
     func testExtractsBigEndianFloatSamples() {

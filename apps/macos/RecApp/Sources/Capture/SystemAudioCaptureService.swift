@@ -511,7 +511,7 @@ enum SystemAudioSampleExtractor {
             ) { pointer, index in
                 let sample = pointer.assumingMemoryBound(to: Int16.self)[index]
                 let hostSample = isBigEndian ? Int16(bigEndian: sample) : Int16(littleEndian: sample)
-                return Float(hostSample) / Float(Int16.max)
+                return max(-1, min(1, Float(hostSample) / Float(Int16.max)))
             }
         }
 
