@@ -100,3 +100,15 @@ Manual equivalent:
 - Validator result: `blocked`
 - Reason: Controlled meeting/audio artifact rows are still required before acceptance.
 - Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
+
+## Metadata Validator Run
+
+- Run ID: `20260609T043348Z`
+- Timestamp: `2026-06-09T04:33:48Z`
+- Commit: `716f3be`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--artifact-matrix`
+- Validator result: `blocked`
+- Reason: Controlled meeting/audio artifact rows are still required before acceptance.
+- Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.

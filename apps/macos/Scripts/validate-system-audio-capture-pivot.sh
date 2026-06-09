@@ -162,6 +162,66 @@ count_not_tested_rows() {
     grep -c '| not-tested |' "$path" 2>/dev/null || true
 }
 
+count_accepted_permission_rows() {
+    path="$1"
+    awk -F '|' '
+        BEGIN { count = 0 }
+        /^\|/ && $2 !~ /Microphone/ && $2 !~ /---/ {
+            for (i = 1; i <= NF; i += 1) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            }
+            key = $2 "||" $3
+            result = $7
+            if (result != "passed") {
+                next
+            }
+            if (key == "granted||granted" ||
+                key == "denied||granted" ||
+                key == "granted||denied/restricted/unknown" ||
+                key == "denied||denied/restricted/unknown" ||
+                key == "permission revoked while recording||any required permission missing") {
+                accepted[key] = 1
+            }
+        }
+        END {
+            for (key in accepted) {
+                count += 1
+            }
+            print count + 0
+        }
+    ' "$path"
+}
+
+count_accepted_artifact_rows() {
+    path="$1"
+    awk -F '|' '
+        BEGIN { count = 0 }
+        /^\|/ && $2 !~ /Case/ && $2 !~ /---/ {
+            for (i = 1; i <= NF; i += 1) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            }
+            case_name = $2
+            result = $6
+            if (result != "passed") {
+                next
+            }
+            if (case_name == "Both microphone and system audio present" ||
+                case_name == "Microphone present, incoming/system audio silent" ||
+                case_name == "Incoming/system audio present, microphone missing" ||
+                case_name == "Protected or blocked incoming/system audio" ||
+                case_name == "Misaligned tracks") {
+                accepted[case_name] = 1
+            }
+        }
+        END {
+            for (case_name in accepted) {
+                count += 1
+            }
+            print count + 0
+        }
+    ' "$path"
+}
+
 count_accepted_duration_rows() {
     path="$1"
     minutes="$2"
@@ -275,7 +335,11 @@ validate_permission_matrix() {
     [ "$remaining" = "0" ] ||
         blocked "permission matrix still has $remaining not-tested row(s); keep #307/T071 open"
 
-    passed "permission matrix has no not-tested rows"
+    accepted_rows="$(count_accepted_permission_rows "$PERMISSION_MATRIX")"
+    [ "$accepted_rows" = "5" ] ||
+        blocked "permission matrix has $accepted_rows accepted row(s), expected 5 required permission scenarios with Result passed; keep #307/T071 open"
+
+    passed "permission matrix has accepted evidence for all required scenarios"
 }
 
 validate_artifact_matrix() {
@@ -306,7 +370,11 @@ validate_artifact_matrix() {
     [ "$remaining" = "0" ] ||
         blocked "artifact matrix still has $remaining not-tested row(s); keep #308/T072 open"
 
-    passed "artifact matrix has no not-tested rows"
+    accepted_rows="$(count_accepted_artifact_rows "$ARTIFACT_MATRIX")"
+    [ "$accepted_rows" = "5" ] ||
+        blocked "artifact matrix has $accepted_rows accepted row(s), expected 5 required artifact scenarios with Result passed; keep #308/T072 open"
+
+    passed "artifact matrix has accepted evidence for all required scenarios"
 }
 
 validate_artifact_directory() {
@@ -671,6 +739,18 @@ EOF
             incomplete=1
         fi
     done
+
+    permission_rows="$(count_accepted_permission_rows "$PERMISSION_MATRIX")"
+    if [ "$permission_rows" != "5" ]; then
+        printf '%s\n' "$PERMISSION_MATRIX has $permission_rows accepted permission row(s), expected 5"
+        incomplete=1
+    fi
+
+    artifact_rows="$(count_accepted_artifact_rows "$ARTIFACT_MATRIX")"
+    if [ "$artifact_rows" != "5" ]; then
+        printf '%s\n' "$ARTIFACT_MATRIX has $artifact_rows accepted artifact row(s), expected 5"
+        incomplete=1
+    fi
 
     dev_duration_rows="$(count_accepted_duration_rows "$DEV_DURATION" 30)"
     if [ "$dev_duration_rows" = "0" ]; then

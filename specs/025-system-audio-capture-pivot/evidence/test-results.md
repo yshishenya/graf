@@ -3188,6 +3188,9 @@
     is ignored and a matching appended line after the offset is observed.
   - `swift build --package-path apps/macos` passed.
   - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
   - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
   - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
     passed: app-only package boundary passed, packaged app launched, idle CPU
@@ -3433,3 +3436,50 @@
   - This hardens #310, #311, and #313 against false acceptance. It does not
     close those issues until the real sustained manual runs are performed and
     reviewed.
+
+## 2026-06-09 Permission And Artifact Accepted Row Review
+
+- Timestamp: `2026-06-09T04:35:10Z`
+- Commit before change: `716f3be`
+- Scope: permission matrix, artifact matrix, and final evidence gates in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - `--permission-matrix` and `--artifact-matrix` rejected `not-tested` rows,
+    but did not require every required scenario to have an accepted
+    `Result=passed` row.
+  - `--review-evidence` inherited the same weakness.
+  - A manually edited evidence file could therefore pass by removing
+    `not-tested` without proving all five permission scenarios or all five
+    controlled artifact scenarios.
+- Fix:
+  - Added accepted permission-row parsing for the five required TCC scenarios.
+  - Added accepted artifact-row parsing for the five required controlled
+    artifact scenarios.
+  - `--permission-matrix`, `--artifact-matrix`, and `--review-evidence` now
+    require all five rows in each matrix to be accepted before the gate can
+    pass.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --permission-matrix`
+    blocked as expected because five manual permission rows are still
+    `not-tested`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --artifact-matrix`
+    blocked as expected because five controlled artifact rows are still
+    `not-tested`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    blocked as expected and now reports zero accepted permission rows and zero
+    accepted artifact rows.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.06 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #307, #308, and #313 against false acceptance. It does not
+    close those issues until the real permission matrix and controlled artifact
+    matrix are performed and reviewed.
