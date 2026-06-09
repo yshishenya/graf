@@ -61,6 +61,10 @@ Modes:
       Check final evidence readiness across permission, artifact, CPU,
       no-HAL, duration, and scope review files.
 
+  --self-test-cpu-evidence
+      Run synthetic CPU evidence parser regression checks. Does not read or
+      update real evidence files.
+
 Exit codes:
   0 passed
   2 blocked / not accepted yet
@@ -307,45 +311,87 @@ evaluation_field() {
         }'
 }
 
-validate_cpu_phase_passed() {
+is_nonnegative_decimal() {
+    awk -v value="${1:-}" 'BEGIN { exit(value ~ /^[0-9]+([.][0-9]+)?$/ ? 0 : 1) }'
+}
+
+decimal_less_than() {
+    awk -v left="${1:-}" -v right="${2:-}" 'BEGIN { exit((left + 0) < (right + 0) ? 0 : 1) }'
+}
+
+validate_cpu_evaluation_passed() {
     phase="$1"
-    evaluation="$(last_cpu_evaluation_for_phase "$phase")"
-    if [ -z "$evaluation" ]; then
-        printf '%s\n' "$CPU_GATES is missing $phase CPU evaluation"
-        return 1
-    fi
+    evaluation="$2"
+    source_label="$3"
+
     case "$evaluation" in
         status=passed\ *)
             ;;
         *)
-            printf '%s\n' "$CPU_GATES latest $phase CPU evaluation is not passed: $evaluation"
+            printf '%s\n' "$source_label is not passed: $evaluation"
             return 1
             ;;
     esac
 
     sample_count="$(evaluation_field sampleCount "$evaluation")"
+    max_core_cpu_percent="$(evaluation_field maxCoreaudiodCpuPercent "$evaluation")"
+    max_app_cpu_percent="$(evaluation_field maxAppHelperCpuPercent "$evaluation")"
     max_app_process_count="$(evaluation_field maxAppProcessCount "$evaluation")"
     max_helper_process_count="$(evaluation_field maxHelperProcessCount "$evaluation")"
     max_core_rss_mb="$(evaluation_field maxCoreaudiodRssMB "$evaluation")"
     max_app_rss_mb="$(evaluation_field maxAppHelperRssMB "$evaluation")"
+    sustained_core_exceeded="$(evaluation_field sustainedCoreaudiodExceeded "$evaluation")"
+    sustained_app_exceeded="$(evaluation_field sustainedAppHelperExceeded "$evaluation")"
 
     case "$sample_count" in
         ""|*[!0-9]*)
-            printf '%s\n' "$CPU_GATES latest $phase CPU evaluation is missing numeric sampleCount: $evaluation"
+            printf '%s\n' "$source_label is missing numeric sampleCount: $evaluation"
             return 1
             ;;
         *)
             if [ "$sample_count" -lt 3 ]; then
-                printf '%s\n' "$CPU_GATES latest $phase CPU evaluation has insufficient samples: $evaluation"
+                printf '%s\n' "$source_label has insufficient samples: $evaluation"
                 return 1
             fi
             ;;
     esac
 
-    case "$max_core_rss_mb:$max_app_rss_mb" in
-        :*|*:)
-            printf '%s\n' "$CPU_GATES latest $phase CPU evaluation is missing RSS diagnostics: $evaluation"
+    for field_value in \
+        "maxCoreaudiodCpuPercent=$max_core_cpu_percent" \
+        "maxAppHelperCpuPercent=$max_app_cpu_percent" \
+        "maxCoreaudiodRssMB=$max_core_rss_mb" \
+        "maxAppHelperRssMB=$max_app_rss_mb"; do
+        field_name="${field_value%%=*}"
+        value="${field_value#*=}"
+        if ! is_nonnegative_decimal "$value"; then
+            printf '%s\n' "$source_label is missing numeric $field_name: $evaluation"
             return 1
+        fi
+    done
+
+    case "$sustained_core_exceeded:$sustained_app_exceeded" in
+        false:false)
+            ;;
+        *)
+            printf '%s\n' "$source_label has sustained CPU threshold exceedance or missing sustained flags: $evaluation"
+            return 1
+            ;;
+    esac
+
+    case "$max_app_process_count:$max_helper_process_count" in
+        *[!0-9:]*|:*|*:)
+            printf '%s\n' "$source_label is missing numeric process counts: $evaluation"
+            return 1
+            ;;
+    esac
+
+    case "$phase" in
+        idle|stop|quit)
+            if ! decimal_less_than "$max_core_cpu_percent" 5 ||
+                ! decimal_less_than "$max_app_cpu_percent" 5; then
+                printf '%s\n' "$source_label exceeds idle/stop/quit CPU ceiling: $evaluation"
+                return 1
+            fi
             ;;
     esac
 
@@ -353,7 +399,7 @@ validate_cpu_phase_passed() {
         idle|activeRecording|stop)
             case "$max_app_process_count" in
                 ""|*[!0-9]*|0)
-                    printf '%s\n' "$CPU_GATES latest $phase CPU evaluation did not observe the app process: $evaluation"
+                    printf '%s\n' "$source_label did not observe the app process: $evaluation"
                     return 1
                     ;;
             esac
@@ -363,7 +409,7 @@ validate_cpu_phase_passed() {
                 0:0)
                     ;;
                 *)
-                    printf '%s\n' "$CPU_GATES latest quit CPU evaluation did not prove app/helper process release: $evaluation"
+                    printf '%s\n' "$source_label did not prove app/helper process release: $evaluation"
                     return 1
                     ;;
             esac
@@ -371,6 +417,57 @@ validate_cpu_phase_passed() {
     esac
 
     return 0
+}
+
+validate_cpu_phase_passed() {
+    phase="$1"
+    evaluation="$(last_cpu_evaluation_for_phase "$phase")"
+    if [ -z "$evaluation" ]; then
+        printf '%s\n' "$CPU_GATES is missing $phase CPU evaluation"
+        return 1
+    fi
+    validate_cpu_evaluation_passed "$phase" "$evaluation" "$CPU_GATES latest $phase CPU evaluation"
+}
+
+expect_cpu_evaluation_accepts() {
+    label="$1"
+    phase="$2"
+    evaluation="$3"
+    if ! validate_cpu_evaluation_passed "$phase" "$evaluation" "self-test $label" >/dev/null 2>&1; then
+        printf '%s\n' "cpu_evidence_self_test_failed=$label"
+        return 1
+    fi
+}
+
+expect_cpu_evaluation_rejects() {
+    label="$1"
+    phase="$2"
+    evaluation="$3"
+    if validate_cpu_evaluation_passed "$phase" "$evaluation" "self-test $label" >/dev/null 2>&1; then
+        printf '%s\n' "cpu_evidence_self_test_failed=$label"
+        return 1
+    fi
+}
+
+self_test_cpu_evidence() {
+    valid_idle="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=4.99 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false"
+    valid_active="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=12.00 maxAppHelperCpuPercent=26.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false"
+    valid_quit="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false"
+
+    expect_cpu_evaluation_accepts "valid-idle" idle "$valid_idle"
+    expect_cpu_evaluation_accepts "valid-active-burst-without-sustained-exceedance" activeRecording "$valid_active"
+    expect_cpu_evaluation_accepts "valid-quit" quit "$valid_quit"
+
+    expect_cpu_evaluation_rejects "failed-status" idle "${valid_idle#status=passed }"
+    expect_cpu_evaluation_rejects "insufficient-samples" idle "$(printf '%s\n' "$valid_idle" | sed 's/sampleCount=3/sampleCount=2/')"
+    expect_cpu_evaluation_rejects "nonnumeric-cpu" idle "$(printf '%s\n' "$valid_idle" | sed 's/maxCoreaudiodCpuPercent=4.99/maxCoreaudiodCpuPercent=busy/')"
+    expect_cpu_evaluation_rejects "nonnumeric-rss" idle "$(printf '%s\n' "$valid_idle" | sed 's/maxAppHelperRssMB=93.20/maxAppHelperRssMB=unknown/')"
+    expect_cpu_evaluation_rejects "idle-ceiling" idle "$(printf '%s\n' "$valid_idle" | sed 's/maxCoreaudiodCpuPercent=4.99/maxCoreaudiodCpuPercent=5.00/')"
+    expect_cpu_evaluation_rejects "sustained-core" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/sustainedCoreaudiodExceeded=false/sustainedCoreaudiodExceeded=true/')"
+    expect_cpu_evaluation_rejects "missing-app-process" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/maxAppProcessCount=1/maxAppProcessCount=0/')"
+    expect_cpu_evaluation_rejects "quit-process-left" quit "$(printf '%s\n' "$valid_quit" | sed 's/maxAppProcessCount=0/maxAppProcessCount=1/')"
+
+    passed "synthetic CPU evidence parser checks passed"
 }
 
 ensure_no_forbidden_hal_requirement() {
@@ -922,6 +1019,9 @@ case "$mode" in
         ;;
     --review-evidence)
         validate_review_evidence
+        ;;
+    --self-test-cpu-evidence)
+        self_test_cpu_evidence
         ;;
     *)
         fail_invalid "unknown mode: $mode"

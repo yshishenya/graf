@@ -4076,3 +4076,47 @@
   - This keeps #308, #309, and #313 evidence current for the harness and
     artifact-selection logic that will be used during the real manual
     Record/Stop run.
+
+## 2026-06-09 CPU Review Parser Strictness
+
+- Timestamp: `2026-06-09T05:44:00Z`
+- Commit before change: `d3942a2`
+- Scope: final CPU evidence parsing in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - `--review-evidence` required passed CPU evaluation rows, sample counts,
+    process evidence, and RSS field presence, but did not prove CPU/RSS fields
+    were numeric or that sustained CPU exceedance flags were explicitly false.
+  - A malformed manual CPU evidence line could therefore look structurally
+    complete while hiding unusable CPU/RSS diagnostics.
+- Fix:
+  - Added strict CPU evaluation parsing for numeric CPU percent, numeric RSS,
+    numeric process counts, sustained exceedance flags, and idle/stop/quit CPU
+    ceilings.
+  - Added `--self-test-cpu-evidence` with synthetic accept/reject cases for
+    valid idle/active/quit rows, failed status, insufficient samples,
+    nonnumeric CPU/RSS, idle CPU ceiling, sustained active CPU exceedance,
+    missing app process, and quit process leakage.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by permission matrix, artifact matrix,
+    30-minute run, 75-minute run, activeRecording CPU, stop CPU, and final
+    scope-review markers.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Fresh safe-launch evidence showed `idle` CPU `0.00%`,
+    `maxAppHelperRssMB=93.58`, app process count `1`, `quit` CPU `0.00%`,
+    app/helper process count `0`, and no thermal/performance warning.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This hardens #309 and #313 against malformed CPU evidence. It does not
+    close either issue because real active/stop CPU evidence and the other
+    manual gates are still required.
