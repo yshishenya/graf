@@ -74,6 +74,10 @@ Modes:
       Run synthetic duration evidence parser checks against a temporary
       markdown table. Does not read or update real evidence files.
 
+  --self-test-permission-evidence
+      Run synthetic permission matrix parser checks against a temporary
+      markdown table. Does not read or update real evidence files.
+
 Exit codes:
   0 passed
   2 blocked / not accepted yet
@@ -627,6 +631,29 @@ EOF
         fail_invalid "synthetic duration parser expected exactly one accepted 75-minute row, got $accepted_75"
 
     passed "synthetic duration evidence parser checks passed"
+}
+
+self_test_permission_evidence() {
+    temp_file="$(mktemp)"
+    trap 'rm -f "$temp_file"' EXIT
+    cat > "$temp_file" <<'EOF'
+| Microphone | Screen/System Audio | Normal Recording Outcome | Visible Copy | Manifest Outcome | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| granted | granted | accepted start allowed | no permission blocker | eligible saved | passed | accepted synthetic row |
+| denied | granted | blocked before accepted start | microphone access required | permission_denied | passed | accepted synthetic row |
+| granted | denied/restricted/unknown | blocked before accepted start | system audio access required | permission_denied | passed | accepted synthetic row |
+| denied | denied/restricted/unknown | blocked before accepted start | both permissions required | permission_denied | passed | accepted synthetic row |
+| permission revoked while recording | any required permission missing | stop/finalize degraded or failed | retry copy | permission_denied | passed | accepted synthetic row |
+| granted | granted | accepted start allowed | no permission blocker | eligible saved | not-tested | duplicate not-tested must not matter |
+| denied | granted | blocked before accepted start | microphone access required | permission_denied | failed | duplicate failed must not matter |
+| granted | unknown future state | blocked | unknown | permission_denied | passed | unknown state must not count |
+EOF
+
+    accepted="$(count_accepted_permission_rows "$temp_file")"
+    [ "$accepted" = "5" ] ||
+        fail_invalid "synthetic permission parser expected exactly five accepted rows, got $accepted"
+
+    passed "synthetic permission evidence parser checks passed"
 }
 
 ensure_no_forbidden_hal_requirement() {
@@ -1194,6 +1221,9 @@ case "$mode" in
         ;;
     --self-test-duration-evidence)
         self_test_duration_evidence
+        ;;
+    --self-test-permission-evidence)
+        self_test_permission_evidence
         ;;
     *)
         fail_invalid "unknown mode: $mode"

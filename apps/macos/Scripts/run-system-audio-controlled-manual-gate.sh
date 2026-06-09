@@ -192,6 +192,8 @@ run_self_test() {
     fail_self_test "artifact metadata validator self-test failed"
   apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-duration-evidence >/dev/null ||
     fail_self_test "duration evidence validator self-test failed"
+  apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-permission-evidence >/dev/null ||
+    fail_self_test "permission evidence validator self-test failed"
 
   APP_LOG="$original_app_log"
   printf '%s\n' "manual_gate_self_test=passed"
