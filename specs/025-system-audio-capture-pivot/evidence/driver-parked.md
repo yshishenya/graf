@@ -1566,3 +1566,29 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260609T135402Z`
+- Timestamp: `2026-06-09T13:54:02Z`
+- Commit: `f83ac11`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260609T140135Z`
+- Timestamp: `2026-06-09T14:01:35Z`
+- Commit: `f83ac11`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.

@@ -5835,3 +5835,46 @@
     ensuring captureHealth agrees with local recording artifact truth. It does
     not close #307, #308, #309, #310, #311, or #313 because the manual matrices
     and duration evidence still require user-assisted runs.
+
+## 2026-06-09 Stale Manifest Read Normalization
+
+- Timestamp: `2026-06-09T14:04:30Z`
+- Scope: follow-up review of local recording artifacts after the captureHealth
+  writer fix. A pre-fix local manifest still existed on disk with
+  `status=degraded`, `failureReason=timeline_misaligned`, but stale
+  `captureHealth.failureReason=none` and `captureHealth.gateStatus=passed`.
+- Changes:
+  - `LocalRecordingManifestService` now provides a canonical `read(from:)`
+    path that decodes ISO-8601 manifest JSON and normalizes stale
+    captureHealth failure/gate fields against manifest and track truth.
+  - Normalization is read-time only: it does not rewrite user recording
+    artifacts, but UI/diagnostic code using the service will not surface a
+    contradictory `passed` health state for a degraded/failed recording.
+  - Added a regression test that writes a stale manifest and verifies canonical
+    read returns `timeline_misaligned/failed` captureHealth truth.
+- Validation:
+  - `swift test --package-path apps/macos --filter
+    LocalRecordingManifestTests` passed: 11 tests, 0 failures.
+  - `swift test --package-path apps/macos` passed: 329 tests, 0 failures.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed: app-only package boundary passed, idle CPU max app/helper was
+    `0.60%`, coreaudiod stayed `0.00%`, quit CPU stayed `0.00%`, no HAL probe
+    was observed, and thermal state reported no warning.
+  - Built and installed a fresh app-only package into
+    `/Applications/2brain Rec.app`; installed binary hash matched the fresh
+    release build:
+    `ea45212c145bf6fd08ce905496a22abb8a70a48a85a921548fdf4af830efd1cc`.
+  - Relaunched a single installed app instance from `/Applications`; 10 idle
+    samples showed app CPU `0.00%`, `coreaudiod` CPU `0.00%`, RSS about
+    `92 MB`, no fresh unified-log error/fault/crash/hang/permission entries,
+    and no thermal or performance warning.
+- Acceptance impact:
+  - This hardens #308/#309/#313 by keeping read-side diagnostics consistent
+    with recording truth even when older local artifacts were created before
+    the writer fix. It does not close #307, #308, #309, #310, #311, or #313
+    because permission matrices, controlled artifacts, active/stop CPU, long
+    duration runs, and final scope-review markers are still manual gates.

@@ -6,6 +6,7 @@ public struct LocalRecordingManifestService: Sendable {
 
     private let clock: Clock
     private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
 
     public init(clock: @escaping Clock = Date.init) {
         self.clock = clock
@@ -13,6 +14,9 @@ public struct LocalRecordingManifestService: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
     }
 
     public func manifest(
@@ -99,6 +103,31 @@ public struct LocalRecordingManifestService: Sendable {
         try data.write(to: url, options: [.atomic])
     }
 
+    public func read(from url: URL) throws -> LocalRecordingManifest {
+        let data = try Data(contentsOf: url)
+        let manifest = try decoder.decode(LocalRecordingManifest.self, from: data)
+        return normalized(manifest)
+    }
+
+    public func normalized(_ manifest: LocalRecordingManifest) -> LocalRecordingManifest {
+        guard let captureHealth = manifest.captureHealth else {
+            return manifest
+        }
+
+        let failureReason = Self.resolveCaptureHealthFailureReason(for: manifest)
+        let gateStatus = Self.gateStatus(for: failureReason)
+        guard captureHealth.failureReason != failureReason || captureHealth.gateStatus != gateStatus else {
+            return manifest
+        }
+
+        var normalizedHealth = captureHealth
+        normalizedHealth.failureReason = failureReason
+        normalizedHealth.gateStatus = gateStatus
+        var normalizedManifest = manifest
+        normalizedManifest.captureHealth = normalizedHealth
+        return normalizedManifest
+    }
+
     private static func resolveFailureReason(
         tracks: [LocalRecordingTrack],
         scopeApproval: CaptureScopeApproval?,
@@ -127,6 +156,35 @@ public struct LocalRecordingManifestService: Sendable {
             return .formatNotReady
         }
         return .emptyRequiredTrack
+    }
+
+    private static func resolveCaptureHealthFailureReason(for manifest: LocalRecordingManifest) -> LocalRecordingFailureReason {
+        if manifest.failureReason != .none {
+            return manifest.failureReason
+        }
+        if let trackReason = manifest.tracks.first(where: { $0.failureReason != .none })?.failureReason {
+            return trackReason
+        }
+        if manifest.tracks.contains(where: { !$0.timelineAligned }) {
+            return .timelineMisaligned
+        }
+        return .none
+    }
+
+    private static func gateStatus(for failureReason: LocalRecordingFailureReason) -> CaptureHealthGateStatus {
+        switch failureReason {
+        case .none:
+            .passed
+        case .permissionDenied, .scopeUnavailable, .protectedAudioBlocked:
+            .blocked
+        case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed,
+             .timelineMisaligned, .cpuGateFailed, .halProbeObserved, .deviceUnavailable,
+             .appClosed:
+            .failed
+        case .emptyRequiredTrack, .formatNotReady, .silentInput, .noFrames,
+             .stoppedBeforeFrames, .legacyNotReady, .unknown:
+            .degraded
+        }
     }
 
     private static func isBlockedFailure(_ reason: LocalRecordingFailureReason) -> Bool {

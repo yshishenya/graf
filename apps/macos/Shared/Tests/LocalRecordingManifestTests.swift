@@ -118,6 +118,59 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
     }
 
+    func testReadNormalizesStaleCaptureHealthAgainstManifestFailure() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-manifest-stale-health-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stale = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .degraded,
+            directoryId: "dir",
+            transcriptionReadiness: .degraded,
+            tracks: [
+                completeTrack(role: .localMic),
+                LocalRecordingTrack(
+                    trackId: "remote",
+                    role: .remoteSpeaker,
+                    status: .degraded,
+                    fileName: "incoming.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 1000,
+                    byteCount: 32_044,
+                    frameCount: 16_000,
+                    timelineStartMs: 0,
+                    timelineAligned: false,
+                    failureReason: .timelineMisaligned
+                )
+            ],
+            failureReason: .timelineMisaligned,
+            durationDifferenceSeconds: 0,
+            captureHealth: CaptureHealthSnapshot(
+                recordingSessionId: "session",
+                phase: .stop,
+                sampledAt: Date(timeIntervalSince1970: 20),
+                coreaudiodCpuPercent: 0,
+                appCpuPercent: 0,
+                gateStatus: .passed,
+                failureReason: .none
+            )
+        )
+        let service = LocalRecordingManifestService()
+
+        try service.write(stale, to: url)
+        let normalized = try service.read(from: url)
+
+        XCTAssertEqual(normalized.captureHealth?.failureReason, .timelineMisaligned)
+        XCTAssertEqual(normalized.captureHealth?.gateStatus, .failed)
+        XCTAssertEqual(normalized.failureReason, .timelineMisaligned)
+    }
+
     func testCompleteTracksWithoutScopeAndPermissionsStayDegraded() {
         let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
             .manifest(
