@@ -4466,3 +4466,54 @@
     system-audio stop/release failure truth. It does not close #308 or #313
     because accepted controlled Record/Stop artifact evidence and final manual
     review are still required.
+
+## 2026-06-09 Permission Retry UI State Review
+
+- Timestamp: `2026-06-09T07:34:18Z`
+- Commit before change: `249f281`
+- Scope: Record button retry ergonomics for permission-matrix validation and
+  stale blocked-state handling.
+- Finding:
+  - After a permission-blocked or otherwise failed Record attempt, the next
+    Record click could request Microphone and Screen/System Audio permissions
+    while the UI still displayed the previous blocker until the prompts and
+    readiness evaluation completed.
+  - This did not block retry, but it made the manual permission gate confusing:
+    the user could see a stale error while macOS permission prompts were already
+    in progress.
+- Fix:
+  - `startManualRecording()` now clears the stale blocker and moves the capture
+    session into `detecting` / "Checking recording readiness" before requesting
+    Microphone and Screen/System Audio permissions.
+  - The existing blocked/failed session remains retryable: failed states still
+    show the Record button and do not expose Stop.
+  - Added XCTest source coverage for retryability after blocked start and for
+    the detecting readiness state, plus an executable `ContractValidation`
+    source invariant that stale blocker clearing and preparing state happen
+    before permission prompts.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.10`,
+    `maxAppHelperRssMB=98.77`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - App log tail for the fresh run showed launch, main-window presentation,
+    parked driver diagnostics, disabled auto-start, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This hardens #307 and #313 by making permission retry behavior visible and
+    non-stale during manual validation. It does not close #307 or #313 because
+    accepted permission-matrix rows and final manual review are still required.

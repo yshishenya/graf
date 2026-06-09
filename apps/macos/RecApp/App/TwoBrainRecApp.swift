@@ -190,6 +190,7 @@ private struct ContentView: View {
 
         localRecordingManifest = nil
         localRecordingLocation = nil
+        recordingBlocker = nil
         let scopeApproval: CaptureScopeApproval
         do {
             scopeApproval = try captureScopeApprovalService.approve(
@@ -200,6 +201,16 @@ private struct ContentView: View {
             )
         } catch {
             recordingBlocker = "Recording blocked: capture scope could not be approved."
+            return
+        }
+        do {
+            let preparing = try captureController.beginPreparing(
+                mode: .audioRecording,
+                sourceAppEligibility: .eligible
+            )
+            captureSession = preparing
+        } catch {
+            recordingBlocker = "Recording blocked: \(recordingStartFailureMessage(for: error))"
             return
         }
         let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight(
@@ -225,7 +236,6 @@ private struct ContentView: View {
         )
 
         do {
-            _ = try captureController.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
             guard prerequisite.allowsRecording && permissionGate.allowsAcceptedRecording else {
                 let blocked = try captureController.blockStart(
                     reason: permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason : .permissionDenied,

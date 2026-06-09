@@ -106,6 +106,41 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(blocked.stopActionAvailable)
     }
 
+    func testBlockedOrFailedSessionAllowsRecordRetry() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 31) },
+            idFactory: { "capture-retry-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        let blocked = try controller.blockStart(
+            reason: .permissionDenied,
+            recoveryAction: "Grant permissions, then retry recording"
+        )
+
+        XCTAssertFalse(CaptureStatusItem.showsStopButton(for: blocked))
+        XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: blocked))
+        XCTAssertTrue(CaptureControlView.shouldEnableRecordButton(for: blocked, recordDisabled: false))
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+    }
+
+    func testPreparingSessionShowsReadinessWithoutStop() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 32) },
+            idFactory: { "capture-detecting-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        let detecting = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: detecting), "Checking recording readiness")
+        XCTAssertFalse(CaptureStatusItem.showsStopButton(for: detecting))
+        XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: detecting))
+        XCTAssertFalse(CaptureControlView.shouldEnableRecordButton(for: detecting, recordDisabled: true))
+    }
+
     func testTrackEvidenceUsesCurrentSession() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 10) },

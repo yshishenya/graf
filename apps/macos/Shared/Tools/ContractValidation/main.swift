@@ -910,6 +910,20 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
         source.contains("detail: \"category=\\(failureCategory.rawValue) error=\\(error)\""),
         "App stop failure logging must include the classified failure category"
     )
+
+    guard let clearBlockerRange = source.range(of: "recordingBlocker = nil"),
+          let beginPreparingRange = source.range(of: "let preparing = try captureController.beginPreparing"),
+          let microphonePromptRange = source.range(of: "let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight"),
+          let systemAudioPromptRange = source.range(of: "let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()")
+    else {
+        throw ValidationError(description: "App start path must expose blocker clearing, preparing state, and permission prompts")
+    }
+    try require(
+        clearBlockerRange.lowerBound < beginPreparingRange.lowerBound &&
+            beginPreparingRange.lowerBound < microphonePromptRange.lowerBound &&
+            microphonePromptRange.lowerBound < systemAudioPromptRange.lowerBound,
+        "App start path must clear stale blockers and show preparing state before permission prompts"
+    )
 }
 
 func contractScopeApproval() -> CaptureScopeApproval {
