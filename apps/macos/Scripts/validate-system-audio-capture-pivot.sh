@@ -370,6 +370,7 @@ validate_cpu_evaluation_passed() {
     max_app_rss_mb="$(evaluation_field maxAppHelperRssMB "$evaluation")"
     sustained_core_exceeded="$(evaluation_field sustainedCoreaudiodExceeded "$evaluation")"
     sustained_app_exceeded="$(evaluation_field sustainedAppHelperExceeded "$evaluation")"
+    phase_event_observed="$(evaluation_field phaseEventObserved "$evaluation")"
 
     case "$sample_count" in
         ""|*[!0-9]*)
@@ -444,6 +445,15 @@ validate_cpu_evaluation_passed() {
             ;;
     esac
 
+    case "$phase" in
+        activeRecording|stop)
+            if [ "$phase_event_observed" != "true" ]; then
+                printf '%s\n' "$source_label is missing fresh app-log event binding for $phase: $evaluation"
+                return 1
+            fi
+            ;;
+    esac
+
     return 0
 }
 
@@ -478,12 +488,14 @@ expect_cpu_evaluation_rejects() {
 }
 
 self_test_cpu_evidence() {
-    valid_idle="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=4.99 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false"
-    valid_active="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=12.00 maxAppHelperCpuPercent=26.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false"
-    valid_quit="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false"
+    valid_idle="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=4.99 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired"
+    valid_active="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=12.00 maxAppHelperCpuPercent=26.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=true"
+    valid_stop="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.10 maxAppHelperCpuPercent=0.10 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=93.20 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=true"
+    valid_quit="status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired"
 
     expect_cpu_evaluation_accepts "valid-idle" idle "$valid_idle"
     expect_cpu_evaluation_accepts "valid-active-burst-without-sustained-exceedance" activeRecording "$valid_active"
+    expect_cpu_evaluation_accepts "valid-stop-with-event" stop "$valid_stop"
     expect_cpu_evaluation_accepts "valid-quit" quit "$valid_quit"
 
     expect_cpu_evaluation_rejects "failed-status" idle "${valid_idle#status=passed }"
@@ -493,6 +505,8 @@ self_test_cpu_evidence() {
     expect_cpu_evaluation_rejects "idle-ceiling" idle "$(printf '%s\n' "$valid_idle" | sed 's/maxCoreaudiodCpuPercent=4.99/maxCoreaudiodCpuPercent=5.00/')"
     expect_cpu_evaluation_rejects "sustained-core" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/sustainedCoreaudiodExceeded=false/sustainedCoreaudiodExceeded=true/')"
     expect_cpu_evaluation_rejects "missing-app-process" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/maxAppProcessCount=1/maxAppProcessCount=0/')"
+    expect_cpu_evaluation_rejects "active-missing-event-binding" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/phaseEventObserved=true/phaseEventObserved=false/')"
+    expect_cpu_evaluation_rejects "stop-missing-event-binding" stop "$(printf '%s\n' "$valid_stop" | sed 's/phaseEventObserved=true/phaseEventObserved=false/')"
     expect_cpu_evaluation_rejects "quit-process-left" quit "$(printf '%s\n' "$valid_quit" | sed 's/maxAppProcessCount=0/maxAppProcessCount=1/')"
 
     passed "synthetic CPU evidence parser checks passed"

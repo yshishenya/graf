@@ -355,7 +355,10 @@ block_if_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\
 printf '\n%s\n' "-- activeRecording CPU while recording is active --"
 active_cpu_epoch="$(date +%s)"
 active_cpu_log_offset="$(app_log_byte_count)"
-apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
+SYSTEM_AUDIO_CPU_GATE_APP_LOG="$APP_LOG" \
+SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH="$record_prompt_epoch" \
+SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET="$record_prompt_log_offset" \
+  apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
 block_if_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$active_cpu_epoch" "recording_still_active_after_cpu" "$active_cpu_log_offset"
 
 stop_prompt_epoch="$(date +%s)"
@@ -364,7 +367,10 @@ prompt_continue "Press Stop in 2brain Rec and wait until the recording status se
 wait_for_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$stop_prompt_epoch" "recording_stopped_or_saved" 20 "$stop_prompt_log_offset"
 
 printf '\n%s\n' "-- stop CPU immediately after Stop --"
-apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
+SYSTEM_AUDIO_CPU_GATE_APP_LOG="$APP_LOG" \
+SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH="$stop_prompt_epoch" \
+SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET="$stop_prompt_log_offset" \
+  apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
 
 if [ "${SYSTEM_AUDIO_MANUAL_GATE_SKIP_ARTIFACT:-0}" != "1" ]; then
   printf '\n%s\n' "-- latest artifact directory --"

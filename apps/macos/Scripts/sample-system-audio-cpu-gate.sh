@@ -23,6 +23,13 @@ Environment:
   SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=10 for baseline/idle/stop/quit, 0 for activeRecording
   SYSTEM_AUDIO_CPU_GATE_APP_BINARY=<path>
       Expected app binary to sample. Defaults to the packaged repo app bundle.
+  SYSTEM_AUDIO_CPU_GATE_APP_LOG=<path>
+      App log used to bind activeRecording/stop CPU evidence to fresh app-local
+      recording events. Defaults to ~/Library/Logs/2brain Rec/2brain-rec.log.
+  SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH=<epoch seconds>
+      Minimum event timestamp for activeRecording/stop event binding.
+  SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET=<bytes>
+      Log byte offset; events before this offset are ignored.
   SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 for synthetic script checks that must not
       update specs/025-system-audio-capture-pivot/evidence/cpu-gates.md
 
@@ -119,6 +126,93 @@ helper_pids() {
     ' || true
 }
 
+app_log_byte_count() {
+  app_log="${SYSTEM_AUDIO_CPU_GATE_APP_LOG:-$HOME/Library/Logs/2brain Rec/2brain-rec.log}"
+  [ -f "$app_log" ] || {
+    printf '%s' 0
+    return
+  }
+  wc -c < "$app_log" | tr -d ' '
+}
+
+line_has_event_since_epoch() {
+  line="$1"
+  pattern="$2"
+  since_epoch="$3"
+
+  case "$line" in
+    *" event="*) ;;
+    *) return 1 ;;
+  esac
+
+  timestamp="${line%% event=*}"
+  event_epoch="$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$timestamp" "+%s" 2>/dev/null || printf '%s' 0)"
+  [ "$event_epoch" -ge "$since_epoch" ] || return 1
+
+  printf '%s\n' "$line" | grep -E "$pattern" >/dev/null 2>&1
+}
+
+app_log_has_event_since_epoch() {
+  pattern="$1"
+  since_epoch="${SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH:-0}"
+  log_offset="${SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET:-0}"
+  app_log="${SYSTEM_AUDIO_CPU_GATE_APP_LOG:-$HOME/Library/Logs/2brain Rec/2brain-rec.log}"
+
+  case "$since_epoch" in
+    *[!0-9]*|"") since_epoch=0 ;;
+  esac
+  case "$log_offset" in
+    *[!0-9]*|"") log_offset=0 ;;
+  esac
+
+  [ -f "$app_log" ] || return 1
+  current_size="$(app_log_byte_count)"
+  case "$current_size" in
+    *[!0-9]*|"") current_size=0 ;;
+  esac
+  if [ "$current_size" -lt "$log_offset" ]; then
+    log_offset=0
+  fi
+  start_byte=$((log_offset + 1))
+  log_slice="$(mktemp)"
+  tail -c +"$start_byte" "$app_log" > "$log_slice" 2>/dev/null || {
+    rm -f "$log_slice"
+    return 1
+  }
+
+  while IFS= read -r line; do
+    if line_has_event_since_epoch "$line" "$pattern" "$since_epoch"; then
+      rm -f "$log_slice"
+      return 0
+    fi
+  done < "$log_slice"
+
+  rm -f "$log_slice"
+  return 1
+}
+
+phase_event_observed() {
+  case "$PHASE" in
+    activeRecording)
+      if app_log_has_event_since_epoch "event=recording\\.started"; then
+        printf '%s' "true"
+      else
+        printf '%s' "false"
+      fi
+      ;;
+    stop)
+      if app_log_has_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))"; then
+        printf '%s' "true"
+      else
+        printf '%s' "false"
+      fi
+      ;;
+    *)
+      printf '%s' "notRequired"
+      ;;
+  esac
+}
+
 word_count() {
   words="$1"
   if [ -z "$words" ]; then
@@ -136,6 +230,7 @@ fi
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
+phase_event="$(phase_event_observed)"
 
 i=1
 while [ "$i" -le "$SAMPLES" ]; do
@@ -153,8 +248,8 @@ while [ "$i" -le "$SAMPLES" ]; do
   app_helper_cpu="$(awk -v a="$app_cpu" -v b="$helper_cpu" 'BEGIN { printf "%.2f", a + b }')"
   app_helper_rss_mb="$(awk -v a="$app_rss_mb" -v b="$helper_rss_mb" 'BEGIN { printf "%.2f", a + b }')"
   sampled_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s coreaudiodRssMB=%s appRssMB=%s helperRssMB=%s appHelperRssMB=%s appProcessCount=%s helperProcessCount=%s halProbeObserved=false\n' \
-    "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" "$core_rss_mb" "$app_rss_mb" "$helper_rss_mb" "$app_helper_rss_mb" "$app_process_count" "$helper_process_count" | tee -a "$tmp_file"
+  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s coreaudiodRssMB=%s appRssMB=%s helperRssMB=%s appHelperRssMB=%s appProcessCount=%s helperProcessCount=%s halProbeObserved=false phaseEventObserved=%s\n' \
+    "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" "$core_rss_mb" "$app_rss_mb" "$helper_rss_mb" "$app_helper_rss_mb" "$app_process_count" "$helper_process_count" "$phase_event" | tee -a "$tmp_file"
   if [ "$i" -lt "$SAMPLES" ]; then
     sleep "$INTERVAL_SECONDS"
   fi
@@ -163,7 +258,7 @@ done
 
 evaluation="$(awk -v phase="$PHASE" '
 BEGIN {
-  maxCore = 0; maxApp = 0; maxCoreRss = 0; maxAppRss = 0; coreSeq = 0; appSeq = 0; coreSustained = 0; appSustained = 0; count = 0; maxAppProcesses = 0; maxHelperProcesses = 0;
+  maxCore = 0; maxApp = 0; maxCoreRss = 0; maxAppRss = 0; coreSeq = 0; appSeq = 0; coreSustained = 0; appSustained = 0; count = 0; maxAppProcesses = 0; maxHelperProcesses = 0; phaseEventObserved = 0;
 }
 {
   count += 1;
@@ -176,6 +271,7 @@ BEGIN {
     if (kv[1] == "appHelperRssMB") appRss = kv[2] + 0;
     if (kv[1] == "appProcessCount") appProcesses = kv[2] + 0;
     if (kv[1] == "helperProcessCount") helperProcesses = kv[2] + 0;
+    if (kv[1] == "phaseEventObserved" && kv[2] == "true") phaseEventObserved = 1;
   }
   if (core > maxCore) maxCore = core;
   if (app > maxApp) maxApp = app;
@@ -218,7 +314,8 @@ END {
     reason = "appStillRunning";
   }
   if (status == "observed") reason = "diagnosticOnly";
-  printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f maxCoreaudiodRssMB=%.2f maxAppHelperRssMB=%.2f maxAppProcessCount=%d maxHelperProcessCount=%d sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s", status, reason, count, maxCore, maxApp, maxCoreRss, maxAppRss, maxAppProcesses, maxHelperProcesses, coreSustained ? "true" : "false", appSustained ? "true" : "false";
+  phaseEventValue = (phase == "activeRecording" || phase == "stop") ? (phaseEventObserved ? "true" : "false") : "notRequired";
+  printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f maxCoreaudiodRssMB=%.2f maxAppHelperRssMB=%.2f maxAppProcessCount=%d maxHelperProcessCount=%d sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s phaseEventObserved=%s", status, reason, count, maxCore, maxApp, maxCoreRss, maxAppRss, maxAppProcesses, maxHelperProcesses, coreSustained ? "true" : "false", appSustained ? "true" : "false", phaseEventValue;
 }' "$tmp_file")"
 
 printf '%s\n' "$evaluation"

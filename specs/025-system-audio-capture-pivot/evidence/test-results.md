@@ -4982,3 +4982,65 @@
     controlled artifact validation with stale or partial recording directories.
     It does not close #308 because real manual Record/Stop artifact rows are
     still required.
+
+## 2026-06-09 CPU Phase Event Binding Review
+
+- Timestamp: `2026-06-09T08:54:15Z`
+- Commit before change: `f0c96d7`
+- Scope: CPU evidence truth for `activeRecording` and `stop` phases in
+  `#309/T073`.
+- Finding:
+  - CPU evidence already required app process presence, sample count, RSS, CPU
+    thresholds, and quit process release.
+  - However, a manually produced `activeRecording` or `stop` CPU row could still
+    be collected outside the intended fresh Record/Stop window if the guided
+    harness was bypassed.
+  - That would make CPU numbers look valid while failing to prove they were
+    tied to a fresh app-local recording event.
+- Fix:
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh` now records
+    `phaseEventObserved` in every sample and summary.
+  - For `activeRecording`, the sampler can bind evidence to a fresh
+    `recording.started` app-log event after a supplied epoch and byte offset.
+  - For `stop`, the sampler can bind evidence to a fresh `recording.stopped` or
+    `local_recording.saved/degraded/failed` app-log event after a supplied epoch
+    and byte offset.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh` now passes
+    the already captured Record/Stop prompt epoch and app-log byte offset into
+    the sampler.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    now rejects `activeRecording` and `stop` CPU evaluations unless
+    `phaseEventObserved=true`.
+  - `--self-test-cpu-evidence` now proves valid active/stop rows require event
+    binding and rejects rows where the binding is missing.
+- Validation:
+  - `sh -n` passed for the CPU sampler, feature validator, and manual harness.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - A synthetic activeRecording sampler run with a fresh temp-log
+    `recording.started` event emitted `phaseEventObserved=true`, but still
+    failed with `appNotRunning` because no packaged app process was present.
+    This proves event binding does not replace app-process proof.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.36`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #309 and #313 by ensuring active/stop CPU evidence is tied to
+    fresh app-local recording lifecycle events. It does not close #309 because
+    real manual Record/Stop CPU rows are still required.
