@@ -3579,3 +3579,48 @@
   - This hardens #309 and #313 against false active-recording CPU evidence. It
     does not close #309 because the real active/stop CPU run still requires
     manual Record/Stop with controlled non-sensitive audio.
+
+## 2026-06-09 Latest Artifact Freshness Review
+
+- Timestamp: `2026-06-09T04:48:20Z`
+- Commit before change: `27a6936`
+- Scope: latest artifact discovery in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - `--latest-artifact-directory` filtered candidates using the recording
+    directory mtime.
+  - A stale completed artifact directory could be selected after the manual
+    gate start epoch if only the directory mtime changed, even when
+    `manifest.json`, `mic.wav`, and `incoming.wav` were older than the current
+    manual run.
+- Fix:
+  - Latest artifact discovery now requires `manifest.json`, `mic.wav`, and
+    `incoming.wav` all to have file mtimes at or after
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME`.
+  - Candidate ordering now uses `manifest.json` mtime instead of directory
+    mtime.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - Synthetic stale artifact directory with fresh directory mtime blocked as
+    expected.
+  - Synthetic fresh artifact directory with all required files after the gate
+    epoch was selected as expected.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by the remaining manual gates.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.16 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #308 and #313 against stale artifact selection. It does not
+    close #308 because real controlled artifacts still need to be recorded and
+    reviewed.

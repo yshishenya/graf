@@ -124,6 +124,15 @@ recordings_root() {
     printf '%s\n' "${TWO_BRAIN_REC_RECORDINGS_DIR:-$HOME/Library/Application Support/2brain Rec/Recordings}"
 }
 
+file_mtime() {
+    path="$1"
+    mtime="$(stat -f "%m" "$path" 2>/dev/null || printf '0')"
+    case "$mtime" in
+        *[!0-9]*|"") mtime=0 ;;
+    esac
+    printf '%s\n' "$mtime"
+}
+
 latest_completed_artifact_directory() {
     root="$(recordings_root)"
     [ -d "$root" ] || blocked "recordings directory does not exist: $root"
@@ -140,11 +149,13 @@ latest_completed_artifact_directory() {
         [ -f "$directory/mic.wav" ] || continue
         [ -f "$directory/incoming.wav" ] || continue
 
-        mtime="$(stat -f "%m" "$directory" 2>/dev/null || printf '0')"
-        case "$mtime" in
-            *[!0-9]*|"") mtime=0 ;;
-        esac
-        [ "$mtime" -ge "$min_mtime" ] || continue
+        manifest_mtime="$(file_mtime "$directory/manifest.json")"
+        mic_mtime="$(file_mtime "$directory/mic.wav")"
+        incoming_mtime="$(file_mtime "$directory/incoming.wav")"
+        [ "$manifest_mtime" -ge "$min_mtime" ] || continue
+        [ "$mic_mtime" -ge "$min_mtime" ] || continue
+        [ "$incoming_mtime" -ge "$min_mtime" ] || continue
+        mtime="$manifest_mtime"
         if [ -z "$latest_mtime" ] || [ "$mtime" -gt "$latest_mtime" ]; then
             latest_mtime="$mtime"
             latest_directory="$directory"
@@ -152,7 +163,7 @@ latest_completed_artifact_directory() {
     done
 
     [ -n "$latest_directory" ] ||
-        blocked "no completed local recording directories with manifest.json, mic.wav, and incoming.wav found under: $root after epoch: $min_mtime"
+        blocked "no completed local recording directories with manifest.json, mic.wav, and incoming.wav all modified after epoch: $min_mtime under: $root"
 
     printf '%s\n' "$latest_directory"
 }
