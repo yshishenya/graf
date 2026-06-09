@@ -2326,3 +2326,28 @@
 - Acceptance impact:
   - This strengthens artifact/session truth for #308/#313, but does not replace
     the required controlled artifact run.
+
+## 2026-06-09T01:01:40Z Buffered Frame Count Test Expectation Follow-Up
+
+- Commit before change: `6aaac3d`
+- Scope: `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`.
+- Issue links: #308, #313.
+- Finding:
+  - After frame counting moved from samples to channel-aware frames, one
+    existing buffer test still expected total sample count (`6`) rather than
+    stereo frame count (`3`).
+  - The local CLT host builds and links the XCTest bundle but does not execute
+    XCTest, so this stale expectation needed a source review pass to catch it
+    before CI or a full Xcode host runs the test.
+- Change:
+  - Updated the existing buffer overflow stats expectation to `3` frames for
+    six stereo samples.
+  - Added an explicit regression test that `channelCount=2` reports 512 samples
+    as 256 frames while `channelCount=1` reports 512 samples as 512 frames.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the updated test
+    bundle on this CLT host.
+- Acceptance impact:
+  - Test expectation follow-up only; controlled artifact validation is still
+    required for #308/T072.

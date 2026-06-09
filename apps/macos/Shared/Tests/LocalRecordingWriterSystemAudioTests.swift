@@ -135,7 +135,17 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
 
         XCTAssertEqual(source.readSamples(into: scratch, capacity: 4), 4)
         XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [3, 4, 5, 6])
-        XCTAssertEqual(source.stats().frameCount, 6)
+        XCTAssertEqual(source.stats().frameCount, 3)
+    }
+
+    func testBufferedSourceStatsRespectConfiguredChannelCount() {
+        let stereoSource = BufferedLocalRecordingSampleSource(channelCount: 2)
+        stereoSource.append(Array(repeating: 0.25, count: 512))
+        XCTAssertEqual(stereoSource.stats().frameCount, 256)
+
+        let monoSource = BufferedLocalRecordingSampleSource(channelCount: 1)
+        monoSource.append(Array(repeating: 0.25, count: 512))
+        XCTAssertEqual(monoSource.stats().frameCount, 512)
     }
 }
 
