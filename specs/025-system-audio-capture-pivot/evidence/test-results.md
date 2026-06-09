@@ -5372,3 +5372,45 @@
     accepted artifact validator. It does not close #307, #308, #309, #310,
     #311, or #313 because the remaining gates require real manual recording and
     duration evidence.
+
+## 2026-06-09 Manual Harness And Indicator Review
+
+- Timestamp: `2026-06-09T09:46:35Z`
+- Scope: focused review of CPU sampler, guided manual harness, permission gate,
+  capture session state, visible indicator, Stop availability, runtime launch,
+  logs, CPU, and thermal status.
+- Review findings:
+  - CPU sampler binds activeRecording and stop CPU gates to fresh app-local log
+    events using both epoch and log byte offset.
+  - Guided harness blocks stale Record/Stop evidence, holds a `caffeinate`
+    assertion, gates latest artifacts by harness start epoch, and does not
+    click UI, inspect audio content, reset TCC, install packages, or run HAL
+    probes.
+  - Permission gate blocks normal accepted recording unless both microphone and
+    Screen/System Audio permissions are granted, and recovery copy does not
+    route users to driver repair.
+  - Capture session state keeps a visible indicator plus Stop for starting,
+    active, paused, degraded, and stopping states; failed/stopped states disable
+    Stop and allow retry.
+  - No code defect requiring a new fix was found in this pass.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.11`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This records another clean non-recording safety pass and manual-gate
+    harness review. It does not close #307, #308, #309, #310, #311, or #313
+    because the remaining gates require real manual recording and duration
+    evidence.
