@@ -3113,3 +3113,50 @@
   - This improves automated proof for #307 but does not replace the required
     manual permission matrix rows. It does not close #307, #308, #309
     active/stop, #310, #311, or #313.
+
+## 2026-06-09 Start-Failure Local Writer Cleanup Review
+
+- Timestamp: `2026-06-09T03:53:50Z`
+- Commit before change: `3c8ca19`
+- Scope: recording start failure cleanup after local writer start.
+- Finding:
+  - The start flow already cleaned up system-audio capture on failure and the
+    writer cleaned up partial setup when `startAsync()` itself failed.
+  - A narrow gap remained after `localRecordingWriter.startAsync()` succeeded
+    but before the session reached `markCapturing()`. If that later transition
+    failed, the catch block stopped system audio but did not explicitly stop the
+    already-active local writer.
+  - This could leave a partial local writer active after a failed start edge
+    case.
+- Fix:
+  - Added `finalizeLocalRecordingForStartFailure(reason:)`.
+  - Start failure catch now checks whether the writer is recording, stops it
+    asynchronously, records the resulting manifest/location, and logs
+    `local_recording.degraded` with `reason=start_failure_cleanup`.
+  - The helper uses the existing async writer APIs, so it does not add a new
+    synchronous main-actor writer call.
+- Validation:
+  - Static scan found no direct synchronous `localRecordingWriter.isRecording`,
+    `localRecordingWriter.currentLevels`, or
+    `localRecordingWriter.currentDirectoryURL` app UI call site.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the test
+    bundle on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - Fresh packaged app launch passed with visible `2brain Rec` window and app
+    CPU around `0.1%`.
+  - Short quit CPU smoke passed with `sampleCount=3`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, zero
+    app/helper processes, and `halProbeObserved=false`.
+  - App log showed launch, visible main window, auto route skipped by default,
+    `app_termination_cleanup_completed reason=cleanup_finished`, and
+    `passthrough_bridge_stopped`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This reduces partial local-writer leak risk in a rare failed-start edge
+    case. It does not close #307, #308, #309 active/stop, #310, #311, or #313.

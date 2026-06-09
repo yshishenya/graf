@@ -298,6 +298,7 @@ private struct ContentView: View {
         } catch {
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
+            await finalizeLocalRecordingForStartFailure(reason: "start_failure_cleanup")
             _ = try? await systemAudioCaptureService.stop()
             let failureCategory = recordingStartFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
@@ -307,6 +308,28 @@ private struct ContentView: View {
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "category=\(failureCategory.rawValue) error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func finalizeLocalRecordingForStartFailure(reason: String) async {
+        guard await localRecordingWriter.isRecordingAsync() else {
+            return
+        }
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
+        do {
+            let manifest = try await localRecordingWriter.stopAsync()
+            localRecordingManifest = manifest
+            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
+            AppLog.writeRaw(
+                event: AuditEventName.localRecordingDegraded.rawValue,
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason)"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "\(reason)_failed error=\(error)"
             )
         }
     }
