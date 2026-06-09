@@ -3822,3 +3822,42 @@
   - This hardens #308 and #313 against ambiguous accepted artifact entries. It
     does not close #308 because real controlled artifacts still need to be
     recorded and reviewed.
+
+## 2026-06-09 No-HAL Evidence Freshness Review
+
+- Timestamp: `2026-06-09T05:14:30Z`
+- Commit before change: `edbe621`
+- Scope: final no-HAL evidence handling in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - Final `--review-evidence` required `no-hal-probe.md` to exist, but did not
+    verify that the latest No-HAL MVP Boundary run was `passed`.
+  - A present-but-empty or last-failed no-HAL evidence file could make the final
+    review weaker than the other accepted evidence gates.
+- Fix:
+  - Added latest No-HAL status parsing.
+  - Final review now remains incomplete unless the latest No-HAL MVP Boundary
+    section has `Status: passed`.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `sh -n apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by the remaining manual gates, with no no-HAL
+    blocker because the latest no-HAL run is passed.
+  - `git diff --check` passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.27 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log review showed normal packaged app launch and clean termination
+    events from the latest safe-launch runs.
+- Acceptance impact:
+  - This hardens #313/T077 so final scope review cannot pass with stale or
+    failed no-HAL evidence. It does not close #313 because the manual gates
+    remain incomplete.

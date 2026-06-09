@@ -382,6 +382,25 @@ ensure_no_forbidden_hal_requirement() {
     fi
 }
 
+latest_no_hal_status() {
+    awk '
+        /^## .* No-HAL MVP Boundary$/ {
+            in_section = 1
+            status = ""
+            next
+        }
+        in_section && /^- Status: `/ {
+            line = $0
+            sub(/^- Status: `/, "", line)
+            sub(/`.*$/, "", line)
+            status = line
+        }
+        END {
+            print status
+        }
+    ' "$NO_HAL"
+}
+
 validate_permission_matrix() {
     mkdir -p "$EVIDENCE_DIR"
     require_file "$PERMISSION_MATRIX"
@@ -843,6 +862,12 @@ EOF
     release_duration_rows="$(count_accepted_duration_rows "$RELEASE_DURATION" 75)"
     if [ "$release_duration_rows" = "0" ]; then
         printf '%s\n' "$RELEASE_DURATION has no accepted 75-minute row with all required gates passed"
+        incomplete=1
+    fi
+
+    no_hal_status="$(latest_no_hal_status)"
+    if [ "$no_hal_status" != "passed" ]; then
+        printf '%s\n' "$NO_HAL latest No-HAL MVP Boundary status is not passed: ${no_hal_status:-missing}"
         incomplete=1
     fi
 
