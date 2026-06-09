@@ -4677,3 +4677,59 @@
   - This hardens #308 and #313 by preserving manifest failure truth on app
     termination cleanup. It does not close #308 or #313 because accepted
     controlled artifact evidence and final manual review are still required.
+
+## 2026-06-09 Artifact Validator Self-Test Review
+
+- Timestamp: `2026-06-09T08:15:09Z`
+- Commit before change: `78be59e`
+- Scope: Metadata-only artifact validator coverage for accepted and failed
+  synthetic local recording packages.
+- Finding:
+  - The artifact directory validator was strict, but it had no synthetic
+    self-test mode proving that an accepted-looking package with
+    `failureReason=capture_failed` is rejected.
+  - This left the manual gate harness dependent on ad hoc confidence in the
+    validator rather than an executable fail-closed parser check.
+- Fix:
+  - Added `--self-test-artifact-metadata` to
+    `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+  - The self-test creates temporary synthetic `manifest.json`, `mic.wav`, and
+    `incoming.wav` files only. It does not read real recordings, inspect audio
+    content, start recording, update evidence files, reset TCC, install
+    packages, or run HAL probes.
+  - The self-test verifies that a valid accepted synthetic dual-track package
+    passes and an otherwise accepted-looking package with
+    `failureReason=capture_failed` is rejected.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    now invokes the artifact metadata self-test, so the manual gate harness
+    proves the artifact validator before guiding a real manual run.
+- Validation:
+  - `sh -n` passed for the updated validator and manual harness scripts.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed and now includes the artifact metadata self-test.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.58`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #308 and #313 by making the artifact validator's fail-closed
+    behavior executable and part of the manual harness self-test. It does not
+    close #308 or #313 because accepted controlled artifact evidence and final
+    manual review are still required.

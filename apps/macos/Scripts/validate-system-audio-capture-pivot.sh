@@ -65,6 +65,11 @@ Modes:
       Run synthetic CPU evidence parser regression checks. Does not read or
       update real evidence files.
 
+  --self-test-artifact-metadata
+      Run synthetic metadata-only artifact validator checks against temporary
+      manifest/WAV files. Does not read real recordings, inspect audio content,
+      update evidence files, start recording, or touch TCC.
+
 Exit codes:
   0 passed
   2 blocked / not accepted yet
@@ -468,6 +473,131 @@ self_test_cpu_evidence() {
     expect_cpu_evaluation_rejects "quit-process-left" quit "$(printf '%s\n' "$valid_quit" | sed 's/maxAppProcessCount=0/maxAppProcessCount=1/')"
 
     passed "synthetic CPU evidence parser checks passed"
+}
+
+write_synthetic_wav() {
+    path="$1"
+    {
+        printf 'RIFF'
+        printf '\044\175\000\000'
+        printf 'WAVE'
+        printf 'fmt '
+        printf '\020\000\000\000'
+        printf '\001\000'
+        printf '\001\000'
+        printf '\200\076\000\000'
+        printf '\000\175\000\000'
+        printf '\002\000'
+        printf '\020\000'
+        printf 'data'
+        printf '\000\175\000\000'
+        dd if=/dev/zero bs=32000 count=1 2>/dev/null
+    } > "$path"
+}
+
+write_synthetic_manifest() {
+    directory="$1"
+    failure_reason="$2"
+    status="$3"
+    directory_id="$(basename "$directory")"
+    cat > "$directory/manifest.json" <<EOF
+{
+  "schemaVersion": "local-recording-manifest.v2",
+  "sessionId": "synthetic-artifact-self-test",
+  "createdAt": "2026-06-09T00:00:00Z",
+  "startedAt": "2026-06-09T00:00:00Z",
+  "stoppedAt": "2026-06-09T00:00:01Z",
+  "status": "$status",
+  "directoryId": "$directory_id",
+  "manifestFileName": "manifest.json",
+  "transcriptionReadiness": "ready",
+  "mediaScribeSourceMode": "dual",
+  "externalEgressStarted": false,
+  "transcriptionStarted": false,
+  "diagnosticSafe": true,
+  "failureReason": "$failure_reason",
+  "durationDifferenceSeconds": 0,
+  "scopeApproval": {
+    "approvedBy": "user",
+    "notTriggerForBackgroundAudio": true
+  },
+  "permissions": {
+    "microphone": "granted",
+    "systemAudio": "granted"
+  },
+  "captureHealth": {
+    "recordingSessionId": "synthetic-artifact-self-test",
+    "sampledAt": "2026-06-09T00:00:01Z",
+    "phase": "stop",
+    "halProbeObserved": false,
+    "gateStatus": "passed",
+    "failureReason": "none"
+  },
+  "tracks": [
+    {
+      "trackId": "localMic-track",
+      "role": "localMic",
+      "sourceKind": "microphone",
+      "mediaScribeField": "mic_file",
+      "status": "saved",
+      "fileName": "mic.wav",
+      "format": "wav-pcm-s16le",
+      "sampleRate": 16000,
+      "channelCount": 1,
+      "bitsPerSample": 16,
+      "durationMs": 1000,
+      "byteCount": 32044,
+      "frameCount": 16000,
+      "timelineStartMs": 0,
+      "timelineAligned": true,
+      "failureReason": "none"
+    },
+    {
+      "trackId": "remoteSpeaker-track",
+      "role": "remoteSpeaker",
+      "sourceKind": "systemAudio",
+      "mediaScribeField": "incoming_file",
+      "status": "saved",
+      "fileName": "incoming.wav",
+      "format": "wav-pcm-s16le",
+      "sampleRate": 16000,
+      "channelCount": 1,
+      "bitsPerSample": 16,
+      "durationMs": 1000,
+      "byteCount": 32044,
+      "frameCount": 16000,
+      "timelineStartMs": 0,
+      "timelineAligned": true,
+      "failureReason": "none"
+    }
+  ]
+}
+EOF
+}
+
+self_test_artifact_metadata() {
+    temp_root="$(mktemp -d)"
+    trap 'rm -rf "$temp_root"' EXIT
+
+    accepted_dir="$temp_root/synthetic-accepted"
+    failed_dir="$temp_root/synthetic-failed"
+    mkdir -p "$accepted_dir" "$failed_dir"
+    write_synthetic_wav "$accepted_dir/mic.wav"
+    write_synthetic_wav "$accepted_dir/incoming.wav"
+    write_synthetic_manifest "$accepted_dir" "none" "saved"
+
+    cp "$accepted_dir/mic.wav" "$failed_dir/mic.wav"
+    cp "$accepted_dir/incoming.wav" "$failed_dir/incoming.wav"
+    write_synthetic_manifest "$failed_dir" "capture_failed" "saved"
+
+    SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 "$0" --artifact-directory "$accepted_dir" >/dev/null ||
+        fail_invalid "synthetic accepted artifact metadata did not pass"
+
+    if SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 "$0" --artifact-directory "$failed_dir" >/dev/null 2>&1; then
+        fail_invalid "synthetic capture_failed artifact metadata was incorrectly accepted"
+    fi
+
+    passed "synthetic artifact metadata checks passed"
 }
 
 ensure_no_forbidden_hal_requirement() {
@@ -1029,6 +1159,9 @@ case "$mode" in
         ;;
     --self-test-cpu-evidence)
         self_test_cpu_evidence
+        ;;
+    --self-test-artifact-metadata)
+        self_test_artifact_metadata
         ;;
     *)
         fail_invalid "unknown mode: $mode"

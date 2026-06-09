@@ -188,6 +188,9 @@ run_self_test() {
     fail_self_test "unexpected recording.stopped event did not block"
   fi
 
+  apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata >/dev/null ||
+    fail_self_test "artifact metadata validator self-test failed"
+
   APP_LOG="$original_app_log"
   printf '%s\n' "manual_gate_self_test=passed"
 }
