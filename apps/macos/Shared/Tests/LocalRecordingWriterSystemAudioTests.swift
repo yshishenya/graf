@@ -176,6 +176,34 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertNotEqual(manifest.status, .saved)
     }
 
+    func testSmallIncomingStopTailPaddingDoesNotDegradeRecording() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-stop-tail-padding-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let incomingSource = BufferedLocalRecordingSampleSource(channelCount: 1)
+        incomingSource.append(Array(repeating: 0.25, count: 46_080))
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        XCTAssertEqual(incoming.durationMs, 1000)
+        XCTAssertEqual(incoming.failureReason, .none)
+        XCTAssertEqual(incoming.status, .saved)
+        XCTAssertTrue(incoming.timelineAligned)
+        XCTAssertEqual(manifest.status, .saved)
+    }
+
     func testBufferedIncomingSourceReadsInOrderAfterPartialReads() {
         let source = BufferedLocalRecordingSampleSource(capacity: 8)
         let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 4)

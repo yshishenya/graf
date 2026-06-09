@@ -907,6 +907,49 @@ func validateLocalRecordingWriterPartialIncomingPaddingIsNotSaved() throws {
     )
 }
 
+func validateLocalRecordingWriterSmallStopTailPaddingIsSaved() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-small-stop-tail-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 48_000))
+    let incomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 46_080))
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        microphoneSampleSourceFactory: { microphoneSource },
+        incomingSampleSourceFactory: { incomingSource },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-small-stop-tail",
+        startedAt: Date(timeIntervalSince1970: 10),
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+    guard let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Small stop-tail validation must produce incoming track")
+    }
+
+    try require(
+        incoming.durationMs == 1000 && incoming.timelineAligned,
+        "Small stop-tail padding must preserve aligned one-second incoming track shape"
+    )
+    try require(
+        incoming.failureReason == .none && incoming.status == .saved,
+        "Small stop-tail padding must not falsely degrade an otherwise complete incoming track"
+    )
+    try require(
+        manifest.status == .saved && manifest.isComplete,
+        "Small stop-tail padding must still allow a clean saved manifest"
+    )
+}
+
 func validateLocalRecordingManifestFailureReasonFailClosed() throws {
     let manifest = LocalRecordingManifest(
         sessionId: "contract-manifest-failure-reason",
@@ -1377,6 +1420,7 @@ do {
     try validateLocalRecordingWriterBoundedDrain()
     try validateLocalRecordingWriterForcedFailureTruth()
     try validateLocalRecordingWriterPartialIncomingPaddingIsNotSaved()
+    try validateLocalRecordingWriterSmallStopTailPaddingIsSaved()
     try validateLocalRecordingManifestFailureReasonFailClosed()
     try await validateSystemAudioPermissionFailClosed()
     try await validateSystemAudioStartTimeoutCleanupOrdering()

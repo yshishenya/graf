@@ -5735,3 +5735,58 @@
     #309, #310, #311, or #313 because the broader permission, controlled
     artifact, active/stop CPU, duration, and final review gates still require
     complete manual evidence.
+
+## 2026-06-09 Incoming Stop-Tail Manifest Truth Fix
+
+- Timestamp: `2026-06-09T13:25:00Z`
+- Scope: follow-up review after the installed audio-quality fix made incoming
+  sound normal, but the fresh 13-second recording manifest still reported
+  `status=degraded` and `failureReason=timeline_misaligned`.
+- Review findings:
+  - Latest manual recording artifact:
+    `20260609-131458-B9923A10-DF5A-455C-A8F3-B4262E085C12`.
+  - `incoming.wav` and `mic.wav` were valid PCM16 mono 16 kHz WAV files.
+  - Numeric metadata-only analysis showed `incoming.wav` had a 47.562 ms
+    trailing zero tail after timeline padding, while the user confirmed the
+    incoming audio sounded normal.
+  - The writer treated any incoming timeline padding as degraded, even when the
+    padding was a small stop-tail alignment artifact rather than a meaningful
+    capture gap.
+- Changes:
+  - `LocalRecordingWriter` now records the number of padded frames and accepts
+    small stop-tail padding up to 100 ms when the track is otherwise aligned.
+  - Large incoming gaps remain degraded; the existing partial incoming padding
+    guard still requires degraded `timeline_misaligned` truth for a 900 ms gap.
+  - Added a focused XCTest case and an executable `ContractValidation` case for
+    small stop-tail padding so the behavior is verified even in the local CLT
+    environment where `swift test` only compiles bundles.
+- Validation:
+  - `swift test --package-path apps/macos --filter
+    LocalRecordingWriterSystemAudioTests` compiled the focused test bundle.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed and executed
+    both large-gap degraded and small stop-tail saved manifest checks.
+  - `swift test --package-path apps/macos` compiled the full test bundle.
+  - `git diff --check` passed.
+  - Built and installed a fresh app-only package into
+    `/Applications/2brain Rec.app`; installed binary hash matched the fresh
+    release build:
+    `baf715f7536ecc86f2533bcf7400167809b3e0dbce7a0fa39f1d964fc54a63c1`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed: baseline, idle, and quit CPU samples all reported
+    `maxCoreaudiodCpuPercent=0.00`, app/helper CPU stayed `0.00`, no HAL probe
+    was observed, and thermal state reported no warning.
+  - Installed `/Applications/2brain Rec.app` remained launched afterward with
+    app CPU `0.0%`, `coreaudiod` CPU `0.0%`, and no thermal or performance
+    warning.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh
+    --review-evidence` remains blocked only on the expected manual gates:
+    permission matrix, controlled artifact matrix, 30-minute run, 75-minute
+    run, active/stop CPU evidence, and final scope-review markers.
+- Acceptance impact:
+  - This hardens #308/#313 by preventing normal short stop-tail alignment from
+    falsely degrading a good incoming artifact while preserving degraded truth
+    for meaningful incoming gaps. It does not close #307, #308, #309, #310,
+    #311, or #313 because complete manual matrices and duration gates remain
+    required.

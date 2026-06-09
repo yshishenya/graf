@@ -161,6 +161,7 @@ public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource
 
 public final class LocalRecordingWriter: @unchecked Sendable {
     private static let maxDrainReadIterations = 64
+    private static let acceptableStopTailPaddingMs = 100
 
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
@@ -445,6 +446,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             fileName: "mic.wav",
             timelineAligned: true,
             paddedToTimeline: paddingResult.microphonePadded,
+            paddedFrameCount: paddingResult.microphonePaddedFrameCount,
             forcedFailureReason: drainResult.microphoneTruncated || active.microphoneWriteFailed ? .writeFailed : nil
         )
         let timelineToleranceMs = 1_000
@@ -458,6 +460,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             timelineAligned: remoteTimelineAligned,
             observedLevel: active.lastIncomingLevel,
             paddedToTimeline: paddingResult.incomingPadded,
+            paddedFrameCount: paddingResult.incomingPaddedFrameCount,
             forcedFailureReason: drainResult.incomingTruncated || active.incomingWriteFailed ? .writeFailed : nil
         )
         let captureHealth = CaptureHealthMonitor().snapshot(
@@ -491,13 +494,17 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         if let microphoneWriter = active.microphoneWriter,
            microphoneWriter.frameCount > 0,
            microphoneWriter.frameCount < targetFrameCount {
-            try microphoneWriter.writeSilence(frameCount: targetFrameCount - microphoneWriter.frameCount)
+            let paddingFrameCount = targetFrameCount - microphoneWriter.frameCount
+            try microphoneWriter.writeSilence(frameCount: paddingFrameCount)
             result.microphonePadded = true
+            result.microphonePaddedFrameCount = paddingFrameCount
         }
         if active.remoteWriter.frameCount > 0,
            active.remoteWriter.frameCount < targetFrameCount {
-            try active.remoteWriter.writeSilence(frameCount: targetFrameCount - active.remoteWriter.frameCount)
+            let paddingFrameCount = targetFrameCount - active.remoteWriter.frameCount
+            try active.remoteWriter.writeSilence(frameCount: paddingFrameCount)
             result.incomingPadded = true
+            result.incomingPaddedFrameCount = paddingFrameCount
         }
         return result
     }
@@ -572,6 +579,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         timelineAligned: Bool,
         observedLevel: Double? = nil,
         paddedToTimeline: Bool = false,
+        paddedFrameCount: Int = 0,
         forcedFailureReason: LocalRecordingFailureReason? = nil
     ) -> LocalRecordingTrack {
         let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
@@ -583,7 +591,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         } else if complete {
             if observedLevel == 0 {
                 failureReason = .silentInput
-            } else if paddedToTimeline {
+            } else if paddedToTimeline && Self.paddingDurationMs(paddedFrameCount) > Self.acceptableStopTailPaddingMs {
                 failureReason = .timelineMisaligned
             } else {
                 failureReason = timelineAligned ? .none : .timelineMisaligned
@@ -653,6 +661,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         }
         return min(1, sqrt(sum / Double(count)))
     }
+
+    private static func paddingDurationMs(_ frameCount: Int) -> Int {
+        Int((Double(max(0, frameCount)) / 16_000.0) * 1000.0)
+    }
 }
 
 private struct DrainResult {
@@ -663,6 +675,8 @@ private struct DrainResult {
 private struct PaddingResult {
     var microphonePadded = false
     var incomingPadded = false
+    var microphonePaddedFrameCount = 0
+    var incomingPaddedFrameCount = 0
 }
 
 private final class ActiveRecording {
