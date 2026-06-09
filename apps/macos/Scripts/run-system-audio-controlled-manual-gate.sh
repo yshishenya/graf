@@ -50,6 +50,16 @@ Environment:
   SYSTEM_AUDIO_MANUAL_GATE_SKIP_ARTIFACT=1
       Skip latest artifact validation. Use only for permission/blocker rows
       where no accepted artifact is expected.
+  SYSTEM_AUDIO_MANUAL_GATE_ASSUME_CLEAN_BASELINE=1
+      Skip the full-gate clean-baseline confirmation prompt. Intended only for
+      automated dry-runs where no meeting, call, or non-sensitive audio source
+      is running before baseline sampling.
+  SYSTEM_AUDIO_MANUAL_GATE_ALLOWED_MEETING_PROCESS=1
+      Do not block when a known meeting app process is already running before
+      baseline. This does not make the run acceptable if baseline CPU is hot.
+  SYSTEM_AUDIO_MANUAL_GATE_MEETING_PROCESS_PATTERN='<regex>'
+      Override the known meeting process detector. Default:
+      'Telemost|telemost|zoom\\.us|Microsoft Teams|Teams|Slack|Discord'
 USAGE
 }
 
@@ -71,6 +81,30 @@ app_process_count() {
 
 any_2brain_rec_process_count() {
   pgrep -x "2brain Rec" 2>/dev/null | wc -l | tr -d ' '
+}
+
+running_meeting_processes() {
+  pattern="${SYSTEM_AUDIO_MANUAL_GATE_MEETING_PROCESS_PATTERN:-Telemost|telemost|zoom\\.us|Microsoft Teams|Teams|Slack|Discord}"
+  ps -axo pid=,comm= |
+    awk -v pattern="$pattern" '
+      $0 ~ pattern {
+        print
+      }
+    '
+}
+
+require_clean_baseline_context() {
+  [ "${SYSTEM_AUDIO_MANUAL_GATE_ASSUME_CLEAN_BASELINE:-0}" = "1" ] && return 0
+
+  meeting_processes="$(running_meeting_processes)"
+  if [ -n "$meeting_processes" ] && [ "${SYSTEM_AUDIO_MANUAL_GATE_ALLOWED_MEETING_PROCESS:-0}" != "1" ]; then
+    printf '%s\n' "manual_gate=blocked reason=meetingProcessRunningBeforeBaseline" >&2
+    printf '%s\n' "$meeting_processes" >&2
+    printf '%s\n' "Close the meeting/call app before baseline, then rerun. Start the meeting only after the Record prompt." >&2
+    exit 2
+  fi
+
+  prompt_continue "Before baseline: close Telemost/meeting tabs/call apps and stop non-sensitive test audio. The meeting/audio source must be started only after the Record prompt."
 }
 
 line_has_event_since_epoch() {
@@ -397,6 +431,9 @@ start_caffeinate
 
 run_app_only_package_boundary
 quit_any_2brain_rec_app
+if [ "$MODE" != "--preflight" ]; then
+  require_clean_baseline_context
+fi
 run_baseline_cpu
 launch_packaged_app
 

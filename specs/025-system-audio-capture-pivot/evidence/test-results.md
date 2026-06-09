@@ -6075,3 +6075,40 @@
     the feature because the recording manual gates still remain: permission
     matrix, controlled artifact matrix, activeRecording CPU, stop CPU,
     30-minute duration, 75-minute duration, and final scope review.
+
+## 2026-06-09 Manual Gate Clean-Baseline Guard
+
+- Timestamp: `2026-06-09T15:17:00Z`
+- Scope: follow-up after the tester clarified that Telemost had already been
+  running during an earlier baseline discussion.
+- Finding:
+  - The manual gate already blocked hot baseline CPU, but the full guided run
+    did not explicitly stop the tester before baseline to confirm that meeting
+    tabs/call apps and test audio were closed. That left too much room for a
+    contaminated baseline when the tester had a meeting open before the harness
+    reached the Record prompt.
+- Change:
+  - `run-system-audio-controlled-manual-gate.sh` now requires a clean-baseline
+    confirmation before the full manual gate records baseline CPU. The tester is
+    told to close Telemost/meeting tabs/call apps and stop non-sensitive test
+    audio, then start the meeting/audio source only after the Record prompt.
+  - The full gate also blocks if it sees a known meeting process before
+    baseline, unless the override `SYSTEM_AUDIO_MANUAL_GATE_ALLOWED_MEETING_PROCESS=1`
+    is set. The override does not bypass CPU acceptance.
+  - `--preflight` remains non-interactive, so non-recording automation can still
+    run without prompts.
+- Validation:
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh
+    apps/macos/Scripts/sample-system-audio-cpu-gate.sh
+    apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed after the guard: baseline, idle, and quit CPU samples all reported
+    `coreaudiodCpuPercent=0.00`, app/helper CPU `0.00`, no unexpected app
+    process, no HAL probe, and no thermal or performance warning.
+- Acceptance impact:
+  - This reduces false-red and false-green manual runs caused by a meeting that
+    was already active before baseline. It does not close #309/#313 because the
+    accepted active-recording, stop, artifact, permission, duration, and final
+    scope gates still require a real controlled recording run.
