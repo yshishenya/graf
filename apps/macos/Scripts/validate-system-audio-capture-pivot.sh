@@ -205,6 +205,27 @@ has_exact_line() {
     grep -Fx -- "$expected" "$path" >/dev/null 2>&1
 }
 
+has_exact_line_after_header() {
+    path="$1"
+    header="$2"
+    expected="$3"
+    awk -v header="$header" -v expected="$expected" '
+        $0 == header {
+            in_section = 1
+            next
+        }
+        in_section && /^## / {
+            in_section = 0
+        }
+        in_section && $0 == expected {
+            found = 1
+        }
+        END {
+            exit(found ? 0 : 1)
+        }
+    ' "$path"
+}
+
 count_accepted_permission_rows() {
     path="$1"
     awk -F '|' '
@@ -760,23 +781,35 @@ self_test_review_evidence() {
 This example mentions - Final scope review: accepted inside prose and should
 not pass. It also mentions - Reviewed against quickstart and contracts: yes
 inside prose and should not pass.
+
+## Final Review Template
+
+- Final scope review: accepted
+- Reviewed against quickstart and contracts: yes
+- Evidence traceability: #307/T071 #308/T072 #309/T073 #310/T074 #311/T075 #312/T076 #313/T077
 EOF
 
     cat > "$accepted_file" <<'EOF'
 # Scope Review
 
+## Final Accepted Scope Review
+
 - Final scope review: accepted
 - Reviewed against quickstart and contracts: yes
+- Evidence traceability: #307/T071 #308/T072 #309/T073 #310/T074 #311/T075 #312/T076 #313/T077
 EOF
 
-    if has_exact_line "$embedded_file" "- Final scope review: accepted" ||
-        has_exact_line "$embedded_file" "- Reviewed against quickstart and contracts: yes"; then
-        fail_invalid "synthetic review parser accepted embedded marker text"
+    if has_exact_line_after_header "$embedded_file" "## Final Accepted Scope Review" "- Final scope review: accepted" ||
+        has_exact_line_after_header "$embedded_file" "## Final Accepted Scope Review" "- Reviewed against quickstart and contracts: yes" ||
+        has_exact_line_after_header "$embedded_file" "## Final Accepted Scope Review" "- Evidence traceability: #307/T071 #308/T072 #309/T073 #310/T074 #311/T075 #312/T076 #313/T077"; then
+        fail_invalid "synthetic review parser accepted marker text outside final accepted section"
     fi
-    has_exact_line "$accepted_file" "- Final scope review: accepted" ||
+    has_exact_line_after_header "$accepted_file" "## Final Accepted Scope Review" "- Final scope review: accepted" ||
         fail_invalid "synthetic review parser rejected exact final scope marker"
-    has_exact_line "$accepted_file" "- Reviewed against quickstart and contracts: yes" ||
+    has_exact_line_after_header "$accepted_file" "## Final Accepted Scope Review" "- Reviewed against quickstart and contracts: yes" ||
         fail_invalid "synthetic review parser rejected exact quickstart/contracts marker"
+    has_exact_line_after_header "$accepted_file" "## Final Accepted Scope Review" "- Evidence traceability: #307/T071 #308/T072 #309/T073 #310/T074 #311/T075 #312/T076 #313/T077" ||
+        fail_invalid "synthetic review parser rejected exact evidence traceability marker"
 
     passed "synthetic final review marker parser checks passed"
 }
@@ -1294,12 +1327,16 @@ EOF
         validate_cpu_phase_passed "$phase" || incomplete=1
     done
 
-    if ! has_exact_line "$SCOPE_REVIEW" "- Final scope review: accepted"; then
+    if ! has_exact_line_after_header "$SCOPE_REVIEW" "## Final Accepted Scope Review" "- Final scope review: accepted"; then
         printf '%s\n' "$SCOPE_REVIEW is missing final accepted scope review marker"
         incomplete=1
     fi
-    if ! has_exact_line "$SCOPE_REVIEW" "- Reviewed against quickstart and contracts: yes"; then
+    if ! has_exact_line_after_header "$SCOPE_REVIEW" "## Final Accepted Scope Review" "- Reviewed against quickstart and contracts: yes"; then
         printf '%s\n' "$SCOPE_REVIEW is missing quickstart/contracts review marker"
+        incomplete=1
+    fi
+    if ! has_exact_line_after_header "$SCOPE_REVIEW" "## Final Accepted Scope Review" "- Evidence traceability: #307/T071 #308/T072 #309/T073 #310/T074 #311/T075 #312/T076 #313/T077"; then
+        printf '%s\n' "$SCOPE_REVIEW is missing final evidence traceability marker"
         incomplete=1
     fi
 

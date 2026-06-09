@@ -5099,3 +5099,52 @@
   - This hardens #310, #311, and #313 by making sustained-run acceptance
     traceable. It does not close #310 or #311 because the real sustained manual
     runs are still required.
+
+## 2026-06-09 Final Review Section Traceability Review
+
+- Timestamp: `2026-06-09T09:08:00Z`
+- Commit before change: `120f249`
+- Scope: final scope review acceptance markers for `#313/T077`.
+- Finding:
+  - The final review validator required exact acceptance marker lines.
+  - Adding the exact marker text to an instruction/template section could make
+    the file appear accepted once the other gates passed.
+  - Final review acceptance should only come from a dedicated final accepted
+    review section, not from instructions or examples.
+- Fix:
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh` now requires
+    final review markers under `## Final Accepted Scope Review`.
+  - The required final section must contain exact standalone lines for:
+    final scope review accepted, quickstart/contracts review yes, and evidence
+    traceability across `#307/T071`, `#308/T072`, `#309/T073`, `#310/T074`,
+    `#311/T075`, `#312/T076`, and `#313/T077`.
+  - `--self-test-review-evidence` now proves that template/instruction marker
+    text outside the final accepted section does not count.
+  - `scope-review.md` documents the dedicated-section requirement without
+    placing accepted marker lines in the pending instruction text.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-review-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected and now explicitly reports the missing final
+    accepted section markers and traceability marker.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.41`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This hardens #313 by preventing final acceptance from instructions,
+    examples, or template text. It does not close #313 because the manual gates
+    and final accepted review section are still required.

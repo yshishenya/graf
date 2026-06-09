@@ -7,9 +7,16 @@ Final review is pending until permission, artifact, CPU, 30-minute, and
 are not acceptance.
 
 Final acceptance requires an explicit final review entry with the accepted
-scope-review marker and a yes/no quickstart/contracts review result. Do not add
-the accepted marker until permission, artifact, CPU, 30-minute, and 75-minute
-evidence gates have all passed and the final review has been recorded.
+scope-review marker, a yes/no quickstart/contracts review result, and exact
+evidence traceability across the required gates. Do not add the accepted marker
+until permission, artifact, CPU, 30-minute, and 75-minute evidence gates have
+all passed and the final review has been recorded.
+
+Accepted final review entries must be recorded under a dedicated
+`## Final Accepted Scope Review` section. That section must include exact
+standalone lines for final acceptance, quickstart/contracts review, and
+evidence traceability across `#307/T071`, `#308/T072`, `#309/T073`,
+`#310/T074`, `#311/T075`, `#312/T076`, and `#313/T077`.
 
 ## 2026-06-08 Interim Review
 
