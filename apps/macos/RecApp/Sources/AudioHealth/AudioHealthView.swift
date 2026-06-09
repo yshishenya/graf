@@ -18,7 +18,7 @@ public struct AudioHealthView: View {
                     output: state.outputPermission
                 ), icon: permissionIcon)
             }
-            Section("Current macOS Devices", icon: "airplayaudio") {
+            Section("Current Recording Devices", icon: "airplayaudio") {
                 line(
                     label: "macOS input",
                     detail: deviceLine(for: state.physicalInput),
@@ -30,19 +30,19 @@ public struct AudioHealthView: View {
                     icon: "speaker.wave.2.fill"
                 )
                 line(
-                    label: "Virtual microphone",
+                    label: "Legacy virtual microphone",
                     detail: virtualDeviceLine(name: "2brain Rec Microphone", state: state.virtualMicState),
                     icon: statusIcon(state.virtualMicState == .available),
-                    emphasis: state.virtualMicState == .available ? .normal : .warning
+                    emphasis: .normal
                 )
                 line(
-                    label: "Virtual speaker",
+                    label: "Legacy virtual speaker",
                     detail: virtualDeviceLine(name: "2brain Rec Speaker", state: state.virtualSpeakerState),
                     icon: statusIcon(state.virtualSpeakerState == .available),
-                    emphasis: state.virtualSpeakerState == .available ? .normal : .warning
+                    emphasis: .normal
                 )
             }
-            Section("Routes", icon: "link") {
+            Section("Recording Path", icon: "link") {
                 if let snapshot = state.routeVerification {
                     line(
                         label: "Mic path",
@@ -69,15 +69,15 @@ public struct AudioHealthView: View {
                     )
                 }
             }
-            Section("Passthrough", icon: "dot.radiowaves.left.and.right") {
+            Section("Diagnostics", icon: "dot.radiowaves.left.and.right") {
                 line(
-                    label: "Live passthrough",
+                    label: "Route diagnostics",
                     detail: AdaptiveStatusText.passthroughLabel(state.passthroughStatus),
                     icon: passthroughIcon
                 )
                 if let liveStatus = state.livePassthroughStatus {
                     line(
-                        label: "Call audio",
+                        label: "Legacy live route",
                         detail: livePassthroughLine(liveStatus),
                         icon: livePassthroughIcon(liveStatus),
                         emphasis: liveStatus == .active || liveStatus == .ready ? .normal : .warning
@@ -195,9 +195,9 @@ public struct AudioHealthView: View {
         case .checking:
             return "Checking"
         case .ready:
-            return "Ready for calls, not recording"
+            return "Diagnostic route ready, not recording"
         case .active:
-            return "Active, not recording"
+            return "Diagnostic route active, not recording"
         case .stale:
             return "Stale: recheck required"
         case .degraded:
@@ -205,7 +205,7 @@ public struct AudioHealthView: View {
         case .failed:
             return "Failed: audio path unavailable"
         case .blocked:
-            return "Blocked: fix route before calls"
+            return "Blocked: refresh diagnostics before recording review"
         }
     }
 
@@ -272,19 +272,19 @@ public struct AudioHealthView: View {
     private func virtualDeviceLine(name: String, state: VirtualDeviceAvailabilityState) -> String {
         switch state {
         case .available:
-            return "\(name) · visible in macOS"
+            return "\(name) · visible for diagnostics, not required for recording"
         case .requiresRestart:
-            return "\(name) · restart Core Audio"
+            return "\(name) · restart pending, not required for recording"
         case .missing:
-            return "\(name) · missing"
+            return "\(name) · missing, not required for recording"
         case .hidden:
-            return "\(name) · hidden until app route recovers"
+            return "\(name) · hidden diagnostics, not required for recording"
         case .installed:
-            return "\(name) · installed"
+            return "\(name) · installed for diagnostics, not required for recording"
         case .unavailable:
-            return "\(name) · unavailable"
+            return "\(name) · unavailable, not required for recording"
         case .incompatible:
-            return "\(name) · unsupported"
+            return "\(name) · unsupported diagnostics, not required for recording"
         }
     }
 

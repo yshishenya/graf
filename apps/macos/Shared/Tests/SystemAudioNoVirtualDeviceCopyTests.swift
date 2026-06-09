@@ -60,5 +60,38 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
         XCTAssertFalse(recovery.localizedCaseInsensitiveContains("install"))
         XCTAssertFalse(recovery.localizedCaseInsensitiveContains("repair"))
     }
+
+    func testHealthCanRecordDoesNotRequireVirtualDevicesForSystemAudioMVP() {
+        let state = AudioHealthState(
+            virtualMicState: .missing,
+            virtualSpeakerState: .unavailable,
+            microphonePermission: .granted,
+            outputPermission: .granted,
+            routeVerification: RouteVerificationSnapshot(
+                mic: RouteVerification(
+                    id: "mic",
+                    path: .micToVirtualInput,
+                    validationType: .syntheticSignal,
+                    target: "Local Microphone",
+                    status: .passed,
+                    startedAt: Date(timeIntervalSince1970: 1),
+                    finishedAt: Date(timeIntervalSince1970: 1)
+                ),
+                speaker: RouteVerification(
+                    id: "system-audio",
+                    path: .remoteOutputToVirtualSpeaker,
+                    validationType: .syntheticSignal,
+                    target: "System Audio",
+                    status: .passed,
+                    startedAt: Date(timeIntervalSince1970: 1),
+                    finishedAt: Date(timeIntervalSince1970: 1)
+                )
+            ),
+            passthroughStatus: .healthy,
+            bufferRisk: .healthy
+        )
+
+        XCTAssertTrue(state.canRecord)
+    }
 }
 #endif

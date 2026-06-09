@@ -819,9 +819,6 @@ fileprivate struct LocalAudioSnapshot {
         )
         let recoveryActions = recoveryActions(system: system, routeSnapshot: routeSnapshot)
         let routeIsActive = routeEngineState == .active
-        let routeIsWaitingForClient = routeEngineState == .armed ||
-            routeEngineState == .idleSafe ||
-            routeEngineState == .inactive
 
         let health = AudioHealthState(
             driverState: driverState,
@@ -834,11 +831,9 @@ fileprivate struct LocalAudioSnapshot {
             routeVerification: routeSnapshot,
             passthroughStatus: routeIsActive ? .healthy : .unknown,
             continuityStatus: routeIsActive
-                ? "Non-recording passthrough is ready for calls."
+                ? "Local audio route is active; recording still starts only from Record."
                 : (hasMic && hasSpeaker
-                    ? (routeIsWaitingForClient
-                        ? "Virtual devices are published. Waiting for meeting audio."
-                        : "Virtual devices are published. Live passthrough is waiting for app I/O.")
+                    ? "Legacy virtual devices are visible for diagnostics; recording uses macOS permissions."
                     : "System audio recording uses macOS permissions; virtual devices are parked."),
             bufferRisk: .healthy,
             livePassthroughStatus: routeIsActive ? .active : .inactive,
