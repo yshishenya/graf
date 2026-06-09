@@ -850,6 +850,15 @@ EOF
         validate_cpu_phase_passed "$phase" || incomplete=1
     done
 
+    if ! rg -F "- Final scope review: accepted" "$SCOPE_REVIEW" >/dev/null 2>&1; then
+        printf '%s\n' "$SCOPE_REVIEW is missing final accepted scope review marker"
+        incomplete=1
+    fi
+    if ! rg -F "- Reviewed against quickstart and contracts: yes" "$SCOPE_REVIEW" >/dev/null 2>&1; then
+        printf '%s\n' "$SCOPE_REVIEW is missing quickstart/contracts review marker"
+        incomplete=1
+    fi
+
     if [ "$incomplete" -ne 0 ]; then
         blocked "final evidence review is incomplete; keep #313/T077 open"
     fi

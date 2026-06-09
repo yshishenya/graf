@@ -6,6 +6,11 @@ Final review is pending until permission, artifact, CPU, 30-minute, and
 75-minute evidence gates pass. Blocked, failed, degraded, and not-tested rows
 are not acceptance.
 
+Final acceptance requires an explicit final review entry with the accepted
+scope-review marker and a yes/no quickstart/contracts review result. Do not add
+the accepted marker until permission, artifact, CPU, 30-minute, and 75-minute
+evidence gates have all passed and the final review has been recorded.
+
 ## 2026-06-08 Interim Review
 
 - App launch/window: improved. The packaged app now uses an AppKit-managed main

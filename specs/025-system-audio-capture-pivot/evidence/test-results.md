@@ -3707,3 +3707,42 @@
   - This hardens #308 and #313 against ambiguous or unsafe accepted artifact
     packages. It does not close #308 because real controlled artifacts still
     need to be recorded and reviewed.
+
+## 2026-06-09 Final Scope Review Marker Review
+
+- Timestamp: `2026-06-09T05:01:35Z`
+- Commit before change: `ba11af9`
+- Scope: final evidence review and `scope-review.md`.
+- Finding:
+  - `--review-evidence` could pass all mechanical evidence gates without
+    requiring an explicit final scope review entry in `scope-review.md`.
+  - T077 requires all evidence to be reviewed against quickstart and contracts,
+    so final acceptance needs a human-readable accepted review marker in
+    addition to the automated matrix/CPU/duration checks.
+- Fix:
+  - `--review-evidence` now requires an explicit final accepted scope-review
+    marker.
+  - It also requires a quickstart/contracts review marker.
+  - `scope-review.md` now documents that those markers must not be added until
+    permission, artifact, CPU, 30-minute, and 75-minute gates pass and the final
+    review is actually recorded.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    blocked as expected and now reports missing final scope-review markers.
+  - `git diff --check` passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.19 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #313/T077 so final review cannot pass without an explicit
+    scope-review record after all manual gates are complete.
