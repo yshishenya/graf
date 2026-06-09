@@ -100,7 +100,8 @@ public final class LiveAudioSignalMonitor {
 
     private func isFresh(_ date: Date?, now: Date) -> Bool {
         guard let date else { return false }
-        return now.timeIntervalSince(date) <= Self.staleLevelResetInterval
+        let age = now.timeIntervalSince(date)
+        return age >= 0 && age <= Self.staleLevelResetInterval
     }
 
     private static func rmsLevel(samples: UnsafePointer<Float>, count: Int) -> Double {

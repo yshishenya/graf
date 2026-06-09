@@ -965,6 +965,23 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
     )
 }
 
+func validateLiveAudioSignalMonitorFreshnessInvariant() throws {
+    let monitorSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LiveAudioSignalMonitor.swift")
+    let monitorSource = try String(contentsOf: monitorSourceURL, encoding: .utf8)
+    let testsSourceURL = repositoryRoot.appendingPathComponent("apps/macos/Shared/Tests/LiveAudioSignalMonitorTests.swift")
+    let testsSource = try String(contentsOf: testsSourceURL, encoding: .utf8)
+
+    try require(
+        monitorSource.contains("let age = now.timeIntervalSince(date)") &&
+            monitorSource.contains("return age >= 0 && age <= Self.staleLevelResetInterval"),
+        "LiveAudioSignalMonitor freshness must reject future timestamps so meters cannot show false live bars"
+    )
+    try require(
+        testsSource.contains("testFutureMonitorFrameTimestampResetsInsteadOfHoldingFalseLiveBars"),
+        "LiveAudioSignalMonitor tests must cover future timestamp false-live regression"
+    )
+}
+
 func contractScopeApproval() -> CaptureScopeApproval {
     CaptureScopeApproval(
         scopeApprovalId: "contract-scope",
@@ -1087,6 +1104,7 @@ do {
     try await validateSystemAudioPermissionFailClosed()
     try await validateSystemAudioStartTimeoutCleanupOrdering()
     try validateAppStopFailureFailClosedSourceInvariant()
+    try validateLiveAudioSignalMonitorFreshnessInvariant()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

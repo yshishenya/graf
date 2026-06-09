@@ -145,6 +145,38 @@ final class LiveAudioSignalMonitorTests: XCTestCase {
         XCTAssertEqual(stale.microphoneLevel, 0)
     }
 
+    func testFutureMonitorFrameTimestampResetsInsteadOfHoldingFalseLiveBars() {
+        let source = FakeLiveAudioSignalSource(
+            snapshot: .init(
+                micReadIndex: 2,
+                micWriteIndex: 4,
+                speakerReadIndex: 0,
+                speakerWriteIndex: 0,
+                captureReadIndex: 0,
+                captureWriteIndex: 4,
+                checkedAt: Date(timeIntervalSince1970: 11)
+            ),
+            micSamples: [0.4, 0.4, 0.4, 0.4],
+            captureSamples: [0.7, 0.7, 0.7, 0.7]
+        )
+        let monitor = LiveAudioSignalMonitor(sampleSource: source, scratchCapacity: 4)
+        let future = monitor.currentLevels(routeActive: true, now: Date(timeIntervalSince1970: 11))
+        source.snapshot.micReadIndex = 2
+        source.snapshot.micWriteIndex = 4
+        source.snapshot.captureWriteIndex = 4
+        source.micSamples = []
+        source.captureSamples = []
+
+        let skewed = monitor.currentLevels(routeActive: true, now: Date(timeIntervalSince1970: 10))
+
+        XCTAssertGreaterThan(future.microphoneLevel, 0)
+        XCTAssertGreaterThan(future.speakerLevel, 0)
+        XCTAssertFalse(skewed.microphoneIsLive(now: Date(timeIntervalSince1970: 10), staleAfter: 0.45))
+        XCTAssertFalse(skewed.speakerIsLive(now: Date(timeIntervalSince1970: 10), staleAfter: 0.45))
+        XCTAssertEqual(skewed.microphoneLevel, 0)
+        XCTAssertEqual(skewed.speakerLevel, 0)
+    }
+
     func testFutureSignalTimestampIsNotTreatedAsLive() {
         let levels = LiveRouteSignalLevels(
             isActive: true,

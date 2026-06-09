@@ -5192,3 +5192,47 @@
     #309, #310, #311, or #313 because the remaining gates require real manual
     permission, Record/Stop, active/stop CPU, duration, and final review
     evidence.
+
+## 2026-06-09 Live Meter Future Timestamp Review
+
+- Timestamp: `2026-06-09T09:21:20Z`
+- Scope: focused code review and validation for the microphone/incoming-audio
+  live meters after the previous reports about delayed or missing visual audio
+  indication.
+- Finding:
+  - `LiveAudioSignalMonitor` reset logic treated a future frame timestamp as
+    fresh because it only checked whether the age was below the stale timeout.
+  - Under clock skew or async ordering, that could keep microphone or incoming
+    bars visually live even when the monitor should reset them to silence.
+- Fix:
+  - Monitor freshness now requires a non-negative age before accepting a frame
+    as fresh.
+  - Added a regression test for the future-timestamp false-live case.
+  - Added a `ContractValidation` source invariant so this guard cannot be
+    removed silently.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos --filter LiveAudioSignalMonitor`
+    completed successfully in the local SwiftPM/CLT environment and compiled
+    the focused test bundle. Full XCTest execution remains unavailable locally
+    because this machine uses Command Line Tools without `xctest`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.45`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #309/#313 and the visible live-meter behavior. It does not
+    close #307, #308, #309, #310, #311, or #313 because the remaining gates
+    require real manual recording and duration evidence.
