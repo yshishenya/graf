@@ -5655,3 +5655,35 @@
     blocked reason explicit. It does not close #307, #308, #309, #310, #311, or
     #313 because the CPU baseline is currently blocked and manual recording,
     artifact, permission, and duration gates are still required.
+
+## 2026-06-09 Post-Reboot Safe Launch Preflight
+
+- Timestamp: `2026-06-09T12:42:00Z`
+- Scope: post-reboot non-recording safe-launch preflight after prior hot
+  `coreaudiod` baseline blocked CPU acceptance.
+- Validation:
+  - Fresh preflight baseline passed as diagnostic setup:
+    `maxCoreaudiodCpuPercent=0.00`, app/helper CPU `0.00`, app process count
+    `0`.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `preflight_rc=0`.
+  - Idle with packaged app running passed:
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.20`,
+    `maxAppProcessCount=1`, `halProbeObserved=false`.
+  - Quit passed:
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppProcessCount=0`, `maxHelperProcessCount=0`.
+  - `pmset -g therm` reported no thermal or performance warning.
+  - Fresh app log showed launch, main-window presentation, disabled
+    non-recording auto-start, visibility check, termination cleanup, and
+    passthrough stop. No fresh crash/hang/error markers were observed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked, now without the prior hot-baseline blocker. Remaining
+    blockers are permission matrix, controlled artifact matrix, active/stop CPU,
+    30-minute run, 75-minute run, and final scope review.
+- Acceptance impact:
+  - This satisfies the non-recording safe-launch/idle/quit portion of #309 for
+    the current post-reboot environment. It does not close #307, #308, #309,
+    #310, #311, or #313 because active recording, stop, permission, artifact,
+    duration, and final review evidence are still required.
