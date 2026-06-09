@@ -2983,3 +2983,50 @@
   - This removes the remaining reviewed synchronous writer call from the app UI
     termination path. It does not close #307, #308, #309 active/stop, #310,
     #311, or #313.
+
+## 2026-06-09 Bounded Local Writer Drain Review
+
+- Timestamp: `2026-06-09T03:40:55Z`
+- Commit before change: `a1cdca4`
+- Scope: Stop/finalization responsiveness when a local recording sample source
+  continues producing data during writer finalization.
+- Finding:
+  - `LocalRecordingWriter.stopOnQueue()` drained each sample source until the
+    source returned `0`.
+  - The normal buffered system-audio source is finite after system capture stop,
+    but the `LocalRecordingSampleSource` protocol did not enforce that contract.
+  - A source that kept returning samples could make Stop finalization run
+    indefinitely or for an unbounded time, keeping the writer queue busy.
+- Fix:
+  - Added a bounded drain limit of `512` reads per source. With the current
+    `8192` scratch capacity this remains above the default buffered source's
+    20-second capacity, while preventing unbounded finalization.
+  - If the drain limit is reached, the affected track is forced to
+    `failureReason=write_failed`, `status=failed`, and the manifest is not
+    accepted as `saved`.
+  - Added a regression test with an infinite incoming sample source. The test
+    asserts that Stop returns quickly, the incoming track is failed with
+    `write_failed`, the manifest is not `saved`, and the writer is no longer
+    recording.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the infinite
+    drain regression test on this CLT host. Full XCTest execution remains
+    unavailable because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - Fresh packaged app build and launch passed with visible `2brain Rec` window.
+  - Post-fix idle CPU passed with `sampleCount=5`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, one app
+    process, and `halProbeObserved=false`.
+  - Post-fix quit CPU passed with `sampleCount=5`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, zero
+    app/helper processes, and `halProbeObserved=false`.
+  - App log showed fresh launch, visible main window, auto route skipped by
+    default, termination cleanup completed, and passthrough stopped.
+  - `pmset -g therm` reported no thermal or performance warning level.
+- Acceptance impact:
+  - This reduces Stop/finalization hang risk without allowing a truncated drain
+    to become a clean saved artifact. It does not close #307, #308, #309
+    active/stop, #310, #311, or #313.

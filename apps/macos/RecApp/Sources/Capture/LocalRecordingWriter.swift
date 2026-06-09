@@ -159,6 +159,8 @@ public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource
 }
 
 public final class LocalRecordingWriter: @unchecked Sendable {
+    private static let maxDrainReadIterations = 512
+
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
     private let microphoneSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
@@ -392,7 +394,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             active.scratch.deallocate()
             self.active = nil
         }
-        try drainPendingSamples(for: active)
+        let drainResult = try drainPendingSamples(for: active)
         active.microphoneRecorder?.stop()
         let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
         let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
@@ -406,7 +408,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             durationMs: active.microphoneWriter?.durationMs ?? elapsedDurationMs,
             frameCount: Int64(active.microphoneWriter?.frameCount ?? Int(elapsedFrameCount)),
             fileName: "mic.wav",
-            timelineAligned: true
+            timelineAligned: true,
+            forcedFailureReason: drainResult.microphoneTruncated ? .writeFailed : nil
         )
         let timelineToleranceMs = 1_000
         let remoteTimelineAligned = abs(active.remoteWriter.durationMs - micTrack.durationMs) <= timelineToleranceMs
@@ -417,7 +420,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             frameCount: Int64(active.remoteWriter.frameCount),
             fileName: "incoming.wav",
             timelineAligned: remoteTimelineAligned,
-            observedLevel: active.lastIncomingLevel
+            observedLevel: active.lastIncomingLevel,
+            forcedFailureReason: drainResult.incomingTruncated ? .writeFailed : nil
         )
         let captureHealth = CaptureHealthMonitor().snapshot(
             sessionId: active.sessionId,
@@ -456,10 +460,11 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         }
     }
 
-    private func drainPendingSamples(for active: ActiveRecording) throws {
+    private func drainPendingSamples(for active: ActiveRecording) throws -> DrainResult {
+        var result = DrainResult()
         if let microphoneSampleSource = active.microphoneSampleSource,
            let microphoneWriter = active.microphoneWriter {
-            try drain(
+            result.microphoneTruncated = try drain(
                 source: microphoneSampleSource,
                 writer: microphoneWriter,
                 scratch: active.scratch,
@@ -471,7 +476,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         }
 
         if let incomingSampleSource = active.incomingSampleSource {
-            try drain(
+            result.incomingTruncated = try drain(
                 source: incomingSampleSource,
                 writer: active.remoteWriter,
                 scratch: active.scratch,
@@ -481,6 +486,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 active.lastIncomingFrameAt = Date()
             }
         }
+        return result
     }
 
     private func drain(
@@ -489,12 +495,17 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         scratch: UnsafeMutablePointer<Float>,
         capacity: Int,
         updateLevel: (Int) -> Void
-    ) throws {
+    ) throws -> Bool {
+        var iterations = 0
         while true {
+            if iterations >= Self.maxDrainReadIterations {
+                return true
+            }
             let read = source.readSamples(into: scratch, capacity: capacity)
-            guard read > 0 else { return }
+            guard read > 0 else { return false }
             try writer.write(samples: scratch, count: read)
             updateLevel(read)
+            iterations += 1
         }
     }
 
@@ -517,13 +528,16 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         frameCount: Int64,
         fileName: String,
         timelineAligned: Bool,
-        observedLevel: Double? = nil
+        observedLevel: Double? = nil,
+        forcedFailureReason: LocalRecordingFailureReason? = nil
     ) -> LocalRecordingTrack {
         let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
             .int64Value ?? 0
         let complete = byteCount > 44 && frameCount > 0 && durationMs > 0
         let failureReason: LocalRecordingFailureReason
-        if complete {
+        if let forcedFailureReason {
+            failureReason = forcedFailureReason
+        } else if complete {
             if observedLevel == 0 {
                 failureReason = .silentInput
             } else {
@@ -594,6 +608,11 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         }
         return min(1, sqrt(sum / Double(count)))
     }
+}
+
+private struct DrainResult {
+    var microphoneTruncated = false
+    var incomingTruncated = false
 }
 
 private final class ActiveRecording {

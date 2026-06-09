@@ -85,6 +85,34 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertNotEqual(incoming.failureReason, .noFrames)
     }
 
+    func testStopBoundsInfiniteIncomingDrainAndFailsTruthfully() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-infinite-drain-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let incomingSource = InfiniteFixtureSampleSource()
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session-infinite-drain",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        let startedAt = Date()
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        XCTAssertLessThan(elapsed, 2)
+        XCTAssertEqual(incoming.failureReason, .writeFailed)
+        XCTAssertEqual(incoming.status, .failed)
+        XCTAssertNotEqual(manifest.status, .saved)
+        XCTAssertFalse(writer.isRecording)
+    }
+
     func testStopPadsIntermittentIncomingAudioToRecordingTimeline() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("system-audio-writer-padding-tests-\(UUID().uuidString)", isDirectory: true)
@@ -164,6 +192,16 @@ private final class FixtureSampleSource: LocalRecordingSampleSource, @unchecked 
         }
         samples.removeFirst(count)
         return count
+    }
+}
+
+private final class InfiniteFixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        guard capacity > 0 else { return 0 }
+        for index in 0..<capacity {
+            destination[index] = 0.25
+        }
+        return capacity
     }
 }
 #endif
