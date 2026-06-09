@@ -316,7 +316,6 @@ validate_cpu_phase_passed() {
     fi
     case "$evaluation" in
         status=passed\ *)
-            return 0
             ;;
         *)
             printf '%s\n' "$CPU_GATES latest $phase CPU evaluation is not passed: $evaluation"

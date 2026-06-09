@@ -1993,3 +1993,42 @@ Required acceptance gates:
 2026-06-09T05:14:02Z phase=baseline sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.42 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
 2026-06-09T05:14:04Z phase=baseline sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.42 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
 ```
+
+## 2026-06-09T05:18:02Z baseline
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline`
+- App binary: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec`
+- Samples: `3`, interval seconds: `2`, settle seconds: `10`
+- Evaluation: `status=observed failureReason=diagnosticOnly sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=60.78 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false`
+
+```text
+2026-06-09T05:17:58Z phase=baseline sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.78 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
+2026-06-09T05:18:00Z phase=baseline sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.78 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
+2026-06-09T05:18:02Z phase=baseline sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.78 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
+```
+
+## 2026-06-09T05:18:12Z idle
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle`
+- App binary: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec`
+- Samples: `3`, interval seconds: `2`, settle seconds: `5`
+- Evaluation: `status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=60.78 maxAppHelperRssMB=93.11 maxAppProcessCount=1 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false`
+
+```text
+2026-06-09T05:18:07Z phase=idle sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.78 appRssMB=93.11 helperRssMB=0.00 appHelperRssMB=93.11 appProcessCount=1 helperProcessCount=0 halProbeObserved=false
+2026-06-09T05:18:09Z phase=idle sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.78 appRssMB=93.06 helperRssMB=0.00 appHelperRssMB=93.06 appProcessCount=1 helperProcessCount=0 halProbeObserved=false
+2026-06-09T05:18:12Z phase=idle sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.78 appRssMB=93.06 helperRssMB=0.00 appHelperRssMB=93.06 appProcessCount=1 helperProcessCount=0 halProbeObserved=false
+```
+
+## 2026-06-09T05:18:21Z quit
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+- App binary: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec`
+- Samples: `3`, interval seconds: `2`, settle seconds: `5`
+- Evaluation: `status=passed failureReason=none sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=60.80 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false`
+
+```text
+2026-06-09T05:18:17Z phase=quit sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.80 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
+2026-06-09T05:18:19Z phase=quit sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.80 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
+2026-06-09T05:18:21Z phase=quit sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=60.75 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 halProbeObserved=false
+```

@@ -3861,3 +3861,52 @@
   - This hardens #313/T077 so final scope review cannot pass with stale or
     failed no-HAL evidence. It does not close #313 because the manual gates
     remain incomplete.
+
+## 2026-06-09 CPU Review Gate Strictness Review
+
+- Timestamp: `2026-06-09T05:18:41Z`
+- Commit before change: `8aeb76e`
+- Scope: CPU evidence acceptance in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh` and safe preflight
+  evidence writing in
+  `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`.
+- Finding:
+  - `validate_cpu_phase_passed()` returned immediately after seeing
+    `status=passed`, so the intended checks for `sampleCount`, RSS diagnostics,
+    app process presence, and quit process release were not executed.
+  - Once that early return was removed, review correctly rejected older
+    `idle`/`quit` entries that lacked RSS diagnostics.
+  - The safe `--preflight` path printed RSS-complete `idle`/`quit` samples but
+    did not append them to `cpu-gates.md`, leaving final review stuck on older
+    incomplete evidence.
+- Fix:
+  - Removed the early return so CPU acceptance always validates sample count,
+    RSS diagnostics, and process-count invariants after `status=passed`.
+  - Allowed `--preflight` to append its safe non-recording `idle` and `quit`
+    CPU evidence, so final review uses fresh RSS-complete rows.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Fresh appended evidence recorded `idle` with `sampleCount=3`,
+    `maxCoreaudiodRssMB=60.78`, `maxAppHelperRssMB=93.11`, app process count
+    `1`, and `quit` with `sampleCount=3`, `maxCoreaudiodRssMB=60.80`,
+    `maxAppHelperRssMB=0.00`, app/helper process count `0`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected only by remaining manual gates: permission
+    matrix, artifact matrix, 30-minute run, 75-minute run, activeRecording CPU,
+    stop CPU, and final scope-review markers.
+  - `git diff --check` passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - Fresh app log review showed packaged app launch, visible window,
+    auto-route skipped, cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #309 and #313. The CPU gate can no longer accept a bare
+    `status=passed` row without the process and RSS evidence needed to catch
+    launch hangs or leaked app/helper processes.
