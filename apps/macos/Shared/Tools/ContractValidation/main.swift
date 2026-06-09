@@ -748,6 +748,88 @@ func validateSystemAudioPermissionFailClosed() async throws {
     )
 }
 
+func validateSystemAudioStartTimeoutCleanupOrdering() async throws {
+    let failingService = SystemAudioCaptureService(
+        runtime: FailingContractRuntime(),
+        runtimeStartTimeoutSeconds: 1
+    )
+    do {
+        _ = try await failingService.start(
+            sessionId: "contract-immediate-failure",
+            permissionState: .granted,
+            scopeApproval: contractScopeApproval()
+        )
+        throw ValidationError(description: "Immediate system-audio runtime failure must not become an accepted start")
+    } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+        let runningAfterImmediateFailure = await failingService.isRunning
+        try require(
+            !runningAfterImmediateFailure,
+            "Immediate runtime start failure must leave service stopped"
+        )
+    }
+
+    let runtime = RecoveringSlowStartingContractRuntime(firstStartDelaySeconds: 0.2)
+    let service = SystemAudioCaptureService(
+        runtime: runtime,
+        runtimeStartTimeoutSeconds: 0.05
+    )
+
+    do {
+        _ = try await service.start(
+            sessionId: "contract-first-timeout",
+            permissionState: .granted,
+            scopeApproval: contractScopeApproval()
+        )
+        throw ValidationError(description: "Slow system-audio runtime start must fail with runtimeStartFailed")
+    } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+        let runningAfterTimeout = await service.isRunning
+        try require(
+            !runningAfterTimeout,
+            "Timed-out system-audio start must leave service stopped"
+        )
+    }
+
+    let retry = Task {
+        try await service.start(
+            sessionId: "contract-second-start",
+            permissionState: .granted,
+            scopeApproval: contractScopeApproval()
+        )
+    }
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    try require(
+        runtime.startCount == 1,
+        "Retry must wait for timed-out runtime start cleanup before starting a new runtime"
+    )
+    let runningWhileCleanupPending = await service.isRunning
+    try require(
+        !runningWhileCleanupPending,
+        "Retry must not mark service running while timed-out runtime cleanup is pending"
+    )
+
+    let secondSession = try await retry.value
+    try require(
+        secondSession.sessionId == "contract-second-start",
+        "Retry after timed-out runtime cleanup must start the requested second session"
+    )
+    try require(
+        runtime.startCount == 2 && runtime.stopCount >= 2,
+        "Timed-out runtime cleanup must stop the stale runtime before retry starts"
+    )
+    let stopCountBeforeAcceptedStop = runtime.stopCount
+    let runningAfterRetry = await service.isRunning
+    try require(
+        runningAfterRetry,
+        "Retry after timed-out runtime cleanup must leave the second session running"
+    )
+
+    _ = try await service.stop()
+    try require(
+        runtime.stopCount == stopCountBeforeAcceptedStop + 1,
+        "Stopping the accepted retry session must stop exactly that active runtime"
+    )
+}
+
 func validateAppStopFailureFailClosedSourceInvariant() throws {
     let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
     let source = try String(contentsOf: appSourceURL, encoding: .utf8)
@@ -810,6 +892,50 @@ private final class InfiniteContractSampleSource: LocalRecordingSampleSource, @u
     }
 }
 
+private final class RecoveringSlowStartingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    private let firstStartDelaySeconds: TimeInterval
+    private let lock = NSLock()
+    private var protectedStartCount = 0
+    private var protectedStopCount = 0
+
+    init(firstStartDelaySeconds: TimeInterval) {
+        self.firstStartDelaySeconds = firstStartDelaySeconds
+    }
+
+    var startCount: Int {
+        lock.withLock { protectedStartCount }
+    }
+
+    var stopCount: Int {
+        lock.withLock { protectedStopCount }
+    }
+
+    func start() async throws {
+        let currentStart = lock.withLock {
+            protectedStartCount += 1
+            return protectedStartCount
+        }
+
+        if currentStart == 1 {
+            try? await Task.sleep(nanoseconds: UInt64(firstStartDelaySeconds * 1_000_000_000))
+        }
+    }
+
+    func stop() async {
+        lock.withLock {
+            protectedStopCount += 1
+        }
+    }
+}
+
+private final class FailingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    func start() async throws {
+        throw SystemAudioCaptureServiceError.runtimeStartFailed
+    }
+
+    func stop() async {}
+}
+
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
@@ -823,6 +949,7 @@ do {
     try validateDiagnosticBundleService()
     try validateLocalRecordingWriterBoundedDrain()
     try await validateSystemAudioPermissionFailClosed()
+    try await validateSystemAudioStartTimeoutCleanupOrdering()
     try validateAppStopFailureFailClosedSourceInvariant()
     print("ContractValidation: PASS")
 } catch {

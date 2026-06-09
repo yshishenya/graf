@@ -70,6 +70,7 @@ public actor SystemAudioCaptureService {
     public nonisolated let incomingSampleSource: LocalRecordingSampleSource
     private let bufferedSampleSource: BufferedLocalRecordingSampleSource
     private var activeSession: SystemAudioCaptureSession?
+    private var pendingRuntimeStartCleanup: Task<Void, Never>?
 
     public init(
         runtime: SystemAudioCaptureRuntime? = nil,
@@ -94,6 +95,10 @@ public actor SystemAudioCaptureService {
         scopeApproval: CaptureScopeApproval,
         startedAt: Date = Date()
     ) async throws -> SystemAudioCaptureSession {
+        if let pendingRuntimeStartCleanup {
+            await pendingRuntimeStartCleanup.value
+            self.pendingRuntimeStartCleanup = nil
+        }
         guard permissionState == .granted else {
             throw SystemAudioCaptureServiceError.permissionDenied
         }
@@ -105,11 +110,12 @@ public actor SystemAudioCaptureService {
         }
 
         bufferedSampleSource.reset()
-        let startCompleted = await Self.startRuntime(
+        let startResult = await Self.startRuntime(
             runtime,
             timeoutSeconds: runtimeStartTimeoutSeconds
         )
-        guard startCompleted else {
+        pendingRuntimeStartCleanup = startResult.cleanupTask
+        guard startResult.completed else {
             throw SystemAudioCaptureServiceError.runtimeStartFailed
         }
 
@@ -130,18 +136,18 @@ public actor SystemAudioCaptureService {
     private nonisolated static func startRuntime(
         _ runtime: SystemAudioCaptureRuntime,
         timeoutSeconds: TimeInterval
-    ) async -> Bool {
+    ) async -> RuntimeStartResult {
         guard timeoutSeconds > 0 else {
             do {
                 try await runtime.start()
-                return true
+                return RuntimeStartResult(completed: true, cleanupTask: nil)
             } catch {
-                return false
+                return RuntimeStartResult(completed: false, cleanupTask: nil)
             }
         }
 
         let completion = RuntimeStartCompletion()
-        Task.detached {
+        let startTask = Task.detached {
             do {
                 try await runtime.start()
                 let accepted = completion.complete(true)
@@ -153,12 +159,15 @@ public actor SystemAudioCaptureService {
             }
         }
         let completed = await completion.wait(timeoutSeconds: timeoutSeconds)
-        if !completed {
-            Task.detached {
+        guard completed != nil else {
+            let cleanupTask = Task.detached {
+                await runtime.stop()
+                _ = await startTask.result
                 await runtime.stop()
             }
+            return RuntimeStartResult(completed: false, cleanupTask: cleanupTask)
         }
-        return completed
+        return RuntimeStartResult(completed: completed == true, cleanupTask: nil)
     }
 
     public func appendIncomingSamples(_ samples: [Float], at date: Date = Date()) {
@@ -261,21 +270,23 @@ public actor SystemAudioCaptureService {
 private final class RuntimeStartCompletion: @unchecked Sendable {
     private let lock = NSLock()
     private var completed = false
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private var result: Bool?
+    private var continuation: CheckedContinuation<Bool?, Never>?
 
-    func wait(timeoutSeconds: TimeInterval) async -> Bool {
+    func wait(timeoutSeconds: TimeInterval) async -> Bool? {
         await withCheckedContinuation { continuation in
             lock.lock()
             if completed {
+                let result = result
                 lock.unlock()
-                continuation.resume(returning: true)
+                continuation.resume(returning: result)
                 return
             }
             self.continuation = continuation
             lock.unlock()
 
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds) {
-                self.complete(false)
+                self.timeout()
             }
         }
     }
@@ -288,6 +299,7 @@ private final class RuntimeStartCompletion: @unchecked Sendable {
             return false
         }
         completed = true
+        self.result = result
         let continuation = continuation
         self.continuation = nil
         lock.unlock()
@@ -295,6 +307,26 @@ private final class RuntimeStartCompletion: @unchecked Sendable {
         continuation?.resume(returning: result)
         return true
     }
+
+    private func timeout() {
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return
+        }
+        completed = true
+        result = nil
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        continuation?.resume(returning: nil)
+    }
+}
+
+private struct RuntimeStartResult {
+    let completed: Bool
+    let cleanupTask: Task<Void, Never>?
 }
 
 private final class RuntimeStopCompletion: @unchecked Sendable {

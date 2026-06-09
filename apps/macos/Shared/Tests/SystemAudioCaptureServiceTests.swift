@@ -173,6 +173,65 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(runtime.startCount, 1)
         XCTAssertEqual(runtime.stopCount, 2)
     }
+
+    func testImmediateRuntimeStartFailureDoesNotBecomeAcceptedStart() async throws {
+        let service = SystemAudioCaptureService(
+            runtime: FailingSystemAudioRuntime(),
+            runtimeStartTimeoutSeconds: 1
+        )
+
+        do {
+            _ = try await service.start(
+                sessionId: "session",
+                permissionState: .granted,
+                scopeApproval: approvedScope()
+            )
+            XCTFail("Failing runtime start should fail with runtimeStartFailed")
+        } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+            XCTAssertFalse(await service.isRunning)
+        }
+    }
+
+    func testRetryWaitsForTimedOutRuntimeStartCleanup() async throws {
+        let runtime = RecoveringSlowStartingSystemAudioRuntime(firstStartDelaySeconds: 0.2)
+        let service = SystemAudioCaptureService(
+            runtime: runtime,
+            runtimeStartTimeoutSeconds: 0.05
+        )
+
+        do {
+            _ = try await service.start(
+                sessionId: "first",
+                permissionState: .granted,
+                scopeApproval: approvedScope()
+            )
+            XCTFail("First slow runtime start should fail with runtimeStartFailed")
+        } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+            XCTAssertFalse(await service.isRunning)
+        }
+
+        let retry = Task {
+            try await service.start(
+                sessionId: "second",
+                permissionState: .granted,
+                scopeApproval: approvedScope()
+            )
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(runtime.startCount, 1)
+        XCTAssertFalse(await service.isRunning)
+
+        let second = try await retry.value
+        XCTAssertEqual(second.sessionId, "second")
+        XCTAssertEqual(runtime.startCount, 2)
+        XCTAssertGreaterThanOrEqual(runtime.stopCount, 2)
+        XCTAssertTrue(await service.isRunning)
+
+        let stopCountBeforeAcceptedStop = runtime.stopCount
+        _ = try await service.stop()
+        XCTAssertEqual(runtime.stopCount, stopCountBeforeAcceptedStop + 1)
+    }
 }
 
 private func approvedScope() -> CaptureScopeApproval {
@@ -199,6 +258,14 @@ private final class FakeSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecke
     }
 }
 
+private final class FailingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    func start() async throws {
+        throw SystemAudioCaptureServiceError.runtimeStartFailed
+    }
+
+    func stop() async {}
+}
+
 private final class SlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
     private let startDelaySeconds: TimeInterval
     private let lock = NSLock()
@@ -210,28 +277,60 @@ private final class SlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @
     }
 
     var startCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return protectedStartCount
+        lock.withLock { protectedStartCount }
     }
 
     var stopCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return protectedStopCount
+        lock.withLock { protectedStopCount }
     }
 
     func start() async throws {
-        lock.lock()
-        protectedStartCount += 1
-        lock.unlock()
+        lock.withLock {
+            protectedStartCount += 1
+        }
         try? await Task.sleep(nanoseconds: UInt64(startDelaySeconds * 1_000_000_000))
     }
 
     func stop() async {
-        lock.lock()
-        protectedStopCount += 1
-        lock.unlock()
+        lock.withLock {
+            protectedStopCount += 1
+        }
+    }
+}
+
+private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    private let firstStartDelaySeconds: TimeInterval
+    private let lock = NSLock()
+    private var protectedStartCount = 0
+    private var protectedStopCount = 0
+
+    init(firstStartDelaySeconds: TimeInterval) {
+        self.firstStartDelaySeconds = firstStartDelaySeconds
+    }
+
+    var startCount: Int {
+        lock.withLock { protectedStartCount }
+    }
+
+    var stopCount: Int {
+        lock.withLock { protectedStopCount }
+    }
+
+    func start() async throws {
+        let currentStart = lock.withLock {
+            protectedStartCount += 1
+            return protectedStartCount
+        }
+
+        if currentStart == 1 {
+            try? await Task.sleep(nanoseconds: UInt64(firstStartDelaySeconds * 1_000_000_000))
+        }
+    }
+
+    func stop() async {
+        lock.withLock {
+            protectedStopCount += 1
+        }
     }
 }
 #endif

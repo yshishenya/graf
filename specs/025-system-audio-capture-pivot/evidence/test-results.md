@@ -4298,3 +4298,59 @@
     audio is missed at capture startup. It does not close #308 or #313 because
     accepted Record/Stop artifact evidence and final manual review are still
     required.
+
+## 2026-06-09 Runtime Start Timeout Cleanup Review
+
+- Timestamp: `2026-06-09T07:09:51Z`
+- Commit before change: `e33cdf8`
+- Scope: system-audio runtime startup timeout, retry ordering, and app launch
+  stability.
+- Finding:
+  - `SystemAudioCaptureService.startRuntime()` returned to the actor after a
+    start timeout while the detached `runtime.start()` operation could still be
+    alive.
+  - A user retry could start a second session before the stale start finished.
+    If the stale task later performed its defensive `runtime.stop()`, it could
+    stop the currently active retry session because the runtime owns a shared
+    current stream.
+  - The first timeout fix also exposed a smaller completion race: an immediate
+    runtime start failure had to preserve `false` as the completed result, not
+    only mark the completion as finished.
+- Fix:
+  - The service now stores a pending runtime-start cleanup task after timeout.
+    The next `start()` awaits that cleanup before creating another runtime
+    start, preventing a stale stop from killing a fresh session.
+  - Runtime start completion now stores `true`, `false`, or `nil` explicitly:
+    `true` means started, `false` means failed before timeout, and `nil` means
+    timeout with cleanup still required.
+  - Added XCTest source coverage for immediate start failure and retry after
+    timeout, plus an executable `ContractValidation` check for the same retry
+    ordering.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed and executed
+    the runtime timeout cleanup ordering contract.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.47`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - App log tail for the fresh run showed launch, main-window presentation,
+    parked driver diagnostics, disabled auto-start, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This hardens #309, #310, #311, and #313 against retry-induced capture
+    instability after a slow ScreenCaptureKit startup. It does not close those
+    issues because active recording CPU, stop CPU, duration, and final manual
+    review gates still require accepted manual evidence.
