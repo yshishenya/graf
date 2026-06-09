@@ -160,7 +160,7 @@ public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource
 }
 
 public final class LocalRecordingWriter: @unchecked Sendable {
-    private static let maxDrainReadIterations = 512
+    private static let maxDrainReadIterations = 64
 
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService

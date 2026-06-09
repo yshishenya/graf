@@ -4517,3 +4517,57 @@
   - This hardens #307 and #313 by making permission retry behavior visible and
     non-stale during manual validation. It does not close #307 or #313 because
     accepted permission-matrix rows and final manual review are still required.
+
+## 2026-06-09 Bounded Drain Limit Follow-Up
+
+- Timestamp: `2026-06-09T07:52:23Z`
+- Commit before change: `de28198`
+- Scope: Stop/finalization responsiveness for local recording sample sources
+  that keep producing samples during final drain.
+- Finding:
+  - The previous bounded drain fix prevented an infinite loop, but the limit was
+    still `512` reads per source.
+  - `swift run --package-path apps/macos ContractValidation` failed with:
+    `LocalRecordingWriter must bound drain time for non-terminating sample sources`.
+  - This means Stop/finalization could remain bounded in theory while still
+    exceeding the responsiveness budget in practice.
+- Fix:
+  - Reduced `LocalRecordingWriter.maxDrainReadIterations` from `512` to `64`.
+  - With the current `8192` sample scratch buffer, the drain cap is still about
+    524k frames, or roughly 32.8 seconds at 16 kHz, which remains above the
+    intended 20-second buffered-source capacity while making pathological
+    non-terminating sources return quickly.
+  - The existing failure truth is preserved: if the cap is reached, the affected
+    track is forced to `write_failed`, the track status is `failed`, and the
+    manifest cannot be accepted as clean `saved`.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed after the
+    limit change.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72` under `/Library/Developer/CommandLineTools`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=2.20`,
+    `maxAppHelperRssMB=96.69`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #309 and #313 by ensuring the Stop path stays responsive even
+    if a capture source violates the expected finite-drain behavior. It does
+    not close #309 or #313 because active/stop CPU and final manual review are
+    still required.
