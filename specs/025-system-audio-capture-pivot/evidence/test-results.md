@@ -3292,3 +3292,48 @@
 - Acceptance impact:
   - This reduces normal UI hang risk from parked legacy CoreAudio diagnostics.
     It does not close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 Stop Failure Fail-Closed Review
+
+- Timestamp: `2026-06-09T04:16:42Z`
+- Commit before change: `c26fdb9`
+- Scope: stop/finalization error handling in
+  `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- Finding:
+  - `stopManualRecording()` classified every stop failure as `storageUnsafe`.
+  - After the catch path, it restored `localRecordingActive` from
+    `localRecordingWriter.isRecordingAsync()`. If stop/finalization failed while
+    the writer still looked active, the UI could continue to show recording
+    levels/in-progress state after the capture controller had moved to failed.
+  - That was misleading for recovery and could hide a fail-closed cleanup gap.
+- Fix:
+  - Added `recordingStopFailureCategory(for:)` so writer errors remain
+    `storageUnsafe`, while capture/controller stop failures become
+    `captureFailed`.
+  - Stop failure now releases system-audio capture, attempts local writer
+    cleanup through the shared fail-closed finalizer, then forces
+    `localRecordingActive=false` and inactive meters.
+  - Failure logs now include the classified category.
+  - `ContractValidation` now includes an executable source invariant for this
+    private UI flow: stop failure must classify separately, attempt
+    `stop_failure_cleanup`, avoid restoring `localRecordingActive` from the
+    writer after failure, and log the category.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed and executed
+    the stop-failure fail-closed source invariant.
+  - `swift test --package-path apps/macos` exited `0` and compiled the test
+    bundle on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.44 MB`, quit
+    app/helper process count was `0`, and thermal state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This reduces misleading UI/recovery risk if stop finalization fails. It does
+    not close #307, #308, #309 active/stop, #310, #311, or #313.

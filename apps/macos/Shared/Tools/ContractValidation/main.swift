@@ -748,6 +748,29 @@ func validateSystemAudioPermissionFailClosed() async throws {
     )
 }
 
+func validateAppStopFailureFailClosedSourceInvariant() throws {
+    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+    let source = try String(contentsOf: appSourceURL, encoding: .utf8)
+
+    try require(
+        source.contains("private func recordingStopFailureCategory(for error: Error) -> RecordingStartBlocker"),
+        "App stop failure path must classify stop failures separately from start failures"
+    )
+    try require(
+        source.contains("await finalizeLocalRecordingForFailure(reason: \"stop_failure_cleanup\")"),
+        "App stop failure path must attempt fail-closed local writer cleanup"
+    )
+    try require(
+        source.contains("localRecordingActive = false") &&
+            !source.contains("localRecordingActive = await localRecordingWriter.isRecordingAsync()"),
+        "App stop failure path must not leave UI recording state active after failed stop"
+    )
+    try require(
+        source.contains("detail: \"category=\\(failureCategory.rawValue) error=\\(error)\""),
+        "App stop failure logging must include the classified failure category"
+    )
+}
+
 func contractScopeApproval() -> CaptureScopeApproval {
     CaptureScopeApproval(
         scopeApprovalId: "contract-scope",
@@ -800,6 +823,7 @@ do {
     try validateDiagnosticBundleService()
     try validateLocalRecordingWriterBoundedDrain()
     try await validateSystemAudioPermissionFailClosed()
+    try validateAppStopFailureFailClosedSourceInvariant()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

@@ -298,7 +298,7 @@ private struct ContentView: View {
         } catch {
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
-            await finalizeLocalRecordingForStartFailure(reason: "start_failure_cleanup")
+            await finalizeLocalRecordingForFailure(reason: "start_failure_cleanup")
             _ = try? await systemAudioCaptureService.stop()
             let failureCategory = recordingStartFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
@@ -313,7 +313,7 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func finalizeLocalRecordingForStartFailure(reason: String) async {
+    private func finalizeLocalRecordingForFailure(reason: String) async {
         guard await localRecordingWriter.isRecordingAsync() else {
             return
         }
@@ -433,14 +433,30 @@ private struct ContentView: View {
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
             )
         } catch {
-            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: .storageUnsafe) {
+            let failureCategory = recordingStopFailureCategory(for: error)
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
             _ = await systemAudioCaptureService.releaseForTermination()
-            localRecordingActive = await localRecordingWriter.isRecordingAsync()
-            recordingBlocker = "Recording could not stop: \(error)"
-            AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
+            await finalizeLocalRecordingForFailure(reason: "stop_failure_cleanup")
+            localRecordingActive = false
+            liveRouteSignalLevels = .inactive
+            recordingBlocker = "Recording could not stop cleanly: \(error)"
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "category=\(failureCategory.rawValue) error=\(error)"
+            )
         }
+    }
+
+    private func recordingStopFailureCategory(for error: Error) -> RecordingStartBlocker {
+        if error is LocalRecordingWriterError {
+            return .storageUnsafe
+        }
+        if error is SystemAudioCaptureServiceError || error is CaptureSessionControllerError {
+            return .captureFailed
+        }
+        return .unknown
     }
 
     @MainActor
