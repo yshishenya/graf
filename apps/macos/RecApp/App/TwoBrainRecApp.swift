@@ -298,8 +298,11 @@ private struct ContentView: View {
         } catch {
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
-            await finalizeLocalRecordingForFailure(reason: "start_failure_cleanup")
-            _ = try? await systemAudioCaptureService.stop()
+            let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()
+            await finalizeLocalRecordingForFailure(
+                reason: "start_failure_cleanup",
+                failureReason: releasedSystemAudioSession?.failureReason ?? .none
+            )
             let failureCategory = recordingStartFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
@@ -313,18 +316,21 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func finalizeLocalRecordingForFailure(reason: String) async {
+    private func finalizeLocalRecordingForFailure(
+        reason: String,
+        failureReason: LocalRecordingFailureReason = .none
+    ) async {
         guard await localRecordingWriter.isRecordingAsync() else {
             return
         }
         let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
         do {
-            let manifest = try await localRecordingWriter.stopAsync()
+            let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
             localRecordingManifest = manifest
             localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
-                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason)"
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason) failureReason=\(manifest.failureReason.rawValue)"
             )
         } catch {
             AppLog.writeRaw(
@@ -439,8 +445,11 @@ private struct ContentView: View {
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
-            _ = await systemAudioCaptureService.releaseForTermination()
-            await finalizeLocalRecordingForFailure(reason: "stop_failure_cleanup")
+            let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
+            await finalizeLocalRecordingForFailure(
+                reason: "stop_failure_cleanup",
+                failureReason: releasedSystemAudioSession?.failureReason ?? .none
+            )
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
             recordingBlocker = "Recording could not stop cleanly: \(error)"

@@ -886,8 +886,20 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
         "App stop failure path must classify stop failures separately from start failures"
     )
     try require(
-        source.contains("await finalizeLocalRecordingForFailure(reason: \"stop_failure_cleanup\")"),
+        source.contains("await finalizeLocalRecordingForFailure(") &&
+            source.contains("reason: \"stop_failure_cleanup\"") &&
+            source.contains("failureReason: releasedSystemAudioSession?.failureReason ?? .none"),
         "App stop failure path must attempt fail-closed local writer cleanup"
+    )
+    try require(
+        source.contains("reason: \"start_failure_cleanup\"") &&
+            source.contains("let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()") &&
+            source.contains("failureReason: releasedSystemAudioSession?.failureReason ?? .none"),
+        "App start failure cleanup must preserve system-audio stop failure truth"
+    )
+    try require(
+        source.contains("try await localRecordingWriter.stopAsync(failureReason: failureReason)"),
+        "Local failure finalization must pass forced failure reason into manifest creation"
     )
     try require(
         source.contains("localRecordingActive = false") &&
