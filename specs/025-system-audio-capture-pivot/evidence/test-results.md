@@ -3910,3 +3910,40 @@
   - This hardens #309 and #313. The CPU gate can no longer accept a bare
     `status=passed` row without the process and RSS evidence needed to catch
     launch hangs or leaked app/helper processes.
+
+## 2026-06-09 Safe Launch Evidence Refresh
+
+- Timestamp: `2026-06-09T05:22:59Z`
+- Commit under test: `178532e`
+- Scope: repeat safe-launch, no-HAL, CPU, log, and thermal evidence after the
+  CPU review-gate hardening.
+- Validation:
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9` and `failureReason=none`.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Fresh appended evidence recorded baseline as diagnostic-only,
+    `idle` with `sampleCount=3`, `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.00`, `maxCoreaudiodRssMB=60.78`,
+    `maxAppHelperRssMB=93.11`, app process count `1`, and `quit` with
+    `sampleCount=3`, `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.00`, `maxCoreaudiodRssMB=60.80`,
+    `maxAppHelperRssMB=0.00`, app/helper process count `0`.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by the manual gates only: permission matrix,
+    artifact matrix, 30-minute run, 75-minute run, activeRecording CPU, stop
+    CPU, and final scope-review markers.
+  - Fresh app log showed normal packaged launch, one visible main window,
+    `passthrough_bridge_auto_start_skipped`, `coreAudioDevices=pending`,
+    cleanup completed, and passthrough bridge stopped.
+  - Process snapshot after preflight showed no remaining `2brain Rec` app/helper
+    process.
+  - `pmset -g therm` reported no thermal, performance, or CPU power warning.
+- Acceptance impact:
+  - This keeps #309 and #313 evidence current after the latest validator
+    changes. It does not close #309/#313 because active/stop CPU and other
+    manual gates still require a real recording run.
