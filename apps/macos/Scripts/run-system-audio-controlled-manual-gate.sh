@@ -274,7 +274,37 @@ run_app_only_package_boundary() {
 
 run_baseline_cpu() {
   printf '\n%s\n' "-- baseline CPU before launch --"
-  apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline
+  baseline_output="$(mktemp)"
+  apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline > "$baseline_output"
+  cat "$baseline_output"
+
+  baseline_evaluation="$(grep '^status=' "$baseline_output" | tail -n 1 || true)"
+  rm -f "$baseline_output"
+  [ -n "$baseline_evaluation" ] || {
+    printf '%s\n' "manual_gate=blocked reason=baselineEvaluationMissing" >&2
+    exit 2
+  }
+
+  baseline_max_core="$(printf '%s\n' "$baseline_evaluation" | awk '
+    {
+      for (i = 1; i <= NF; i += 1) {
+        split($i, kv, "=")
+        if (kv[1] == "maxCoreaudiodCpuPercent") {
+          print kv[2]
+          exit
+        }
+      }
+    }
+  ')"
+  [ -n "$baseline_max_core" ] || {
+    printf '%s\n' "manual_gate=blocked reason=baselineCoreaudiodMetricMissing evaluation=$baseline_evaluation" >&2
+    exit 2
+  }
+
+  if awk -v value="$baseline_max_core" 'BEGIN { exit !(value + 0 >= 5) }'; then
+    printf '%s\n' "manual_gate=blocked reason=baselineCoreaudiodCpuGate maxCoreaudiodCpuPercent=$baseline_max_core threshold=5 beforeAppLaunch=true" >&2
+    exit 2
+  fi
 }
 
 launch_packaged_app() {

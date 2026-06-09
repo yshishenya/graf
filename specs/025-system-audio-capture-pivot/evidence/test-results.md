@@ -5607,3 +5607,51 @@
     not close #307, #308, #309, #310, #311, or #313 because current CPU evidence
     is blocked and the remaining gates require real manual recording and
     duration evidence.
+
+## 2026-06-09 Hot Baseline CPU Gate Review
+
+- Timestamp: `2026-06-09T10:27:00Z`
+- Scope: follow-up review of the red CPU preflight after confirming
+  `coreaudiod` was elevated before `2brain Rec` launched.
+- Review findings:
+  - Fresh metadata-only baseline without the app running showed
+    `maxCoreaudiodCpuPercent=7.90`, app/helper CPU `0.00`, and no thermal or
+    performance warning from `pmset -g therm`.
+  - The manual gate harness previously launched the app even when baseline
+    `coreaudiod` was already above the idle CPU acceptance threshold. That made
+    the next idle failure easier to misread as an app launch regression.
+  - The harness now blocks on `baselineCoreaudiodCpuGate` before launching the
+    packaged app when baseline `maxCoreaudiodCpuPercent >= 5`.
+  - The final evidence validator now reports a newer hot baseline before idle
+    acceptance instead of pointing only at a stale latest idle failure.
+  - Added a synthetic CPU evidence self-test for the hot-baseline ordering rule:
+    hot baseline after idle blocks; fresh idle after that baseline clears the
+    hot-baseline diagnostic.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - Focused `swift test --package-path apps/macos --filter
+    LiveAudioSignalMonitorTests|CaptureControlTests|LocalRecordingWriterTests`
+    compiled the focused test bundle in the local SwiftPM/CLT environment. Full
+    XCTest execution remains unavailable locally because this machine uses
+    Command Line Tools without `xctest`.
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh` passed.
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh
+    --self-test-cpu-evidence` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    returned `preflight_rc=2` as expected, with
+    `reason=baselineCoreaudiodCpuGate maxCoreaudiodCpuPercent=7.40
+    beforeAppLaunch=true`; no packaged `2brain Rec` process remained afterward.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked and now reports the newer hot baseline before idle
+    acceptance. This is the correct current state, not an accepted pass.
+- Acceptance impact:
+  - This hardens #309/#313 by preventing invalid CPU acceptance attempts from
+    launching the app in an already-hot CoreAudio environment and by making the
+    blocked reason explicit. It does not close #307, #308, #309, #310, #311, or
+    #313 because the CPU baseline is currently blocked and manual recording,
+    artifact, permission, and duration gates are still required.

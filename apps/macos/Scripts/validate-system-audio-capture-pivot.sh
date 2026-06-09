@@ -355,6 +355,52 @@ last_cpu_evaluation_for_phase() {
     ' "$CPU_GATES"
 }
 
+last_cpu_timestamp_for_phase() {
+    phase="$1"
+    awk -v wanted="$phase" '
+        /^## / {
+            current = ""
+            timestamp = $2
+            for (i = 1; i <= NF; i += 1) {
+                if ($i == wanted) {
+                    current = wanted
+                }
+            }
+        }
+        current == wanted && /^- Evaluation: `/ {
+            last = timestamp
+        }
+        END {
+            if (last != "") {
+                print last
+            }
+        }
+    ' "$CPU_GATES"
+}
+
+latest_hot_baseline_after_phase() {
+    phase="$1"
+    phase_timestamp="$(last_cpu_timestamp_for_phase "$phase")"
+    baseline_timestamp="$(last_cpu_timestamp_for_phase baseline)"
+    baseline_evaluation="$(last_cpu_evaluation_for_phase baseline)"
+
+    [ -n "$baseline_timestamp" ] || return 1
+    [ -n "$baseline_evaluation" ] || return 1
+    if ! awk -v baseline="$baseline_timestamp" -v phase="$phase_timestamp" \
+        'BEGIN { exit(phase == "" || baseline > phase ? 0 : 1) }'; then
+        return 1
+    fi
+
+    baseline_max_core="$(evaluation_field maxCoreaudiodCpuPercent "$baseline_evaluation")"
+    is_nonnegative_decimal "$baseline_max_core" || return 1
+    if ! decimal_less_than "$baseline_max_core" 5; then
+        printf '%s\n' "timestamp=$baseline_timestamp evaluation=$baseline_evaluation"
+        return 0
+    fi
+
+    return 1
+}
+
 evaluation_field() {
     field="$1"
     evaluation="$2"
@@ -490,6 +536,12 @@ validate_cpu_evaluation_passed() {
 
 validate_cpu_phase_passed() {
     phase="$1"
+    if [ "$phase" = "idle" ] &&
+        hot_baseline="$(latest_hot_baseline_after_phase "$phase")"; then
+        printf '%s\n' "$CPU_GATES has newer hot baseline before idle acceptance: $hot_baseline"
+        return 1
+    fi
+
     evaluation="$(last_cpu_evaluation_for_phase "$phase")"
     if [ -z "$evaluation" ]; then
         printf '%s\n' "$CPU_GATES is missing $phase CPU evaluation"
@@ -539,6 +591,39 @@ self_test_cpu_evidence() {
     expect_cpu_evaluation_rejects "active-missing-event-binding" activeRecording "$(printf '%s\n' "$valid_active" | sed 's/phaseEventObserved=true/phaseEventObserved=false/')"
     expect_cpu_evaluation_rejects "stop-missing-event-binding" stop "$(printf '%s\n' "$valid_stop" | sed 's/phaseEventObserved=true/phaseEventObserved=false/')"
     expect_cpu_evaluation_rejects "quit-process-left" quit "$(printf '%s\n' "$valid_quit" | sed 's/maxAppProcessCount=0/maxAppProcessCount=1/')"
+
+    original_cpu_gates="$CPU_GATES"
+    temp_cpu_gates="$(mktemp)"
+    CPU_GATES="$temp_cpu_gates"
+    cat > "$CPU_GATES" <<EOF
+## 2026-06-09T10:00:00Z idle
+
+- Evaluation: \`$valid_idle\`
+
+## 2026-06-09T10:01:00Z baseline
+
+- Evaluation: \`status=observed failureReason=diagnosticOnly sampleCount=3 maxCoreaudiodCpuPercent=7.40 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=58.10 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired\`
+EOF
+    if ! latest_hot_baseline_after_phase idle >/dev/null 2>&1; then
+        CPU_GATES="$original_cpu_gates"
+        rm -f "$temp_cpu_gates"
+        printf '%s\n' "cpu_evidence_self_test_failed=hot-baseline-after-idle"
+        return 1
+    fi
+    cat >> "$CPU_GATES" <<EOF
+
+## 2026-06-09T10:02:00Z idle
+
+- Evaluation: \`$valid_idle\`
+EOF
+    if latest_hot_baseline_after_phase idle >/dev/null 2>&1; then
+        CPU_GATES="$original_cpu_gates"
+        rm -f "$temp_cpu_gates"
+        printf '%s\n' "cpu_evidence_self_test_failed=fresh-idle-after-hot-baseline"
+        return 1
+    fi
+    CPU_GATES="$original_cpu_gates"
+    rm -f "$temp_cpu_gates"
 
     passed "synthetic CPU evidence parser checks passed"
 }

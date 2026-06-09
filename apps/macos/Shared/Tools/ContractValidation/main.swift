@@ -1186,6 +1186,21 @@ func validateManualGateExitCleanupInvariant() throws {
         source.contains("trap 'cleanup_runtime' EXIT"),
         "Manual gate must install the full runtime cleanup trap after holding the wake assertion"
     )
+    try require(
+        source.contains("baselineCoreaudiodCpuGate") &&
+            source.contains("maxCoreaudiodCpuPercent") &&
+            source.contains("beforeAppLaunch=true"),
+        "Manual gate must block hot coreaudiod baseline before launching the packaged app"
+    )
+    guard let baselineRange = source.range(of: "run_baseline_cpu"),
+          let launchRange = source.range(of: "launch_packaged_app")
+    else {
+        throw ValidationError(description: "Manual gate must define baseline and packaged app launch steps")
+    }
+    try require(
+        baselineRange.lowerBound < launchRange.lowerBound,
+        "Manual gate must evaluate baseline CPU before launching the packaged app"
+    )
 }
 
 func validateLocalRecordingWriterTimerWriteFailureInvariant() throws {
