@@ -6,7 +6,7 @@ MACOS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/2brain Rec.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/2brain Rec"
-APP_LOG="$HOME/Library/Logs/2brain Rec/2brain-rec.log"
+APP_LOG="${SYSTEM_AUDIO_MANUAL_GATE_APP_LOG:-$HOME/Library/Logs/2brain Rec/2brain-rec.log}"
 
 usage() {
   cat <<'USAGE'
@@ -25,6 +25,9 @@ Options:
       packaged app launch, idle CPU, quit CPU, and thermal-state printout. This
       mode never prompts for Record/Stop and never satisfies the active
       recording, artifact, permission, 30-minute, or 75-minute acceptance gates.
+  --self-test
+      Run metadata-only harness parser checks against a temporary log file. This
+      does not build, launch, record, install, inspect audio, or touch TCC.
 
 Steps performed:
   1. verify default local package is app-only;
@@ -149,6 +152,49 @@ wait_for_app_log_event_since_epoch() {
   exit 2
 }
 
+block_if_app_log_event_since_epoch() {
+  pattern="$1"
+  since_epoch="$2"
+  label="$3"
+  log_offset="${4:-0}"
+
+  if matched_line="$(app_log_has_event_since_epoch "$pattern" "$since_epoch" "$log_offset")"; then
+    printf '%s\n' "waiting_for_$label=blocked reason=unexpected_app_log_event_observed line=$matched_line" >&2
+    exit 2
+  fi
+}
+
+run_self_test() {
+  original_app_log="$APP_LOG"
+  temp_log="$(mktemp)"
+  trap 'rm -f "$temp_log"' EXIT
+  APP_LOG="$temp_log"
+
+  printf '2026-06-09T04:00:00Z event=recording.started detail=old\n' >> "$APP_LOG"
+  old_offset="$(app_log_byte_count)"
+  printf '2026-06-09T04:10:00Z event=recording.started detail=fresh\n' >> "$APP_LOG"
+  printf '2026-06-09T04:10:01Z event=recording.stopped detail=fresh\n' >> "$APP_LOG"
+
+  app_log_has_event_since_epoch "event=recording\\.started" 1780978200 "$old_offset" >/dev/null ||
+    fail_self_test "fresh recording.started event was not found after offset"
+
+  if app_log_has_event_since_epoch "event=recording\\.started" 0 "$old_offset" | grep -F "detail=old" >/dev/null 2>&1; then
+    fail_self_test "stale recording.started event was accepted before offset"
+  fi
+
+  if ( block_if_app_log_event_since_epoch "event=recording\\.stopped" 1780978200 "self_test_stop_block" "$old_offset" ) >/dev/null 2>&1; then
+    fail_self_test "unexpected recording.stopped event did not block"
+  fi
+
+  APP_LOG="$original_app_log"
+  printf '%s\n' "manual_gate_self_test=passed"
+}
+
+fail_self_test() {
+  printf '%s\n' "manual_gate_self_test=failed reason=$1" >&2
+  exit 1
+}
+
 quit_app() {
   if [ "$(app_process_count)" -eq 0 ]; then
     return 0
@@ -234,6 +280,8 @@ case "${1:-}" in
     ;;
   --preflight)
     ;;
+  --self-test)
+    ;;
   "")
     ;;
   *)
@@ -244,6 +292,11 @@ case "${1:-}" in
 esac
 
 cd "$ROOT_DIR"
+
+if [ "$MODE" = "--self-test" ]; then
+  run_self_test
+  exit 0
+fi
 
 printf '%s\n' "== system-audio controlled manual gate =="
 printf '%s\n' "repo=$ROOT_DIR"
@@ -264,9 +317,13 @@ record_prompt_epoch="$(date +%s)"
 record_prompt_log_offset="$(app_log_byte_count)"
 prompt_continue "Start a controlled non-sensitive audio source, press Record System Audio in 2brain Rec, and wait until the app shows recording is active."
 wait_for_app_log_event_since_epoch "event=recording\\.started" "$record_prompt_epoch" "recording_started" 20 "$record_prompt_log_offset"
+block_if_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$record_prompt_epoch" "recording_still_active_before_cpu" "$record_prompt_log_offset"
 
 printf '\n%s\n' "-- activeRecording CPU while recording is active --"
+active_cpu_epoch="$(date +%s)"
+active_cpu_log_offset="$(app_log_byte_count)"
 apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
+block_if_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$active_cpu_epoch" "recording_still_active_after_cpu" "$active_cpu_log_offset"
 
 stop_prompt_epoch="$(date +%s)"
 stop_prompt_log_offset="$(app_log_byte_count)"

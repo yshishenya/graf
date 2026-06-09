@@ -3534,3 +3534,48 @@
   - This hardens #309 and #313 against false CPU acceptance. It does not close
     #309 because active-recording and stop CPU evidence still require a real
     manual recording run.
+
+## 2026-06-09 Manual Harness Active Recording Guard Review
+
+- Timestamp: `2026-06-09T04:44:20Z`
+- Commit before change: `8af9e20`
+- Scope: guided manual gate harness in
+  `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`.
+- Finding:
+  - The harness waited for a fresh `recording.started` event before sampling
+    `activeRecording` CPU, but did not reject the run if a fresh
+    `recording.stopped` or `local_recording.saved/degraded/failed` event had
+    already appeared before or during active CPU sampling.
+  - That could allow active CPU evidence to be collected after recording had
+    already ended, proving only that the app process was alive rather than that
+    active recording remained stable.
+- Fix:
+  - Added a guard that blocks the manual gate if stop/local-recording completion
+    is observed after the Record prompt and before active CPU sampling.
+  - Added a second guard that blocks if stop/local-recording completion appears
+    during active CPU sampling.
+  - Added `--self-test` for metadata-only harness parser checks against a
+    temporary log file, including stale-offset handling and unexpected stop
+    blocking.
+- Validation:
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.12 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #309 and #313 against false active-recording CPU evidence. It
+    does not close #309 because the real active/stop CPU run still requires
+    manual Record/Stop with controlled non-sensitive audio.
