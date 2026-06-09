@@ -14,17 +14,24 @@
 
 ```sh
 rg -n "NEEDS CLARIFICATION|020-system-audio-capture-pivot|022-system-audio-capture-pivot" \
-  specs/025-system-audio-capture-pivot AGENTS.md docs .specify/memory/constitution.md
+  specs/025-system-audio-capture-pivot AGENTS.md docs .specify/memory/constitution.md \
+  --glob '!specs/025-system-audio-capture-pivot/quickstart.md' \
+  --glob '!specs/025-system-audio-capture-pivot/evidence/test-results.md' \
+  --glob '!specs/025-system-audio-capture-pivot/checklists/requirements.md'
 
 rg -n "rawAudio|transcriptText|meetingContent|signedUrl|password|apiKey" \
-  specs/025-system-audio-capture-pivot apps/macos/Shared/Sources apps/macos/RecApp/Sources
+  specs/025-system-audio-capture-pivot apps/macos/Shared/Sources apps/macos/RecApp/Sources \
+  --glob '!specs/025-system-audio-capture-pivot/quickstart.md' \
+  --glob '!specs/025-system-audio-capture-pivot/evidence/test-results.md'
 ```
 
 Expected:
 
 - no unresolved clarification markers;
 - no stale pivot feature number references;
-- no diagnostics contract allowing raw content or secrets.
+- forbidden-content matches, if any, are limited to policy wording and the
+  `DiagnosticRedactor` forbidden-key list; no raw content, credentials, signed
+  URLs, passwords, or API keys appear as payload data.
 
 ## 2. Swift Build And Tests
 

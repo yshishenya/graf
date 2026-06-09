@@ -2377,3 +2377,23 @@
 - Acceptance impact:
   - This strengthens sample normalization before the real controlled artifact
     run. It does not close #308/T072 or #313/T077.
+
+## 2026-06-09 Static Quickstart Scan Refresh
+
+- Timestamp: `2026-06-09T01:31:32Z`
+- Commit: `fcfe010`
+- Commands:
+  - `rg -n "NEEDS CLARIFICATION|020-system-audio-capture-pivot|022-system-audio-capture-pivot" specs/025-system-audio-capture-pivot AGENTS.md docs .specify/memory/constitution.md --glob '!specs/025-system-audio-capture-pivot/quickstart.md' --glob '!specs/025-system-audio-capture-pivot/evidence/test-results.md' --glob '!specs/025-system-audio-capture-pivot/checklists/requirements.md'`
+  - `rg -n "rawAudio|transcriptText|meetingContent|signedUrl|password|apiKey" specs/025-system-audio-capture-pivot apps/macos/Shared/Sources apps/macos/RecApp/Sources --glob '!specs/025-system-audio-capture-pivot/quickstart.md' --glob '!specs/025-system-audio-capture-pivot/evidence/test-results.md'`
+- Result:
+  - Stale feature / clarification scan returned no matches after excluding the
+    command text and checklist evidence files that intentionally mention the
+    search terms.
+  - Forbidden-content scan matches were limited to policy/contract prohibition
+    wording and `DiagnosticRedactor.forbiddenKeys`; no raw audio, transcript
+    text, signed URL, password, or API key payload data was found.
+- Quickstart update:
+  - The static scan commands now exclude their own quickstart/evidence command
+    text from the stale-feature check.
+  - The expected forbidden-content result now explicitly allows only policy
+    wording and redactor forbidden-key list matches.
