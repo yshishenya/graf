@@ -3,6 +3,8 @@ set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 EVIDENCE_DIR="$ROOT_DIR/specs/025-system-audio-capture-pivot/evidence"
+DEFAULT_APP_BINARY="$ROOT_DIR/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec"
+APP_BINARY="${SYSTEM_AUDIO_CPU_GATE_APP_BINARY:-$DEFAULT_APP_BINARY}"
 PHASE="${1:-}"
 SAMPLES="${SYSTEM_AUDIO_CPU_GATE_SAMPLES:-3}"
 INTERVAL_SECONDS="${SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS:-2}"
@@ -19,13 +21,15 @@ Environment:
   SYSTEM_AUDIO_CPU_GATE_SAMPLES=3
   SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=2
   SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=10 for baseline/idle/stop/quit, 0 for activeRecording
+  SYSTEM_AUDIO_CPU_GATE_APP_BINARY=<path>
+      Expected app binary to sample. Defaults to the packaged repo app bundle.
   SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 for synthetic script checks that must not
       update specs/025-system-audio-capture-pivot/evidence/cpu-gates.md
 
 Required gates:
 - idle/stop/quit after settle: coreaudiod < 5% and app+helper < 5%
 - quit after settle: app/helper process count must be 0
-- activeRecording/stop: packaged app process must be observable
+- activeRecording/stop: expected packaged app process must be observable
 - active recording: no sustained coreaudiod > 10%
 - active recording: no sustained app+helper > 25%
 - baseline: diagnostic only; records coreaudiod/app/helper CPU without counting
@@ -74,10 +78,14 @@ coreaudiod_pids() {
 
 app_pids() {
   ps -axo pid=,command= |
-    awk -v self="$$" '
-      $1 != self &&
-      $0 ~ /(\/2brain Rec\.app\/Contents\/MacOS\/2brain Rec|\/TwoBrainRecApp)$/ {
-        print $1
+    awk -v self="$$" -v expected="$APP_BINARY" '
+      {
+        pid = $1
+        line = $0
+        sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", line)
+      }
+      pid != self && (line == expected || index(line, expected " ") == 1) {
+        print pid
       }
     ' || true
 }
@@ -191,6 +199,7 @@ if [ "${SYSTEM_AUDIO_CPU_GATE_NO_APPEND:-0}" != "1" ]; then
   {
     printf '\n## %s %s\n\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$PHASE"
     printf '%s\n' "- Command: \`$0 $PHASE\`"
+    printf '%s\n' "- App binary: \`$APP_BINARY\`"
     printf '%s\n' "- Samples: \`$SAMPLES\`, interval seconds: \`$INTERVAL_SECONDS\`, settle seconds: \`$SETTLE_SECONDS\`"
     printf '%s\n\n' "- Evaluation: \`$evaluation\`"
     printf '```text\n'

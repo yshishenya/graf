@@ -2231,3 +2231,46 @@
 - Acceptance impact:
   - This does not close #309/T073. Real `activeRecording` and `stop` CPU
     evidence still has to be captured during a controlled manual recording.
+
+## 2026-06-09T00:50:24Z CPU Gate Repo-App Path Guard Hardening
+
+- Commit before change: `ba9d6d9`
+- Scope: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`.
+- Issue links: #309, #313.
+- Finding:
+  - The CPU sampler required an app process for `activeRecording` and `stop`,
+    but the process matcher accepted any `2brain Rec.app` binary path.
+  - That could accidentally count an older installed app or a different
+    worktree as evidence for this feature branch.
+- Change:
+  - The sampler now defaults to the packaged app binary in the current repo:
+    `apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec`.
+  - `SYSTEM_AUDIO_CPU_GATE_APP_BINARY` can override that path for an explicit
+    controlled run.
+  - CPU evidence now records the sampled app binary path next to the command.
+- Validation:
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh` passed.
+  - With no repo app running,
+    `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 SYSTEM_AUDIO_CPU_GATE_SAMPLES=1 SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording`
+    returned exit `1` with `failureReason=appNotRunning`.
+  - With no repo app running,
+    `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 SYSTEM_AUDIO_CPU_GATE_SAMPLES=1 SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop`
+    returned exit `1` with `failureReason=appNotRunning`.
+  - Launched `apps/macos/RecApp/.build/2brain Rec.app`; `idle` CPU gate passed
+    with `maxAppProcessCount=1`, `maxCoreaudiodCpuPercent=0.00`, and
+    `maxAppHelperCpuPercent=0.40`.
+  - Quit cleanup then `quit` CPU gate passed with `maxAppProcessCount=0`,
+    `maxCoreaudiodCpuPercent=0.00`, and `maxAppHelperCpuPercent=0.00`.
+- Runtime notes:
+  - App-internal log showed `mainWindowVisible=true`, `activeSpace=true`, and
+    `passthrough_bridge_auto_start_skipped`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Full-screen `screencapture` returned a black image in this automation
+    environment, so no visual UI claim is made from screenshot evidence.
+  - Unified log contained macOS AppIntents/linkd connection errors on launch,
+    but repository search found no AppIntents/Shortcuts declarations and the
+    app-internal launch/window/cleanup logs remained healthy. Treat as reviewed
+    system framework noise unless it becomes user-visible.
+- Acceptance impact:
+  - This still does not close #309/T073. Real `activeRecording` and `stop` CPU
+    evidence must be captured during a controlled manual recording.
