@@ -4016,3 +4016,40 @@
 - Acceptance impact:
   - This hardens #313 against a future UI regression that could reintroduce the
     hang-prone CoreAudio/HAL path from ordinary Refresh or Run Check.
+
+## 2026-06-09 Future Timestamp Meter Review
+
+- Timestamp: `2026-06-09T05:33:39Z`
+- Commit before change: `17e7010`
+- Scope: live meter freshness logic for recording and legacy route signal
+  levels.
+- Finding:
+  - `LiveRecordingLevels.isFresh` and `LiveRouteSignalLevels.isFresh` treated a
+    timestamp in the future as live because negative age was `<= staleAfter`.
+  - A clock skew or async ordering artifact could therefore show a false live
+    microphone/incoming meter instead of staying quiet until real frames arrive.
+- Fix:
+  - Freshness now requires `age >= 0 && age <= staleAfter`.
+  - Added regression tests for future timestamps in both recording-writer meters
+    and live route signal levels.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Fresh safe-launch evidence showed `idle` CPU `0.00%` for
+    `coreaudiod`, max app/helper CPU `0.10%`, app process count `1`,
+    `maxAppHelperRssMB=93.05`, `quit` CPU `0.00%`, app/helper process count
+    `0`, and no thermal/performance warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    `coreAudioDevices=pending`, cleanup completed, and passthrough bridge
+    stopped.
+- Acceptance impact:
+  - This hardens the user-facing audio indicators against false-positive meter
+    activity. It does not close #309/#313 because active/stop CPU and the other
+    manual gates still require a real recording run.

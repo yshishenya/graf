@@ -80,6 +80,19 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertEqual(levels.incomingLevel, 0)
     }
 
+    func testFutureLevelTimestampIsNotTreatedAsLive() {
+        let levels = LiveRecordingLevels(
+            isRecording: true,
+            microphoneLevel: 0.8,
+            incomingLevel: 0.8,
+            microphoneUpdatedAt: Date(timeIntervalSince1970: 11),
+            incomingUpdatedAt: Date(timeIntervalSince1970: 11)
+        )
+
+        XCTAssertFalse(levels.microphoneIsLive(now: Date(timeIntervalSince1970: 10), staleAfter: 2))
+        XCTAssertFalse(levels.incomingIsLive(now: Date(timeIntervalSince1970: 10), staleAfter: 2))
+    }
+
     func testWriterReportsRecordingLevelsWithoutInventingIncomingFrames() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-recording-writer-level-tests-\(UUID().uuidString)", isDirectory: true)

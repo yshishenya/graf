@@ -47,7 +47,8 @@ public struct LiveRecordingLevels: Equatable, Sendable {
 
     private func isFresh(_ date: Date?, now: Date, staleAfter: TimeInterval) -> Bool {
         guard isRecording, let date else { return false }
-        return now.timeIntervalSince(date) <= staleAfter
+        let age = now.timeIntervalSince(date)
+        return age >= 0 && age <= staleAfter
     }
 
     private static func clamp(_ value: Double) -> Double {

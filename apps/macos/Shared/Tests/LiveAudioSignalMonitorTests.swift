@@ -144,6 +144,19 @@ final class LiveAudioSignalMonitorTests: XCTestCase {
         XCTAssertFalse(stale.microphoneIsLive(now: Date(timeIntervalSince1970: 10.6), staleAfter: 0.45))
         XCTAssertEqual(stale.microphoneLevel, 0)
     }
+
+    func testFutureSignalTimestampIsNotTreatedAsLive() {
+        let levels = LiveRouteSignalLevels(
+            isActive: true,
+            microphoneLevel: 0.8,
+            speakerLevel: 0.8,
+            microphoneUpdatedAt: Date(timeIntervalSince1970: 11),
+            speakerUpdatedAt: Date(timeIntervalSince1970: 11)
+        )
+
+        XCTAssertFalse(levels.microphoneIsLive(now: Date(timeIntervalSince1970: 10), staleAfter: 2))
+        XCTAssertFalse(levels.speakerIsLive(now: Date(timeIntervalSince1970: 10), staleAfter: 2))
+    }
 }
 
 private final class FakeLiveAudioSignalSource: LiveAudioSignalSampleSource {
