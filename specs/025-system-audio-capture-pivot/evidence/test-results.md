@@ -4733,3 +4733,47 @@
     behavior executable and part of the manual harness self-test. It does not
     close #308 or #313 because accepted controlled artifact evidence and final
     manual review are still required.
+
+## 2026-06-09 Issue Canon And Evidence Traceability Review
+
+- Timestamp: `2026-06-09T08:20:41Z`
+- Commit before review: `97db39f`
+- Scope: Traceability between Spec Kit tasks, GitHub issues, evidence files, and
+  the final review gate.
+- Finding:
+  - Local `tasks.md` still has final validation tasks `T071` through `T077`.
+  - GitHub issues #307 through #313 remain open for those manual validation
+    gates, with #312 already closed separately.
+  - Issue bodies for #307, #308, and #313 retain the required canon sections,
+    task IDs, evidence paths, and labels.
+  - The project issue-canon validator reports
+    `github-issue-canon: OK (8 Spec Kit issue(s) checked)`.
+- Validation:
+  - `python3 .specify/extensions/github-issue-canon/scripts/validate_issue_canon.py`
+    passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.45`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This confirms tasks-to-issues traceability remains intact after repeated
+    hardening commits. It does not close #307, #308, #309, #310, #311, or #313
+    because their real manual evidence rows are still required.
