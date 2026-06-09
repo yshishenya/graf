@@ -88,6 +88,29 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertTrue(stopped.canBeAccepted)
     }
 
+    func testBufferedRuntimeStatsTreatStereoSamplesAsFramesOnce() async throws {
+        let sampleSource = BufferedLocalRecordingSampleSource(channelCount: 2)
+        let service = SystemAudioCaptureService(
+            runtime: FakeSystemAudioRuntime(),
+            sampleSource: sampleSource
+        )
+        _ = try await service.start(
+            sessionId: "session",
+            permissionState: .granted,
+            scopeApproval: approvedScope(),
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+
+        sampleSource.append(
+            Array(repeating: 0.3, count: 512),
+            at: Date(timeIntervalSince1970: 11)
+        )
+        let stopped = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 12))
+
+        XCTAssertEqual(stopped.frameCount, 256)
+        XCTAssertEqual(stopped.lastFrameAt, Date(timeIntervalSince1970: 11))
+    }
+
     func testStartResetsBufferedSamplesAndStatsBetweenSessions() async throws {
         let sampleSource = BufferedLocalRecordingSampleSource()
         let service = SystemAudioCaptureService(

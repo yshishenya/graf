@@ -143,7 +143,7 @@ public actor SystemAudioCaptureService {
             timeoutSeconds: runtimeStopTimeoutSeconds
         )
         let stats = bufferedSampleSource.stats()
-        let bufferedFrameCount = Self.frameCount(forSampleCount: Int(stats.frameCount))
+        let bufferedFrameCount = stats.frameCount
         if bufferedFrameCount > session.frameCount {
             session.frameCount = bufferedFrameCount
             session.lastFrameAt = stats.lastFrameAt
@@ -169,7 +169,7 @@ public actor SystemAudioCaptureService {
             timeoutSeconds: runtimeStopTimeoutSeconds
         )
         let stats = bufferedSampleSource.stats()
-        let bufferedFrameCount = Self.frameCount(forSampleCount: Int(stats.frameCount))
+        let bufferedFrameCount = stats.frameCount
         if bufferedFrameCount > session.frameCount {
             session.frameCount = bufferedFrameCount
             session.lastFrameAt = stats.lastFrameAt

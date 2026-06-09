@@ -64,11 +64,17 @@ public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSourc
     private var buffer: [Float] = []
     private var readOffset = 0
     private let capacity: Int
+    private let channelCount: Int
     private var totalAppendedFrameCount: Int64 = 0
     private var lastAppendAt: Date?
 
-    public init(capacity: Int = 48_000 * 20) {
+    public init(capacity: Int = 48_000 * 20, channelCount: Int = 2) {
         self.capacity = capacity
+        self.channelCount = max(1, channelCount)
+    }
+
+    public convenience init(capacity: Int) {
+        self.init(capacity: capacity, channelCount: 2)
     }
 
     public func append(_ samples: [Float], at date: Date = Date()) {
@@ -77,7 +83,7 @@ public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSourc
         buffer.append(contentsOf: samples)
         trimUnreadSamplesToCapacity()
         compactIfNeeded()
-        totalAppendedFrameCount += Int64(samples.count)
+        totalAppendedFrameCount += Int64((samples.count + channelCount - 1) / channelCount)
         lastAppendAt = date
         lock.unlock()
     }

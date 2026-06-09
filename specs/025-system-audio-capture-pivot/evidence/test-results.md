@@ -2274,3 +2274,55 @@
 - Acceptance impact:
   - This still does not close #309/T073. Real `activeRecording` and `stop` CPU
     evidence must be captured during a controlled manual recording.
+
+## 2026-06-09T00:56:27Z System-Audio Buffered Frame Count Review Fix
+
+- Commit before change: `7800c1f`
+- Scope:
+  - `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
+  - `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`
+  - `apps/macos/Shared/Tests/SystemAudioCaptureServiceTests.swift`
+- Issue links: #308, #313.
+- Finding:
+  - `BufferedLocalRecordingSampleSource.stats()` counted appended float samples
+    as frames.
+  - For stereo system audio, that doubled the buffered frame count; then
+    `SystemAudioCaptureService.stop()` divided that value again when reconciling
+    runtime-bypassed samples.
+  - The net effect could under-report system-audio session frame truth in
+    service evidence when callbacks wrote directly to the buffered source.
+- Change:
+  - `BufferedLocalRecordingSampleSource` now has an explicit `channelCount`
+    and records appended frames as `ceil(sampleCount / channelCount)`.
+  - `SystemAudioCaptureService.stop()` and `releaseForTermination()` now treat
+    buffer stats as frame counts directly.
+  - Kept a `capacity` convenience initializer so existing default arguments
+    and callers remain link-compatible.
+  - Added regression coverage: 512 stereo samples are reported as 256 frames,
+    not 128 and not 512.
+- Validation:
+  - Initial `swift build --package-path apps/macos` caught a Swift default
+    argument/link symbol issue after the initializer signature changed.
+  - Added the compatibility initializer and reran:
+    - `swift build --package-path apps/macos` passed.
+    - `swift test --package-path apps/macos` built and linked the test bundle;
+      full XCTest execution is not available on this Command Line Tools host.
+    - `swift run --package-path apps/macos ContractValidation` passed.
+    - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+      `checkedFiles=9`.
+    - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+      passed.
+    - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+      remained blocked only by manual gates.
+  - Packaged app runtime smoke after the fix:
+    - repo app launched and app-internal log recorded `mainWindowVisible=true`,
+      `activeSpace=true`, and `passthrough_bridge_auto_start_skipped`;
+    - `sample-system-audio-cpu-gate.sh idle` passed with
+      `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, and
+      `maxAppProcessCount=1`;
+    - after quit, `sample-system-audio-cpu-gate.sh quit` passed with
+      `maxAppProcessCount=0`;
+    - `pmset -g therm` reported no thermal or performance warning level.
+- Acceptance impact:
+  - This strengthens artifact/session truth for #308/#313, but does not replace
+    the required controlled artifact run.
