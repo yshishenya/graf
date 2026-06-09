@@ -59,5 +59,55 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)
     }
+
+    func testAsyncStopProducesSameDualTrackPackageWithoutMainThreadFinalization() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-package-async-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let micSource = BufferedLocalRecordingSampleSource()
+        let incomingSource = BufferedLocalRecordingSampleSource()
+        micSource.append(Array(repeating: 0.18, count: 48_000))
+        incomingSource.append(Array(repeating: 0.22, count: 48_000))
+
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { micSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: true
+        )
+        let scopeApproval = CaptureScopeApproval(
+            scopeApprovalId: "scope-async-package",
+            scopeKind: .display,
+            sourceDisplayName: "Current Display",
+            approvedAt: Date(timeIntervalSince1970: 19),
+            approvalMode: .userConfirmedSuggestedScope,
+            eligibleReason: .manualMeetingScope
+        )
+        let permissions = SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 19)
+        )
+
+        let directory = try writer.start(
+            sessionId: "session-async",
+            startedAt: Date(timeIntervalSince1970: 20),
+            scopeApproval: scopeApproval,
+            permissions: permissions
+        )
+        Thread.sleep(forTimeInterval: 0.2)
+        let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 21))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.localMicURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.remoteSpeakerURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.manifestURL.path))
+        XCTAssertEqual(Set(manifest.tracks.map(\.role)), Set([.localMic, .remoteSpeaker]))
+        XCTAssertEqual(manifest.status, .saved)
+        XCTAssertTrue(manifest.isComplete)
+        XCTAssertEqual(manifest.scopeApproval?.scopeApprovalId, "scope-async-package")
+        XCTAssertEqual(manifest.permissions?.microphone, .granted)
+        XCTAssertEqual(manifest.permissions?.systemAudio, .granted)
+    }
 }
 #endif

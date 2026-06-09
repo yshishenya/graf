@@ -158,7 +158,7 @@ public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource
     }
 }
 
-public final class LocalRecordingWriter {
+public final class LocalRecordingWriter: @unchecked Sendable {
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
     private let microphoneSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
@@ -291,65 +291,81 @@ public final class LocalRecordingWriter {
 
     public func stop(stoppedAt: Date = Date()) throws -> LocalRecordingManifest {
         try queue.sync {
-            guard let active else { throw LocalRecordingWriterError.notRecording }
-            active.timer.cancel()
-            defer {
-                active.microphoneRecorder?.stop()
-                try? active.microphoneWriter?.close()
-                try? active.remoteWriter.close()
-                active.scratch.deallocate()
-                self.active = nil
-            }
-            try drainPendingSamples(for: active)
-            active.microphoneRecorder?.stop()
-            let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
-            let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
-            try padTimelineSilence(for: active, targetFrameCount: Int(elapsedFrameCount))
-            try active.microphoneWriter?.close()
-            try active.remoteWriter.close()
-
-            let micTrack = track(
-                role: .localMic,
-                url: active.directory.localMicURL,
-                durationMs: active.microphoneWriter?.durationMs ?? elapsedDurationMs,
-                frameCount: Int64(active.microphoneWriter?.frameCount ?? Int(elapsedFrameCount)),
-                fileName: "mic.wav",
-                timelineAligned: true
-            )
-            let timelineToleranceMs = 1_000
-            let remoteTimelineAligned = abs(active.remoteWriter.durationMs - micTrack.durationMs) <= timelineToleranceMs
-            let remoteTrack = track(
-                role: .remoteSpeaker,
-                url: active.directory.remoteSpeakerURL,
-                durationMs: active.remoteWriter.durationMs,
-                frameCount: Int64(active.remoteWriter.frameCount),
-                fileName: "incoming.wav",
-                timelineAligned: remoteTimelineAligned,
-                observedLevel: active.lastIncomingLevel
-            )
-            let captureHealth = CaptureHealthMonitor().snapshot(
-                sessionId: active.sessionId,
-                phase: .stop,
-                micDurationMs: micTrack.durationMs,
-                incomingDurationMs: remoteTrack.durationMs,
-                micFrameCount: micTrack.frameCount,
-                incomingFrameCount: remoteTrack.frameCount,
-                silentFrameCount: remoteTrack.failureReason == .silentInput ? remoteTrack.frameCount : 0
-            )
-
-            let manifest = manifestService.manifest(
-                sessionId: active.sessionId,
-                directoryId: active.directory.directoryId,
-                startedAt: active.startedAt,
-                stoppedAt: stoppedAt,
-                tracks: [micTrack, remoteTrack],
-                scopeApproval: active.scopeApproval,
-                permissions: active.permissions,
-                captureHealth: captureHealth
-            )
-            try manifestService.write(manifest, to: active.directory.manifestURL)
-            return manifest
+            try stopOnQueue(stoppedAt: stoppedAt)
         }
+    }
+
+    public func stopAsync(stoppedAt: Date = Date()) async throws -> LocalRecordingManifest {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    continuation.resume(returning: try self.stopOnQueue(stoppedAt: stoppedAt))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func stopOnQueue(stoppedAt: Date) throws -> LocalRecordingManifest {
+        guard let active else { throw LocalRecordingWriterError.notRecording }
+        active.timer.cancel()
+        defer {
+            active.microphoneRecorder?.stop()
+            try? active.microphoneWriter?.close()
+            try? active.remoteWriter.close()
+            active.scratch.deallocate()
+            self.active = nil
+        }
+        try drainPendingSamples(for: active)
+        active.microphoneRecorder?.stop()
+        let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
+        let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
+        try padTimelineSilence(for: active, targetFrameCount: Int(elapsedFrameCount))
+        try active.microphoneWriter?.close()
+        try active.remoteWriter.close()
+
+        let micTrack = track(
+            role: .localMic,
+            url: active.directory.localMicURL,
+            durationMs: active.microphoneWriter?.durationMs ?? elapsedDurationMs,
+            frameCount: Int64(active.microphoneWriter?.frameCount ?? Int(elapsedFrameCount)),
+            fileName: "mic.wav",
+            timelineAligned: true
+        )
+        let timelineToleranceMs = 1_000
+        let remoteTimelineAligned = abs(active.remoteWriter.durationMs - micTrack.durationMs) <= timelineToleranceMs
+        let remoteTrack = track(
+            role: .remoteSpeaker,
+            url: active.directory.remoteSpeakerURL,
+            durationMs: active.remoteWriter.durationMs,
+            frameCount: Int64(active.remoteWriter.frameCount),
+            fileName: "incoming.wav",
+            timelineAligned: remoteTimelineAligned,
+            observedLevel: active.lastIncomingLevel
+        )
+        let captureHealth = CaptureHealthMonitor().snapshot(
+            sessionId: active.sessionId,
+            phase: .stop,
+            micDurationMs: micTrack.durationMs,
+            incomingDurationMs: remoteTrack.durationMs,
+            micFrameCount: micTrack.frameCount,
+            incomingFrameCount: remoteTrack.frameCount,
+            silentFrameCount: remoteTrack.failureReason == .silentInput ? remoteTrack.frameCount : 0
+        )
+
+        let manifest = manifestService.manifest(
+            sessionId: active.sessionId,
+            directoryId: active.directory.directoryId,
+            startedAt: active.startedAt,
+            stoppedAt: stoppedAt,
+            tracks: [micTrack, remoteTrack],
+            scopeApproval: active.scopeApproval,
+            permissions: active.permissions,
+            captureHealth: captureHealth
+        )
+        try manifestService.write(manifest, to: active.directory.manifestURL)
+        return manifest
     }
 
     private func padTimelineSilence(for active: ActiveRecording, targetFrameCount: Int) throws {

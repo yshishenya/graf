@@ -398,7 +398,7 @@ private struct ContentView: View {
         do {
             _ = try captureController.requestStop(reason: .userRequested)
             _ = try? await systemAudioCaptureService.stop()
-            let manifest = try localRecordingWriter.stop()
+            let manifest = try await localRecordingWriter.stopAsync()
             let stopped = try captureController.completeStop()
             captureSession = stopped
             localRecordingManifest = manifest
@@ -440,17 +440,17 @@ private struct ContentView: View {
     @MainActor
     private func releaseCaptureResourcesForAppExit() async {
         _ = await systemAudioCaptureService.releaseForTermination()
-        finalizeLocalRecordingForAppExit()
+        await finalizeLocalRecordingForAppExit()
     }
 
     @MainActor
-    private func finalizeLocalRecordingForAppExit() {
+    private func finalizeLocalRecordingForAppExit() async {
         guard localRecordingWriter.isRecording else {
             return
         }
         let recordingDirectory = localRecordingWriter.currentDirectoryURL()
         do {
-            let manifest = try localRecordingWriter.stop()
+            let manifest = try await localRecordingWriter.stopAsync()
             localRecordingManifest = manifest
             localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
             AppLog.writeRaw(
