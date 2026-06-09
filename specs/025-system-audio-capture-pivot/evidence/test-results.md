@@ -5325,3 +5325,50 @@
   - This hardens #308/#313 artifact truthfulness for write failures. It does
     not close #307, #308, #309, #310, #311, or #313 because the remaining gates
     require real manual recording and duration evidence.
+
+## 2026-06-09 Artifact Validator Negative Self-Test Review
+
+- Timestamp: `2026-06-09T09:42:15Z`
+- Scope: focused review of artifact validator false-positive protections.
+- Finding:
+  - `--artifact-directory` correctly required accepted artifacts to have
+    `status=saved`, but the synthetic artifact self-test only proved rejection
+    for `failureReason=capture_failed`.
+  - The self-test did not explicitly prove that a complete-looking package with
+    `status=degraded` and `failureReason=none` is rejected.
+- Fix:
+  - `--self-test-artifact-metadata` now creates a synthetic degraded artifact
+    with `manifest.json`, `mic.wav`, and `incoming.wav`, then verifies the
+    artifact validator rejects it.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata`
+    passed.
+  - All validator self-tests passed for latest artifact selection, CPU,
+    duration, permission, and final review markers.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos --filter SystemAudioNoHALValidationTests`
+    completed successfully in the local SwiftPM/CLT environment and compiled
+    the focused test bundle. Full XCTest execution remains unavailable locally
+    because this machine uses Command Line Tools without `xctest`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.70`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This hardens #308/#313 by proving degraded artifacts cannot satisfy the
+    accepted artifact validator. It does not close #307, #308, #309, #310,
+    #311, or #313 because the remaining gates require real manual recording and
+    duration evidence.

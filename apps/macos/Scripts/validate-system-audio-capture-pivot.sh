@@ -649,7 +649,8 @@ self_test_artifact_metadata() {
 
     accepted_dir="$temp_root/synthetic-accepted"
     failed_dir="$temp_root/synthetic-failed"
-    mkdir -p "$accepted_dir" "$failed_dir"
+    degraded_dir="$temp_root/synthetic-degraded"
+    mkdir -p "$accepted_dir" "$failed_dir" "$degraded_dir"
     write_synthetic_wav "$accepted_dir/mic.wav"
     write_synthetic_wav "$accepted_dir/incoming.wav"
     write_synthetic_manifest "$accepted_dir" "none" "saved"
@@ -658,11 +659,18 @@ self_test_artifact_metadata() {
     cp "$accepted_dir/incoming.wav" "$failed_dir/incoming.wav"
     write_synthetic_manifest "$failed_dir" "capture_failed" "saved"
 
+    cp "$accepted_dir/mic.wav" "$degraded_dir/mic.wav"
+    cp "$accepted_dir/incoming.wav" "$degraded_dir/incoming.wav"
+    write_synthetic_manifest "$degraded_dir" "none" "degraded"
+
     SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 "$0" --artifact-directory "$accepted_dir" >/dev/null ||
         fail_invalid "synthetic accepted artifact metadata did not pass"
 
     if SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 "$0" --artifact-directory "$failed_dir" >/dev/null 2>&1; then
         fail_invalid "synthetic capture_failed artifact metadata was incorrectly accepted"
+    fi
+    if SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 "$0" --artifact-directory "$degraded_dir" >/dev/null 2>&1; then
+        fail_invalid "synthetic degraded artifact metadata was incorrectly accepted"
     fi
 
     passed "synthetic artifact metadata checks passed"
