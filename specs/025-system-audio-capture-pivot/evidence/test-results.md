@@ -4053,3 +4053,26 @@
   - This hardens the user-facing audio indicators against false-positive meter
     activity. It does not close #309/#313 because active/stop CPU and the other
     manual gates still require a real recording run.
+
+## 2026-06-09 Manual Harness Parser And Artifact Boundary Refresh
+
+- Timestamp: `2026-06-09T05:36:46Z`
+- Commit under test: `2d85ab3`
+- Scope: metadata-only checks for the guided manual gate harness and accepted
+  artifact discovery boundaries.
+- Validation:
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed, confirming fresh log events are found after the prompt offset, stale
+    events before the offset are ignored, and unexpected stop/completion events
+    block active-recording CPU acceptance.
+  - Synthetic `--artifact-directory` with an unexpected sidecar directory was
+    rejected as invalid, preserving the accepted package boundary of exactly
+    `manifest.json`, `mic.wav`, and `incoming.wav`.
+  - Synthetic `--latest-artifact-directory` with stale and fresh candidates
+    selected only the fresh directory when
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME` was set before the fresh
+    files were written.
+- Acceptance impact:
+  - This keeps #308, #309, and #313 evidence current for the harness and
+    artifact-selection logic that will be used during the real manual
+    Record/Stop run.
