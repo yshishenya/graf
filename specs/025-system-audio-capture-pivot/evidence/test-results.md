@@ -5148,3 +5148,47 @@
   - This hardens #313 by preventing final acceptance from instructions,
     examples, or template text. It does not close #313 because the manual gates
     and final accepted review section are still required.
+
+## 2026-06-09 Full Local Safety Sweep
+
+- Timestamp: `2026-06-09T09:13:23Z`
+- Commit under test: `0e750b1`
+- Scope: post-hardening local safety sweep across build/test compilation,
+  validators, issue canon, packaged app launch/quit, logs, CPU, and thermal
+  state.
+- Validation:
+  - `swift test --package-path apps/macos` completed in the local SwiftPM/CLT
+    environment and compiled the package test bundle.
+  - Full XCTest execution is still unavailable locally:
+    `xcode-select -p` is `/Library/Developer/CommandLineTools`, and
+    `xcrun --find xctest` exits without finding `xctest`.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - Shell syntax passed for the feature validator, CPU sampler, and manual
+    harness scripts.
+  - All validator self-tests passed: CPU, artifact metadata, latest artifact
+    selection, duration, permission, and final review markers.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `python3 .specify/extensions/github-issue-canon/scripts/validate_issue_canon.py`
+    passed with `github-issue-canon: OK (8 Spec Kit issue(s) checked)`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.66`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This sweep found no new automated blocker. It does not close #307, #308,
+    #309, #310, #311, or #313 because the remaining gates require real manual
+    permission, Record/Stop, active/stop CPU, duration, and final review
+    evidence.
