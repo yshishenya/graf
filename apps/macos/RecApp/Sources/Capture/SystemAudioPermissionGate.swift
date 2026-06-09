@@ -43,6 +43,14 @@ public struct SystemAudioPermissionGate: Sendable {
         microphone: CapturePermissionState,
         systemAudio: CapturePermissionState
     ) -> SystemAudioPermissionPresentation {
+        if microphone == .stale || systemAudio == .stale {
+            return SystemAudioPermissionPresentation(
+                title: "Recording blocked: permission check stale",
+                message: "Run the permission check again before recording.",
+                recoveryAction: .retryPermissionCheck
+            )
+        }
+
         let micMissing = microphone != .granted
         let systemMissing = systemAudio != .granted
 

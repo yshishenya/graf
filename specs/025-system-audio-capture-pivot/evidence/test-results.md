@@ -2144,3 +2144,58 @@
   controlled artifact validation on a real recording, active/stop CPU gate for
   a real recording, 30-minute development run, 75-minute manual release run,
   and final scope review.
+
+## 2026-06-09 Permission Stale-State Gate Hardening
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: permission-gate truth for non-granted microphone and Screen/System
+  Audio states before starting an accepted recording.
+- Code review finding:
+  - `SystemAudioPermissionGate` blocked all non-granted states, but the
+    `retryPermissionCheck` recovery action was effectively unreachable.
+  - A `stale` permission state was shown with generic grant-access copy even
+    though the truthful recovery is to rerun the permission check before
+    recording.
+  - Tests covered denied states, but did not explicitly lock every non-granted
+    state (`unknown`, `denied`, `restricted`, `stale`) out of the accepted path
+    for both microphone and system audio.
+- Code review fix:
+  - `stale` microphone or system-audio permission now returns
+    `Recording blocked: permission check stale` with
+    `retry_permission_check`.
+  - Added regression coverage that every non-granted permission state blocks
+    accepted recording and maps to `permissionDenied`.
+  - Added regression coverage that stale permission states use retry copy
+    instead of grant-access copy.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including
+    `SystemAudioPermissionGateTests`; full XCTest execution is not available
+    in this Command Line Tools host because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Packaged app launched from
+    `apps/macos/RecApp/.build/2brain Rec.app`; AppLog recorded
+    `mainWindowVisible=true`, `activeSpace=true`, and `occlusion=8192`.
+  - Runtime snapshot after launch showed app CPU `0.0` and `coreaudiod` CPU
+    `0.0`.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit cleanup logged `app_termination_cleanup_completed` and
+    `passthrough_bridge_stopped`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no app entries.
+  - `pmset -g therm` reported no thermal or performance warning level.
+- Result: passed for permission gate hardening, build, contract, no-HAL,
+  app-only installer, packaged app lifecycle, idle CPU, quit CPU, log scan, and
+  thermal smoke.
+- Remaining gates not completed by this automated slice: permission matrix with
+  real TCC grant/deny/revoke rows, controlled artifact validation on a real
+  recording, active/stop CPU gate for a real recording, 30-minute development
+  run, 75-minute manual release run, and final scope review.

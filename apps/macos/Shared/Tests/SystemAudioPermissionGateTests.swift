@@ -33,6 +33,32 @@ final class SystemAudioPermissionGateTests: XCTestCase {
         XCTAssertEqual(result.manifestFailureReason, .permissionDenied)
     }
 
+    func testEveryNonGrantedPermissionStateBlocksAcceptedRecording() {
+        let nonGrantedStates: [CapturePermissionState] = [.unknown, .denied, .restricted, .stale]
+
+        for state in nonGrantedStates {
+            let missingMicrophone = gate().evaluate(microphone: state, systemAudio: .granted)
+            XCTAssertFalse(missingMicrophone.allowsAcceptedRecording, "microphone \(state) must block accepted recording")
+            XCTAssertEqual(missingMicrophone.outcome, .blocked)
+            XCTAssertEqual(missingMicrophone.manifestFailureReason, .permissionDenied)
+
+            let missingSystemAudio = gate().evaluate(microphone: .granted, systemAudio: state)
+            XCTAssertFalse(missingSystemAudio.allowsAcceptedRecording, "system audio \(state) must block accepted recording")
+            XCTAssertEqual(missingSystemAudio.outcome, .blocked)
+            XCTAssertEqual(missingSystemAudio.manifestFailureReason, .permissionDenied)
+        }
+    }
+
+    func testStalePermissionStateRequiresRetryRatherThanGrantCopy() {
+        let microphoneStale = gate().evaluate(microphone: .stale, systemAudio: .granted)
+        let systemAudioStale = gate().evaluate(microphone: .granted, systemAudio: .stale)
+
+        XCTAssertEqual(microphoneStale.presentation?.recoveryAction, .retryPermissionCheck)
+        XCTAssertEqual(systemAudioStale.presentation?.recoveryAction, .retryPermissionCheck)
+        XCTAssertEqual(microphoneStale.presentation?.title, "Recording blocked: permission check stale")
+        XCTAssertEqual(systemAudioStale.presentation?.title, "Recording blocked: permission check stale")
+    }
+
     func testExplicitDegradedAttemptIsLabelledBeforeStart() {
         let result = gate().evaluate(
             microphone: .granted,
