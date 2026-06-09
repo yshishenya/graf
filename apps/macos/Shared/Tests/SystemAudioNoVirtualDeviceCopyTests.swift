@@ -93,5 +93,44 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
 
         XCTAssertTrue(state.canRecord)
     }
+
+    func testHealthCanRecordIgnoresParkedPassthroughFailureForSystemAudioMVP() {
+        let state = AudioHealthState(
+            driverState: .needsRepair,
+            virtualMicState: .missing,
+            virtualSpeakerState: .missing,
+            microphonePermission: .granted,
+            outputPermission: .granted,
+            routeVerification: nil,
+            passthroughStatus: .failed,
+            bufferRisk: .healthy,
+            livePassthroughStatus: .blocked,
+            recoveryActions: [
+                "Driver diagnostics are parked for system audio recording",
+                "Review parked passthrough diagnostics before future driver experiments"
+            ]
+        )
+
+        XCTAssertTrue(state.canRecord)
+        XCTAssertTrue(state.requiresAttention)
+    }
+
+    func testHealthCanRecordStillBlocksMissingPermissionsAndUnsafeBuffer() {
+        let missingPermission = AudioHealthState(
+            microphonePermission: .denied,
+            outputPermission: .granted,
+            passthroughStatus: .healthy,
+            bufferRisk: .healthy
+        )
+        let unsafeBuffer = AudioHealthState(
+            microphonePermission: .granted,
+            outputPermission: .granted,
+            passthroughStatus: .healthy,
+            bufferRisk: .mustDegradeOrStop
+        )
+
+        XCTAssertFalse(missingPermission.canRecord)
+        XCTAssertFalse(unsafeBuffer.canRecord)
+    }
 }
 #endif

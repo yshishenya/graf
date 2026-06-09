@@ -611,6 +611,51 @@ func validateCaptureSafetyInvariant() throws {
     )
 }
 
+func validateSystemAudioMVPHealthCanRecordIgnoresParkedDriverDiagnostics() throws {
+    let state = AudioHealthState(
+        driverState: .needsRepair,
+        virtualMicState: .missing,
+        virtualSpeakerState: .missing,
+        microphonePermission: .granted,
+        outputPermission: .granted,
+        routeVerification: nil,
+        passthroughStatus: .failed,
+        bufferRisk: .healthy,
+        livePassthroughStatus: .blocked,
+        recoveryActions: [
+            "Driver diagnostics are parked for system audio recording",
+            "Review parked passthrough diagnostics before future driver experiments"
+        ]
+    )
+
+    try require(
+        state.canRecord,
+        "System-audio MVP health state must not block recording on parked driver or passthrough diagnostics"
+    )
+    try require(
+        state.requiresAttention,
+        "Parked driver or passthrough diagnostics should remain visible as attention, not as a recording blocker"
+    )
+
+    let missingPermission = AudioHealthState(
+        microphonePermission: .denied,
+        outputPermission: .granted,
+        passthroughStatus: .healthy,
+        bufferRisk: .healthy
+    )
+    let unsafeBuffer = AudioHealthState(
+        microphonePermission: .granted,
+        outputPermission: .granted,
+        passthroughStatus: .healthy,
+        bufferRisk: .mustDegradeOrStop
+    )
+
+    try require(
+        !missingPermission.canRecord && !unsafeBuffer.canRecord,
+        "System-audio MVP health state must still block missing permissions and unsafe local buffer"
+    )
+}
+
 func validateDiagnosticBundleService() throws {
     let bundle = try DiagnosticBundleService().buildBundle(
         DiagnosticBundleInput(
@@ -1198,6 +1243,7 @@ do {
     try validateRecordingArtifactFormatFixture()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
+    try validateSystemAudioMVPHealthCanRecordIgnoresParkedDriverDiagnostics()
     try validateDiagnosticBundleService()
     try validateLocalRecordingDiagnosticBundleNoEgressTruth()
     try validateLocalRecordingWriterBoundedDrain()

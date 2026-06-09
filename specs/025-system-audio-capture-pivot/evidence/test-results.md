@@ -5460,3 +5460,50 @@
   - This hardens #313 diagnostic/privacy review evidence. It does not close
     #307, #308, #309, #310, #311, or #313 because the remaining gates require
     real manual recording and duration evidence.
+
+## 2026-06-09 Parked Driver UI Health Review
+
+- Timestamp: `2026-06-09T10:00:25Z`
+- Scope: focused review of health-state recording eligibility, parked driver
+  diagnostics, virtual-device copy, no-HAL boundary, safe packaged-app launch,
+  logs, CPU, and system thermal status.
+- Review findings:
+  - Found one pivot regression risk: `AudioHealthState.canRecord` still treated
+    missing legacy route readiness and failed parked passthrough diagnostics as
+    recording blockers.
+  - Fixed `canRecord` so system-audio MVP recording remains blocked by missing
+    macOS permissions or unsafe local buffer pressure, while legacy
+    route/passthrough/driver issues remain visible through `requiresAttention`
+    and recovery copy.
+  - Added focused XCTest coverage and an executable `ContractValidation`
+    invariant proving parked driver/passthrough diagnostics do not disable
+    system-audio recording when permissions and buffer state are acceptable.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - Focused `swift test --package-path apps/macos --filter
+    SystemAudioNoVirtualDeviceCopyTests` compiled the focused test bundle in the
+    local SwiftPM/CLT environment. Full XCTest execution remains unavailable
+    locally because this machine uses Command Line Tools without `xctest`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.05`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This hardens #313 by preventing legacy driver/passthrough diagnostics from
+    acting as a system-audio MVP recording blocker. It does not close #307,
+    #308, #309, #310, #311, or #313 because the remaining gates require real
+    manual recording and duration evidence.
