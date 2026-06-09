@@ -75,7 +75,7 @@ final class RouteVerificationTests: XCTestCase {
     }
 
     func testLiveRouteReadinessRequiresBothLivePathEvidence() {
-        let now = fixedClock()
+        let now = Self.fixedClock()
         let result = LiveRouteReadinessResult(
             status: .ready,
             microphoneEvidence: microphoneEvidence(status: .passed, checkedAt: now),
@@ -209,12 +209,12 @@ final class RouteVerificationTests: XCTestCase {
 
     func testRouteVerificationServiceBlocksMissingSelection() async {
         let service = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { _, _ in .passed }
         )
 
-        let snapshot = await service.verify(physicalInput: nil, physicalOutput: nil)
+        let snapshot = await service.verify(physicalInput: Optional<PhysicalAudioDevice>.none, physicalOutput: Optional<PhysicalAudioDevice>.none)
 
         XCTAssertFalse(snapshot.canShowReady)
         XCTAssertEqual(snapshot.mic.status, .failed)
@@ -226,8 +226,8 @@ final class RouteVerificationTests: XCTestCase {
         let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
         let service = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { path, _ in path == .micToVirtualInput ? .passed : .failed }
         )
 
@@ -235,8 +235,8 @@ final class RouteVerificationTests: XCTestCase {
         XCTAssertFalse(partialSnapshot.canShowReady)
 
         let passingService = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { _, _ in .passed }
         )
         let passingSnapshot = await passingService.verify(physicalInput: input, physicalOutput: output)
@@ -253,8 +253,8 @@ final class RouteVerificationTests: XCTestCase {
         )
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
         let service = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { _, _ in .passed }
         )
 
@@ -275,8 +275,8 @@ final class RouteVerificationTests: XCTestCase {
             availabilityState: .available
         )
         let service = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { _, _ in .passed }
         )
 
@@ -292,8 +292,8 @@ final class RouteVerificationTests: XCTestCase {
         let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
         let service = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { _, _ in .passed }
         )
 
@@ -315,8 +315,8 @@ final class RouteVerificationTests: XCTestCase {
         )
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
         let service = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { _, _ in .passed }
         )
 
@@ -332,8 +332,8 @@ final class RouteVerificationTests: XCTestCase {
         let input = physicalDevice(id: "built-in-input", displayName: "MacBook Pro Microphone", direction: .input)
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)
         let service = RouteVerificationService(
-            clock: fixedClock,
-            idFactory: fixedID,
+            clock: Self.fixedClock,
+            idFactory: Self.fixedID,
             probe: { _, _ in .passed }
         )
         let result = await service.verifyLiveReadiness(physicalInput: input, physicalOutput: output)
@@ -351,14 +351,14 @@ final class RouteVerificationTests: XCTestCase {
             retrievedOrProcessedFrameCount: 48000,
             droppedFrameCount: 0,
             emptyBufferCount: 0,
-            lastValidFrameAt: fixedClock(),
+            lastValidFrameAt: Self.fixedClock(),
             latencyTimestampNanos: nil
         )
 
         let evidence = SharedAudioMemory.streamHealthEvidence(
             track: .localMic,
             snapshot: snapshot,
-            checkedAt: fixedClock()
+            checkedAt: Self.fixedClock()
         )
 
         XCTAssertEqual(evidence.capturabilityStatus, .capturable)
@@ -379,7 +379,7 @@ final class RouteVerificationTests: XCTestCase {
         let evidence = SharedAudioMemory.streamHealthEvidence(
             track: .remoteSpeaker,
             snapshot: snapshot,
-            checkedAt: fixedClock()
+            checkedAt: Self.fixedClock()
         )
 
         XCTAssertEqual(evidence.capturabilityStatus, .notCapturable)
@@ -461,11 +461,11 @@ final class RouteVerificationTests: XCTestCase {
         )
     }
 
-    private func fixedClock() -> Date {
+    private nonisolated static func fixedClock() -> Date {
         Date(timeIntervalSince1970: 1_779_887_120)
     }
 
-    private func fixedID() -> String {
+    private nonisolated static func fixedID() -> String {
         "route-verification-test-id"
     }
 }

@@ -1518,3 +1518,51 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260609T133420Z`
+- Timestamp: `2026-06-09T13:34:20Z`
+- Commit: `be0e402`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Validator result: `blocked`
+- Reason: default local package is not app-only.
+- Findings:
+  - default app-only package build failed
+  - missing local product package
+  - missing desktop app component package
+- Build output tail:
+
+```text
+You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.
+```
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260609T133814Z`
+- Timestamp: `2026-06-09T13:38:14Z`
+- Commit: `be0e402`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260609T134743Z`
+- Timestamp: `2026-06-09T13:47:43Z`
+- Commit: `be0e402`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.

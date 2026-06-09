@@ -11,7 +11,7 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
             .appendingPathComponent("system-audio-writer-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let source = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
+        let source = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
             incomingSampleSourceFactory: { source },
@@ -50,7 +50,7 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
             startedAt: Date(timeIntervalSince1970: 10)
         )
         Thread.sleep(forTimeInterval: 0.15)
-        let now = Date(timeIntervalSince1970: 10.2)
+        let now = Date()
         let levels = writer.currentLevels(now: now)
         _ = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
 
@@ -153,17 +153,21 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
             .appendingPathComponent("system-audio-writer-padding-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let incomingSource = BufferedLocalRecordingSampleSource()
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
+        let incomingSource = BufferedLocalRecordingSampleSource(channelCount: 1)
         incomingSource.append(Array(repeating: 0.25, count: 4_800))
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
             incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: false
+            recordMicrophone: true
         )
 
         _ = try writer.start(
             sessionId: "session",
-            startedAt: Date(timeIntervalSince1970: 10)
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions()
         )
 
         let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
@@ -174,6 +178,8 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertEqual(incoming.failureReason, .timelineMisaligned)
         XCTAssertEqual(incoming.status, .degraded)
         XCTAssertNotEqual(manifest.status, .saved)
+        XCTAssertEqual(manifest.captureHealth?.failureReason, .timelineMisaligned)
+        XCTAssertEqual(manifest.captureHealth?.gateStatus, .failed)
     }
 
     func testSmallIncomingStopTailPaddingDoesNotDegradeRecording() throws {
@@ -181,27 +187,33 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
             .appendingPathComponent("system-audio-writer-stop-tail-padding-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
         let incomingSource = BufferedLocalRecordingSampleSource(channelCount: 1)
         incomingSource.append(Array(repeating: 0.25, count: 46_080))
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
             incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: false
+            recordMicrophone: true
         )
 
         _ = try writer.start(
             sessionId: "session",
-            startedAt: Date(timeIntervalSince1970: 10)
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions()
         )
 
         let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
 
         let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
         XCTAssertEqual(incoming.durationMs, 1000)
-        XCTAssertEqual(incoming.failureReason, .none)
+        XCTAssertEqual(incoming.failureReason, LocalRecordingFailureReason.none)
         XCTAssertEqual(incoming.status, .saved)
         XCTAssertTrue(incoming.timelineAligned)
         XCTAssertEqual(manifest.status, .saved)
+        XCTAssertEqual(manifest.captureHealth?.failureReason, LocalRecordingFailureReason.none)
+        XCTAssertEqual(manifest.captureHealth?.gateStatus, .passed)
     }
 
     func testBufferedIncomingSourceReadsInOrderAfterPartialReads() {
@@ -228,7 +240,7 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
 
         XCTAssertEqual(source.readSamples(into: scratch, capacity: 4), 4)
         XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [3, 4, 5, 6])
-        XCTAssertEqual(source.stats().frameCount, 3)
+        XCTAssertEqual(source.stats().frameCount, 4)
     }
 
     func testBufferedSourceStatsRespectConfiguredChannelCount() {

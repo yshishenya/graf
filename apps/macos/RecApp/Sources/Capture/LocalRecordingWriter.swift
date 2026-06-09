@@ -463,6 +463,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             paddedFrameCount: paddingResult.incomingPaddedFrameCount,
             forcedFailureReason: drainResult.incomingTruncated || active.incomingWriteFailed ? .writeFailed : nil
         )
+        let recordingFailureReason = failureReason != .none ? failureReason :
+            [remoteTrack, micTrack].first(where: { $0.failureReason != .none })?.failureReason ?? .none
         let captureHealth = CaptureHealthMonitor().snapshot(
             sessionId: active.sessionId,
             phase: .stop,
@@ -470,7 +472,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             incomingDurationMs: remoteTrack.durationMs,
             micFrameCount: micTrack.frameCount,
             incomingFrameCount: remoteTrack.frameCount,
-            silentFrameCount: remoteTrack.failureReason == .silentInput ? remoteTrack.frameCount : 0
+            silentFrameCount: remoteTrack.failureReason == .silentInput ? remoteTrack.frameCount : 0,
+            recordingFailureReason: recordingFailureReason
         )
 
         let manifest = manifestService.manifest(

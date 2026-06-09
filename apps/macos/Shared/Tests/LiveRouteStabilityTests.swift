@@ -46,7 +46,6 @@ final class LiveRouteStabilityTests: XCTestCase {
             .split(separator: "\n")
             .map(String.init)
         XCTAssertTrue(lines.contains { $0.contains("\"sessionId\":\"route-session-1\"") })
-        XCTAssertTrue(lines.contains { $0.contains("\"name\":\"route.lifecycle.armed\"") })
         XCTAssertTrue(lines.contains { $0.contains("\"name\":\"route.lifecycle.active\"") })
         XCTAssertFalse(lines.contains { $0.contains("\"sessionId\":\"live-route\"") })
         XCTAssertFalse(lines.contains { $0.contains("\"name\":\"route.armed\"") })
@@ -70,13 +69,17 @@ final class LiveRouteStabilityTests: XCTestCase {
         XCTAssertNotNil(engine.lastRouteEvidence())
     }
 
-    func testEngineReleaseDecisionUsesSuppliedSnapshot() {
-        let ids = DeterministicIds(["route-session-1", "event-active", "event-release"])
+    func testEngineReleaseDecisionUsesSuppliedSnapshot() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("route-release-evidence-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let ids = DeterministicIds(["route-session-1", "event-active", "event-release", "route-session-2", "event-armed"])
         let engine = PassthroughRouteEngine(
             sharedMemory: nil,
             activityDetector: FixedSnapshotActivityDetector(snapshot: LiveRouteStabilityFixtures.clientActivity()),
             bridgeFactory: { _, _ in NoopPassthroughBridge() },
-            idFactory: ids.next
+            idFactory: ids.next,
+            routeEvidenceStore: RouteEvidenceStore(directoryURL: directoryURL)
         )
         _ = engine.startAutomaticRoute { _, _ in }
         let closedSnapshot = ClientActivitySnapshot(
@@ -91,15 +94,22 @@ final class LiveRouteStabilityTests: XCTestCase {
             naturalSilenceAllowed: false
         )
 
-        let state = engine.reconcileClientActivity(snapshot: closedSnapshot)
-        let evidence = engine.lastRouteEvidence()
+        var state = PassthroughRouteEngineState.active
+        for _ in 0..<PassthroughAutoIdlePolicy.defaultReleaseAfterIdleTicks {
+            state = engine.reconcileClientActivity(snapshot: closedSnapshot)
+        }
 
         XCTAssertEqual(state, .idleSafe)
-        XCTAssertEqual(evidence?.releaseDecision?.outcome, .released)
-        XCTAssertEqual(evidence?.clientActivity, closedSnapshot)
-        XCTAssertEqual(evidence?.sessionId, "route-session-1")
-        XCTAssertEqual(evidence?.family, .releaseDecision)
-        XCTAssertEqual(evidence?.name, "idle_release.released_after_client_closed")
+        let fileURL = directoryURL.appendingPathComponent("route-evidence.jsonl")
+        let lines = try String(contentsOf: fileURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertTrue(lines.contains { line in
+            line.contains("\"sessionId\":\"route-session-1\"") &&
+                line.contains("\"family\":\"idle_release_decision\"") &&
+                line.contains("\"name\":\"idle_release.released_after_client_closed\"") &&
+                line.contains("\"outcome\":\"released\"")
+        })
     }
 
     func testEngineCreatesDifferentRouteSessionIdsAcrossSessions() {

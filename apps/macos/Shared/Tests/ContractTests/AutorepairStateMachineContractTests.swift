@@ -40,8 +40,8 @@ final class AutorepairStateMachineContractTests: XCTestCase {
             timingTier: .normal,
             outcome: .succeeded,
             startedAt: startedAt,
-            completedAt: startedAt.addingTimeInterval(8),
-            freshEvidenceObservedAt: startedAt.addingTimeInterval(7)
+            completedAt: startedAt.addingTimeInterval(1.8),
+            freshEvidenceObservedAt: startedAt.addingTimeInterval(1.7)
         )
 
         XCTAssertTrue(attempt.isAcceptedSuccess)

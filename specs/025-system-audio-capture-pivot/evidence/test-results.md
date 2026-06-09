@@ -5790,3 +5790,48 @@
     for meaningful incoming gaps. It does not close #307, #308, #309, #310,
     #311, or #313 because complete manual matrices and duration gates remain
     required.
+
+## 2026-06-09 CaptureHealth Truth And Full Test Gate Fix
+
+- Timestamp: `2026-06-09T13:48:30Z`
+- Scope: follow-up after the incoming sound fix and stop-tail fix, focused on
+  keeping manifest truth, captureHealth truth, tests, and installed app state
+  consistent.
+- Changes:
+  - `CaptureHealthMonitor` now accepts the recording writer's resolved failure
+    reason so `captureHealth.failureReason` and `captureHealth.gateStatus`
+    cannot report `none/passed` when a track is degraded or failed.
+  - `LocalRecordingWriter` now feeds writer-level track truth into
+    captureHealth and prioritizes incoming/system-audio failure truth before an
+    intentionally empty mic track in system-audio-only test fixtures.
+  - `DiagnosticRedactor` now removes `absolutePath` from diagnostic bundles.
+  - Swift 6 test harnesses were updated for current contracts: app-core imports,
+    Sendable log capture, async XCTest assertions, current `mic.wav` /
+    `incoming.wav` artifact names, route evidence lifecycle behavior, and
+    fail-closed runtime cleanup stop counts.
+- Validation:
+  - `swift test --package-path apps/macos` passed: 328 tests, 0 failures.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed: app-only package boundary passed, idle CPU max app/helper was
+    `0.10%`, coreaudiod stayed `0.00%`, quit CPU stayed `0.00%`, no HAL probe
+    was observed, and thermal state reported no warning.
+  - Built and installed a fresh app-only package into
+    `/Applications/2brain Rec.app`; installed binary hash matched the fresh
+    release build:
+    `4dcb76fddeb7a00b7e6493f6dc66d912016120d73cb3a5018d4d3dfd24362c74`.
+  - Relaunched a single installed app instance after noticing two processes from
+    `open -n`; final observed app CPU was `0.0%`, RSS about `96 MB`, and
+    `coreaudiod` CPU was `0.0%`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh
+    --review-evidence` remains blocked only on expected manual acceptance
+    gates: permission matrix, controlled artifact matrix, active/stop CPU
+    evidence, 30-minute run, 75-minute run, and final scope-review markers.
+- Acceptance impact:
+  - This hardens #308/#309/#313 by making the automated test gate real and
+    ensuring captureHealth agrees with local recording artifact truth. It does
+    not close #307, #308, #309, #310, #311, or #313 because the manual matrices
+    and duration evidence still require user-assisted runs.

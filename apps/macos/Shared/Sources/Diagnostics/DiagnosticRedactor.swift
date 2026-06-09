@@ -30,6 +30,7 @@ public struct DiagnosticRedactor: Sendable {
         "apiKey",
         "credentialPath",
         "liveCredentialPath",
+        "absolutePath",
         "password",
         "sessionToken",
         "refreshToken",

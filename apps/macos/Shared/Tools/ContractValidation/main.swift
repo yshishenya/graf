@@ -902,6 +902,11 @@ func validateLocalRecordingWriterPartialIncomingPaddingIsNotSaved() throws {
         "Partial incoming frames padded with silence must be marked degraded timeline truth"
     )
     try require(
+        manifest.captureHealth?.failureReason == .timelineMisaligned &&
+            manifest.captureHealth?.gateStatus == .failed,
+        "Partial incoming manifest and captureHealth must agree on timeline misalignment"
+    )
+    try require(
         manifest.status != .saved && !manifest.isComplete,
         "Partial incoming frames must not produce a clean saved manifest"
     )
@@ -943,6 +948,11 @@ func validateLocalRecordingWriterSmallStopTailPaddingIsSaved() throws {
     try require(
         incoming.failureReason == .none && incoming.status == .saved,
         "Small stop-tail padding must not falsely degrade an otherwise complete incoming track"
+    )
+    try require(
+        manifest.captureHealth?.failureReason == LocalRecordingFailureReason.none &&
+            manifest.captureHealth?.gateStatus == .passed,
+        "Small stop-tail manifest and captureHealth must agree on clean saved truth"
     )
     try require(
         manifest.status == .saved && manifest.isComplete,

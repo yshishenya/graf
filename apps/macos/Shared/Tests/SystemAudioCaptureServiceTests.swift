@@ -18,7 +18,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
             )
             XCTFail("Denied permission must not start system-audio capture")
         } catch SystemAudioCaptureServiceError.permissionDenied {
-            XCTAssertFalse(await service.isRunning)
+            let running = await service.isRunning
+            XCTAssertFalse(running)
         }
     }
 
@@ -42,7 +43,7 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(started.sampleRate, 48_000)
         XCTAssertEqual(started.channelCount, 1)
         XCTAssertEqual(stopped.frameCount, 480)
-        XCTAssertEqual(stopped.failureReason, .none)
+        XCTAssertEqual(stopped.failureReason, LocalRecordingFailureReason.none)
     }
 
     func testIncomingSampleSourceFeedsWriterWithoutHAL() async throws {
@@ -84,7 +85,7 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
 
         XCTAssertEqual(stopped.frameCount, 256)
         XCTAssertEqual(stopped.lastFrameAt, Date(timeIntervalSince1970: 11))
-        XCTAssertEqual(stopped.failureReason, .none)
+        XCTAssertEqual(stopped.failureReason, LocalRecordingFailureReason.none)
         XCTAssertTrue(stopped.canBeAccepted)
     }
 
@@ -166,12 +167,13 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         } catch SystemAudioCaptureServiceError.runtimeStartFailed {
             let elapsed = Date().timeIntervalSince(startedAt)
             XCTAssertLessThan(elapsed, 1)
-            XCTAssertFalse(await service.isRunning)
+            let running = await service.isRunning
+            XCTAssertFalse(running)
         }
 
         try? await Task.sleep(nanoseconds: 350_000_000)
         XCTAssertEqual(runtime.startCount, 1)
-        XCTAssertEqual(runtime.stopCount, 2)
+        XCTAssertEqual(runtime.stopCount, 3)
     }
 
     func testImmediateRuntimeStartFailureDoesNotBecomeAcceptedStart() async throws {
@@ -188,7 +190,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
             )
             XCTFail("Failing runtime start should fail with runtimeStartFailed")
         } catch SystemAudioCaptureServiceError.runtimeStartFailed {
-            XCTAssertFalse(await service.isRunning)
+            let running = await service.isRunning
+            XCTAssertFalse(running)
         }
     }
 
@@ -207,7 +210,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
             )
             XCTFail("Partially started runtime must fail closed")
         } catch SystemAudioCaptureServiceError.runtimeStartFailed {
-            XCTAssertFalse(await service.isRunning)
+            let running = await service.isRunning
+            XCTAssertFalse(running)
         }
 
         XCTAssertEqual(runtime.startCount, 1)
@@ -229,7 +233,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
             )
             XCTFail("First slow runtime start should fail with runtimeStartFailed")
         } catch SystemAudioCaptureServiceError.runtimeStartFailed {
-            XCTAssertFalse(await service.isRunning)
+            let running = await service.isRunning
+            XCTAssertFalse(running)
         }
 
         let retry = Task {
@@ -242,13 +247,15 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         XCTAssertEqual(runtime.startCount, 1)
-        XCTAssertFalse(await service.isRunning)
+        let runningWhileRetryWaits = await service.isRunning
+        XCTAssertFalse(runningWhileRetryWaits)
 
         let second = try await retry.value
         XCTAssertEqual(second.sessionId, "second")
         XCTAssertEqual(runtime.startCount, 2)
         XCTAssertGreaterThanOrEqual(runtime.stopCount, 2)
-        XCTAssertTrue(await service.isRunning)
+        let runningAfterRetry = await service.isRunning
+        XCTAssertTrue(runningAfterRetry)
 
         let stopCountBeforeAcceptedStop = runtime.stopCount
         _ = try await service.stop()

@@ -96,7 +96,7 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
             scopeApproval: scopeApproval,
             permissions: permissions
         )
-        Thread.sleep(forTimeInterval: 0.2)
+        try? await Task.sleep(nanoseconds: 200_000_000)
         let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 21))
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.localMicURL.path))
@@ -146,7 +146,7 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
             scopeApproval: scopeApproval,
             permissions: permissions
         )
-        Thread.sleep(forTimeInterval: 0.2)
+        try? await Task.sleep(nanoseconds: 200_000_000)
         let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 31))
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.localMicURL.path))

@@ -15,11 +15,13 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
             permissionState: .granted,
             scopeApproval: resourceReleaseScope()
         )
-        XCTAssertTrue(await service.isRunning)
+        let runningAfterStart = await service.isRunning
+        XCTAssertTrue(runningAfterStart)
 
         _ = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 2))
 
-        XCTAssertFalse(await service.isRunning)
+        let runningAfterStop = await service.isRunning
+        XCTAssertFalse(runningAfterStop)
         XCTAssertEqual(runtime.startCount, 1)
         XCTAssertEqual(runtime.stopCount, 1)
     }
@@ -39,7 +41,8 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
 
         XCTAssertEqual(released?.failureReason, .stoppedBeforeFrames)
         XCTAssertNil(secondRelease)
-        XCTAssertFalse(await service.isRunning)
+        let runningAfterRelease = await service.isRunning
+        XCTAssertFalse(runningAfterRelease)
         XCTAssertEqual(runtime.stopCount, 1)
     }
 
@@ -62,7 +65,7 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
 
         XCTAssertEqual(released?.frameCount, 160)
         XCTAssertEqual(released?.lastFrameAt, Date(timeIntervalSince1970: 2))
-        XCTAssertEqual(released?.failureReason, .none)
+        XCTAssertEqual(released?.failureReason, LocalRecordingFailureReason.none)
         XCTAssertEqual(runtime.stopCount, 1)
     }
 
@@ -83,7 +86,8 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
         let elapsed = Date().timeIntervalSince(startedAt)
 
         XCTAssertLessThan(elapsed, 1)
-        XCTAssertFalse(await service.isRunning)
+        let runningAfterStop = await service.isRunning
+        XCTAssertFalse(runningAfterStop)
         XCTAssertEqual(stopped.failureReason, .captureFailed)
         XCTAssertEqual(runtime.stopCount, 1)
     }
@@ -102,7 +106,8 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
         )
         let released = await service.releaseForTermination(stoppedAt: Date(timeIntervalSince1970: 3))
 
-        XCTAssertFalse(await service.isRunning)
+        let runningAfterRelease = await service.isRunning
+        XCTAssertFalse(runningAfterRelease)
         XCTAssertEqual(released?.failureReason, .captureFailed)
         XCTAssertEqual(runtime.stopCount, 1)
     }
@@ -127,7 +132,8 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
         )
         try? await Task.sleep(nanoseconds: 400_000_000)
 
-        XCTAssertTrue(await service.isRunning)
+        let runningAfterRestart = await service.isRunning
+        XCTAssertTrue(runningAfterRestart)
         XCTAssertEqual(runtime.startCount, 2)
         XCTAssertEqual(runtime.stopCount, 1)
     }
@@ -180,16 +186,24 @@ private final class SlowStoppingSystemAudioRuntime: SystemAudioCaptureRuntime, @
     }
 
     func start() async throws {
+        incrementStartCount()
+    }
+
+    func stop() async {
+        incrementStopCount()
+        try? await Task.sleep(nanoseconds: UInt64(stopDelaySeconds * 1_000_000_000))
+    }
+
+    private func incrementStartCount() {
         lock.lock()
         protectedStartCount += 1
         lock.unlock()
     }
 
-    func stop() async {
+    private func incrementStopCount() {
         lock.lock()
         protectedStopCount += 1
         lock.unlock()
-        try? await Task.sleep(nanoseconds: UInt64(stopDelaySeconds * 1_000_000_000))
     }
 }
 #endif

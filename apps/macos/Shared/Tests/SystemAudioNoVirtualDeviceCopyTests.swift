@@ -5,6 +5,7 @@ import TwoBrainRecShared
 import XCTest
 
 final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
+    @MainActor
     func testDriverSetupBoundaryCopySaysVirtualDevicesAreNotRequired() {
         let copy = DriverSetupView.mvpBoundaryCopy
 
@@ -14,6 +15,7 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
         XCTAssertFalse(copy.localizedCaseInsensitiveContains("run check"))
     }
 
+    @MainActor
     func testMissingVirtualDeviceCopyDoesNotAskForRepairBeforeRecording() {
         let microphone = DriverSetupView.virtualDeviceText(.missing)
         let speaker = DriverSetupView.virtualDeviceText(.unavailable)
@@ -74,6 +76,8 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
                     validationType: .syntheticSignal,
                     target: "Local Microphone",
                     status: .passed,
+                    failureReason: nil,
+                    recoveryAction: nil,
                     startedAt: Date(timeIntervalSince1970: 1),
                     finishedAt: Date(timeIntervalSince1970: 1)
                 ),
@@ -83,6 +87,8 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
                     validationType: .syntheticSignal,
                     target: "System Audio",
                     status: .passed,
+                    failureReason: nil,
+                    recoveryAction: nil,
                     startedAt: Date(timeIntervalSince1970: 1),
                     finishedAt: Date(timeIntervalSince1970: 1)
                 )

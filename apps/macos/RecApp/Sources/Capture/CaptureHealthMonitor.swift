@@ -24,7 +24,8 @@ public struct CaptureHealthMonitor: Sendable {
         appCpuPercent: Double = 0,
         helperCpuPercent: Double = 0,
         memoryMb: Double = 0,
-        halProbeObserved: Bool = false
+        halProbeObserved: Bool = false,
+        recordingFailureReason: LocalRecordingFailureReason = .none
     ) -> CaptureHealthSnapshot {
         let durationDifferenceSeconds = Double(abs(micDurationMs - incomingDurationMs)) / 1000
         let failureReason: LocalRecordingFailureReason
@@ -32,6 +33,9 @@ public struct CaptureHealthMonitor: Sendable {
         if halProbeObserved {
             failureReason = .halProbeObserved
             gateStatus = .failed
+        } else if recordingFailureReason != .none {
+            failureReason = recordingFailureReason
+            gateStatus = Self.gateStatus(for: recordingFailureReason)
         } else if protectedFrameCount > 0 {
             failureReason = .protectedAudioBlocked
             gateStatus = .blocked
@@ -70,5 +74,21 @@ public struct CaptureHealthMonitor: Sendable {
             gateStatus: gateStatus,
             failureReason: failureReason
         )
+    }
+
+    private static func gateStatus(for failureReason: LocalRecordingFailureReason) -> CaptureHealthGateStatus {
+        switch failureReason {
+        case .none:
+            .passed
+        case .permissionDenied, .scopeUnavailable, .protectedAudioBlocked:
+            .blocked
+        case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed,
+             .timelineMisaligned, .cpuGateFailed, .halProbeObserved, .deviceUnavailable,
+             .appClosed:
+            .failed
+        case .emptyRequiredTrack, .formatNotReady, .silentInput, .noFrames,
+             .stoppedBeforeFrames, .legacyNotReady, .unknown:
+            .degraded
+        }
     }
 }
