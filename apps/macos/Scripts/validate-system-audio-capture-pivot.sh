@@ -70,6 +70,11 @@ Modes:
       manifest/WAV files. Does not read real recordings, inspect audio content,
       update evidence files, start recording, or touch TCC.
 
+  --self-test-latest-artifact-selection
+      Run synthetic latest-artifact selection checks against temporary
+      recording directories. Does not read real recordings or update evidence
+      files.
+
   --self-test-duration-evidence
       Run synthetic duration evidence parser checks against a temporary
       markdown table. Does not read or update real evidence files.
@@ -616,6 +621,59 @@ self_test_artifact_metadata() {
     fi
 
     passed "synthetic artifact metadata checks passed"
+}
+
+self_test_latest_artifact_selection() {
+    temp_root="$(mktemp -d)"
+    trap 'rm -rf "$temp_root"' EXIT
+
+    stale_dir="$temp_root/stale-complete"
+    fresh_dir="$temp_root/fresh-complete"
+    partial_dir="$temp_root/newer-partial"
+    mkdir -p "$stale_dir" "$fresh_dir" "$partial_dir"
+
+    write_synthetic_wav "$stale_dir/mic.wav"
+    write_synthetic_wav "$stale_dir/incoming.wav"
+    write_synthetic_manifest "$stale_dir" "none" "saved"
+
+    write_synthetic_wav "$fresh_dir/mic.wav"
+    write_synthetic_wav "$fresh_dir/incoming.wav"
+    write_synthetic_manifest "$fresh_dir" "none" "saved"
+
+    write_synthetic_wav "$partial_dir/mic.wav"
+    write_synthetic_manifest "$partial_dir" "none" "saved"
+
+    stale_touch="202001010000"
+    touch -t "$stale_touch" "$stale_dir/manifest.json" "$stale_dir/mic.wav" "$stale_dir/incoming.wav"
+    touch "$stale_dir"
+
+    min_epoch="$(date +%s)"
+    touch "$fresh_dir/manifest.json" "$fresh_dir/mic.wav" "$fresh_dir/incoming.wav"
+    touch "$partial_dir/manifest.json" "$partial_dir/mic.wav" "$partial_dir"
+
+    selected="$(
+        TWO_BRAIN_REC_RECORDINGS_DIR="$temp_root" \
+        SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$min_epoch" \
+        "$0" --latest-artifact-directory
+    )" || fail_invalid "synthetic latest artifact selection did not find fresh complete artifact"
+
+    [ "$selected" = "$fresh_dir" ] ||
+        fail_invalid "synthetic latest artifact selection chose unexpected directory: $selected"
+
+    TWO_BRAIN_REC_RECORDINGS_DIR="$temp_root" \
+    SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$min_epoch" \
+    SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 \
+        "$0" --validate-latest-artifact >/dev/null ||
+        fail_invalid "synthetic latest artifact validation did not validate fresh complete artifact"
+
+    future_epoch=$((min_epoch + 3600))
+    if TWO_BRAIN_REC_RECORDINGS_DIR="$temp_root" \
+        SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$future_epoch" \
+        "$0" --latest-artifact-directory >/dev/null 2>&1; then
+        fail_invalid "synthetic latest artifact selection accepted stale artifacts after future gate epoch"
+    fi
+
+    passed "synthetic latest artifact selection checks passed"
 }
 
 self_test_duration_evidence() {
@@ -1260,6 +1318,9 @@ case "$mode" in
         ;;
     --self-test-artifact-metadata)
         self_test_artifact_metadata
+        ;;
+    --self-test-latest-artifact-selection)
+        self_test_latest_artifact_selection
         ;;
     --self-test-duration-evidence)
         self_test_duration_evidence

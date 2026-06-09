@@ -4929,3 +4929,56 @@
   - This hardens #313/T077 by making final review acceptance explicit and
     fail-closed. It does not close #313 because the final human review and
     remaining manual evidence gates are still required.
+
+## 2026-06-09 Latest Artifact Selection Self-Test Review
+
+- Timestamp: `2026-06-09T08:47:33Z`
+- Commit before change: `d9aaeab`
+- Scope: latest local recording artifact discovery used by the guided manual
+  controlled artifact gate.
+- Finding:
+  - The latest-artifact stale/fresh behavior was covered by ad hoc synthetic
+    evidence, but it was not available as a first-class validator self-test.
+  - That made the manual harness less self-proving than the artifact metadata,
+    duration, permission, and final review marker parsers.
+- Fix:
+  - Added `--self-test-latest-artifact-selection` to
+    `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+  - The self-test creates temporary synthetic recording directories and proves:
+    stale completed artifacts are ignored when the manual gate epoch is newer;
+    newer partial directories are ignored; the fresh complete artifact is
+    selected; `--validate-latest-artifact` validates that same fresh artifact;
+    and a future gate epoch blocks all existing artifacts.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    now invokes this latest-artifact selection self-test.
+- Validation:
+  - `sh -n` passed for the updated validator and manual harness scripts.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-latest-artifact-selection`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed and now includes latest-artifact selection checks.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.44`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `xcrun --find xctest` still exits `72` under
+    `/Library/Developer/CommandLineTools`; full XCTest execution remains
+    unavailable in this local environment.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #308 and #313 by proving the guided manual gate cannot satisfy
+    controlled artifact validation with stale or partial recording directories.
+    It does not close #308 because real manual Record/Stop artifact rows are
+    still required.
