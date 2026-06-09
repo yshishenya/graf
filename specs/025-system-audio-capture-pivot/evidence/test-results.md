@@ -4163,3 +4163,45 @@
     evidence caused by macOS sleep. It does not close those issues because the
     real permission, artifact, active/stop CPU, and duration gates still require
     manual runs.
+
+## 2026-06-09 WAV Frame Count Truth Review
+
+- Timestamp: `2026-06-09T06:39:17Z`
+- Commit before change: `05b548c`
+- Scope: local recording writer artifact truth for `mic.wav`, `incoming.wav`,
+  and `manifest.json`.
+- Finding:
+  - `PCM16MonoWAVFileWriter.write(samples:)` incremented `frameCount` while
+    building the output buffer, before `FileHandle.write(contentsOf:)`
+    succeeded.
+  - If a disk write failed, the in-memory frame count could overstate bytes
+    actually written. Later validation checks would usually catch file-size
+    mismatch, but the writer itself should not advance manifest counters before
+    durable write success.
+- Fix:
+  - The WAV writer now counts prepared output frames separately and increments
+    `frameCount` only after `handle.write(contentsOf:)` returns successfully.
+- Validation:
+  - `swift test --package-path apps/macos --filter LocalRecordingWriter`
+    compiled and linked the test bundle in this CLT environment.
+  - `swift test --package-path apps/macos --filter SystemAudioResourceRelease`
+    compiled and linked the test bundle in this CLT environment.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    CPU `0.00%`, `maxAppHelperRssMB=93.09`, quit CPU `0.00%`, app/helper
+    process count `0`, and no thermal/performance warning.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This hardens #308 and #313 against overstated WAV frame metadata. It does
+    not close #308 because accepted controlled artifact evidence still requires
+    a real manual Record/Stop run.

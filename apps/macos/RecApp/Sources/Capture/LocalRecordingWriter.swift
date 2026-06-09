@@ -699,6 +699,7 @@ private final class PCM16MonoWAVFileWriter {
         var data = Data()
         data.reserveCapacity((inputFrameCount / ratio) * MemoryLayout<Int16>.stride)
         var frameIndex = 0
+        var outputFrameCount = 0
         while frameIndex < inputFrameCount {
             let sampleIndex = frameIndex * inputChannelCount
             let left = samples[sampleIndex]
@@ -706,11 +707,12 @@ private final class PCM16MonoWAVFileWriter {
             let mono = max(-1, min(1, (left + right) * 0.5))
             var intSample = Int16(mono * Float(Int16.max)).littleEndian
             data.append(Data(bytes: &intSample, count: MemoryLayout<Int16>.size))
-            frameCount += 1
+            outputFrameCount += 1
             frameIndex += ratio
         }
         guard !data.isEmpty else { return }
         try handle.write(contentsOf: data)
+        frameCount += outputFrameCount
     }
 
     func writeSilence(frameCount count: Int) throws {
