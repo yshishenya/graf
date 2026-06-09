@@ -3337,3 +3337,55 @@
 - Acceptance impact:
   - This reduces misleading UI/recovery risk if stop finalization fails. It does
     not close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 Artifact Validator Contract Completeness Review
+
+- Timestamp: `2026-06-09T04:22:25Z`
+- Commit before change: `f4cf5c3`
+- Scope: accepted controlled artifact validation in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - The artifact validator checked the main saved dual-track shape, permissions,
+    WAV metadata, no-egress flags, and duration alignment.
+  - It did not require every top-level/track field named by
+    `contracts/dual-track-manifest-contract.md`, including
+    `manifestFileName`, `startedAt`, `stoppedAt`, `transcriptionReadiness`,
+    `mediaScribeSourceMode`, `failureReason`, `captureHealth`, `trackId`,
+    `mediaScribeField`, `timelineStartMs`, and per-track `failureReason`.
+  - A manually collected controlled artifact could therefore pass with an
+    incomplete manifest that was not contract-complete.
+- Fix:
+  - `--artifact-directory` now requires the accepted artifact manifest to be
+    contract-complete for top-level source/readiness/timeline/failure fields.
+  - It requires `captureHealth` to be present, match the session, be stop-phase,
+    have `halProbeObserved=false`, `gateStatus=passed`, and `failureReason=none`.
+  - It requires scope approval to be user-approved and not a background-audio
+    trigger.
+  - It requires local mic and remote speaker tracks to carry non-empty
+    `trackId`, correct `mediaScribeField`, `timelineStartMs=0`, and
+    `failureReason=none`.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - A synthetic valid `manifest.json` + `mic.wav` + `incoming.wav` passed
+    `--artifact-directory` with `SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1`.
+  - The same synthetic artifact with `captureHealth` removed blocked with the
+    expected reason.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the test
+    bundle on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.11 MB`, quit
+    app/helper process count was `0`, and thermal state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This makes #308 controlled artifact validation stricter and aligned with the
+    manifest contract. It does not close #308 until real controlled artifacts
+    are recorded and reviewed, and it does not close #307, #309 active/stop,
+    #310, #311, or #313.
