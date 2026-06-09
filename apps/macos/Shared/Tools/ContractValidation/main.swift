@@ -982,6 +982,27 @@ func validateLiveAudioSignalMonitorFreshnessInvariant() throws {
     )
 }
 
+func validateLocalRecordingWriterTimerWriteFailureInvariant() throws {
+    let writerSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift")
+    let writerSource = try String(contentsOf: writerSourceURL, encoding: .utf8)
+
+    try require(
+        !writerSource.contains("try? microphoneWriter.write(samples: active.scratch") &&
+            !writerSource.contains("try? active.remoteWriter.write(samples: active.scratch"),
+        "LocalRecordingWriter timer writes must not silently discard WAV write failures"
+    )
+    try require(
+        writerSource.contains("active.microphoneWriteFailed = true") &&
+            writerSource.contains("active.incomingWriteFailed = true"),
+        "LocalRecordingWriter timer write failures must be recorded on active recording state"
+    )
+    try require(
+        writerSource.contains("drainResult.microphoneTruncated || active.microphoneWriteFailed ? .writeFailed : nil") &&
+            writerSource.contains("drainResult.incomingTruncated || active.incomingWriteFailed ? .writeFailed : nil"),
+        "LocalRecordingWriter timer write failures must force writeFailed track truth in the manifest"
+    )
+}
+
 func contractScopeApproval() -> CaptureScopeApproval {
     CaptureScopeApproval(
         scopeApprovalId: "contract-scope",
@@ -1105,6 +1126,7 @@ do {
     try await validateSystemAudioStartTimeoutCleanupOrdering()
     try validateAppStopFailureFailClosedSourceInvariant()
     try validateLiveAudioSignalMonitorFreshnessInvariant()
+    try validateLocalRecordingWriterTimerWriteFailureInvariant()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

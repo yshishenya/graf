@@ -5280,3 +5280,48 @@
   - This hardens #309/#313 resource cleanup and launch failure behavior. It
     does not close #307, #308, #309, #310, #311, or #313 because the remaining
     gates require real manual recording and duration evidence.
+
+## 2026-06-09 WAV Write Failure Truth Review
+
+- Timestamp: `2026-06-09T09:37:20Z`
+- Scope: focused review of local WAV writer truthfulness for microphone and
+  incoming/system-audio tracks.
+- Finding:
+  - Timer-driven background writes to `mic.wav` and `incoming.wav` used
+    best-effort writes and did not persist a write-failure flag for the final
+    manifest.
+  - If a write failed during a timer tick, the manifest could rely only on
+    later drain/finalization evidence and risk under-reporting the earlier
+    write failure.
+- Fix:
+  - Timer write errors now set per-track failure flags on the active recording.
+  - Stop/finalization maps those flags to `writeFailed` for the affected track,
+    so a write error cannot produce a clean saved track.
+  - Added a `ContractValidation` source invariant requiring timer writes to
+    record failure state instead of silently discarding errors.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos --filter LocalRecordingWriterSystemAudioTests`
+    completed successfully in the local SwiftPM/CLT environment and compiled
+    the focused test bundle. Full XCTest execution remains unavailable locally
+    because this machine uses Command Line Tools without `xctest`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.39`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This hardens #308/#313 artifact truthfulness for write failures. It does
+    not close #307, #308, #309, #310, #311, or #313 because the remaining gates
+    require real manual recording and duration evidence.
