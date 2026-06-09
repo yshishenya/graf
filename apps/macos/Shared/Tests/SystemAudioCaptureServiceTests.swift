@@ -192,6 +192,28 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         }
     }
 
+    func testRuntimeStartFailureStopsPartiallyStartedRuntime() async throws {
+        let runtime = PartiallyStartingThenFailingSystemAudioRuntime()
+        let service = SystemAudioCaptureService(
+            runtime: runtime,
+            runtimeStartTimeoutSeconds: 1
+        )
+
+        do {
+            _ = try await service.start(
+                sessionId: "session",
+                permissionState: .granted,
+                scopeApproval: approvedScope()
+            )
+            XCTFail("Partially started runtime must fail closed")
+        } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+            XCTAssertFalse(await service.isRunning)
+        }
+
+        XCTAssertEqual(runtime.startCount, 1)
+        XCTAssertEqual(runtime.stopCount, 1)
+    }
+
     func testRetryWaitsForTimedOutRuntimeStartCleanup() async throws {
         let runtime = RecoveringSlowStartingSystemAudioRuntime(firstStartDelaySeconds: 0.2)
         let service = SystemAudioCaptureService(
@@ -264,6 +286,33 @@ private final class FailingSystemAudioRuntime: SystemAudioCaptureRuntime, @unche
     }
 
     func stop() async {}
+}
+
+private final class PartiallyStartingThenFailingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    private let lock = NSLock()
+    private var protectedStartCount = 0
+    private var protectedStopCount = 0
+
+    var startCount: Int {
+        lock.withLock { protectedStartCount }
+    }
+
+    var stopCount: Int {
+        lock.withLock { protectedStopCount }
+    }
+
+    func start() async throws {
+        lock.withLock {
+            protectedStartCount += 1
+        }
+        throw SystemAudioCaptureServiceError.runtimeStartFailed
+    }
+
+    func stop() async {
+        lock.withLock {
+            protectedStopCount += 1
+        }
+    }
 }
 
 private final class SlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {

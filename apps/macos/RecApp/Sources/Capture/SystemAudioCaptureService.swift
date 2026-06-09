@@ -155,7 +155,10 @@ public actor SystemAudioCaptureService {
                     await runtime.stop()
                 }
             } catch {
-                completion.complete(false)
+                let accepted = completion.complete(false)
+                if accepted {
+                    await runtime.stop()
+                }
             }
         }
         let completed = await completion.wait(timeoutSeconds: timeoutSeconds)
