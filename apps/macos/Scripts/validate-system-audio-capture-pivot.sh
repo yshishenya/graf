@@ -78,6 +78,10 @@ Modes:
       Run synthetic permission matrix parser checks against a temporary
       markdown table. Does not read or update real evidence files.
 
+  --self-test-review-evidence
+      Run synthetic final review marker parser checks against temporary
+      markdown files. Does not read or update real evidence files.
+
 Exit codes:
   0 passed
   2 blocked / not accepted yet
@@ -188,6 +192,12 @@ latest_completed_artifact_directory() {
 count_not_tested_rows() {
     path="$1"
     grep -c '| not-tested |' "$path" 2>/dev/null || true
+}
+
+has_exact_line() {
+    path="$1"
+    expected="$2"
+    grep -Fx -- "$expected" "$path" >/dev/null 2>&1
 }
 
 count_accepted_permission_rows() {
@@ -654,6 +664,38 @@ EOF
         fail_invalid "synthetic permission parser expected exactly five accepted rows, got $accepted"
 
     passed "synthetic permission evidence parser checks passed"
+}
+
+self_test_review_evidence() {
+    embedded_file="$(mktemp)"
+    accepted_file="$(mktemp)"
+    trap 'rm -f "$embedded_file" "$accepted_file"' EXIT
+
+    cat > "$embedded_file" <<'EOF'
+# Scope Review
+
+This example mentions - Final scope review: accepted inside prose and should
+not pass. It also mentions - Reviewed against quickstart and contracts: yes
+inside prose and should not pass.
+EOF
+
+    cat > "$accepted_file" <<'EOF'
+# Scope Review
+
+- Final scope review: accepted
+- Reviewed against quickstart and contracts: yes
+EOF
+
+    if has_exact_line "$embedded_file" "- Final scope review: accepted" ||
+        has_exact_line "$embedded_file" "- Reviewed against quickstart and contracts: yes"; then
+        fail_invalid "synthetic review parser accepted embedded marker text"
+    fi
+    has_exact_line "$accepted_file" "- Final scope review: accepted" ||
+        fail_invalid "synthetic review parser rejected exact final scope marker"
+    has_exact_line "$accepted_file" "- Reviewed against quickstart and contracts: yes" ||
+        fail_invalid "synthetic review parser rejected exact quickstart/contracts marker"
+
+    passed "synthetic final review marker parser checks passed"
 }
 
 ensure_no_forbidden_hal_requirement() {
@@ -1164,11 +1206,11 @@ EOF
         validate_cpu_phase_passed "$phase" || incomplete=1
     done
 
-    if ! rg -F -- "- Final scope review: accepted" "$SCOPE_REVIEW" >/dev/null 2>&1; then
+    if ! has_exact_line "$SCOPE_REVIEW" "- Final scope review: accepted"; then
         printf '%s\n' "$SCOPE_REVIEW is missing final accepted scope review marker"
         incomplete=1
     fi
-    if ! rg -F -- "- Reviewed against quickstart and contracts: yes" "$SCOPE_REVIEW" >/dev/null 2>&1; then
+    if ! has_exact_line "$SCOPE_REVIEW" "- Reviewed against quickstart and contracts: yes"; then
         printf '%s\n' "$SCOPE_REVIEW is missing quickstart/contracts review marker"
         incomplete=1
     fi
@@ -1224,6 +1266,9 @@ case "$mode" in
         ;;
     --self-test-permission-evidence)
         self_test_permission_evidence
+        ;;
+    --self-test-review-evidence)
+        self_test_review_evidence
         ;;
     *)
         fail_invalid "unknown mode: $mode"

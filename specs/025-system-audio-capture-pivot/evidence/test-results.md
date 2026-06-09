@@ -4884,3 +4884,48 @@
   - This hardens #307 and #313 by making permission evidence parsing executable
     and fail-closed. It does not close #307 or #313 because the real manual TCC
     grant/deny/revoke rows and final review are still required.
+
+## 2026-06-09 Final Review Marker Parser Self-Test Review
+
+- Timestamp: `2026-06-09T08:41:38Z`
+- Commit before change: `a23c311`
+- Scope: Final scope review markers in
+  `specs/025-system-audio-capture-pivot/evidence/scope-review.md`.
+- Finding:
+  - The final evidence validator used substring matching for the final scope
+    review markers.
+  - A marker embedded inside prose or an example could have satisfied #313/T077
+    without an explicit final reviewer acceptance line.
+- Fix:
+  - Added exact-line marker matching to
+    `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+  - Added `--self-test-review-evidence`, which rejects embedded marker text and
+    accepts only the two exact final review lines.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    now invokes the final review marker parser self-test.
+- Validation:
+  - `sh -n` passed for the updated validator and manual harness scripts.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-review-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed and now includes the final review marker parser self-test.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.64`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #313/T077 by making final review acceptance explicit and
+    fail-closed. It does not close #313 because the final human review and
+    remaining manual evidence gates are still required.
