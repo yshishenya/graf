@@ -1914,3 +1914,64 @@
 - Remaining gates not completed by this automated slice: permission matrix,
   controlled artifact validation, active/stop CPU gate, 30-minute development
   run, 75-minute manual release run, and final scope review.
+
+## 2026-06-09 Main Window Recovery And Runtime Smoke
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: packaged app launch/reopen window lifecycle, idle/quit CPU, app logs,
+  unified logs, and thermal status after the live-meter fix.
+- Code review finding:
+  - The AppKit main window path only called `presentMainWindow` on reopen when
+    macOS reported no visible windows.
+  - Reused windows were ordered with `makeKeyAndOrderFront`, but were not
+    explicitly deminiaturized or ordered regardless.
+  - This left a weak recovery path for the user-reported class of problems
+    where the app process remains alive but the UI does not reliably return to
+    the foreground.
+- Code review fix:
+  - `applicationShouldHandleReopen` now always re-presents the main window.
+  - `applicationDidBecomeActive` re-presents the main window when no visible
+    main window is available.
+  - Reused and newly created main windows now call `orderFrontRegardless()`;
+    reused windows are explicitly deminiaturized and made visible.
+  - Window visibility logs now include `mainWindowVisible`, `key`,
+    `miniaturized`, `activeSpace`, and `occlusion` so future runtime evidence
+    can distinguish an internal window from an actually visible active-space
+    window.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the test bundle;
+    full XCTest execution is not available in this Command Line Tools host
+    because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Packaged app launched from
+    `apps/macos/RecApp/.build/2brain Rec.app`.
+  - AppLog recorded
+    `app_window_visibility_checked visibleWindowCount=1 mainWindowVisible=true key=false miniaturized=false activeSpace=true occlusion=8192`.
+  - Runtime snapshot after launch showed app CPU `0.0`, app RSS about `95392`,
+    and `coreaudiod` CPU `0.0`.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.00`.
+  - Quit cleanup logged `app_termination_cleanup_completed` and
+    `passthrough_bridge_stopped`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no app entries.
+  - `pmset -g therm` reported no thermal or performance warning level.
+- Visual caveat:
+  - The current automation screen capture was all black and CoreGraphics window
+    enumeration from the external automation session returned no `2brain Rec`
+    windows, so visual UI inspection from this session is not accepted as
+    evidence. The accepted evidence for this smoke is app-internal active-space
+    window state, process lifecycle, logs, and CPU/thermal gates.
+- Result: passed for code review fix, build, contract, no-HAL, app-only
+  installer, packaged app lifecycle, idle CPU, quit CPU, log scan, and thermal
+  smoke.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate, 30-minute development
+  run, 75-minute manual release run, and final scope review.

@@ -572,10 +572,13 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        if !flag {
-            presentMainWindow(reason: "reopen")
-        }
+        presentMainWindow(reason: flag ? "reopen_visible" : "reopen")
         return true
+    }
+
+    func applicationDidBecomeActive(_: Notification) {
+        guard mainWindow?.isVisible != true else { return }
+        presentMainWindow(reason: "became_active_recovery")
     }
 
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
@@ -615,7 +618,13 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
 
     private func presentMainWindow(reason: String) {
         if let mainWindow {
+            if mainWindow.isMiniaturized {
+                mainWindow.deminiaturize(nil)
+            }
+            mainWindow.setIsVisible(true)
             mainWindow.makeKeyAndOrderFront(nil)
+            mainWindow.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
             AppLog.writeRaw(
                 event: "app_main_window_presented",
                 detail: "reason=\(reason) reused=true"
@@ -644,14 +653,18 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             detail: "reason=\(reason) reused=false"
         )
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
 
     private func logWindowVisibility() {
         let visibleWindowCount = NSApp.windows.filter { $0.isVisible }.count
+        let mainWindowState = mainWindow.map {
+            "mainWindowVisible=\($0.isVisible) key=\($0.isKeyWindow) miniaturized=\($0.isMiniaturized) activeSpace=\($0.isOnActiveSpace) occlusion=\($0.occlusionState.rawValue)"
+        } ?? "mainWindowVisible=false key=false miniaturized=false activeSpace=false occlusion=0"
         AppLog.writeRaw(
             event: "app_window_visibility_checked",
-            detail: "visibleWindowCount=\(visibleWindowCount)"
+            detail: "visibleWindowCount=\(visibleWindowCount) \(mainWindowState)"
         )
         if visibleWindowCount == 0 {
             presentMainWindow(reason: "visibility_recovery")
