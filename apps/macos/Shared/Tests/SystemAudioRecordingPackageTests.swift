@@ -13,8 +13,8 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
 
         let micSource = BufferedLocalRecordingSampleSource()
         let incomingSource = BufferedLocalRecordingSampleSource()
-        micSource.append(Array(repeating: 0.12, count: 48_000))
-        incomingSource.append(Array(repeating: 0.20, count: 48_000))
+        micSource.append(Array(repeating: 0.12, count: 96_000))
+        incomingSource.append(Array(repeating: 0.20, count: 96_000))
 
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
@@ -67,8 +67,8 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
 
         let micSource = BufferedLocalRecordingSampleSource()
         let incomingSource = BufferedLocalRecordingSampleSource()
-        micSource.append(Array(repeating: 0.18, count: 48_000))
-        incomingSource.append(Array(repeating: 0.22, count: 48_000))
+        micSource.append(Array(repeating: 0.18, count: 96_000))
+        incomingSource.append(Array(repeating: 0.22, count: 96_000))
 
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
@@ -117,8 +117,8 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
 
         let micSource = BufferedLocalRecordingSampleSource()
         let incomingSource = BufferedLocalRecordingSampleSource()
-        micSource.append(Array(repeating: 0.16, count: 48_000))
-        incomingSource.append(Array(repeating: 0.24, count: 48_000))
+        micSource.append(Array(repeating: 0.16, count: 96_000))
+        incomingSource.append(Array(repeating: 0.24, count: 96_000))
 
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),

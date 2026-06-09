@@ -30,8 +30,8 @@ final class SystemAudioManifestFailureReasonTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let micSource = BufferedLocalRecordingSampleSource()
         let incomingSource = BufferedLocalRecordingSampleSource()
-        micSource.append(Array(repeating: 0.15, count: 48_000))
-        incomingSource.append(Array(repeating: 0, count: 48_000))
+        micSource.append(Array(repeating: 0.15, count: 96_000))
+        incomingSource.append(Array(repeating: 0, count: 96_000))
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
             microphoneSampleSourceFactory: { micSource },

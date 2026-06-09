@@ -11,7 +11,7 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
             .appendingPathComponent("system-audio-writer-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let source = FixtureSampleSource(samples: Array(repeating: 0.25, count: 9_600))
+        let source = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
             incomingSampleSourceFactory: { source },
@@ -118,8 +118,8 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
             .appendingPathComponent("system-audio-writer-forced-failure-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 96_000))
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
             microphoneSampleSourceFactory: { microphoneSource },
@@ -171,7 +171,9 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
         XCTAssertGreaterThanOrEqual(incoming.durationMs, 990)
         XCTAssertLessThanOrEqual(manifest.durationDifferenceSeconds, 3)
-        XCTAssertNotEqual(incoming.failureReason, .timelineMisaligned)
+        XCTAssertEqual(incoming.failureReason, .timelineMisaligned)
+        XCTAssertEqual(incoming.status, .degraded)
+        XCTAssertNotEqual(manifest.status, .saved)
     }
 
     func testBufferedIncomingSourceReadsInOrderAfterPartialReads() {

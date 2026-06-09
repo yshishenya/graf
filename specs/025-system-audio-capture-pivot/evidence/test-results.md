@@ -5507,3 +5507,52 @@
     acting as a system-audio MVP recording blocker. It does not close #307,
     #308, #309, #310, #311, or #313 because the remaining gates require real
     manual recording and duration evidence.
+
+## 2026-06-09 Partial Incoming Audio Truth Review
+
+- Timestamp: `2026-06-09T10:07:10Z`
+- Scope: focused review of local recording writer stop/finalization,
+  `incoming.wav` truth, partial incoming frames, timeline padding, manifest
+  status, logs, CPU, and safe packaged-app launch.
+- Review findings:
+  - Found one audio-truth risk: `LocalRecordingWriter` padded short incoming
+    audio with silence before manifest finalization, but the resulting track
+    could still look `saved` when permissions and scope were accepted.
+  - Fixed writer finalization so timeline padding is tracked per mic/incoming
+    path. A padded non-silent incoming track keeps reviewable file shape, but is
+    marked `timelineMisaligned` / `degraded` and cannot produce a clean
+    `saved` manifest.
+  - Updated complete one-second test fixtures to provide real stereo sample
+    duration instead of relying on padding, and added an executable
+    `ContractValidation` invariant for partial incoming padding.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - Focused `swift test --package-path apps/macos --filter
+    LocalRecordingWriterSystemAudioTests`,
+    `SystemAudioRecordingPackageTests`, and
+    `SystemAudioManifestFailureReasonTests` compiled the focused test bundles in
+    the local SwiftPM/CLT environment. Full XCTest execution remains unavailable
+    locally because this machine uses Command Line Tools without `xctest`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.34`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+- Acceptance impact:
+  - This hardens #308/#313 by preventing a partially captured incoming stream
+    from being accepted as a clean saved recording. It does not close #307,
+    #308, #309, #310, #311, or #313 because the remaining gates require real
+    manual recording and duration evidence.

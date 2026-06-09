@@ -822,8 +822,8 @@ func validateLocalRecordingWriterForcedFailureTruth() throws {
         .appendingPathComponent("contract-validation-forced-failure-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
 
-    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 48_000))
-    let incomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 48_000))
+    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 96_000))
+    let incomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 96_000))
     let writer = LocalRecordingWriter(
         store: LocalRecordingStore(rootURL: root),
         microphoneSampleSourceFactory: { microphoneSource },
@@ -861,6 +861,49 @@ func validateLocalRecordingWriterForcedFailureTruth() throws {
     try require(
         manifest.status == .failed && !manifest.isComplete,
         "Forced system-audio failure must not produce a clean saved manifest"
+    )
+}
+
+func validateLocalRecordingWriterPartialIncomingPaddingIsNotSaved() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-partial-incoming-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 96_000))
+    let partialIncomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 4_800))
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        microphoneSampleSourceFactory: { microphoneSource },
+        incomingSampleSourceFactory: { partialIncomingSource },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-partial-incoming",
+        startedAt: Date(timeIntervalSince1970: 10),
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+    guard let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Partial incoming validation must produce incoming track")
+    }
+
+    try require(
+        incoming.durationMs >= 990 && manifest.durationDifferenceSeconds <= 3,
+        "Partial incoming validation must keep timeline-padded file shape for review"
+    )
+    try require(
+        incoming.failureReason == .timelineMisaligned && incoming.status == .degraded,
+        "Partial incoming frames padded with silence must be marked degraded timeline truth"
+    )
+    try require(
+        manifest.status != .saved && !manifest.isComplete,
+        "Partial incoming frames must not produce a clean saved manifest"
     )
 }
 
@@ -1248,6 +1291,7 @@ do {
     try validateLocalRecordingDiagnosticBundleNoEgressTruth()
     try validateLocalRecordingWriterBoundedDrain()
     try validateLocalRecordingWriterForcedFailureTruth()
+    try validateLocalRecordingWriterPartialIncomingPaddingIsNotSaved()
     try validateLocalRecordingManifestFailureReasonFailClosed()
     try await validateSystemAudioPermissionFailClosed()
     try await validateSystemAudioStartTimeoutCleanupOrdering()
