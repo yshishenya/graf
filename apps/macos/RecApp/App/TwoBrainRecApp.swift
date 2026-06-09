@@ -71,7 +71,7 @@ private struct ContentView: View {
                         localRecordingLocation: localRecordingLocation,
                         routeSignalLevels: liveRouteSignalLevels,
                         recordDisabled: recordingStartInProgress || recordingStopInProgress,
-                        stopDisabled: recordingStopInProgress,
+                        stopDisabled: recordingStartInProgress || recordingStopInProgress,
                         onRecord: {
                             Task { await startManualRecording() }
                         },
@@ -283,25 +283,26 @@ private struct ContentView: View {
                 "externalEgressStarted": "false",
                 "transcriptionStarted": "false"
             ])
-            _ = try captureController.start()
-            let active = try captureController.markCapturing()
+            let starting = try captureController.start()
+            captureSession = starting
             _ = try await systemAudioCaptureService.start(
-                sessionId: active.id,
+                sessionId: starting.id,
                 permissionState: permissionGate.snapshot.systemAudio,
                 scopeApproval: scopeApproval,
-                startedAt: active.startedAt ?? Date()
+                startedAt: Date()
             )
             let incomingSource = systemAudioCaptureService.incomingSampleSource
             localRecordingWriter = LocalRecordingWriter(
                 incomingSampleSourceFactory: { incomingSource },
                 recordMicrophone: true
             )
-            let directory = try localRecordingWriter.start(
-                sessionId: active.id,
-                startedAt: active.startedAt ?? Date(),
+            let directory = try await localRecordingWriter.startAsync(
+                sessionId: starting.id,
+                startedAt: Date(),
                 scopeApproval: scopeApproval,
                 permissions: permissionGate.snapshot
             )
+            let active = try captureController.markCapturing()
             captureSession = active
             localRecordingLocation = directory.directoryURL.path
             recordingEvidenceEvents.append(
@@ -391,7 +392,7 @@ private struct ContentView: View {
 
     @MainActor
     private func stopManualRecording() async {
-        guard !recordingStopInProgress else { return }
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
         recordingStopInProgress = true
         defer { recordingStopInProgress = false }
 

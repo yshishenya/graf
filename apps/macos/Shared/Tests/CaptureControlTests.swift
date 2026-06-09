@@ -27,6 +27,24 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(active.stopActionAvailable)
     }
 
+    func testStartingCaptureIsVisibleWhileRuntimeAndWriterStart() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 11) },
+            idFactory: { "capture-starting-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        let starting = try controller.start()
+
+        XCTAssertEqual(starting.state, .starting)
+        XCTAssertEqual(starting.visibleIndicatorState, .ready)
+        XCTAssertTrue(starting.stopActionAvailable)
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: starting))
+        XCTAssertFalse(CaptureStatusItem.shouldEnableStopButton(for: starting, stopDisabled: true))
+    }
+
     func testManualStopMovesActiveSessionToStoppedWithReason() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 20) },

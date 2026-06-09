@@ -2636,3 +2636,60 @@
   - This reduces the risk that Record remains stuck forever when system-audio
     runtime start misbehaves. It does not close #307, #308, #309 active/stop,
     #310, #311, or #313.
+
+## 2026-06-09 Recording Start Ordering Review
+
+- Timestamp: `2026-06-09T02:31:24Z`
+- Commit before change: `d0265d0`
+- Scope: visible recording state and main-thread responsiveness while
+  system-audio runtime and local writer start.
+- Finding:
+  - The UI assigned `captureSession` only after system-audio runtime start and
+    local recording writer start both succeeded.
+  - During a slow start, the user could see no session/status surface even
+    though the controller had already moved through `starting`/`active`
+    internally.
+  - `LocalRecordingWriter.start()` also ran synchronously from the UI flow,
+    including directory creation, WAV writer creation, and `AVAudioRecorder`
+    setup.
+  - Stop could be triggered while the start task was still in progress, creating
+    a possible concurrent start/stop race.
+- Fix:
+  - The UI now publishes the `starting` capture session immediately after
+    `captureController.start()`, before awaiting system-audio runtime and writer
+    startup.
+  - `active` is published only after system-audio start and local writer start
+    both succeed.
+  - Added `LocalRecordingWriter.startAsync(...)`, which performs the same setup
+    on the writer queue instead of synchronously on the caller.
+  - Stop is disabled and ignored while `recordingStartInProgress` is true.
+  - Added coverage that `starting` is visible/showable but Stop can be disabled
+    during start-in-progress.
+  - Added coverage that async writer start+stop still produces `mic.wav`,
+    `incoming.wav`, `manifest.json`, and a complete saved manifest.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the updated package
+    test bundle on this CLT host, including the new start-order and async-writer
+    tests.
+  - Full `xcrun xctest` execution remains unavailable because `xcode-select -p`
+    is `/Library/Developer/CommandLineTools` and `xcrun --find xctest` exits
+    72.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed after the change.
+  - Preflight idle CPU passed with `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.10`, and one app process.
+  - Preflight quit CPU passed with zero app/helper processes.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Latest app log showed packaged app launch, visible main window, auto route
+    skipped by default, termination cleanup completed, and passthrough engine
+    stopped; no app crash or hang marker appeared in the reviewed tail.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This reduces false/blank UI state and start/stop race risk during recording
+    startup. It does not close #307, #308, #309 active/stop, #310, #311, or
+    #313.

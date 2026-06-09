@@ -217,76 +217,113 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         permissions: SystemAudioPermissionSnapshot? = nil
     ) throws -> LocalRecordingDirectory {
         try queue.sync {
-            guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
-            let directory: LocalRecordingDirectory
-            do {
-                directory = try store.createDirectory(sessionId: sessionId)
-            } catch {
-                throw LocalRecordingWriterError.directoryUnavailable
-            }
-
-            let microphoneSampleSource = microphoneSampleSourceFactory()
-            let microphoneWriter: PCM16MonoWAVFileWriter?
-            let microphone: AVAudioRecorder?
-            if let microphoneSampleSource {
-                microphone = nil
-                microphoneWriter = try PCM16MonoWAVFileWriter(url: directory.localMicURL)
-                _ = microphoneSampleSource
-            } else {
-                microphoneWriter = nil
-                microphone = try Self.makeMicrophoneRecorder(url: directory.localMicURL)
-            }
-            if recordMicrophone, microphoneSampleSource == nil {
-                microphone?.isMeteringEnabled = true
-                microphone?.record()
-            } else if microphoneSampleSource == nil {
-                FileManager.default.createFile(atPath: directory.localMicURL.path, contents: nil)
-            }
-
-            let remoteWriter = try PCM16MonoWAVFileWriter(url: directory.remoteSpeakerURL)
-            let incomingSampleSource = incomingSampleSourceFactory()
-            let timer = DispatchSource.makeTimerSource(queue: queue)
-            let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
-            timer.schedule(deadline: .now(), repeating: .milliseconds(50))
-            timer.setEventHandler { [weak self] in
-                guard let self, let active = self.active else { return }
-                if let microphoneSampleSource = active.microphoneSampleSource,
-                   let microphoneWriter = active.microphoneWriter {
-                    let read = microphoneSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
-                    if read > 0 {
-                        try? microphoneWriter.write(samples: active.scratch, count: read)
-                        active.lastMicrophoneLevel = Self.rmsLevel(samples: active.scratch, count: read)
-                        active.lastMicrophoneFrameAt = Date()
-                    }
-                }
-                guard let incomingSampleSource = active.incomingSampleSource else { return }
-                let incomingRead = incomingSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
-                if incomingRead > 0 {
-                    try? active.remoteWriter.write(samples: active.scratch, count: incomingRead)
-                    active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: incomingRead)
-                    active.lastIncomingFrameAt = Date()
-                }
-            }
-
-            let activeRecording = ActiveRecording(
+            try startOnQueue(
                 sessionId: sessionId,
                 startedAt: startedAt,
-                directory: directory,
-                microphoneRecorder: microphone,
-                microphoneWriter: microphoneWriter,
-                microphoneSampleSource: microphoneSampleSource,
-                remoteWriter: remoteWriter,
-                incomingSampleSource: incomingSampleSource,
-                timer: timer,
-                scratch: scratch,
-                scratchCapacity: 8192,
                 scopeApproval: scopeApproval,
                 permissions: permissions
             )
-            active = activeRecording
-            timer.resume()
-            return directory
         }
+    }
+
+    public func startAsync(
+        sessionId: String,
+        startedAt: Date,
+        scopeApproval: CaptureScopeApproval? = nil,
+        permissions: SystemAudioPermissionSnapshot? = nil
+    ) async throws -> LocalRecordingDirectory {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let directory = try self.startOnQueue(
+                        sessionId: sessionId,
+                        startedAt: startedAt,
+                        scopeApproval: scopeApproval,
+                        permissions: permissions
+                    )
+                    continuation.resume(returning: directory)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func startOnQueue(
+        sessionId: String,
+        startedAt: Date,
+        scopeApproval: CaptureScopeApproval?,
+        permissions: SystemAudioPermissionSnapshot?
+    ) throws -> LocalRecordingDirectory {
+        guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
+        let directory: LocalRecordingDirectory
+        do {
+            directory = try store.createDirectory(sessionId: sessionId)
+        } catch {
+            throw LocalRecordingWriterError.directoryUnavailable
+        }
+
+        let microphoneSampleSource = microphoneSampleSourceFactory()
+        let microphoneWriter: PCM16MonoWAVFileWriter?
+        let microphone: AVAudioRecorder?
+        if let microphoneSampleSource {
+            microphone = nil
+            microphoneWriter = try PCM16MonoWAVFileWriter(url: directory.localMicURL)
+            _ = microphoneSampleSource
+        } else {
+            microphoneWriter = nil
+            microphone = try Self.makeMicrophoneRecorder(url: directory.localMicURL)
+        }
+        if recordMicrophone, microphoneSampleSource == nil {
+            microphone?.isMeteringEnabled = true
+            microphone?.record()
+        } else if microphoneSampleSource == nil {
+            FileManager.default.createFile(atPath: directory.localMicURL.path, contents: nil)
+        }
+
+        let remoteWriter = try PCM16MonoWAVFileWriter(url: directory.remoteSpeakerURL)
+        let incomingSampleSource = incomingSampleSourceFactory()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50))
+        timer.setEventHandler { [weak self] in
+            guard let self, let active = self.active else { return }
+            if let microphoneSampleSource = active.microphoneSampleSource,
+               let microphoneWriter = active.microphoneWriter {
+                let read = microphoneSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
+                if read > 0 {
+                    try? microphoneWriter.write(samples: active.scratch, count: read)
+                    active.lastMicrophoneLevel = Self.rmsLevel(samples: active.scratch, count: read)
+                    active.lastMicrophoneFrameAt = Date()
+                }
+            }
+            guard let incomingSampleSource = active.incomingSampleSource else { return }
+            let incomingRead = incomingSampleSource.readSamples(into: active.scratch, capacity: active.scratchCapacity)
+            if incomingRead > 0 {
+                try? active.remoteWriter.write(samples: active.scratch, count: incomingRead)
+                active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: incomingRead)
+                active.lastIncomingFrameAt = Date()
+            }
+        }
+
+        let activeRecording = ActiveRecording(
+            sessionId: sessionId,
+            startedAt: startedAt,
+            directory: directory,
+            microphoneRecorder: microphone,
+            microphoneWriter: microphoneWriter,
+            microphoneSampleSource: microphoneSampleSource,
+            remoteWriter: remoteWriter,
+            incomingSampleSource: incomingSampleSource,
+            timer: timer,
+            scratch: scratch,
+            scratchCapacity: 8192,
+            scopeApproval: scopeApproval,
+            permissions: permissions
+        )
+        active = activeRecording
+        timer.resume()
+        return directory
     }
 
     public func stop(stoppedAt: Date = Date()) throws -> LocalRecordingManifest {
