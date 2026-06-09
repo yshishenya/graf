@@ -3782,3 +3782,43 @@
 - Acceptance impact:
   - This fixes the parser for the #313/T077 final scope-review gate. It does not
     close #313 because the manual gates remain incomplete.
+
+## 2026-06-09 Accepted Artifact Entry Boundary Review
+
+- Timestamp: `2026-06-09T05:09:15Z`
+- Commit before change: `8811b80`
+- Scope: accepted artifact package boundary in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - Accepted artifact validation rejected unexpected files, but did not reject
+    unexpected subdirectories in the artifact directory.
+  - A sidecar directory could make an accepted package ambiguous or carry local
+    diagnostic/transcript material next to the required artifacts.
+- Fix:
+  - Accepted artifact validation now rejects any unexpected directory entry,
+    not only unexpected files.
+  - Accepted packages must contain only `manifest.json`, `mic.wav`, and
+    `incoming.wav`.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - Synthetic valid accepted artifact passed.
+  - Synthetic artifact with an extra sidecar directory was rejected as invalid.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by the remaining manual gates.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.14 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #308 and #313 against ambiguous accepted artifact entries. It
+    does not close #308 because real controlled artifacts still need to be
+    recorded and reviewed.
