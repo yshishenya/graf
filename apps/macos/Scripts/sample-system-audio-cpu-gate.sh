@@ -19,10 +19,13 @@ Environment:
   SYSTEM_AUDIO_CPU_GATE_SAMPLES=3
   SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=2
   SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=10 for baseline/idle/stop/quit, 0 for activeRecording
+  SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 for synthetic script checks that must not
+      update specs/025-system-audio-capture-pivot/evidence/cpu-gates.md
 
 Required gates:
 - idle/stop/quit after settle: coreaudiod < 5% and app+helper < 5%
 - quit after settle: app/helper process count must be 0
+- activeRecording/stop: packaged app process must be observable
 - active recording: no sustained coreaudiod > 10%
 - active recording: no sustained app+helper > 25%
 - baseline: diagnostic only; records coreaudiod/app/helper CPU without counting
@@ -164,11 +167,17 @@ END {
     status = count > 0 ? "observed" : "failed";
   } else {
     status = (count > 0 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
+    if ((phase == "activeRecording" || phase == "stop") && maxAppProcesses == 0) {
+      status = "failed";
+    }
     if (phase == "quit" && (maxAppProcesses > 0 || maxHelperProcesses > 0)) {
       status = "failed";
     }
   }
   reason = status == "passed" ? "none" : "cpuGateFailed";
+  if ((phase == "activeRecording" || phase == "stop") && status == "failed" && maxAppProcesses == 0) {
+    reason = "appNotRunning";
+  }
   if (phase == "quit" && status == "failed" && (maxAppProcesses > 0 || maxHelperProcesses > 0)) {
     reason = "appStillRunning";
   }
@@ -178,15 +187,17 @@ END {
 
 printf '%s\n' "$evaluation"
 
-{
-  printf '\n## %s %s\n\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$PHASE"
-  printf '%s\n' "- Command: \`$0 $PHASE\`"
-  printf '%s\n' "- Samples: \`$SAMPLES\`, interval seconds: \`$INTERVAL_SECONDS\`, settle seconds: \`$SETTLE_SECONDS\`"
-  printf '%s\n\n' "- Evaluation: \`$evaluation\`"
-  printf '```text\n'
-  cat "$tmp_file"
-  printf '```\n'
-} >> "$EVIDENCE_DIR/cpu-gates.md"
+if [ "${SYSTEM_AUDIO_CPU_GATE_NO_APPEND:-0}" != "1" ]; then
+  {
+    printf '\n## %s %s\n\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$PHASE"
+    printf '%s\n' "- Command: \`$0 $PHASE\`"
+    printf '%s\n' "- Samples: \`$SAMPLES\`, interval seconds: \`$INTERVAL_SECONDS\`, settle seconds: \`$SETTLE_SECONDS\`"
+    printf '%s\n\n' "- Evaluation: \`$evaluation\`"
+    printf '```text\n'
+    cat "$tmp_file"
+    printf '```\n'
+  } >> "$EVIDENCE_DIR/cpu-gates.md"
+fi
 
 case "$evaluation" in
   status=passed*) exit 0 ;;

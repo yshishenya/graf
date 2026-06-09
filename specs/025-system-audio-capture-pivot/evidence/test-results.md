@@ -2199,3 +2199,35 @@
   real TCC grant/deny/revoke rows, controlled artifact validation on a real
   recording, active/stop CPU gate for a real recording, 30-minute development
   run, 75-minute manual release run, and final scope review.
+
+## 2026-06-09T00:42:40Z CPU Gate App-Process Guard Hardening
+
+- Commit before change: `5f458fe`
+- Scope: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`.
+- Issue links: #309, #313.
+- Finding:
+  - `activeRecording` and `stop` CPU phases could previously report `passed`
+    when the app process was not observable, because the CPU samples were below
+    threshold.
+  - That was a validation false-positive risk: a tester could accidentally run
+    the phase outside the app lifecycle and create evidence that did not prove
+    the packaged app was participating.
+- Change:
+  - `activeRecording` and `stop` now fail with `failureReason=appNotRunning`
+    when `maxAppProcessCount=0`.
+  - Added `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1` for synthetic script checks that
+    must not update `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`.
+- Validation:
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh`
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh`
+  - `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 SYSTEM_AUDIO_CPU_GATE_SAMPLES=1 SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline`
+    returned `status=observed failureReason=diagnosticOnly` with
+    `maxAppProcessCount=0`.
+  - `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 SYSTEM_AUDIO_CPU_GATE_SAMPLES=1 SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording`
+    returned exit `1` with `status=failed failureReason=appNotRunning`.
+  - `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 SYSTEM_AUDIO_CPU_GATE_SAMPLES=1 SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop`
+    returned exit `1` with `status=failed failureReason=appNotRunning`.
+- Acceptance impact:
+  - This does not close #309/T073. Real `activeRecording` and `stop` CPU
+    evidence still has to be captured during a controlled manual recording.
