@@ -3975,3 +3975,44 @@
 - Acceptance impact:
   - This confirms the remaining PR blockers are real manual gates, not stale
     documentation or accidental forbidden-content findings.
+
+## 2026-06-09 Normal UI No-Probe Regression Guard
+
+- Timestamp: `2026-06-09T05:29:26Z`
+- Commit before change: `201d207`
+- Scope: `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` regression
+  coverage for normal app Refresh and Run Check callbacks.
+- Finding:
+  - The no-HAL validator already rejected the exact old regression
+    `LocalAudioSnapshot.refreshAsync(event: "refresh"|"status_refresh")`.
+  - It did not reject other direct CoreAudio/HAL probe calls inside the same
+    normal UI callbacks, such as `LocalAudioSnapshot.current()`,
+    `CoreAudioSystemSnapshot.current()`, `PassthroughRouteEngine`, or
+    `startExperimentalRoute`.
+- Fix:
+  - Added a block-aware scan of `refresh:` and `runCheck:` closures in
+    `TwoBrainRecApp.swift`.
+  - Normal Refresh/Run Check callbacks now fail the no-HAL gate if they directly
+    reintroduce LocalAudioSnapshot/CoreAudio/PassthroughRouteEngine probing.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - A synthetic awk fixture with `LocalAudioSnapshot.current()` inside
+    `refresh:` produced the expected match.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Fresh safe-launch evidence showed `idle` CPU `0.00%`,
+    `maxAppHelperRssMB=93.44`, app process count `1`, `quit` CPU `0.00%`,
+    app/helper process count `0`, and no thermal/performance warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    `coreAudioDevices=pending`, cleanup completed, and passthrough bridge
+    stopped.
+- Acceptance impact:
+  - This hardens #313 against a future UI regression that could reintroduce the
+    hang-prone CoreAudio/HAL path from ordinary Refresh or Run Check.

@@ -40,6 +40,7 @@ apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift
 "
 copy_patterns='install_or_repair_driver|virtual_microphone_not_visible|virtual_speaker_not_visible|2brain Rec Microphone is not visible|2brain Rec Speaker is not visible'
 normal_ui_patterns='LocalAudioSnapshot\.refreshAsync\(event: "(refresh|status_refresh)"'
+normal_ui_probe_patterns='LocalAudioSnapshot\.(current|refreshAsync|runReadinessCheck)|CoreAudioSystemSnapshot\.current|PassthroughRouteEngine|startExperimentalRoute'
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
@@ -61,6 +62,35 @@ for target in $copy_targets; do
     if [ "$target" = "apps/macos/RecApp/App/TwoBrainRecApp.swift" ] &&
        grep -nE "$normal_ui_patterns" "$ROOT_DIR/$target" > "$tmp_file.match"; then
       sed "s#^#$target:#" "$tmp_file.match" >> "$tmp_file"
+    fi
+    if [ "$target" = "apps/macos/RecApp/App/TwoBrainRecApp.swift" ]; then
+      awk -v patterns="$normal_ui_probe_patterns" '
+        /refresh: \{/ {
+          block = "refresh"
+          depth = 1
+          next
+        }
+        /runCheck: \{/ {
+          block = "runCheck"
+          depth = 1
+          next
+        }
+        block != "" {
+          if ($0 ~ patterns) {
+            printf "%d:%s\n", NR, $0
+          }
+          opens = gsub(/\{/, "{")
+          closes = gsub(/\}/, "}")
+          depth += opens - closes
+          if (depth <= 0 || (depth == 1 && $0 ~ /^[[:space:]]*\},?[[:space:]]*$/)) {
+            block = ""
+            depth = 0
+          }
+        }
+      ' "$ROOT_DIR/$target" > "$tmp_file.match"
+      if [ -s "$tmp_file.match" ]; then
+        sed "s#^#$target:#" "$tmp_file.match" >> "$tmp_file"
+      fi
     fi
     rm -f "$tmp_file.match"
   fi
