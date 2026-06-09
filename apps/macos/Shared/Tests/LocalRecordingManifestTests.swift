@@ -155,6 +155,45 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertFalse(manifest.isComplete)
     }
 
+    func testManifestIsCompleteRejectsForgedDurationMismatch() {
+        let manifest = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .saved,
+            directoryId: "dir",
+            transcriptionReadiness: .ready,
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            durationDifferenceSeconds: 3.001,
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+
+        XCTAssertFalse(manifest.isComplete)
+    }
+
+    func testTrackIsCompleteRejectsHeaderOnlySavedMetadata() {
+        let headerOnly = LocalRecordingTrack(
+            trackId: "remote",
+            role: .remoteSpeaker,
+            status: .saved,
+            fileName: "incoming.wav",
+            format: "wav-pcm-s16le",
+            sampleRate: 16_000,
+            channelCount: 1,
+            bitsPerSample: 16,
+            durationMs: 1000,
+            byteCount: 44,
+            frameCount: 16_000,
+            timelineStartMs: 0,
+            timelineAligned: true
+        )
+
+        XCTAssertFalse(headerOnly.isComplete)
+        XCTAssertFalse(headerOnly.isMediaScribeReady)
+    }
+
     func testManifestCarriesRouteTimelineCorrelation() {
         let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
             .manifest(

@@ -2431,3 +2431,33 @@
 - Acceptance impact:
   - This reduces UI/status ambiguity before the manual controlled recording
     gates. It does not close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 Manifest Completeness Invariant Review
+
+- Scope: model-level artifact truthfulness before the real controlled recording
+  run.
+- Finding:
+  - `LocalRecordingManifestService` already refused to generate `saved` when
+    `durationDifferenceSeconds > 3`, and the artifact validator already checked
+    this. However, `LocalRecordingManifest.isComplete` did not independently
+    enforce the same duration-difference invariant.
+  - `LocalRecordingTrack.isComplete` accepted `byteCount > 0`; a forged
+    header-only WAV metadata object could therefore be considered complete if
+    other fields were also forged.
+- Fix:
+  - `LocalRecordingManifest.isComplete` now requires
+    `durationDifferenceSeconds <= 3`.
+  - `LocalRecordingTrack.isComplete` now requires `byteCount > 44`, matching a
+    non-empty WAV payload rather than just a header.
+  - Added regression coverage in `LocalRecordingManifestTests` for both cases.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the updated package
+    test bundle on this CLT host.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked only by the required manual gates.
+- Acceptance impact:
+  - This strengthens model-level artifact truthfulness. It does not close the
+    manual controlled artifact run in #308/T072 or final review #313/T077.

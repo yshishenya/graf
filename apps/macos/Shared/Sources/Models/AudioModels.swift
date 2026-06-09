@@ -885,7 +885,7 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     }
 
     public var isComplete: Bool {
-        status == .saved && byteCount > 0 && frameCount > 0 && durationMs > 0
+        status == .saved && byteCount > 44 && frameCount > 0 && durationMs > 0
     }
 
     public var isMediaScribeReady: Bool {
@@ -993,6 +993,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
             !transcriptionStarted &&
             scopeApproval?.isAcceptedForMeetingRecording == true &&
             permissions?.allowsAcceptedRecording == true &&
+            durationDifferenceSeconds <= 3 &&
             Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
             tracks.allSatisfy { $0.sourceKind != nil } &&
             tracks.allSatisfy(\.isMediaScribeReady)
