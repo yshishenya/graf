@@ -463,6 +463,9 @@ validate_artifact_directory() {
     require_file "$manifest"
     require_file "$mic"
     require_file "$incoming"
+    extra_wav_count="$(find "$directory" -maxdepth 1 -type f -name '*.wav' ! -name 'mic.wav' ! -name 'incoming.wav' | wc -l | tr -d ' ')"
+    [ "$extra_wav_count" = "0" ] ||
+        fail_invalid "artifact directory contains unexpected wav file(s); accepted packages must contain only mic.wav and incoming.wav"
     command -v jq >/dev/null 2>&1 || fail_invalid "jq is required for artifact manifest validation"
     jq empty "$manifest" >/dev/null 2>&1 || fail_invalid "manifest.json is not valid JSON"
 
@@ -480,6 +483,10 @@ validate_artifact_directory() {
     check_jq '.schemaVersion == "local-recording-manifest.v2"' "schemaVersion must be local-recording-manifest.v2"
     check_jq '(.sessionId | type) == "string" and (.sessionId | length) > 0' "sessionId must be a non-empty string"
     check_jq '(.directoryId | type) == "string" and (.directoryId | length) > 0' "directoryId must be a non-empty string"
+    expected_directory_id="$(basename "$directory")"
+    if ! jq -e --arg expectedDirectoryId "$expected_directory_id" '.directoryId == $expectedDirectoryId' "$manifest" >/dev/null 2>/dev/null; then
+        printf '%s\n' "directoryId must match artifact directory name" >> "$failure_file"
+    fi
     check_jq '.manifestFileName == "manifest.json"' "manifestFileName must be manifest.json"
     check_jq '(.startedAt | type) == "string" and (.startedAt | length) > 0' "startedAt must be present"
     check_jq '(.stoppedAt | type) == "string" and (.stoppedAt | length) > 0' "stoppedAt must be present"

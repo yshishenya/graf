@@ -3624,3 +3624,45 @@
   - This hardens #308 and #313 against stale artifact selection. It does not
     close #308 because real controlled artifacts still need to be recorded and
     reviewed.
+
+## 2026-06-09 Accepted Artifact Identity Review
+
+- Timestamp: `2026-06-09T04:52:40Z`
+- Commit before change: `ecc849a`
+- Scope: accepted artifact directory validation in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - `--artifact-directory` required a non-empty manifest `directoryId`, but did
+    not require it to match the actual artifact directory name.
+  - It also accepted extra `.wav` files in the same directory, which could make
+    the accepted package ambiguous even when `mic.wav` and `incoming.wav` were
+    valid.
+- Fix:
+  - Accepted artifact validation now requires manifest `directoryId` to match
+    the artifact directory basename.
+  - Accepted artifact validation now rejects unexpected `.wav` files; accepted
+    packages must contain only `mic.wav` and `incoming.wav` as audio payloads.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - Synthetic valid accepted artifact passed.
+  - Synthetic artifact with mismatched `directoryId` blocked as expected.
+  - Synthetic artifact with an extra `.wav` file was rejected as invalid.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by the remaining manual gates.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.09 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #308 and #313 against ambiguous accepted artifacts. It does
+    not close #308 because real controlled artifacts still need to be recorded
+    and reviewed.
