@@ -2461,3 +2461,36 @@
 - Acceptance impact:
   - This strengthens model-level artifact truthfulness. It does not close the
     manual controlled artifact run in #308/T072 or final review #313/T077.
+
+## 2026-06-09 Manual Gate Harness Review
+
+- Scope: guided manual controlled recording harness and latest-artifact
+  selection semantics.
+- Finding:
+  - When no fresh completed artifact exists after
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME`, latest-artifact validation
+    returned `invalid`/exit 3. For the manual gate, that state means
+    not-accepted/blocked evidence, not an invalid command.
+  - The harness launched the app bundle but did not explicitly verify that the
+    app process was observed before prompting the tester to press Record.
+- Fix:
+  - `--latest-artifact-directory` now returns `blocked`/exit 2 when no matching
+    fresh completed artifact exists.
+  - `run-system-audio-controlled-manual-gate.sh` now checks the app bundle path,
+    waits up to 15 seconds for the repo app process, and exits blocked if the
+    process is not observed.
+  - Harness prompts now tell the tester to wait until recording is active and
+    until local recording status settles after Stop.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh` passed.
+  - `SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME=9999999999 apps/macos/Scripts/validate-system-audio-capture-pivot.sh --latest-artifact-directory`
+    returned blocked/exit 2.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the package test
+    bundle on this CLT host.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+- Acceptance impact:
+  - This makes the manual controlled run harder to mis-sequence or falsely
+    satisfy with stale artifacts. It does not replace the required manual run.

@@ -126,7 +126,7 @@ recordings_root() {
 
 latest_completed_artifact_directory() {
     root="$(recordings_root)"
-    [ -d "$root" ] || fail_invalid "recordings directory does not exist: $root"
+    [ -d "$root" ] || blocked "recordings directory does not exist: $root"
     min_mtime="${SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME:-0}"
     case "$min_mtime" in
         *[!0-9]*|"") fail_invalid "SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME must be epoch seconds" ;;
@@ -152,7 +152,7 @@ latest_completed_artifact_directory() {
     done
 
     [ -n "$latest_directory" ] ||
-        fail_invalid "no completed local recording directories with manifest.json, mic.wav, and incoming.wav found under: $root after epoch: $min_mtime"
+        blocked "no completed local recording directories with manifest.json, mic.wav, and incoming.wav found under: $root after epoch: $min_mtime"
 
     printf '%s\n' "$latest_directory"
 }
