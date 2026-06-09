@@ -4256,3 +4256,45 @@
   - This hardens #307 and #313 before manual permission-matrix testing. It does
     not close #307 because the five real TCC grant/deny/revoke rows still
     require manual validation.
+
+## 2026-06-09 ScreenCaptureKit Start Sample Race Review
+
+- Timestamp: `2026-06-09T06:57:12Z`
+- Commit before change: `1732ce3`
+- Scope: system-audio ScreenCaptureKit startup ordering for incoming audio
+  capture.
+- Finding:
+  - `ScreenCaptureKitSystemAudioRuntime.start()` installed the active
+    `SCStream` after `startCapture()` returned.
+  - The delegate drops audio buffers unless the stream is already the current
+    stream. If ScreenCaptureKit emits initial audio buffers during or
+    immediately after `startCapture()`, those early incoming samples could be
+    ignored even though capture was otherwise running.
+- Fix:
+  - The runtime now marks the newly created stream as current before
+    `startCapture()`.
+  - If `startCapture()` fails, the runtime clears that current stream, attempts
+    to stop the partially started stream, and rethrows the original error.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    max app/helper CPU `0.20%`, `maxAppHelperRssMB=97.92`, quit CPU `0.00%`,
+    app/helper process count `0`, and no thermal/performance warning.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This hardens #308 and #313 by reducing the chance that real incoming system
+    audio is missed at capture startup. It does not close #308 or #313 because
+    accepted Record/Stop artifact evidence and final manual review are still
+    required.

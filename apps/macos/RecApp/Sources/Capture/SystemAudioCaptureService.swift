@@ -368,8 +368,14 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
-        try await stream.startCapture()
         setCurrentStream(stream)
+        do {
+            try await stream.startCapture()
+        } catch {
+            clearCurrentStreamIfSame(stream)
+            try? await stream.stopCapture()
+            throw error
+        }
     }
 
     public func stop() async {
