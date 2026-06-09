@@ -2743,3 +2743,49 @@
   - This reduces local artifact/resource leaks when writer start fails and gives
     stronger idle/quit evidence. It does not close #307, #308, #309
     active/stop, #310, #311, or #313.
+
+## 2026-06-09 Recording-Only Meter Truth Review
+
+- Timestamp: `2026-06-09T02:46:40Z`
+- Commit before change: `d83e315`
+- Scope: UI meter truthfulness for microphone and incoming/system audio.
+- Finding:
+  - Shared copy says `Meters show audio only while recording`.
+  - `CaptureControlView` still had a non-recording fallback path that could
+    feed meters from the legacy passthrough/route monitor when that route engine
+    was active outside recording.
+  - This could make incoming/microphone indicators look live even though the
+    current system-audio recording writer was not active.
+- Fix:
+  - Removed the non-recording route-monitor fallback from the capture controls
+    timer.
+  - When `LocalRecordingWriter.isRecording` is false, live meter levels now reset
+    to `.inactive`.
+  - Removed the unused `liveAudioSignalMonitor` state from the capture UI.
+  - The legacy `LiveAudioSignalMonitor` type remains available for diagnostic
+    tests, but it no longer drives recording meters outside an active recording.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked on this CLT host;
+    full `xcrun xctest` execution remains unavailable because `xcode-select -p`
+    is `/Library/Developer/CommandLineTools` and `xcrun --find xctest` exits
+    72.
+  - Static scan for `liveAudioSignalMonitor` and
+    `currentLevels(routeActive: true)` in app UI code no longer finds a UI meter
+    call site.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed after the change.
+  - Preflight idle CPU passed with `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.00`, and one app process.
+  - Preflight quit CPU passed with zero app/helper processes.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Latest app log showed packaged app launch, visible main window, auto route
+    skipped by default, termination cleanup completed, and passthrough engine
+    stopped; no app crash or hang marker appeared in the reviewed tail.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This reduces false-positive meter activity outside recording. It does not
+    close #307, #308, #309 active/stop, #310, #311, or #313.

@@ -34,7 +34,6 @@ private struct ContentView: View {
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var localRecordingLocation: String?
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
-    @State private var liveAudioSignalMonitor = LiveAudioSignalMonitor()
     @State private var terminationCleanupInProgress = false
     @State private var recordingStartInProgress = false
     @State private var recordingStopInProgress = false
@@ -154,16 +153,8 @@ private struct ContentView: View {
                 return
             }
 
-            let routeActive = PassthroughRouteEngine.shared.nonblockingState == .active
-            guard routeActive else {
-                if liveRouteSignalLevels != .inactive {
-                    liveRouteSignalLevels = .inactive
-                }
-                return
-            }
-            let nextLevels = liveAudioSignalMonitor.currentLevels(routeActive: true)
-            if nextLevels != liveRouteSignalLevels {
-                liveRouteSignalLevels = nextLevels
+            if liveRouteSignalLevels != .inactive {
+                liveRouteSignalLevels = .inactive
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
