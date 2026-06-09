@@ -3030,3 +3030,44 @@
   - This reduces Stop/finalization hang risk without allowing a truncated drain
     to become a clean saved artifact. It does not close #307, #308, #309
     active/stop, #310, #311, or #313.
+
+## 2026-06-09 Executable Bounded Drain Contract Validation
+
+- Timestamp: `2026-06-09T03:45:15Z`
+- Commit before change: `48f0295`
+- Scope: stronger automated proof for bounded writer drain behavior.
+- Finding:
+  - The bounded-drain regression was covered by XCTest source, but this host's
+    active developer path is `/Library/Developer/CommandLineTools`; `swift test`
+    compiles and links the test bundle but does not enumerate or run XCTest
+    cases.
+  - The same invariant should be covered by the executable
+    `ContractValidation` tool, because that command does run locally.
+- Fix:
+  - Added `validateLocalRecordingWriterBoundedDrain()` to
+    `apps/macos/Shared/Tools/ContractValidation/main.swift`.
+  - The executable validation creates a writer with an infinite incoming sample
+    source, stops it, and asserts that Stop returns quickly, the incoming track
+    is `write_failed`/`failed`, the manifest is not clean `saved`, and writer
+    state is released.
+- Validation:
+  - `swift run --package-path apps/macos ContractValidation` passed and
+    executed the bounded-drain invariant.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the test
+    bundle on this CLT host; full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - Fresh packaged app launch passed with visible `2brain Rec` window and app
+    CPU around `0.1%`.
+  - Short quit CPU smoke passed with `sampleCount=3`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, zero
+    app/helper processes, and `halProbeObserved=false`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This turns the bounded-drain behavior from compile-only XCTest coverage into
+    a locally executable contract check. It does not close #307, #308, #309
+    active/stop, #310, #311, or #313.

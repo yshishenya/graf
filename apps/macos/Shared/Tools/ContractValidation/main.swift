@@ -652,6 +652,56 @@ func validateDiagnosticBundleService() throws {
     )
 }
 
+func validateLocalRecordingWriterBoundedDrain() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-bounded-drain-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        incomingSampleSourceFactory: { InfiniteContractSampleSource() },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-bounded-drain",
+        startedAt: Date(timeIntervalSince1970: 10)
+    )
+
+    let startedAt = Date()
+    let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+    let elapsed = Date().timeIntervalSince(startedAt)
+    guard let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Bounded drain validation must produce incoming track")
+    }
+
+    try require(
+        elapsed < 2,
+        "LocalRecordingWriter must bound drain time for non-terminating sample sources"
+    )
+    try require(
+        incoming.failureReason == .writeFailed && incoming.status == .failed,
+        "Bounded drain overflow must fail the incoming track truthfully"
+    )
+    try require(
+        manifest.status != .saved,
+        "Bounded drain overflow must not produce a clean saved manifest"
+    )
+    try require(
+        !writer.isRecording,
+        "Bounded drain overflow must release writer recording state"
+    )
+}
+
+private final class InfiniteContractSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        guard capacity > 0 else { return 0 }
+        for index in 0..<capacity {
+            destination[index] = 0.25
+        }
+        return capacity
+    }
+}
+
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
@@ -663,6 +713,7 @@ do {
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()
+    try validateLocalRecordingWriterBoundedDrain()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)
