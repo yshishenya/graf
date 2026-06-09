@@ -199,8 +199,8 @@ END {
   if (phase == "baseline") {
     status = count > 0 ? "observed" : "failed";
   } else {
-    status = (count > 0 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
-    if ((phase == "activeRecording" || phase == "stop") && maxAppProcesses == 0) {
+    status = (count >= 3 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
+    if ((phase == "idle" || phase == "activeRecording" || phase == "stop") && maxAppProcesses == 0) {
       status = "failed";
     }
     if (phase == "quit" && (maxAppProcesses > 0 || maxHelperProcesses > 0)) {
@@ -208,7 +208,10 @@ END {
     }
   }
   reason = status == "passed" ? "none" : "cpuGateFailed";
-  if ((phase == "activeRecording" || phase == "stop") && status == "failed" && maxAppProcesses == 0) {
+  if (phase != "baseline" && status == "failed" && count < 3) {
+    reason = "insufficientSamples";
+  }
+  if ((phase == "idle" || phase == "activeRecording" || phase == "stop") && status == "failed" && maxAppProcesses == 0) {
     reason = "appNotRunning";
   }
   if (phase == "quit" && status == "failed" && (maxAppProcesses > 0 || maxHelperProcesses > 0)) {

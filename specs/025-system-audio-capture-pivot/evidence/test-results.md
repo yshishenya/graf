@@ -3483,3 +3483,54 @@
   - This hardens #307, #308, and #313 against false acceptance. It does not
     close those issues until the real permission matrix and controlled artifact
     matrix are performed and reviewed.
+
+## 2026-06-09 CPU Gate Evidence Strength Review
+
+- Timestamp: `2026-06-09T04:39:45Z`
+- Commit before change: `fbbfe30`
+- Scope: CPU sampler and final evidence review in
+  `apps/macos/Scripts/sample-system-audio-cpu-gate.sh` and
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - `idle` CPU sampling could pass when the app process was not observed.
+  - Non-baseline CPU phases could pass with fewer than three samples, which is
+    too weak for the sustained-threshold contract.
+  - Final evidence review only checked `status=passed`, so a weak historical
+    CPU evaluation line could be accepted without sample count, RSS diagnostics,
+    app process presence for `idle`/`activeRecording`/`stop`, or process release
+    for `quit`.
+- Fix:
+  - `idle`, `activeRecording`, and `stop` now fail with `appNotRunning` unless
+    the packaged app process is observed.
+  - Non-baseline phases now require at least three samples and fail with
+    `insufficientSamples` when the sample count is too low.
+  - `--review-evidence` now parses the latest CPU evaluation for each accepted
+    phase and requires at least three samples, RSS diagnostics, app-process
+    presence for `idle`/`activeRecording`/`stop`, and zero app/helper processes
+    for `quit`.
+- Validation:
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh` passed.
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - Synthetic no-append `idle` sampling without a running app failed as expected
+    with `failureReason=appNotRunning`.
+  - Synthetic no-append one-sample `quit` sampling failed as expected with
+    `failureReason=insufficientSamples`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by the remaining manual gates.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with the stricter sampler. Idle CPU stayed `0.00%`, app RSS was
+    about `93.03 MB`, quit app/helper process count was `0`, HAL probe was not
+    observed, and thermal state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #309 and #313 against false CPU acceptance. It does not close
+    #309 because active-recording and stop CPU evidence still require a real
+    manual recording run.

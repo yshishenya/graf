@@ -281,6 +281,21 @@ last_cpu_evaluation_for_phase() {
     ' "$CPU_GATES"
 }
 
+evaluation_field() {
+    field="$1"
+    evaluation="$2"
+    printf '%s\n' "$evaluation" |
+        awk -v field="$field" '{
+            for (i = 1; i <= NF; i += 1) {
+                split($i, kv, "=")
+                if (kv[1] == field) {
+                    print kv[2]
+                    exit
+                }
+            }
+        }'
+}
+
 validate_cpu_phase_passed() {
     phase="$1"
     evaluation="$(last_cpu_evaluation_for_phase "$phase")"
@@ -297,6 +312,55 @@ validate_cpu_phase_passed() {
             return 1
             ;;
     esac
+
+    sample_count="$(evaluation_field sampleCount "$evaluation")"
+    max_app_process_count="$(evaluation_field maxAppProcessCount "$evaluation")"
+    max_helper_process_count="$(evaluation_field maxHelperProcessCount "$evaluation")"
+    max_core_rss_mb="$(evaluation_field maxCoreaudiodRssMB "$evaluation")"
+    max_app_rss_mb="$(evaluation_field maxAppHelperRssMB "$evaluation")"
+
+    case "$sample_count" in
+        ""|*[!0-9]*)
+            printf '%s\n' "$CPU_GATES latest $phase CPU evaluation is missing numeric sampleCount: $evaluation"
+            return 1
+            ;;
+        *)
+            if [ "$sample_count" -lt 3 ]; then
+                printf '%s\n' "$CPU_GATES latest $phase CPU evaluation has insufficient samples: $evaluation"
+                return 1
+            fi
+            ;;
+    esac
+
+    case "$max_core_rss_mb:$max_app_rss_mb" in
+        :*|*:)
+            printf '%s\n' "$CPU_GATES latest $phase CPU evaluation is missing RSS diagnostics: $evaluation"
+            return 1
+            ;;
+    esac
+
+    case "$phase" in
+        idle|activeRecording|stop)
+            case "$max_app_process_count" in
+                ""|*[!0-9]*|0)
+                    printf '%s\n' "$CPU_GATES latest $phase CPU evaluation did not observe the app process: $evaluation"
+                    return 1
+                    ;;
+            esac
+            ;;
+        quit)
+            case "$max_app_process_count:$max_helper_process_count" in
+                0:0)
+                    ;;
+                *)
+                    printf '%s\n' "$CPU_GATES latest quit CPU evaluation did not prove app/helper process release: $evaluation"
+                    return 1
+                    ;;
+            esac
+            ;;
+    esac
+
+    return 0
 }
 
 ensure_no_forbidden_hal_requirement() {
