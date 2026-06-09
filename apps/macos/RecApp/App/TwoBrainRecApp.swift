@@ -736,16 +736,14 @@ private struct AppContentRoot: View {
                 snapshot = updated
             },
             refresh: {
-                LocalAudioSnapshot.refreshAsync(event: "refresh") { updated in
-                    snapshot = updated
-                }
+                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Status refreshed without CoreAudio probe")
+                AppLog.write(event: "refresh", snapshot: snapshot)
             },
             runCheck: {
                 isChecking = true
-                LocalAudioSnapshot.refreshAsync(event: "status_refresh") { updated in
-                    snapshot = updated
-                    isChecking = false
-                }
+                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Recording permissions are checked when Record starts")
+                AppLog.write(event: "status_refresh", snapshot: snapshot)
+                isChecking = false
             }
         )
         .frame(minWidth: 720, minHeight: 620)
@@ -773,7 +771,7 @@ fileprivate struct LocalAudioSnapshot {
         ).summary
     }
 
-    static func placeholder() -> LocalAudioSnapshot {
+    static func placeholder(lastEventSummary: String = "Opening app") -> LocalAudioSnapshot {
         let driverExists = FileManager.default.fileExists(
             atPath: "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"
         )
@@ -800,7 +798,7 @@ fileprivate struct LocalAudioSnapshot {
             defaultOutputName: nil,
             defaultSystemOutputName: nil,
             coreAudioDeviceSummary: "pending",
-            lastEventSummary: "Opening app"
+            lastEventSummary: lastEventSummary
         )
     }
 

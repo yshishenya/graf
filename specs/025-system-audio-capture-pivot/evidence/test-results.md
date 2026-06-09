@@ -3243,3 +3243,52 @@
   - This aligns #309 CPU evidence with the validation contract. It does not
     close #309 active/stop, #310, #311, or #313 because manual recording and
     duration gates remain required.
+
+## 2026-06-09 Normal Status Refresh No-CoreAudio Review
+
+- Timestamp: `2026-06-09T04:11:42Z`
+- Commit before change: `9a069fb`
+- Scope: normal app Refresh/Run Check status path in
+  `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- Finding:
+  - App launch already used the safe placeholder snapshot and did not enumerate
+    CoreAudio devices.
+  - The normal Refresh and Run Check UI callbacks still called
+    `LocalAudioSnapshot.refreshAsync(event: "refresh"|"status_refresh")`.
+  - That background path calls `CoreAudioSystemSnapshot.current()`. Even though
+    it is off the main actor, a CoreAudio hang could leave the UI in a perpetual
+    checking state and reintroduce the legacy diagnostics path during normal MVP
+    use.
+- Fix:
+  - Normal Refresh and Run Check now update the parked MVP status without
+    CoreAudio enumeration.
+  - Recording permissions and real meters remain checked only when the user
+    presses Record.
+  - `validate-system-audio-no-hal-probe.sh` now fails if the normal UI path
+    reintroduces `LocalAudioSnapshot.refreshAsync(event: "refresh")` or
+    `LocalAudioSnapshot.refreshAsync(event: "status_refresh")`.
+  - Explicit legacy passthrough flags are unchanged and remain outside normal
+    MVP recording acceptance.
+- Validation:
+  - Static scan shows the normal `refresh` and `status_refresh` callbacks no
+    longer call `LocalAudioSnapshot.refreshAsync`.
+  - `sh -n apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the test
+    bundle on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU remained `0.00%`, app RSS stayed about `93.31 MB`, quit
+    app/helper process count was `0`, and thermal state reported no warning.
+  - Packaged app launch/quit smoke after the change showed `coreAudioDevices=pending`
+    on normal open, confirming the launch path did not enumerate CoreAudio
+    devices. AppleScript UI click automation was blocked by macOS Accessibility,
+    so button behavior is covered by static code/validator checks in this
+    environment.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This reduces normal UI hang risk from parked legacy CoreAudio diagnostics.
+    It does not close #307, #308, #309 active/stop, #310, #311, or #313.

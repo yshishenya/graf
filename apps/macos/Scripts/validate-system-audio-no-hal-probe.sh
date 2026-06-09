@@ -39,6 +39,7 @@ apps/macos/RecApp/App/TwoBrainRecApp.swift
 apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift
 "
 copy_patterns='install_or_repair_driver|virtual_microphone_not_visible|virtual_speaker_not_visible|2brain Rec Microphone is not visible|2brain Rec Speaker is not visible'
+normal_ui_patterns='LocalAudioSnapshot\.refreshAsync\(event: "(refresh|status_refresh)"'
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
@@ -55,6 +56,10 @@ done
 for target in $copy_targets; do
   if [ -f "$ROOT_DIR/$target" ]; then
     if grep -nE "$copy_patterns" "$ROOT_DIR/$target" > "$tmp_file.match"; then
+      sed "s#^#$target:#" "$tmp_file.match" >> "$tmp_file"
+    fi
+    if [ "$target" = "apps/macos/RecApp/App/TwoBrainRecApp.swift" ] &&
+       grep -nE "$normal_ui_patterns" "$ROOT_DIR/$target" > "$tmp_file.match"; then
       sed "s#^#$target:#" "$tmp_file.match" >> "$tmp_file"
     fi
     rm -f "$tmp_file.match"
