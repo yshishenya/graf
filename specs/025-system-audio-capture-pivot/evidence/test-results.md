@@ -3947,3 +3947,31 @@
   - This keeps #309 and #313 evidence current after the latest validator
     changes. It does not close #309/#313 because active/stop CPU and other
     manual gates still require a real recording run.
+
+## 2026-06-09 Quickstart Gate Refresh
+
+- Timestamp: `2026-06-09T05:24:00Z`
+- Commit under test: `62616bb`
+- Scope: quickstart static checks and metadata-only gate refresh after the
+  latest safe-launch evidence commit.
+- Validation:
+  - Static stale-reference scan for `NEEDS CLARIFICATION`,
+    `020-system-audio-capture-pivot`, and `022-system-audio-capture-pivot`
+    returned no matches in required files.
+  - Forbidden-content scan returned only expected policy wording in spec/plan
+    contracts and the `DiagnosticRedactor` forbidden-key list; no raw audio,
+    transcript, meeting content, signed URL, password, or API key payload was
+    found.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --permission-matrix`
+    blocked as expected with five not-tested permission rows; keep #307/T071
+    open.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --artifact-matrix`
+    blocked as expected with five not-tested controlled artifact rows; keep
+    #308/T072 open.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --duration-minutes 30`
+    blocked as expected with one not-tested 30-minute row; keep #310/T074 open.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --duration-minutes 75 --manual-release`
+    blocked as expected with one not-tested 75-minute row; keep #311/T075 open.
+- Acceptance impact:
+  - This confirms the remaining PR blockers are real manual gates, not stale
+    documentation or accidental forbidden-content findings.
