@@ -2494,3 +2494,44 @@
 - Acceptance impact:
   - This makes the manual controlled run harder to mis-sequence or falsely
     satisfy with stale artifacts. It does not replace the required manual run.
+
+## 2026-06-09 Manual Gate Preflight Review
+
+- Timestamp: `2026-06-09T02:08:24Z`
+- Commit before change: `5480626`
+- Scope: safe non-recording preflight for the guided manual gate harness.
+- Fix:
+  - `run-system-audio-controlled-manual-gate.sh --preflight` now runs the
+    app-only package boundary, baseline CPU, packaged app launch, idle CPU,
+    app quit, quit CPU, and thermal-state printout without prompting for
+    Record/Stop.
+  - Preflight output explicitly states that permission matrix, controlled
+    artifact, activeRecording CPU, stop CPU, 30-minute, 75-minute, and final
+    review gates remain manual/open.
+- Validation:
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed.
+  - Preflight app-only package boundary passed.
+  - Preflight baseline CPU was diagnostic-only with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.00`.
+  - Preflight packaged app launch observed one repo app process.
+  - Preflight idle CPU passed with `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.00`, and one app process.
+  - Preflight quit CPU passed with zero app/helper processes.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the package test
+    bundle on this CLT host; full `xcrun xctest` execution remains unavailable
+    because `xcode-select -p` is `/Library/Developer/CommandLineTools` and
+    `xcrun --find xctest` exits 72.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This gives a repeatable safety check before asking a tester to press
+    Record/Stop. It does not close #307, #308, #309 active/stop, #310, #311,
+    or #313.

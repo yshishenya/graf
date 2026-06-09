@@ -9,7 +9,7 @@ APP_BINARY="$APP_BUNDLE/Contents/MacOS/2brain Rec"
 
 usage() {
   cat <<'USAGE'
-run-system-audio-controlled-manual-gate.sh
+run-system-audio-controlled-manual-gate.sh [--preflight]
 
 Guided metadata-only harness for the manual system-audio MVP gates.
 
@@ -17,6 +17,13 @@ It builds and launches the app-only local package, then prompts the tester to
 press Record/Stop manually. It does not click UI, does not start recording by
 itself, does not inspect audio content, does not reset TCC, does not install the
 pkg, and does not run HAL probes.
+
+Options:
+  --preflight
+      Run only the non-recording safety preflight: app-only package boundary,
+      packaged app launch, idle CPU, quit CPU, and thermal-state printout. This
+      mode never prompts for Record/Stop and never satisfies the active
+      recording, artifact, permission, 30-minute, or 75-minute acceptance gates.
 
 Steps performed:
   1. verify default local package is app-only;
@@ -54,6 +61,22 @@ app_process_count() {
     '
 }
 
+quit_app() {
+  if [ "$(app_process_count)" -eq 0 ]; then
+    return 0
+  fi
+  osascript -e 'tell application "2brain Rec" to quit' >/dev/null 2>&1 || true
+  remaining=10
+  while [ "$remaining" -gt 0 ]; do
+    if [ "$(app_process_count)" -eq 0 ]; then
+      return 0
+    fi
+    sleep 1
+    remaining=$((remaining - 1))
+  done
+  pkill -x "2brain Rec" 2>/dev/null || true
+}
+
 wait_for_app_launch() {
   remaining=15
   while [ "$remaining" -gt 0 ]; do
@@ -68,10 +91,60 @@ wait_for_app_launch() {
   exit 2
 }
 
+run_app_only_package_boundary() {
+  printf '\n%s\n' "-- app-only package boundary --"
+  apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only
+}
+
+run_baseline_cpu() {
+  printf '\n%s\n' "-- baseline CPU before launch --"
+  apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline
+}
+
+launch_packaged_app() {
+  printf '\n%s\n' "-- launch packaged app bundle --"
+  [ -d "$APP_BUNDLE" ] || {
+    printf '%s\n' "app_launch=blocked reason=missing_app_bundle bundle=$APP_BUNDLE" >&2
+    exit 2
+  }
+  quit_app
+  open -n "$APP_BUNDLE"
+  wait_for_app_launch
+}
+
+run_preflight() {
+  printf '\n%s\n' "-- idle CPU with packaged app running, no recording --"
+  SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 \
+  SYSTEM_AUDIO_CPU_GATE_SAMPLES="${SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES:-3}" \
+  SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_INTERVAL_SECONDS:-2}" \
+  SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_SETTLE_SECONDS:-5}" \
+    apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle
+
+  printf '\n%s\n' "-- quit packaged app --"
+  quit_app
+
+  printf '\n%s\n' "-- quit CPU after packaged app exit --"
+  SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 \
+  SYSTEM_AUDIO_CPU_GATE_SAMPLES="${SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES:-3}" \
+  SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_INTERVAL_SECONDS:-2}" \
+  SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_QUIT_SETTLE_SECONDS:-5}" \
+    apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit
+
+  printf '\n%s\n' "-- thermal state --"
+  pmset -g therm || true
+
+  printf '\n%s\n' "manual_gate_preflight=passed"
+  printf '%s\n' "preflight_scope=non_recording_only"
+  printf '%s\n' "remaining_manual_gates=permission_matrix,controlled_artifact,activeRecording_cpu,stop_cpu,30_minute,75_minute,final_review"
+}
+
+MODE="${1:-}"
 case "${1:-}" in
   -h|--help)
     usage
     exit 0
+    ;;
+  --preflight)
     ;;
   "")
     ;;
@@ -90,20 +163,14 @@ manual_gate_started_epoch="$(date +%s)"
 export SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$manual_gate_started_epoch"
 printf '%s\n' "artifact_min_mtime_epoch=$manual_gate_started_epoch"
 
-printf '\n%s\n' "-- app-only package boundary --"
-apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only
+run_app_only_package_boundary
+run_baseline_cpu
+launch_packaged_app
 
-printf '\n%s\n' "-- baseline CPU before launch --"
-apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline
-
-printf '\n%s\n' "-- launch packaged app bundle --"
-[ -d "$APP_BUNDLE" ] || {
-  printf '%s\n' "app_launch=blocked reason=missing_app_bundle bundle=$APP_BUNDLE" >&2
-  exit 2
-}
-pkill -x "2brain Rec" 2>/dev/null || true
-open -n "$APP_BUNDLE"
-wait_for_app_launch
+if [ "$MODE" = "--preflight" ]; then
+  run_preflight
+  exit 0
+fi
 
 prompt_continue "Start a controlled non-sensitive audio source, press Record System Audio in 2brain Rec, and wait until the app shows recording is active."
 
