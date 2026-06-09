@@ -17,7 +17,9 @@ Guided metadata-only harness for the manual system-audio MVP gates.
 It builds and launches the app-only local package, then prompts the tester to
 press Record/Stop manually. It does not click UI, does not start recording by
 itself, does not inspect audio content, does not reset TCC, does not install the
-pkg, and does not run HAL probes.
+pkg, and does not run HAL probes. It holds a local caffeinate assertion during
+the run so sleep/wake gaps cannot masquerade as app responsiveness or CPU
+evidence.
 
 Options:
   --preflight
@@ -195,6 +197,27 @@ fail_self_test() {
   exit 1
 }
 
+caffeinate_pid=""
+
+stop_caffeinate() {
+  if [ -n "$caffeinate_pid" ]; then
+    kill "$caffeinate_pid" >/dev/null 2>&1 || true
+    wait "$caffeinate_pid" >/dev/null 2>&1 || true
+    caffeinate_pid=""
+  fi
+}
+
+start_caffeinate() {
+  if ! command -v caffeinate >/dev/null 2>&1; then
+    printf '%s\n' "wake_assertion=blocked reason=missing_caffeinate command=caffeinate" >&2
+    exit 2
+  fi
+  caffeinate -dimsu -w "$$" >/dev/null 2>&1 &
+  caffeinate_pid="$!"
+  trap 'stop_caffeinate' EXIT
+  printf '%s\n' "wake_assertion=held command=caffeinate flags=-dimsu pid=$caffeinate_pid"
+}
+
 quit_app() {
   if [ "$(app_process_count)" -eq 0 ]; then
     return 0
@@ -301,6 +324,7 @@ printf '%s\n' "repo=$ROOT_DIR"
 manual_gate_started_epoch="$(date +%s)"
 export SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$manual_gate_started_epoch"
 printf '%s\n' "artifact_min_mtime_epoch=$manual_gate_started_epoch"
+start_caffeinate
 
 run_app_only_package_boundary
 run_baseline_cpu

@@ -104,12 +104,23 @@ probes. It builds the app-only package, launches the repo app bundle, prompts
 for manual Record/Stop, samples baseline/active/stop CPU, and validates the
 newest artifact metadata-only. The harness records its start epoch and ignores
 older completed artifacts so stale recordings cannot satisfy the current gate.
+It also holds a local `caffeinate` assertion while running so system sleep does
+not create false responsiveness or CPU evidence.
 
 Manual equivalent:
 
-1. Confirm `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` reports
+1. Hold a local wake assertion before starting long manual validation:
+
+   ```sh
+   caffeinate -dimsu
+   ```
+
+   Stop it only after the validation run is complete. Sleep/wake gaps invalidate
+   responsiveness, CPU, and duration evidence.
+
+2. Confirm `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` reports
    the current `coreaudiod` baseline before launching the app.
-2. Record the manual gate start epoch, then build and launch the packaged app:
+3. Record the manual gate start epoch, then build and launch the packaged app:
 
    ```sh
    export SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$(date +%s)"
@@ -117,37 +128,37 @@ Manual equivalent:
    open -n "apps/macos/RecApp/.build/2brain Rec.app"
    ```
 
-3. Start a controlled audio source with non-sensitive synthetic or generic audio.
-4. Press `Record System Audio` in the app and confirm macOS permission prompts
+4. Start a controlled audio source with non-sensitive synthetic or generic audio.
+5. Press `Record System Audio` in the app and confirm macOS permission prompts
    only when they appear naturally.
-5. While recording is active, run:
+6. While recording is active, run:
 
    ```sh
    apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
    ```
 
-6. Press Stop in the app.
-7. Immediately run:
+7. Press Stop in the app.
+8. Immediately run:
 
    ```sh
    apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
    ```
 
-8. Inspect the newest completed local recording directory:
+9. Inspect the newest completed local recording directory:
 
    ```sh
    apps/macos/Scripts/validate-system-audio-capture-pivot.sh \
      --latest-artifact-directory
    ```
 
-9. Validate the newest completed directory metadata-only:
+10. Validate the newest completed directory metadata-only:
 
    ```sh
    apps/macos/Scripts/validate-system-audio-capture-pivot.sh \
      --validate-latest-artifact
    ```
 
-10. Record only metadata in `evidence/artifact-matrix.md`: status, file presence,
+11. Record only metadata in `evidence/artifact-matrix.md`: status, file presence,
    track roles/source kinds, duration difference, permission states, and failure
    reasons. Do not copy raw audio or private meeting content into evidence.
 

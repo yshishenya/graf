@@ -4120,3 +4120,46 @@
   - This hardens #309 and #313 against malformed CPU evidence. It does not
     close either issue because real active/stop CPU evidence and the other
     manual gates are still required.
+
+## 2026-06-09 Manual Gate Wake Assertion Review
+
+- Timestamp: `2026-06-09T06:29:01Z`
+- Commit before change: `6f5d771`
+- Scope: controlled manual gate harness, preflight runtime evidence, and
+  quickstart duration/CPU validation instructions.
+- Finding:
+  - A safe preflight run launched the packaged app at `2026-06-09T05:47:10Z`,
+    then macOS entered `Maintenance Sleep` at `2026-06-09 08:47:09 +0300` and
+    resumed at `2026-06-09 08:54:32 +0300`.
+  - App-local logs showed no recording, no HAL probe, and no app crash, but
+    window visibility and idle CPU sampling were delayed until after wake.
+  - That means sleep/wake gaps can weaken responsiveness, CPU, and duration
+    evidence even when the app itself is not hung.
+- Fix:
+  - `run-system-audio-controlled-manual-gate.sh` now starts
+    `caffeinate -dimsu -w $$` for both preflight and full manual runs, then
+    releases it on script exit.
+  - `quickstart.md` now states that the guided harness holds a wake assertion
+    and that manual equivalent runs must use `caffeinate -dimsu`; sleep/wake
+    gaps invalidate responsiveness, CPU, and duration evidence.
+- Validation:
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`.
+  - The post-fix preflight had no sleep gap: baseline ended at
+    `2026-06-09T06:12:04Z`, app launch was observed immediately, idle CPU
+    sampled at `2026-06-09T06:12:09Z` through `06:12:14Z`, and quit CPU sampled
+    at `06:12:19Z` through `06:12:23Z`.
+  - Post-fix idle CPU passed with `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.10`, `maxAppHelperRssMB=93.16`, and
+    `maxAppProcessCount=1`.
+  - Post-fix quit CPU passed with app/helper process counts `0:0`.
+  - `pmset -g therm` reported no thermal, performance, or CPU power warning.
+- Acceptance impact:
+  - This hardens #309, #310, #311, and #313 against false or weakened runtime
+    evidence caused by macOS sleep. It does not close those issues because the
+    real permission, artifact, active/stop CPU, and duration gates still require
+    manual runs.
