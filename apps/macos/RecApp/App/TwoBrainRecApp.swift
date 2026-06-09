@@ -34,6 +34,8 @@ private struct ContentView: View {
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var localRecordingLocation: String?
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
+    @State private var localRecordingActive = false
+    @State private var levelsPollInProgress = false
     @State private var terminationCleanupInProgress = false
     @State private var recordingStartInProgress = false
     @State private var recordingStopInProgress = false
@@ -138,24 +140,7 @@ private struct ContentView: View {
         .onReceive(
             Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
         ) { _ in
-            if localRecordingWriter.isRecording {
-                let recordingLevels = localRecordingWriter.currentLevels()
-                let nextLevels = LiveRouteSignalLevels(
-                    isActive: recordingLevels.isRecording,
-                    microphoneLevel: recordingLevels.microphoneLevel,
-                    speakerLevel: recordingLevels.incomingLevel,
-                    microphoneUpdatedAt: recordingLevels.microphoneUpdatedAt,
-                    speakerUpdatedAt: recordingLevels.incomingUpdatedAt
-                )
-                if nextLevels != liveRouteSignalLevels {
-                    liveRouteSignalLevels = nextLevels
-                }
-                return
-            }
-
-            if liveRouteSignalLevels != .inactive {
-                liveRouteSignalLevels = .inactive
-            }
+            pollRecordingLevelsIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
             guard !terminationCleanupInProgress else { return }
@@ -293,6 +278,7 @@ private struct ContentView: View {
                 scopeApproval: scopeApproval,
                 permissions: permissionGate.snapshot
             )
+            localRecordingActive = true
             let active = try captureController.markCapturing()
             captureSession = active
             localRecordingLocation = directory.directoryURL.path
@@ -310,6 +296,8 @@ private struct ContentView: View {
                 detail: "sessionId=\(active.id) captureSource=system_audio scopeApprovalId=\(scopeApproval.scopeApprovalId) routeState=\(prerequisite.routeState.rawValue) routeEvidenceKind=\(prerequisite.routeEvidenceKind.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
             )
         } catch {
+            localRecordingActive = false
+            liveRouteSignalLevels = .inactive
             _ = try? await systemAudioCaptureService.stop()
             let failureCategory = recordingStartFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
@@ -385,6 +373,8 @@ private struct ContentView: View {
     private func stopManualRecording() async {
         guard !recordingStartInProgress, !recordingStopInProgress else { return }
         recordingStopInProgress = true
+        localRecordingActive = false
+        liveRouteSignalLevels = .inactive
         defer { recordingStopInProgress = false }
 
         do {
@@ -424,6 +414,7 @@ private struct ContentView: View {
                 captureSession = failed
             }
             _ = await systemAudioCaptureService.releaseForTermination()
+            localRecordingActive = await localRecordingWriter.isRecordingAsync()
             recordingBlocker = "Recording could not stop: \(error)"
             AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
         }
@@ -437,10 +428,12 @@ private struct ContentView: View {
 
     @MainActor
     private func finalizeLocalRecordingForAppExit() async {
-        guard localRecordingWriter.isRecording else {
+        guard await localRecordingWriter.isRecordingAsync() else {
             return
         }
         let recordingDirectory = localRecordingWriter.currentDirectoryURL()
+        localRecordingActive = false
+        liveRouteSignalLevels = .inactive
         do {
             let manifest = try await localRecordingWriter.stopAsync()
             localRecordingManifest = manifest
@@ -485,7 +478,7 @@ private struct ContentView: View {
 
     private var localRecordingStatusText: String? {
         guard let manifest = localRecordingManifest else {
-            if localRecordingWriter.isRecording {
+            if localRecordingActive {
                 return "Local recording in progress"
             }
             return nil
@@ -501,6 +494,45 @@ private struct ContentView: View {
             return "Local recording failed"
         case .active:
             return "Local recording in progress"
+        }
+    }
+
+    @MainActor
+    private func pollRecordingLevelsIfNeeded() {
+        guard localRecordingActive, !recordingStartInProgress, !recordingStopInProgress else {
+            if liveRouteSignalLevels != .inactive {
+                liveRouteSignalLevels = .inactive
+            }
+            return
+        }
+        guard !levelsPollInProgress else { return }
+
+        levelsPollInProgress = true
+        let writer = localRecordingWriter
+        Task {
+            let recordingLevels = await writer.currentLevelsAsync()
+            await MainActor.run {
+                levelsPollInProgress = false
+                guard writer === localRecordingWriter,
+                      localRecordingActive,
+                      !recordingStartInProgress,
+                      !recordingStopInProgress else {
+                    if liveRouteSignalLevels != .inactive {
+                        liveRouteSignalLevels = .inactive
+                    }
+                    return
+                }
+                let nextLevels = LiveRouteSignalLevels(
+                    isActive: recordingLevels.isRecording,
+                    microphoneLevel: recordingLevels.microphoneLevel,
+                    speakerLevel: recordingLevels.incomingLevel,
+                    microphoneUpdatedAt: recordingLevels.microphoneUpdatedAt,
+                    speakerUpdatedAt: recordingLevels.incomingUpdatedAt
+                )
+                if nextLevels != liveRouteSignalLevels {
+                    liveRouteSignalLevels = nextLevels
+                }
+            }
         }
     }
 }

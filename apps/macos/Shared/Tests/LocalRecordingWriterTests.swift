@@ -68,6 +68,18 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertFalse(levels.incomingIsLive(now: Date(timeIntervalSince1970: 10)))
     }
 
+    func testWriterReportsInactiveLevelsAsynchronouslyWhenIdle() async {
+        let writer = LocalRecordingWriter(recordMicrophone: false)
+
+        let isRecording = await writer.isRecordingAsync()
+        let levels = await writer.currentLevelsAsync(now: Date(timeIntervalSince1970: 10))
+
+        XCTAssertFalse(isRecording)
+        XCTAssertFalse(levels.isRecording)
+        XCTAssertEqual(levels.microphoneLevel, 0)
+        XCTAssertEqual(levels.incomingLevel, 0)
+    }
+
     func testWriterReportsRecordingLevelsWithoutInventingIncomingFrames() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-recording-writer-level-tests-\(UUID().uuidString)", isDirectory: true)
@@ -89,6 +101,30 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertEqual(levels.microphoneLevel, 0)
         XCTAssertEqual(levels.incomingLevel, 0)
         XCTAssertFalse(levels.incomingIsLive(now: Date(timeIntervalSince1970: 11)))
+    }
+
+    func testWriterReportsRecordingLevelsAsynchronously() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-writer-async-level-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            sharedMemoryFactory: { nil },
+            recordMicrophone: false
+        )
+
+        _ = try await writer.startAsync(
+            sessionId: "session-async-levels",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        let isRecording = await writer.isRecordingAsync()
+        let levels = await writer.currentLevelsAsync(now: Date(timeIntervalSince1970: 11))
+        _ = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        XCTAssertTrue(isRecording)
+        XCTAssertTrue(levels.isRecording)
+        XCTAssertEqual(levels.microphoneLevel, 0)
+        XCTAssertEqual(levels.incomingLevel, 0)
     }
 }
 

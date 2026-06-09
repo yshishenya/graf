@@ -2888,3 +2888,56 @@
 - Acceptance impact:
   - This makes #309/#308 evidence collection harder to accidentally overstate.
     It does not close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 Async Meter Polling UI Responsiveness Review
+
+- Timestamp: `2026-06-09T03:29:10Z`
+- Commit before change: `cbd26cc`
+- Scope: UI responsiveness during recording start/stop and live meter polling.
+- Finding:
+  - `CaptureControlView` meter updates were triggered by a SwiftUI timer every
+    0.2 seconds on the main actor.
+  - The timer and local status text could call `LocalRecordingWriter.isRecording`
+    or `LocalRecordingWriter.currentLevels()` synchronously.
+  - Those writer methods used `queue.sync`; if the writer queue was busy
+    starting, stopping, draining samples, padding silence, or closing WAV files,
+    the main actor could wait and the interface could appear delayed or frozen.
+- Fix:
+  - Added async `LocalRecordingWriter.isRecordingAsync()` and
+    `LocalRecordingWriter.currentLevelsAsync()` APIs that dispatch onto the
+    writer queue without blocking the caller thread.
+  - `TwoBrainRecApp` now tracks `localRecordingActive` as UI state instead of
+    asking the writer synchronously from render/status paths.
+  - Meter polling now uses a single in-flight async task and ignores stale
+    results if the writer instance changed or recording entered start/stop.
+  - Meters are reset to inactive immediately during start failure, Stop, and app
+    exit finalization, so UI does not show stale audio while local finalization
+    is still running.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the new
+    async writer-level tests on this CLT host. Full XCTest execution remains
+    unavailable because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - Fresh packaged app build and launch passed with visible `2brain Rec` window.
+  - Post-fix idle CPU passed with `sampleCount=5`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.10`, one app
+    process, and `halProbeObserved=false`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Post-fix quit CPU passed with `sampleCount=5`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, zero
+    app/helper processes, and `halProbeObserved=false`.
+  - App log showed fresh launch, visible main window, auto route skipped by
+    default, termination cleanup completed, and passthrough stopped.
+  - Static scan found no direct UI timer/render call site for
+    `localRecordingWriter.isRecording` or `localRecordingWriter.currentLevels()`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only: five permission rows,
+    five artifact rows, development 30-minute run, release 75-minute run,
+    activeRecording CPU, and stop CPU.
+- Acceptance impact:
+  - This reduces UI freeze risk while recording startup/stop and local WAV
+    finalization are running. It does not close #307, #308, #309 active/stop,
+    #310, #311, or #313.

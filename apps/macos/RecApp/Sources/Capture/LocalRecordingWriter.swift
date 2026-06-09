@@ -188,26 +188,44 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         queue.sync { active != nil }
     }
 
-    public func currentLevels(now: Date = Date()) -> LiveRecordingLevels {
-        queue.sync {
-            guard let active else { return .inactive }
-            var microphoneLevel = active.lastMicrophoneLevel
-            var microphoneUpdatedAt = active.lastMicrophoneFrameAt
-            if let recorder = active.microphoneRecorder, recorder.isRecording {
-                recorder.updateMeters()
-                microphoneLevel = Self.normalizedPower(recorder.averagePower(forChannel: 0))
-                microphoneUpdatedAt = now
-                active.lastMicrophoneLevel = microphoneLevel
-                active.lastMicrophoneFrameAt = now
+    public func isRecordingAsync() async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.active != nil)
             }
-            return LiveRecordingLevels(
-                isRecording: true,
-                microphoneLevel: microphoneLevel,
-                incomingLevel: active.lastIncomingLevel,
-                microphoneUpdatedAt: microphoneUpdatedAt,
-                incomingUpdatedAt: active.lastIncomingFrameAt
-            )
         }
+    }
+
+    public func currentLevels(now: Date = Date()) -> LiveRecordingLevels {
+        queue.sync { currentLevelsOnQueue(now: now) }
+    }
+
+    public func currentLevelsAsync(now: Date = Date()) async -> LiveRecordingLevels {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.currentLevelsOnQueue(now: now))
+            }
+        }
+    }
+
+    private func currentLevelsOnQueue(now: Date) -> LiveRecordingLevels {
+        guard let active else { return .inactive }
+        var microphoneLevel = active.lastMicrophoneLevel
+        var microphoneUpdatedAt = active.lastMicrophoneFrameAt
+        if let recorder = active.microphoneRecorder, recorder.isRecording {
+            recorder.updateMeters()
+            microphoneLevel = Self.normalizedPower(recorder.averagePower(forChannel: 0))
+            microphoneUpdatedAt = now
+            active.lastMicrophoneLevel = microphoneLevel
+            active.lastMicrophoneFrameAt = now
+        }
+        return LiveRecordingLevels(
+            isRecording: true,
+            microphoneLevel: microphoneLevel,
+            incomingLevel: active.lastIncomingLevel,
+            microphoneUpdatedAt: microphoneUpdatedAt,
+            incomingUpdatedAt: active.lastIncomingFrameAt
+        )
     }
 
     public func start(
