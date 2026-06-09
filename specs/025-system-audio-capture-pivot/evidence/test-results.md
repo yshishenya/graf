@@ -2585,3 +2585,54 @@
 - Acceptance impact:
   - This reduces the risk of UI freeze during Stop and app termination cleanup.
     It does not close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 System Audio Start Timeout Review
+
+- Timestamp: `2026-06-09T02:23:46Z`
+- Commit before change: `2b11c31`
+- Scope: recording start responsiveness when ScreenCaptureKit/system-audio
+  runtime start is slow, hung, or never returns.
+- Finding:
+  - `SystemAudioCaptureService.start()` awaited `runtime.start()` without a
+    timeout.
+  - If the ScreenCaptureKit runtime hung during start, the SwiftUI main thread
+    could still process events, but the Record flow would remain stuck with
+    `recordingStartInProgress=true` and no accepted recording session.
+  - A timeout must not leave a late-started runtime stream alive without an
+    active service session.
+- Fix:
+  - Added `runtimeStartTimeoutSeconds` with a default 10-second safety window.
+  - Start now returns `runtimeStartFailed` when runtime start exceeds the
+    timeout, without creating `activeSession`.
+  - Timeout cleanup calls `runtime.stop()` immediately.
+  - If the delayed `runtime.start()` later succeeds after the timeout, the
+    detached start task also calls `runtime.stop()` so a late ScreenCaptureKit
+    stream cannot remain alive outside service ownership.
+  - Added regression coverage for a slow-starting runtime: start fails fast,
+    service is not left running, and both timeout and late-start cleanup stops
+    are observed.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the updated package
+    test bundle on this CLT host, including the new slow-start timeout test.
+  - Full `xcrun xctest` execution remains unavailable because `xcode-select -p`
+    is `/Library/Developer/CommandLineTools` and `xcrun --find xctest` exits
+    72.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed after the change.
+  - Preflight idle CPU passed with `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.10`, and one app process.
+  - Preflight quit CPU passed with zero app/helper processes.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Latest app log showed packaged app launch, visible main window, auto route
+    skipped by default, termination cleanup completed, and passthrough engine
+    stopped; no app crash or hang marker appeared in the reviewed tail.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This reduces the risk that Record remains stuck forever when system-audio
+    runtime start misbehaves. It does not close #307, #308, #309 active/stop,
+    #310, #311, or #313.

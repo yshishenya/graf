@@ -65,6 +65,7 @@ public actor SystemAudioCaptureService {
     private static let captureChannelCount = 2
 
     private let runtime: SystemAudioCaptureRuntime
+    private let runtimeStartTimeoutSeconds: TimeInterval
     private let runtimeStopTimeoutSeconds: TimeInterval
     public nonisolated let incomingSampleSource: LocalRecordingSampleSource
     private let bufferedSampleSource: BufferedLocalRecordingSampleSource
@@ -73,10 +74,12 @@ public actor SystemAudioCaptureService {
     public init(
         runtime: SystemAudioCaptureRuntime? = nil,
         sampleSource: BufferedLocalRecordingSampleSource = BufferedLocalRecordingSampleSource(),
+        runtimeStartTimeoutSeconds: TimeInterval = 10,
         runtimeStopTimeoutSeconds: TimeInterval = 2
     ) {
         self.bufferedSampleSource = sampleSource
         self.incomingSampleSource = sampleSource
+        self.runtimeStartTimeoutSeconds = runtimeStartTimeoutSeconds
         self.runtimeStopTimeoutSeconds = runtimeStopTimeoutSeconds
         self.runtime = runtime ?? Self.makeDefaultRuntime(sampleSource: sampleSource)
     }
@@ -102,9 +105,11 @@ public actor SystemAudioCaptureService {
         }
 
         bufferedSampleSource.reset()
-        do {
-            try await runtime.start()
-        } catch {
+        let startCompleted = await Self.startRuntime(
+            runtime,
+            timeoutSeconds: runtimeStartTimeoutSeconds
+        )
+        guard startCompleted else {
             throw SystemAudioCaptureServiceError.runtimeStartFailed
         }
 
@@ -120,6 +125,40 @@ public actor SystemAudioCaptureService {
         )
         activeSession = session
         return session
+    }
+
+    private nonisolated static func startRuntime(
+        _ runtime: SystemAudioCaptureRuntime,
+        timeoutSeconds: TimeInterval
+    ) async -> Bool {
+        guard timeoutSeconds > 0 else {
+            do {
+                try await runtime.start()
+                return true
+            } catch {
+                return false
+            }
+        }
+
+        let completion = RuntimeStartCompletion()
+        Task.detached {
+            do {
+                try await runtime.start()
+                let accepted = completion.complete(true)
+                if !accepted {
+                    await runtime.stop()
+                }
+            } catch {
+                completion.complete(false)
+            }
+        }
+        let completed = await completion.wait(timeoutSeconds: timeoutSeconds)
+        if !completed {
+            Task.detached {
+                await runtime.stop()
+            }
+        }
+        return completed
     }
 
     public func appendIncomingSamples(_ samples: [Float], at date: Date = Date()) {
@@ -216,6 +255,45 @@ public actor SystemAudioCaptureService {
     private nonisolated static func frameCount(forSampleCount sampleCount: Int) -> Int64 {
         guard sampleCount > 0 else { return 0 }
         return Int64((sampleCount + captureChannelCount - 1) / captureChannelCount)
+    }
+}
+
+private final class RuntimeStartCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    func wait(timeoutSeconds: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if completed {
+                lock.unlock()
+                continuation.resume(returning: true)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds) {
+                self.complete(false)
+            }
+        }
+    }
+
+    @discardableResult
+    func complete(_ result: Bool) -> Bool {
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return false
+        }
+        completed = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        continuation?.resume(returning: result)
+        return true
     }
 }
 

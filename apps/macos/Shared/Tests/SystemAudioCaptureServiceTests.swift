@@ -147,6 +147,32 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(stopped.lastFrameAt, nil)
         XCTAssertEqual(stopped.failureReason, .noFrames)
     }
+
+    func testStartTimeoutFailsFastAndDoesNotLeaveServiceRunning() async throws {
+        let runtime = SlowStartingSystemAudioRuntime(startDelaySeconds: 0.2)
+        let service = SystemAudioCaptureService(
+            runtime: runtime,
+            runtimeStartTimeoutSeconds: 0.05
+        )
+
+        let startedAt = Date()
+        do {
+            _ = try await service.start(
+                sessionId: "session",
+                permissionState: .granted,
+                scopeApproval: approvedScope()
+            )
+            XCTFail("Slow runtime start should fail with runtimeStartFailed")
+        } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+            let elapsed = Date().timeIntervalSince(startedAt)
+            XCTAssertLessThan(elapsed, 1)
+            XCTAssertFalse(await service.isRunning)
+        }
+
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        XCTAssertEqual(runtime.startCount, 1)
+        XCTAssertEqual(runtime.stopCount, 2)
+    }
 }
 
 private func approvedScope() -> CaptureScopeApproval {
@@ -170,6 +196,42 @@ private final class FakeSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecke
 
     func stop() async {
         didStop = true
+    }
+}
+
+private final class SlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    private let startDelaySeconds: TimeInterval
+    private let lock = NSLock()
+    private var protectedStartCount = 0
+    private var protectedStopCount = 0
+
+    init(startDelaySeconds: TimeInterval) {
+        self.startDelaySeconds = startDelaySeconds
+    }
+
+    var startCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return protectedStartCount
+    }
+
+    var stopCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return protectedStopCount
+    }
+
+    func start() async throws {
+        lock.lock()
+        protectedStartCount += 1
+        lock.unlock()
+        try? await Task.sleep(nanoseconds: UInt64(startDelaySeconds * 1_000_000_000))
+    }
+
+    func stop() async {
+        lock.lock()
+        protectedStopCount += 1
+        lock.unlock()
     }
 }
 #endif
