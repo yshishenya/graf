@@ -2030,3 +2030,58 @@
   controlled artifact validation, active/stop CPU gate for a real recording,
   30-minute development run, 75-minute manual release run, and final scope
   review.
+
+## 2026-06-09 ScreenCaptureKit Late Stop Race Hardening
+
+- Feature: `025-system-audio-capture-pivot`
+- Scope: repeated recording safety after a runtime stop timeout or slow
+  ScreenCaptureKit stop completion.
+- Code review finding:
+  - The timeout hardening allowed the service to recover from a slow runtime
+    stop, but `ScreenCaptureKitSystemAudioRuntime.stop()` still cleared
+    `self.stream` after awaiting `stopCapture()`.
+  - If a user started another recording before the previous `stopCapture()`
+    returned, the late completion from the old stream could clear the new
+    stream reference.
+  - Late audio callbacks from an old stream also needed an identity guard so
+    stale system-audio samples cannot contaminate a later recording buffer.
+- Code review fix:
+  - `ScreenCaptureKitSystemAudioRuntime` now protects `stream` with a lock.
+  - `stop()` clears the current stream only when the stopped stream is still the
+    current stream.
+  - Audio output callbacks are accepted only when the callback stream matches
+    the current stream.
+  - Added service-level regression coverage proving a new session remains
+    running after a late runtime stop completion from the previous session.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked
+    `TwoBrainRecMacOSPackageTests`, including the added late-stop regression;
+    full XCTest execution is not available in this Command Line Tools host
+    because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed with
+    `checkedFiles=9`.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --installer-app-only`
+    passed.
+  - Packaged app launched from
+    `apps/macos/RecApp/.build/2brain Rec.app`; AppLog recorded
+    `mainWindowVisible=true`, `activeSpace=true`, and `occlusion=8192`.
+  - Runtime snapshot after launch showed app CPU `0.0` and `coreaudiod` CPU
+    `0.0`.
+  - `apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle` passed with
+    `maxCoreaudiodCpuPercent=0.00` and `maxAppHelperCpuPercent=0.10`.
+  - Quit cleanup logged `app_termination_cleanup_completed` and
+    `passthrough_bridge_stopped`.
+  - `SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0 SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1 apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit`
+    passed with `maxAppProcessCount=0`.
+  - `log show --last 5m` for `2brain Rec` error/fault/crash/hang/exception
+    predicates returned no app entries.
+  - `pmset -g therm` reported no thermal or performance warning level.
+- Result: passed for code review fix, build, contract, no-HAL, app-only
+  installer, packaged app lifecycle, idle CPU, quit CPU, log scan, and thermal
+  smoke.
+- Remaining gates not completed by this automated slice: permission matrix,
+  controlled artifact validation, active/stop CPU gate for a real recording,
+  30-minute development run, 75-minute manual release run, and final scope
+  review.

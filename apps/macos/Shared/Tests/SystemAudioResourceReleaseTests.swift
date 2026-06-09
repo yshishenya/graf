@@ -106,6 +106,31 @@ final class SystemAudioResourceReleaseTests: XCTestCase {
         XCTAssertEqual(released?.failureReason, .captureFailed)
         XCTAssertEqual(runtime.stopCount, 1)
     }
+
+    func testLateRuntimeStopCompletionDoesNotClearNextSessionState() async throws {
+        let runtime = SlowStoppingSystemAudioRuntime(stopDelaySeconds: 0.2)
+        let service = SystemAudioCaptureService(
+            runtime: runtime,
+            runtimeStopTimeoutSeconds: 0.01
+        )
+
+        _ = try await service.start(
+            sessionId: "first",
+            permissionState: .granted,
+            scopeApproval: resourceReleaseScope()
+        )
+        _ = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 2))
+        _ = try await service.start(
+            sessionId: "second",
+            permissionState: .granted,
+            scopeApproval: resourceReleaseScope()
+        )
+        try? await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertTrue(await service.isRunning)
+        XCTAssertEqual(runtime.startCount, 2)
+        XCTAssertEqual(runtime.stopCount, 1)
+    }
 }
 
 private func resourceReleaseScope() -> CaptureScopeApproval {
@@ -135,10 +160,17 @@ private final class CountingSystemAudioRuntime: SystemAudioCaptureRuntime, @unch
 private final class SlowStoppingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
     private let stopDelaySeconds: TimeInterval
     private let lock = NSLock()
+    private var protectedStartCount = 0
     private var protectedStopCount = 0
 
     init(stopDelaySeconds: TimeInterval) {
         self.stopDelaySeconds = stopDelaySeconds
+    }
+
+    var startCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return protectedStartCount
     }
 
     var stopCount: Int {
@@ -147,7 +179,11 @@ private final class SlowStoppingSystemAudioRuntime: SystemAudioCaptureRuntime, @
         return protectedStopCount
     }
 
-    func start() async throws {}
+    func start() async throws {
+        lock.lock()
+        protectedStartCount += 1
+        lock.unlock()
+    }
 
     func stop() async {
         lock.lock()

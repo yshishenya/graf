@@ -260,6 +260,7 @@ private final class RuntimeStopCompletion: @unchecked Sendable {
 public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCaptureRuntime, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let sampleHandler: @Sendable ([Float]) -> Void
     private let outputQueue = DispatchQueue(label: "pro.2brain.rec.screencapturekit.audio", qos: .userInitiated)
+    private let streamLock = NSLock()
     private var stream: SCStream?
 
     public init(sampleHandler: @escaping @Sendable ([Float]) -> Void) {
@@ -290,13 +291,13 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
         try await stream.startCapture()
-        self.stream = stream
+        setCurrentStream(stream)
     }
 
     public func stop() async {
-        guard let stream else { return }
+        guard let stream = currentStream() else { return }
         try? await stream.stopCapture()
-        self.stream = nil
+        clearCurrentStreamIfSame(stream)
     }
 
     public func stream(
@@ -305,9 +306,36 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         of outputType: SCStreamOutputType
     ) {
         guard outputType == .audio else { return }
+        guard isCurrentStream(stream) else { return }
         let samples = SystemAudioSampleExtractor.extractFloatSamples(from: sampleBuffer)
         guard !samples.isEmpty else { return }
         sampleHandler(samples)
+    }
+
+    private func currentStream() -> SCStream? {
+        streamLock.lock()
+        defer { streamLock.unlock() }
+        return stream
+    }
+
+    private func setCurrentStream(_ stream: SCStream) {
+        streamLock.lock()
+        self.stream = stream
+        streamLock.unlock()
+    }
+
+    private func clearCurrentStreamIfSame(_ stream: SCStream) {
+        streamLock.lock()
+        if self.stream === stream {
+            self.stream = nil
+        }
+        streamLock.unlock()
+    }
+
+    private func isCurrentStream(_ stream: SCStream) -> Bool {
+        streamLock.lock()
+        defer { streamLock.unlock() }
+        return self.stream === stream
     }
 }
 #endif
