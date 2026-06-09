@@ -97,4 +97,9 @@ Each gate records:
 - stop/quit release result;
 - final verdict.
 
+Accepted duration rows must include metadata-only traceability tokens in the
+row notes: `scope=`, `device=`, `artifact=`, `cpu=`, `micDuration=`,
+`incomingDuration=`, `durationDifferenceSeconds=`, `responsiveness=`, and
+`release=`.
+
 Blocked, failed, degraded, or not-tested rows must not be counted as accepted.

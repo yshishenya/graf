@@ -283,6 +283,7 @@ count_accepted_duration_rows() {
             responsiveness = $9
             release = $10
             result = $11
+            notes = $12
             if (duration == minutes " minutes" &&
                 scope == "passed" &&
                 mic == "passed" &&
@@ -291,7 +292,16 @@ count_accepted_duration_rows() {
                 cpu == "passed" &&
                 responsiveness == "passed" &&
                 release == "passed" &&
-                result == "passed") {
+                result == "passed" &&
+                index(notes, "scope=") > 0 &&
+                index(notes, "device=") > 0 &&
+                index(notes, "artifact=") > 0 &&
+                index(notes, "cpu=") > 0 &&
+                index(notes, "micDuration=") > 0 &&
+                index(notes, "incomingDuration=") > 0 &&
+                index(notes, "durationDifferenceSeconds=") > 0 &&
+                index(notes, "responsiveness=") > 0 &&
+                index(notes, "release=") > 0) {
                 count += 1
             }
         }
@@ -696,12 +706,13 @@ self_test_duration_evidence() {
     cat > "$temp_file" <<'EOF'
 | Run | Duration | Scope | mic.wav | incoming.wav | Alignment | CPU Gate | Responsiveness | Stop/Quit Release | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| accepted-30 | 30 minutes | passed | passed | passed | passed | passed | passed | passed | passed | accepted synthetic row |
+| accepted-30 | 30 minutes | passed | passed | passed | passed | passed | passed | passed | passed | scope=Display-1 device=Mac15,10 artifact=synthetic-accepted cpu=synthetic-cpu micDuration=1800s incomingDuration=1800s durationDifferenceSeconds=0 responsiveness=passed release=passed |
 | wrong-duration | 29 minutes | passed | passed | passed | passed | passed | passed | passed | passed | wrong duration |
 | failed-cpu | 30 minutes | passed | passed | passed | passed | failed | passed | passed | passed | failed CPU |
 | not-tested-release | 30 minutes | passed | passed | passed | passed | passed | passed | not-tested | passed | incomplete release |
 | failed-result | 30 minutes | passed | passed | passed | passed | passed | passed | passed | failed | failed result |
-| accepted-75 | 75 minutes | passed | passed | passed | passed | passed | passed | passed | passed | accepted synthetic release row |
+| passed-without-traceability | 30 minutes | passed | passed | passed | passed | passed | passed | passed | passed | missing traceability tokens |
+| accepted-75 | 75 minutes | passed | passed | passed | passed | passed | passed | passed | passed | scope=Display-1 device=Mac15,10 artifact=synthetic-release cpu=synthetic-cpu micDuration=4500s incomingDuration=4500s durationDifferenceSeconds=0 responsiveness=passed release=passed |
 EOF
 
     accepted_30="$(count_accepted_duration_rows "$temp_file" 30)"
@@ -1100,6 +1111,11 @@ meeting content, credentials, tokens, signed URLs, or personal contact details.
 | pending | ${minutes} minutes | not-tested | not-tested | not-tested | not-tested | not-tested | not-tested | not-tested | not-tested | Manual validation pending |
 
 Blocked, failed, degraded, and not-tested rows are not acceptance.
+
+Accepted rows must include metadata-only traceability tokens in Notes:
+\`scope=\`, \`device=\`, \`artifact=\`, \`cpu=\`, \`micDuration=\`,
+\`incomingDuration=\`, \`durationDifferenceSeconds=\`, \`responsiveness=\`,
+and \`release=\`.
 EOF
     fi
 }

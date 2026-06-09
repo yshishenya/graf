@@ -5044,3 +5044,58 @@
   - This hardens #309 and #313 by ensuring active/stop CPU evidence is tied to
     fresh app-local recording lifecycle events. It does not close #309 because
     real manual Record/Stop CPU rows are still required.
+
+## 2026-06-09 Duration Evidence Traceability Review
+
+- Timestamp: `2026-06-09T09:01:37Z`
+- Commit before change: `e01db77`
+- Scope: 30-minute and 75-minute duration evidence acceptance for `#310/T074`
+  and `#311/T075`.
+- Finding:
+  - Duration evidence validation already required a row with 30 or 75 minutes
+    and all result columns set to `passed`.
+  - The row did not need machine-readable traceability in `Notes`.
+  - A future manual row could therefore look accepted without tying the duration
+    verdict back to the actual scope, device, artifact, CPU evidence, durations,
+    responsiveness, and release evidence.
+- Fix:
+  - `count_accepted_duration_rows` now requires accepted rows to include these
+    metadata-only `Notes` tokens: `scope=`, `device=`, `artifact=`, `cpu=`,
+    `micDuration=`, `incomingDuration=`, `durationDifferenceSeconds=`,
+    `responsiveness=`, and `release=`.
+  - `--self-test-duration-evidence` now includes a `passed` 30-minute row with
+    missing traceability tokens and proves it is not counted.
+  - `development-30-minute.md`, `release-75-minute.md`, and
+    `contracts/validation-evidence-contract.md` now document the traceability
+    requirement.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-duration-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --duration-minutes 30`
+    remains blocked as expected because the real 30-minute run is still pending.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --duration-minutes 75 --manual-release`
+    remains blocked as expected because the real 75-minute run is still pending.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.70`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #310, #311, and #313 by making sustained-run acceptance
+    traceable. It does not close #310 or #311 because the real sustained manual
+    runs are still required.

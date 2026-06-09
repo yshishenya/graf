@@ -11,6 +11,11 @@ meeting content, credentials, tokens, signed URLs, or personal contact details.
 
 Blocked, failed, degraded, and not-tested rows are not acceptance.
 
+Accepted rows must include metadata-only traceability tokens in Notes:
+`scope=`, `device=`, `artifact=`, `cpu=`, `micDuration=`,
+`incomingDuration=`, `durationDifferenceSeconds=`, `responsiveness=`, and
+`release=`.
+
 ## 2026-06-08 Metadata Validator Run
 
 - Run ID: `20260608T174858Z`
@@ -64,6 +69,18 @@ Blocked, failed, degraded, and not-tested rows are not acceptance.
 - Run ID: `20260609T052528Z`
 - Timestamp: `2026-06-09T05:25:28Z`
 - Commit: `62616bb`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--duration-minutes 30`
+- Validator result: `blocked`
+- Reason: Real sustained recording run is still required before acceptance.
+- Safe checks: evidence file exists; not-tested rows are not counted as acceptance.
+
+## Metadata Validator Run
+
+- Run ID: `20260609T090022Z`
+- Timestamp: `2026-06-09T09:00:22Z`
+- Commit: `e01db77`
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--duration-minutes 30`
