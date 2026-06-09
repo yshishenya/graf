@@ -482,12 +482,16 @@ private struct ContentView: View {
 
     @MainActor
     private func releaseCaptureResourcesForAppExit() async {
-        _ = await systemAudioCaptureService.releaseForTermination()
-        await finalizeLocalRecordingForAppExit()
+        let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
+        await finalizeLocalRecordingForAppExit(
+            failureReason: releasedSystemAudioSession?.failureReason ?? .none
+        )
     }
 
     @MainActor
-    private func finalizeLocalRecordingForAppExit() async {
+    private func finalizeLocalRecordingForAppExit(
+        failureReason: LocalRecordingFailureReason = .none
+    ) async {
         guard await localRecordingWriter.isRecordingAsync() else {
             return
         }
@@ -495,12 +499,12 @@ private struct ContentView: View {
         localRecordingActive = false
         liveRouteSignalLevels = .inactive
         do {
-            let manifest = try await localRecordingWriter.stopAsync()
+            let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
             localRecordingManifest = manifest
             localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
-                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release"
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release failureReason=\(manifest.failureReason.rawValue)"
             )
         } catch {
             AppLog.writeRaw(

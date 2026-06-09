@@ -4621,3 +4621,59 @@
     whenever capture failure truth exists. It does not close #308 or #313
     because accepted controlled artifact evidence and final manual review are
     still required.
+
+## 2026-06-09 App Exit Cleanup Failure Truth Review
+
+- Timestamp: `2026-06-09T08:08:30Z`
+- Commit before change: `07df98d`
+- Scope: App termination cleanup while a recording is active and system-audio
+  release reports a failure reason.
+- Finding:
+  - `releaseCaptureResourcesForAppExit()` called
+    `systemAudioCaptureService.releaseForTermination()` but discarded the
+    returned session.
+  - `finalizeLocalRecordingForAppExit()` then called
+    `localRecordingWriter.stopAsync()` without passing the released
+    system-audio `failureReason`.
+  - This meant app-exit finalization could lose system-audio failure truth in
+    the local manifest even though start-failure and stop-failure cleanup paths
+    already preserved that truth.
+- Fix:
+  - `releaseCaptureResourcesForAppExit()` now passes
+    `releasedSystemAudioSession?.failureReason ?? .none` into
+    `finalizeLocalRecordingForAppExit(failureReason:)`.
+  - `finalizeLocalRecordingForAppExit()` now calls
+    `localRecordingWriter.stopAsync(failureReason:)`.
+  - App-exit cleanup logging now includes
+    `failureReason=<manifest.failureReason>`.
+  - `ContractValidation` now includes a source invariant for the app-exit
+    cleanup path, matching the existing start/stop cleanup invariants.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` compiled and linked the test bundle;
+    full XCTest execution remains unavailable because `xcrun --find xctest`
+    exits `72` under `/Library/Developer/CommandLineTools`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.34`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #308 and #313 by preserving manifest failure truth on app
+    termination cleanup. It does not close #308 or #313 because accepted
+    controlled artifact evidence and final manual review are still required.

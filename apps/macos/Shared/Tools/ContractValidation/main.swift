@@ -926,8 +926,19 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
         "App start failure cleanup must preserve system-audio stop failure truth"
     )
     try require(
+        source.contains("private func releaseCaptureResourcesForAppExit() async") &&
+            source.contains("let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()") &&
+            source.contains("await finalizeLocalRecordingForAppExit(") &&
+            source.contains("failureReason: releasedSystemAudioSession?.failureReason ?? .none"),
+        "App exit cleanup must preserve system-audio termination failure truth"
+    )
+    try require(
         source.contains("try await localRecordingWriter.stopAsync(failureReason: failureReason)"),
         "Local failure finalization must pass forced failure reason into manifest creation"
+    )
+    try require(
+        source.contains("failureReason=\\(manifest.failureReason.rawValue)"),
+        "App cleanup logging must include manifest failureReason"
     )
     try require(
         source.contains("localRecordingActive = false") &&
