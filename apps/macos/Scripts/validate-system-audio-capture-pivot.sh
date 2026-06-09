@@ -228,7 +228,7 @@ validate_permission_matrix() {
             fail_invalid "permission matrix is missing required row: $phrase"
     done
 
-    append_run_header "$PERMISSION_MATRIX" "2026-06-08 Metadata Validator Run"
+    append_run_header "$PERMISSION_MATRIX" "Metadata Validator Run"
     {
         printf -- '- Mode: `--permission-matrix`\n'
         printf -- '- Validator result: `blocked`\n'
@@ -259,7 +259,7 @@ validate_artifact_matrix() {
             fail_invalid "artifact matrix is missing required row: $phrase"
     done
 
-    append_run_header "$ARTIFACT_MATRIX" "2026-06-08 Metadata Validator Run"
+    append_run_header "$ARTIFACT_MATRIX" "Metadata Validator Run"
     {
         printf -- '- Mode: `--artifact-matrix`\n'
         printf -- '- Validator result: `blocked`\n'
@@ -295,7 +295,7 @@ validate_artifact_directory() {
     check_jq() {
         expression="$1"
         message="$2"
-        if ! jq -e "$expression" "$manifest" >/dev/null; then
+        if ! jq -e "$expression" "$manifest" >/dev/null 2>/dev/null; then
             printf '%s\n' "$message" >> "$failure_file"
         fi
     }
@@ -325,7 +325,7 @@ validate_artifact_directory() {
     artifact_mode="${SYSTEM_AUDIO_CAPTURE_PIVOT_ARTIFACT_MODE:---artifact-directory}"
 
     if [ "$append_evidence" != "1" ]; then
-        append_run_header "$ARTIFACT_MATRIX" "2026-06-08 Artifact Directory Validator Run"
+        append_run_header "$ARTIFACT_MATRIX" "Artifact Directory Validator Run"
         {
             printf -- '- Mode: `%s`\n' "$artifact_mode"
             printf -- '- Directory ID: `%s`\n' "$directory_id"
@@ -514,7 +514,7 @@ validate_duration() {
 
     mkdir -p "$EVIDENCE_DIR"
     ensure_duration_file "$path" "$minutes" "$title"
-    append_run_header "$path" "2026-06-08 Metadata Validator Run"
+    append_run_header "$path" "Metadata Validator Run"
     {
         printf -- '- Mode: `--duration-minutes %s%s`\n' "$minutes" "$( [ "$manual_release" = true ] && printf ' --manual-release' || true )"
         printf -- '- Validator result: `blocked`\n'
@@ -557,7 +557,7 @@ validate_installer_app_only() {
         printf '%s\n' "distribution.xml contains audio-driver package references" >> "$failure_file"
     fi
 
-    append_run_header "$DRIVER_PARKED" "2026-06-09 App-Only Installer Validator Run"
+    append_run_header "$DRIVER_PARKED" "App-Only Installer Validator Run"
     {
         printf -- '- Mode: `--installer-app-only`\n'
         printf -- '- Package: `%s`\n' "$package"

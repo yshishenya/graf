@@ -22,3 +22,15 @@ Blocked, failed, degraded, and not-tested rows are not acceptance.
 - Validator result: `blocked`
 - Reason: Real sustained recording run is still required before acceptance.
 - Safe checks: evidence file exists; not-tested rows are not counted as acceptance.
+
+## Metadata Validator Run
+
+- Run ID: `20260609T012803Z`
+- Timestamp: `2026-06-09T01:28:03Z`
+- Commit: `6395360`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--duration-minutes 75 --manual-release`
+- Validator result: `blocked`
+- Reason: Real sustained recording run is still required before acceptance.
+- Safe checks: evidence file exists; not-tested rows are not counted as acceptance.
