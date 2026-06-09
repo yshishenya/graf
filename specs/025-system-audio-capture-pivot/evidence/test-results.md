@@ -3160,3 +3160,42 @@
 - Acceptance impact:
   - This reduces partial local-writer leak risk in a rare failed-start edge
     case. It does not close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 Manual Gate Log Freshness Review
+
+- Timestamp: `2026-06-09T04:01:24Z`
+- Commit before change: `c626768`
+- Scope: `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`.
+- Finding:
+  - The manual gate waited for `recording.started` and stop/local-recording log
+    events by timestamp, but scanned the whole app log on every poll.
+  - That was close to correct, but it could still accept a log line already
+    present in the file after the step's timestamp boundary instead of proving
+    the event was appended during the current Record/Stop prompt.
+- Fix:
+  - Added an app-log byte-offset guard before the Record prompt and before the
+    Stop prompt.
+  - The gate now waits only on lines appended after each prompt begins, while
+    still preserving the timestamp filter.
+  - The script prints `logOffsetBytes` in wait diagnostics so a blocked run is
+    easier to audit.
+- Validation:
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh` passed.
+  - A synthetic temporary-log check proved that a line before the saved offset
+    is ignored and a matching appended line after the offset is observed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed: app-only package boundary passed, packaged app launched, idle CPU
+    passed, quit CPU passed, and thermal state reported no warning.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+  - `git diff --check` passed.
+- Acceptance impact:
+  - This makes #309/#313 evidence collection stricter and less prone to stale
+    log false positives. It does not close #307, #308, #309 active/stop, #310,
+    #311, or #313.

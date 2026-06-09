@@ -31,10 +31,11 @@ Steps performed:
   2. record baseline CPU;
   3. launch the packaged app bundle from the repo and verify the app process;
   4. wait for the tester to press Record with controlled non-sensitive audio
-     and for a fresh app-local recording.started log event;
+     and for a fresh app-local recording.started log event appended after the
+     prompt begins;
   5. record activeRecording CPU;
   6. wait for the tester to press Stop and for a fresh app-local stop/local
-     recording log event;
+     recording log event appended after the prompt begins;
   7. record stop CPU;
   8. validate the newest local recording artifact metadata-only, limited to
      artifacts modified after this harness started;
@@ -82,19 +83,46 @@ line_has_event_since_epoch() {
   printf '%s\n' "$line" | grep -E "$pattern" >/dev/null 2>&1
 }
 
+app_log_byte_count() {
+  [ -f "$APP_LOG" ] || {
+    printf '%s' 0
+    return
+  }
+  wc -c < "$APP_LOG" | tr -d ' '
+}
+
 app_log_has_event_since_epoch() {
   pattern="$1"
   since_epoch="$2"
+  log_offset="${3:-0}"
 
   [ -f "$APP_LOG" ] || return 1
+  current_size="$(app_log_byte_count)"
+  case "$log_offset" in
+    *[!0-9]*|"") log_offset=0 ;;
+  esac
+  case "$current_size" in
+    *[!0-9]*|"") current_size=0 ;;
+  esac
+  if [ "$current_size" -lt "$log_offset" ]; then
+    log_offset=0
+  fi
+  start_byte=$((log_offset + 1))
+  log_slice="$(mktemp)"
+  tail -c +"$start_byte" "$APP_LOG" > "$log_slice" 2>/dev/null || {
+    rm -f "$log_slice"
+    return 1
+  }
 
   while IFS= read -r line; do
     if line_has_event_since_epoch "$line" "$pattern" "$since_epoch"; then
       printf '%s\n' "$line"
+      rm -f "$log_slice"
       return 0
     fi
-  done < "$APP_LOG"
+  done < "$log_slice"
 
+  rm -f "$log_slice"
   return 1
 }
 
@@ -103,12 +131,13 @@ wait_for_app_log_event_since_epoch() {
   since_epoch="$2"
   label="$3"
   timeout_seconds="${4:-20}"
+  log_offset="${5:-0}"
 
-  printf '%s\n' "waiting_for_$label=started log=$APP_LOG sinceEpoch=$since_epoch timeoutSeconds=$timeout_seconds"
+  printf '%s\n' "waiting_for_$label=started log=$APP_LOG sinceEpoch=$since_epoch logOffsetBytes=$log_offset timeoutSeconds=$timeout_seconds"
 
   remaining="$timeout_seconds"
   while [ "$remaining" -gt 0 ]; do
-    if matched_line="$(app_log_has_event_since_epoch "$pattern" "$since_epoch")"; then
+    if matched_line="$(app_log_has_event_since_epoch "$pattern" "$since_epoch" "$log_offset")"; then
       printf '%s\n' "waiting_for_$label=observed line=$matched_line"
       return 0
     fi
@@ -116,7 +145,7 @@ wait_for_app_log_event_since_epoch() {
     remaining=$((remaining - 1))
   done
 
-  printf '%s\n' "waiting_for_$label=blocked reason=app_log_event_not_observed log=$APP_LOG pattern=$pattern sinceEpoch=$since_epoch timeoutSeconds=$timeout_seconds" >&2
+  printf '%s\n' "waiting_for_$label=blocked reason=app_log_event_not_observed log=$APP_LOG pattern=$pattern sinceEpoch=$since_epoch logOffsetBytes=$log_offset timeoutSeconds=$timeout_seconds" >&2
   exit 2
 }
 
@@ -232,15 +261,17 @@ if [ "$MODE" = "--preflight" ]; then
 fi
 
 record_prompt_epoch="$(date +%s)"
+record_prompt_log_offset="$(app_log_byte_count)"
 prompt_continue "Start a controlled non-sensitive audio source, press Record System Audio in 2brain Rec, and wait until the app shows recording is active."
-wait_for_app_log_event_since_epoch "event=recording\\.started" "$record_prompt_epoch" "recording_started"
+wait_for_app_log_event_since_epoch "event=recording\\.started" "$record_prompt_epoch" "recording_started" 20 "$record_prompt_log_offset"
 
 printf '\n%s\n' "-- activeRecording CPU while recording is active --"
 apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
 
 stop_prompt_epoch="$(date +%s)"
+stop_prompt_log_offset="$(app_log_byte_count)"
 prompt_continue "Press Stop in 2brain Rec and wait until the recording status settles and the local recording status is visible."
-wait_for_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$stop_prompt_epoch" "recording_stopped_or_saved"
+wait_for_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$stop_prompt_epoch" "recording_stopped_or_saved" 20 "$stop_prompt_log_offset"
 
 printf '\n%s\n' "-- stop CPU immediately after Stop --"
 apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
