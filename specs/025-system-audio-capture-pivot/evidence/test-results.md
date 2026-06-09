@@ -3746,3 +3746,39 @@
 - Acceptance impact:
   - This hardens #313/T077 so final review cannot pass without an explicit
     scope-review record after all manual gates are complete.
+
+## 2026-06-09 Scope Review Marker Parser Review
+
+- Timestamp: `2026-06-09T05:05:10Z`
+- Commit before change: `6194692`
+- Scope: final scope-review marker parsing in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - The final scope-review markers begin with `-`.
+  - `rg -F "<pattern>"` treats a pattern starting with `-` as an option unless
+    `--` is used before the pattern.
+  - Future accepted final scope-review markers therefore would not be detected
+    reliably.
+- Fix:
+  - Added `--` to the two final marker `rg -F` checks.
+- Validation:
+  - Direct `rg -F --` regression for `- Final scope review: accepted` passed.
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates and missing final markers.
+  - `git diff --check` passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.30 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This fixes the parser for the #313/T077 final scope-review gate. It does not
+    close #313 because the manual gates remain incomplete.
