@@ -3666,3 +3666,44 @@
   - This hardens #308 and #313 against ambiguous accepted artifacts. It does
     not close #308 because real controlled artifacts still need to be recorded
     and reviewed.
+
+## 2026-06-09 Accepted Artifact Package Boundary Review
+
+- Timestamp: `2026-06-09T04:56:55Z`
+- Commit before change: `5c5f4f6`
+- Scope: accepted artifact package boundary in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - Accepted artifact validation rejected unexpected `.wav` files, but still
+    allowed other sidecar files in the recording directory.
+  - That could make an accepted package ambiguous or accidentally include
+    transcript, diagnostic, or unrelated local files next to the three required
+    artifacts.
+- Fix:
+  - Accepted artifact validation now rejects any unexpected file in the
+    artifact directory. Accepted packages must contain only `manifest.json`,
+    `mic.wav`, and `incoming.wav`.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - Synthetic valid accepted artifact passed.
+  - Synthetic artifact with an extra `.txt` sidecar was rejected as invalid.
+  - Synthetic artifact with an extra `.wav` sidecar was rejected as invalid.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by the remaining manual gates.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.09 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #308 and #313 against ambiguous or unsafe accepted artifact
+    packages. It does not close #308 because real controlled artifacts still
+    need to be recorded and reviewed.

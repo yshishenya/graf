@@ -463,9 +463,9 @@ validate_artifact_directory() {
     require_file "$manifest"
     require_file "$mic"
     require_file "$incoming"
-    extra_wav_count="$(find "$directory" -maxdepth 1 -type f -name '*.wav' ! -name 'mic.wav' ! -name 'incoming.wav' | wc -l | tr -d ' ')"
-    [ "$extra_wav_count" = "0" ] ||
-        fail_invalid "artifact directory contains unexpected wav file(s); accepted packages must contain only mic.wav and incoming.wav"
+    unexpected_file_count="$(find "$directory" -maxdepth 1 -type f ! -name 'manifest.json' ! -name 'mic.wav' ! -name 'incoming.wav' | wc -l | tr -d ' ')"
+    [ "$unexpected_file_count" = "0" ] ||
+        fail_invalid "artifact directory contains unexpected file(s); accepted packages must contain only manifest.json, mic.wav, and incoming.wav"
     command -v jq >/dev/null 2>&1 || fail_invalid "jq is required for artifact manifest validation"
     jq empty "$manifest" >/dev/null 2>&1 || fail_invalid "manifest.json is not valid JSON"
 
