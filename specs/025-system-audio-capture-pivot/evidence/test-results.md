@@ -2836,3 +2836,55 @@
 - Acceptance impact:
   - This reduces false-positive controlled artifact acceptance for malformed WAV
     files. It does not close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 Manual Gate Event Guard Review
+
+- Timestamp: `2026-06-09T03:01:31Z`
+- Commit before change: `cbea541`
+- Scope: controlled manual gate sequencing for activeRecording CPU, stop CPU,
+  and controlled artifact validation.
+- Finding:
+  - The guided manual gate asked the tester to press Enter after pressing
+    Record/Stop, but it did not require a fresh app-local recording log event
+    before sampling activeRecording or stop CPU.
+  - If Enter was pressed too early, the script could sample a running app
+    process before recording actually reached the app's started/stopped states.
+- Fix:
+  - `run-system-audio-controlled-manual-gate.sh` now waits for
+    `event=recording.started` in `~/Library/Logs/2brain Rec/2brain-rec.log`
+    after the Record prompt epoch before running activeRecording CPU.
+  - It now waits for a fresh `event=recording.stopped` or
+    `event=local_recording.saved/degraded/failed` after the Stop prompt epoch
+    before running stop CPU and artifact validation.
+  - Missing or stale log markers block the harness with exit code `2` instead
+    of silently continuing.
+- Validation:
+  - `sh -n apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh`
+    passed.
+  - Non-recording packaged app preflight passed with
+    `SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES=2`,
+    `SYSTEM_AUDIO_PREFLIGHT_CPU_INTERVAL_SECONDS=1`,
+    `SYSTEM_AUDIO_PREFLIGHT_CPU_SETTLE_SECONDS=2`, and
+    `SYSTEM_AUDIO_PREFLIGHT_QUIT_SETTLE_SECONDS=2`.
+  - Preflight baseline CPU recorded
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`.
+  - Preflight idle CPU passed with `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.10`, and one app process.
+  - Preflight quit CPU passed with zero app/helper processes and
+    `maxCoreaudiodCpuPercent=0.00`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and built the package on
+    this CLT host; full XCTest enumeration/execution remains unavailable
+    because `xcode-select -p` is `/Library/Developer/CommandLineTools` and
+    `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only: five permission rows,
+    five artifact rows, development 30-minute run, release 75-minute run,
+    activeRecording CPU, and stop CPU.
+- Acceptance impact:
+  - This makes #309/#308 evidence collection harder to accidentally overstate.
+    It does not close #307, #308, #309 active/stop, #310, #311, or #313.

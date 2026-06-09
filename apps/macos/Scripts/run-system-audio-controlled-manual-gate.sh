@@ -6,6 +6,7 @@ MACOS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/2brain Rec.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/2brain Rec"
+APP_LOG="$HOME/Library/Logs/2brain Rec/2brain-rec.log"
 
 usage() {
   cat <<'USAGE'
@@ -30,9 +31,10 @@ Steps performed:
   2. record baseline CPU;
   3. launch the packaged app bundle from the repo and verify the app process;
   4. wait for the tester to press Record with controlled non-sensitive audio
-     after the app shows recording is active;
+     and for a fresh app-local recording.started log event;
   5. record activeRecording CPU;
-  6. wait for the tester to press Stop and for local recording status to settle;
+  6. wait for the tester to press Stop and for a fresh app-local stop/local
+     recording log event;
   7. record stop CPU;
   8. validate the newest local recording artifact metadata-only, limited to
      artifacts modified after this harness started;
@@ -59,6 +61,63 @@ app_process_count() {
       $0 == expected || index($0, expected " ") == 1 { count += 1 }
       END { print count + 0 }
     '
+}
+
+line_has_event_since_epoch() {
+  line="$1"
+  pattern="$2"
+  since_epoch="$3"
+
+  case "$line" in
+    *" event="*) ;;
+    *) return 1 ;;
+  esac
+
+  timestamp="${line%% event=*}"
+  event_epoch="$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$timestamp" "+%s" 2>/dev/null || printf '%s' 0)"
+  if [ "$event_epoch" -lt "$since_epoch" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "$line" | grep -E "$pattern" >/dev/null 2>&1
+}
+
+app_log_has_event_since_epoch() {
+  pattern="$1"
+  since_epoch="$2"
+
+  [ -f "$APP_LOG" ] || return 1
+
+  while IFS= read -r line; do
+    if line_has_event_since_epoch "$line" "$pattern" "$since_epoch"; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done < "$APP_LOG"
+
+  return 1
+}
+
+wait_for_app_log_event_since_epoch() {
+  pattern="$1"
+  since_epoch="$2"
+  label="$3"
+  timeout_seconds="${4:-20}"
+
+  printf '%s\n' "waiting_for_$label=started log=$APP_LOG sinceEpoch=$since_epoch timeoutSeconds=$timeout_seconds"
+
+  remaining="$timeout_seconds"
+  while [ "$remaining" -gt 0 ]; do
+    if matched_line="$(app_log_has_event_since_epoch "$pattern" "$since_epoch")"; then
+      printf '%s\n' "waiting_for_$label=observed line=$matched_line"
+      return 0
+    fi
+    sleep 1
+    remaining=$((remaining - 1))
+  done
+
+  printf '%s\n' "waiting_for_$label=blocked reason=app_log_event_not_observed log=$APP_LOG pattern=$pattern sinceEpoch=$since_epoch timeoutSeconds=$timeout_seconds" >&2
+  exit 2
 }
 
 quit_app() {
@@ -172,12 +231,16 @@ if [ "$MODE" = "--preflight" ]; then
   exit 0
 fi
 
+record_prompt_epoch="$(date +%s)"
 prompt_continue "Start a controlled non-sensitive audio source, press Record System Audio in 2brain Rec, and wait until the app shows recording is active."
+wait_for_app_log_event_since_epoch "event=recording\\.started" "$record_prompt_epoch" "recording_started"
 
 printf '\n%s\n' "-- activeRecording CPU while recording is active --"
 apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
 
+stop_prompt_epoch="$(date +%s)"
 prompt_continue "Press Stop in 2brain Rec and wait until the recording status settles and the local recording status is visible."
+wait_for_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$stop_prompt_epoch" "recording_stopped_or_saved"
 
 printf '\n%s\n' "-- stop CPU immediately after Stop --"
 apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
