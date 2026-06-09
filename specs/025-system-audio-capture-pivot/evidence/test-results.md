@@ -3071,3 +3071,45 @@
   - This turns the bounded-drain behavior from compile-only XCTest coverage into
     a locally executable contract check. It does not close #307, #308, #309
     active/stop, #310, #311, or #313.
+
+## 2026-06-09 Executable Permission Fail-Closed Contract Validation
+
+- Timestamp: `2026-06-09T03:49:30Z`
+- Commit before change: `587f995`
+- Scope: stronger automated proof for permission fail-closed behavior before
+  the manual permission matrix can be completed.
+- Finding:
+  - Permission behavior had XCTest source coverage, but this host's Command Line
+    Tools environment compiles the XCTest bundle without proving case execution.
+  - The executable `ContractValidation` tool should also prove the basic
+    fail-closed invariant: denied microphone/system-audio permission cannot
+    start accepted capture or create a clean saved manifest.
+- Fix:
+  - Added `validateSystemAudioPermissionFailClosed()` to
+    `apps/macos/Shared/Tools/ContractValidation/main.swift`.
+  - The executable validation now checks that `SystemAudioPermissionGate` blocks
+    missing microphone and missing system-audio permission, that
+    `SystemAudioCaptureService` refuses denied permission and remains stopped,
+    and that complete-looking tracks with denied system-audio permission do not
+    produce a saved or complete `LocalRecordingManifest`.
+- Validation:
+  - `swift run --package-path apps/macos ContractValidation` passed and
+    executed the permission fail-closed invariant.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the test
+    bundle on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - Fresh packaged app launch passed with visible `2brain Rec` window and app
+    CPU around `0.3%`.
+  - Short quit CPU smoke passed with `sampleCount=3`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, zero
+    app/helper processes, and `halProbeObserved=false`.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This improves automated proof for #307 but does not replace the required
+    manual permission matrix rows. It does not close #307, #308, #309
+    active/stop, #310, #311, or #313.

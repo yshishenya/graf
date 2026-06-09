@@ -692,6 +692,91 @@ func validateLocalRecordingWriterBoundedDrain() throws {
     )
 }
 
+func validateSystemAudioPermissionFailClosed() async throws {
+    let gate = SystemAudioPermissionGate(clock: { Date(timeIntervalSince1970: 1) })
+    let deniedSystemAudio = gate.evaluate(microphone: .granted, systemAudio: .denied)
+    try require(
+        !deniedSystemAudio.allowsAcceptedRecording &&
+            deniedSystemAudio.outcome == .blocked &&
+            deniedSystemAudio.manifestFailureReason == .permissionDenied,
+        "Permission gate must block accepted recording when system-audio permission is denied"
+    )
+
+    let deniedMicrophone = gate.evaluate(microphone: .denied, systemAudio: .granted)
+    try require(
+        !deniedMicrophone.allowsAcceptedRecording &&
+            deniedMicrophone.outcome == .blocked &&
+            deniedMicrophone.manifestFailureReason == .permissionDenied,
+        "Permission gate must block accepted recording when microphone permission is denied"
+    )
+
+    let service = SystemAudioCaptureService(runtime: NoopSystemAudioCaptureRuntime())
+    do {
+        _ = try await service.start(
+            sessionId: "contract-permission-denied",
+            permissionState: .denied,
+            scopeApproval: contractScopeApproval()
+        )
+        throw ValidationError(description: "SystemAudioCaptureService must not start when permission is denied")
+    } catch SystemAudioCaptureServiceError.permissionDenied {
+        let running = await service.isRunning
+        try require(!running, "Denied system-audio start must leave service stopped")
+    }
+
+    let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+        .manifest(
+            sessionId: "contract-denied-manifest",
+            directoryId: "dir",
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            tracks: [
+                contractCompleteTrack(role: .localMic),
+                contractCompleteTrack(role: .remoteSpeaker)
+            ],
+            scopeApproval: contractScopeApproval(),
+            permissions: SystemAudioPermissionSnapshot(
+                microphone: .granted,
+                systemAudio: .denied,
+                evaluatedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+    try require(
+        manifest.status != .saved &&
+            manifest.failureReason == .permissionDenied &&
+            !manifest.isComplete,
+        "Denied permissions must not produce a saved or complete local recording manifest"
+    )
+}
+
+func contractScopeApproval() -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: "contract-scope",
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 9),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
+    )
+}
+
+func contractCompleteTrack(role: AudioTrackRole) -> LocalRecordingTrack {
+    LocalRecordingTrack(
+        trackId: role.rawValue,
+        role: role,
+        status: .saved,
+        fileName: role == .localMic ? "mic.wav" : "incoming.wav",
+        format: "wav-pcm-s16le",
+        sampleRate: 16_000,
+        channelCount: 1,
+        bitsPerSample: 16,
+        durationMs: 1000,
+        byteCount: 32_044,
+        frameCount: 16_000,
+        timelineStartMs: 0,
+        timelineAligned: true
+    )
+}
+
 private final class InfiniteContractSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
     func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
         guard capacity > 0 else { return 0 }
@@ -714,6 +799,7 @@ do {
     try validateCaptureSafetyInvariant()
     try validateDiagnosticBundleService()
     try validateLocalRecordingWriterBoundedDrain()
+    try await validateSystemAudioPermissionFailClosed()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)
