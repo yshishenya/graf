@@ -62,7 +62,7 @@ public final class NoopSystemAudioCaptureRuntime: SystemAudioCaptureRuntime {
 
 public actor SystemAudioCaptureService {
     private static let captureSampleRate: Double = 48_000
-    private static let captureChannelCount = 2
+    private static let captureChannelCount = 1
 
     private let runtime: SystemAudioCaptureRuntime
     private let runtimeStartTimeoutSeconds: TimeInterval
@@ -74,15 +74,17 @@ public actor SystemAudioCaptureService {
 
     public init(
         runtime: SystemAudioCaptureRuntime? = nil,
-        sampleSource: BufferedLocalRecordingSampleSource = BufferedLocalRecordingSampleSource(),
+        sampleSource: BufferedLocalRecordingSampleSource? = nil,
         runtimeStartTimeoutSeconds: TimeInterval = 10,
         runtimeStopTimeoutSeconds: TimeInterval = 2
     ) {
-        self.bufferedSampleSource = sampleSource
-        self.incomingSampleSource = sampleSource
+        self.bufferedSampleSource = sampleSource ?? BufferedLocalRecordingSampleSource(
+            channelCount: Self.captureChannelCount
+        )
+        self.incomingSampleSource = self.bufferedSampleSource
         self.runtimeStartTimeoutSeconds = runtimeStartTimeoutSeconds
         self.runtimeStopTimeoutSeconds = runtimeStopTimeoutSeconds
-        self.runtime = runtime ?? Self.makeDefaultRuntime(sampleSource: sampleSource)
+        self.runtime = runtime ?? Self.makeDefaultRuntime(sampleSource: self.bufferedSampleSource)
     }
 
     public var isRunning: Bool {
@@ -395,7 +397,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         configuration.capturesAudio = true
         configuration.excludesCurrentProcessAudio = true
         configuration.sampleRate = 48_000
-        configuration.channelCount = 2
+        configuration.channelCount = 1
         configuration.width = 2
         configuration.height = 2
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
@@ -426,7 +428,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     ) {
         guard outputType == .audio else { return }
         guard isCurrentStream(stream) else { return }
-        let samples = SystemAudioSampleExtractor.extractFloatSamples(from: sampleBuffer)
+        let samples = SystemAudioSampleExtractor.extractMonoFloatSamples(from: sampleBuffer)
         guard !samples.isEmpty else { return }
         sampleHandler(samples)
     }
@@ -461,6 +463,18 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 
 #if canImport(CoreMedia) && canImport(AudioToolbox)
 enum SystemAudioSampleExtractor {
+    static func extractMonoFloatSamples(from sampleBuffer: CMSampleBuffer) -> [Float] {
+        guard CMSampleBufferDataIsReady(sampleBuffer),
+              let format = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee
+        else {
+            return []
+        }
+
+        let samples = extractFloatSamples(from: sampleBuffer)
+        return downmixInterleavedSamples(samples, channelCount: Int(streamDescription.mChannelsPerFrame))
+    }
+
     static func extractFloatSamples(from sampleBuffer: CMSampleBuffer) -> [Float] {
         guard CMSampleBufferDataIsReady(sampleBuffer),
               let format = CMSampleBufferGetFormatDescription(sampleBuffer),
@@ -522,6 +536,23 @@ enum SystemAudioSampleExtractor {
             }
         }
         return samples
+    }
+
+    static func downmixInterleavedSamples(_ samples: [Float], channelCount: Int) -> [Float] {
+        guard channelCount > 1 else { return samples }
+        let frameCount = samples.count / channelCount
+        guard frameCount > 0 else { return [] }
+        var mono: [Float] = []
+        mono.reserveCapacity(frameCount)
+        for frame in 0..<frameCount {
+            let frameOffset = frame * channelCount
+            var sum: Float = 0
+            for channel in 0..<channelCount {
+                sum += samples[frameOffset + channel]
+            }
+            mono.append(sum / Float(channelCount))
+        }
+        return mono
     }
 
     private static func extractFromContiguousBlockBuffer(

@@ -1224,6 +1224,38 @@ func validateLocalRecordingWriterTimerWriteFailureInvariant() throws {
     )
 }
 
+func validateSystemAudioIncomingQualityInvariant() throws {
+    let systemAudioSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift")
+    let writerSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift")
+    let extractorTestsURL = repositoryRoot.appendingPathComponent("apps/macos/Shared/Tests/SystemAudioSampleExtractorTests.swift")
+    let writerTestsURL = repositoryRoot.appendingPathComponent("apps/macos/Shared/Tests/LocalRecordingWriterTests.swift")
+    let systemAudioSource = try String(contentsOf: systemAudioSourceURL, encoding: .utf8)
+    let writerSource = try String(contentsOf: writerSourceURL, encoding: .utf8)
+    let extractorTests = try String(contentsOf: extractorTestsURL, encoding: .utf8)
+    let writerTests = try String(contentsOf: writerTestsURL, encoding: .utf8)
+
+    try require(
+        systemAudioSource.contains("private static let captureChannelCount = 1") &&
+            systemAudioSource.contains("configuration.channelCount = 1") &&
+            systemAudioSource.contains("extractMonoFloatSamples(from: sampleBuffer)") &&
+            systemAudioSource.contains("downmixInterleavedSamples"),
+        "System audio incoming capture must request mono from ScreenCaptureKit and downmix unexpected multi-channel buffers before recording"
+    )
+    try require(
+        writerSource.contains("PCM16MonoDownsampler") &&
+            writerSource.contains("windowFrameCount") &&
+            writerSource.contains("monoSum") &&
+            writerSource.contains("inputChannelCount: Int = 1"),
+        "Incoming WAV writer must use a mono-aware downsampler instead of dropping every third stereo frame"
+    )
+    try require(
+        extractorTests.contains("testDownmixesInterleavedStereoSamplesToMonoForSystemAudioWriter") &&
+            writerTests.contains("testDownsamplerAveragesWindowBeforeReducingSystemAudioTo16k") &&
+            writerTests.contains("testDownsamplerTreatsMonoSystemAudioSamplesAsFrames"),
+        "Incoming audio quality guard tests must cover SCK downmixing and mono-aware 48k-to-16k downsampling"
+    )
+}
+
 func contractScopeApproval() -> CaptureScopeApproval {
     CaptureScopeApproval(
         scopeApprovalId: "contract-scope",
@@ -1353,6 +1385,7 @@ do {
     try validateRecordingMetersUseLocalWriterInvariant()
     try validateManualGateExitCleanupInvariant()
     try validateLocalRecordingWriterTimerWriteFailureInvariant()
+    try validateSystemAudioIncomingQualityInvariant()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

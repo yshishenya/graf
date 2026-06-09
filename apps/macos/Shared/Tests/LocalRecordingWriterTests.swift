@@ -161,6 +161,55 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertEqual(currentDirectory, directory.directoryURL)
         XCTAssertNil(stoppedDirectory)
     }
+
+    func testDownsamplerAveragesWindowBeforeReducingSystemAudioTo16k() {
+        let samples: [Float] = [
+            0.0, 0.0,
+            0.9, 0.9,
+            0.0, 0.0
+        ]
+
+        let result = samples.withUnsafeBufferPointer {
+            PCM16MonoDownsampler.downsample(
+                samples: $0.baseAddress!,
+                count: samples.count,
+                inputChannelCount: 2,
+                inputSampleRate: 48_000,
+                outputSampleRate: 16_000
+            )
+        }
+
+        XCTAssertEqual(result.frameCount, 1)
+        XCTAssertInt16AlmostEqual(result.data.int16LE(at: 0), Int16(0.3 * Float(Int16.max)))
+    }
+
+    func testDownsamplerTreatsMonoSystemAudioSamplesAsFrames() {
+        let samples: [Float] = [0.3, 0.3, 0.3, -0.6]
+
+        let result = samples.withUnsafeBufferPointer {
+            PCM16MonoDownsampler.downsample(
+                samples: $0.baseAddress!,
+                count: samples.count,
+                inputChannelCount: 1,
+                inputSampleRate: 48_000,
+                outputSampleRate: 16_000
+            )
+        }
+
+        XCTAssertEqual(result.frameCount, 2)
+        XCTAssertInt16AlmostEqual(result.data.int16LE(at: 0), Int16(0.3 * Float(Int16.max)))
+        XCTAssertInt16AlmostEqual(result.data.int16LE(at: 2), Int16(-0.6 * Float(Int16.max)))
+    }
+}
+
+private func XCTAssertInt16AlmostEqual(
+    _ actual: Int16,
+    _ expected: Int16,
+    tolerance: Int = 2,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    XCTAssertLessThanOrEqual(abs(Int(actual) - Int(expected)), tolerance, file: file, line: line)
 }
 
 private struct WAVHeader {
@@ -180,6 +229,10 @@ private struct WAVHeader {
 }
 
 private extension Data {
+    func int16LE(at offset: Int) -> Int16 {
+        Int16(bitPattern: uint16LE(at: offset))
+    }
+
     func uint16LE(at offset: Int) -> UInt16 {
         UInt16(self[offset]) | (UInt16(self[offset + 1]) << 8)
     }

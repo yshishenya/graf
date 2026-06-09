@@ -40,8 +40,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertTrue(runtime.didStop)
         XCTAssertEqual(started.scopeApprovalId, "scope-1")
         XCTAssertEqual(started.sampleRate, 48_000)
-        XCTAssertEqual(started.channelCount, 2)
-        XCTAssertEqual(stopped.frameCount, 240)
+        XCTAssertEqual(started.channelCount, 1)
+        XCTAssertEqual(stopped.frameCount, 480)
         XCTAssertEqual(stopped.failureReason, .none)
     }
 

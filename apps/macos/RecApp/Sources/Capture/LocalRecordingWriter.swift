@@ -166,6 +166,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private let manifestService: LocalRecordingManifestService
     private let microphoneSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
     private let incomingSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
+    private let microphoneInputChannelCount: Int
+    private let incomingInputChannelCount: Int
     private let recordMicrophone: Bool
     private let queue = DispatchQueue(label: "pro.2brain.rec.local-recording-writer", qos: .utility)
     private var active: ActiveRecording?
@@ -176,11 +178,15 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         sharedMemoryFactory: @escaping @Sendable () -> SharedAudioMemory? = { SharedAudioMemory() },
         microphoneSampleSourceFactory: @escaping @Sendable () -> LocalRecordingSampleSource? = { nil },
         incomingSampleSourceFactory: (@Sendable () -> LocalRecordingSampleSource?)? = nil,
+        microphoneInputChannelCount: Int = 1,
+        incomingInputChannelCount: Int = 1,
         recordMicrophone: Bool = true
     ) {
         self.store = store
         self.manifestService = manifestService
         self.microphoneSampleSourceFactory = microphoneSampleSourceFactory
+        self.microphoneInputChannelCount = max(1, microphoneInputChannelCount)
+        self.incomingInputChannelCount = max(1, incomingInputChannelCount)
         self.incomingSampleSourceFactory = incomingSampleSourceFactory ?? {
             sharedMemoryFactory().map { SharedMemoryRecordingSampleSource(sharedMemory: $0) }
         }
@@ -304,7 +310,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         let microphone: AVAudioRecorder?
         if let microphoneSampleSource {
             microphone = nil
-            microphoneWriter = try PCM16MonoWAVFileWriter(url: directory.localMicURL)
+            microphoneWriter = try PCM16MonoWAVFileWriter(
+                url: directory.localMicURL,
+                inputChannelCount: microphoneInputChannelCount
+            )
             microphoneWriterForCleanup = microphoneWriter
             _ = microphoneSampleSource
         } else {
@@ -319,7 +328,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             FileManager.default.createFile(atPath: directory.localMicURL.path, contents: nil)
         }
 
-        let remoteWriter = try PCM16MonoWAVFileWriter(url: directory.remoteSpeakerURL)
+        let remoteWriter = try PCM16MonoWAVFileWriter(
+            url: directory.remoteSpeakerURL,
+            inputChannelCount: incomingInputChannelCount
+        )
         remoteWriterForCleanup = remoteWriter
         let incomingSampleSource = incomingSampleSourceFactory()
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -711,17 +723,67 @@ private final class ActiveRecording {
     }
 }
 
+struct PCM16MonoDownsampleResult {
+    let data: Data
+    let frameCount: Int
+}
+
+enum PCM16MonoDownsampler {
+    static func downsample(
+        samples: UnsafePointer<Float>,
+        count: Int,
+        inputChannelCount: Int,
+        inputSampleRate: Int,
+        outputSampleRate: Int
+    ) -> PCM16MonoDownsampleResult {
+        let channelCount = max(1, inputChannelCount)
+        let inputFrameCount = count / channelCount
+        guard inputFrameCount > 0 else {
+            return PCM16MonoDownsampleResult(data: Data(), frameCount: 0)
+        }
+
+        let ratio = max(1, inputSampleRate / outputSampleRate)
+        var data = Data()
+        data.reserveCapacity(((inputFrameCount + ratio - 1) / ratio) * MemoryLayout<Int16>.stride)
+
+        var frameIndex = 0
+        var outputFrameCount = 0
+        while frameIndex < inputFrameCount {
+            let windowFrameCount = min(ratio, inputFrameCount - frameIndex)
+            var monoSum: Float = 0
+
+            for windowOffset in 0..<windowFrameCount {
+                let sampleIndex = (frameIndex + windowOffset) * channelCount
+                var channelSum: Float = 0
+                for channelIndex in 0..<channelCount {
+                    channelSum += samples[sampleIndex + channelIndex]
+                }
+                monoSum += channelSum / Float(channelCount)
+            }
+
+            let mono = max(-1, min(1, monoSum / Float(windowFrameCount)))
+            var intSample = Int16(mono * Float(Int16.max)).littleEndian
+            data.append(Data(bytes: &intSample, count: MemoryLayout<Int16>.size))
+            outputFrameCount += 1
+            frameIndex += ratio
+        }
+
+        return PCM16MonoDownsampleResult(data: data, frameCount: outputFrameCount)
+    }
+}
+
 private final class PCM16MonoWAVFileWriter {
     private let handle: FileHandle
     private(set) var frameCount = 0
     private var isClosed = false
     private let inputSampleRate = 48_000
-    private let inputChannelCount = 2
+    private let inputChannelCount: Int
     private let outputSampleRate = 16_000
     private let outputChannelCount = 1
     private let bitsPerSample = 16
 
-    init(url: URL) throws {
+    init(url: URL, inputChannelCount: Int = 1) throws {
+        self.inputChannelCount = max(1, inputChannelCount)
         FileManager.default.createFile(atPath: url.path, contents: nil)
         handle = try FileHandle(forWritingTo: url)
         try handle.write(contentsOf: Data(repeating: 0, count: 44))
@@ -734,26 +796,16 @@ private final class PCM16MonoWAVFileWriter {
     func write(samples: UnsafePointer<Float>, count: Int) throws {
         guard !isClosed else { return }
         guard count > 0 else { return }
-        let inputFrameCount = count / inputChannelCount
-        guard inputFrameCount > 0 else { return }
-        let ratio = max(1, inputSampleRate / outputSampleRate)
-        var data = Data()
-        data.reserveCapacity((inputFrameCount / ratio) * MemoryLayout<Int16>.stride)
-        var frameIndex = 0
-        var outputFrameCount = 0
-        while frameIndex < inputFrameCount {
-            let sampleIndex = frameIndex * inputChannelCount
-            let left = samples[sampleIndex]
-            let right = inputChannelCount > 1 ? samples[sampleIndex + 1] : left
-            let mono = max(-1, min(1, (left + right) * 0.5))
-            var intSample = Int16(mono * Float(Int16.max)).littleEndian
-            data.append(Data(bytes: &intSample, count: MemoryLayout<Int16>.size))
-            outputFrameCount += 1
-            frameIndex += ratio
-        }
-        guard !data.isEmpty else { return }
-        try handle.write(contentsOf: data)
-        frameCount += outputFrameCount
+        let result = PCM16MonoDownsampler.downsample(
+            samples: samples,
+            count: count,
+            inputChannelCount: inputChannelCount,
+            inputSampleRate: inputSampleRate,
+            outputSampleRate: outputSampleRate
+        )
+        guard !result.data.isEmpty else { return }
+        try handle.write(contentsOf: result.data)
+        frameCount += result.frameCount
     }
 
     func writeSilence(frameCount count: Int) throws {

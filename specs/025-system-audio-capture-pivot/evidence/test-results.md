@@ -5687,3 +5687,51 @@
     the current post-reboot environment. It does not close #307, #308, #309,
     #310, #311, or #313 because active recording, stop, permission, artifact,
     duration, and final review evidence are still required.
+
+## 2026-06-09 Incoming Audio Quality Fix
+
+- Timestamp: `2026-06-09T13:25:00Z`
+- Scope: follow-up after manual testing found `incoming.wav` sounded digital
+  and distorted while microphone audio was acceptable.
+- Review findings:
+  - Recent local recording manifests were degraded with
+    `failureReason=timeline_misaligned`; `incoming.wav` files were valid
+    PCM16 mono 16 kHz WAVs but sounded distorted in manual playback.
+  - The prior writer path assumed incoming system audio was stereo 48 kHz and
+    reduced it to 16 kHz by effectively taking every third input frame.
+  - `gilb-ai/gilb-recorder` was used as a reference for the capture shape:
+    request ScreenCaptureKit system audio as mono, downmix unexpected
+    multi-channel buffers explicitly, and keep resampling/writing logic
+    host-testable.
+- Changes:
+  - `ScreenCaptureKitSystemAudioRuntime` now requests mono system audio with
+    `configuration.channelCount = 1`.
+  - `SystemAudioSampleExtractor` now exposes a mono extraction path that
+    downmixes interleaved multi-channel samples before handing them to the
+    recording writer.
+  - `LocalRecordingWriter` now treats incoming samples as mono by default and
+    uses a small testable `PCM16MonoDownsampler` instead of a fixed stereo
+    assumption.
+  - Added guard tests for SCK downmixing and mono-aware 48 kHz to 16 kHz
+    downsampling, plus a `ContractValidation` source invariant for the audio
+    quality path.
+- Validation:
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` compiled the test bundle in the
+    local SwiftPM/CLT environment.
+  - Built a fresh app-only package with
+    `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1
+    TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=0
+    sh apps/macos/Installer/Scripts/build-local-installer.sh`.
+  - Installed the package into `/Applications/2brain Rec.app`; installed binary
+    hash matched the fresh build:
+    `25a851c051049b1f9667afd8fa82aac3d98f1c2f52521cf025fa16a38ccd4cde`.
+  - User manually confirmed after testing the installed app: incoming sound
+    became normal.
+- Acceptance impact:
+  - This hardens #308/#313 by fixing the observed incoming audio quality
+    regression and adding regression guards. It does not close #307, #308,
+    #309, #310, #311, or #313 because the broader permission, controlled
+    artifact, active/stop CPU, duration, and final review gates still require
+    complete manual evidence.

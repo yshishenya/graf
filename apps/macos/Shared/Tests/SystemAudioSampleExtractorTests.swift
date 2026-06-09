@@ -44,6 +44,26 @@ final class SystemAudioSampleExtractorTests: XCTestCase {
         XCTAssertEqual(samples[5], -0.3, accuracy: 0.0001)
     }
 
+    func testDownmixesInterleavedStereoSamplesToMonoForSystemAudioWriter() {
+        let mono = SystemAudioSampleExtractor.downmixInterleavedSamples(
+            [0.2, 0.6, -0.8, 0.2],
+            channelCount: 2
+        )
+
+        XCTAssertEqual(mono.count, 2)
+        XCTAssertEqual(mono[0], 0.4, accuracy: 0.0001)
+        XCTAssertEqual(mono[1], -0.3, accuracy: 0.0001)
+    }
+
+    func testDownmixLeavesMonoSamplesUnchanged() {
+        let samples: [Float] = [0.1, -0.2, 0.3]
+
+        XCTAssertEqual(
+            SystemAudioSampleExtractor.downmixInterleavedSamples(samples, channelCount: 1),
+            samples
+        )
+    }
+
     func testExtractsSignedInt16SamplesAsNormalizedFloats() {
         let format = audioFormat(bitsPerChannel: 16, flags: kAudioFormatFlagIsSignedInteger)
         let data = int16Data([0, Int16.max, Int16.min / 2, Int16.min])
