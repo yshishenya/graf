@@ -162,6 +162,40 @@ count_not_tested_rows() {
     grep -c '| not-tested |' "$path" 2>/dev/null || true
 }
 
+count_accepted_duration_rows() {
+    path="$1"
+    minutes="$2"
+    awk -F '|' -v minutes="$minutes" '
+        BEGIN { count = 0 }
+        /^\|/ && $2 !~ /Run/ && $2 !~ /---/ {
+            for (i = 1; i <= NF; i += 1) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            }
+            duration = $3
+            scope = $4
+            mic = $5
+            incoming = $6
+            alignment = $7
+            cpu = $8
+            responsiveness = $9
+            release = $10
+            result = $11
+            if (duration == minutes " minutes" &&
+                scope == "passed" &&
+                mic == "passed" &&
+                incoming == "passed" &&
+                alignment == "passed" &&
+                cpu == "passed" &&
+                responsiveness == "passed" &&
+                release == "passed" &&
+                result == "passed") {
+                count += 1
+            }
+        }
+        END { print count + 0 }
+    ' "$path"
+}
+
 last_cpu_evaluation_for_phase() {
     phase="$1"
     awk -v wanted="$phase" '
@@ -541,7 +575,11 @@ validate_duration() {
     [ "$remaining" = "0" ] ||
         blocked "$title still has $remaining not-tested row(s); keep $issue open"
 
-    passed "$title has no not-tested rows"
+    accepted_rows="$(count_accepted_duration_rows "$path" "$minutes")"
+    [ "$accepted_rows" != "0" ] ||
+        blocked "$title has no accepted row with duration/scope/mic/incoming/alignment/CPU/responsiveness/stop-quit all passed; keep $issue open"
+
+    passed "$title has accepted duration evidence"
 }
 
 validate_installer_app_only() {
@@ -634,6 +672,18 @@ EOF
         fi
     done
 
+    dev_duration_rows="$(count_accepted_duration_rows "$DEV_DURATION" 30)"
+    if [ "$dev_duration_rows" = "0" ]; then
+        printf '%s\n' "$DEV_DURATION has no accepted 30-minute row with all required gates passed"
+        incomplete=1
+    fi
+
+    release_duration_rows="$(count_accepted_duration_rows "$RELEASE_DURATION" 75)"
+    if [ "$release_duration_rows" = "0" ]; then
+        printf '%s\n' "$RELEASE_DURATION has no accepted 75-minute row with all required gates passed"
+        incomplete=1
+    fi
+
     for phase in idle activeRecording stop quit; do
         validate_cpu_phase_passed "$phase" || incomplete=1
     done
@@ -642,7 +692,7 @@ EOF
         blocked "final evidence review is incomplete; keep #313/T077 open"
     fi
 
-    passed "all final evidence gates are present and contain no not-tested rows"
+    passed "all final evidence gates are present and accepted"
 }
 
 mode="${1:-}"

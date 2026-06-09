@@ -3389,3 +3389,47 @@
     manifest contract. It does not close #308 until real controlled artifacts
     are recorded and reviewed, and it does not close #307, #309 active/stop,
     #310, #311, or #313.
+
+## 2026-06-09 Duration Evidence Accepted Row Review
+
+- Timestamp: `2026-06-09T04:31:00Z`
+- Commit before change: `36f5516`
+- Scope: duration and final evidence gates in
+  `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+- Finding:
+  - `--duration-minutes` only rejected explicit `not-tested` rows.
+  - `--review-evidence` also only checked for `not-tested` duration rows.
+  - A manually edited duration file could therefore remove `not-tested` without
+    adding a real accepted row where duration, scope, both WAV files,
+    alignment, CPU, responsiveness, stop/quit release, and result all passed.
+- Fix:
+  - Added accepted duration row parsing for the 30-minute and 75-minute evidence
+    tables.
+  - `--duration-minutes 30` and `--duration-minutes 75 --manual-release` now
+    require at least one accepted row with every required gate set to `passed`.
+  - `--review-evidence` now enforces the same accepted-row requirement before
+    final review can pass.
+- Validation:
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `git diff --check` passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --duration-minutes 30`
+    blocked as expected because the real 30-minute run is still not complete.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    blocked as expected and now reports missing accepted 30-minute and
+    75-minute rows in addition to the remaining manual gates.
+  - `swift build --package-path apps/macos` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the package
+    on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. Idle CPU stayed `0.00%`, app RSS was about `93.02 MB`, quit
+    app/helper process count was `0`, HAL probe was not observed, and thermal
+    state reported no warning.
+  - Fresh app log showed normal launch, visible window, auto-route skipped,
+    cleanup completed, and passthrough bridge stopped.
+- Acceptance impact:
+  - This hardens #310, #311, and #313 against false acceptance. It does not
+    close those issues until the real sustained manual runs are performed and
+    reviewed.
