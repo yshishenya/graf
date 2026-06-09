@@ -2789,3 +2789,50 @@
 - Acceptance impact:
   - This reduces false-positive meter activity outside recording. It does not
     close #307, #308, #309 active/stop, #310, #311, or #313.
+
+## 2026-06-09 WAV Metadata Validator Hardening
+
+- Timestamp: `2026-06-09T02:53:46Z`
+- Commit before change: `a2f5169`
+- Scope: controlled artifact validator metadata truth for `mic.wav` and
+  `incoming.wav`.
+- Finding:
+  - The artifact validator already checked RIFF/WAVE/data markers, PCM format,
+    file byte count, data byte count, frame count, duration, and manifest/file
+    consistency.
+  - It did not verify the WAV RIFF chunk byte count or the `fmt ` chunk byte
+    count. A malformed WAV with a forged RIFF size could therefore pass the
+    metadata contract if the rest of the header looked consistent.
+- Fix:
+  - `validate_wav_metadata()` now requires the RIFF byte count at offset 4 to
+    equal `fileBytes - 8`.
+  - `validate_wav_metadata()` now requires the PCM `fmt ` chunk byte count at
+    offset 16 to equal `16`.
+- Validation:
+  - Synthetic positive fixture with `manifest.json`, `mic.wav`, and
+    `incoming.wav` passed `--artifact-directory` with
+    `SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1`.
+  - The same fixture with a corrupted `incoming.wav` RIFF byte count was blocked
+    with `incoming.wav WAV RIFF byte count must match file size`.
+  - `sh -n apps/macos/Scripts/validate-system-audio-capture-pivot.sh` passed.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked on this CLT host;
+    full `xcrun xctest` execution remains unavailable because `xcode-select -p`
+    is `/Library/Developer/CommandLineTools` and `xcrun --find xctest` exits
+    72.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed after the change.
+  - Preflight idle CPU passed with `maxCoreaudiodCpuPercent=0.00`,
+    `maxAppHelperCpuPercent=0.00`, and one app process.
+  - Preflight quit CPU passed with zero app/helper processes.
+  - `pmset -g therm` reported no thermal or performance warning level.
+  - Latest app log showed packaged app launch, visible main window, auto route
+    skipped by default, termination cleanup completed, and passthrough engine
+    stopped; no app crash or hang marker appeared in the reviewed tail.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This reduces false-positive controlled artifact acceptance for malformed WAV
+    files. It does not close #307, #308, #309 active/stop, #310, #311, or #313.

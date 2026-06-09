@@ -431,6 +431,8 @@ validate_wav_metadata() {
     wave="$(wav_ascii "$file" 8)"
     fmt="$(wav_ascii "$file" 12)"
     data_marker="$(wav_ascii "$file" 36)"
+    riff_byte_count="$(wav_u32_le "$file" 4)"
+    fmt_byte_count="$(wav_u32_le "$file" 16)"
     audio_format="$(wav_u16_le "$file" 20)"
     wav_channel_count="$(wav_u16_le "$file" 22)"
     wav_sample_rate="$(wav_u32_le "$file" 24)"
@@ -452,10 +454,13 @@ validate_wav_metadata() {
     expected_byte_rate=$((manifest_sample_rate * expected_block_align))
     expected_data_bytes=$((manifest_frame_count * expected_block_align))
     expected_file_bytes=$((44 + expected_data_bytes))
+    expected_riff_byte_count=$((expected_file_bytes - 8))
     expected_duration_ms=$((manifest_frame_count * 1000 / manifest_sample_rate))
 
     [ "$block_align" = "$expected_block_align" ] || printf '%s\n' "$file_name WAV blockAlign must match manifest format" >> "$failure_file"
     [ "$byte_rate" = "$expected_byte_rate" ] || printf '%s\n' "$file_name WAV byteRate must match manifest format" >> "$failure_file"
+    [ "$riff_byte_count" = "$expected_riff_byte_count" ] || printf '%s\n' "$file_name WAV RIFF byte count must match file size" >> "$failure_file"
+    [ "$fmt_byte_count" = "16" ] || printf '%s\n' "$file_name WAV fmt chunk size must be 16 for PCM" >> "$failure_file"
     [ "$data_bytes" = "$expected_data_bytes" ] || printf '%s\n' "$file_name WAV data byte count must match manifest frameCount" >> "$failure_file"
     [ "$file_bytes" = "$expected_file_bytes" ] || printf '%s\n' "$file_name file size must equal 44-byte header plus manifest data bytes" >> "$failure_file"
     [ "$manifest_duration_ms" = "$expected_duration_ms" ] || printf '%s\n' "$file_name manifest durationMs must match manifest frameCount/sampleRate" >> "$failure_file"
