@@ -431,7 +431,7 @@ private struct ContentView: View {
         guard await localRecordingWriter.isRecordingAsync() else {
             return
         }
-        let recordingDirectory = localRecordingWriter.currentDirectoryURL()
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
         localRecordingActive = false
         liveRouteSignalLevels = .inactive
         do {

@@ -2941,3 +2941,45 @@
   - This reduces UI freeze risk while recording startup/stop and local WAV
     finalization are running. It does not close #307, #308, #309 active/stop,
     #310, #311, or #313.
+
+## 2026-06-09 Async App-Exit Directory Lookup Review
+
+- Timestamp: `2026-06-09T03:34:50Z`
+- Commit before change: `a6fada4`
+- Scope: app-exit cleanup responsiveness while a local recording may be active.
+- Finding:
+  - The previous UI responsiveness fix removed synchronous writer calls from
+    meter polling and status rendering.
+  - App-exit finalization still called `LocalRecordingWriter.currentDirectoryURL()`
+    on the main actor before `stopAsync()`.
+  - That method used `queue.sync`, so app termination cleanup could still wait
+    on the writer queue if local recording finalization was already busy.
+- Fix:
+  - Added `LocalRecordingWriter.currentDirectoryURLAsync()`.
+  - `finalizeLocalRecordingForAppExit()` now uses the async directory lookup
+    before calling `stopAsync()`.
+  - Added an async directory lookup test that proves the active directory is
+    available while recording and becomes nil after stop.
+- Validation:
+  - Static scan found no direct `localRecordingWriter.isRecording`,
+    `localRecordingWriter.currentLevels`, or
+    `localRecordingWriter.currentDirectoryURL` synchronous call site in app UI
+    code.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the new
+    async directory test on this CLT host. Full XCTest execution remains
+    unavailable because `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `git diff --check` passed.
+  - Fresh packaged app build and launch passed with visible `2brain Rec` window.
+  - Post-fix quit CPU passed with `sampleCount=5`,
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`, zero
+    app/helper processes, and `halProbeObserved=false`.
+  - App log showed `app_termination_cleanup_completed reason=cleanup_finished`
+    and `passthrough_bridge_stopped` for the fresh launch.
+  - `pmset -g therm` reported no thermal or performance warning level.
+- Acceptance impact:
+  - This removes the remaining reviewed synchronous writer call from the app UI
+    termination path. It does not close #307, #308, #309 active/stop, #310,
+    #311, or #313.

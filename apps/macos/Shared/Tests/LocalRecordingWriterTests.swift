@@ -126,6 +126,28 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertEqual(levels.microphoneLevel, 0)
         XCTAssertEqual(levels.incomingLevel, 0)
     }
+
+    func testWriterReportsCurrentDirectoryAsynchronously() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-writer-async-directory-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            sharedMemoryFactory: { nil },
+            recordMicrophone: false
+        )
+
+        let directory = try await writer.startAsync(
+            sessionId: "session-async-directory",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        let currentDirectory = await writer.currentDirectoryURLAsync()
+        _ = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 11))
+        let stoppedDirectory = await writer.currentDirectoryURLAsync()
+
+        XCTAssertEqual(currentDirectory, directory.directoryURL)
+        XCTAssertNil(stoppedDirectory)
+    }
 }
 
 private struct WAVHeader {

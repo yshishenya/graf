@@ -502,6 +502,14 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         queue.sync { active?.directory.directoryURL }
     }
 
+    public func currentDirectoryURLAsync() async -> URL? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.active?.directory.directoryURL)
+            }
+        }
+    }
+
     private func track(
         role: AudioTrackRole,
         url: URL,
