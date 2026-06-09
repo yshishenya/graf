@@ -3199,3 +3199,47 @@
   - This makes #309/#313 evidence collection stricter and less prone to stale
     log false positives. It does not close #307, #308, #309 active/stop, #310,
     #311, or #313.
+
+## 2026-06-09 CPU Gate Memory Evidence Review
+
+- Timestamp: `2026-06-09T04:06:47Z`
+- Commit before change: `8a27981`
+- Scope: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`.
+- Finding:
+  - `contracts/validation-evidence-contract.md` requires CPU gate evidence to
+    include memory samples.
+  - The sampler recorded CPU, process counts, and HAL-probe state, but did not
+    include memory/RSS fields. That made future CPU gate evidence formally
+    incomplete even when CPU thresholds passed.
+- Fix:
+  - Added metadata-only RSS sampling for `coreaudiod`, app, helper, and
+    app+helper totals.
+  - Sample rows now include `coreaudiodRssMB`, `appRssMB`, `helperRssMB`, and
+    `appHelperRssMB`.
+  - Evaluation summaries now include `maxCoreaudiodRssMB` and
+    `maxAppHelperRssMB`.
+- Validation:
+  - `sh -n apps/macos/Scripts/sample-system-audio-cpu-gate.sh` passed.
+  - `SYSTEM_AUDIO_CPU_GATE_NO_APPEND=1 SYSTEM_AUDIO_CPU_GATE_SAMPLES=2
+    SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS=1
+    SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS=0
+    apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline` passed and
+    printed RSS fields in every sample and summary.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` exited `0` and compiled the test
+    bundle on this CLT host. Full XCTest execution remains unavailable because
+    `xcrun --find xctest` exits `72`.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed. The preflight showed `coreaudiod` CPU `0.00%`, app/helper CPU
+    `0.00%`, idle app RSS about `93.41 MB`, quit app/helper RSS `0.00 MB`, and
+    no thermal or performance warning.
+  - App log for the packaged smoke showed launch, visible main window,
+    auto-route skipped, cleanup completed, and passthrough bridge stopped.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked by the required manual gates only.
+- Acceptance impact:
+  - This aligns #309 CPU evidence with the validation contract. It does not
+    close #309 active/stop, #310, #311, or #313 because manual recording and
+    duration gates remain required.

@@ -34,6 +34,8 @@ Required gates:
 - active recording: no sustained app+helper > 25%
 - baseline: diagnostic only; records coreaudiod/app/helper CPU without counting
   as acceptance.
+- all phases record RSS memory samples for coreaudiod, app, helper, and
+  app+helper totals as metadata-only diagnostics.
 
 This script uses ps/pgrep metadata only and must not run HAL live-publication probes.
 USAGE
@@ -70,6 +72,21 @@ cpu_sum_for_pids() {
     total="$(awk -v a="$total" -v b="$value" 'BEGIN { printf "%.2f", a + b }')"
   done
   printf '%s' "$total"
+}
+
+rss_sum_mb_for_pids() {
+  pids="$1"
+  if [ -z "$pids" ]; then
+    printf '0.00'
+    return
+  fi
+  total_kb="0"
+  for pid in $pids; do
+    value="$(ps -o rss= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
+    [ -n "$value" ] || value="0"
+    total_kb="$(awk -v a="$total_kb" -v b="$value" 'BEGIN { printf "%.0f", a + b }')"
+  done
+  awk -v kb="$total_kb" 'BEGIN { printf "%.2f", kb / 1024 }'
 }
 
 coreaudiod_pids() {
@@ -128,12 +145,16 @@ while [ "$i" -le "$SAMPLES" ]; do
   core_cpu="$(cpu_sum_for_pids "$core_pids")"
   app_cpu="$(cpu_sum_for_pids "$app_pids_value")"
   helper_cpu="$(cpu_sum_for_pids "$helper_pids_value")"
+  core_rss_mb="$(rss_sum_mb_for_pids "$core_pids")"
+  app_rss_mb="$(rss_sum_mb_for_pids "$app_pids_value")"
+  helper_rss_mb="$(rss_sum_mb_for_pids "$helper_pids_value")"
   app_process_count="$(word_count "$app_pids_value")"
   helper_process_count="$(word_count "$helper_pids_value")"
   app_helper_cpu="$(awk -v a="$app_cpu" -v b="$helper_cpu" 'BEGIN { printf "%.2f", a + b }')"
+  app_helper_rss_mb="$(awk -v a="$app_rss_mb" -v b="$helper_rss_mb" 'BEGIN { printf "%.2f", a + b }')"
   sampled_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s appProcessCount=%s helperProcessCount=%s halProbeObserved=false\n' \
-    "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" "$app_process_count" "$helper_process_count" | tee -a "$tmp_file"
+  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s coreaudiodRssMB=%s appRssMB=%s helperRssMB=%s appHelperRssMB=%s appProcessCount=%s helperProcessCount=%s halProbeObserved=false\n' \
+    "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" "$core_rss_mb" "$app_rss_mb" "$helper_rss_mb" "$app_helper_rss_mb" "$app_process_count" "$helper_process_count" | tee -a "$tmp_file"
   if [ "$i" -lt "$SAMPLES" ]; then
     sleep "$INTERVAL_SECONDS"
   fi
@@ -142,20 +163,24 @@ done
 
 evaluation="$(awk -v phase="$PHASE" '
 BEGIN {
-  maxCore = 0; maxApp = 0; coreSeq = 0; appSeq = 0; coreSustained = 0; appSustained = 0; count = 0; maxAppProcesses = 0; maxHelperProcesses = 0;
+  maxCore = 0; maxApp = 0; maxCoreRss = 0; maxAppRss = 0; coreSeq = 0; appSeq = 0; coreSustained = 0; appSustained = 0; count = 0; maxAppProcesses = 0; maxHelperProcesses = 0;
 }
 {
   count += 1;
-  core = 0; app = 0; appProcesses = 0; helperProcesses = 0;
+  core = 0; app = 0; coreRss = 0; appRss = 0; appProcesses = 0; helperProcesses = 0;
   for (i = 1; i <= NF; i += 1) {
     split($i, kv, "=");
     if (kv[1] == "coreaudiodCpuPercent") core = kv[2] + 0;
     if (kv[1] == "appHelperCpuPercent") app = kv[2] + 0;
+    if (kv[1] == "coreaudiodRssMB") coreRss = kv[2] + 0;
+    if (kv[1] == "appHelperRssMB") appRss = kv[2] + 0;
     if (kv[1] == "appProcessCount") appProcesses = kv[2] + 0;
     if (kv[1] == "helperProcessCount") helperProcesses = kv[2] + 0;
   }
   if (core > maxCore) maxCore = core;
   if (app > maxApp) maxApp = app;
+  if (coreRss > maxCoreRss) maxCoreRss = coreRss;
+  if (appRss > maxAppRss) maxAppRss = appRss;
   if (appProcesses > maxAppProcesses) maxAppProcesses = appProcesses;
   if (helperProcesses > maxHelperProcesses) maxHelperProcesses = helperProcesses;
   if (phase == "baseline") {
@@ -190,7 +215,7 @@ END {
     reason = "appStillRunning";
   }
   if (status == "observed") reason = "diagnosticOnly";
-  printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f maxAppProcessCount=%d maxHelperProcessCount=%d sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s", status, reason, count, maxCore, maxApp, maxAppProcesses, maxHelperProcesses, coreSustained ? "true" : "false", appSustained ? "true" : "false";
+  printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f maxCoreaudiodRssMB=%.2f maxAppHelperRssMB=%.2f maxAppProcessCount=%d maxHelperProcessCount=%d sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s", status, reason, count, maxCore, maxApp, maxCoreRss, maxAppRss, maxAppProcesses, maxHelperProcesses, coreSustained ? "true" : "false", appSustained ? "true" : "false";
 }' "$tmp_file")"
 
 printf '%s\n' "$evaluation"
