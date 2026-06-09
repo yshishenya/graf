@@ -10,6 +10,10 @@ final class SystemAudioLocalizationTests: XCTestCase {
         XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, "Stop")
         XCTAssertEqual(SystemAudioStatusLabels.activeState, "Active")
         XCTAssertEqual(SystemAudioStatusLabels.silentState, "Silent")
+        XCTAssertEqual(
+            SystemAudioStatusLabels.localAudioRouteActiveNotRecording,
+            "Local audio route is active; recording still starts only from Record"
+        )
     }
 
     func testLiveSummaryLabelsCoverAllMeterStatesWithoutDriverLanguage() {
@@ -27,6 +31,8 @@ final class SystemAudioLocalizationTests: XCTestCase {
             XCTAssertFalse(summary.localizedCaseInsensitiveContains("virtual"))
             XCTAssertFalse(summary.localizedCaseInsensitiveContains("run check"))
         }
+        XCTAssertFalse(SystemAudioStatusLabels.localAudioRouteActiveNotRecording.localizedCaseInsensitiveContains("passthrough"))
+        XCTAssertFalse(SystemAudioStatusLabels.localAudioRouteActiveNotRecording.localizedCaseInsensitiveContains("virtual"))
     }
 
     func testMeterDetailLabelsAreStableForPermissionAndRecordingStates() {

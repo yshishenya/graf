@@ -43,7 +43,7 @@ final class RecordingEvidenceTests: XCTestCase {
             indicatorAvailable: true,
             sourceAppEligibility: .eligible,
             blockedReason: .publicationOnly,
-            recoveryAction: "Run route readiness before recording",
+            recoveryAction: "Refresh local audio status before recording",
             evaluatedAt: Date(timeIntervalSince1970: 1_777_777_777)
         )
 
@@ -51,7 +51,7 @@ final class RecordingEvidenceTests: XCTestCase {
 
         XCTAssertEqual(event.eventType, .startBlocked)
         XCTAssertEqual(event.blockedReason, .publicationOnly)
-        XCTAssertEqual(event.recoveryAction, "Run route readiness before recording")
+        XCTAssertEqual(event.recoveryAction, "Refresh local audio status before recording")
     }
 
     func testRecordingEvidenceDiagnosticBundleRemovesForbiddenContent() throws {

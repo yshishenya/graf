@@ -2397,3 +2397,37 @@
     text from the stale-feature check.
   - The expected forbidden-content result now explicitly allows only policy
     wording and redactor forbidden-key list matches.
+
+## 2026-06-09 UI Status Copy Review
+
+- Scope: user-facing system-audio status, route, prerequisite, meter, and
+  accessibility copy after the system-audio MVP pivot.
+- Code changes:
+  - Replaced the remaining readiness summary that said
+    `non-recording passthrough is active` with shared
+    `SystemAudioStatusLabels.localAudioRouteActiveNotRecording`.
+  - Replaced legacy virtual-device route copy with
+    `legacy virtual-device diagnostics are parked for MVP recording`.
+  - Updated prerequisite recovery copy from old route-readiness wording to
+    `Refresh local audio status before recording` or
+    `Confirm local audio status before recording`.
+  - Added shared label coverage in `SystemAudioLocalizationTests`.
+- Validation:
+  - UI/status copy scan for old user-facing phrases returned no matches:
+    `non-recording passthrough is active`, `real audio passthrough is not implemented`,
+    `Ready for calls`, `Virtual devices are published`,
+    `Wait for audio route to become ready`, `Run route readiness before recording`,
+    `Recheck audio route before recording`, and
+    `Confirm audio route evidence before recording`.
+  - `swift build --package-path apps/macos` passed.
+  - `swift test --package-path apps/macos` built and linked the updated package
+    test bundle on this CLT host.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - Packaged app runtime smoke launched `apps/macos/RecApp/.build/2brain Rec.app`,
+    observed one app process, app log showed launch/window visibility events,
+    latest log tail had no old user-facing passthrough/virtual-device readiness
+    phrases, and `pmset -g therm` reported no thermal or performance warnings.
+- Acceptance impact:
+  - This reduces UI/status ambiguity before the manual controlled recording
+    gates. It does not close #307, #308, #309 active/stop, #310, #311, or #313.

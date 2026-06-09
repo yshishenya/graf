@@ -78,13 +78,13 @@ final class CaptureControlTests: XCTestCase {
         _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
         let blocked = try controller.blockStart(
             reason: .routeNotReady,
-            recoveryAction: "Recheck audio route before recording"
+            recoveryAction: "Refresh local audio status before recording"
         )
 
         XCTAssertEqual(blocked.state, .failed)
         XCTAssertEqual(blocked.failureCategory, .routeNotReady)
         XCTAssertEqual(blocked.triggerEvidence["blockedReason"], "route_not_ready")
-        XCTAssertEqual(blocked.triggerEvidence["recoveryAction"], "Recheck audio route before recording")
+        XCTAssertEqual(blocked.triggerEvidence["recoveryAction"], "Refresh local audio status before recording")
         XCTAssertFalse(blocked.stopActionAvailable)
     }
 

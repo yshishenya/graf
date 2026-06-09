@@ -964,7 +964,7 @@ fileprivate struct LocalAudioSnapshot {
             return "Check failed: select a physical speaker or output"
         }
         if routeEngineState == .active {
-            return "Check complete: non-recording passthrough is active"
+            return "Check complete: \(SystemAudioStatusLabels.localAudioRouteActiveNotRecording)"
         }
         return "Check complete: local audio status refreshed; recording permissions are checked when you press Record"
     }

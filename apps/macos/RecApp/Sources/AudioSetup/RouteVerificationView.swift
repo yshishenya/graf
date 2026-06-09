@@ -181,7 +181,7 @@ public struct RouteVerificationView: View {
         case "app_io_heartbeat_missing":
             return "app audio route is not active yet."
         case "virtual_device_visible_but_audio_path_not_implemented":
-            return "device is visible, but real audio passthrough is not implemented yet."
+            return "legacy virtual-device diagnostics are parked for MVP recording."
         default:
             if reason.hasPrefix("virtual_") {
                 return "driver diagnostics are parked for MVP recording."

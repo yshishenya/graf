@@ -644,6 +644,8 @@ public enum SystemAudioStatusLabels {
     public static let silentState = "Silent"
     public static let metersWaiting = "Meters show audio only while recording"
     public static let waitingForRecordingAudio = "Waiting for recording audio"
+    public static let localAudioRouteActiveNotRecording =
+        "Local audio route is active; recording still starts only from Record"
     public static let recordingMeterFreshnessWindowSeconds: TimeInterval = 1.5
 
     public static func liveSummary(

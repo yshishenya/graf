@@ -20,7 +20,7 @@ final class RecordingPrerequisiteGateTests: XCTestCase {
 
         XCTAssertFalse(decision.allowsRecording)
         XCTAssertEqual(decision.blockedReason, .publicationOnly)
-        XCTAssertEqual(decision.recoveryAction, "Run route readiness before recording")
+        XCTAssertEqual(decision.recoveryAction, "Refresh local audio status before recording")
     }
 
     func testStaleRouteBlocksRecordingStart() {
@@ -39,7 +39,7 @@ final class RecordingPrerequisiteGateTests: XCTestCase {
 
         XCTAssertFalse(decision.allowsRecording)
         XCTAssertEqual(decision.blockedReason, .routeNotReady)
-        XCTAssertEqual(decision.recoveryAction, "Confirm audio route evidence before recording")
+        XCTAssertEqual(decision.recoveryAction, "Confirm local audio status before recording")
     }
 
     func testSystemAudioCaptureDoesNotRequireLiveRouteState() {

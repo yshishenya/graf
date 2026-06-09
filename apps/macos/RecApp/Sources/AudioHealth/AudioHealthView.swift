@@ -295,7 +295,7 @@ public struct AudioHealthView: View {
         }
         switch reason {
         case "virtual_device_visible_but_audio_path_not_implemented":
-            return "\(status): virtual device is visible; real audio passthrough is not implemented yet"
+            return "\(status): legacy virtual-device diagnostics are parked for MVP recording"
         case "physical_microphone_not_selected":
             return "\(status): macOS input is not a physical microphone"
         case "physical_speaker_not_selected":

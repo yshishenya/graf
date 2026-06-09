@@ -27,16 +27,16 @@ public struct RecordingPrerequisiteGate: Sendable {
         }
         if snapshot.routeEvidenceKind != .systemAudioCapture {
             if snapshot.routeEvidenceKind == .publicationOnly {
-                return blocked(snapshot, reason: .publicationOnly, action: "Run route readiness before recording")
+                return blocked(snapshot, reason: .publicationOnly, action: "Refresh local audio status before recording")
             }
             if snapshot.routeEvidenceKind == .stale || snapshot.routeState == .stale {
-                return blocked(snapshot, reason: .routeNotReady, action: "Recheck audio route before recording")
+                return blocked(snapshot, reason: .routeNotReady, action: "Refresh local audio status before recording")
             }
             if snapshot.routeEvidenceKind == .unknown {
-                return blocked(snapshot, reason: .routeNotReady, action: "Confirm audio route evidence before recording")
+                return blocked(snapshot, reason: .routeNotReady, action: "Confirm local audio status before recording")
             }
             if ![LivePassthroughStatus.ready, .active].contains(snapshot.routeState) {
-                return blocked(snapshot, reason: .routeNotReady, action: "Wait for audio route to become ready")
+                return blocked(snapshot, reason: .routeNotReady, action: "Refresh local audio status before recording")
             }
         }
 
