@@ -70,6 +70,10 @@ Modes:
       manifest/WAV files. Does not read real recordings, inspect audio content,
       update evidence files, start recording, or touch TCC.
 
+  --self-test-duration-evidence
+      Run synthetic duration evidence parser checks against a temporary
+      markdown table. Does not read or update real evidence files.
+
 Exit codes:
   0 passed
   2 blocked / not accepted yet
@@ -598,6 +602,31 @@ self_test_artifact_metadata() {
     fi
 
     passed "synthetic artifact metadata checks passed"
+}
+
+self_test_duration_evidence() {
+    temp_file="$(mktemp)"
+    trap 'rm -f "$temp_file"' EXIT
+    cat > "$temp_file" <<'EOF'
+| Run | Duration | Scope | mic.wav | incoming.wav | Alignment | CPU Gate | Responsiveness | Stop/Quit Release | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| accepted-30 | 30 minutes | passed | passed | passed | passed | passed | passed | passed | passed | accepted synthetic row |
+| wrong-duration | 29 minutes | passed | passed | passed | passed | passed | passed | passed | passed | wrong duration |
+| failed-cpu | 30 minutes | passed | passed | passed | passed | failed | passed | passed | passed | failed CPU |
+| not-tested-release | 30 minutes | passed | passed | passed | passed | passed | passed | not-tested | passed | incomplete release |
+| failed-result | 30 minutes | passed | passed | passed | passed | passed | passed | passed | failed | failed result |
+| accepted-75 | 75 minutes | passed | passed | passed | passed | passed | passed | passed | passed | accepted synthetic release row |
+EOF
+
+    accepted_30="$(count_accepted_duration_rows "$temp_file" 30)"
+    accepted_75="$(count_accepted_duration_rows "$temp_file" 75)"
+
+    [ "$accepted_30" = "1" ] ||
+        fail_invalid "synthetic duration parser expected exactly one accepted 30-minute row, got $accepted_30"
+    [ "$accepted_75" = "1" ] ||
+        fail_invalid "synthetic duration parser expected exactly one accepted 75-minute row, got $accepted_75"
+
+    passed "synthetic duration evidence parser checks passed"
 }
 
 ensure_no_forbidden_hal_requirement() {
@@ -1162,6 +1191,9 @@ case "$mode" in
         ;;
     --self-test-artifact-metadata)
         self_test_artifact_metadata
+        ;;
+    --self-test-duration-evidence)
+        self_test_duration_evidence
         ;;
     *)
         fail_invalid "unknown mode: $mode"

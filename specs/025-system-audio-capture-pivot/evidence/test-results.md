@@ -4777,3 +4777,55 @@
   - This confirms tasks-to-issues traceability remains intact after repeated
     hardening commits. It does not close #307, #308, #309, #310, #311, or #313
     because their real manual evidence rows are still required.
+
+## 2026-06-09 Duration Evidence Parser Self-Test Review
+
+- Timestamp: `2026-06-09T08:26:32Z`
+- Commit before change: `b97aa74`
+- Scope: Duration evidence parser behavior for 30-minute and 75-minute manual
+  validation rows.
+- Finding:
+  - Duration acceptance required every gate column to be `passed`, but there was
+    no synthetic self-test proving the parser rejects wrong duration, failed CPU,
+    not-tested stop/release, or failed result rows.
+  - Without that self-test, the 30-minute and 75-minute validators were harder
+    to review than the CPU and artifact validators.
+- Fix:
+  - Added `--self-test-duration-evidence` to
+    `apps/macos/Scripts/validate-system-audio-capture-pivot.sh`.
+  - The self-test creates a temporary markdown table and verifies exactly one
+    accepted 30-minute row and exactly one accepted 75-minute row.
+  - The same table includes wrong-duration, failed-CPU, not-tested-release, and
+    failed-result rows that must not count as accepted.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    now invokes the duration evidence parser self-test.
+- Validation:
+  - `sh -n` passed for the updated validator and manual harness scripts.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-duration-evidence`
+    passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --self-test`
+    passed and now includes the duration evidence parser self-test.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata`
+    passed.
+  - `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` passed.
+  - `swift run --package-path apps/macos ContractValidation` passed.
+  - `apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh --preflight`
+    passed with `wake_assertion=held`. Fresh safe-launch evidence showed idle
+    `maxCoreaudiodCpuPercent=0.00`, `maxAppHelperCpuPercent=0.00`,
+    `maxAppHelperRssMB=93.41`, quit app/helper process count `0`, and no
+    thermal/performance warning.
+  - Fresh app log tail showed launch, main-window presentation, parked driver
+    diagnostics, disabled auto-start, visibility check, termination cleanup, and
+    passthrough stop events without fresh crash/hang/error markers.
+  - Post-quit process check showed no `2brain Rec` app/helper process and
+    `coreaudiod` at `0.0%` CPU.
+  - `apps/macos/Scripts/validate-system-audio-capture-pivot.sh --review-evidence`
+    remains blocked as expected by manual gates only: permission matrix,
+    controlled artifact matrix, active/stop CPU, 30-minute run, 75-minute run,
+    and final scope review are still incomplete.
+- Acceptance impact:
+  - This hardens #310, #311, and #313 by making duration evidence parsing
+    executable and fail-closed. It does not close #310, #311, or #313 because
+    the real sustained manual runs and final review are still required.
