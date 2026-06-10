@@ -195,13 +195,13 @@ Test and contract tasks appear before implementation tasks in each story.
 - [X] T068 Run `swift test` from `apps/macos` or record the local XCTest/toolchain blocker in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
 - [X] T069 Run `swift run ContractValidation` from `apps/macos` and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
 - [X] T070 Run `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh` and record result in `specs/025-system-audio-capture-pivot/evidence/no-hal-probe.md`
-- [ ] T071 Run permission matrix validation and record results in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
-- [ ] T072 Run controlled artifact validation and record results in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
-- [ ] T073 Run CPU gate validation for idle, active recording, stop, and quit and record results in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
-- [ ] T074 Run 30-minute development validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/development-30-minute.md`
-- [ ] T075 Run 75-minute manual release validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/release-75-minute.md`
+- [X] T071 Run permission matrix validation and record results in `specs/025-system-audio-capture-pivot/evidence/permission-matrix.md`
+- [X] T072 Run controlled artifact validation and record results in `specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md`
+- [X] T073 Run CPU gate validation for idle, active recording, stop, and quit and record results in `specs/025-system-audio-capture-pivot/evidence/cpu-gates.md`
+- [X] T074 Run 30-minute development validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/development-30-minute.md`
+- [X] T075 Run 75-minute manual release validation and record accepted, blocked, failed, degraded, and not-tested results in `specs/025-system-audio-capture-pivot/evidence/release-75-minute.md`
 - [X] T076 Run forbidden-content scan across code, specs, diagnostics, and evidence and record result in `specs/025-system-audio-capture-pivot/evidence/test-results.md`
-- [ ] T077 Review all evidence against quickstart and contracts and record final scope review in `specs/025-system-audio-capture-pivot/evidence/scope-review.md`
+- [X] T077 Review all evidence against quickstart and contracts and record final scope review in `specs/025-system-audio-capture-pivot/evidence/scope-review.md`
 
 ---
 

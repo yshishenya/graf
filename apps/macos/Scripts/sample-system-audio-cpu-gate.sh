@@ -14,7 +14,7 @@ SETTLE_SECONDS="${SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS:-}"
 case "$PHASE" in
   -h|--help|"")
     cat <<'USAGE'
-sample-system-audio-cpu-gate.sh <baseline|idle|activeRecording|stop|quit>
+sample-system-audio-cpu-gate.sh <baseline|idle|activeRecording|stop|stopRecovery|quit>
 
 Samples metadata-only CPU evidence for the system-audio MVP.
 
@@ -35,9 +35,9 @@ Environment:
       update specs/025-system-audio-capture-pivot/evidence/cpu-gates.md
 
 Required gates:
-- idle/stop/quit after settle: coreaudiod < 5% and app+helper < 5%
+- idle/stop/stopRecovery/quit after settle: coreaudiod < 5% and app+helper < 5%
 - quit after settle: app/helper process count must be 0
-- activeRecording/stop: expected packaged app process must be observable
+- activeRecording/stop/stopRecovery: expected packaged app process must be observable
 - active recording: no sustained coreaudiod > 10%
 - active recording: no sustained app+helper > 25%
 - baseline: diagnostic only; records coreaudiod/app/helper CPU without counting
@@ -50,7 +50,7 @@ USAGE
     [ -z "$PHASE" ] && exit 2
     exit 0
     ;;
-  baseline|idle|activeRecording|stop|quit)
+  baseline|idle|activeRecording|stop|stopRecovery|quit)
     ;;
   *)
     echo "error=unknown_phase phase=$PHASE" >&2
@@ -217,7 +217,7 @@ phase_event_observed() {
         printf '%s' "false"
       fi
       ;;
-    stop)
+    stop|stopRecovery)
       if app_log_has_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))"; then
         printf '%s' "true"
       else
@@ -317,7 +317,7 @@ END {
     status = count > 0 ? "observed" : "failed";
   } else {
     status = (count >= 3 && coreSustained == 0 && appSustained == 0) ? "passed" : "failed";
-    if ((phase == "idle" || phase == "activeRecording" || phase == "stop") && maxAppProcesses == 0) {
+    if ((phase == "idle" || phase == "activeRecording" || phase == "stop" || phase == "stopRecovery") && maxAppProcesses == 0) {
       status = "failed";
     }
     if (maxUnexpectedAppProcesses > 0) {
@@ -331,7 +331,7 @@ END {
   if (phase != "baseline" && status == "failed" && count < 3) {
     reason = "insufficientSamples";
   }
-  if ((phase == "idle" || phase == "activeRecording" || phase == "stop") && status == "failed" && maxAppProcesses == 0) {
+  if ((phase == "idle" || phase == "activeRecording" || phase == "stop" || phase == "stopRecovery") && status == "failed" && maxAppProcesses == 0) {
     reason = "appNotRunning";
   }
   if (status == "failed" && maxUnexpectedAppProcesses > 0) {
@@ -341,7 +341,7 @@ END {
     reason = "appStillRunning";
   }
   if (status == "observed") reason = "diagnosticOnly";
-  phaseEventValue = (phase == "activeRecording" || phase == "stop") ? (phaseEventObserved ? "true" : "false") : "notRequired";
+  phaseEventValue = (phase == "activeRecording" || phase == "stop" || phase == "stopRecovery") ? (phaseEventObserved ? "true" : "false") : "notRequired";
   printf "status=%s failureReason=%s sampleCount=%d maxCoreaudiodCpuPercent=%.2f maxAppHelperCpuPercent=%.2f maxCoreaudiodRssMB=%.2f maxAppHelperRssMB=%.2f maxAppProcessCount=%d maxHelperProcessCount=%d maxUnexpectedAppProcessCount=%d sustainedCoreaudiodExceeded=%s sustainedAppHelperExceeded=%s phaseEventObserved=%s", status, reason, count, maxCore, maxApp, maxCoreRss, maxAppRss, maxAppProcesses, maxHelperProcesses, maxUnexpectedAppProcesses, coreSustained ? "true" : "false", appSustained ? "true" : "false", phaseEventValue;
 }' "$tmp_file")"
 

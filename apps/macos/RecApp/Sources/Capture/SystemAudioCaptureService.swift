@@ -417,8 +417,9 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 
     public func stop() async {
         guard let stream = currentStream() else { return }
-        try? await stream.stopCapture()
         clearCurrentStreamIfSame(stream)
+        try? stream.removeStreamOutput(self, type: .audio)
+        try? await stream.stopCapture()
     }
 
     public func stream(

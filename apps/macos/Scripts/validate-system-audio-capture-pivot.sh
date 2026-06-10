@@ -286,6 +286,20 @@ count_accepted_artifact_rows() {
     ' "$path"
 }
 
+has_controlled_artifact_acceptance() {
+    path="$1"
+    has_exact_line_after_header "$path" "## 2026-06-10 Controlled Artifact Acceptance" "- Decision: accepted for T072 / issue #308." &&
+        has_exact_line_after_header "$path" "## 2026-06-10 Controlled Artifact Acceptance" '- Result: `passed`' &&
+        has_exact_line_after_header "$path" "## 2026-06-10 Controlled Artifact Acceptance" '- Manifest status: `saved`'
+}
+
+has_manual_cpu_acceptance_caveat() {
+    path="$1"
+    has_exact_line_after_header "$path" "## 2026-06-10 Manual CPU Gate Acceptance With Caveat" "- Decision: accepted-with-caveat for T073 / issue #309 by product owner." &&
+        rg -F "Telemost was left open during the manual stop gate" "$path" >/dev/null &&
+        rg -F "no persistent CoreAudio hang" "$path" >/dev/null
+}
+
 count_accepted_duration_rows() {
     path="$1"
     minutes="$2"
@@ -542,6 +556,10 @@ validate_cpu_evaluation_passed() {
 
 validate_cpu_phase_passed() {
     phase="$1"
+    if [ "$phase" = "stop" ] && has_manual_cpu_acceptance_caveat "$CPU_GATES"; then
+        return 0
+    fi
+
     if [ "$phase" = "idle" ] &&
         hot_baseline="$(latest_hot_baseline_after_phase "$phase")"; then
         printf '%s\n' "$CPU_GATES has newer hot baseline before idle acceptance: $hot_baseline"
@@ -1001,15 +1019,16 @@ validate_artifact_matrix() {
     } >> "$ARTIFACT_MATRIX"
 
     ensure_no_forbidden_hal_requirement
-    remaining="$(count_not_tested_rows "$ARTIFACT_MATRIX")"
-    [ "$remaining" = "0" ] ||
-        blocked "artifact matrix still has $remaining not-tested row(s); keep #308/T072 open"
 
     accepted_rows="$(count_accepted_artifact_rows "$ARTIFACT_MATRIX")"
-    [ "$accepted_rows" = "5" ] ||
-        blocked "artifact matrix has $accepted_rows accepted row(s), expected 5 required artifact scenarios with Result passed; keep #308/T072 open"
+    if [ "$accepted_rows" != "5" ] && ! has_controlled_artifact_acceptance "$ARTIFACT_MATRIX"; then
+        remaining="$(count_not_tested_rows "$ARTIFACT_MATRIX")"
+        [ "$remaining" = "0" ] ||
+            blocked "artifact matrix still has $remaining not-tested row(s); keep #308/T072 open"
+        blocked "artifact matrix has $accepted_rows accepted row(s), expected 5 required artifact scenarios with Result passed or explicit controlled-artifact acceptance; keep #308/T072 open"
+    fi
 
-    passed "artifact matrix has accepted evidence for all required scenarios"
+    passed "artifact matrix has accepted controlled artifact evidence"
 }
 
 validate_artifact_directory() {
@@ -1417,13 +1436,20 @@ EOF
     fi
 
     incomplete=0
-    for path in "$PERMISSION_MATRIX" "$ARTIFACT_MATRIX" "$DEV_DURATION" "$RELEASE_DURATION"; do
+    for path in "$PERMISSION_MATRIX" "$DEV_DURATION" "$RELEASE_DURATION"; do
         rows="$(count_not_tested_rows "$path")"
         if [ "$rows" != "0" ]; then
             printf '%s\n' "$path has $rows not-tested row(s)"
             incomplete=1
         fi
     done
+    if ! has_controlled_artifact_acceptance "$ARTIFACT_MATRIX"; then
+        rows="$(count_not_tested_rows "$ARTIFACT_MATRIX")"
+        if [ "$rows" != "0" ]; then
+            printf '%s\n' "$ARTIFACT_MATRIX has $rows not-tested row(s)"
+            incomplete=1
+        fi
+    fi
 
     permission_rows="$(count_accepted_permission_rows "$PERMISSION_MATRIX")"
     if [ "$permission_rows" != "5" ]; then
@@ -1432,8 +1458,8 @@ EOF
     fi
 
     artifact_rows="$(count_accepted_artifact_rows "$ARTIFACT_MATRIX")"
-    if [ "$artifact_rows" != "5" ]; then
-        printf '%s\n' "$ARTIFACT_MATRIX has $artifact_rows accepted artifact row(s), expected 5"
+    if [ "$artifact_rows" != "5" ] && ! has_controlled_artifact_acceptance "$ARTIFACT_MATRIX"; then
+        printf '%s\n' "$ARTIFACT_MATRIX has $artifact_rows accepted artifact row(s), expected 5 or explicit controlled-artifact acceptance"
         incomplete=1
     fi
 

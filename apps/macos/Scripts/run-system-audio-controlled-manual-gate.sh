@@ -367,7 +367,8 @@ run_app_only_package_boundary() {
 run_baseline_cpu() {
   printf '\n%s\n' "-- baseline CPU before launch --"
   baseline_output="$(mktemp)"
-  apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline > "$baseline_output"
+  SYSTEM_AUDIO_CPU_GATE_APP_BINARY="$APP_BINARY" \
+    apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline > "$baseline_output"
   cat "$baseline_output"
 
   baseline_evaluation="$(grep '^status=' "$baseline_output" | tail -n 1 || true)"
@@ -415,6 +416,7 @@ run_preflight() {
   SYSTEM_AUDIO_CPU_GATE_SAMPLES="${SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES:-3}" \
   SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_INTERVAL_SECONDS:-2}" \
   SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_SETTLE_SECONDS:-20}" \
+  SYSTEM_AUDIO_CPU_GATE_APP_BINARY="$APP_BINARY" \
     apps/macos/Scripts/sample-system-audio-cpu-gate.sh idle
 
   printf '\n%s\n' "-- quit packaged app --"
@@ -424,6 +426,7 @@ run_preflight() {
   SYSTEM_AUDIO_CPU_GATE_SAMPLES="${SYSTEM_AUDIO_PREFLIGHT_CPU_SAMPLES:-3}" \
   SYSTEM_AUDIO_CPU_GATE_INTERVAL_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_CPU_INTERVAL_SECONDS:-2}" \
   SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS="${SYSTEM_AUDIO_PREFLIGHT_QUIT_SETTLE_SECONDS:-5}" \
+  SYSTEM_AUDIO_CPU_GATE_APP_BINARY="$APP_BINARY" \
     apps/macos/Scripts/sample-system-audio-cpu-gate.sh quit
 
   printf '\n%s\n' "-- thermal state --"
@@ -490,6 +493,7 @@ printf '\n%s\n' "-- activeRecording CPU while recording is active --"
 active_cpu_epoch="$(date +%s)"
 active_cpu_log_offset="$(app_log_byte_count)"
 SYSTEM_AUDIO_CPU_GATE_APP_LOG="$APP_LOG" \
+SYSTEM_AUDIO_CPU_GATE_APP_BINARY="$APP_BINARY" \
 SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH="$record_prompt_epoch" \
 SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET="$record_prompt_log_offset" \
   apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording
@@ -502,9 +506,18 @@ wait_for_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\
 
 printf '\n%s\n' "-- stop CPU immediately after Stop --"
 SYSTEM_AUDIO_CPU_GATE_APP_LOG="$APP_LOG" \
+SYSTEM_AUDIO_CPU_GATE_APP_BINARY="$APP_BINARY" \
 SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH="$stop_prompt_epoch" \
 SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET="$stop_prompt_log_offset" \
   apps/macos/Scripts/sample-system-audio-cpu-gate.sh stop
+
+printf '\n%s\n' "-- stop recovery CPU after CoreAudio teardown window --"
+SYSTEM_AUDIO_CPU_GATE_SETTLE_SECONDS="${SYSTEM_AUDIO_STOP_RECOVERY_SETTLE_SECONDS:-30}" \
+SYSTEM_AUDIO_CPU_GATE_APP_LOG="$APP_LOG" \
+SYSTEM_AUDIO_CPU_GATE_APP_BINARY="$APP_BINARY" \
+SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH="$stop_prompt_epoch" \
+SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET="$stop_prompt_log_offset" \
+  apps/macos/Scripts/sample-system-audio-cpu-gate.sh stopRecovery
 
 if [ "${SYSTEM_AUDIO_MANUAL_GATE_SKIP_ARTIFACT:-0}" != "1" ]; then
   printf '\n%s\n' "-- latest artifact directory --"
