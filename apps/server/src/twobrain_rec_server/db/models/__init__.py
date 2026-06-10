@@ -1,3 +1,13 @@
+from twobrain_rec_server.db.models.federated_auth import (
+    AuthAuditEvent,
+    AuthCallbackState,
+    AuthSession,
+    AuthSessionDeviceBinding,
+    ExternalIdentity,
+    WorkspaceAuthPolicy,
+    WorkspaceConsentCopy,
+    WorkspaceProviderLinkState,
+)
 from twobrain_rec_server.db.models.identity import (
     Organization,
     RegisteredDevice,
@@ -29,4 +39,12 @@ __all__ = [
     "UserIdentity",
     "Workspace",
     "WorkspaceMembership",
+    "AuthAuditEvent",
+    "AuthCallbackState",
+    "AuthSession",
+    "AuthSessionDeviceBinding",
+    "ExternalIdentity",
+    "WorkspaceAuthPolicy",
+    "WorkspaceConsentCopy",
+    "WorkspaceProviderLinkState",
 ]

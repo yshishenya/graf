@@ -51,6 +51,9 @@ Current accepted local baseline:
   "implemented locally, not production-deployed"; before PR/deployment-plan
   handoff, the repository still needs a final full sanity run, dirty-worktree
   review, and explicit commit/PR decision.
+- Feature `013-federated-auth-foundation` is implemented as the backend identity
+  foundation: provider-based login, workspace-scoped policy, account linking,
+  workspace membership/session continuity, and registered-device scaffolding.
 - Feature `021-production-deployment-plan` adds the remote-first deployment
   readiness runbook for `2brain.dev` and `/opt/projects/2brain-rec`: hardened
   Compose layout, env/secret template, backup/migration/restore rehearsal,
@@ -89,11 +92,11 @@ Current backend boundary:
 
 Reserved follow-up slices:
 
-- `013-federated-auth-foundation`: provider-neutral user authentication,
-  account linking, workspace membership, sessions, and registered device
-  identity. Priority login providers for the Russian market are Yandex ID, VK
-  ID, and Telegram Login, with Sber ID and T-ID reserved for later provider
-  enablement where partner setup allows.
+The next unstarted product slice is `014-desktop-upload-queue`.
+`014-desktop-upload-queue` depends on the identity/device foundation from `013`
+unless a future approved spec explicitly accepts a narrower temporary identity
+path.
+
 - `014-desktop-upload-queue`: macOS app sends accepted local recording packages
   to the `012` server ingest API using the `013` user/device identity and shows
   pending/uploading/retrying/uploaded status.
@@ -215,7 +218,8 @@ MVP includes:
 - Post-call transcription.
 - Basic diarization: reliable `You` vs remote track, best-effort remote speaker labels.
 - Basic AI notes: summary, decisions, action items, follow-ups.
-- Basic authentication.
+- Provider-neutral user authentication and account/session management, with
+  initial provider scope defined by `013-federated-auth-foundation`.
 - Seed admin username: `yshishenya`; password must be supplied as a deployment secret and not stored in the repository or PRD.
 - Basic admin settings for retention, recording mode, consent, downloads, and sharing.
 - MVP audit events.

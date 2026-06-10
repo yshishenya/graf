@@ -67,6 +67,22 @@ class Settings(BaseSettings):
     max_upload_part_bytes: PositiveInt = Field(default=67_108_864)
     max_upload_spool_memory_bytes: PositiveInt = Field(default=8_388_608)
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
+    auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
+    auth_callback_state_ttl_seconds: PositiveInt = Field(default=900)
+    auth_storage_region_tag: str = "ru"
+    auth_ru_local_storage_attested: bool = False
+
+    yandex_client_id: str = "twobrain-yandex-client-id"
+    vk_client_id: str = "twobrain-vk-client-id"
+    telegram_bot_name: str = "twobrain-telegram-bot"
+    telegram_client_id: str = "twobrain-telegram-client-id"
+    yandex_client_secret_file: Path | None = None
+    vk_client_secret_file: Path | None = None
+    telegram_client_secret_file: Path | None = None
+    yandex_redirect_path: str = "/api/v1/auth/callback/yandex"
+    vk_redirect_path: str = "/api/v1/auth/callback/vk"
+    telegram_redirect_path: str = "/api/v1/auth/callback/telegram"
+    auth_base_url: AnyUrl | None = None
 
     redact_headers: tuple[str, ...] = (
         "authorization",
@@ -94,6 +110,21 @@ class Settings(BaseSettings):
             self.minio_access_key = self.minio_access_key_file.read_text(encoding="utf-8").strip()
         if self.minio_secret_key_file is not None:
             self.minio_secret_key = self.minio_secret_key_file.read_text(encoding="utf-8").strip()
+        if self.yandex_client_secret_file is not None:
+            _ = self.yandex_client_secret_file.read_text(encoding="utf-8").strip()
+        if self.vk_client_secret_file is not None:
+            _ = self.vk_client_secret_file.read_text(encoding="utf-8").strip()
+        if self.telegram_client_secret_file is not None:
+            _ = self.telegram_client_secret_file.read_text(encoding="utf-8").strip()
+        placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
+        insecure_client_ids = {
+            self.yandex_client_id.lower(),
+            self.vk_client_id.lower(),
+            self.telegram_client_id.lower(),
+            self.telegram_bot_name.lower(),
+        }
+        if insecure_client_ids.intersection(placeholder_values):
+            raise ValueError("production auth provider IDs must be explicit and non-placeholder")
         unsafe_hosts = ("localhost", "127.0.0.1", "0.0.0.0", "::1")
         if any(host in self.database_url for host in unsafe_hosts):
             raise ValueError("production database_url must not point at localhost or wildcard hosts")
@@ -107,6 +138,10 @@ class Settings(BaseSettings):
             raise ValueError("production MinIO API access key must not be a root/admin credential")
         if self.smoke_identity_class is not None and self.smoke_identity_class != SMOKE_IDENTITY_CLASS:
             raise ValueError("production smoke identity class must be internal_smoke")
+        if self.auth_storage_region_tag.strip().lower() != "ru":
+            raise ValueError("production auth storage region must be ru")
+        if not self.auth_ru_local_storage_attested:
+            raise ValueError("production auth RU-local storage attestation is required")
         smoke_ids = (
             self.smoke_organization_id,
             self.smoke_workspace_id,

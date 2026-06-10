@@ -52,5 +52,5 @@ out/
 .idea/
 .vscode/
 
-# Spec Kit local runtime state that should not contain project source
-.specify/feature.json
+# Spec Kit local/runtime/tooling state
+.specify/*

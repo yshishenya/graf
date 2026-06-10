@@ -71,6 +71,9 @@ implementation record.
   `specs/012-server-ingest-foundation/quickstart.md`. The remaining gate before
   PR/deployment-plan handoff is a final full repository sanity run, review of
   the dirty worktree, and an explicit commit/PR decision.
+- Feature `013-federated-auth-foundation` is implemented on the backend and
+  provides provider-based auth, workspace membership, session, account linking,
+  and registered-device identity scaffolding for later desktop upload.
 - Feature `021-production-deployment-plan` is implemented as a remote-first
   infrastructure readiness slice for `2brain.dev` and `/opt/projects/2brain-rec`.
   It adds production Compose hardening, env/secret templates, remote backup,
@@ -138,33 +141,41 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `013-federated-auth-foundation` or
-`014-desktop-upload-queue`, depending on whether identity/session work or
-desktop upload UX should be unblocked first. The `021` deployment slice can be
-used as the infrastructure runbook baseline while those product slices remain
-separate.
+Recommended next feature: `014-desktop-upload-queue`.
+`014` remains the next user-visible upload slice, but it depends on the
+user/session/workspace/device identity foundation from `013` unless a future
+spec explicitly accepts a narrower temporary identity path.
+The `021` deployment slice can be used as the infrastructure runbook baseline
+while these product slices remain separate.
 
-Goal: connect the accepted local artifact and implemented server ingest
-foundation to real user/device identity and the macOS upload queue without
-weakening local recording visibility, stop control, metadata-only diagnostics,
-explicit egress policy, storage truth, or deletion accounting.
+Goal: turn the provider-neutral auth and tenant/device contracts from `012`
+into real user, workspace, session, and registered-device identity that can
+support a trusted macOS uploader later, without weakening local recording
+visibility, stop control, metadata-only diagnostics, explicit egress policy,
+storage truth, or deletion accounting.
 
-Recommended scope:
+Recommended `014` scope:
 
-- Provider-neutral user/workspace/session/device identity sufficient for a
-  trusted desktop uploader.
-- macOS upload queue that picks up local `010` artifacts, calls the `012`
-  ingest API, shows pending/uploading/retrying/uploaded/degraded/failed truth,
+- Register the `013` identities into uploader session handoff and upload-status
+  transitions.
+- Send accepted local artifacts through `012` ingest with stable session/device
+  evidence.
+- Implement robust retry/degraded/fail semantics without silently dropping local
+  artifacts.
+- Keep local artifacts until definitive upload truth is known.
+
+Immediate follow-up after `013`:
+
+- `014-desktop-upload-queue`: macOS app picks up accepted local artifacts,
+  calls the `012` ingest API with `013` identity, shows
+  pending/uploading/retrying/uploaded/degraded/failed truth, retries safely,
   and preserves local files until server status is known.
-- A remote `021` infrastructure smoke on `2brain.dev` only after DNS/TLS,
-  secrets, backup, migration, restore rehearsal, and cleanup evidence pass.
+- A remote `021` infrastructure smoke on `2brain.dev` can continue only within
+  the `infra_smoke_ready` boundary until product slices approve real users,
+  desktop upload, processing, dashboard, retention, and deletion behavior.
 
 Keep separate unless the next spec explicitly changes scope:
 
-- `013-federated-auth-foundation`: provider-neutral user authentication and
-  account/device identity, with priority login providers for the Russian market
-  such as Yandex ID, VK ID, and Telegram Login, plus later Sber ID and T-ID
-  where partner setup allows.
 - `014-desktop-upload-queue`: macOS app sends local recordings to the server,
   shows upload status, retries failures, and preserves local artifacts until
   upload truth is known.
@@ -196,8 +207,6 @@ the current accepted implementation or `012` ingest slice.
   `009-respect-meeting-mute` draft branch as the canonical backlog record.
 - `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
   naming, and any future auto-start behavior from the accepted requirements.
-- `013-federated-auth-foundation`: implement provider-neutral auth, account
-  linking, sessions, workspace membership, and registered device identity.
 - `014-desktop-upload-queue`: make the macOS app send local artifacts to the
   server, show upload status, retry safely, and preserve local artifacts until
   upload truth is known.
