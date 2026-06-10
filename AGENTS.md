@@ -273,6 +273,38 @@ Mandatory commit checkpoints for this repo:
 - `$speckit-taskstoissues` -> create a commit for created/updated issue links and labels
 - `$speckit-implement` -> commits are only for explicit implementation slices, only after approval and validation
 
+## 9. Versioning And Changelog
+
+This repo uses Semantic Versioning (`MAJOR.MINOR.PATCH`) for release tags.
+
+- `MAJOR` — breaking behavioral or API compatibility changes.
+- `MINOR` — new user-visible capabilities or reversible architecture additions with backward compatibility.
+- `PATCH` — bug fixes, reliability work, documentation, and operational quality improvements.
+
+Changelog rule:
+
+- maintain `CHANGELOG.md` in the repository root.
+- every implemented feature slice that changes behavior, architecture, UX, QA expectations,
+  or release-readiness must be recorded in `CHANGELOG.md` before merge.
+- keep entries grouped by:
+  - `Added`
+  - `Changed`
+  - `Fixed`
+  - `Security`
+  - `Docs`
+  - `Ops`
+- follow Keep a Changelog style:
+  - `## [Unreleased]`
+  - release headings by version (`## [x.y.z] - YYYY-MM-DD`)
+  - include feature/task references (`feature:XYZ`, issue IDs, task IDs) in bullets.
+
+Release gate for this repo:
+
+- for pre-release evidence, update `CHANGELOG.md` in `[Unreleased]`.
+- for release, move entries into the new version heading, set `vX.Y.Z` tag in Git,
+  and push tags with the release branch.
+- `release` tag format: `vMAJOR.MINOR.PATCH`.
+
 ## Git And Hooks
 
 The Spec Kit git extension is installed in `.specify/extensions/git/`.
