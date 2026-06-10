@@ -94,6 +94,10 @@ Clarification is mandatory when the feature touches:
 
 The command asks up to 5 targeted questions and writes accepted answers back into `spec.md`.
 
+For clean-gate behavior, treat `clarify` as iterative when quality feedback exists:
+
+- If `clarify` finds unresolved ambiguity, re-run `clarify` after the user provides answers and before the next transition to plan/checklist/analyze.
+
 ### 3. Plan
 
 Use `$speckit-plan` after the spec is clear.
@@ -164,6 +168,17 @@ This is a read-only consistency gate across:
 
 Do not implement while analyze reports critical issues. Resolve critical and high findings by updating the relevant spec, plan, or tasks before proceeding.
 
+Mandatory quality re-check loop:
+
+- Run `$speckit-analyze`.
+- If analysis returns critical findings, unresolved high findings, or explicit clarification gaps, update `spec.md`, `plan.md`, or `tasks.md`.
+- Re-run `$speckit-clarify` when ambiguity is the root cause, then re-run `$speckit-checklist` for affected areas.
+- Re-run `$speckit-analyze`.
+- Repeat until one full pass produces no unresolved critical issues and no blocking clarification requests.
+- `implement` is blocked until this loop is clean.
+
+This loop is not fully automatable today because `$speckit-clarify` depends on user decisions and domain answers. We can automate only the deterministic re-run cadence and commit checkpoints, but human confirmation remains mandatory.
+
 ### 7. Implement
 
 Use `$speckit-implement` only after:
@@ -181,13 +196,13 @@ Implementation rules:
 - run validation from `quickstart.md` and any tests introduced by the plan;
 - do not silently broaden scope beyond the active spec.
 
-### 8. Optional GitHub Issue Sync
+### 8. Required GitHub Issue Sync
 
-Use `$speckit-taskstoissues` only when:
+Use `$speckit-taskstoissues` for every implementation feature slice after planning and analysis:
 
-- `tasks.md` exists;
 - the repository remote is a GitHub URL;
-- the user explicitly wants GitHub issues created.
+- `tasks.md` exists with executable tasks;
+- the implementation stage is not skipped by explicit user instruction.
 
 Never create issues in a repository that does not match the configured git remote.
 
@@ -240,10 +255,23 @@ $speckit-plan
 $speckit-checklist
 $speckit-tasks
 $speckit-analyze
+$speckit-taskstoissues
 $speckit-implement
 ```
 
 For very small documentation-only changes, the user may explicitly skip to direct editing, but code/product implementation must use the full sequence.
+
+Mandatory commit checkpoints for this repo:
+
+- `$speckit-constitution` -> create a commit for constitution updates
+- `$speckit-specify` -> create a commit for `spec.md` changes
+- `$speckit-clarify` -> create a commit for `spec.md` clarification output
+- `$speckit-plan` -> create a commit for `plan.md`/supporting artifacts
+- `$speckit-checklist` -> create a commit for checklist files
+- `$speckit-tasks` -> create a commit for `tasks.md`
+- `$speckit-analyze` -> create a commit for analyze output
+- `$speckit-taskstoissues` -> create a commit for created/updated issue links and labels
+- `$speckit-implement` -> commits are only for explicit implementation slices, only after approval and validation
 
 ## Git And Hooks
 
@@ -252,11 +280,11 @@ The Spec Kit git extension is installed in `.specify/extensions/git/`.
 Behavior:
 
 - before `$speckit-specify`, the git hook creates a feature branch;
-- before/after many commands, optional git commit hooks may be offered;
-- auto-commit is disabled by default unless configured in `.specify/extensions/git/git-config.yml`;
-- this repo may enable auto-commit for completed Spec Kit documentation artifacts
-  such as constitution, specification, clarification, plan, checklist, tasks, and
-  analysis outputs.
+- before/after many commands, auto-commit hooks are controlled by
+  `.specify/extensions/git/git-config.yml`;
+- in this repo, auto-commit is enabled for these post-commands by default:
+  `after_constitution`, `after_specify`, `after_clarify`, `after_plan`,
+  `after_checklist`, `after_tasks`, `after_analyze`, and `after_taskstoissues`.
 
 Agent rules:
 
