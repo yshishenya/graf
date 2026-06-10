@@ -211,7 +211,10 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertEqual(incoming.failureReason, LocalRecordingFailureReason.none)
         XCTAssertEqual(incoming.status, .saved)
         XCTAssertTrue(incoming.timelineAligned)
-        XCTAssertEqual(manifest.status, .saved)
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.failureReason, .leakageUnproven)
+        XCTAssertEqual(manifest.leakageFinalization?.transcriptionGate, .blockedUnproven)
+        XCTAssertFalse(manifest.isComplete)
         XCTAssertEqual(manifest.captureHealth?.failureReason, LocalRecordingFailureReason.none)
         XCTAssertEqual(manifest.captureHealth?.gateStatus, .passed)
     }

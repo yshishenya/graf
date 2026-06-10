@@ -342,3 +342,22 @@ Manual equivalent:
 - Duration difference seconds: `0.014`
 - Validator result: `passed`
 - Safe checks: manifest/files/source metadata/permissions/scope/no-egress/duration contract passed without reading audio content.
+
+## Artifact Directory Validator Run
+
+- Run ID: `20260610T175149Z`
+- Timestamp: `2026-06-10T17:51:49Z`
+- Commit: `bf81356`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--validate-latest-artifact`
+- Directory ID: `20260610-162246-8187EA4E-A8F9-4365-A325-195EF4D3EFFC`
+- Manifest status: `failed`
+- Duration difference seconds: `0.039`
+- Validator result: `blocked`
+- Reason: artifact directory did not satisfy accepted controlled-recording metadata.
+- Findings:
+  - schemaVersion must be local-recording-manifest.v2
+  - manifest status must be saved
+  - transcriptionReadiness must be ready
+  - manifest failureReason must be none for accepted artifact

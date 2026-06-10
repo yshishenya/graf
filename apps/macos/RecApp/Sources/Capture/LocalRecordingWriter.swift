@@ -165,6 +165,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
 
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
+    private let leakageFinalizationService: LeakageFinalizationService
+    private let routeMetadataService: RecordingRouteMetadataService
     private let microphoneSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
     private let incomingSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
     private let microphoneInputChannelCount: Int
@@ -176,6 +178,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     public init(
         store: LocalRecordingStore = LocalRecordingStore(),
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
+        leakageFinalizationService: LeakageFinalizationService = LeakageFinalizationService(),
+        routeMetadataService: RecordingRouteMetadataService = RecordingRouteMetadataService(),
         sharedMemoryFactory: @escaping @Sendable () -> SharedAudioMemory? = { SharedAudioMemory() },
         microphoneSampleSourceFactory: @escaping @Sendable () -> LocalRecordingSampleSource? = { nil },
         incomingSampleSourceFactory: (@Sendable () -> LocalRecordingSampleSource?)? = nil,
@@ -185,6 +189,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     ) {
         self.store = store
         self.manifestService = manifestService
+        self.leakageFinalizationService = leakageFinalizationService
+        self.routeMetadataService = routeMetadataService
         self.microphoneSampleSourceFactory = microphoneSampleSourceFactory
         self.microphoneInputChannelCount = max(1, microphoneInputChannelCount)
         self.incomingInputChannelCount = max(1, incomingInputChannelCount)
@@ -463,8 +469,19 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             paddedFrameCount: paddingResult.incomingPaddedFrameCount,
             forcedFailureReason: drainResult.incomingTruncated || active.incomingWriteFailed ? .writeFailed : nil
         )
-        let recordingFailureReason = failureReason != .none ? failureReason :
+        let routeMetadata = routeMetadataService.snapshot()
+        let leakageFinalization = leakageFinalizationService.finalize(
+            micURL: active.directory.localMicURL,
+            incomingURL: active.directory.remoteSpeakerURL,
+            micTrack: micTrack,
+            incomingTrack: remoteTrack,
+            routeMetadata: routeMetadata
+        )
+        let recordingFailureReason = if failureReason != .none {
+            failureReason
+        } else {
             [remoteTrack, micTrack].first(where: { $0.failureReason != .none })?.failureReason ?? .none
+        }
         let captureHealth = CaptureHealthMonitor().snapshot(
             sessionId: active.sessionId,
             phase: .stop,
@@ -482,6 +499,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             startedAt: active.startedAt,
             stoppedAt: stoppedAt,
             tracks: [micTrack, remoteTrack],
+            leakageFinalization: leakageFinalization,
             failureReason: failureReason,
             scopeApproval: active.scopeApproval,
             permissions: active.permissions,
@@ -614,7 +632,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             .failed
         case .silentInput, .noFrames, .emptyRequiredTrack, .timelineMisaligned, .formatNotReady,
              .permissionDenied, .scopeUnavailable, .cpuGateFailed, .stoppedBeforeFrames,
-             .halProbeObserved, .deviceUnavailable, .legacyNotReady, .appClosed, .unknown:
+             .halProbeObserved, .deviceUnavailable, .legacyNotReady, .appClosed,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage,
+             .derivedDeletionNotRegistered, .unknown:
             complete ? .degraded : .missing
         }
         return LocalRecordingTrack(

@@ -1,10 +1,11 @@
 {
-  "schema": "local-recording-manifest.v2",
+  "schema": "local-recording-manifest.v3",
   "requiredFields": [
     "sessionId",
     "createdAt",
     "startedAt",
     "stoppedAt",
+    "finalizedAt",
     "status",
     "directoryId",
     "manifestFileName",
@@ -13,7 +14,14 @@
     "tracks",
     "externalEgressStarted",
     "transcriptionStarted",
-    "diagnosticSafe"
+    "diagnosticSafe",
+    "localDeletionRegistered",
+    "leakageFinalization",
+    "failureReason",
+    "durationDifferenceSeconds",
+    "scopeApproval",
+    "permissions",
+    "captureHealth"
   ],
   "requiredTrackRoles": [
     "local_mic",
@@ -34,12 +42,14 @@
   "requiredTrackFields": [
     "mediaScribeField",
     "sourceKind",
+    "evidenceRole",
     "format",
     "sampleRate",
     "channelCount",
     "bitsPerSample",
     "timelineStartMs",
-    "timelineAligned"
+    "timelineAligned",
+    "failureReason"
   ],
   "forbiddenFields": [
     "rawAudio",

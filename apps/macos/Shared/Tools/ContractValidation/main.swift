@@ -955,8 +955,10 @@ func validateLocalRecordingWriterSmallStopTailPaddingIsSaved() throws {
         "Small stop-tail manifest and captureHealth must agree on clean saved truth"
     )
     try require(
-        manifest.status == .saved && manifest.isComplete,
-        "Small stop-tail padding must still allow a clean saved manifest"
+        manifest.status == .degraded &&
+            manifest.failureReason == .leakageUnproven &&
+            !manifest.isComplete,
+        "Small stop-tail padding must keep captureHealth clean while leakage finalization blocks transcription without enough proof (status=\(manifest.status.rawValue) reason=\(manifest.failureReason.rawValue) complete=\(manifest.isComplete) leakage=\(manifest.leakageFinalization?.failureReason.rawValue ?? "none"))"
     )
 }
 

@@ -25,6 +25,7 @@ public struct LocalRecordingManifestService: Sendable {
         startedAt: Date,
         stoppedAt: Date,
         tracks: [LocalRecordingTrack],
+        leakageFinalization: LeakageFinalization? = nil,
         failureReason: LocalRecordingFailureReason = .none,
         routeSessionId: String? = nil,
         autorepairAttemptIds: [String] = [],
@@ -41,12 +42,27 @@ public struct LocalRecordingManifestService: Sendable {
         let scopeAllowsAcceptedRecording = scopeApproval?.isAcceptedForMeetingRecording ?? false
         let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? false
         let externallyFailed = failureReason != .none
-        let complete = hasExactlyOneRequiredTrackPerRole &&
-            tracks.allSatisfy(\.isMediaScribeReady) &&
+        let originalTracksReady = hasExactlyOneRequiredTrackPerRole &&
+            tracks.filter { $0.evidenceRole == .original }.allSatisfy(\.isMediaScribeReady)
+        let originalGateReady = originalTracksReady && (
+            leakageFinalization == nil ||
+                leakageFinalization?.status == .clean &&
+                leakageFinalization?.transcriptionGate == .eligibleOriginalDual
+        )
+        let derivedGateReady = leakageFinalization?.transcriptionGate == .eligibleDerivedDual &&
+            tracks.contains(where: \.isDerivedTranscriptionEligible)
+        let complete = (originalGateReady || derivedGateReady) &&
             scopeAllowsAcceptedRecording &&
             permissionsAllowAcceptedRecording &&
             durationDifferenceSeconds <= 3 &&
             !externallyFailed
+        let resolvedFailure: LocalRecordingFailureReason = complete ? .none : Self.resolveFailureReason(
+            tracks: tracks,
+            leakageFinalization: leakageFinalization,
+            scopeApproval: scopeApproval,
+            permissions: permissions,
+            fallback: failureReason
+        )
         let status: LocalRecordingSessionStatus = if complete {
             .saved
         } else if Self.isBlockedFailure(failureReason) {
@@ -56,6 +72,8 @@ public struct LocalRecordingManifestService: Sendable {
         } else if tracks.contains(where: { $0.status == .blocked }) {
             .blocked
         } else if tracks.contains(where: { $0.status == .failed }) {
+            .failed
+        } else if leakageFinalization?.transcriptionGate == .blockedLeakageDetected {
             .failed
         } else {
             .degraded
@@ -67,12 +85,6 @@ public struct LocalRecordingManifestService: Sendable {
         } else {
             .degraded
         }
-        let resolvedFailure: LocalRecordingFailureReason = complete ? .none : Self.resolveFailureReason(
-            tracks: tracks,
-            scopeApproval: scopeApproval,
-            permissions: permissions,
-            fallback: failureReason
-        )
 
         return LocalRecordingManifest(
             sessionId: sessionId,
@@ -84,6 +96,8 @@ public struct LocalRecordingManifestService: Sendable {
             transcriptionReadiness: readiness,
             mediaScribeSourceMode: "dual",
             tracks: tracks,
+            localDeletionRegistered: false,
+            leakageFinalization: leakageFinalization,
             failureReason: resolvedFailure,
             durationDifferenceSeconds: durationDifferenceSeconds,
             recordingTimelineEvidence: routeTimelineEvidence(
@@ -130,6 +144,7 @@ public struct LocalRecordingManifestService: Sendable {
 
     private static func resolveFailureReason(
         tracks: [LocalRecordingTrack],
+        leakageFinalization: LeakageFinalization?,
         scopeApproval: CaptureScopeApproval?,
         permissions: SystemAudioPermissionSnapshot?,
         fallback: LocalRecordingFailureReason
@@ -155,6 +170,18 @@ public struct LocalRecordingManifestService: Sendable {
         if tracks.contains(where: { $0.isComplete && !$0.isMediaScribeReady }) {
             return .formatNotReady
         }
+        switch leakageFinalization?.transcriptionGate {
+        case .blockedLeakageDetected:
+            return .leakageDetected
+        case .blockedUnproven:
+            return .leakageUnproven
+        case .blockedNotMeasured:
+            return .leakageNotMeasured
+        case .blockedTimelineMisaligned:
+            return .timelineMisaligned
+        case .eligibleOriginalDual, .eligibleDerivedDual, .notApplicable, .none:
+            break
+        }
         return .emptyRequiredTrack
     }
 
@@ -179,10 +206,12 @@ public struct LocalRecordingManifestService: Sendable {
             .blocked
         case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed,
              .timelineMisaligned, .cpuGateFailed, .halProbeObserved, .deviceUnavailable,
-             .appClosed:
+             .appClosed, .leakageDetected:
             .failed
         case .emptyRequiredTrack, .formatNotReady, .silentInput, .noFrames,
-             .stoppedBeforeFrames, .legacyNotReady, .unknown:
+             .stoppedBeforeFrames, .legacyNotReady, .leakageUnproven,
+             .leakageNotMeasured, .insufficientReference, .derivedResidualLeakage,
+             .derivedDeletionNotRegistered, .unknown:
             .degraded
         }
     }
@@ -195,7 +224,9 @@ public struct LocalRecordingManifestService: Sendable {
              .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
              .silentInput, .noFrames, .captureFailed, .cpuGateFailed,
              .stoppedBeforeFrames, .halProbeObserved, .deviceUnavailable,
-             .legacyNotReady, .appClosed, .unknown:
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage,
+             .derivedDeletionNotRegistered, .legacyNotReady, .appClosed, .unknown:
             return false
         }
     }
@@ -203,12 +234,14 @@ public struct LocalRecordingManifestService: Sendable {
     private static func isFailedFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .directoryUnavailable, .writeFailed, .finalizationFailed, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .appClosed:
+             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .appClosed,
+             .leakageDetected:
             return true
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked,
              .silentInput, .noFrames, .stoppedBeforeFrames, .legacyNotReady,
-             .unknown:
+             .leakageUnproven, .leakageNotMeasured, .insufficientReference,
+             .derivedResidualLeakage, .derivedDeletionNotRegistered, .unknown:
             return false
         }
     }

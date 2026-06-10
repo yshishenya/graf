@@ -2,6 +2,9 @@ import SwiftUI
 import TwoBrainRecShared
 
 public struct DriverSetupView: View {
+    public static let installButtonAccessibilityLabel = "Install audio driver"
+    public static let repairButtonAccessibilityLabel = "Repair audio driver"
+
     private let driverState: DriverInstallationState
     private let microphoneState: VirtualDeviceAvailabilityState
     private let speakerState: VirtualDeviceAvailabilityState

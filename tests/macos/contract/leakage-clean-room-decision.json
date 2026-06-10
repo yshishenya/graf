@@ -1,0 +1,47 @@
+{
+  "schema": "2brain.rec.leakage_clean_room_decision.v1",
+  "feature": "020-speaker-to-mic-leakage",
+  "requiredDecisionFields": [
+    "option",
+    "outcome",
+    "reason",
+    "sourceBasis",
+    "licensing",
+    "offlineLocalProcessing",
+    "cpuLatencyGateRequired",
+    "privacyBoundary",
+    "fallbackBehavior",
+    "testCoverageRequired"
+  ],
+  "allowedOutcomes": [
+    "spike_only",
+    "deferred",
+    "decision_record_only",
+    "no_go_for_clean_builtin_speakerphone_mvp",
+    "go_for_truthful_finalization"
+  ],
+  "requiredOptions": [
+    "apple_voice_processing",
+    "webrtc_aec3",
+    "post_recording_cleanup",
+    "mixed_audio_fallback",
+    "built_in_speakerphone"
+  ],
+  "forbiddenFields": [
+    "rawAudio",
+    "audioSnippet",
+    "transcriptText",
+    "meetingContent",
+    "participantSpeech",
+    "credentials",
+    "apiKey",
+    "tokens",
+    "signedUrls",
+    "password",
+    "absolutePath",
+    "liveSecretPath",
+    "krispAsset",
+    "krispBinary",
+    "krispProprietaryBehavior"
+  ]
+}

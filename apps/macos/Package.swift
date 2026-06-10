@@ -23,6 +23,10 @@ let package = Package(
         .executable(
             name: "ContractValidation",
             targets: ["ContractValidation"]
+        ),
+        .executable(
+            name: "LeakageValidation",
+            targets: ["LeakageValidation"]
         )
     ],
     targets: [
@@ -50,6 +54,11 @@ let package = Package(
             name: "ContractValidation",
             dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
             path: "Shared/Tools/ContractValidation"
+        ),
+        .executableTarget(
+            name: "LeakageValidation",
+            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
+            path: "Shared/Tools/LeakageValidation"
         ),
         .testTarget(
             name: "TwoBrainRecSharedTests",

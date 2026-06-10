@@ -432,6 +432,20 @@ public struct LeakageMeasurement: Codable, Equatable, Sendable {
     public var intelligibilityStatus: IntelligibilityStatus
     public var status: MeasurementStatus
     public var measuredAt: Date
+    public var measurementId: String?
+    public var windowCount: Int?
+    public var farEndOnlyWindowMs: Int?
+    public var doubleTalkExcludedWindowMs: Int?
+    public var alignmentOffsetMs: Int?
+    public var alignmentDriftMs: Int?
+    public var leakageLevelDb: Double?
+    public var correlationPeak: Double?
+    public var correlationLagMs: Int?
+    public var directLoopbackSuspicion: Bool?
+    public var acousticLeakageSuspicion: Bool?
+    public var clippingObserved: Bool?
+    public var dropoutObserved: Bool?
+    public var confidence: Double?
 
     public init(
         speakerReferenceDb: Double,
@@ -439,7 +453,21 @@ public struct LeakageMeasurement: Codable, Equatable, Sendable {
         relativeLeakageDb: Double,
         intelligibilityStatus: IntelligibilityStatus,
         status: MeasurementStatus,
-        measuredAt: Date
+        measuredAt: Date,
+        measurementId: String? = nil,
+        windowCount: Int? = nil,
+        farEndOnlyWindowMs: Int? = nil,
+        doubleTalkExcludedWindowMs: Int? = nil,
+        alignmentOffsetMs: Int? = nil,
+        alignmentDriftMs: Int? = nil,
+        leakageLevelDb: Double? = nil,
+        correlationPeak: Double? = nil,
+        correlationLagMs: Int? = nil,
+        directLoopbackSuspicion: Bool? = nil,
+        acousticLeakageSuspicion: Bool? = nil,
+        clippingObserved: Bool? = nil,
+        dropoutObserved: Bool? = nil,
+        confidence: Double? = nil
     ) {
         self.speakerReferenceDb = speakerReferenceDb
         self.virtualMicLeakageDb = virtualMicLeakageDb
@@ -447,6 +475,213 @@ public struct LeakageMeasurement: Codable, Equatable, Sendable {
         self.intelligibilityStatus = intelligibilityStatus
         self.status = status
         self.measuredAt = measuredAt
+        self.measurementId = measurementId
+        self.windowCount = windowCount
+        self.farEndOnlyWindowMs = farEndOnlyWindowMs
+        self.doubleTalkExcludedWindowMs = doubleTalkExcludedWindowMs
+        self.alignmentOffsetMs = alignmentOffsetMs
+        self.alignmentDriftMs = alignmentDriftMs
+        self.leakageLevelDb = leakageLevelDb
+        self.correlationPeak = correlationPeak
+        self.correlationLagMs = correlationLagMs
+        self.directLoopbackSuspicion = directLoopbackSuspicion
+        self.acousticLeakageSuspicion = acousticLeakageSuspicion
+        self.clippingObserved = clippingObserved
+        self.dropoutObserved = dropoutObserved
+        self.confidence = confidence
+    }
+}
+
+public struct RecordingRouteMetadata: Codable, Equatable, Sendable {
+    public var inputRouteClass: String?
+    public var outputRouteClass: String?
+    public var outputVolumeBucket: LeakageRouteVolumeBucket
+    public var muteState: LeakageRouteMuteState
+    public var browserTarget: String?
+    public var routeChangeCount: Int
+    public var coreaudiodState: String?
+    public var sleepWakeObserved: Bool
+    public var selfRoutingRejected: Bool
+    public var notes: [String]
+
+    public init(
+        inputRouteClass: String? = nil,
+        outputRouteClass: String? = nil,
+        outputVolumeBucket: LeakageRouteVolumeBucket = .unknown,
+        muteState: LeakageRouteMuteState = .unknown,
+        browserTarget: String? = nil,
+        routeChangeCount: Int = 0,
+        coreaudiodState: String? = nil,
+        sleepWakeObserved: Bool = false,
+        selfRoutingRejected: Bool = false,
+        notes: [String] = []
+    ) {
+        self.inputRouteClass = inputRouteClass
+        self.outputRouteClass = outputRouteClass
+        self.outputVolumeBucket = outputVolumeBucket
+        self.muteState = muteState
+        self.browserTarget = browserTarget
+        self.routeChangeCount = routeChangeCount
+        self.coreaudiodState = coreaudiodState
+        self.sleepWakeObserved = sleepWakeObserved
+        self.selfRoutingRejected = selfRoutingRejected
+        self.notes = notes
+    }
+}
+
+public struct LeakageThresholdVersion: Codable, Equatable, Sendable {
+    public static let v1 = LeakageThresholdVersion()
+
+    public var id: String
+    public var timelineToleranceMs: Int
+    public var minimumFarEndOnlyWindowMs: Int
+    public var maximumLeakageLevelDb: Double
+    public var maximumCorrelationPeak: Double
+    public var minimumConfidence: Double
+    public var maximumAlignmentDriftMs: Int
+    public var minimumDerivedConfidence: Double
+    public var maximumDerivedResidualLeakageDb: Double
+    public var doubleTalkPolicy: String
+    public var derivedResidualPolicy: String
+
+    public init(
+        id: String = "leakage-threshold.v1",
+        timelineToleranceMs: Int = 1_000,
+        minimumFarEndOnlyWindowMs: Int = 15_000,
+        maximumLeakageLevelDb: Double = -45.0,
+        maximumCorrelationPeak: Double = 0.12,
+        minimumConfidence: Double = 0.80,
+        maximumAlignmentDriftMs: Int = 250,
+        minimumDerivedConfidence: Double = 0.85,
+        maximumDerivedResidualLeakageDb: Double = -50.0,
+        doubleTalkPolicy: String = "exclude_or_downgrade_confidence",
+        derivedResidualPolicy: String = "separate_artifact_requires_residual_gate"
+    ) {
+        self.id = id
+        self.timelineToleranceMs = timelineToleranceMs
+        self.minimumFarEndOnlyWindowMs = minimumFarEndOnlyWindowMs
+        self.maximumLeakageLevelDb = maximumLeakageLevelDb
+        self.maximumCorrelationPeak = maximumCorrelationPeak
+        self.minimumConfidence = minimumConfidence
+        self.maximumAlignmentDriftMs = maximumAlignmentDriftMs
+        self.minimumDerivedConfidence = minimumDerivedConfidence
+        self.maximumDerivedResidualLeakageDb = maximumDerivedResidualLeakageDb
+        self.doubleTalkPolicy = doubleTalkPolicy
+        self.derivedResidualPolicy = derivedResidualPolicy
+    }
+}
+
+public struct DerivedCleanedTrackMetadata: Codable, Equatable, Sendable {
+    public var sourceTrackIds: [String]
+    public var processorId: String
+    public var processorVersion: String
+    public var createdAt: Date
+    public var lineageHash: String?
+    public var confidence: Double
+    public var residualLeakageStatus: LeakageStatus
+    public var residualThresholdVersion: String
+    public var eligibleForTranscription: Bool
+    public var retentionClass: String
+    public var deletionScope: String
+    public var localDeletionRegistered: Bool
+    public var failureReason: LocalRecordingFailureReason
+
+    public init(
+        sourceTrackIds: [String],
+        processorId: String,
+        processorVersion: String,
+        createdAt: Date,
+        lineageHash: String? = nil,
+        confidence: Double,
+        residualLeakageStatus: LeakageStatus,
+        residualThresholdVersion: String = LeakageThresholdVersion.v1.id,
+        eligibleForTranscription: Bool,
+        retentionClass: String = "local_recording_derived_audio",
+        deletionScope: String = "local_desktop_purge",
+        localDeletionRegistered: Bool,
+        failureReason: LocalRecordingFailureReason = .none
+    ) {
+        self.sourceTrackIds = sourceTrackIds
+        self.processorId = processorId
+        self.processorVersion = processorVersion
+        self.createdAt = createdAt
+        self.lineageHash = lineageHash
+        self.confidence = confidence
+        self.residualLeakageStatus = residualLeakageStatus
+        self.residualThresholdVersion = residualThresholdVersion
+        self.eligibleForTranscription = eligibleForTranscription
+        self.retentionClass = retentionClass
+        self.deletionScope = deletionScope
+        self.localDeletionRegistered = localDeletionRegistered
+        self.failureReason = failureReason
+    }
+}
+
+public struct LeakageFinalization: Codable, Equatable, Sendable {
+    public var status: LeakageStatus
+    public var evaluatedAt: Date
+    public var thresholdVersion: String
+    public var measurementAttempted: Bool
+    public var measurementApplicable: Bool
+    public var alignmentStatus: LeakageAlignmentStatus
+    public var confidence: Double
+    public var failureReason: LocalRecordingFailureReason
+    public var originalEvidenceStatus: LeakageStatus
+    public var derivedArtifactStatus: LeakageStatus?
+    public var transcriptionGate: LeakageTranscriptionGate
+    public var routeMetadata: RecordingRouteMetadata
+    public var measurement: LeakageMeasurement?
+
+    public init(
+        status: LeakageStatus,
+        evaluatedAt: Date,
+        thresholdVersion: String = LeakageThresholdVersion.v1.id,
+        measurementAttempted: Bool,
+        measurementApplicable: Bool,
+        alignmentStatus: LeakageAlignmentStatus,
+        confidence: Double,
+        failureReason: LocalRecordingFailureReason,
+        originalEvidenceStatus: LeakageStatus,
+        derivedArtifactStatus: LeakageStatus? = nil,
+        transcriptionGate: LeakageTranscriptionGate,
+        routeMetadata: RecordingRouteMetadata = RecordingRouteMetadata(),
+        measurement: LeakageMeasurement? = nil
+    ) {
+        self.status = status
+        self.evaluatedAt = evaluatedAt
+        self.thresholdVersion = thresholdVersion
+        self.measurementAttempted = measurementAttempted
+        self.measurementApplicable = measurementApplicable
+        self.alignmentStatus = alignmentStatus
+        self.confidence = confidence
+        self.failureReason = failureReason
+        self.originalEvidenceStatus = originalEvidenceStatus
+        self.derivedArtifactStatus = derivedArtifactStatus
+        self.transcriptionGate = transcriptionGate
+        self.routeMetadata = routeMetadata
+        self.measurement = measurement
+    }
+}
+
+public struct LeakageDependencyDecisionRecord: Codable, Equatable, Sendable {
+    public var option: String
+    public var outcome: String
+    public var reason: String
+    public var sourceBasis: String
+    public var testCoverageRequired: [String]
+
+    public init(
+        option: String,
+        outcome: String,
+        reason: String,
+        sourceBasis: String,
+        testCoverageRequired: [String]
+    ) {
+        self.option = option
+        self.outcome = outcome
+        self.reason = reason
+        self.sourceBasis = sourceBasis
+        self.testCoverageRequired = testCoverageRequired
     }
 }
 
@@ -836,6 +1071,7 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     public var sourceKind: AudioCaptureSourceKind?
     public var mediaScribeField: MediaScribeTrackField
     public var status: LocalRecordingTrackStatus
+    public var evidenceRole: LeakageEvidenceRole
     public var fileName: String
     public var format: String
     public var sampleRate: Double
@@ -847,6 +1083,12 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     public var timelineStartMs: Int
     public var timelineAligned: Bool
     public var failureReason: LocalRecordingFailureReason
+    public var sourceTrackIds: [String]?
+    public var processorId: String?
+    public var processorVersion: String?
+    public var residualLeakageStatus: LeakageStatus?
+    public var eligibleForTranscription: Bool?
+    public var derivedMetadata: DerivedCleanedTrackMetadata?
 
     public init(
         trackId: String,
@@ -854,6 +1096,7 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
         sourceKind: AudioCaptureSourceKind? = nil,
         mediaScribeField: MediaScribeTrackField? = nil,
         status: LocalRecordingTrackStatus,
+        evidenceRole: LeakageEvidenceRole = .original,
         fileName: String,
         format: String,
         sampleRate: Double,
@@ -864,13 +1107,20 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
         frameCount: Int64,
         timelineStartMs: Int = 0,
         timelineAligned: Bool = false,
-        failureReason: LocalRecordingFailureReason = .none
+        failureReason: LocalRecordingFailureReason = .none,
+        sourceTrackIds: [String]? = nil,
+        processorId: String? = nil,
+        processorVersion: String? = nil,
+        residualLeakageStatus: LeakageStatus? = nil,
+        eligibleForTranscription: Bool? = nil,
+        derivedMetadata: DerivedCleanedTrackMetadata? = nil
     ) {
         self.trackId = trackId
         self.role = role
         self.sourceKind = sourceKind ?? Self.defaultSourceKind(for: role)
         self.mediaScribeField = mediaScribeField ?? Self.defaultMediaScribeField(for: role)
         self.status = status
+        self.evidenceRole = evidenceRole
         self.fileName = fileName
         self.format = format
         self.sampleRate = sampleRate
@@ -882,6 +1132,12 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
         self.timelineStartMs = timelineStartMs
         self.timelineAligned = timelineAligned
         self.failureReason = failureReason
+        self.sourceTrackIds = sourceTrackIds
+        self.processorId = processorId
+        self.processorVersion = processorVersion
+        self.residualLeakageStatus = residualLeakageStatus
+        self.eligibleForTranscription = eligibleForTranscription
+        self.derivedMetadata = derivedMetadata
     }
 
     public var isComplete: Bool {
@@ -904,27 +1160,40 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
             .micFile
         case .remoteSpeaker:
             .incomingFile
+        case .derivedLocalMic:
+            .derivedMicFile
+        case .mixedMeetingAudio:
+            .mixedAudioFile
         }
     }
 
     public static func defaultSourceKind(for role: AudioTrackRole) -> AudioCaptureSourceKind {
         switch role {
-        case .localMic:
+        case .localMic, .derivedLocalMic:
             .microphone
-        case .remoteSpeaker:
+        case .remoteSpeaker, .mixedMeetingAudio:
             .systemAudio
         }
+    }
+
+    public var isDerivedTranscriptionEligible: Bool {
+        evidenceRole == .derived &&
+            isComplete &&
+            eligibleForTranscription == true &&
+            residualLeakageStatus == .clean &&
+            derivedMetadata?.localDeletionRegistered == true
     }
 }
 
 public struct LocalRecordingManifest: Codable, Equatable, Sendable {
-    public static let schemaVersion = "local-recording-manifest.v2"
+    public static let schemaVersion = "local-recording-manifest.v3"
 
     public var schemaVersion: String
     public var sessionId: String
     public var createdAt: Date
     public var startedAt: Date
     public var stoppedAt: Date
+    public var finalizedAt: Date?
     public var status: LocalRecordingSessionStatus
     public var directoryId: String
     public var manifestFileName: String
@@ -934,6 +1203,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var externalEgressStarted: Bool
     public var transcriptionStarted: Bool
     public var diagnosticSafe: Bool
+    public var localDeletionRegistered: Bool
+    public var leakageFinalization: LeakageFinalization?
     public var failureReason: LocalRecordingFailureReason
     public var durationDifferenceSeconds: Double
     public var recordingTimelineEvidence: RecordingTimelineIntegrityEvidence?
@@ -947,6 +1218,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         createdAt: Date,
         startedAt: Date,
         stoppedAt: Date,
+        finalizedAt: Date? = nil,
         status: LocalRecordingSessionStatus,
         directoryId: String,
         manifestFileName: String = "manifest.json",
@@ -956,6 +1228,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         externalEgressStarted: Bool = false,
         transcriptionStarted: Bool = false,
         diagnosticSafe: Bool = true,
+        localDeletionRegistered: Bool = false,
+        leakageFinalization: LeakageFinalization? = nil,
         failureReason: LocalRecordingFailureReason = .none,
         durationDifferenceSeconds: Double = 0,
         recordingTimelineEvidence: RecordingTimelineIntegrityEvidence? = nil,
@@ -968,6 +1242,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.createdAt = createdAt
         self.startedAt = startedAt
         self.stoppedAt = stoppedAt
+        self.finalizedAt = finalizedAt
         self.status = status
         self.directoryId = directoryId
         self.manifestFileName = manifestFileName
@@ -977,6 +1252,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.externalEgressStarted = externalEgressStarted
         self.transcriptionStarted = transcriptionStarted
         self.diagnosticSafe = diagnosticSafe
+        self.localDeletionRegistered = localDeletionRegistered
+        self.leakageFinalization = leakageFinalization
         self.failureReason = failureReason
         self.durationDifferenceSeconds = durationDifferenceSeconds
         self.recordingTimelineEvidence = recordingTimelineEvidence
@@ -986,22 +1263,54 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     }
 
     public var isComplete: Bool {
-        status == .saved &&
-            transcriptionReadiness == .ready &&
-            mediaScribeSourceMode == "dual" &&
-            !externalEgressStarted &&
-            !transcriptionStarted &&
-            failureReason == .none &&
-            scopeApproval?.isAcceptedForMeetingRecording == true &&
-            permissions?.allowsAcceptedRecording == true &&
-            durationDifferenceSeconds <= 3 &&
-            Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
-            tracks.allSatisfy { $0.sourceKind != nil } &&
-            tracks.allSatisfy(\.isMediaScribeReady)
+        guard status == .saved,
+              transcriptionReadiness == .ready,
+              !externalEgressStarted,
+              !transcriptionStarted,
+              failureReason == .none,
+              scopeApproval?.isAcceptedForMeetingRecording == true,
+              permissions?.allowsAcceptedRecording == true,
+              durationDifferenceSeconds <= 3
+        else {
+            return false
+        }
+
+        if mediaScribeSourceMode == "dual" {
+            let originalTracks = tracks.filter { $0.evidenceRole == .original }
+            return Set(originalTracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
+                originalTracks.allSatisfy { $0.sourceKind != nil } &&
+                originalTracks.allSatisfy(\.isMediaScribeReady) &&
+                (
+                    leakageFinalization == nil ||
+                        leakageFinalization?.status == .clean &&
+                        leakageFinalization?.transcriptionGate == .eligibleOriginalDual
+                )
+        }
+
+        if mediaScribeSourceMode == "derived_dual" {
+            return tracks.contains(where: \.isDerivedTranscriptionEligible) &&
+                leakageFinalization?.transcriptionGate == .eligibleDerivedDual
+        }
+
+        return false
     }
 
-    public static func transcriptionReadiness(forSchemaVersion schemaVersion: String) -> TranscriptionReadinessState {
-        schemaVersion == Self.schemaVersion ? .degraded : .legacyNotReady
+    public static func transcriptionReadiness(
+        forSchemaVersion schemaVersion: String,
+        leakageFinalization: LeakageFinalization? = nil,
+        tracks: [LocalRecordingTrack] = []
+    ) -> TranscriptionReadinessState {
+        guard schemaVersion == Self.schemaVersion else {
+            return .legacyNotReady
+        }
+        if leakageFinalization?.transcriptionGate == .eligibleOriginalDual {
+            return .ready
+        }
+        if leakageFinalization?.transcriptionGate == .eligibleDerivedDual &&
+            tracks.contains(where: \.isDerivedTranscriptionEligible) {
+            return .ready
+        }
+        return .degraded
     }
 }
 

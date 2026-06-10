@@ -190,6 +190,8 @@ public enum VisibleIndicatorState: String, Codable, Sendable {
 public enum AudioTrackRole: String, Codable, Sendable {
     case localMic = "local_mic"
     case remoteSpeaker = "remote_speaker"
+    case derivedLocalMic = "derived_local_mic"
+    case mixedMeetingAudio = "mixed_meeting_audio"
 }
 
 public enum AudioTrackState: String, Codable, Sendable {
@@ -278,6 +280,12 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case emptyRequiredTrack = "empty_required_track"
     case formatNotReady = "format_not_ready"
     case timelineMisaligned = "timeline_misaligned"
+    case leakageDetected = "leakage_detected"
+    case leakageUnproven = "leakage_unproven"
+    case leakageNotMeasured = "leakage_not_measured"
+    case insufficientReference = "insufficient_reference"
+    case derivedResidualLeakage = "derived_residual_leakage"
+    case derivedDeletionNotRegistered = "derived_deletion_not_registered"
     case permissionDenied = "permission_denied"
     case scopeUnavailable = "scope_unavailable"
     case protectedAudioBlocked = "protected_audio_blocked"
@@ -303,6 +311,53 @@ public enum TranscriptionReadinessState: String, Codable, Sendable {
 public enum MediaScribeTrackField: String, Codable, Sendable {
     case micFile = "mic_file"
     case incomingFile = "incoming_file"
+    case derivedMicFile = "derived_mic_file"
+    case mixedAudioFile = "mixed_audio_file"
+}
+
+public enum LeakageStatus: String, Codable, Sendable {
+    case clean
+    case leakageDetected = "leakage_detected"
+    case unproven
+    case notMeasured = "not_measured"
+    case notApplicable = "not_applicable"
+}
+
+public enum LeakageAlignmentStatus: String, Codable, Sendable {
+    case aligned
+    case misaligned
+    case driftDetected = "drift_detected"
+    case insufficientReference = "insufficient_reference"
+    case unknown
+}
+
+public enum LeakageTranscriptionGate: String, Codable, Sendable {
+    case eligibleOriginalDual = "eligible_original_dual"
+    case eligibleDerivedDual = "eligible_derived_dual"
+    case blockedLeakageDetected = "blocked_leakage_detected"
+    case blockedUnproven = "blocked_unproven"
+    case blockedNotMeasured = "blocked_not_measured"
+    case blockedTimelineMisaligned = "blocked_timeline_misaligned"
+    case notApplicable = "not_applicable"
+}
+
+public enum LeakageEvidenceRole: String, Codable, Sendable {
+    case original
+    case derived
+}
+
+public enum LeakageRouteVolumeBucket: String, Codable, Sendable {
+    case muted
+    case low
+    case medium
+    case high
+    case unknown
+}
+
+public enum LeakageRouteMuteState: String, Codable, Sendable {
+    case muted
+    case unmuted
+    case unknown
 }
 
 public enum LocalBufferArtifactType: String, Codable, Sendable {

@@ -84,10 +84,12 @@ public struct CaptureHealthMonitor: Sendable {
             .blocked
         case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed,
              .timelineMisaligned, .cpuGateFailed, .halProbeObserved, .deviceUnavailable,
-             .appClosed:
+             .appClosed, .leakageDetected:
             .failed
         case .emptyRequiredTrack, .formatNotReady, .silentInput, .noFrames,
-             .stoppedBeforeFrames, .legacyNotReady, .unknown:
+             .stoppedBeforeFrames, .legacyNotReady, .leakageUnproven,
+             .leakageNotMeasured, .insufficientReference, .derivedResidualLeakage,
+             .derivedDeletionNotRegistered, .unknown:
             .degraded
         }
     }

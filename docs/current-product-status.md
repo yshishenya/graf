@@ -1,6 +1,6 @@
 # Current Product Status
 
-Date: 2026-06-04
+Date: 2026-06-10
 
 This document is the short status source after accepting the local recording
 artifact-format slice and drafting the next architecture/product decisions. The
@@ -84,6 +84,23 @@ implementation record.
   closes the final evidence gates for permission matrix, controlled artifact,
   CPU/resource behavior, 30-minute development validation, 75-minute release
   validation, forbidden-content scan, and final scope review.
+- Feature `020-speaker-to-mic-leakage` is accepted as the post-stop
+  finalization truth gate for local dual-track packages. After `Stop`, saved
+  `mic.wav` and `incoming.wav` evidence is measured against
+  `leakage-threshold.v1`; `manifest.json` uses
+  `local-recording-manifest.v3`; contaminated, ambiguous, malformed,
+  misaligned, not-measured, or unproven packages fail closed for transcription
+  readiness. The implementation is integrated on top of the accepted `025`
+  system-audio capture path and does not replace scope approvals, permissions,
+  capture-health evidence, dual-track role mapping, or system-audio recording
+  truth.
+- `020` diagnostics remain metadata-only: leakage status, transcription gate,
+  route metadata, threshold metadata, and measurement summaries may be included,
+  but raw audio, transcript text, credentials, tokens, signed URLs, passwords,
+  meeting content, and live filesystem paths remain forbidden.
+- `020` is finalization-only. It does not introduce external egress, a
+  MediaScribe call, live echo cancellation, recording-time route remediation,
+  driver fallback, or a customer-visible auto-start policy.
 - The driver-based live virtual-device publication blocker from `019` / issue
   #234 is superseded for MVP recording by `025` and parked as future
   advanced-routing work. Its unsafe HAL publication attempts remain preserved
@@ -100,6 +117,10 @@ implementation record.
 - Feature `022-meeting-mute-truth` must resolve meeting-app mute truth before
   local recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
+- Built-in speakerphone clean dual-track acceptance remains constrained by
+  `020` evidence: packages can be captured, but transcription readiness must
+  stay blocked when persisted package evidence is contaminated, unproven, or
+  unavailable. Live Apple/WebRTC/AEC cleanup remains a future gated slice.
 - Driver live virtual-device publication is not accepted for MVP recording and
   must not be revived without a separate future advanced-routing spec,
   implementation, and safety evidence.
@@ -161,6 +182,9 @@ Keep separate unless the next spec explicitly changes scope:
   backup expiry accounting, and external dependency deletion truth.
 - Assisted auto-start and generalized meeting detection.
 - Feature `022-meeting-mute-truth` meeting-app mute truth.
+- Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
+  AEC, and mixed-audio fallback remain decision records or future spike gates
+  after `020`. They are not runtime behavior in the finalization-only slice.
 
 ## Deferred Work Register
 
@@ -190,6 +214,10 @@ the current accepted implementation or `012` ingest slice.
 - `021-production-deployment-plan`: use the remote-first runbook to reach
   `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
   claims blocked until later product slices are accepted.
+- `020-hardware-route-matrix`: complete physical-device route matrix rows that
+  require unavailable hardware before claiming broad hardware speakerphone
+  acceptance. Current automated acceptance covers persisted-package
+  finalization behavior, not every physical device route.
 - `RLS-hardening`: if PostgreSQL Row-Level Security is deferred by `012` plan,
   create a traceable task or GitHub issue candidate with compensating
   application-level authorization checks.

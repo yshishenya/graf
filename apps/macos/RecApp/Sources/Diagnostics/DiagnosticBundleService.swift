@@ -296,8 +296,20 @@ public struct DiagnosticBundleService: Sendable {
             "status": .string(manifest.status.rawValue),
             "directoryId": .string(manifest.directoryId),
             "manifestFileName": .string(manifest.manifestFileName),
-            "diagnosticSafe": .bool(manifest.diagnosticSafe)
+            "diagnosticSafe": .bool(manifest.diagnosticSafe),
+            "leakageStatus": .string(manifest.leakageFinalization?.status.rawValue ?? "not_measured"),
+            "transcriptionGate": .string(manifest.leakageFinalization?.transcriptionGate.rawValue ?? "blocked_not_measured")
         ])
+        if let leakageFinalization = manifest.leakageFinalization {
+            bundleManifest["leakageFinalization"] = Self.diagnosticValue(leakageFinalization)
+            bundleManifest["leakageRouteMetadata"] = Self.diagnosticValue(leakageFinalization.routeMetadata)
+            bundleManifest["leakageMeasurement"] = leakageFinalization.measurement.map(Self.diagnosticValue) ?? .null
+            bundleManifest["directLoopbackSuspicion"] = .bool(leakageFinalization.measurement?.directLoopbackSuspicion ?? false)
+            bundleManifest["acousticLeakageSuspicion"] = .bool(leakageFinalization.measurement?.acousticLeakageSuspicion ?? false)
+            bundleManifest["thresholdVersion"] = .string(leakageFinalization.thresholdVersion)
+            bundleManifest["alignmentStatus"] = .string(leakageFinalization.alignmentStatus.rawValue)
+            bundleManifest["transcriptionGate"] = .string(leakageFinalization.transcriptionGate.rawValue)
+        }
         bundleManifest["sessionId"] = .string(manifest.sessionId)
         bundleManifest["trackCount"] = .int(manifest.tracks.count)
         bundleManifest["trackRoles"] = .array(manifest.tracks.map { .string($0.role.rawValue) })
@@ -616,6 +628,7 @@ public struct DiagnosticBundleService: Sendable {
             "createdAt": .string(Self.formatDate(manifest.createdAt)),
             "startedAt": .string(Self.formatDate(manifest.startedAt)),
             "stoppedAt": .string(Self.formatDate(manifest.stoppedAt)),
+            "finalizedAt": .string(manifest.finalizedAt.map(Self.formatDate) ?? "none"),
             "status": .string(manifest.status.rawValue),
             "directoryId": .string(manifest.directoryId),
             "manifestFileName": .string(manifest.manifestFileName),
@@ -625,6 +638,8 @@ public struct DiagnosticBundleService: Sendable {
             "externalEgressStarted": .bool(manifest.externalEgressStarted),
             "transcriptionStarted": .bool(manifest.transcriptionStarted),
             "diagnosticSafe": .bool(manifest.diagnosticSafe),
+            "localDeletionRegistered": .bool(manifest.localDeletionRegistered),
+            "leakageFinalization": manifest.leakageFinalization.map(Self.diagnosticValue) ?? .null,
             "failureReason": .string(manifest.failureReason.rawValue)
         ])
     }
@@ -635,6 +650,7 @@ public struct DiagnosticBundleService: Sendable {
             "role": .string(track.role.rawValue),
             "mediaScribeField": .string(track.mediaScribeField.rawValue),
             "status": .string(track.status.rawValue),
+            "evidenceRole": .string(track.evidenceRole.rawValue),
             "fileName": .string(track.fileName),
             "format": .string(track.format),
             "sampleRate": .double(track.sampleRate),
@@ -645,7 +661,61 @@ public struct DiagnosticBundleService: Sendable {
             "frameCount": .int(Int(track.frameCount)),
             "timelineStartMs": .int(track.timelineStartMs),
             "timelineAligned": .bool(track.timelineAligned),
+            "residualLeakageStatus": .string(track.residualLeakageStatus?.rawValue ?? "not_applicable"),
+            "eligibleForTranscription": .bool(track.eligibleForTranscription ?? false),
             "failureReason": .string(track.failureReason.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ finalization: LeakageFinalization) -> DiagnosticFieldValue {
+        .object([
+            "status": .string(finalization.status.rawValue),
+            "evaluatedAt": .string(Self.formatDate(finalization.evaluatedAt)),
+            "thresholdVersion": .string(finalization.thresholdVersion),
+            "measurementAttempted": .bool(finalization.measurementAttempted),
+            "measurementApplicable": .bool(finalization.measurementApplicable),
+            "alignmentStatus": .string(finalization.alignmentStatus.rawValue),
+            "confidence": .double(finalization.confidence),
+            "failureReason": .string(finalization.failureReason.rawValue),
+            "originalEvidenceStatus": .string(finalization.originalEvidenceStatus.rawValue),
+            "derivedArtifactStatus": .string(finalization.derivedArtifactStatus?.rawValue ?? "not_applicable"),
+            "transcriptionGate": .string(finalization.transcriptionGate.rawValue),
+            "routeMetadata": Self.diagnosticValue(finalization.routeMetadata),
+            "measurement": finalization.measurement.map(Self.diagnosticValue) ?? .null
+        ])
+    }
+
+    private static func diagnosticValue(_ route: RecordingRouteMetadata) -> DiagnosticFieldValue {
+        .object([
+            "inputRouteClass": .string(route.inputRouteClass ?? "unknown"),
+            "outputRouteClass": .string(route.outputRouteClass ?? "unknown"),
+            "outputVolumeBucket": .string(route.outputVolumeBucket.rawValue),
+            "muteState": .string(route.muteState.rawValue),
+            "browserTarget": .string(route.browserTarget ?? "unknown"),
+            "routeChangeCount": .int(route.routeChangeCount),
+            "coreaudiodState": .string(route.coreaudiodState ?? "unknown"),
+            "sleepWakeObserved": .bool(route.sleepWakeObserved),
+            "selfRoutingRejected": .bool(route.selfRoutingRejected)
+        ])
+    }
+
+    private static func diagnosticValue(_ measurement: LeakageMeasurement) -> DiagnosticFieldValue {
+        .object([
+            "measurementId": .string(measurement.measurementId ?? "unknown"),
+            "windowCount": .int(measurement.windowCount ?? 0),
+            "farEndOnlyWindowMs": .int(measurement.farEndOnlyWindowMs ?? 0),
+            "doubleTalkExcludedWindowMs": .int(measurement.doubleTalkExcludedWindowMs ?? 0),
+            "alignmentOffsetMs": .int(measurement.alignmentOffsetMs ?? 0),
+            "alignmentDriftMs": .int(measurement.alignmentDriftMs ?? 0),
+            "leakageLevelDb": .double(measurement.leakageLevelDb ?? measurement.relativeLeakageDb),
+            "correlationPeak": .double(measurement.correlationPeak ?? 0),
+            "correlationLagMs": .int(measurement.correlationLagMs ?? 0),
+            "directLoopbackSuspicion": .bool(measurement.directLoopbackSuspicion ?? false),
+            "acousticLeakageSuspicion": .bool(measurement.acousticLeakageSuspicion ?? false),
+            "clippingObserved": .bool(measurement.clippingObserved ?? false),
+            "dropoutObserved": .bool(measurement.dropoutObserved ?? false),
+            "confidence": .double(measurement.confidence ?? 0),
+            "status": .string(measurement.status.rawValue)
         ])
     }
 
