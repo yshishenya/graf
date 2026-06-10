@@ -58,5 +58,5 @@ auto_commit:
     enabled: true
     message: "[Spec Kit] Add analysis report"
   after_taskstoissues:
-    enabled: false
+    enabled: true
     message: "[Spec Kit] Sync tasks to issues"
