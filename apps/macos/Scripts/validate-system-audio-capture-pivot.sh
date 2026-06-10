@@ -696,8 +696,8 @@ write_synthetic_manifest() {
   },
   "tracks": [
     {
-      "trackId": "localMic-track",
-      "role": "localMic",
+      "trackId": "local_mic-track",
+      "role": "local_mic",
       "sourceKind": "microphone",
       "mediaScribeField": "mic_file",
       "status": "saved",
@@ -714,8 +714,8 @@ write_synthetic_manifest() {
       "failureReason": "none"
     },
     {
-      "trackId": "remoteSpeaker-track",
-      "role": "remoteSpeaker",
+      "trackId": "remote_speaker-track",
+      "role": "remote_speaker",
       "sourceKind": "systemAudio",
       "mediaScribeField": "incoming_file",
       "status": "saved",
@@ -997,7 +997,7 @@ validate_artifact_matrix() {
         printf -- '- Mode: `--artifact-matrix`\n'
         printf -- '- Validator result: `blocked`\n'
         printf -- '- Reason: Controlled meeting/audio artifact rows are still required before acceptance.\n'
-        printf -- '- Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.\n'
+        printf -- '- Safe checks: required rows present; `incoming.wav` remains `remote_speaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.\n'
     } >> "$ARTIFACT_MATRIX"
 
     ensure_no_forbidden_hal_requirement
@@ -1059,18 +1059,18 @@ validate_artifact_directory() {
     check_jq '.failureReason == "none"' "manifest failureReason must be none for accepted artifact"
     check_jq '(.durationDifferenceSeconds | type) == "number" and .durationDifferenceSeconds >= 0 and .durationDifferenceSeconds <= 3' "durationDifferenceSeconds must be a number between 0 and 3"
     check_jq '(.captureHealth | type) == "object" and .captureHealth.recordingSessionId == .sessionId and (.captureHealth.sampledAt | type) == "string" and .captureHealth.phase == "stop" and .captureHealth.halProbeObserved == false and .captureHealth.gateStatus == "passed" and .captureHealth.failureReason == "none"' "captureHealth must be present, match session, be stop-phase, no-HAL, passed, and failureReason none"
-    check_jq '([.tracks[] | select(.role == "localMic") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "remoteSpeaker") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "localMic") | .durationMs][0] | type) == "number" and ([.tracks[] | select(.role == "remoteSpeaker") | .durationMs][0] | type) == "number"' "manifest must contain exactly one numeric durationMs for localMic and remoteSpeaker"
-    check_jq '([.tracks[] | select(.role == "localMic") | .durationMs][0]) as $mic | ([.tracks[] | select(.role == "remoteSpeaker") | .durationMs][0]) as $incoming | (($mic - $incoming) as $diff | (if $diff < 0 then -$diff else $diff end) as $abs | ($abs <= 3000 and .durationDifferenceSeconds == ($abs / 1000)))' "durationDifferenceSeconds must equal the absolute mic/incoming duration difference and be <= 3"
+    check_jq '([.tracks[] | select(.role == "local_mic") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "remote_speaker") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "local_mic") | .durationMs][0] | type) == "number" and ([.tracks[] | select(.role == "remote_speaker") | .durationMs][0] | type) == "number"' "manifest must contain exactly one numeric durationMs for local_mic and remote_speaker"
+    check_jq '([.tracks[] | select(.role == "local_mic") | .durationMs][0]) as $mic | ([.tracks[] | select(.role == "remote_speaker") | .durationMs][0]) as $incoming | (($mic - $incoming) as $diff | (if $diff < 0 then -$diff else $diff end) as $abs | ($abs <= 3000 and .durationDifferenceSeconds == ($abs / 1000)))' "durationDifferenceSeconds must equal the absolute mic/incoming duration difference and be <= 3"
     check_jq '.scopeApproval != null' "scopeApproval must be present"
     check_jq '.scopeApproval.approvedBy == "user" and .scopeApproval.notTriggerForBackgroundAudio == true' "scopeApproval must be user-approved and not a background-audio trigger"
     check_jq '.permissions.microphone == "granted"' "microphone permission must be granted"
     check_jq '.permissions.systemAudio == "granted"' "system audio permission must be granted"
-    check_jq '([.tracks[].role] | sort) == ["localMic","remoteSpeaker"]' "tracks must contain localMic and remoteSpeaker"
-    check_jq 'any(.tracks[]; .role == "localMic" and (.trackId | type) == "string" and (.trackId | length) > 0 and .sourceKind == "microphone" and .mediaScribeField == "mic_file" and .status == "saved" and .fileName == "mic.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineStartMs == 0 and .timelineAligned == true and .failureReason == "none" and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "localMic track must be saved microphone wav-pcm-s16le metadata"
-    check_jq 'any(.tracks[]; .role == "remoteSpeaker" and (.trackId | type) == "string" and (.trackId | length) > 0 and .sourceKind == "systemAudio" and .mediaScribeField == "incoming_file" and .status == "saved" and .fileName == "incoming.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineStartMs == 0 and .timelineAligned == true and .failureReason == "none" and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "remoteSpeaker track must be saved systemAudio wav-pcm-s16le metadata"
+    check_jq '([.tracks[].role] | sort) == ["local_mic","remote_speaker"]' "tracks must contain local_mic and remote_speaker"
+    check_jq 'any(.tracks[]; .role == "local_mic" and (.trackId | type) == "string" and (.trackId | length) > 0 and .sourceKind == "microphone" and .mediaScribeField == "mic_file" and .status == "saved" and .fileName == "mic.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineStartMs == 0 and .timelineAligned == true and .failureReason == "none" and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "local_mic track must be saved microphone wav-pcm-s16le metadata"
+    check_jq 'any(.tracks[]; .role == "remote_speaker" and (.trackId | type) == "string" and (.trackId | length) > 0 and .sourceKind == "systemAudio" and .mediaScribeField == "incoming_file" and .status == "saved" and .fileName == "incoming.wav" and .format == "wav-pcm-s16le" and .sampleRate == 16000 and .channelCount == 1 and .bitsPerSample == 16 and .timelineStartMs == 0 and .timelineAligned == true and .failureReason == "none" and .byteCount > 0 and .frameCount > 0 and .durationMs > 0)' "remote_speaker track must be saved systemAudio wav-pcm-s16le metadata"
 
-    validate_wav_metadata "$mic" "localMic" "mic.wav"
-    validate_wav_metadata "$incoming" "remoteSpeaker" "incoming.wav"
+    validate_wav_metadata "$mic" "local_mic" "mic.wav"
+    validate_wav_metadata "$incoming" "remote_speaker" "incoming.wav"
 
     directory_id="$(jq -r '.directoryId // "unknown"' "$manifest")"
     manifest_status="$(jq -r '.status // "unknown"' "$manifest")"
@@ -1134,6 +1134,31 @@ wav_u32_le() {
     od -An -j "$offset" -N 4 -t u4 "$file" 2>/dev/null | tr -d ' '
 }
 
+wav_chunk_offset() {
+    file="$1"
+    chunk_id="$2"
+    file_bytes="$3"
+    offset=12
+
+    while [ "$((offset + 8))" -le "$file_bytes" ]; do
+        current_id="$(wav_ascii "$file" "$offset")"
+        current_size="$(wav_u32_le "$file" "$((offset + 4))")"
+        if ! is_unsigned_integer "$current_size"; then
+            return 1
+        fi
+        if [ "$current_id" = "$chunk_id" ]; then
+            printf '%s\n' "$offset"
+            return 0
+        fi
+        offset=$((offset + 8 + current_size))
+        if [ "$((current_size % 2))" -eq 1 ]; then
+            offset=$((offset + 1))
+        fi
+    done
+
+    return 1
+}
+
 is_unsigned_integer() {
     case "${1:-}" in
         ""|*[!0-9]*)
@@ -1183,22 +1208,28 @@ validate_wav_metadata() {
 
     riff="$(wav_ascii "$file" 0)"
     wave="$(wav_ascii "$file" 8)"
-    fmt="$(wav_ascii "$file" 12)"
-    data_marker="$(wav_ascii "$file" 36)"
     riff_byte_count="$(wav_u32_le "$file" 4)"
-    fmt_byte_count="$(wav_u32_le "$file" 16)"
-    audio_format="$(wav_u16_le "$file" 20)"
-    wav_channel_count="$(wav_u16_le "$file" 22)"
-    wav_sample_rate="$(wav_u32_le "$file" 24)"
-    byte_rate="$(wav_u32_le "$file" 28)"
-    block_align="$(wav_u16_le "$file" 32)"
-    wav_bits_per_sample="$(wav_u16_le "$file" 34)"
-    data_bytes="$(wav_u32_le "$file" 40)"
+    fmt_offset="$(wav_chunk_offset "$file" "fmt " "$file_bytes" || true)"
+    data_offset="$(wav_chunk_offset "$file" "data" "$file_bytes" || true)"
 
     [ "$riff" = "RIFF" ] || printf '%s\n' "$file_name WAV header must start with RIFF" >> "$failure_file"
     [ "$wave" = "WAVE" ] || printf '%s\n' "$file_name WAV header must contain WAVE" >> "$failure_file"
-    [ "$fmt" = "fmt " ] || printf '%s\n' "$file_name WAV header must contain fmt chunk" >> "$failure_file"
-    [ "$data_marker" = "data" ] || printf '%s\n' "$file_name WAV header must contain data chunk at byte 36" >> "$failure_file"
+    [ -n "$fmt_offset" ] || printf '%s\n' "$file_name WAV header must contain fmt chunk" >> "$failure_file"
+    [ -n "$data_offset" ] || printf '%s\n' "$file_name WAV header must contain data chunk" >> "$failure_file"
+
+    if [ -z "$fmt_offset" ] || [ -z "$data_offset" ]; then
+        return
+    fi
+
+    fmt_byte_count="$(wav_u32_le "$file" "$((fmt_offset + 4))")"
+    audio_format="$(wav_u16_le "$file" "$((fmt_offset + 8))")"
+    wav_channel_count="$(wav_u16_le "$file" "$((fmt_offset + 10))")"
+    wav_sample_rate="$(wav_u32_le "$file" "$((fmt_offset + 12))")"
+    byte_rate="$(wav_u32_le "$file" "$((fmt_offset + 16))")"
+    block_align="$(wav_u16_le "$file" "$((fmt_offset + 20))")"
+    wav_bits_per_sample="$(wav_u16_le "$file" "$((fmt_offset + 22))")"
+    data_bytes="$(wav_u32_le "$file" "$((data_offset + 4))")"
+
     [ "$audio_format" = "1" ] || printf '%s\n' "$file_name WAV audio format must be PCM" >> "$failure_file"
     [ "$wav_sample_rate" = "$manifest_sample_rate" ] || printf '%s\n' "$file_name WAV sampleRate must equal manifest sampleRate" >> "$failure_file"
     [ "$wav_channel_count" = "$manifest_channel_count" ] || printf '%s\n' "$file_name WAV channelCount must equal manifest channelCount" >> "$failure_file"
@@ -1207,7 +1238,7 @@ validate_wav_metadata() {
     expected_block_align=$((manifest_channel_count * manifest_bits_per_sample / 8))
     expected_byte_rate=$((manifest_sample_rate * expected_block_align))
     expected_data_bytes=$((manifest_frame_count * expected_block_align))
-    expected_file_bytes=$((44 + expected_data_bytes))
+    expected_file_bytes=$((data_offset + 8 + expected_data_bytes))
     expected_riff_byte_count=$((expected_file_bytes - 8))
     expected_duration_ms=$((manifest_frame_count * 1000 / manifest_sample_rate))
 
@@ -1216,7 +1247,7 @@ validate_wav_metadata() {
     [ "$riff_byte_count" = "$expected_riff_byte_count" ] || printf '%s\n' "$file_name WAV RIFF byte count must match file size" >> "$failure_file"
     [ "$fmt_byte_count" = "16" ] || printf '%s\n' "$file_name WAV fmt chunk size must be 16 for PCM" >> "$failure_file"
     [ "$data_bytes" = "$expected_data_bytes" ] || printf '%s\n' "$file_name WAV data byte count must match manifest frameCount" >> "$failure_file"
-    [ "$file_bytes" = "$expected_file_bytes" ] || printf '%s\n' "$file_name file size must equal 44-byte header plus manifest data bytes" >> "$failure_file"
+    [ "$file_bytes" = "$expected_file_bytes" ] || printf '%s\n' "$file_name file size must equal WAV data chunk end" >> "$failure_file"
     [ "$manifest_duration_ms" = "$expected_duration_ms" ] || printf '%s\n' "$file_name manifest durationMs must match manifest frameCount/sampleRate" >> "$failure_file"
 }
 

@@ -587,7 +587,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     ) -> LocalRecordingTrack {
         let byteCount = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
             .int64Value ?? 0
-        let complete = byteCount > 44 && frameCount > 0 && durationMs > 0
+        let fileMetadata = Self.audioFileMetadata(url: url)
+        let effectiveFrameCount = fileMetadata?.frameCount ?? frameCount
+        let effectiveDurationMs = fileMetadata?.durationMs ?? durationMs
+        let complete = byteCount > 44 && effectiveFrameCount > 0 && effectiveDurationMs > 0
         let failureReason: LocalRecordingFailureReason
         if let forcedFailureReason {
             failureReason = forcedFailureReason
@@ -623,13 +626,23 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             sampleRate: 16_000,
             channelCount: 1,
             bitsPerSample: 16,
-            durationMs: complete ? durationMs : 0,
+            durationMs: complete ? effectiveDurationMs : 0,
             byteCount: byteCount,
-            frameCount: complete ? frameCount : 0,
+            frameCount: complete ? effectiveFrameCount : 0,
             timelineStartMs: 0,
             timelineAligned: complete && timelineAligned && failureReason == .none,
             failureReason: failureReason
         )
+    }
+
+    private static func audioFileMetadata(url: URL) -> (frameCount: Int64, durationMs: Int)? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        let frameCount = file.length
+        guard frameCount > 0 else { return nil }
+        let sampleRate = file.fileFormat.sampleRate
+        guard sampleRate > 0 else { return nil }
+        let durationMs = Int((Double(frameCount) / sampleRate) * 1000)
+        return (frameCount, durationMs)
     }
 
     private static func makeMicrophoneRecorder(url: URL) throws -> AVAudioRecorder? {

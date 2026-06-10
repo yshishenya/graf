@@ -6114,3 +6114,58 @@
     was already active before baseline. It does not close #309/#313 because the
     accepted active-recording, stop, artifact, permission, duration, and final
     scope gates still require a real controlled recording run.
+
+## 2026-06-10 First Manual Recording Gate Findings
+
+- Timestamp: `2026-06-10T09:35:00Z`
+- Scope: first user-assisted controlled recording run after the clean-baseline
+  guard was added.
+- Findings:
+  - The run produced a local saved artifact at
+    `20260610-093247-F2645A5B-6479-4E7F-AE32-34870B5AFAAE` with
+    `manifest.json`, `mic.wav`, and `incoming.wav`.
+  - Manifest metadata showed `status=saved`, `failureReason=none`,
+    `externalEgressStarted=false`, `transcriptionStarted=false`,
+    permissions granted, approved display/system-audio scope, and
+    `durationDifferenceSeconds=0`.
+  - The CPU activeRecording gate did not pass because the tester recorded from
+    the installed `/Applications/2brain Rec.app` while the harness expected the
+    repo-built app bundle. The sampler therefore recorded
+    `failureReason=unexpectedAppProcessRunning` and the harness did not reach
+    the stop CPU phase.
+  - The artifact validator initially rejected the saved artifact because it
+    still expected stale camelCase role names (`localMic`, `remoteSpeaker`),
+    while the app contract and `AudioTrackRole.rawValue` use
+    `local_mic` and `remote_speaker`.
+  - After fixing role validation, the artifact validator found a real manifest
+    truthfulness issue: the microphone WAV written by `AVAudioRecorder` used a
+    valid RIFF layout with `JUNK`/`FLLR` chunks, and its actual `data` chunk
+    frame count was slightly shorter than the manifest frame count. The app was
+    deriving microphone metadata from expected elapsed frames rather than from
+    the finalized WAV file.
+- Changes:
+  - `run-system-audio-controlled-manual-gate.sh` now supports
+    `SYSTEM_AUDIO_MANUAL_GATE_APP_BUNDLE='/Applications/2brain Rec.app'` so the
+    user-facing installed app can be launched and measured without being
+    classified as an unexpected app process.
+  - `validate-system-audio-capture-pivot.sh` now validates the canonical
+    `local_mic` / `remote_speaker` roles and parses WAV chunks by walking the
+    RIFF chunk table instead of assuming `fmt` and `data` are at fixed offsets.
+  - `LocalRecordingWriter` now reads finalized audio file metadata before
+    creating `LocalRecordingTrack`, so manifest `frameCount` and `durationMs`
+    reflect the actual WAV file after close.
+  - The corrected app was rebuilt and installed to `/Applications/2brain Rec.app`.
+    Installed and repo app hashes matched:
+    `9755fc41d18e3dc76333bfebe3e9ac7e9bfa2f5917fc6a234d29d672f4acd43c`.
+- Validation:
+  - Focused writer/recording tests passed:
+    `swift test --package-path apps/macos --filter LocalRecordingWriter
+    --filter SystemAudioRecordingPackageTests` ran 24 tests with 0 failures.
+  - `swift build --package-path apps/macos` passed.
+  - `validate-system-audio-capture-pivot.sh --self-test-artifact-metadata`
+    passed.
+- Acceptance impact:
+  - The first manual run is not accepted because activeRecording CPU failed,
+    stop CPU did not run, and the artifact was produced before the manifest
+    truthfulness fix. It was still valuable because it exposed and fixed the
+    remaining manifest/validator problems before the next manual acceptance run.

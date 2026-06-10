@@ -7,7 +7,7 @@ content, credentials, tokens, signed URLs, or personal contact details.
 
 | Case | Expected Outcome | Required Files | Required Manifest Evidence | Result | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Both microphone and system audio present | `saved` | `manifest.json`, `mic.wav`, `incoming.wav` | `localMic` source `microphone`; `remoteSpeaker` source `systemAudio`; `externalEgressStarted=false`; `transcriptionStarted=false`; `durationDifferenceSeconds <= 3` | not-tested | Manual controlled run pending |
+| Both microphone and system audio present | `saved` | `manifest.json`, `mic.wav`, `incoming.wav` | `local_mic` source `microphone`; `remote_speaker` source `systemAudio`; `externalEgressStarted=false`; `transcriptionStarted=false`; `durationDifferenceSeconds <= 3` | not-tested | Manual controlled run pending |
 | Microphone present, incoming/system audio silent | `degraded` or `blocked` | `manifest.json`, `mic.wav`, optional `incoming.wav` | incoming track reason `silent_input` or `no_frames` | not-tested | Manual controlled run pending |
 | Incoming/system audio present, microphone missing | `blocked` or `degraded` | `manifest.json`, optional `mic.wav`, `incoming.wav` | microphone permission/failure reason present | not-tested | Manual controlled run pending |
 | Protected or blocked incoming/system audio | `blocked` or `degraded` | `manifest.json` plus any safe local files | incoming track reason `protected_audio_blocked` | not-tested | Manual controlled run pending |
@@ -15,7 +15,7 @@ content, credentials, tokens, signed URLs, or personal contact details.
 
 ## Automated Coverage
 
-- `SystemAudioManifestContractTests`: saved/aligned manifest, `remoteSpeaker`
+- `SystemAudioManifestContractTests`: saved/aligned manifest, `remote_speaker`
   incoming role, `systemAudio` source metadata, scope/permission/CPU evidence,
   and `durationDifferenceSeconds`.
 - `SystemAudioManifestFailureReasonTests`: missing/no-frames incoming audio,
@@ -75,7 +75,7 @@ Manual equivalent:
 - Mode: `--artifact-matrix`
 - Validator result: `blocked`
 - Reason: Controlled meeting/audio artifact rows are still required before acceptance.
-- Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
+- Safe checks: required rows present; `incoming.wav` remains `remote_speaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
 
 ## 2026-06-08 Metadata Validator Run
 
@@ -87,7 +87,7 @@ Manual equivalent:
 - Mode: `--artifact-matrix`
 - Validator result: `blocked`
 - Reason: Controlled meeting/audio artifact rows are still required before acceptance.
-- Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
+- Safe checks: required rows present; `incoming.wav` remains `remote_speaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
 
 ## Metadata Validator Run
 
@@ -99,7 +99,7 @@ Manual equivalent:
 - Mode: `--artifact-matrix`
 - Validator result: `blocked`
 - Reason: Controlled meeting/audio artifact rows are still required before acceptance.
-- Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
+- Safe checks: required rows present; `incoming.wav` remains `remote_speaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
 
 ## Metadata Validator Run
 
@@ -111,7 +111,7 @@ Manual equivalent:
 - Mode: `--artifact-matrix`
 - Validator result: `blocked`
 - Reason: Controlled meeting/audio artifact rows are still required before acceptance.
-- Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
+- Safe checks: required rows present; `incoming.wav` remains `remote_speaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
 
 ## Metadata Validator Run
 
@@ -123,4 +123,71 @@ Manual equivalent:
 - Mode: `--artifact-matrix`
 - Validator result: `blocked`
 - Reason: Controlled meeting/audio artifact rows are still required before acceptance.
-- Safe checks: required rows present; `incoming.wav` remains `remoteSpeaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
+- Safe checks: required rows present; `incoming.wav` remains `remote_speaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.
+
+## Artifact Directory Validator Run
+
+- Run ID: `20260610T093356Z`
+- Timestamp: `2026-06-10T09:33:56Z`
+- Commit: `c09e9f6`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--validate-latest-artifact`
+- Directory ID: `20260610-093247-F2645A5B-6479-4E7F-AE32-34870B5AFAAE`
+- Manifest status: `saved`
+- Duration difference seconds: `0`
+- Validator result: `blocked`
+- Reason: artifact directory did not satisfy accepted controlled-recording metadata.
+- Findings:
+  - manifest must contain exactly one numeric durationMs for local_mic and remote_speaker
+  - durationDifferenceSeconds must equal the absolute mic/incoming duration difference and be <= 3
+  - tracks must contain local_mic and remote_speaker
+  - local_mic track must be saved microphone wav-pcm-s16le metadata
+  - remote_speaker track must be saved systemAudio wav-pcm-s16le metadata
+  - mic.wav manifest byteCount must be an unsigned integer
+  - incoming.wav manifest byteCount must be an unsigned integer
+
+## Artifact Directory Validator Run
+
+- Run ID: `20260610T093510Z`
+- Timestamp: `2026-06-10T09:35:10Z`
+- Commit: `c09e9f6`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--validate-latest-artifact`
+- Directory ID: `20260610-093247-F2645A5B-6479-4E7F-AE32-34870B5AFAAE`
+- Manifest status: `saved`
+- Duration difference seconds: `0`
+- Validator result: `blocked`
+- Reason: artifact directory did not satisfy accepted controlled-recording metadata.
+- Findings:
+  - mic.wav WAV header must contain fmt chunk
+  - mic.wav WAV header must contain data chunk at byte 36
+  - mic.wav WAV audio format must be PCM
+  - mic.wav WAV sampleRate must equal manifest sampleRate
+  - mic.wav WAV channelCount must equal manifest channelCount
+  - mic.wav WAV bitsPerSample must equal manifest bitsPerSample
+  - mic.wav WAV blockAlign must match manifest format
+  - mic.wav WAV byteRate must match manifest format
+  - mic.wav WAV RIFF byte count must match file size
+  - mic.wav WAV fmt chunk size must be 16 for PCM
+  - mic.wav WAV data byte count must match manifest frameCount
+  - mic.wav file size must equal 44-byte header plus manifest data bytes
+
+## Artifact Directory Validator Run
+
+- Run ID: `20260610T093609Z`
+- Timestamp: `2026-06-10T09:36:09Z`
+- Commit: `c09e9f6`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--validate-latest-artifact`
+- Directory ID: `20260610-093247-F2645A5B-6479-4E7F-AE32-34870B5AFAAE`
+- Manifest status: `saved`
+- Duration difference seconds: `0`
+- Validator result: `blocked`
+- Reason: artifact directory did not satisfy accepted controlled-recording metadata.
+- Findings:
+  - mic.wav WAV RIFF byte count must match file size
+  - mic.wav WAV data byte count must match manifest frameCount
+  - mic.wav file size must equal WAV data chunk end

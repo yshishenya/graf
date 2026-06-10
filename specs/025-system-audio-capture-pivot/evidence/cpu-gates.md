@@ -4229,3 +4229,29 @@ Required acceptance gates:
 2026-06-09T15:21:56Z phase=quit sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=94.89 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=0 halProbeObserved=false phaseEventObserved=notRequired
 2026-06-09T15:21:58Z phase=quit sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=94.89 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=0 halProbeObserved=false phaseEventObserved=notRequired
 ```
+
+## 2026-06-10T09:31:02Z baseline
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh baseline`
+- App binary: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec`
+- Samples: `3`, interval seconds: `2`, settle seconds: `10`
+- Evaluation: `status=observed failureReason=diagnosticOnly sampleCount=3 maxCoreaudiodCpuPercent=0.00 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=61.03 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 maxUnexpectedAppProcessCount=0 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=notRequired`
+
+```text
+2026-06-10T09:30:58Z phase=baseline sample=1 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=61.03 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=0 halProbeObserved=false phaseEventObserved=notRequired
+2026-06-10T09:31:00Z phase=baseline sample=2 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=61.03 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=0 halProbeObserved=false phaseEventObserved=notRequired
+2026-06-10T09:31:02Z phase=baseline sample=3 coreaudiodCpuPercent=0.00 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=61.03 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=0 halProbeObserved=false phaseEventObserved=notRequired
+```
+
+## 2026-06-10T09:32:59Z activeRecording
+
+- Command: `apps/macos/Scripts/sample-system-audio-cpu-gate.sh activeRecording`
+- App binary: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec`
+- Samples: `3`, interval seconds: `2`, settle seconds: `0`
+- Evaluation: `status=failed failureReason=unexpectedAppProcessRunning sampleCount=3 maxCoreaudiodCpuPercent=7.90 maxAppHelperCpuPercent=0.00 maxCoreaudiodRssMB=69.91 maxAppHelperRssMB=0.00 maxAppProcessCount=0 maxHelperProcessCount=0 maxUnexpectedAppProcessCount=1 sustainedCoreaudiodExceeded=false sustainedAppHelperExceeded=false phaseEventObserved=true`
+
+```text
+2026-06-10T09:32:54Z phase=activeRecording sample=1 coreaudiodCpuPercent=5.30 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=69.91 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=1 halProbeObserved=false phaseEventObserved=true
+2026-06-10T09:32:56Z phase=activeRecording sample=2 coreaudiodCpuPercent=7.90 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=69.91 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=1 halProbeObserved=false phaseEventObserved=true
+2026-06-10T09:32:59Z phase=activeRecording sample=3 coreaudiodCpuPercent=6.60 appCpuPercent=0.00 helperCpuPercent=0.00 appHelperCpuPercent=0.00 coreaudiodRssMB=69.91 appRssMB=0.00 helperRssMB=0.00 appHelperRssMB=0.00 appProcessCount=0 helperProcessCount=0 unexpectedAppProcessCount=1 halProbeObserved=false phaseEventObserved=true
+```

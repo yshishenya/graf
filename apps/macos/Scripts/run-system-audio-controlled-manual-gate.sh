@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 MACOS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)"
-APP_BUNDLE="$MACOS_DIR/RecApp/.build/2brain Rec.app"
+APP_BUNDLE="${SYSTEM_AUDIO_MANUAL_GATE_APP_BUNDLE:-$MACOS_DIR/RecApp/.build/2brain Rec.app}"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/2brain Rec"
 APP_LOG="${SYSTEM_AUDIO_MANUAL_GATE_APP_LOG:-$HOME/Library/Logs/2brain Rec/2brain-rec.log}"
 
@@ -50,6 +50,10 @@ Environment:
   SYSTEM_AUDIO_MANUAL_GATE_SKIP_ARTIFACT=1
       Skip latest artifact validation. Use only for permission/blocker rows
       where no accepted artifact is expected.
+  SYSTEM_AUDIO_MANUAL_GATE_APP_BUNDLE='/Applications/2brain Rec.app'
+      Launch and measure the installed app instead of the repo-built app bundle.
+      Use this for user-facing manual gates where the tester records from the
+      installed application in /Applications.
   SYSTEM_AUDIO_MANUAL_GATE_ASSUME_CLEAN_BASELINE=1
       Skip the full-gate clean-baseline confirmation prompt. Intended only for
       automated dry-runs where no meeting, call, or non-sensitive audio source
