@@ -22,6 +22,9 @@
 - [x] Local recording artifacts from features `008` and `010` are accepted only
   as local artifacts. They are not yet accepted for upload, transcription,
   retention, deletion, dashboard publication, or assisted auto-start.
+- [ ] Feature `022-meeting-mute-truth` must resolve meeting-app mute truth before
+  local recording can be accepted as privacy-correct when the user mutes inside
+  Zoom, browser meeting targets, or other supported meeting apps.
 
 - [x] Manual capture session and visible indicator feature `007` has automated
   local gates passing for manual Record/Stop, visible indicator safety,

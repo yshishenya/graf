@@ -4,7 +4,7 @@ Date: 2026-06-08
 
 ## 2026-06-08 Revalidation Update
 
-Status: superseded / not accepted.
+Status: closed as superseded / not accepted as driver release evidence.
 
 Follow-up revalidation after commit `63ac726` found that the attempted live
 publication strategy is still unsafe. Both variants below can drive
@@ -16,9 +16,12 @@ publication strategy is still unsafe. Both variants below can drive
 Rollback decision:
 
 - keep the driver in fail-closed mode when there is no trusted app heartbeat;
-- do not count this evidence as closing #234;
-- keep T060/T061/T062 open until a new live publication strategy is designed
-  and validated without CoreAudio CPU runaway;
+- do not count this evidence as accepted driver release evidence;
+- close T060/T061/T062 as superseded for MVP recording by accepted feature
+  `025-system-audio-capture-pivot`;
+- keep future driver/virtual-device publication work parked until a new
+  advanced-routing strategy is designed and validated without CoreAudio CPU
+  runaway;
 - do not run repeated runtime publication probes on a user machine until the
   HAL surface is changed and bounded with safer diagnostics.
 
@@ -36,6 +39,16 @@ Important: later repeated hidden-safe probe attempts still caused CoreAudio CPU
 spikes, so the probe itself must not be used as release evidence until #234 is
 redesigned. Treat the earlier accepted results below as historical debugging
 evidence, not final acceptance.
+
+## 2026-06-10 Superseded Closure
+
+- GitHub issue #234 is closed as superseded by accepted feature
+  `025-system-audio-capture-pivot`.
+- The original driver live-publication objective is not fixed and not accepted;
+  it is parked for future advanced-routing work.
+- MVP recording no longer depends on live virtual-device publication because
+  `025` records microphone plus incoming/system audio directly and has accepted
+  final evidence gates.
 
 ## Scope
 

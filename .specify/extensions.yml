@@ -35,6 +35,36 @@ hooks:
     prompt: Commit plan changes?
     description: Auto-commit after implementation planning
     condition: null
+  before_taskstoissues:
+  - extension: git
+    command: speckit.git.commit
+    enabled: true
+    optional: true
+    prompt: Commit outstanding changes before issue sync?
+    description: Auto-commit before tasks-to-issues conversion
+    condition: null
+  - extension: github-issue-canon
+    command: speckit.github-issue-canon.ensure
+    enabled: true
+    optional: false
+    prompt: Execute speckit.github-issue-canon.ensure?
+    description: Install/refresh GitHub issue canon before issue sync
+    condition: null
+  after_taskstoissues:
+  - extension: git
+    command: speckit.git.commit
+    enabled: true
+    optional: true
+    prompt: Commit after syncing issues?
+    description: Auto-commit after tasks-to-issues conversion
+    condition: null
+  - extension: github-issue-canon
+    command: speckit.github-issue-canon.validate
+    enabled: true
+    optional: false
+    prompt: Execute speckit.github-issue-canon.validate?
+    description: Validate GitHub issues after task-to-issue sync
+    condition: null
   before_constitution:
   - extension: git
     command: speckit.git.initialize
@@ -99,21 +129,6 @@ hooks:
     prompt: Commit outstanding changes before analysis?
     description: Auto-commit before analysis
     condition: null
-  before_taskstoissues:
-  - extension: git
-    command: speckit.git.commit
-    enabled: true
-    optional: true
-    prompt: Commit outstanding changes before issue sync?
-    description: Auto-commit before tasks-to-issues conversion
-    condition: null
-  - extension: github-issue-canon
-    command: speckit.github-issue-canon.ensure
-    enabled: true
-    optional: false
-    prompt: Execute speckit.github-issue-canon.ensure?
-    description: Install/refresh GitHub issue canon before issue sync
-    condition: null
   after_constitution:
   - extension: git
     command: speckit.git.commit
@@ -161,19 +176,4 @@ hooks:
     optional: true
     prompt: Commit analysis results?
     description: Auto-commit after analysis
-    condition: null
-  after_taskstoissues:
-  - extension: git
-    command: speckit.git.commit
-    enabled: true
-    optional: true
-    prompt: Commit after syncing issues?
-    description: Auto-commit after tasks-to-issues conversion
-    condition: null
-  - extension: github-issue-canon
-    command: speckit.github-issue-canon.validate
-    enabled: true
-    optional: false
-    prompt: Execute speckit.github-issue-canon.validate?
-    description: Validate GitHub issues after task-to-issue sync
     condition: null

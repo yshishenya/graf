@@ -2,6 +2,9 @@ import SwiftUI
 import TwoBrainRecShared
 
 public struct RouteVerificationView: View {
+    public static let runCheckButtonAccessibilityLabel = "Run audio readiness check"
+    public static let checkingButtonAccessibilityLabel = "Audio readiness check is running"
+
     private let snapshot: RouteVerificationSnapshot?
     private let canVerify: Bool
     private let isVerifying: Bool
@@ -38,6 +41,8 @@ public struct RouteVerificationView: View {
                         Text("Refresh Status")
                     }
                 }
+                .accessibilityLabel(isVerifying ? Self.checkingButtonAccessibilityLabel : Self.runCheckButtonAccessibilityLabel)
+                .help(isVerifying ? Self.checkingButtonAccessibilityLabel : Self.runCheckButtonAccessibilityLabel)
                 .disabled(!canVerify || isVerifying)
             }
 

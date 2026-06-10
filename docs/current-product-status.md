@@ -10,13 +10,19 @@ implementation record.
 ## Accepted Now
 
 - macOS is the selected MVP platform.
-- The MVP architecture has pivoted to system-audio-first capture after
-  `019-live-route-stability` revalidation showed the driver-first path can
-  trigger CoreAudio CPU runaway and probe hangs.
-- ADR `002-system-audio-first-mvp-pivot` is accepted.
-- Constitution v2.0.0 allows MVP recording without a virtual audio driver.
-- The HAL virtual-driver path is parked as future advanced-routing work and is
-  not part of MVP acceptance.
+- The Core Audio HAL component publishes `2brain Rec Microphone` and
+  `2brain Rec Speaker`.
+- The installed local package can be upgraded, `coreaudiod` can be restarted,
+  and both virtual devices return visible/alive in default-safe idle state.
+- Low-resource routing is the current local default: public virtual devices
+  stay lightweight while physical input/output routes are opened only when a
+  virtual-device client needs audio or the user runs an explicit check.
+- Non-recording passthrough smoke is accepted for Telemost, Chrome, Opera, and
+  Zoom in the local environment.
+- `Run Check` is now a recheck/repair action, not the normal activation path
+  for ordinary browser/meeting audio.
+- The current route truth model separates publication, virtual client I/O, app
+  bridge, physical-device routing, and future recording triggers.
 - Diagnostics and validation artifacts remain metadata-only and must not include
   raw audio, transcript text, credentials, tokens, signed URLs, passwords, or
   meeting content.
@@ -29,9 +35,13 @@ implementation record.
 - One-minute manual recording smoke is accepted for Yandex Telemost, Chrome,
   Opera, and Zoom for features `007` and `008`: visible manual recording,
   one-action stop, and saved local recording artifacts.
-- The meeting-app mute issue discovered during validation is parked on
-  `009-respect-meeting-mute` for a future slice and is not part of the current
-  mainline sequence.
+- The meeting-app mute issue discovered during validation is preserved as
+  `022-meeting-mute-truth`, a backlog privacy slice that supersedes the old
+  `009-respect-meeting-mute` draft branch. It is not part of the current
+  mainline sequence and authorizes no implementation until clarification and
+  planning resolve canonical mute truth, unsupported-target behavior, muted
+  interval artifact truth, user-facing limitation copy, and the QA target
+  matrix.
 - MediaScribe dual-track API contract is recorded in
   `docs/integrations/mediascribe-dual-track-api.md` for future backend
   transcription work. The real API key is intentionally not committed.
@@ -43,6 +53,41 @@ implementation record.
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
+- Feature `012-server-ingest-foundation` is implemented as the first backend
+  foundation slice in this repository: FastAPI ingest service scaffold,
+  local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO
+  server-mediated object boundary, provider-neutral tenant/device request
+  checks, upload/session APIs, resumable/idempotent part acceptance, safe
+  audit/logging helpers, status contracts, and inert processing placeholders.
+  Final review remediation on 2026-06-04 added persistence/storage, forged-auth,
+  missing-range, readiness, and lint coverage; local validation passed `36`
+  server tests, Ruff, compileall, and compose config rendering. It does not
+  deploy production, implement the desktop uploader, start Temporal workflows,
+  call MediaScribe, or expose dashboard/share/delete surfaces.
+- A second five-round review hackathon on 2026-06-04 found that 012 was not
+  PR-ready until Phase 11 remediation completed. Phase 11 tasks T119-T180 and
+  GitHub issues #112-#124 have now been remediated locally with traceability in
+  `specs/012-server-ingest-foundation/tasks.md` and validation evidence in
+  `specs/012-server-ingest-foundation/quickstart.md`. The remaining gate before
+  PR/deployment-plan handoff is a final full repository sanity run, review of
+  the dirty worktree, and an explicit commit/PR decision.
+- Feature `021-production-deployment-plan` is implemented as a remote-first
+  infrastructure readiness slice for `2brain.dev` and `/opt/projects/2brain-rec`.
+  It adds production Compose hardening, env/secret templates, remote backup,
+  migration, restore rehearsal, rollback/halt helpers, internal smoke identity,
+  first-smoke evidence templates, cleanup accounting, and forbidden-content
+  scans. The highest allowed successful status is `infra_smoke_ready`; this is
+  not production readiness, user rollout readiness, or internal pilot readiness.
+- Feature `025-system-audio-capture-pivot` is accepted as the macOS MVP
+  recording path. It records local microphone plus incoming/system audio without
+  requiring virtual device selection, preserves dual-track local artifacts, and
+  closes the final evidence gates for permission matrix, controlled artifact,
+  CPU/resource behavior, 30-minute development validation, 75-minute release
+  validation, forbidden-content scan, and final scope review.
+- The driver-based live virtual-device publication blocker from `019` / issue
+  #234 is superseded for MVP recording by `025` and parked as future
+  advanced-routing work. Its unsafe HAL publication attempts remain preserved
+  as negative evidence and must not be counted as accepted driver evidence.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -50,29 +95,20 @@ implementation record.
 
 ## Not Accepted Yet
 
-- System-audio-first recording implementation is not yet complete. Feature
-  `025-system-audio-capture-pivot` defines the new MVP path but still needs
-  clarify/plan/tasks/implementation/validation.
-- Existing driver-based live route evidence from `019` is superseded and must
-  not be counted as MVP acceptance.
-- Yandex Browser is intentionally skipped/not accepted in the previous
+- Yandex Browser is intentionally skipped/not accepted in the current
   browser/meeting smoke cycle.
-- Bluetooth and AirPods-class live route stability is product backlog for a
-  dedicated future slice. It must cover long-duration route stability,
-  autorepair, profile switching, reconnect behavior, latency, route
-  preservation, recording timeline integrity, and metadata-only evidence before
-  wireless headset routes can be treated as release-ready.
-- Meeting-app mute truth must be resolved in a future slice before local
-  recording can be accepted as privacy-correct when a user mutes inside
+- Feature `022-meeting-mute-truth` must resolve meeting-app mute truth before
+  local recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
-- Long-duration 30/75 minute integrity acceptance is not complete. It must be
-  rerun against the system-audio-first capture path after `025` implementation.
-- Upload, resumable ingest, MediaScribe transcription, dashboard notes, server
-  retention, and deletion workflows are not implemented in the macOS client
-  slice.
-- No backend scaffold, Docker Compose deployment, Postgres schema, MinIO bucket
-  wiring, Temporal workflow, upload API, or web dashboard implementation exists
-  in this repository yet.
+- Driver live virtual-device publication is not accepted for MVP recording and
+  must not be revived without a separate future advanced-routing spec,
+  implementation, and safety evidence.
+- Desktop upload queue wiring, MediaScribe transcription, dashboard notes,
+  Temporal workflow starts, server retention, and deletion workflows are not
+  accepted yet.
+- The `012` backend foundation exists as a repository implementation with
+  `021` remote-first infrastructure smoke readiness scaffolding; real user
+  rollout and desktop uploader slices are still not accepted.
 - Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
   detect-and-ask, automatic naming, and future auto-record behavior have not
   been implemented or accepted.
@@ -81,28 +117,83 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `025-system-audio-capture-pivot`.
+Recommended next feature: `013-federated-auth-foundation` or
+`014-desktop-upload-queue`, depending on whether identity/session work or
+desktop upload UX should be unblocked first. The `021` deployment slice can be
+used as the infrastructure runbook baseline while those product slices remain
+separate.
 
-Goal: replace the MVP recording path with direct system-audio plus microphone
-capture, preserving local recording visibility, one-action stop,
-metadata-only diagnostics, dual-track artifacts, and low CPU/system stability.
+Goal: connect the accepted local artifact and implemented server ingest
+foundation to real user/device identity and the macOS upload queue without
+weakening local recording visibility, stop control, metadata-only diagnostics,
+explicit egress policy, storage truth, or deletion accounting.
 
 Recommended scope:
 
-- macOS permission truth for microphone and screen/system audio.
-- System-audio capture service for incoming audio.
-- Microphone capture service for local audio.
-- Dual-track local writer with manifest truth for saved/degraded/blocked
-  tracks.
-- UI states for permissions, active recording, levels, stop, and degraded
-  capture.
-- CPU/memory/no-hang validation with the HAL driver absent or ignored.
+- Provider-neutral user/workspace/session/device identity sufficient for a
+  trusted desktop uploader.
+- macOS upload queue that picks up local `010` artifacts, calls the `012`
+  ingest API, shows pending/uploading/retrying/uploaded/degraded/failed truth,
+  and preserves local files until server status is known.
+- A remote `021` infrastructure smoke on `2brain.dev` only after DNS/TLS,
+  secrets, backup, migration, restore rehearsal, and cleanup evidence pass.
 
 Keep separate unless the next spec explicitly changes scope:
 
-- Driver/virtual-device routing.
-- MediaScribe submit/poll/result import.
-- Full web dashboard meeting detail/transcript/notes UI.
-- Server retention/deletion execution.
+- `013-federated-auth-foundation`: provider-neutral user authentication and
+  account/device identity, with priority login providers for the Russian market
+  such as Yandex ID, VK ID, and Telegram Login, plus later Sber ID and T-ID
+  where partner setup allows.
+- `014-desktop-upload-queue`: macOS app sends local recordings to the server,
+  shows upload status, retries failures, and preserves local artifacts until
+  upload truth is known.
+- `015-mediascribe-processing-pipeline`: server-side MediaScribe
+  submit/poll/result import from finalized ingested artifacts. This slice owns
+  starting the durable processing workflow after ingest finalization, using
+  internal meeting/upload/artifact identifiers and idempotent workflow IDs.
+- `016-meeting-dashboard-review`: web dashboard meeting list/detail,
+  processing state, transcript, notes, playback, and review surfaces.
+- `017-access-sharing-downloads`: role-based meeting access, team visibility,
+  download/export permissions, login-required share links, optional public-link
+  policy, and share-page lifecycle/audit.
+- `018-retention-deletion-execution`: server-side retention jobs, deletion
+  workflows, deletion verification reports, local desktop purge coordination,
+  backup expiry accounting, and external dependency deletion truth.
 - Assisted auto-start and generalized meeting detection.
-- Feature `009` meeting-app mute truth.
+- Feature `022-meeting-mute-truth` meeting-app mute truth.
+
+## Deferred Work Register
+
+Use this register as the anti-drift memory for work intentionally left out of
+the current accepted implementation or `012` ingest slice.
+
+- `022-meeting-mute-truth`: resolve meeting-app mute truth before broader
+  local recording acceptance. This supersedes the old
+  `009-respect-meeting-mute` draft branch as the canonical backlog record.
+- `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
+  naming, and any future auto-start behavior from the accepted requirements.
+- `013-federated-auth-foundation`: implement provider-neutral auth, account
+  linking, sessions, workspace membership, and registered device identity.
+- `014-desktop-upload-queue`: make the macOS app send local artifacts to the
+  server, show upload status, retry safely, and preserve local artifacts until
+  upload truth is known.
+- `015-mediascribe-processing-pipeline`: start the durable processing workflow
+  after ingest, submit/poll/import MediaScribe results, and keep credentials
+  server-side.
+- `016-meeting-dashboard-review`: show meetings, processing state, transcript,
+  notes, playback, and review surfaces.
+- `017-access-sharing-downloads`: add RBAC/team visibility, audio/transcript/
+  summary downloads, share links/pages, lifecycle, and audit.
+- `018-retention-deletion-execution`: implement retention/deletion workflows,
+  deletion reports, local purge coordination, backup expiry, and external
+  dependency deletion truth.
+- `021-production-deployment-plan`: use the remote-first runbook to reach
+  `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
+  claims blocked until later product slices are accepted.
+- `RLS-hardening`: if PostgreSQL Row-Level Security is deferred by `012` plan,
+  create a traceable task or GitHub issue candidate with compensating
+  application-level authorization checks.
+- `direct-object-upload`: future upload optimization only after a separate
+  security and lifecycle review; `012` remains `server_mediated`.
+- Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
+  30/60 minute integrity, and signed/notarized installer evidence.

@@ -174,15 +174,15 @@
 - [X] T057 [P] Add `019` quickstart command references and evidence paths in `specs/019-live-route-stability/quickstart.md`
 - [X] T058 Run Swift tests for macOS package and record results in `specs/019-live-route-stability/evidence/test-results.md`
 - [X] T059 Run foundation validation scripts and record results in `specs/019-live-route-stability/evidence/test-results.md`
-- [ ] T060 Run 30-minute development gate evidence collection for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested results in `specs/019-live-route-stability/evidence/development-30-minute.md`
-  - Current status: not executed in this implementation session; `specs/019-live-route-stability/evidence/development-30-minute.md` currently records `not_tested` evidence shape only and must not be counted as acceptance.
-  - Blocker: GitHub issue #234 remains open. Revalidation showed the attempted live publication strategy can still drive CoreAudio CPU spikes/probe timeouts; do not count live-route acceptance until #234 is redesigned and validated safely.
-- [ ] T061 Run 75-minute manual release gate evidence for Chrome, Opera, Zoom, Telemost, built-in, wired, and USB coverage and record accepted, blocked, failed, degraded, and not-tested outcomes without counting blocked, failed, degraded, or not-tested outcomes as acceptance in `specs/019-live-route-stability/evidence/release-75-minute.md`
-  - Current status: not executed in this implementation session; `specs/019-live-route-stability/evidence/release-75-minute.md` currently records `not_tested` evidence shape only and must not be counted as acceptance.
-  - Blocker: GitHub issue #234 must be resolved with safe live publication evidence before this release gate can produce accepted live-route outcomes.
-- [ ] T062 Run local-offline validation with backend, network, MediaScribe, Langfuse, and transfer services unavailable and record results in `specs/019-live-route-stability/evidence/local-offline.md`
-  - Current status: manual environment validation pending; implemented paths are local metadata-only, but offline release acceptance is not yet claimed.
-  - Blocker: keep this pending until the live route can be exercised safely without CoreAudio hangs, probe timeouts, or CPU runaway.
+- [X] T060 Close 30-minute live-route gate as superseded by system-audio MVP pivot and record non-acceptance in `specs/019-live-route-stability/evidence/development-30-minute.md`
+  - Current status: superseded / not accepted as driver live-route evidence. Feature `025-system-audio-capture-pivot` is the accepted MVP recording path and has its own accepted 30-minute and 75-minute evidence.
+  - Driver live virtual-device publication remains parked for future advanced-routing work; do not count this `019` gate as HAL publication acceptance.
+- [X] T061 Close 75-minute live-route release gate as superseded by system-audio MVP pivot and record non-acceptance in `specs/019-live-route-stability/evidence/release-75-minute.md`
+  - Current status: superseded / not accepted as driver live-route evidence. Feature `025-system-audio-capture-pivot` is the accepted MVP recording path and has its own accepted release-duration evidence.
+  - Driver live virtual-device publication remains parked for future advanced-routing work; do not count this `019` gate as HAL publication acceptance.
+- [X] T062 Close local-offline live-route gate as superseded for MVP recording and record local-only boundary in `specs/019-live-route-stability/evidence/local-offline.md`
+  - Current status: superseded for MVP recording by the local system-audio capture path from `025`; no backend, network, MediaScribe, Langfuse, or transfer dependency is introduced by the parked driver path.
+  - Driver live virtual-device publication remains parked for future advanced-routing work; do not count this as driver release acceptance.
 - [X] T063 Review all evidence for no speaker-to-mic leakage, backend ingest, upload, transcription, MediaScribe, Langfuse, or Bluetooth implementation scope creep in `specs/019-live-route-stability/evidence/scope-review.md`
 
 ---
