@@ -116,7 +116,7 @@ public extension AdaptiveStatusText {
         case .uninstalled:
             return "Driver removed"
         case .notInstalled:
-            return "Driver not installed"
+            return "Driver not required for recording"
         case .incompatible:
             return "Driver unsupported on this host"
         }
@@ -198,11 +198,15 @@ public extension AdaptiveStatusText {
         case "select_physical_speaker":
             return "Select a physical speaker"
         case "run_route_verification":
-            return "Run the readiness check"
+            return "Refresh local audio status"
+        case "refresh_local_audio_status":
+            return "Refresh local audio status"
+        case "install_or_repair_driver":
+            return "Driver diagnostics are parked for MVP recording"
         case "implement_passthrough":
             return "Passthrough implementation is still required"
         case "rerun_readiness_check":
-            return "Run the readiness check again"
+            return "Refresh local audio status again"
         case "retry_route_verification":
             return "Retry route verification"
         case "update_driver":

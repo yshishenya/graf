@@ -1,44 +1,49 @@
 <!--
 Sync Impact Report
-Version change: template -> 1.0.0
+Version change: 1.0.0 -> 2.0.0
 Modified principles:
-- Template principle 1 -> I. Driver-First Capture Integrity
-- Template principle 2 -> II. Visible Consent And User Control
-- Template principle 3 -> III. Data Boundary And Secret Discipline
-- Template principle 4 -> IV. Deletion Truth And Lifecycle Accounting
-- Template principle 5 -> V. Spec-Driven Delivery With Testable Gates
+- I. Driver-First Capture Integrity -> I. Capture-First MVP Integrity
+- II. Visible Consent And User Control: tightened assisted auto-start scope for system-audio capture.
+- III. Data Boundary And Secret Discipline: unchanged.
+- IV. Deletion Truth And Lifecycle Accounting: unchanged.
+- V. Spec-Driven Delivery With Testable Gates: unchanged.
 Added sections:
-- Product And Platform Constraints
-- Development Workflow And Quality Gates
+- None.
 Removed sections:
-- Template placeholder sections
+- Driver-first MVP prohibition.
 Templates requiring updates:
-- ✅ .specify/templates/plan-template.md
-- ✅ .specify/templates/spec-template.md
-- ✅ .specify/templates/tasks-template.md
+- ✅ reviewed .specify/templates/plan-template.md; no capture-path-specific wording.
+- ✅ reviewed .specify/templates/spec-template.md; no capture-path-specific wording.
+- ✅ reviewed .specify/templates/tasks-template.md; no capture-path-specific wording.
 Follow-up items:
-- None
+- PRD, current status, AGENTS, ADR 002, and spec 025 updated for system-audio-first MVP pivot.
 -->
 # 2brain Rec Constitution
 
 ## Core Principles
 
-### I. Driver-First Capture Integrity
+### I. Capture-First MVP Integrity
 
-2brain Rec MUST deliver the MVP through a macOS virtual audio driver/layer. A
-no-driver fallback product is not allowed for MVP. The virtual audio layer MUST
-capture local microphone audio and remote speaker audio as separate tracks,
-preserve live passthrough when upload, transcription, or server connectivity
-fails, and prevent loopback from remote audio into `2brain Rec Microphone`.
+2brain Rec MUST deliver the MVP through the safest native macOS capture path
+that can reliably produce separate local microphone and incoming/system-audio
+tracks without overheating, hanging CoreAudio, hiding capture, or requiring
+fragile meeting-app routing. The MVP capture path is system-audio-first:
+Screen/System Audio capture for incoming audio plus explicit microphone capture
+for the local speaker. A virtual audio driver/layer is no longer required for
+MVP acceptance and MUST be treated as a later advanced routing slice until it
+has independent safety evidence.
 
-Driver implementation, privilege model, installer, signing, notarization,
-update, rollback, repair, uninstall, passthrough failure behavior, and QA matrix
-MUST be approved before Phase 0 coding starts. Features that touch capture,
-routing, recording integrity, buffering, or driver UX MUST define measurable
-latency, dropout, routing, install, recovery, and degraded-state requirements.
+Capture implementation, permission model, installer/signing behavior, update,
+rollback, repair, degraded-state behavior, and QA matrix MUST be approved
+before Phase 0 coding starts. Features that touch capture, recording integrity,
+buffering, permissions, screen/system audio, microphone capture, or future
+driver UX MUST define measurable latency, dropout, track alignment,
+authorization, recovery, and degraded-state requirements.
 
-Rationale: capture integrity is the product. If the audio layer is unreliable,
-silent, looped, or opaque, downstream transcription and notes cannot be trusted.
+Rationale: capture integrity is the product. The prior driver-first path
+produced repeated CoreAudio hangs and CPU runaway during `019` validation. If
+the audio layer is unreliable, silent, looped, overheated, or opaque,
+downstream transcription and notes cannot be trusted.
 
 ### II. Visible Consent And User Control
 
@@ -48,12 +53,12 @@ make active capture invisible. Manual start/stop MUST remain available whenever
 workspace policy permits recording.
 
 Assisted auto-start is allowed only as a policy-gated, user-acknowledged,
-visible, auditable feature. It MUST be limited to approved routed meeting
-targets and MUST NOT start from arbitrary system audio, media playback,
-notifications, music, videos, or non-approved apps. Internal-team MVP may operate
-without participant-facing notice, but external/customer workspaces MUST select
-a notice/legal policy before recording, transcript-only capture, or assisted
-auto-start can be enabled.
+visible, auditable feature. It MUST be limited to approved meeting targets or
+explicit user-selected capture scopes and MUST NOT start from arbitrary system
+audio, media playback, notifications, music, videos, or non-approved apps.
+Internal-team MVP may operate without participant-facing notice, but
+external/customer workspaces MUST select a notice/legal policy before
+recording, transcript-only capture, or assisted auto-start can be enabled.
 
 Rationale: botless capture is powerful and sensitive. Trust depends on visible
 state, immediate control, clear policy, and no surprise recording.
@@ -115,13 +120,14 @@ must be decomposed into reviewable artifacts before code.
 - MVP target platform is macOS with Apple Silicon required.
 - Windows is a later platform after macOS launch and MUST NOT be represented as
   MVP-supported.
-- Platform capture and routing must be implemented on native OS primitives first for
-  each operating system slice; cross-platform abstractions may be used only where
-  they do not own virtual-device driver lifecycle, audio routing, permission
-  flows, real-time audio capture, passthrough, or installer signing/notarization.
-- For the MVP, this means Swift/Cocoa/Core Audio for macOS app and driver plane;
-  Windows and future platforms are expected to use their own native stacks after
-  platform discovery and governance update.
+- Platform capture and routing must be implemented on native OS primitives first
+  for each operating system slice; cross-platform abstractions may be used only
+  where they do not own capture authorization, real-time audio capture, local
+  recording truth, permission flows, or installer signing/notarization.
+- For the MVP, this means Swift/Cocoa/ScreenCaptureKit/AVFoundation/Core Audio
+  where appropriate for the macOS app. Virtual audio driver work is future
+  advanced routing work and requires a separate approved spec, safety gate, and
+  rollback plan before implementation.
 - MVP server target is `2brain.dev` with public URL `https://rec.2brain.dev`.
 - `2brain_rec`-owned infrastructure MUST run in Docker containers for MVP.
 - Dedicated Postgres and MinIO are required for `2brain_rec`.
@@ -154,7 +160,11 @@ Required quality gates:
 
 - No implementation starts with unresolved critical Spec Kit analyze findings.
 - No implementation starts with unresolved constitution violations.
-- Driver features require driver QA and installer/recovery gates.
+- Capture features require permission, system-audio, microphone, track
+  alignment, no-overheat, and local recording truth gates.
+- Driver features, if reintroduced, require a separate driver QA matrix,
+  installer/recovery gates, CoreAudio CPU gates, and rollback evidence before
+  they can affect MVP behavior.
 - Data features require artifact lifecycle, retention, deletion, and audit gates.
 - External dependency features require egress, secret, timeout, failure, and
   retention/deletion gates.
@@ -184,4 +194,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 1.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-05-27
+**Version**: 2.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-06-08

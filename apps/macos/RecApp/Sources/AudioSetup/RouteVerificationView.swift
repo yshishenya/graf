@@ -23,9 +23,9 @@ public struct RouteVerificationView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Readiness Check")
+                    Text("Recording Status")
                         .font(.headline)
-                    Text("Checks what is safe to use right now. It does not start recording.")
+                    Text("Refreshes local audio status. Recording permissions and meters are checked when you press Record.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -35,7 +35,7 @@ public struct RouteVerificationView: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Text("Run Check")
+                        Text("Refresh Status")
                     }
                 }
                 .disabled(!canVerify || isVerifying)
@@ -53,21 +53,21 @@ public struct RouteVerificationView: View {
             }
 
             if let snapshot, snapshot.canShowReady {
-                Label("Audio route ready, not recording", systemImage: "checkmark.circle.fill")
+                Label("Local audio status refreshed, not recording", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                    .accessibilityLabel("Audio routes ready, not recording")
+                    .accessibilityLabel("Local audio status refreshed, not recording")
             } else if isVerifying {
                 Label("Checking", systemImage: "waveform")
                     .foregroundStyle(.blue)
                     .accessibilityLabel("Audio route check is running")
             } else if let snapshot, snapshot.hasDegradedOrStaleRoute {
-                Label("Needs audio check", systemImage: "exclamationmark.triangle.fill")
+                Label("Status needs refresh", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                    .accessibilityLabel("Audio routes need another check")
+                    .accessibilityLabel("Local audio status needs refresh")
             } else {
-                Label("Not ready for calls yet", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("Audio routes are not ready yet")
+                Label("Ready to try recording", systemImage: "record.circle")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Ready to try recording")
             }
         }
         .padding(16)
@@ -82,7 +82,7 @@ public struct RouteVerificationView: View {
                 Text(title)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                Text(statusText(for: verification))
+                Text(statusText(title: title, for: verification))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
@@ -122,17 +122,20 @@ public struct RouteVerificationView: View {
         }
     }
 
-    private func statusText(for verification: RouteVerification?) -> String {
+    private func statusText(title: String, for verification: RouteVerification?) -> String {
         guard let verification else {
-            return "Not checked yet"
+            if title == "Speaker" {
+                return SystemAudioStatusLabels.speakerPendingStatus
+            }
+            return SystemAudioStatusLabels.microphonePendingStatus
         }
         let label = AdaptiveStatusText.routeStatusLabel(verification.status)
         if verification.status == .passed {
             switch verification.path {
             case .micToVirtualInput:
-                return "Active: physical microphone reaches 2brain Rec Microphone, not recording"
+                return "Available: physical microphone can be used for recording, not recording"
             case .remoteOutputToVirtualSpeaker:
-                return "Active: 2brain Rec Speaker routes to physical output, not recording"
+                return "Available: system audio capture is checked when recording starts, not recording"
             case .speakerPassthrough:
                 return "Active: speaker passthrough is usable, not recording"
             case .captureMirror:
@@ -150,10 +153,6 @@ public struct RouteVerificationView: View {
 
     private func humanReason(_ reason: String) -> String {
         switch reason {
-        case "virtual_microphone_not_visible":
-            return "2brain Rec Microphone is not visible in macOS."
-        case "virtual_speaker_not_visible":
-            return "2brain Rec Speaker is not visible in macOS."
         case "physical_microphone_not_selected":
             return "macOS input is not a physical microphone."
         case "physical_speaker_not_selected":
@@ -185,8 +184,11 @@ public struct RouteVerificationView: View {
         case "app_io_heartbeat_missing":
             return "app audio route is not active yet."
         case "virtual_device_visible_but_audio_path_not_implemented":
-            return "device is visible, but real audio passthrough is not implemented yet."
+            return "legacy virtual-device diagnostics are parked for MVP recording."
         default:
+            if reason.hasPrefix("virtual_") {
+                return "driver diagnostics are parked for MVP recording."
+            }
             return reason.replacingOccurrences(of: "_", with: " ")
         }
     }

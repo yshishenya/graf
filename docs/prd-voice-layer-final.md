@@ -1,4 +1,4 @@
-# PRD: 2brain Rec self-hosted meeting capture with macOS virtual audio driver
+# PRD: 2brain Rec self-hosted meeting capture with macOS system audio capture
 
 Date: 2026-06-04
 Status: Final baseline after 5-agent review, updated with current implementation status
@@ -6,9 +6,14 @@ Owner: Product/Engineering
 
 ## 1. Summary
 
-`2brain Rec` is a self-hosted desktop audio layer for organizations that need botless meeting capture, transcription, and AI meeting notes while keeping meeting data inside customer-controlled infrastructure.
+`2brain Rec` is a self-hosted desktop capture layer for organizations that need botless meeting capture, transcription, and AI meeting notes while keeping meeting data inside customer-controlled infrastructure.
 
-The core product is a macOS desktop app plus virtual audio layer. Users select `2brain Rec Microphone` and `2brain Rec Speaker` in meeting apps. `2brain Rec` captures local microphone audio and remote participant audio as separate tracks, uploads them to the customer-controlled server, sends transcription work to the existing MediaScribe API, and exposes recordings/transcripts/notes in a web dashboard.
+The core MVP product is a macOS desktop app that captures local microphone
+audio and incoming/system audio as separate tracks without requiring meeting
+apps to select virtual 2brain Rec audio devices. `2brain Rec` saves local
+dual-track artifacts, uploads them to the customer-controlled server in a later
+slice, sends transcription work to the existing MediaScribe API through the
+server boundary, and exposes recordings/transcripts/notes in a web dashboard.
 
 The product is functionally in the same category as Krisp's meeting assistant, but must not copy Krisp's brand, assets, UI expression, copy, icons, proprietary behavior, binaries, or model behavior. The implementation must use public OS APIs, original code, licensed SDKs, and approved open-source or commercial models.
 
@@ -17,10 +22,11 @@ The product is functionally in the same category as Krisp's meeting assistant, b
 Current accepted local baseline:
 
 - macOS remains the MVP platform.
-- The Core Audio HAL component publishes `2brain Rec Microphone` and
-  `2brain Rec Speaker`.
-- Low-resource non-recording passthrough is accepted for the current local
-  environment.
+- Feature `025-system-audio-capture-pivot` changes the MVP capture strategy to
+  system-audio-first after `019` validation showed CoreAudio/HAL CPU runaway
+  risk.
+- The Core Audio HAL component and virtual audio devices are no longer in the
+  MVP acceptance path. They remain future advanced-routing work.
 - Manual `Record`/`Stop` exists with visible local recording state and
   one-action stop.
 - Local recording persistence is accepted for manual recordings.
@@ -69,7 +75,10 @@ Differentiation:
 
 - Unlike bot-based note takers, `2brain Rec` captures audio from the user's own desktop across conferencing apps.
 - Unlike cloud-only meeting assistants, `2brain Rec` is deployed into the customer's environment with admin-controlled storage, retention, access, and processing policies.
-- Unlike generic recorders, `2brain Rec` provides virtual audio routing, separate speaker tracks, durable upload, transcript-linked playback, AI notes, and admin governance.
+- Unlike generic recorders, `2brain Rec` provides separate local/incoming audio
+  tracks, durable upload, transcript-linked playback, AI notes, and admin
+  governance. Virtual audio routing is deferred to a future advanced-routing
+  slice.
 
 ## 3. Target Customer
 
@@ -103,24 +112,34 @@ Not the initial ICP:
 
 MVP objective:
 
-- Prove that `2brain Rec` can reliably capture local microphone and remote meeting audio from macOS desktop calls through a virtual audio driver, upload audio to owner-controlled infrastructure, and produce useful post-call transcripts and notes through MediaScribe.
+- Prove that `2brain Rec` can reliably capture local microphone and incoming
+  meeting/system audio from macOS desktop calls without requiring virtual audio
+  routing, upload audio to owner-controlled infrastructure, and produce useful
+  post-call transcripts and notes through MediaScribe.
 
 Required MVP:
 
-- macOS driver-first MVP with virtual microphone and virtual speaker. The product must install a driver/virtual audio component through a signed installer.
+- macOS system-audio-first MVP with explicit microphone capture and
+  screen/system-audio capture. The product must not require a HAL virtual audio
+  driver for MVP recording acceptance.
 
-Fallback policy:
+Driver policy:
 
-- No no-driver MVP fallback. If the macOS virtual audio layer cannot pass Phase 0 gates, the product does not proceed to pilot rollout.
+- The virtual microphone/speaker driver is deferred to a future advanced
+  routing slice. It must pass separate CoreAudio CPU, installer, rollback,
+  and long-duration validation before it can affect MVP behavior.
 
 MVP includes:
 
 - First platform: macOS.
 - Windows support follows after macOS launch as the next platform phase.
 - Desktop app connected to a self-hosted server.
-- Virtual-device mode through installer-managed virtual audio devices.
+- System-audio capture mode for incoming/remote audio.
+- Explicit microphone capture for local speaker audio.
 - Manual recording start/stop.
-- Assisted auto-start for the internal MVP only when enabled by workspace policy, user-acknowledged during onboarding, and limited to approved meeting targets with active `2brain Rec` virtual-device routing.
+- Assisted auto-start for the internal MVP only when enabled by workspace
+  policy, user-acknowledged during onboarding, and limited to approved meeting
+  targets or explicit user-selected capture scopes.
 - Auto-stop configurable in settings; default auto-stop after 10 minutes of no routed meeting audio.
 - Audio recording mode.
 - Transcript-only mode.
@@ -146,17 +165,21 @@ MVP includes:
 
 - macOS is the first platform and is implemented as a native stack:
   - macOS desktop app: Swift (SwiftUI for UI and app logic where applicable).
-  - macOS virtual audio layer and real-time capture bridge: Swift/C++ using platform-supported
-    audio APIs in the selected Core Audio virtual-device path.
+  - MVP capture layer: native macOS microphone capture plus native
+    Screen/System Audio capture for incoming audio.
+  - Future virtual audio layer and real-time routing bridge: Swift/C++ using
+    platform-supported audio APIs in the selected Core Audio virtual-device
+    path after separate validation.
   - Installer and packaging lifecycle: native macOS signing/notarization workflows.
-- The MVP capture/driver plane is intentionally not a single Dart/Flutter/Electron runtime,
-  because privileged audio routing, virtual-device ownership, and installer signing/notarization
-  must stay native to the OS integration layer.
+- The MVP capture plane is intentionally not a single Dart/Flutter/Electron
+  runtime, because capture permissions, local recording truth, and future
+  privileged audio routing must stay native to the OS integration layer.
 - Windows, Linux, iOS, and Android are future platform phases and must be delivered through
   separate architecture slices with their own native stack and distribution model after macOS
   launch criteria are met.
-- Cross-platform frameworks can be considered only for non-capture surfaces that do not own
-  audio-driver, virtual-device, permission, or installer runtime behavior.
+- Cross-platform frameworks can be considered only for non-capture surfaces
+  that do not own audio capture, permission, future driver, virtual-device, or
+  installer runtime behavior.
 
 ### 4.y UI Authority And Multiplatform Surface Strategy
 
@@ -178,8 +201,8 @@ Local/native desktop surfaces are authoritative for:
 - one-action stop;
 - tray/menu and floating widget state;
 - recording, pause/resume, and stop commands;
-- route readiness and audio health;
-- driver install/update/repair/uninstall state;
+- capture readiness and audio health;
+- capture permission and future driver install/update/repair/uninstall state;
 - local buffer and disk safety;
 - local recording artifact truth;
 - offline pending recordings;
@@ -200,7 +223,7 @@ Server-driven UI or WebView-rendered remote UI MUST NOT own:
 - capture state truth;
 - local route health truth;
 - local storage safety;
-- permission and driver recovery truth;
+- permission and future driver recovery truth;
 - authorization gates for capture-critical actions.
 
 Server-driven schemas may be considered for non-critical settings, help content,
@@ -220,7 +243,7 @@ MVP excludes:
 - Public-link sharing by default.
 - SSO/SCIM/eDiscovery/legal hold unless pulled into enterprise pilot scope.
 - Local-only transcription package unless separately selected.
-- No no-driver fallback product.
+- Virtual-device routing as an MVP requirement.
 - General-purpose meeting detection across arbitrary apps.
 - Auto-start from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - Calendar-driven auto-start.
@@ -229,16 +252,20 @@ MVP excludes:
 
 ## 5. User Promises
 
-- Select `2brain Rec` audio devices once; supported desktop meetings can be captured.
+- Start recording with microphone and Screen/System Audio permissions; supported
+  desktop meetings can be captured without selecting virtual `2brain Rec` audio
+  devices.
 - Meeting audio, transcripts, notes, and indexes remain in customer-controlled infrastructure by default.
-- No bot is required for audio recording in virtual-device mode.
+- No bot is required for audio recording.
 - Every transcript segment links back to the corresponding audio time when audio is retained.
 - Admins control retention, sharing, downloads, external egress, device policy, and auditability.
 
 ## 6. Core Modules
 
 - Desktop app.
-- Virtual audio driver/layer.
+- System-audio capture layer.
+- Microphone capture layer.
+- Virtual audio driver/layer for future advanced-routing work.
 - Local recorder and encrypted buffer.
 - Resumable uploader.
 - Self-hosted backend.
@@ -252,24 +279,35 @@ MVP excludes:
 
 ## 7. Desktop App
 
-The desktop app is the primary trust surface for capture readiness, recording state, and audio routing.
+The desktop app is the primary trust surface for capture readiness, recording
+state, permission state, audio health, and future routing.
 
 Required screens:
 
-- Home: workspace/server connection, driver status, recording mode, selected physical mic/speaker, current capture state, live mic/speaker meters, recent meetings, primary recording controls.
-- Live Meeting: title, duration, mode, local buffer/upload state, separate mic/speaker activity, live transcript preview if enabled, title edit, language, pause/resume, stop.
-- Audio Health: physical microphone, physical output, virtual microphone, virtual speaker, route graph, live meters, route verification, driver status, permissions, test recording, test playback, diagnostic export.
-- Settings: account/workspace, audio devices, recording defaults, local cache, upload queue, privacy/consent, driver install/update/repair/uninstall, diagnostics.
+- Home: workspace/server connection, capture readiness, recording mode,
+  selected microphone, Screen/System Audio permission, current capture state,
+  live mic/incoming meters, recent meetings, primary recording controls.
+- Live Meeting: title, duration, mode, local buffer/upload state, separate
+  mic/incoming activity, live transcript preview if enabled, title edit,
+  language, pause/resume, stop.
+- Audio Health: microphone, system-audio capture, physical output for playback
+  awareness, live meters, readiness verification, permissions, test recording,
+  test playback, diagnostic export, and future driver status when enabled.
+- Settings: account/workspace, audio capture defaults, recording defaults,
+  local cache, upload queue, privacy/consent, future driver
+  install/update/repair/uninstall, diagnostics.
 
 Settings information architecture:
 
 - Account and workspace: signed-in user, server URL, workspace, sync status, sign out.
-- Audio devices: physical microphone, physical speaker/headphones, virtual device status, route test.
+- Audio devices: physical microphone, system-audio capture permission, physical
+  speaker/headphones for playback awareness, route/capture test.
 - Recording defaults: default mode, language, manual start behavior, title defaults.
 - Auto-start and auto-stop: workspace policy status, eligible apps/domains, user suppression list where allowed, auto-stop duration.
 - Privacy and retention: local buffer retention, transcript-only behavior, deletion policy summary, consent policy summary.
 - Local buffer and upload queue: disk usage, queued meetings, retry failed upload, purge eligible local cache.
-- Driver and diagnostics: driver status, install/update/repair/uninstall, permissions, diagnostic export.
+- Capture and diagnostics: permission status, future driver status when enabled,
+  install/update/repair/uninstall for future driver work, diagnostic export.
 
 Settings policy conflict UX:
 
@@ -304,34 +342,42 @@ Required steps:
 
 1. Welcome: one-sentence value, no exaggerated privacy claims.
 2. Server connection: server URL, workspace, browser/device-code login, TLS/certificate error handling, connection test.
-3. Driver installation: explain virtual audio devices, install/update/repair driver, platform-specific trust/permission guidance, restart-required state.
-4. Microphone setup: select physical mic, live meter, test recording, muted/silent/noisy warnings.
-5. Speaker setup: select physical speaker/headphones, play test sound, confirm audible output.
-6. Meeting app setup: guide browser-based meetings and approved apps to select `2brain Rec` devices.
-7. Route verification: verify mic path and speaker/remote audio path. Do not show fully ready unless both are validated.
+3. Permission setup: explain microphone and Screen/System Audio permissions,
+   request or guide the user to grant them, and show platform-specific recovery.
+4. Microphone setup: select physical mic, live meter, test recording,
+   muted/silent/noisy warnings.
+5. System-audio setup: verify incoming/system audio capture with a controlled
+   source and show silent/blocked/protected-source states truthfully.
+6. Meeting app setup: guide browser-based meetings and approved apps without
+   requiring virtual `2brain Rec` audio devices.
+7. Capture verification: verify mic path and incoming/system audio path. Do not
+   show fully ready unless both are validated or the missing track is explicitly
+   degraded.
 8. Consent and policy: show workspace recording, retention, sharing, deletion, local buffer, and visible indicator policy. Require acceptance.
 
 Acceptance criteria:
 
-- Onboarding cannot complete as fully ready unless both mic and speaker routes are validated.
-- Failed driver, permission, server, and route states provide specific recovery steps.
+- Onboarding cannot complete as fully ready unless both mic and incoming/system
+  audio capture paths are validated.
+- Failed permission, server, capture, and future driver states provide specific
+  recovery steps.
 - User can resume onboarding after closing the app.
-- Setup distinguishes driver failure, routing failure, permission failure, device failure, and server failure.
+- Setup distinguishes permission failure, capture failure, device failure,
+  protected/blocked audio, future driver failure, and server failure.
 
 Required onboarding failure artifacts:
 
 - Server unavailable.
 - TLS/certificate problem.
 - Login failed.
-- Driver install failed.
+- Future driver install failed when future driver mode is enabled.
 - Restart required.
 - Microphone permission denied.
 - System audio permission denied where applicable.
 - Physical microphone silent/noisy.
-- Physical speaker test failed.
-- Virtual microphone not selected in meeting app.
-- Virtual speaker not selected in meeting app.
-- Route verification failed.
+- System-audio capture denied, silent, protected, or blocked.
+- Physical speaker test failed for playback awareness.
+- Capture verification failed.
 - Policy/consent not accepted.
 
 Each failure screen must show issue, affected path, recovery action, and whether setup can continue in degraded mode.
@@ -785,10 +831,19 @@ Protocol rules:
 
 Required tracks by mode:
 
-- Audio recording, virtual-device mode: local mic track and remote speaker track are required unless an unavailable reason is recorded.
-- Transcript-only, virtual-device mode: local mic track and remote speaker track are required for full-meeting transcript; missing remote audio must be user-visible before finalization.
-- Fallback capture is not part of MVP. If a track is unavailable, the meeting is marked degraded rather than silently switching to a no-driver product mode.
-- Degraded mode: missing tracks require an unavailable reason such as `speaker_route_not_validated`, `permission_denied`, `user_disabled_track`, `device_failure`, `driver_failure`, or `policy_blocked`.
+- Audio recording, system-audio-first mode: local mic track and
+  incoming/system audio track are required unless an unavailable reason is
+  recorded.
+- Transcript-only, system-audio-first mode: local mic track and incoming/system
+  audio track are required for full-meeting transcript; missing incoming audio
+  must be user-visible before finalization.
+- System-audio-first capture is the MVP path, not a fallback. If a track is
+  unavailable, the meeting is marked degraded rather than silently producing an
+  incomplete normal recording.
+- Degraded mode: missing tracks require an unavailable reason such as
+  `incoming_audio_not_validated`, `permission_denied`, `user_disabled_track`,
+  `device_failure`, `protected_audio_blocked`, `future_driver_failure`, or
+  `policy_blocked`.
 
 Required auth/device endpoints:
 

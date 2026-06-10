@@ -43,7 +43,7 @@ final class RecordingEvidenceTests: XCTestCase {
             indicatorAvailable: true,
             sourceAppEligibility: .eligible,
             blockedReason: .publicationOnly,
-            recoveryAction: "Run route readiness before recording",
+            recoveryAction: "Refresh local audio status before recording",
             evaluatedAt: Date(timeIntervalSince1970: 1_777_777_777)
         )
 
@@ -51,7 +51,7 @@ final class RecordingEvidenceTests: XCTestCase {
 
         XCTAssertEqual(event.eventType, .startBlocked)
         XCTAssertEqual(event.blockedReason, .publicationOnly)
-        XCTAssertEqual(event.recoveryAction, "Run route readiness before recording")
+        XCTAssertEqual(event.recoveryAction, "Refresh local audio status before recording")
     }
 
     func testRecordingEvidenceDiagnosticBundleRemovesForbiddenContent() throws {
@@ -135,6 +135,76 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence["externalEgressStarted"], "false")
         XCTAssertNil(evidence["rawAudio"])
         XCTAssertNil(evidence["absolutePath"])
+    }
+
+    func testLocalRecordingDiagnosticBundlePreservesNoEgressTruth() throws {
+        let manifest = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 1),
+            startedAt: Date(timeIntervalSince1970: 1),
+            stoppedAt: Date(timeIntervalSince1970: 2),
+            status: .saved,
+            directoryId: "safe-dir",
+            transcriptionReadiness: .ready,
+            mediaScribeSourceMode: "dual",
+            tracks: [
+                LocalRecordingTrack(
+                    trackId: "mic",
+                    role: .localMic,
+                    status: .saved,
+                    fileName: "mic.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 1000,
+                    byteCount: 100,
+                    frameCount: 16_000,
+                    timelineStartMs: 0,
+                    timelineAligned: true
+                ),
+                LocalRecordingTrack(
+                    trackId: "remote",
+                    role: .remoteSpeaker,
+                    status: .saved,
+                    fileName: "incoming.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 1000,
+                    byteCount: 100,
+                    frameCount: 16_000,
+                    timelineStartMs: 0,
+                    timelineAligned: true
+                )
+            ]
+        )
+
+        let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(
+            manifest: manifest,
+            manifestOverrides: [
+                "rawAudio": .string("not allowed"),
+                "signedUrl": .string("not allowed")
+            ]
+        )
+
+        guard case .object(let diagnosticManifest)? = bundle.manifest["localRecordingManifest"] else {
+            XCTFail("Expected local recording manifest diagnostics")
+            return
+        }
+        guard case .object(let summary)? = bundle.manifest["localRecordingEvidence"] else {
+            XCTFail("Expected local recording evidence summary")
+            return
+        }
+
+        XCTAssertEqual(diagnosticManifest["externalEgressStarted"], .bool(false))
+        XCTAssertEqual(diagnosticManifest["transcriptionStarted"], .bool(false))
+        XCTAssertEqual(diagnosticManifest["diagnosticSafe"], .bool(true))
+        XCTAssertEqual(summary["diagnosticSafe"], .bool(true))
+        XCTAssertEqual(bundle.redactionState, .blockedSensitiveContent)
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["signedUrl"])
     }
 
     private func makeSession(

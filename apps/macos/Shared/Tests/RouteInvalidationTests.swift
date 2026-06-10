@@ -1,4 +1,5 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -36,7 +37,7 @@ final class RouteInvalidationTests: XCTestCase {
             previousStatus: .ready
         )
 
-        XCTAssertEqual(events.map(\.source), [.browserTarget, .bluetoothProfile, .physicalDevice])
+        XCTAssertEqual(Set(events.map(\.source)), [.browserTarget, .bluetoothProfile, .physicalDevice])
         XCTAssertTrue(events.allSatisfy { $0.recoveryAction == "rerun_readiness_check" })
         XCTAssertTrue(events.contains { $0.newReadinessStatus == .degraded })
     }

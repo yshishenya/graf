@@ -16,8 +16,8 @@ final class LocalRecordingStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.directoryURL.path))
         XCTAssertFalse(directory.directoryId.contains("/"))
         XCTAssertEqual(directory.manifestURL.lastPathComponent, "manifest.json")
-        XCTAssertEqual(directory.localMicURL.lastPathComponent, "local-mic.wav")
-        XCTAssertEqual(directory.remoteSpeakerURL.lastPathComponent, "remote-speaker.wav")
+        XCTAssertEqual(directory.localMicURL.lastPathComponent, "mic.wav")
+        XCTAssertEqual(directory.remoteSpeakerURL.lastPathComponent, "incoming.wav")
     }
 }
 #endif

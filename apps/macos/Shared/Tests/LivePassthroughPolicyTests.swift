@@ -45,10 +45,10 @@ final class LivePassthroughPolicyTests: XCTestCase {
 
     func testDefaultLaunchStateIsNonRecordingAndInactiveUntilStarted() {
         let engine = PassthroughRouteEngine(sharedMemory: nil)
-        var log: [(String, String)] = []
+        let log = PassthroughPolicyTestLog()
 
         let state = engine.recordLaunchState { event, detail in
-            log.append((event, detail))
+            log.append(event, detail)
         }
 
         XCTAssertEqual(state, .inactive)
@@ -77,10 +77,10 @@ final class LivePassthroughPolicyTests: XCTestCase {
             activityDetector: detector,
             bridgeFactory: { _, _ in bridge }
         )
-        var log: [(String, String)] = []
+        let log = PassthroughPolicyTestLog()
 
         let armed = engine.startAutomaticRoute { event, detail in
-            log.append((event, detail))
+            log.append(event, detail)
         }
 
         XCTAssertEqual(armed, .armed)
@@ -97,10 +97,10 @@ final class LivePassthroughPolicyTests: XCTestCase {
             activityDetector: FixedVirtualDeviceActivityDetector(isRunning: true),
             bridgeFactory: { _, _ in bridge }
         )
-        var log: [(String, String)] = []
+        let log = PassthroughPolicyTestLog()
 
         let state = engine.startAutomaticRoute { event, detail in
-            log.append((event, detail))
+            log.append(event, detail)
         }
 
         XCTAssertEqual(state, .active)
@@ -274,6 +274,24 @@ private struct FixedVirtualDeviceActivityDetector: VirtualDeviceActivityDetectin
 
     func anyExpectedVirtualDeviceRunning() -> Bool {
         isRunning
+    }
+}
+
+private final class PassthroughPolicyTestLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [(String, String)] = []
+
+    func append(_ event: String, _ detail: String) {
+        lock.lock()
+        entries.append((event, detail))
+        lock.unlock()
+    }
+
+    func contains(where predicate: ((String, String)) -> Bool) -> Bool {
+        lock.lock()
+        let snapshot = entries
+        lock.unlock()
+        return snapshot.contains(where: predicate)
     }
 }
 

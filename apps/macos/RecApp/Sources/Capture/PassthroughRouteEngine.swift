@@ -154,7 +154,7 @@ public final class PassthroughRouteEngine: @unchecked Sendable {
             setStateLocked(.inactive)
             logger(
                 "passthrough_bridge_launch_available",
-                "non-recording route engine will arm and wait for virtual-device client IO"
+                "non-recording route engine is available but not armed by launch check"
             )
             return stateStorage
         }

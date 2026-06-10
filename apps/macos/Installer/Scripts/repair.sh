@@ -33,7 +33,11 @@ fi
 xattr -cr "$HAL_DEST" || true
 xattr -dr com.apple.provenance "$HAL_DEST" || true
 xattr -dr com.apple.quarantine "$HAL_DEST" || true
-killall coreaudiod >/dev/null 2>&1 || true
+if [ "${TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART:-0}" = "1" ]; then
+  killall coreaudiod >/dev/null 2>&1 || true
+else
+  echo "coreaudiod restart skipped; set TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART=1 for driver diagnostics" >&2
+fi
 echo "repaired" > "$STATE_PATH"
 
 cat > "$REPORT_PATH" <<EOF

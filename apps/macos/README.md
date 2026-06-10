@@ -5,12 +5,20 @@ This document is the architecture reference for the macOS-only MVP slice.
 ## 1) Scope And Stack
 
 - Scope: interactive macOS delivery only (`macOS 14.5+`, Apple Silicon first-class; Intel considered unsupported and blocked with explicit failure state).
-- Primary implementation stack: SwiftUI + Swift Package modules for app layer, Core Audio HAL Plugin for virtual audio driver, and shell-based scripts for installer lifecycle.
+- Primary implementation stack: SwiftUI + Swift Package modules for app layer,
+  ScreenCaptureKit/system-audio capture for the MVP recording pivot, Core Audio
+  HAL Plugin for parked future passthrough/driver work, and shell-based scripts
+  for installer lifecycle.
 - No desktop Rust/Flutter/Dart layer is used for this slice.
 
 ## 2) Functional boundaries
 
-- **Driver**: publishes and manages two virtual devices:
+- **System-audio MVP recording**: uses macOS capture permissions and a
+  user-confirmed capture scope. It does not require driver install, driver
+  repair, virtual-device publication, Core Audio restart, or HAL runtime probes.
+- **Driver**: parked for future passthrough diagnostics and experiments. It can
+  publish and manage two virtual devices, but those devices are not MVP
+  recording prerequisites:
   - `2brain Rec Microphone`
   - `2brain Rec Speaker`
 - **App core (Swift)**: route verification, permission/device state, capture control surface, track/buffer continuity snapshots, local recovery hints, and diagnostics.
@@ -18,6 +26,25 @@ This document is the architecture reference for the macOS-only MVP slice.
 - **No backend audio responsibilities in client**: app does not send raw audio directly to MediaScribe and does not store API credentials.
 
 ## 2.1) Current Runtime Status (2026-06-01)
+
+### System-audio pivot status (2026-06-08)
+
+Accepted for the current feature branch:
+
+- MVP recording readiness is checked from the Record flow and permission gate,
+  not from driver repair or virtual-device visibility.
+- Driver diagnostics may still be displayed for legacy passthrough context, but
+  UI copy must say they are parked and not required for system-audio recording.
+- No-HAL validation is enforced by
+  `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`.
+- CPU/resource gate evidence is recorded through metadata-only process sampling
+  in `apps/macos/Scripts/sample-system-audio-cpu-gate.sh`.
+
+Not accepted yet:
+
+- full settled idle/active/stop/quit CPU gate evidence;
+- controlled meeting artifact validation on a real app build;
+- 30-minute development and 75-minute manual release recording runs.
 
 Accepted:
 

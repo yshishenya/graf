@@ -12,7 +12,9 @@ Spec Kit is installed locally with:
 
 ## Project Context
 
-Product: `2brain Rec`, a self-hosted Krisp-category meeting capture and transcription product with a macOS virtual audio driver.
+Product: `2brain Rec`, a self-hosted meeting capture and transcription product
+with a macOS system-audio-first MVP. The virtual audio driver is parked as
+future advanced-routing work until it has separate safety evidence.
 
 Primary baseline document:
 
@@ -48,7 +50,8 @@ Run `$speckit-constitution` before real feature work if `.specify/memory/constit
 
 The constitution must encode non-negotiable project rules from the PRD:
 
-- driver-first macOS MVP;
+- system-audio-first macOS MVP;
+- virtual-driver routing is not required for MVP acceptance;
 - visible capture indicator;
 - no silent or invisible recording;
 - owner-controlled storage and explicit egress policy;
@@ -82,7 +85,7 @@ Use `$speckit-clarify` before planning unless the feature is trivial and already
 Clarification is mandatory when the feature touches:
 
 - recording start/stop behavior;
-- audio driver or routing;
+- system audio, microphone capture, audio driver, or routing;
 - local buffering;
 - upload/retry semantics;
 - MediaScribe, Langfuse, MinIO, Postgres, Temporal, or Docker;
@@ -101,7 +104,8 @@ The plan must:
 - resolve technical unknowns in `research.md`;
 - define the implementation approach in `plan.md`;
 - create `data-model.md` where data is involved;
-- create `contracts/` for APIs, protocols, driver IPC, or UI contracts;
+- create `contracts/` for APIs, capture/session protocols, future driver IPC,
+  or UI contracts;
 - create `quickstart.md` with validation scenarios;
 - update this `AGENTS.md` plan reference between the Spec Kit markers.
 
@@ -109,8 +113,8 @@ Planning must stop if constitution gates fail or important clarifications remain
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at specs/019-live-route-stability/plan.md
+shell commands, and other important information, read the current plan at
+specs/025-system-audio-capture-pivot/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
@@ -120,7 +124,10 @@ Use `$speckit-checklist` after planning for high-risk areas. These checklists ar
 Default checklist set for this project:
 
 - `security.md` for auth, secrets, egress, audit, retention, deletion, diagnostics.
-- `driver.md` for macOS virtual audio, installer, permissions, passthrough, QA matrix.
+- `audio-capture.md` for macOS system audio, microphone permissions, track
+  truth, performance, and QA matrix.
+- `driver.md` only when a feature touches future macOS virtual audio,
+  installer, passthrough, repair, or driver QA.
 - `ux.md` for tray/widget, onboarding, accessibility, theme, deletion UX, brand distance.
 - `infra.md` for Docker, Temporal, MinIO, Postgres, MediaScribe, Langfuse, backup/restore.
 
@@ -282,10 +289,11 @@ Keep generated build/cache/secret files out of git through `.gitignore`.
 
 Any feature touching `2brain Rec` capture, transcription, storage, or AI must preserve these gates:
 
-- macOS driver-first MVP; no no-driver fallback.
-- Capture and driver implementation is platform-native by default: macOS feature slice
-  uses macOS-native languages and APIs, with future platforms handled by separate
-  native stacks and separate architecture decisions.
+- macOS system-audio-first MVP; virtual-driver routing is not required for MVP
+  recording acceptance.
+- Capture-critical implementation is platform-native by default: macOS feature
+  slices use macOS-native languages and APIs, with future platforms handled by
+  separate native stacks and separate architecture decisions.
 - Manual start/stop remains available.
 - Assisted auto-start is internal-MVP only unless customer policy explicitly enables it.
 - Active capture must always have a visible local indicator and one-action stop.

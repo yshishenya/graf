@@ -16,7 +16,9 @@ final class LocalRecordingManifestTests: XCTestCase {
                 tracks: [
                     completeTrack(role: .localMic),
                     completeTrack(role: .remoteSpeaker)
-                ]
+                ],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
             )
 
         XCTAssertEqual(manifest.status, .saved)
@@ -102,7 +104,9 @@ final class LocalRecordingManifestTests: XCTestCase {
                 directoryId: "dir",
                 startedAt: Date(timeIntervalSince1970: 10),
                 stoppedAt: Date(timeIntervalSince1970: 20),
-                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)]
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
             )
 
         try LocalRecordingManifestService().write(manifest, to: url)
@@ -112,6 +116,135 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(object?["schemaVersion"] as? String, LocalRecordingManifest.schemaVersion)
         XCTAssertEqual(object?["mediaScribeSourceMode"] as? String, "dual")
         XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
+    }
+
+    func testReadNormalizesStaleCaptureHealthAgainstManifestFailure() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-manifest-stale-health-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stale = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .degraded,
+            directoryId: "dir",
+            transcriptionReadiness: .degraded,
+            tracks: [
+                completeTrack(role: .localMic),
+                LocalRecordingTrack(
+                    trackId: "remote",
+                    role: .remoteSpeaker,
+                    status: .degraded,
+                    fileName: "incoming.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 1000,
+                    byteCount: 32_044,
+                    frameCount: 16_000,
+                    timelineStartMs: 0,
+                    timelineAligned: false,
+                    failureReason: .timelineMisaligned
+                )
+            ],
+            failureReason: .timelineMisaligned,
+            durationDifferenceSeconds: 0,
+            captureHealth: CaptureHealthSnapshot(
+                recordingSessionId: "session",
+                phase: .stop,
+                sampledAt: Date(timeIntervalSince1970: 20),
+                coreaudiodCpuPercent: 0,
+                appCpuPercent: 0,
+                gateStatus: .passed,
+                failureReason: .none
+            )
+        )
+        let service = LocalRecordingManifestService()
+
+        try service.write(stale, to: url)
+        let normalized = try service.read(from: url)
+
+        XCTAssertEqual(normalized.captureHealth?.failureReason, .timelineMisaligned)
+        XCTAssertEqual(normalized.captureHealth?.gateStatus, .failed)
+        XCTAssertEqual(normalized.failureReason, .timelineMisaligned)
+    }
+
+    func testCompleteTracksWithoutScopeAndPermissionsStayDegraded() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)]
+            )
+
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
+        XCTAssertEqual(manifest.failureReason, .permissionDenied)
+        XCTAssertFalse(manifest.isComplete)
+    }
+
+    func testDuplicateRequiredRoleDoesNotProduceSavedManifest() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [
+                    completeTrack(role: .localMic),
+                    completeTrack(role: .remoteSpeaker),
+                    completeTrack(role: .remoteSpeaker)
+                ],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
+            )
+
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
+        XCTAssertFalse(manifest.isComplete)
+    }
+
+    func testManifestIsCompleteRejectsForgedDurationMismatch() {
+        let manifest = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .saved,
+            directoryId: "dir",
+            transcriptionReadiness: .ready,
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            durationDifferenceSeconds: 3.001,
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+
+        XCTAssertFalse(manifest.isComplete)
+    }
+
+    func testTrackIsCompleteRejectsHeaderOnlySavedMetadata() {
+        let headerOnly = LocalRecordingTrack(
+            trackId: "remote",
+            role: .remoteSpeaker,
+            status: .saved,
+            fileName: "incoming.wav",
+            format: "wav-pcm-s16le",
+            sampleRate: 16_000,
+            channelCount: 1,
+            bitsPerSample: 16,
+            durationMs: 1000,
+            byteCount: 44,
+            frameCount: 16_000,
+            timelineStartMs: 0,
+            timelineAligned: true
+        )
+
+        XCTAssertFalse(headerOnly.isComplete)
+        XCTAssertFalse(headerOnly.isMediaScribeReady)
     }
 
     func testManifestCarriesRouteTimelineCorrelation() {
@@ -124,7 +257,9 @@ final class LocalRecordingManifestTests: XCTestCase {
                 tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
                 routeSessionId: "route-session-019",
                 autorepairAttemptIds: ["repair-1"],
-                routeInterruptionCategory: .autorepairCovered
+                routeInterruptionCategory: .autorepairCovered,
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
             )
 
         XCTAssertEqual(manifest.recordingTimelineEvidence?.routeSessionId, "route-session-019")
@@ -156,6 +291,25 @@ private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {
         frameCount: 16_000,
         timelineStartMs: 0,
         timelineAligned: true
+    )
+}
+
+private func acceptedScopeApproval() -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: "scope",
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 9),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
+    )
+}
+
+private func grantedPermissions() -> SystemAudioPermissionSnapshot {
+    SystemAudioPermissionSnapshot(
+        microphone: .granted,
+        systemAudio: .granted,
+        evaluatedAt: Date(timeIntervalSince1970: 9)
     )
 }
 #endif
