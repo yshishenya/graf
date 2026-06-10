@@ -9,7 +9,7 @@ fi
 
 bump_input="$1"
 changelog="CHANGELOG.md"
-today="${2:-$(date +%Y-%m-%d)}"
+today="$(date +%Y-%m-%d)"
 
 if [[ ! -f "$changelog" ]]; then
   echo "error: changelog file not found: $changelog"
@@ -23,7 +23,7 @@ else
   latest_version="${latest_tag#v}"
 fi
 
-if [[ "$bump_input" == [0-9]*.[0-9]*.[0-9]* ]]; then
+if [[ "$bump_input" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   next_version="$bump_input"
 else
   IFS='.' read -r major minor patch <<< "$latest_version"
