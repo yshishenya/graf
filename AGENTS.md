@@ -301,9 +301,20 @@ Changelog rule:
 Release gate for this repo:
 
 - for pre-release evidence, update `CHANGELOG.md` in `[Unreleased]`.
-- for release, move entries into the new version heading, set `vX.Y.Z` tag in Git,
-  and push tags with the release branch.
+- for release, run `./scripts/prepare-release.sh <bump>` to move `[Unreleased]`
+  entries into a version section, set `vX.Y.Z` tag in Git, and push tags with
+  the release branch.
 - `release` tag format: `vMAJOR.MINOR.PATCH`.
+
+Release workflow commands:
+
+```sh
+./scripts/prepare-release.sh patch|minor|major
+git add CHANGELOG.md
+git commit -m "chore: prepare release vX.Y.Z"
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin HEAD --tags
+```
 
 ## Git And Hooks
 
@@ -372,4 +383,5 @@ specify self check
 specify integration list
 specify extension list
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
+./scripts/prepare-release.sh patch
 ```
