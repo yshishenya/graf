@@ -23,6 +23,10 @@ public enum ClientActivitySource: String, Codable, Sendable {
     case driverStartStop = "driver_start_stop"
     case deviceIsRunning = "device_is_running"
     case testFixture = "test_fixture"
+    case browserDeviceSelection = "browser_device_selection"
+    case coreAudioClient = "core_audio_client"
+    case appBridge = "app_bridge"
+    case validationFixture = "validation_fixture"
 }
 
 public enum AppBridgeHeartbeatState: String, Codable, Sendable {

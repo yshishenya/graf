@@ -45,6 +45,19 @@ final class CaptureIndicatorTests: XCTestCase {
         XCTAssertFalse(CaptureControlView.shouldShowRecordButton(for: session))
     }
 
+    func testRecordButtonCanBeDisabledWhileStartIsInFlight() {
+        XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: nil))
+        XCTAssertTrue(CaptureControlView.shouldEnableRecordButton(for: nil, recordDisabled: false))
+        XCTAssertFalse(CaptureControlView.shouldEnableRecordButton(for: nil, recordDisabled: true))
+    }
+
+    func testStopButtonCanBeDisabledWhileStopIsInFlight() {
+        let session = makeSession(state: .active, indicator: .active, stopAvailable: true)
+
+        XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
+        XCTAssertFalse(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: true))
+    }
+
     private func makeSession(
         state: CaptureSessionState,
         indicator: VisibleIndicatorState,

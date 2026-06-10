@@ -78,6 +78,16 @@ implementation record.
   first-smoke evidence templates, cleanup accounting, and forbidden-content
   scans. The highest allowed successful status is `infra_smoke_ready`; this is
   not production readiness, user rollout readiness, or internal pilot readiness.
+- Feature `025-system-audio-capture-pivot` is accepted as the macOS MVP
+  recording path. It records local microphone plus incoming/system audio without
+  requiring virtual device selection, preserves dual-track local artifacts, and
+  closes the final evidence gates for permission matrix, controlled artifact,
+  CPU/resource behavior, 30-minute development validation, 75-minute release
+  validation, forbidden-content scan, and final scope review.
+- The driver-based live virtual-device publication blocker from `019` / issue
+  #234 is superseded for MVP recording by `025` and parked as future
+  advanced-routing work. Its unsafe HAL publication attempts remain preserved
+  as negative evidence and must not be counted as accepted driver evidence.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -90,7 +100,9 @@ implementation record.
 - Feature `022-meeting-mute-truth` must resolve meeting-app mute truth before
   local recording can be accepted as privacy-correct when a user mutes inside
   Zoom/browser targets.
-- Long-duration 30/60 minute integrity acceptance is not complete.
+- Driver live virtual-device publication is not accepted for MVP recording and
+  must not be revived without a separate future advanced-routing spec,
+  implementation, and safety evidence.
 - Desktop upload queue wiring, MediaScribe transcription, dashboard notes,
   Temporal workflow starts, server retention, and deletion workflows are not
   accepted yet.

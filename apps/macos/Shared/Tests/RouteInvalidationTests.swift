@@ -1,4 +1,5 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -36,7 +37,7 @@ final class RouteInvalidationTests: XCTestCase {
             previousStatus: .ready
         )
 
-        XCTAssertEqual(events.map(\.source), [.browserTarget, .bluetoothProfile, .physicalDevice])
+        XCTAssertEqual(Set(events.map(\.source)), [.browserTarget, .bluetoothProfile, .physicalDevice])
         XCTAssertTrue(events.allSatisfy { $0.recoveryAction == "rerun_readiness_check" })
         XCTAssertTrue(events.contains { $0.newReadinessStatus == .degraded })
     }
@@ -71,6 +72,31 @@ final class RouteInvalidationTests: XCTestCase {
         XCTAssertTrue(events.allSatisfy { $0.recoveryAction == "rerun_live_passthrough_check" })
         XCTAssertTrue(events.contains { $0.newStatus == .degraded })
         XCTAssertTrue(events.contains { $0.newStatus == .stale })
+    }
+
+    func testRouteStateTruthDistinguishesStaleBlockedFailedAndReleased() {
+        let stale = RouteEvidenceEvent(
+            eventId: "stale",
+            sessionId: "route-session",
+            family: .routeLifecycle,
+            name: "route.lifecycle.stale",
+            observedAt: Date(timeIntervalSince1970: 1),
+            source: .routeEngine,
+            routeState: .stale
+        )
+        let released = RouteEvidenceEvent(
+            eventId: "released",
+            sessionId: "route-session",
+            family: .routeLifecycle,
+            name: "route.lifecycle.released",
+            observedAt: Date(timeIntervalSince1970: 2),
+            source: .routeEngine,
+            routeState: .released
+        )
+
+        XCTAssertNotEqual(stale.routeState, released.routeState)
+        XCTAssertEqual(stale.routeState, .stale)
+        XCTAssertEqual(released.routeState, .released)
     }
 }
 #endif

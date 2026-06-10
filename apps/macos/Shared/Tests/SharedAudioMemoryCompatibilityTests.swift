@@ -6,7 +6,7 @@ import XCTest
 
 final class SharedAudioMemoryCompatibilityTests: XCTestCase {
     func testSharedMemoryLayoutSizeStaysOnAcceptedHeartbeatLayout() {
-        let expected = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 16
+        let expected = 3 * kSharedRingCapacity * MemoryLayout<Float>.stride + 6 * MemoryLayout<UInt64>.stride + 24
 
         XCTAssertEqual(SharedAudioMemory.expectedSharedMemorySize, expected)
     }
@@ -29,6 +29,32 @@ final class SharedAudioMemoryCompatibilityTests: XCTestCase {
 
     func testRingWritableSampleCountTracksUnreadDistance() {
         XCTAssertEqual(SharedRingPolicy.writableSampleCount(writeIndex: 10, readIndex: 6, capacity: 8), 4)
+    }
+
+    func testAvailableSampleCountClampsImpossibleSharedMemoryDistance() {
+        XCTAssertEqual(
+            SharedAudioMemory.clampedAvailable(writeIndex: UInt64.max, readIndex: 0, capacity: 8),
+            8
+        )
+    }
+
+    func testCopyLatestSamplesReadsTailWithoutRuntimeSharedMemory() {
+        var samples: [Float] = [0.1, 0.2, 0.3, 0.4]
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 2)
+        defer { scratch.deallocate() }
+
+        let read = samples.withUnsafeBufferPointer { buffer in
+            SharedAudioMemory.copyLatestSamples(
+                from: buffer.baseAddress!,
+                writeIndex: UInt64(samples.count),
+                dst: scratch,
+                count: 2,
+                capacity: samples.count
+            )
+        }
+
+        XCTAssertEqual(read, 2)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 2)), [0.3, 0.4])
     }
 }
 #endif

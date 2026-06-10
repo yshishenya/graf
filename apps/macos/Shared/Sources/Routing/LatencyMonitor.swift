@@ -13,7 +13,7 @@ public struct LatencyMonitor: Sendable {
             return evidence.measuredLatencyMs <= builtInWiredThresholdMs ? .healthy : .latencyExceeded
         case .bluetooth, .airpodsClass:
             return .degraded
-        case .unknown:
+        case .aggregate, .multiOutput, .hdmiAirplay, .otherVirtual, .unknown:
             return .unknown
         }
     }
@@ -22,7 +22,7 @@ public struct LatencyMonitor: Sendable {
         switch measurement.routeClass {
         case .builtIn, .wired, .usb:
             return measurement.addedLatencyMs <= builtInWiredThresholdMs ? .passed : .degraded
-        case .bluetooth, .airpodsClass, .unknown:
+        case .bluetooth, .airpodsClass, .aggregate, .multiOutput, .hdmiAirplay, .otherVirtual, .unknown:
             return .blocked
         }
     }

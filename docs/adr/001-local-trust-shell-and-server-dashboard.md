@@ -4,13 +4,19 @@
 
 **Date**: 2026-06-04
 
+**Updated by**: ADR 002. System-audio-first capture is now the MVP path; driver
+references in this ADR apply to future advanced-routing work unless a later
+feature spec explicitly reintroduces them.
+
 ## Context
 
-`2brain Rec` is a self-hosted meeting capture product with a macOS virtual audio
-driver/layer, local recording, assisted meeting detection, and future
-multiplatform desktop clients. The product must preserve visible capture
-indicator, one-action stop, explicit policy gates, local audio route truth,
-owner-controlled storage, and no silent recording.
+`2brain Rec` is a self-hosted meeting capture product with a native macOS
+capture layer, local recording, assisted meeting detection, and future
+multiplatform desktop clients. It originally considered a macOS virtual audio
+driver/layer for MVP capture; ADR 002 parks that route as future
+advanced-routing work. The product must preserve visible capture indicator,
+one-action stop, explicit policy gates, local audio truth, owner-controlled
+storage, and no silent recording.
 
 The product also needs web-based post-meeting and admin experiences: transcript,
 notes, search, sharing, retention, deletion, audit, device fleet, and workspace

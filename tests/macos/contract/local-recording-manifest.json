@@ -22,6 +22,7 @@
   "allowedStatuses": [
     "saved",
     "degraded",
+    "blocked",
     "failed"
   ],
   "allowedReadinessStates": [
@@ -32,6 +33,7 @@
   ],
   "requiredTrackFields": [
     "mediaScribeField",
+    "sourceKind",
     "format",
     "sampleRate",
     "channelCount",

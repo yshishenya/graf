@@ -216,6 +216,37 @@ public struct RouteVerificationService: Sendable {
         return events
     }
 
+    public static func defaultRouteSnapshot(
+        input: PhysicalAudioDevice?,
+        output: PhysicalAudioDevice?,
+        observedAt: Date = Date()
+    ) -> MacOSDefaultRouteSnapshot {
+        MacOSDefaultRouteSnapshot(
+            inputDeviceId: input?.id,
+            inputDeviceClass: input?.deviceClass ?? .unknown,
+            outputDeviceId: output?.id,
+            outputDeviceClass: output?.deviceClass ?? .unknown,
+            observedAt: observedAt
+        )
+    }
+
+    public func userActionEvidence(
+        action: UserActionKind,
+        sessionId: String,
+        target: MeetingTarget? = nil
+    ) -> RouteEvidenceEvent {
+        RouteEvidenceEvent(
+            eventId: idFactory(),
+            sessionId: sessionId,
+            family: .userAction,
+            name: "user_action.\(action.rawValue)",
+            observedAt: clock(),
+            source: .routeEngine,
+            target: target,
+            userActionKind: action
+        )
+    }
+
     private func failedSnapshot(
         startedAt: Date,
         reason: String,

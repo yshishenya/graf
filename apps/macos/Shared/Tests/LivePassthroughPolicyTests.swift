@@ -45,10 +45,10 @@ final class LivePassthroughPolicyTests: XCTestCase {
 
     func testDefaultLaunchStateIsNonRecordingAndInactiveUntilStarted() {
         let engine = PassthroughRouteEngine(sharedMemory: nil)
-        var log: [(String, String)] = []
+        let log = PassthroughPolicyTestLog()
 
         let state = engine.recordLaunchState { event, detail in
-            log.append((event, detail))
+            log.append(event, detail)
         }
 
         XCTAssertEqual(state, .inactive)
@@ -67,6 +67,48 @@ final class LivePassthroughPolicyTests: XCTestCase {
         let state = engine.startAutomaticRoute { _, _ in }
 
         XCTAssertEqual(state, .armed)
+    }
+
+    func testAutomaticLaunchDoesNotWarmRouteWithoutVirtualClient() {
+        let detector = FixedVirtualDeviceActivityDetector(isRunning: false)
+        let bridge = CountingPassthroughBridge()
+        let engine = PassthroughRouteEngine(
+            sharedMemory: nil,
+            activityDetector: detector,
+            bridgeFactory: { _, _ in bridge }
+        )
+        let log = PassthroughPolicyTestLog()
+
+        let armed = engine.startAutomaticRoute { event, detail in
+            log.append(event, detail)
+        }
+
+        XCTAssertEqual(armed, .armed)
+        Thread.sleep(forTimeInterval: 3.8)
+        XCTAssertEqual(bridge.startCount, 0)
+        XCTAssertEqual(engine.state, .armed)
+        XCTAssertFalse(log.contains { event, _ in event == "passthrough_bridge_started" })
+    }
+
+    func testAutomaticLaunchStartsWhenVirtualClientIsRunning() {
+        let bridge = CountingPassthroughBridge()
+        let engine = PassthroughRouteEngine(
+            sharedMemory: nil,
+            activityDetector: FixedVirtualDeviceActivityDetector(isRunning: true),
+            bridgeFactory: { _, _ in bridge }
+        )
+        let log = PassthroughPolicyTestLog()
+
+        let state = engine.startAutomaticRoute { event, detail in
+            log.append(event, detail)
+        }
+
+        XCTAssertEqual(state, .active)
+        XCTAssertEqual(bridge.startCount, 1)
+        XCTAssertTrue(log.contains { event, detail in
+            event == "passthrough_bridge_started" &&
+                detail == "automatic non-recording route engine active"
+        })
     }
 
     func testAutoIdlePolicyReleasesPhysicalRouteWhenVirtualClientCloses() {
@@ -92,6 +134,113 @@ final class LivePassthroughPolicyTests: XCTestCase {
             virtualClientRunning: false,
             consecutiveIdleTicks: 3
         ))
+    }
+
+    func testAutoIdlePolicyPreservesNaturalSilenceWithFreshClientEvidence() {
+        let policy = PassthroughAutoIdlePolicy(releaseAfterIdleTicks: 3)
+        let snapshot = ClientActivitySnapshot(
+            source: .validationFixture,
+            microphoneOpen: false,
+            microphoneRunning: false,
+            speakerOpen: false,
+            speakerRunning: false,
+            stillUsesVirtualMicrophone: true,
+            stillUsesVirtualSpeaker: true,
+            freshnessMs: 200,
+            naturalSilenceAllowed: true
+        )
+
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            clientActivity: snapshot,
+            consecutiveIdleTicks: 300
+        ))
+    }
+
+    func testAutoIdlePolicyPreservesOneSidedActivity() {
+        let policy = PassthroughAutoIdlePolicy(releaseAfterIdleTicks: 3)
+        let snapshot = ClientActivitySnapshot(
+            source: .validationFixture,
+            microphoneOpen: false,
+            microphoneRunning: false,
+            speakerOpen: true,
+            speakerRunning: true,
+            stillUsesVirtualMicrophone: true,
+            stillUsesVirtualSpeaker: true,
+            freshnessMs: 200,
+            naturalSilenceAllowed: true
+        )
+
+        XCTAssertFalse(policy.shouldReleasePhysicalRoute(
+            bridgeActive: true,
+            clientActivity: snapshot,
+            consecutiveIdleTicks: 300
+        ))
+    }
+
+    func testCoreAudioDetectorBuildsPerSideClientActivitySnapshots() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [
+                .init(name: "2brain Rec Microphone", isRunning: true),
+                .init(name: "2brain Rec Speaker", isRunning: false)
+            ]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertTrue(snapshot.microphoneOpen)
+        XCTAssertTrue(snapshot.microphoneRunning)
+        XCTAssertFalse(snapshot.speakerOpen)
+        XCTAssertFalse(snapshot.speakerRunning)
+        XCTAssertEqual(snapshot.stillUsesVirtualMicrophone, true)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
+        XCTAssertEqual(snapshot.source, .coreAudioClient)
+    }
+
+    func testCoreAudioDetectorDoesNotUseAggregateFallbackForMissingSide() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [.init(name: "2brain Rec Microphone", isRunning: true)]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertTrue(snapshot.microphoneRunning)
+        XCTAssertFalse(snapshot.speakerOpen)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
+        XCTAssertTrue(detector.anyExpectedVirtualDeviceRunning())
+    }
+
+    func testCoreAudioDetectorDoesNotTreatInstalledIdleDevicesAsOpenClients() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [
+                .init(name: "2brain Rec Microphone", isRunning: false),
+                .init(name: "2brain Rec Speaker", isRunning: false)
+            ]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertFalse(snapshot.microphoneOpen)
+        XCTAssertFalse(snapshot.microphoneRunning)
+        XCTAssertFalse(snapshot.speakerOpen)
+        XCTAssertFalse(snapshot.speakerRunning)
+        XCTAssertEqual(snapshot.stillUsesVirtualMicrophone, false)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
+        XCTAssertFalse(PassthroughAutoIdlePolicy().clientActivityPolicy.shouldPreserveRoute(for: snapshot))
+    }
+
+    func testCoreAudioDetectorReportsClosedWhenNeitherExpectedSideExists() {
+        let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
+            [.init(name: "External USB Microphone", isRunning: true)]
+        })
+
+        let snapshot = detector.expectedVirtualDeviceClientActivity()
+
+        XCTAssertFalse(snapshot.microphoneOpen)
+        XCTAssertFalse(snapshot.speakerOpen)
+        XCTAssertEqual(snapshot.stillUsesVirtualMicrophone, false)
+        XCTAssertEqual(snapshot.stillUsesVirtualSpeaker, false)
+        XCTAssertFalse(detector.anyExpectedVirtualDeviceRunning())
     }
 
     private func makeSession(status: LivePassthroughStatus, recordingState: String) -> LivePassthroughSession {
@@ -126,5 +275,61 @@ private struct FixedVirtualDeviceActivityDetector: VirtualDeviceActivityDetectin
     func anyExpectedVirtualDeviceRunning() -> Bool {
         isRunning
     }
+}
+
+private final class PassthroughPolicyTestLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [(String, String)] = []
+
+    func append(_ event: String, _ detail: String) {
+        lock.lock()
+        entries.append((event, detail))
+        lock.unlock()
+    }
+
+    func contains(where predicate: ((String, String)) -> Bool) -> Bool {
+        lock.lock()
+        let snapshot = entries
+        lock.unlock()
+        return snapshot.contains(where: predicate)
+    }
+}
+
+private final class CountingPassthroughBridge: PassthroughBridgeControlling, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _startCount = 0
+    private let startDelay: TimeInterval
+
+    init(startDelay: TimeInterval = 0) {
+        self.startDelay = startDelay
+    }
+
+    var startCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _startCount
+    }
+
+    func start() throws {
+        if startDelay > 0 {
+            Thread.sleep(forTimeInterval: startDelay)
+        }
+        lock.lock()
+        _startCount += 1
+        lock.unlock()
+    }
+
+    func stop() {}
+
+    func refreshAppIOHeartbeat() {}
+}
+
+private func waitUntil(timeout: TimeInterval, condition: @escaping () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() { return true }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    return condition()
 }
 #endif

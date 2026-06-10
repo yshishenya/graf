@@ -3,13 +3,16 @@ import TwoBrainRecShared
 
 public struct CaptureStatusItem: View {
     private let session: CaptureSession?
+    private let stopDisabled: Bool
     private let onStop: () -> Void
 
     public init(
         session: CaptureSession?,
+        stopDisabled: Bool = false,
         onStop: @escaping () -> Void
     ) {
         self.session = session
+        self.stopDisabled = stopDisabled
         self.onStop = onStop
     }
 
@@ -23,7 +26,7 @@ public struct CaptureStatusItem: View {
 
     @ViewBuilder
     private func statusSurface(for session: CaptureSession) -> some View {
-        let canStop = session.stopActionAvailable
+        let canStop = Self.shouldEnableStopButton(for: session, stopDisabled: stopDisabled)
         let isActive = Self.showsStopButton(for: session)
 
         HStack(spacing: 10) {
@@ -33,23 +36,28 @@ public struct CaptureStatusItem: View {
                 Text(Self.statusLabel(for: session))
                     .font(.caption)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
 
             if isActive {
                 Spacer()
 
                 Button(action: onStop) {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(!canStop)
-                .accessibilityLabel("Stop recording")
+                .disabled(!canStop || stopDisabled)
+                .keyboardShortcut(.escape, modifiers: [])
+                .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.stopButton)
+                .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
             }
         }
         .padding(8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Self.accessibilityLabel(for: session))
+        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(.thickMaterial)
@@ -122,6 +130,13 @@ public struct CaptureStatusItem: View {
             session.state == .paused ||
             session.state == .degraded ||
             session.state == .stopping
+    }
+
+    public static func shouldEnableStopButton(
+        for session: CaptureSession,
+        stopDisabled: Bool
+    ) -> Bool {
+        showsStopButton(for: session) && session.stopActionAvailable && !stopDisabled
     }
 
     public static func accessibilityLabel(for session: CaptureSession) -> String {

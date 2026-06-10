@@ -1,42 +1,19 @@
 import CoreAudio
+import AppKit
 import SwiftUI
 import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 @main
-struct TwoBrainRecApp: App {
-    @State private var snapshot = LocalAudioSnapshot.placeholder()
-    @State private var isChecking = false
-
-    var body: some Scene {
-        WindowGroup("2brain Rec") {
-            ContentView(
-                snapshot: snapshot,
-                isChecking: isChecking,
-                onAutoStarted: { updated in
-                    snapshot = updated
-                },
-                refresh: {
-                    LocalAudioSnapshot.refreshAsync(event: "refresh") { updated in
-                        snapshot = updated
-                    }
-                },
-                runCheck: {
-                    isChecking = true
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                        let checked = LocalAudioSnapshot.runReadinessCheck()
-                        AppLog.write(event: "readiness_check", snapshot: checked)
-                        DispatchQueue.main.async {
-                            snapshot = checked
-                            isChecking = false
-                        }
-                    }
-                }
-            )
-            .frame(minWidth: 720, minHeight: 620)
+private enum TwoBrainRecAppMain {
+    @MainActor
+    static func main() {
+        let app = NSApplication.shared
+        let appDelegate = AppLifecycleDelegate()
+        app.delegate = appDelegate
+        withExtendedLifetime(appDelegate) {
+            app.run()
         }
-        .windowResizability(.contentMinSize)
     }
 }
 
@@ -46,11 +23,22 @@ private struct ContentView: View {
     )
     @State private var captureController = CaptureSessionController()
     @State private var localRecordingWriter = LocalRecordingWriter()
+    @State private var systemAudioCaptureService = SystemAudioCaptureService()
+    @State private var microphoneCaptureService = MicrophoneCaptureService()
+    @State private var systemAudioPermissionAuthorizer = CoreGraphicsSystemAudioPermissionAuthorizer()
+    @State private var systemAudioPermissionGate = SystemAudioPermissionGate()
+    @State private var captureScopeApprovalService = CaptureScopeApprovalService()
     @State private var captureSession: CaptureSession?
     @State private var recordingBlocker: String?
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var localRecordingLocation: String?
+    @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
+    @State private var localRecordingActive = false
+    @State private var levelsPollInProgress = false
+    @State private var terminationCleanupInProgress = false
+    @State private var recordingStartInProgress = false
+    @State private var recordingStopInProgress = false
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -82,8 +70,15 @@ private struct ContentView: View {
                         blockedReason: recordingBlocker,
                         localRecordingStatus: localRecordingStatusText,
                         localRecordingLocation: localRecordingLocation,
-                        onRecord: startManualRecording,
-                        onStop: stopManualRecording
+                        routeSignalLevels: liveRouteSignalLevels,
+                        recordDisabled: recordingStartInProgress || recordingStopInProgress,
+                        stopDisabled: recordingStartInProgress || recordingStopInProgress,
+                        onRecord: {
+                            Task { await startManualRecording() }
+                        },
+                        onStop: {
+                            Task { await stopManualRecording() }
+                        }
                     )
                     AudioHealthView(state: snapshot.healthState)
                     DiagnosticLogView(
@@ -97,10 +92,10 @@ private struct ContentView: View {
         .onAppear {
             passthroughCoordinator.recordLaunchState()
             AppLog.write(event: "app_opened", snapshot: snapshot)
-            if ProcessInfo.processInfo.arguments.contains("--disable-auto-passthrough") {
+            if !ProcessInfo.processInfo.arguments.contains("--enable-auto-passthrough") {
                 AppLog.writeRaw(
                     event: "passthrough_bridge_auto_start_skipped",
-                    detail: "automatic non-recording route engine disabled for this launch"
+                    detail: "automatic non-recording route engine disabled by default for safe launch"
                 )
             } else {
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -123,19 +118,45 @@ private struct ContentView: View {
                         LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_ready") { updated in
                             onAutoStarted(updated)
                         }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                            LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_active") { updated in
+                                onAutoStarted(updated)
+                            }
+                        }
                     }
                 }
             }
             if ProcessInfo.processInfo.arguments.contains("--start-passthrough") {
                 DispatchQueue.global(qos: .userInitiated).async {
-                    _ = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                    let updated = LocalAudioSnapshot.current()
+                    let state = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
+                    let updated = LocalAudioSnapshot.runReadinessCheck(routeEngineState: state)
                     AppLog.write(event: "explicit_passthrough_ready", snapshot: updated)
                     DispatchQueue.main.async {
                         onAutoStarted(updated)
                     }
                 }
             }
+        }
+        .task(id: localRecordingActive) {
+            guard localRecordingActive else { return }
+            while !Task.isCancelled {
+                pollRecordingLevelsIfNeeded()
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
+            guard !terminationCleanupInProgress else { return }
+            terminationCleanupInProgress = true
+            Task {
+                await releaseCaptureResourcesForAppExit()
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .twoBrainRecApplicationTerminationCleanupFinished, object: nil)
+                }
+            }
+        }
+        .onDisappear {
+            guard !terminationCleanupInProgress else { return }
+            Task { await releaseCaptureResourcesForAppExit() }
         }
     }
 
@@ -161,15 +182,55 @@ private struct ContentView: View {
         .padding(18)
     }
 
-    private func startManualRecording() {
+    @MainActor
+    private func startManualRecording() async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        if let captureSession, CaptureStatusItem.showsStopButton(for: captureSession) {
+            return
+        }
+        recordingStartInProgress = true
+        defer { recordingStartInProgress = false }
+
         localRecordingManifest = nil
         localRecordingLocation = nil
+        recordingBlocker = nil
+        let scopeApproval: CaptureScopeApproval
+        do {
+            scopeApproval = try captureScopeApprovalService.approve(
+                scopeKind: .display,
+                sourceDisplayName: "Current display/system audio",
+                approvalMode: .userConfirmedSuggestedScope,
+                eligibleReason: .manualMeetingScope
+            )
+        } catch {
+            recordingBlocker = "Recording blocked: capture scope could not be approved."
+            return
+        }
+        do {
+            let preparing = try captureController.beginPreparing(
+                mode: .audioRecording,
+                sourceAppEligibility: .eligible
+            )
+            captureSession = preparing
+        } catch {
+            recordingBlocker = "Recording blocked: \(recordingStartFailureMessage(for: error))"
+            return
+        }
+        let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight(
+            sessionId: "pending",
+            inputDisplayName: "Default Microphone"
+        )
+        let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()
+        let permissionGate = systemAudioPermissionGate.evaluate(
+            microphone: microphoneSession.permissionState,
+            systemAudio: systemAudioPermissionState
+        )
         let prerequisite = RecordingPrerequisiteGate().evaluate(
             RecordingPrerequisiteSnapshot(
-                routeState: snapshot.healthState.livePassthroughStatus ?? .inactive,
-                routeEvidenceKind: snapshot.routeVerification?.canShowReady == true ? .lowResourceTruth : .publicationOnly,
+                routeState: .inactive,
+                routeEvidenceKind: .systemAudioCapture,
                 policyAllowsRecording: true,
-                microphonePermissionGranted: snapshot.healthState.microphonePermission != .denied,
+                microphonePermissionGranted: permissionGate.snapshot.microphone == .granted,
                 storageRisk: snapshot.healthState.bufferRisk,
                 indicatorAvailable: true,
                 sourceAppEligibility: .eligible,
@@ -178,34 +239,60 @@ private struct ContentView: View {
         )
 
         do {
-            _ = try captureController.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
-            guard prerequisite.allowsRecording else {
+            guard prerequisite.allowsRecording && permissionGate.allowsAcceptedRecording else {
                 let blocked = try captureController.blockStart(
-                    reason: prerequisite.blockedReason,
-                    recoveryAction: prerequisite.recoveryAction ?? "Resolve recording blocker"
+                    reason: permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason : .permissionDenied,
+                    recoveryAction: permissionGate.presentation?.message ??
+                        prerequisite.recoveryAction ??
+                        "Resolve recording blocker"
                 )
                 captureSession = blocked
                 recordingEvidenceEvents.append(
                     RecordingEvidenceService().startBlocked(session: blocked, prerequisite: prerequisite)
                 )
-                recordingBlocker = recordingBlockerText(for: prerequisite)
+                recordingBlocker = permissionGate.presentation.map {
+                    "\($0.title). \($0.message)"
+                } ?? recordingBlockerText(for: prerequisite)
                 AppLog.writeRaw(
                     event: AuditEventName.recordingStartBlocked.rawValue,
-                    detail: "reason=\(prerequisite.blockedReason.rawValue) action=\(prerequisite.recoveryAction ?? "none")"
+                    detail: "reason=\(permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason.rawValue : RecordingStartBlocker.permissionDenied.rawValue) microphonePermission=\(permissionGate.snapshot.microphone.rawValue) systemAudioPermission=\(permissionGate.snapshot.systemAudio.rawValue) action=\(permissionGate.presentation?.recoveryAction.rawValue ?? prerequisite.recoveryAction ?? "none")"
                 )
                 return
             }
 
             _ = try captureController.markReady(triggerEvidence: [
+                "captureSource": "system_audio",
+                "scopeApprovalId": scopeApproval.scopeApprovalId,
+                "scopeKind": scopeApproval.scopeKind.rawValue,
+                "sourceDisplayName": scopeApproval.sourceDisplayName,
+                "microphonePermissionState": permissionGate.snapshot.microphone.rawValue,
+                "systemAudioPermissionState": permissionGate.snapshot.systemAudio.rawValue,
                 "routeState": prerequisite.routeState.rawValue,
-                "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue
+                "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue,
+                "externalEgressStarted": "false",
+                "transcriptionStarted": "false"
             ])
-            _ = try captureController.start()
-            let active = try captureController.markCapturing()
-            let directory = try localRecordingWriter.start(
-                sessionId: active.id,
-                startedAt: active.startedAt ?? Date()
+            let starting = try captureController.start()
+            captureSession = starting
+            _ = try await systemAudioCaptureService.start(
+                sessionId: starting.id,
+                permissionState: permissionGate.snapshot.systemAudio,
+                scopeApproval: scopeApproval,
+                startedAt: Date()
             )
+            let incomingSource = systemAudioCaptureService.incomingSampleSource
+            localRecordingWriter = LocalRecordingWriter(
+                incomingSampleSourceFactory: { incomingSource },
+                recordMicrophone: true
+            )
+            let directory = try await localRecordingWriter.startAsync(
+                sessionId: starting.id,
+                startedAt: Date(),
+                scopeApproval: scopeApproval,
+                permissions: permissionGate.snapshot
+            )
+            localRecordingActive = true
+            let active = try captureController.markCapturing()
             captureSession = active
             localRecordingLocation = directory.directoryURL.path
             recordingEvidenceEvents.append(
@@ -219,21 +306,125 @@ private struct ContentView: View {
             recordingBlocker = nil
             AppLog.writeRaw(
                 event: AuditEventName.recordingStarted.rawValue,
-                detail: "sessionId=\(active.id) routeState=\(prerequisite.routeState.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
+                detail: "sessionId=\(active.id) captureSource=system_audio scopeApprovalId=\(scopeApproval.scopeApprovalId) routeState=\(prerequisite.routeState.rawValue) routeEvidenceKind=\(prerequisite.routeEvidenceKind.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
             )
         } catch {
-            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: .storageUnsafe) {
+            localRecordingActive = false
+            liveRouteSignalLevels = .inactive
+            let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()
+            await finalizeLocalRecordingForFailure(
+                reason: "start_failure_cleanup",
+                failureReason: releasedSystemAudioSession?.failureReason ?? .none
+            )
+            let failureCategory = recordingStartFailureCategory(for: error)
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
-            recordingBlocker = "Recording could not start local file capture: \(error)"
-            AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
+            recordingBlocker = "Recording could not start: \(recordingStartFailureMessage(for: error))"
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "category=\(failureCategory.rawValue) error=\(error)"
+            )
         }
     }
 
-    private func stopManualRecording() {
+    @MainActor
+    private func finalizeLocalRecordingForFailure(
+        reason: String,
+        failureReason: LocalRecordingFailureReason = .none
+    ) async {
+        guard await localRecordingWriter.isRecordingAsync() else {
+            return
+        }
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
+        do {
+            let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
+            localRecordingManifest = manifest
+            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
+            AppLog.writeRaw(
+                event: AuditEventName.localRecordingDegraded.rawValue,
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason) failureReason=\(manifest.failureReason.rawValue)"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "\(reason)_failed error=\(error)"
+            )
+        }
+    }
+
+    private func recordingStartFailureCategory(for error: Error) -> RecordingStartBlocker {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording:
+                return .alreadyRecording
+            case .directoryUnavailable:
+                return .storageUnsafe
+            case .notRecording:
+                return .unknown
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            switch captureError {
+            case .permissionDenied:
+                return .permissionDenied
+            case .alreadyRunning:
+                return .alreadyRecording
+            case .runtimeStartFailed, .scopeNotApproved, .screenCaptureKitUnavailable, .noShareableDisplay:
+                return .captureFailed
+            case .notRunning:
+                return .unknown
+            }
+        }
+        return .unknown
+    }
+
+    private func recordingStartFailureMessage(for error: Error) -> String {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording:
+                return "a recording is already active."
+            case .directoryUnavailable:
+                return "local recording storage is unavailable."
+            case .notRecording:
+                return "local recording was not active."
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            switch captureError {
+            case .permissionDenied:
+                return "Screen/System Audio permission is not granted."
+            case .alreadyRunning:
+                return "system audio capture is already running."
+            case .scopeNotApproved:
+                return "the capture scope was not approved."
+            case .runtimeStartFailed:
+                return "macOS system audio capture could not start."
+            case .screenCaptureKitUnavailable:
+                return "ScreenCaptureKit is unavailable on this Mac."
+            case .noShareableDisplay:
+                return "no shareable display was available for system audio capture."
+            case .notRunning:
+                return "system audio capture was not running."
+            }
+        }
+        return "\(error)"
+    }
+
+    @MainActor
+    private func stopManualRecording() async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        recordingStopInProgress = true
+        localRecordingActive = false
+        liveRouteSignalLevels = .inactive
+        defer { recordingStopInProgress = false }
+
         do {
             _ = try captureController.requestStop(reason: .userRequested)
-            let manifest = try localRecordingWriter.stop()
+            let systemAudioSession = try await systemAudioCaptureService.stop()
+            let manifest = try await localRecordingWriter.stopAsync(
+                failureReason: systemAudioSession.failureReason
+            )
             let stopped = try captureController.completeStop()
             captureSession = stopped
             localRecordingManifest = manifest
@@ -251,7 +442,7 @@ private struct ContentView: View {
                 .localRecordingSaved
             case .degraded:
                 .localRecordingDegraded
-            case .failed, .active:
+            case .blocked, .failed, .active:
                 .localRecordingFailed
             }
             AppLog.writeRaw(
@@ -263,8 +454,66 @@ private struct ContentView: View {
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
             )
         } catch {
-            recordingBlocker = "Recording could not stop: \(error)"
-            AppLog.writeRaw(event: AuditEventName.recordingFailed.rawValue, detail: "\(error)")
+            let failureCategory = recordingStopFailureCategory(for: error)
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
+                captureSession = failed
+            }
+            let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
+            await finalizeLocalRecordingForFailure(
+                reason: "stop_failure_cleanup",
+                failureReason: releasedSystemAudioSession?.failureReason ?? .none
+            )
+            localRecordingActive = false
+            liveRouteSignalLevels = .inactive
+            recordingBlocker = "Recording could not stop cleanly: \(error)"
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "category=\(failureCategory.rawValue) error=\(error)"
+            )
+        }
+    }
+
+    private func recordingStopFailureCategory(for error: Error) -> RecordingStartBlocker {
+        if error is LocalRecordingWriterError {
+            return .storageUnsafe
+        }
+        if error is SystemAudioCaptureServiceError || error is CaptureSessionControllerError {
+            return .captureFailed
+        }
+        return .unknown
+    }
+
+    @MainActor
+    private func releaseCaptureResourcesForAppExit() async {
+        let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
+        await finalizeLocalRecordingForAppExit(
+            failureReason: releasedSystemAudioSession?.failureReason ?? .none
+        )
+    }
+
+    @MainActor
+    private func finalizeLocalRecordingForAppExit(
+        failureReason: LocalRecordingFailureReason = .none
+    ) async {
+        guard await localRecordingWriter.isRecordingAsync() else {
+            return
+        }
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
+        localRecordingActive = false
+        liveRouteSignalLevels = .inactive
+        do {
+            let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
+            localRecordingManifest = manifest
+            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
+            AppLog.writeRaw(
+                event: AuditEventName.localRecordingDegraded.rawValue,
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release failureReason=\(manifest.failureReason.rawValue)"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "app_exit_resource_release_failed error=\(error)"
+            )
         }
     }
 
@@ -287,6 +536,8 @@ private struct ContentView: View {
             return "Recording blocked: target is not approved. \(action)."
         case .alreadyRecording:
             return "Recording already active."
+        case .captureFailed:
+            return "Recording blocked: system audio capture could not start. \(action)."
         case .unknown:
             return "Recording blocked: unknown prerequisite failure. \(action)."
         }
@@ -294,7 +545,7 @@ private struct ContentView: View {
 
     private var localRecordingStatusText: String? {
         guard let manifest = localRecordingManifest else {
-            if localRecordingWriter.isRecording {
+            if localRecordingActive {
                 return "Local recording in progress"
             }
             return nil
@@ -304,11 +555,242 @@ private struct ContentView: View {
             return "Local recording saved"
         case .degraded:
             return "Local recording saved with missing or degraded track"
+        case .blocked:
+            return "Local recording blocked"
         case .failed:
             return "Local recording failed"
         case .active:
             return "Local recording in progress"
         }
+    }
+
+    @MainActor
+    private func pollRecordingLevelsIfNeeded() {
+        guard localRecordingActive, !recordingStartInProgress, !recordingStopInProgress else {
+            if liveRouteSignalLevels != .inactive {
+                liveRouteSignalLevels = .inactive
+            }
+            return
+        }
+        guard !levelsPollInProgress else { return }
+
+        levelsPollInProgress = true
+        let writer = localRecordingWriter
+        Task {
+            let recordingLevels = await writer.currentLevelsAsync()
+            await MainActor.run {
+                levelsPollInProgress = false
+                guard writer === localRecordingWriter,
+                      localRecordingActive,
+                      !recordingStartInProgress,
+                      !recordingStopInProgress else {
+                    if liveRouteSignalLevels != .inactive {
+                        liveRouteSignalLevels = .inactive
+                    }
+                    return
+                }
+                let nextLevels = LiveRouteSignalLevels(
+                    isActive: recordingLevels.isRecording,
+                    microphoneLevel: recordingLevels.microphoneLevel,
+                    speakerLevel: recordingLevels.incomingLevel,
+                    microphoneUpdatedAt: recordingLevels.microphoneUpdatedAt,
+                    speakerUpdatedAt: recordingLevels.incomingUpdatedAt
+                )
+                if nextLevels != liveRouteSignalLevels {
+                    liveRouteSignalLevels = nextLevels
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
+    private var mainWindow: NSWindow?
+    private var terminationReplyPending = false
+
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationTerminationCleanupFinished),
+            name: .twoBrainRecApplicationTerminationCleanupFinished,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func applicationWillFinishLaunching(_: Notification) {
+        UserDefaults.standard.register(defaults: [
+            "ApplePersistenceIgnoreState": true,
+            "NSQuitAlwaysKeepsWindows": false
+        ])
+        UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    func application(
+        _: NSApplication,
+        shouldSaveApplicationState _: NSCoder
+    ) -> Bool {
+        false
+    }
+
+    func application(
+        _: NSApplication,
+        shouldRestoreApplicationState _: NSCoder
+    ) -> Bool {
+        false
+    }
+
+    func applicationDidFinishLaunching(_: Notification) {
+        AppLog.writeRaw(
+            event: "app_launch_finished",
+            detail: "activationPolicy=regular"
+        )
+        NSApp.activate(ignoringOtherApps: true)
+        presentMainWindow(reason: "launch")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.logWindowVisibility()
+        }
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        presentMainWindow(reason: flag ? "reopen_visible" : "reopen")
+        return true
+    }
+
+    func applicationDidBecomeActive(_: Notification) {
+        guard mainWindow?.isVisible != true else { return }
+        presentMainWindow(reason: "became_active_recovery")
+    }
+
+    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationReplyPending else {
+            return .terminateLater
+        }
+        terminationReplyPending = true
+        AppLog.writeRaw(
+            event: "app_termination_cleanup_requested",
+            detail: "reply=terminateLater"
+        )
+        NotificationCenter.default.post(name: .twoBrainRecApplicationShouldTerminate, object: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            self?.replyToTerminateIfPending(reason: "timeout")
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_: Notification) {
+        mainWindow = nil
+        _ = PassthroughRouteEngine.shared.stop(logger: AppLog.writeRaw)
+    }
+
+    @objc private func applicationTerminationCleanupFinished() {
+        replyToTerminateIfPending(reason: "cleanup_finished")
+    }
+
+    private func replyToTerminateIfPending(reason: String) {
+        guard terminationReplyPending else { return }
+        terminationReplyPending = false
+        AppLog.writeRaw(
+            event: "app_termination_cleanup_completed",
+            detail: "reason=\(reason)"
+        )
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
+    private func presentMainWindow(reason: String) {
+        if let mainWindow {
+            if mainWindow.isMiniaturized {
+                mainWindow.deminiaturize(nil)
+            }
+            mainWindow.setIsVisible(true)
+            mainWindow.makeKeyAndOrderFront(nil)
+            mainWindow.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+            AppLog.writeRaw(
+                event: "app_main_window_presented",
+                detail: "reason=\(reason) reused=true"
+            )
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "2brain Rec"
+        window.minSize = NSSize(width: 720, height: 620)
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.identifier = NSUserInterfaceItemIdentifier("2brain-rec-main-window")
+        window.contentViewController = NSHostingController(
+            rootView: AppContentRoot()
+        )
+        window.center()
+        mainWindow = window
+        AppLog.writeRaw(
+            event: "app_main_window_presented",
+            detail: "reason=\(reason) reused=false"
+        )
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func logWindowVisibility() {
+        let visibleWindowCount = NSApp.windows.filter { $0.isVisible }.count
+        let mainWindowState = mainWindow.map {
+            "mainWindowVisible=\($0.isVisible) key=\($0.isKeyWindow) miniaturized=\($0.isMiniaturized) activeSpace=\($0.isOnActiveSpace) occlusion=\($0.occlusionState.rawValue)"
+        } ?? "mainWindowVisible=false key=false miniaturized=false activeSpace=false occlusion=0"
+        AppLog.writeRaw(
+            event: "app_window_visibility_checked",
+            detail: "visibleWindowCount=\(visibleWindowCount) \(mainWindowState)"
+        )
+        if visibleWindowCount == 0 {
+            presentMainWindow(reason: "visibility_recovery")
+        }
+    }
+}
+
+private extension Notification.Name {
+    static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.rec.applicationShouldTerminate")
+    static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.rec.applicationTerminationCleanupFinished")
+}
+
+private struct AppContentRoot: View {
+    @State private var snapshot = LocalAudioSnapshot.placeholder()
+    @State private var isChecking = false
+
+    var body: some View {
+        ContentView(
+            snapshot: snapshot,
+            isChecking: isChecking,
+            onAutoStarted: { updated in
+                snapshot = updated
+            },
+            refresh: {
+                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Status refreshed without CoreAudio probe")
+                AppLog.write(event: "refresh", snapshot: snapshot)
+            },
+            runCheck: {
+                isChecking = true
+                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Recording permissions are checked when Record starts")
+                AppLog.write(event: "status_refresh", snapshot: snapshot)
+                isChecking = false
+            }
+        )
+        .frame(minWidth: 720, minHeight: 620)
     }
 }
 
@@ -325,46 +807,43 @@ fileprivate struct LocalAudioSnapshot {
     let lastEventSummary: String
 
     var summary: String {
-        if routeVerification?.canShowReady == true {
-            return "Ready for audio routing"
-        }
-        if virtualMicrophoneState == .available && virtualSpeakerState == .available {
-            return "Installed, but not ready for calls yet"
-        }
-        if driverState == .installed {
-            return "Driver bundle is installed; Core Audio may need a refresh"
-        }
-        return "Driver is not installed on this Mac"
+        SystemAudioDriverParkedReadiness(
+            driverState: driverState,
+            microphoneState: virtualMicrophoneState,
+            speakerState: virtualSpeakerState,
+            routeVerificationReady: routeVerification?.canShowReady == true
+        ).summary
     }
 
-    static func placeholder() -> LocalAudioSnapshot {
+    static func placeholder(lastEventSummary: String = "Opening app") -> LocalAudioSnapshot {
         let driverExists = FileManager.default.fileExists(
             atPath: "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"
         )
         let driverState: DriverInstallationState = driverExists ? .installed : .notInstalled
+        let virtualDeviceState: VirtualDeviceAvailabilityState = driverExists ? .requiresRestart : .missing
         let health = AudioHealthState(
             driverState: driverState,
-            virtualMicState: .requiresRestart,
-            virtualSpeakerState: .requiresRestart,
+            virtualMicState: virtualDeviceState,
+            virtualSpeakerState: virtualDeviceState,
             microphonePermission: .unknown,
             outputPermission: .unknown,
             passthroughStatus: .unknown,
-            continuityStatus: "Checking Core Audio in the background",
+            continuityStatus: "System audio recording uses macOS permissions; virtual devices are parked.",
             bufferRisk: .healthy,
-            livePassthroughStatus: .checking,
+            livePassthroughStatus: .inactive,
             recoveryActions: []
         )
         return LocalAudioSnapshot(
             driverState: driverState,
-            virtualMicrophoneState: .requiresRestart,
-            virtualSpeakerState: .requiresRestart,
+            virtualMicrophoneState: virtualDeviceState,
+            virtualSpeakerState: virtualDeviceState,
             routeVerification: nil,
             healthState: health,
             defaultInputName: nil,
             defaultOutputName: nil,
             defaultSystemOutputName: nil,
             coreAudioDeviceSummary: "pending",
-            lastEventSummary: "Opening app"
+            lastEventSummary: lastEventSummary
         )
     }
 
@@ -430,9 +909,6 @@ fileprivate struct LocalAudioSnapshot {
         )
         let recoveryActions = recoveryActions(system: system, routeSnapshot: routeSnapshot)
         let routeIsActive = routeEngineState == .active
-        let routeIsWaitingForClient = routeEngineState == .armed ||
-            routeEngineState == .idleSafe ||
-            routeEngineState == .inactive
 
         let health = AudioHealthState(
             driverState: driverState,
@@ -445,12 +921,10 @@ fileprivate struct LocalAudioSnapshot {
             routeVerification: routeSnapshot,
             passthroughStatus: routeIsActive ? .healthy : .unknown,
             continuityStatus: routeIsActive
-                ? "Non-recording passthrough is ready for calls."
+                ? "Local audio route is active; recording still starts only from Record."
                 : (hasMic && hasSpeaker
-                    ? (routeIsWaitingForClient
-                        ? "Virtual devices are published. Waiting for meeting audio."
-                        : "Virtual devices are published. Live passthrough is waiting for app I/O.")
-                    : "Waiting for virtual devices"),
+                    ? "Legacy virtual devices are visible for diagnostics; recording uses macOS permissions."
+                    : "System audio recording uses macOS permissions; virtual devices are parked."),
             bufferRisk: .healthy,
             livePassthroughStatus: routeIsActive ? .active : .inactive,
             recoveryActions: recoveryActions
@@ -491,10 +965,10 @@ fileprivate struct LocalAudioSnapshot {
             : .syntheticSignal
         return RouteVerificationSnapshot(
             mic: RouteVerification(
-                id: "local-mic-publication",
+                id: "local-mic-recording-status",
                 path: .micToVirtualInput,
                 validationType: validationType,
-                target: "2brain Rec Microphone",
+                target: "Local Microphone",
                 status: micResult.status,
                 failureReason: micResult.reason,
                 recoveryAction: micResult.action,
@@ -502,10 +976,10 @@ fileprivate struct LocalAudioSnapshot {
                 finishedAt: now
             ),
             speaker: RouteVerification(
-                id: "local-speaker-publication",
+                id: "system-audio-recording-status",
                 path: .remoteOutputToVirtualSpeaker,
                 validationType: validationType,
-                target: "2brain Rec Speaker",
+                target: "System Audio",
                 status: speakerResult.status,
                 failureReason: speakerResult.reason,
                 recoveryAction: speakerResult.action,
@@ -520,20 +994,15 @@ fileprivate struct LocalAudioSnapshot {
         checked: Bool,
         routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
-        guard system.hasVirtualMicrophone else {
-            return (.failed, "virtual_microphone_not_visible", "install_or_repair_driver")
-        }
         guard let input = system.defaultInput, input.inputChannels > 0, !input.isTwoBrainVirtual else {
             return checked
                 ? (.failed, "physical_microphone_not_selected", "select_physical_microphone")
-                : (.notStarted, nil, "run_route_verification")
+                : (.notStarted, nil, "refresh_local_audio_status")
         }
         if routeEngineState == .active {
             return (.passed, nil, nil)
         }
-        return checked
-            ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
-            : (.notStarted, nil, "run_route_verification")
+        return checked ? (.passed, nil, nil) : (.notStarted, nil, "refresh_local_audio_status")
     }
 
     private static func speakerRouteResult(
@@ -541,20 +1010,17 @@ fileprivate struct LocalAudioSnapshot {
         checked: Bool,
         routeEngineState: PassthroughRouteEngineState
     ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
-        guard system.hasVirtualSpeaker else {
-            return (.failed, "virtual_speaker_not_visible", "install_or_repair_driver")
-        }
-        guard let output = system.defaultOutput, output.outputChannels > 0, !output.isTwoBrainVirtual else {
+        let output = system.defaultOutput?.usablePhysicalOutput ??
+            system.defaultSystemOutput?.usablePhysicalOutput
+        guard output != nil else {
             return checked
                 ? (.failed, "physical_speaker_not_selected", "select_physical_speaker")
-                : (.notStarted, nil, "run_route_verification")
+                : (.notStarted, nil, "refresh_local_audio_status")
         }
         if routeEngineState == .active {
             return (.passed, nil, nil)
         }
-        return checked
-            ? (.stale, "app_io_heartbeat_missing", "run_readiness_check_again")
-            : (.notStarted, nil, "run_route_verification")
+        return checked ? (.passed, nil, nil) : (.notStarted, nil, "refresh_local_audio_status")
     }
 
     private static func recoveryActions(
@@ -562,9 +1028,6 @@ fileprivate struct LocalAudioSnapshot {
         routeSnapshot: RouteVerificationSnapshot
     ) -> [String] {
         var actions: [String] = []
-        if !system.hasVirtualMicrophone || !system.hasVirtualSpeaker {
-            actions.append("Install or repair the audio driver")
-        }
         if system.defaultInput?.isTwoBrainVirtual == true {
             actions.append("Set macOS input back to a physical microphone while testing")
         }
@@ -576,9 +1039,6 @@ fileprivate struct LocalAudioSnapshot {
            output.id != systemOutput.id {
             actions.append("Default output and system output are different: \(output.name) / \(systemOutput.name)")
         }
-        if routeSnapshot.mic.status != .passed || routeSnapshot.speaker.status != .passed {
-            actions.append("Run the readiness check again")
-        }
         return actions
     }
 
@@ -586,16 +1046,17 @@ fileprivate struct LocalAudioSnapshot {
         system: CoreAudioSystemSnapshot,
         routeEngineState: PassthroughRouteEngineState
     ) -> String {
-        if !system.hasVirtualMicrophone || !system.hasVirtualSpeaker {
-            return "Check failed: virtual devices are missing"
+        guard let input = system.defaultInput, input.inputChannels > 0, !input.isTwoBrainVirtual else {
+            return "Check failed: select a physical microphone"
         }
-        if system.defaultOutput?.isTwoBrainVirtual == true {
-            return "Check failed: macOS output is set to the virtual speaker"
+        guard system.defaultOutput?.usablePhysicalOutput != nil ||
+              system.defaultSystemOutput?.usablePhysicalOutput != nil else {
+            return "Check failed: select a physical speaker or output"
         }
         if routeEngineState == .active {
-            return "Check complete: non-recording passthrough is active"
+            return "Check complete: \(SystemAudioStatusLabels.localAudioRouteActiveNotRecording)"
         }
-        return "Check complete: devices are visible; app I/O heartbeat is still required"
+        return "Check complete: local audio status refreshed; recording permissions are checked when you press Record"
     }
 
     var logDescription: String {
@@ -625,6 +1086,10 @@ private struct CoreAudioDeviceInfo: Equatable {
 
     var isTwoBrainVirtual: Bool {
         name.localizedCaseInsensitiveContains("2brain Rec")
+    }
+
+    var usablePhysicalOutput: CoreAudioDeviceInfo? {
+        outputChannels > 0 && !isTwoBrainVirtual ? self : nil
     }
 
     func healthSummary(direction: AudioDirection) -> HealthPhysicalDeviceSummary {

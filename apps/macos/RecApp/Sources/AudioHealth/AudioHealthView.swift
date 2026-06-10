@@ -18,7 +18,7 @@ public struct AudioHealthView: View {
                     output: state.outputPermission
                 ), icon: permissionIcon)
             }
-            Section("Current macOS Devices", icon: "airplayaudio") {
+            Section("Current Recording Devices", icon: "airplayaudio") {
                 line(
                     label: "macOS input",
                     detail: deviceLine(for: state.physicalInput),
@@ -30,19 +30,19 @@ public struct AudioHealthView: View {
                     icon: "speaker.wave.2.fill"
                 )
                 line(
-                    label: "Virtual microphone",
-                    detail: virtualDeviceLine(name: "2brain Rec Microphone", state: state.virtualMicState),
+                    label: "Legacy virtual microphone",
+                    detail: Self.virtualDeviceLine(name: "2brain Rec Microphone", state: state.virtualMicState),
                     icon: statusIcon(state.virtualMicState == .available),
-                    emphasis: state.virtualMicState == .available ? .normal : .warning
+                    emphasis: .normal
                 )
                 line(
-                    label: "Virtual speaker",
-                    detail: virtualDeviceLine(name: "2brain Rec Speaker", state: state.virtualSpeakerState),
+                    label: "Legacy virtual speaker",
+                    detail: Self.virtualDeviceLine(name: "2brain Rec Speaker", state: state.virtualSpeakerState),
                     icon: statusIcon(state.virtualSpeakerState == .available),
-                    emphasis: state.virtualSpeakerState == .available ? .normal : .warning
+                    emphasis: .normal
                 )
             }
-            Section("Routes", icon: "link") {
+            Section("Recording Path", icon: "link") {
                 if let snapshot = state.routeVerification {
                     line(
                         label: "Mic path",
@@ -69,18 +69,18 @@ public struct AudioHealthView: View {
                     )
                 }
             }
-            Section("Passthrough", icon: "dot.radiowaves.left.and.right") {
+            Section("Diagnostics", icon: "dot.radiowaves.left.and.right") {
                 line(
-                    label: "Live passthrough",
+                    label: "Route diagnostics",
                     detail: AdaptiveStatusText.passthroughLabel(state.passthroughStatus),
                     icon: passthroughIcon
                 )
                 if let liveStatus = state.livePassthroughStatus {
                     line(
-                        label: "Call audio",
-                        detail: livePassthroughLine(liveStatus),
+                        label: "Legacy live route",
+                        detail: Self.livePassthroughLine(liveStatus),
                         icon: livePassthroughIcon(liveStatus),
-                        emphasis: liveStatus == .active || liveStatus == .ready ? .normal : .warning
+                        emphasis: [.inactive, .active, .ready].contains(liveStatus) ? .normal : .warning
                     )
                 }
                 if let continuity = state.continuityStatus {
@@ -188,16 +188,16 @@ public struct AudioHealthView: View {
         }
     }
 
-    private func livePassthroughLine(_ status: LivePassthroughStatus) -> String {
+    public static func livePassthroughLine(_ status: LivePassthroughStatus) -> String {
         switch status {
         case .inactive:
-            return "Inactive"
+            return "Inactive, not recording"
         case .checking:
             return "Checking"
         case .ready:
-            return "Ready for calls, not recording"
+            return "Diagnostic route ready, not recording"
         case .active:
-            return "Active, not recording"
+            return "Diagnostic route active, not recording"
         case .stale:
             return "Stale: recheck required"
         case .degraded:
@@ -205,7 +205,7 @@ public struct AudioHealthView: View {
         case .failed:
             return "Failed: audio path unavailable"
         case .blocked:
-            return "Blocked: fix route before calls"
+            return "Blocked: refresh diagnostics before recording review"
         }
     }
 
@@ -269,22 +269,22 @@ public struct AudioHealthView: View {
         return "\(name) · available"
     }
 
-    private func virtualDeviceLine(name: String, state: VirtualDeviceAvailabilityState) -> String {
+    public static func virtualDeviceLine(name: String, state: VirtualDeviceAvailabilityState) -> String {
         switch state {
         case .available:
-            return "\(name) · visible in macOS"
+            return "\(name) · visible for diagnostics, not required for recording"
         case .requiresRestart:
-            return "\(name) · restart Core Audio"
+            return "\(name) · not required for recording"
         case .missing:
-            return "\(name) · missing"
+            return "\(name) · missing, not required for recording"
         case .hidden:
-            return "\(name) · hidden until app route recovers"
+            return "\(name) · hidden diagnostics, not required for recording"
         case .installed:
-            return "\(name) · installed"
+            return "\(name) · installed for diagnostics, not required for recording"
         case .unavailable:
-            return "\(name) · unavailable"
+            return "\(name) · unavailable, not required for recording"
         case .incompatible:
-            return "\(name) · unsupported"
+            return "\(name) · unsupported diagnostics, not required for recording"
         }
     }
 
@@ -295,7 +295,7 @@ public struct AudioHealthView: View {
         }
         switch reason {
         case "virtual_device_visible_but_audio_path_not_implemented":
-            return "\(status): virtual device is visible; real audio passthrough is not implemented yet"
+            return "\(status): legacy virtual-device diagnostics are parked for MVP recording"
         case "physical_microphone_not_selected":
             return "\(status): macOS input is not a physical microphone"
         case "physical_speaker_not_selected":

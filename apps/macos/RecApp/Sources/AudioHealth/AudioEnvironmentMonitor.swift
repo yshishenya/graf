@@ -179,6 +179,10 @@ public final class AudioEnvironmentMonitor {
         .sorted { $0.trigger.rawValue < $1.trigger.rawValue }
     }
 
+    public func autorepairTriggers(for changes: [AudioEnvironmentChange]) -> [AutorepairTrigger] {
+        Array(Set(changes.compactMap(Self.autorepairTrigger(for:)))).sorted { $0.rawValue < $1.rawValue }
+    }
+
     public func monitorPermission(
         microphonePermission: PermissionStatus,
         outputPermission: PermissionStatus
@@ -260,17 +264,17 @@ public final class AudioEnvironmentMonitor {
     private func gatherRecoveryActions(from snapshot: AudioEnvironmentSnapshot) -> [String] {
         var actions: [String] = []
 
-        if snapshot.driverState == .notInstalled {
-            actions.append("Install virtual audio driver")
-        }
-        if snapshot.driverState == .needsRepair || snapshot.driverState == .needsUpdate {
-            actions.append("Repair or update driver")
+        if snapshot.driverState == .notInstalled ||
+            snapshot.driverState == .needsRepair ||
+            snapshot.driverState == .needsUpdate ||
+            snapshot.driverState == .incompatible {
+            actions.append("Driver diagnostics are parked for system audio recording")
         }
         if snapshot.microphonePermission != .granted || snapshot.outputPermission != .granted {
             actions.append("Grant required macOS permissions")
         }
         if snapshot.virtualMicState != .available || snapshot.virtualSpeakerState != .available {
-            actions.append("Re-verify driver visibility and virtual devices")
+            actions.append("Virtual devices are not required for system audio recording")
         }
         if let routeSnapshot = snapshot.routeSnapshot, !routeSnapshot.canShowReady {
             actions.append("Retry route verification")
@@ -279,7 +283,7 @@ public final class AudioEnvironmentMonitor {
             actions.append("Check physical device mute, silent status, and routing")
         }
         if snapshot.passthroughStatus == .failed {
-            actions.append("Repair driver path before restarting capture")
+            actions.append("Review parked passthrough diagnostics before future driver experiments")
         }
         if let livePassthroughStatus = snapshot.livePassthroughStatus,
            [.stale, .degraded, .failed, .blocked].contains(livePassthroughStatus) {
@@ -352,6 +356,25 @@ public final class AudioEnvironmentMonitor {
             return .browserDeviceChanged
         case .driverStateChanged, .virtualInputStateChanged, .virtualOutputStateChanged, .permissionChanged,
              .routeVerificationChanged, .bufferRiskChanged, .bluetoothProfileChanged, .unsupportedTargetAdded:
+            return nil
+        }
+    }
+
+    private static func autorepairTrigger(for change: AudioEnvironmentChange) -> AutorepairTrigger? {
+        switch change {
+        case .coreaudiodRestarted:
+            return .coreaudiodRestart
+        case .sleepWake:
+            return .sleepWake
+        case .deviceChanged:
+            return .physicalDeviceDisappeared
+        case .driverStateChanged, .virtualInputStateChanged, .virtualOutputStateChanged:
+            return .halReload
+        case .activeMeetingContextChanged, .browserTargetEvidenceChanged:
+            return .browserStreamRecreated
+        case .routeVerificationChanged:
+            return .macOSDefaultRouteChanged
+        case .permissionChanged, .passthroughChanged, .bufferRiskChanged, .bluetoothProfileChanged, .unsupportedTargetAdded:
             return nil
         }
     }

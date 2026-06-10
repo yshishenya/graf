@@ -62,13 +62,24 @@ public struct RecordingEvidenceService: Sendable {
             "mediaScribeSourceMode": manifest.mediaScribeSourceMode,
             "directoryId": manifest.directoryId,
             "manifestFileName": manifest.manifestFileName,
+            "failureReason": manifest.failureReason.rawValue,
+            "durationDifferenceSeconds": String(format: "%.3f", manifest.durationDifferenceSeconds),
             "trackRoles": manifest.tracks.map(\.role.rawValue).joined(separator: ","),
+            "trackSourceKinds": manifest.tracks.map { $0.sourceKind?.rawValue ?? "unknown" }.joined(separator: ","),
             "mediaScribeFields": manifest.tracks.map(\.mediaScribeField.rawValue).joined(separator: ","),
             "trackStates": manifest.tracks.map(\.status.rawValue).joined(separator: ","),
             "trackFormats": manifest.tracks.map(\.format).joined(separator: ","),
             "externalEgressStarted": String(manifest.externalEgressStarted),
             "transcriptionStarted": String(manifest.transcriptionStarted),
-            "diagnosticSafe": String(manifest.diagnosticSafe)
+            "diagnosticSafe": String(manifest.diagnosticSafe),
+            "scopeApprovalId": manifest.scopeApproval?.scopeApprovalId ?? "",
+            "microphonePermissionState": manifest.permissions?.microphone.rawValue ?? "",
+            "systemAudioPermissionState": manifest.permissions?.systemAudio.rawValue ?? "",
+            "captureHealthGateStatus": manifest.captureHealth?.gateStatus.rawValue ?? "",
+            "captureHealthFailureReason": manifest.captureHealth?.failureReason.rawValue ?? "",
+            "routeSessionId": manifest.recordingTimelineEvidence?.routeSessionId ?? "",
+            "alignmentBand": manifest.recordingTimelineEvidence?.alignmentBand.rawValue ?? "",
+            "routeInterruptionCategory": manifest.recordingTimelineEvidence?.interruptionCategory.rawValue ?? ""
         ]
     }
 

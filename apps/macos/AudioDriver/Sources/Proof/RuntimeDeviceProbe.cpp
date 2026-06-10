@@ -16,6 +16,7 @@ enum class ExpectationMode {
     PublicationOnly,
     DefaultSafe,
     NonRunningSurface,
+    HiddenSafeSurface,
     VisibleAliveSurface
 };
 
@@ -180,14 +181,18 @@ ExpectationMode ParseExpectationMode(int argc, char** argv) {
     if (arg == "--expect-non-running-surface") {
         return ExpectationMode::NonRunningSurface;
     }
+    if (arg == "--expect-hidden-safe-surface") {
+        return ExpectationMode::HiddenSafeSurface;
+    }
     if (arg == "--expect-visible-alive-surface") {
         return ExpectationMode::VisibleAliveSurface;
     }
     if (arg == "--help" || arg == "-h") {
-        std::cout << "Usage: runtime-device-probe [--expect-default-safe|--expect-non-running-surface|--expect-visible-alive-surface]\n";
+        std::cout << "Usage: runtime-device-probe [--expect-default-safe|--expect-non-running-surface|--expect-hidden-safe-surface|--expect-visible-alive-surface]\n";
         std::cout << "  no argument             require both 2brain Rec devices to be published\n";
         std::cout << "  --expect-default-safe   require visible/alive/non-running default safe state\n";
         std::cout << "  --expect-non-running-surface require readable devices with no public running state\n";
+        std::cout << "  --expect-hidden-safe-surface require readable hidden/alive/non-running fail-closed state\n";
         std::cout << "  --expect-visible-alive-surface require visible/alive devices only; measured audio evidence is separate\n";
         std::exit(0);
     }
@@ -213,6 +218,17 @@ bool MatchesNonRunningSurface(const ExpectedDeviceState& state) {
            !state.running;
 }
 
+bool MatchesHiddenSafeSurface(const ExpectedDeviceState& state) {
+    if (!state.found) {
+        return true;
+    }
+    return state.found &&
+           HasReadableState(state) &&
+           state.hidden &&
+           state.alive &&
+           !state.running;
+}
+
 bool MatchesVisibleAliveSurface(const ExpectedDeviceState& state) {
     return state.found &&
            HasReadableState(state) &&
@@ -232,6 +248,8 @@ bool ValidateExpectation(
         return MatchesDefaultSafe(microphone) && MatchesDefaultSafe(speaker);
     case ExpectationMode::NonRunningSurface:
         return MatchesNonRunningSurface(microphone) && MatchesNonRunningSurface(speaker);
+    case ExpectationMode::HiddenSafeSurface:
+        return MatchesHiddenSafeSurface(microphone) && MatchesHiddenSafeSurface(speaker);
     case ExpectationMode::VisibleAliveSurface:
         return MatchesVisibleAliveSurface(microphone) && MatchesVisibleAliveSurface(speaker);
     }
@@ -239,7 +257,8 @@ bool ValidateExpectation(
 
 bool ExpectationRequiresIdleNonRunning(ExpectationMode mode) {
     return mode == ExpectationMode::DefaultSafe ||
-           mode == ExpectationMode::NonRunningSurface;
+           mode == ExpectationMode::NonRunningSurface ||
+           mode == ExpectationMode::HiddenSafeSurface;
 }
 
 const char* ExpectationLabel(ExpectationMode mode) {
@@ -250,6 +269,8 @@ const char* ExpectationLabel(ExpectationMode mode) {
         return "default-safe";
     case ExpectationMode::NonRunningSurface:
         return "non-running-surface";
+    case ExpectationMode::HiddenSafeSurface:
+        return "hidden-safe-surface";
     case ExpectationMode::VisibleAliveSurface:
         return "visible-alive-surface";
     }

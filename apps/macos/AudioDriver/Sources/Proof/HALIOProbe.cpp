@@ -151,13 +151,52 @@ int RunDeviceProbe(const char* device_name) {
     return callbacks > 0 && safety_violations == 0 ? 0 : 5;
 }
 
+int RunStartBlockedProbe(const char* device_name) {
+    const AudioDeviceID id = FindDevice(device_name);
+    if (id == kAudioObjectUnknown) {
+        std::cout << device_name << ": safely missing without app heartbeat\n";
+        return 0;
+    }
+
+    ProbeState state;
+    AudioDeviceIOProcID proc = nullptr;
+    OSStatus status = AudioDeviceCreateIOProcID(id, ProbeIOProc, &state, &proc);
+    if (status != noErr) {
+        std::cout << device_name << ": create IOProc blocked " << status << "\n";
+        return 0;
+    }
+
+    status = AudioDeviceStart(id, proc);
+    if (status != noErr) {
+        std::cout << device_name << ": start blocked " << status << "\n";
+        AudioDeviceDestroyIOProcID(id, proc);
+        return 0;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    AudioDeviceStop(id, proc);
+    AudioDeviceDestroyIOProcID(id, proc);
+
+    std::cerr << device_name << ": start unexpectedly succeeded callbacks="
+              << state.callbacks.load(std::memory_order_relaxed) << "\n";
+    return 6;
+}
+
 }  // namespace
 
-int main() {
-    const int mic = RunDeviceProbe(kExpectedMicrophone);
-    const int speaker = RunDeviceProbe(kExpectedSpeaker);
+int main(int argc, char** argv) {
+    const bool expect_start_blocked = argc > 1 &&
+        std::string(argv[1]) == "--expect-start-blocked-no-heartbeat";
+    const int mic = expect_start_blocked
+        ? RunStartBlockedProbe(kExpectedMicrophone)
+        : RunDeviceProbe(kExpectedMicrophone);
+    const int speaker = expect_start_blocked
+        ? RunStartBlockedProbe(kExpectedSpeaker)
+        : RunDeviceProbe(kExpectedSpeaker);
     if (mic == 0 && speaker == 0) {
-        std::cout << "HAL I/O probe: ACCEPTED\n";
+        std::cout << (expect_start_blocked
+            ? "HAL I/O blocked-without-heartbeat probe: ACCEPTED\n"
+            : "HAL I/O probe: ACCEPTED\n");
         return 0;
     }
     std::cerr << "HAL I/O probe: BLOCKED\n";

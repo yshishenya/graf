@@ -393,6 +393,35 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildRouteEvidenceBundle(
+        events: [RouteEvidenceEvent],
+        manifestOverrides: [String: DiagnosticFieldValue] = [:]
+    ) throws -> DiagnosticBundle {
+        var manifest = manifestOverrides
+        manifest["routeEvidenceEvents"] = .array(events.map(Self.diagnosticValue))
+
+        if let validationRun = events.compactMap(\.validationRun).last {
+            manifest["validationRunEvidence"] = Self.diagnosticValue(validationRun)
+        }
+
+        if let timelineEvidence = events.compactMap(\.recordingTimeline).last {
+            manifest["recordingTimelineEvidence"] = Self.diagnosticValue(timelineEvidence)
+        }
+
+        if let releaseDecision = events.compactMap(\.releaseDecision).last {
+            manifest["routeReleaseDecision"] = Self.diagnosticValue(releaseDecision)
+        }
+
+        manifest["routeEvidenceFile"] = .string("route-evidence.jsonl")
+        manifest["routeStatus"] = .string(events.last?.routeState?.rawValue ?? "unknown")
+
+        return try buildBundle(
+            schemaVersion: "1",
+            manifest: manifest,
+            failureFamily: "live_route_stability"
+        )
+    }
+
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),
@@ -693,6 +722,81 @@ public struct DiagnosticBundleService: Sendable {
             "routeTruthCount": .int(run.routeTruthSnapshots.count),
             "startupAttemptCount": .int(run.startupAttempts.count),
             "realtimeSafetyResult": .string(run.realtimeSafety.result.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ event: RouteEvidenceEvent) -> DiagnosticFieldValue {
+        var object: [String: DiagnosticFieldValue] = [
+            "eventId": .string(event.eventId),
+            "sessionId": .string(event.sessionId),
+            "family": .string(event.family.rawValue),
+            "name": .string(event.name),
+            "observedAt": .string(Self.formatDate(event.observedAt)),
+            "source": .string(event.source.rawValue),
+            "redactionState": .string(event.redactionState.rawValue)
+        ]
+        if let routeState = event.routeState {
+            object["routeState"] = .string(routeState.rawValue)
+        }
+        if let target = event.target {
+            object["target"] = .string(target.rawValue)
+        }
+        if let validationRun = event.validationRun {
+            object["validationRun"] = diagnosticValue(validationRun)
+        }
+        if let releaseDecision = event.releaseDecision {
+            object["releaseDecision"] = diagnosticValue(releaseDecision)
+        }
+        if let frameContinuity = event.frameContinuity {
+            object["frameContinuity"] = diagnosticValue(frameContinuity)
+        }
+        if let recordingTimeline = event.recordingTimeline {
+            object["recordingTimeline"] = diagnosticValue(recordingTimeline)
+        }
+        return .object(object)
+    }
+
+    private static func diagnosticValue(_ evidence: ValidationRunEvidence) -> DiagnosticFieldValue {
+        .object([
+            "runId": .string(evidence.runId),
+            "durationGate": .string(evidence.durationGate.rawValue),
+            "result": .string(evidence.result.rawValue),
+            "targetsCovered": .array(evidence.targetsCovered.map { .string($0.rawValue) }),
+            "deviceClassesCovered": .array(evidence.deviceClassesCovered.map { .string($0.rawValue) }),
+            "userActionCount": .int(evidence.userActionCount),
+            "startedAt": .string(Self.formatDate(evidence.startedAt)),
+            "completedAt": .string(evidence.completedAt.map(Self.formatDate) ?? "none")
+        ])
+    }
+
+    private static func diagnosticValue(_ evidence: RecordingTimelineIntegrityEvidence) -> DiagnosticFieldValue {
+        .object([
+            "routeSessionId": .string(evidence.routeSessionId),
+            "autorepairAttemptIds": .array(evidence.autorepairAttemptIds.map { .string($0) }),
+            "micDurationSeconds": .double(evidence.micDurationSeconds),
+            "incomingDurationSeconds": .double(evidence.incomingDurationSeconds),
+            "durationDifferenceSeconds": .double(evidence.durationDifferenceSeconds),
+            "alignmentBand": .string(evidence.alignmentBand.rawValue),
+            "interruptionCategory": .string(evidence.interruptionCategory.rawValue)
+        ])
+    }
+
+    private static func diagnosticValue(_ decision: RouteReleaseDecision) -> DiagnosticFieldValue {
+        .object([
+            "outcome": .string(decision.outcome.rawValue),
+            "reason": .string(decision.reason.rawValue),
+            "clientEvidenceFresh": .bool(decision.clientEvidenceFresh),
+            "decidedAt": .string(Self.formatDate(decision.decidedAt))
+        ])
+    }
+
+    private static func diagnosticValue(_ snapshot: FrameContinuitySnapshot) -> DiagnosticFieldValue {
+        .object([
+            "microphoneFramesObserved": .int(snapshot.microphoneFramesObserved),
+            "incomingFramesObserved": .int(snapshot.incomingFramesObserved),
+            "missingFrameCount": .int(snapshot.missingFrameCount),
+            "dropoutCount": .int(snapshot.dropoutCount),
+            "windowMs": .int(snapshot.windowMs)
         ])
     }
 

@@ -1,15 +1,14 @@
 # 2brain Rec macOS Installer
 
-This directory owns the interactive MVP installer package and recovery scripts.
+This directory owns the local macOS installer package and recovery scripts.
 
 ## MVP Scope
 
-- Interactive install.
-- Interactive update with active-call deferral.
-- Repair.
-- Rollback.
-- Uninstall.
-- User-visible restart-required and manual-cleanup states.
+- System-audio MVP local install defaults to the desktop app only.
+- Driver install, repair, rollback, uninstall, and Core Audio restart are parked
+  for future driver diagnostics unless an explicit driver flag is set.
+- User-visible restart-required and manual-cleanup states remain required for
+  future driver work, but are not MVP recording prerequisites.
 
 Silent install, MDM, fleet deployment, and enterprise deployment are out of scope for this feature.
 
@@ -24,19 +23,30 @@ sh apps/macos/Installer/Scripts/build-local-installer.sh
 open apps/macos/.build/installer/2brain-rec-local.pkg
 ```
 
-The script builds:
+By default, the script builds:
 
-- the proof Core Audio HAL bundle at `apps/macos/AudioDriver/.build/proof/2brainRecProof.driver`;
 - the local SwiftUI app bundle at `apps/macos/RecApp/.build/2brain Rec.app`;
-- component packages for the driver and app;
+- a desktop-app component package;
 - an interactive product installer at `apps/macos/.build/installer/2brain-rec-local.pkg`.
+
+The default package does not include the proof HAL driver component and does not
+restart `coreaudiod`. This is intentional for the system-audio MVP pivot.
 
 After installing, verify the local result with:
 
 ```sh
-make -C apps/macos/AudioDriver proof-runtime-probe-run
 open "/Applications/2brain Rec.app"
 ```
+
+To build the parked driver diagnostics package explicitly, opt in:
+
+```sh
+TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=1 \
+  TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART=1 \
+  sh apps/macos/Installer/Scripts/build-local-installer.sh
+```
+
+Do not use the driver opt-in path for system-audio MVP acceptance.
 
 Local development may use ad-hoc app signing only when Developer Tools Security
 is enabled. If it is disabled, macOS can install the `.app` successfully but

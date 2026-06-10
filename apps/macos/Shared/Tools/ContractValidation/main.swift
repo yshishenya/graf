@@ -78,6 +78,7 @@ struct RecordingArtifactFormatFixtureFile: Decodable {
 
     struct Track: Decodable {
         let role: String
+        let sourceKind: String
         let mediaScribeField: String
         let fileName: String
         let format: String
@@ -470,9 +471,10 @@ func validateLocalRecordingManifestFixture() throws {
         Set(fixture.allowedStatuses) == Set([
             LocalRecordingSessionStatus.saved.rawValue,
             LocalRecordingSessionStatus.degraded.rawValue,
+            LocalRecordingSessionStatus.blocked.rawValue,
             LocalRecordingSessionStatus.failed.rawValue
         ]),
-        "Local recording manifest must allow saved, degraded, and failed terminal statuses"
+        "Local recording manifest must allow saved, degraded, blocked, and failed terminal statuses"
     )
     try require(
         Set(fixture.allowedReadinessStates) == Set([
@@ -486,6 +488,7 @@ func validateLocalRecordingManifestFixture() throws {
     try require(
         Set(fixture.requiredTrackFields).isSuperset(of: [
             "mediaScribeField",
+            "sourceKind",
             "format",
             "sampleRate",
             "channelCount",
@@ -535,13 +538,15 @@ func validateRecordingArtifactFormatFixture() throws {
     let tracksByRole = Dictionary(uniqueKeysWithValues: fixture.tracks.map { ($0.role, $0) })
     try require(
         tracksByRole[AudioTrackRole.localMic.rawValue]?.mediaScribeField == MediaScribeTrackField.micFile.rawValue &&
+            tracksByRole[AudioTrackRole.localMic.rawValue]?.sourceKind == AudioCaptureSourceKind.microphone.rawValue &&
             tracksByRole[AudioTrackRole.localMic.rawValue]?.fileName == "mic.wav",
-        "Local mic track must map to MediaScribe mic_file and mic.wav"
+        "Local mic track must map to microphone source, MediaScribe mic_file, and mic.wav"
     )
     try require(
         tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.mediaScribeField == MediaScribeTrackField.incomingFile.rawValue &&
+            tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.sourceKind == AudioCaptureSourceKind.systemAudio.rawValue &&
             tracksByRole[AudioTrackRole.remoteSpeaker.rawValue]?.fileName == "incoming.wav",
-        "Remote speaker track must map to MediaScribe incoming_file and incoming.wav"
+        "Remote speaker track must map to systemAudio source, MediaScribe incoming_file, and incoming.wav"
     )
     for track in fixture.tracks {
         try require(
@@ -606,6 +611,51 @@ func validateCaptureSafetyInvariant() throws {
     )
 }
 
+func validateSystemAudioMVPHealthCanRecordIgnoresParkedDriverDiagnostics() throws {
+    let state = AudioHealthState(
+        driverState: .needsRepair,
+        virtualMicState: .missing,
+        virtualSpeakerState: .missing,
+        microphonePermission: .granted,
+        outputPermission: .granted,
+        routeVerification: nil,
+        passthroughStatus: .failed,
+        bufferRisk: .healthy,
+        livePassthroughStatus: .blocked,
+        recoveryActions: [
+            "Driver diagnostics are parked for system audio recording",
+            "Review parked passthrough diagnostics before future driver experiments"
+        ]
+    )
+
+    try require(
+        state.canRecord,
+        "System-audio MVP health state must not block recording on parked driver or passthrough diagnostics"
+    )
+    try require(
+        state.requiresAttention,
+        "Parked driver or passthrough diagnostics should remain visible as attention, not as a recording blocker"
+    )
+
+    let missingPermission = AudioHealthState(
+        microphonePermission: .denied,
+        outputPermission: .granted,
+        passthroughStatus: .healthy,
+        bufferRisk: .healthy
+    )
+    let unsafeBuffer = AudioHealthState(
+        microphonePermission: .granted,
+        outputPermission: .granted,
+        passthroughStatus: .healthy,
+        bufferRisk: .mustDegradeOrStop
+    )
+
+    try require(
+        !missingPermission.canRecord && !unsafeBuffer.canRecord,
+        "System-audio MVP health state must still block missing permissions and unsafe local buffer"
+    )
+}
+
 func validateDiagnosticBundleService() throws {
     let bundle = try DiagnosticBundleService().buildBundle(
         DiagnosticBundleInput(
@@ -647,6 +697,723 @@ func validateDiagnosticBundleService() throws {
     )
 }
 
+func validateLocalRecordingDiagnosticBundleNoEgressTruth() throws {
+    let manifest = LocalRecordingManifest(
+        sessionId: "contract-local-recording-diagnostics",
+        createdAt: Date(timeIntervalSince1970: 1),
+        startedAt: Date(timeIntervalSince1970: 1),
+        stoppedAt: Date(timeIntervalSince1970: 2),
+        status: .saved,
+        directoryId: "contract-safe-dir",
+        transcriptionReadiness: .ready,
+        mediaScribeSourceMode: "dual",
+        tracks: [
+            LocalRecordingTrack(
+                trackId: "mic",
+                role: .localMic,
+                status: .saved,
+                fileName: "mic.wav",
+                format: "wav-pcm-s16le",
+                sampleRate: 16_000,
+                channelCount: 1,
+                bitsPerSample: 16,
+                durationMs: 1000,
+                byteCount: 100,
+                frameCount: 16_000,
+                timelineStartMs: 0,
+                timelineAligned: true
+            ),
+            LocalRecordingTrack(
+                trackId: "remote",
+                role: .remoteSpeaker,
+                status: .saved,
+                fileName: "incoming.wav",
+                format: "wav-pcm-s16le",
+                sampleRate: 16_000,
+                channelCount: 1,
+                bitsPerSample: 16,
+                durationMs: 1000,
+                byteCount: 100,
+                frameCount: 16_000,
+                timelineStartMs: 0,
+                timelineAligned: true
+            )
+        ]
+    )
+
+    let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(
+        manifest: manifest,
+        manifestOverrides: [
+            "rawAudio": .string("not allowed"),
+            "signedUrl": .string("not allowed")
+        ]
+    )
+
+    try require(
+        bundle.redactionState == .blockedSensitiveContent,
+        "Local recording diagnostic bundle must report blocked sensitive content when overrides include forbidden fields"
+    )
+    try require(
+        bundle.manifest["rawAudio"] == nil && bundle.manifest["signedUrl"] == nil,
+        "Local recording diagnostic bundle must remove raw audio and signed URL fields"
+    )
+
+    guard case .object(let diagnosticManifest)? = bundle.manifest["localRecordingManifest"] else {
+        throw ValidationError(description: "Local recording diagnostic bundle must include localRecordingManifest")
+    }
+    guard case .object(let summary)? = bundle.manifest["localRecordingEvidence"] else {
+        throw ValidationError(description: "Local recording diagnostic bundle must include localRecordingEvidence")
+    }
+
+    try require(
+        diagnosticManifest["externalEgressStarted"] == .bool(false) &&
+            diagnosticManifest["transcriptionStarted"] == .bool(false) &&
+            diagnosticManifest["diagnosticSafe"] == .bool(true),
+        "Local recording diagnostic manifest must preserve no-egress and diagnosticSafe truth"
+    )
+    try require(
+        summary["diagnosticSafe"] == .bool(true),
+        "Local recording diagnostic summary must preserve diagnosticSafe truth"
+    )
+}
+
+func validateLocalRecordingWriterBoundedDrain() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-bounded-drain-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        incomingSampleSourceFactory: { InfiniteContractSampleSource() },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-bounded-drain",
+        startedAt: Date(timeIntervalSince1970: 10)
+    )
+
+    let startedAt = Date()
+    let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+    let elapsed = Date().timeIntervalSince(startedAt)
+    guard let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Bounded drain validation must produce incoming track")
+    }
+
+    try require(
+        elapsed < 2,
+        "LocalRecordingWriter must bound drain time for non-terminating sample sources"
+    )
+    try require(
+        incoming.failureReason == .writeFailed && incoming.status == .failed,
+        "Bounded drain overflow must fail the incoming track truthfully"
+    )
+    try require(
+        manifest.status != .saved,
+        "Bounded drain overflow must not produce a clean saved manifest"
+    )
+    try require(
+        !writer.isRecording,
+        "Bounded drain overflow must release writer recording state"
+    )
+}
+
+func validateLocalRecordingWriterForcedFailureTruth() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-forced-failure-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 96_000))
+    let incomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 96_000))
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        microphoneSampleSourceFactory: { microphoneSource },
+        incomingSampleSourceFactory: { incomingSource },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-forced-failure",
+        startedAt: Date(timeIntervalSince1970: 10),
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    let manifest = try writer.stop(
+        stoppedAt: Date(timeIntervalSince1970: 11),
+        failureReason: .captureFailed
+    )
+    guard let microphone = manifest.tracks.first(where: { $0.role == .localMic }),
+          let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Forced failure validation must produce both required tracks")
+    }
+
+    try require(
+        microphone.frameCount > 0 && incoming.frameCount > 0,
+        "Forced failure validation must use complete-looking mic and incoming tracks"
+    )
+    try require(
+        manifest.failureReason == .captureFailed,
+        "Forced system-audio failure must be preserved as manifest failureReason"
+    )
+    try require(
+        manifest.status == .failed && !manifest.isComplete,
+        "Forced system-audio failure must not produce a clean saved manifest"
+    )
+}
+
+func validateLocalRecordingWriterPartialIncomingPaddingIsNotSaved() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-partial-incoming-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 96_000))
+    let partialIncomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 4_800))
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        microphoneSampleSourceFactory: { microphoneSource },
+        incomingSampleSourceFactory: { partialIncomingSource },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-partial-incoming",
+        startedAt: Date(timeIntervalSince1970: 10),
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+    guard let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Partial incoming validation must produce incoming track")
+    }
+
+    try require(
+        incoming.durationMs >= 990 && manifest.durationDifferenceSeconds <= 3,
+        "Partial incoming validation must keep timeline-padded file shape for review"
+    )
+    try require(
+        incoming.failureReason == .timelineMisaligned && incoming.status == .degraded,
+        "Partial incoming frames padded with silence must be marked degraded timeline truth"
+    )
+    try require(
+        manifest.captureHealth?.failureReason == .timelineMisaligned &&
+            manifest.captureHealth?.gateStatus == .failed,
+        "Partial incoming manifest and captureHealth must agree on timeline misalignment"
+    )
+    try require(
+        manifest.status != .saved && !manifest.isComplete,
+        "Partial incoming frames must not produce a clean saved manifest"
+    )
+}
+
+func validateLocalRecordingWriterSmallStopTailPaddingIsSaved() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("contract-validation-small-stop-tail-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let microphoneSource = FiniteContractSampleSource(samples: Array(repeating: 0.35, count: 48_000))
+    let incomingSource = FiniteContractSampleSource(samples: Array(repeating: 0.25, count: 46_080))
+    let writer = LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        microphoneSampleSourceFactory: { microphoneSource },
+        incomingSampleSourceFactory: { incomingSource },
+        recordMicrophone: false
+    )
+    _ = try writer.start(
+        sessionId: "contract-small-stop-tail",
+        startedAt: Date(timeIntervalSince1970: 10),
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+    guard let incoming = manifest.tracks.first(where: { $0.role == .remoteSpeaker }) else {
+        throw ValidationError(description: "Small stop-tail validation must produce incoming track")
+    }
+
+    try require(
+        incoming.durationMs == 1000 && incoming.timelineAligned,
+        "Small stop-tail padding must preserve aligned one-second incoming track shape"
+    )
+    try require(
+        incoming.failureReason == .none && incoming.status == .saved,
+        "Small stop-tail padding must not falsely degrade an otherwise complete incoming track"
+    )
+    try require(
+        manifest.captureHealth?.failureReason == LocalRecordingFailureReason.none &&
+            manifest.captureHealth?.gateStatus == .passed,
+        "Small stop-tail manifest and captureHealth must agree on clean saved truth"
+    )
+    try require(
+        manifest.status == .saved && manifest.isComplete,
+        "Small stop-tail padding must still allow a clean saved manifest"
+    )
+}
+
+func validateLocalRecordingManifestFailureReasonFailClosed() throws {
+    let manifest = LocalRecordingManifest(
+        sessionId: "contract-manifest-failure-reason",
+        createdAt: Date(timeIntervalSince1970: 30),
+        startedAt: Date(timeIntervalSince1970: 10),
+        stoppedAt: Date(timeIntervalSince1970: 20),
+        status: .saved,
+        directoryId: "dir",
+        transcriptionReadiness: .ready,
+        tracks: [
+            contractCompleteTrack(role: .localMic),
+            contractCompleteTrack(role: .remoteSpeaker)
+        ],
+        failureReason: .captureFailed,
+        scopeApproval: contractScopeApproval(),
+        permissions: SystemAudioPermissionSnapshot(
+            microphone: .granted,
+            systemAudio: .granted,
+            evaluatedAt: Date(timeIntervalSince1970: 9)
+        )
+    )
+
+    try require(
+        !manifest.isComplete,
+        "LocalRecordingManifest.isComplete must fail closed when failureReason is not none"
+    )
+}
+
+func validateSystemAudioPermissionFailClosed() async throws {
+    let gate = SystemAudioPermissionGate(clock: { Date(timeIntervalSince1970: 1) })
+    let deniedSystemAudio = gate.evaluate(microphone: .granted, systemAudio: .denied)
+    try require(
+        !deniedSystemAudio.allowsAcceptedRecording &&
+            deniedSystemAudio.outcome == .blocked &&
+            deniedSystemAudio.manifestFailureReason == .permissionDenied,
+        "Permission gate must block accepted recording when system-audio permission is denied"
+    )
+
+    let deniedMicrophone = gate.evaluate(microphone: .denied, systemAudio: .granted)
+    try require(
+        !deniedMicrophone.allowsAcceptedRecording &&
+            deniedMicrophone.outcome == .blocked &&
+            deniedMicrophone.manifestFailureReason == .permissionDenied,
+        "Permission gate must block accepted recording when microphone permission is denied"
+    )
+
+    let service = SystemAudioCaptureService(runtime: NoopSystemAudioCaptureRuntime())
+    do {
+        _ = try await service.start(
+            sessionId: "contract-permission-denied",
+            permissionState: .denied,
+            scopeApproval: contractScopeApproval()
+        )
+        throw ValidationError(description: "SystemAudioCaptureService must not start when permission is denied")
+    } catch SystemAudioCaptureServiceError.permissionDenied {
+        let running = await service.isRunning
+        try require(!running, "Denied system-audio start must leave service stopped")
+    }
+
+    let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+        .manifest(
+            sessionId: "contract-denied-manifest",
+            directoryId: "dir",
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            tracks: [
+                contractCompleteTrack(role: .localMic),
+                contractCompleteTrack(role: .remoteSpeaker)
+            ],
+            scopeApproval: contractScopeApproval(),
+            permissions: SystemAudioPermissionSnapshot(
+                microphone: .granted,
+                systemAudio: .denied,
+                evaluatedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+    try require(
+        manifest.status != .saved &&
+            manifest.failureReason == .permissionDenied &&
+            !manifest.isComplete,
+        "Denied permissions must not produce a saved or complete local recording manifest"
+    )
+}
+
+func validateSystemAudioStartTimeoutCleanupOrdering() async throws {
+    let failingService = SystemAudioCaptureService(
+        runtime: FailingContractRuntime(),
+        runtimeStartTimeoutSeconds: 1
+    )
+    do {
+        _ = try await failingService.start(
+            sessionId: "contract-immediate-failure",
+            permissionState: .granted,
+            scopeApproval: contractScopeApproval()
+        )
+        throw ValidationError(description: "Immediate system-audio runtime failure must not become an accepted start")
+    } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+        let runningAfterImmediateFailure = await failingService.isRunning
+        try require(
+            !runningAfterImmediateFailure,
+            "Immediate runtime start failure must leave service stopped"
+        )
+    }
+
+    let runtime = RecoveringSlowStartingContractRuntime(firstStartDelaySeconds: 0.2)
+    let service = SystemAudioCaptureService(
+        runtime: runtime,
+        runtimeStartTimeoutSeconds: 0.05
+    )
+
+    do {
+        _ = try await service.start(
+            sessionId: "contract-first-timeout",
+            permissionState: .granted,
+            scopeApproval: contractScopeApproval()
+        )
+        throw ValidationError(description: "Slow system-audio runtime start must fail with runtimeStartFailed")
+    } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+        let runningAfterTimeout = await service.isRunning
+        try require(
+            !runningAfterTimeout,
+            "Timed-out system-audio start must leave service stopped"
+        )
+    }
+
+    let retry = Task {
+        try await service.start(
+            sessionId: "contract-second-start",
+            permissionState: .granted,
+            scopeApproval: contractScopeApproval()
+        )
+    }
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    try require(
+        runtime.startCount == 1,
+        "Retry must wait for timed-out runtime start cleanup before starting a new runtime"
+    )
+    let runningWhileCleanupPending = await service.isRunning
+    try require(
+        !runningWhileCleanupPending,
+        "Retry must not mark service running while timed-out runtime cleanup is pending"
+    )
+
+    let secondSession = try await retry.value
+    try require(
+        secondSession.sessionId == "contract-second-start",
+        "Retry after timed-out runtime cleanup must start the requested second session"
+    )
+    try require(
+        runtime.startCount == 2 && runtime.stopCount >= 2,
+        "Timed-out runtime cleanup must stop the stale runtime before retry starts"
+    )
+    let stopCountBeforeAcceptedStop = runtime.stopCount
+    let runningAfterRetry = await service.isRunning
+    try require(
+        runningAfterRetry,
+        "Retry after timed-out runtime cleanup must leave the second session running"
+    )
+
+    _ = try await service.stop()
+    try require(
+        runtime.stopCount == stopCountBeforeAcceptedStop + 1,
+        "Stopping the accepted retry session must stop exactly that active runtime"
+    )
+}
+
+func validateAppStopFailureFailClosedSourceInvariant() throws {
+    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+    let source = try String(contentsOf: appSourceURL, encoding: .utf8)
+
+    try require(
+        source.contains("private func recordingStopFailureCategory(for error: Error) -> RecordingStartBlocker"),
+        "App stop failure path must classify stop failures separately from start failures"
+    )
+    try require(
+        source.contains("await finalizeLocalRecordingForFailure(") &&
+            source.contains("reason: \"stop_failure_cleanup\"") &&
+            source.contains("failureReason: releasedSystemAudioSession?.failureReason ?? .none"),
+        "App stop failure path must attempt fail-closed local writer cleanup"
+    )
+    try require(
+        source.contains("reason: \"start_failure_cleanup\"") &&
+            source.contains("let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()") &&
+            source.contains("failureReason: releasedSystemAudioSession?.failureReason ?? .none"),
+        "App start failure cleanup must preserve system-audio stop failure truth"
+    )
+    try require(
+        source.contains("private func releaseCaptureResourcesForAppExit() async") &&
+            source.contains("let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()") &&
+            source.contains("await finalizeLocalRecordingForAppExit(") &&
+            source.contains("failureReason: releasedSystemAudioSession?.failureReason ?? .none"),
+        "App exit cleanup must preserve system-audio termination failure truth"
+    )
+    try require(
+        source.contains("try await localRecordingWriter.stopAsync(failureReason: failureReason)"),
+        "Local failure finalization must pass forced failure reason into manifest creation"
+    )
+    try require(
+        source.contains("failureReason=\\(manifest.failureReason.rawValue)"),
+        "App cleanup logging must include manifest failureReason"
+    )
+    try require(
+        source.contains("localRecordingActive = false") &&
+            !source.contains("localRecordingActive = await localRecordingWriter.isRecordingAsync()"),
+        "App stop failure path must not leave UI recording state active after failed stop"
+    )
+    try require(
+        source.contains("detail: \"category=\\(failureCategory.rawValue) error=\\(error)\""),
+        "App stop failure logging must include the classified failure category"
+    )
+
+    guard let clearBlockerRange = source.range(of: "recordingBlocker = nil"),
+          let beginPreparingRange = source.range(of: "let preparing = try captureController.beginPreparing"),
+          let microphonePromptRange = source.range(of: "let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight"),
+          let systemAudioPromptRange = source.range(of: "let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()")
+    else {
+        throw ValidationError(description: "App start path must expose blocker clearing, preparing state, and permission prompts")
+    }
+    try require(
+        clearBlockerRange.lowerBound < beginPreparingRange.lowerBound &&
+            beginPreparingRange.lowerBound < microphonePromptRange.lowerBound &&
+            microphonePromptRange.lowerBound < systemAudioPromptRange.lowerBound,
+        "App start path must clear stale blockers and show preparing state before permission prompts"
+    )
+}
+
+func validateLiveAudioSignalMonitorFreshnessInvariant() throws {
+    let monitorSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LiveAudioSignalMonitor.swift")
+    let monitorSource = try String(contentsOf: monitorSourceURL, encoding: .utf8)
+    let testsSourceURL = repositoryRoot.appendingPathComponent("apps/macos/Shared/Tests/LiveAudioSignalMonitorTests.swift")
+    let testsSource = try String(contentsOf: testsSourceURL, encoding: .utf8)
+
+    try require(
+        monitorSource.contains("let age = now.timeIntervalSince(date)") &&
+            monitorSource.contains("return age >= 0 && age <= Self.staleLevelResetInterval"),
+        "LiveAudioSignalMonitor freshness must reject future timestamps so meters cannot show false live bars"
+    )
+    try require(
+        testsSource.contains("testFutureMonitorFrameTimestampResetsInsteadOfHoldingFalseLiveBars"),
+        "LiveAudioSignalMonitor tests must cover future timestamp false-live regression"
+    )
+}
+
+func validateRecordingMetersUseLocalWriterInvariant() throws {
+    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+    let source = try String(contentsOf: appSourceURL, encoding: .utf8)
+
+    try require(
+        source.contains("let recordingLevels = await writer.currentLevelsAsync()") &&
+            source.contains("microphoneLevel: recordingLevels.microphoneLevel") &&
+            source.contains("speakerLevel: recordingLevels.incomingLevel"),
+        "Recording UI meters must be driven by LocalRecordingWriter levels, not legacy passthrough levels"
+    )
+    try require(
+        source.contains("guard localRecordingActive, !recordingStartInProgress, !recordingStopInProgress else") &&
+            source.contains("liveRouteSignalLevels = .inactive"),
+        "Recording UI meters must reset to inactive outside active local recording"
+    )
+    try require(
+        !source.contains("liveRouteSignalLevels = PassthroughRouteEngine.shared.currentSignalLevels"),
+        "Recording UI meters must not be assigned from parked passthrough route levels"
+    )
+}
+
+func validateManualGateExitCleanupInvariant() throws {
+    let scriptURL = repositoryRoot.appendingPathComponent("apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh")
+    let source = try String(contentsOf: scriptURL, encoding: .utf8)
+
+    try require(
+        source.contains("cleanup_runtime()") &&
+            source.contains("trap - EXIT") &&
+            source.contains("quit_app") &&
+            source.contains("stop_caffeinate"),
+        "Manual gate cleanup must quit the packaged app and stop caffeinate on early exits"
+    )
+    try require(
+        source.contains("trap 'cleanup_runtime' EXIT"),
+        "Manual gate must install the full runtime cleanup trap after holding the wake assertion"
+    )
+    try require(
+        source.contains("baselineCoreaudiodCpuGate") &&
+            source.contains("maxCoreaudiodCpuPercent") &&
+            source.contains("beforeAppLaunch=true"),
+        "Manual gate must block hot coreaudiod baseline before launching the packaged app"
+    )
+    guard let baselineRange = source.range(of: "run_baseline_cpu"),
+          let launchRange = source.range(of: "launch_packaged_app")
+    else {
+        throw ValidationError(description: "Manual gate must define baseline and packaged app launch steps")
+    }
+    try require(
+        baselineRange.lowerBound < launchRange.lowerBound,
+        "Manual gate must evaluate baseline CPU before launching the packaged app"
+    )
+}
+
+func validateLocalRecordingWriterTimerWriteFailureInvariant() throws {
+    let writerSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift")
+    let writerSource = try String(contentsOf: writerSourceURL, encoding: .utf8)
+
+    try require(
+        !writerSource.contains("try? microphoneWriter.write(samples: active.scratch") &&
+            !writerSource.contains("try? active.remoteWriter.write(samples: active.scratch"),
+        "LocalRecordingWriter timer writes must not silently discard WAV write failures"
+    )
+    try require(
+        writerSource.contains("active.microphoneWriteFailed = true") &&
+            writerSource.contains("active.incomingWriteFailed = true"),
+        "LocalRecordingWriter timer write failures must be recorded on active recording state"
+    )
+    try require(
+        writerSource.contains("drainResult.microphoneTruncated || active.microphoneWriteFailed ? .writeFailed : nil") &&
+            writerSource.contains("drainResult.incomingTruncated || active.incomingWriteFailed ? .writeFailed : nil"),
+        "LocalRecordingWriter timer write failures must force writeFailed track truth in the manifest"
+    )
+}
+
+func validateSystemAudioIncomingQualityInvariant() throws {
+    let systemAudioSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift")
+    let writerSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift")
+    let extractorTestsURL = repositoryRoot.appendingPathComponent("apps/macos/Shared/Tests/SystemAudioSampleExtractorTests.swift")
+    let writerTestsURL = repositoryRoot.appendingPathComponent("apps/macos/Shared/Tests/LocalRecordingWriterTests.swift")
+    let systemAudioSource = try String(contentsOf: systemAudioSourceURL, encoding: .utf8)
+    let writerSource = try String(contentsOf: writerSourceURL, encoding: .utf8)
+    let extractorTests = try String(contentsOf: extractorTestsURL, encoding: .utf8)
+    let writerTests = try String(contentsOf: writerTestsURL, encoding: .utf8)
+
+    try require(
+        systemAudioSource.contains("private static let captureChannelCount = 1") &&
+            systemAudioSource.contains("configuration.channelCount = 1") &&
+            systemAudioSource.contains("extractMonoFloatSamples(from: sampleBuffer)") &&
+            systemAudioSource.contains("downmixInterleavedSamples"),
+        "System audio incoming capture must request mono from ScreenCaptureKit and downmix unexpected multi-channel buffers before recording"
+    )
+    try require(
+        writerSource.contains("PCM16MonoDownsampler") &&
+            writerSource.contains("windowFrameCount") &&
+            writerSource.contains("monoSum") &&
+            writerSource.contains("inputChannelCount: Int = 1"),
+        "Incoming WAV writer must use a mono-aware downsampler instead of dropping every third stereo frame"
+    )
+    try require(
+        extractorTests.contains("testDownmixesInterleavedStereoSamplesToMonoForSystemAudioWriter") &&
+            writerTests.contains("testDownsamplerAveragesWindowBeforeReducingSystemAudioTo16k") &&
+            writerTests.contains("testDownsamplerTreatsMonoSystemAudioSamplesAsFrames"),
+        "Incoming audio quality guard tests must cover SCK downmixing and mono-aware 48k-to-16k downsampling"
+    )
+}
+
+func contractScopeApproval() -> CaptureScopeApproval {
+    CaptureScopeApproval(
+        scopeApprovalId: "contract-scope",
+        scopeKind: .display,
+        sourceDisplayName: "Current Display",
+        approvedAt: Date(timeIntervalSince1970: 9),
+        approvalMode: .userConfirmedSuggestedScope,
+        eligibleReason: .manualMeetingScope
+    )
+}
+
+func contractCompleteTrack(role: AudioTrackRole) -> LocalRecordingTrack {
+    LocalRecordingTrack(
+        trackId: role.rawValue,
+        role: role,
+        status: .saved,
+        fileName: role == .localMic ? "mic.wav" : "incoming.wav",
+        format: "wav-pcm-s16le",
+        sampleRate: 16_000,
+        channelCount: 1,
+        bitsPerSample: 16,
+        durationMs: 1000,
+        byteCount: 32_044,
+        frameCount: 16_000,
+        timelineStartMs: 0,
+        timelineAligned: true
+    )
+}
+
+private final class InfiniteContractSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        guard capacity > 0 else { return 0 }
+        for index in 0..<capacity {
+            destination[index] = 0.25
+        }
+        return capacity
+    }
+}
+
+private final class FiniteContractSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Float]
+    private var offset = 0
+
+    init(samples: [Float]) {
+        self.samples = samples
+    }
+
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        lock.withLock {
+            guard capacity > 0, offset < samples.count else { return 0 }
+            let count = min(capacity, samples.count - offset)
+            for index in 0..<count {
+                destination[index] = samples[offset + index]
+            }
+            offset += count
+            return count
+        }
+    }
+}
+
+private final class RecoveringSlowStartingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    private let firstStartDelaySeconds: TimeInterval
+    private let lock = NSLock()
+    private var protectedStartCount = 0
+    private var protectedStopCount = 0
+
+    init(firstStartDelaySeconds: TimeInterval) {
+        self.firstStartDelaySeconds = firstStartDelaySeconds
+    }
+
+    var startCount: Int {
+        lock.withLock { protectedStartCount }
+    }
+
+    var stopCount: Int {
+        lock.withLock { protectedStopCount }
+    }
+
+    func start() async throws {
+        let currentStart = lock.withLock {
+            protectedStartCount += 1
+            return protectedStartCount
+        }
+
+        if currentStart == 1 {
+            try? await Task.sleep(nanoseconds: UInt64(firstStartDelaySeconds * 1_000_000_000))
+        }
+    }
+
+    func stop() async {
+        lock.withLock {
+            protectedStopCount += 1
+        }
+    }
+}
+
+private final class FailingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    func start() async throws {
+        throw SystemAudioCaptureServiceError.runtimeStartFailed
+    }
+
+    func stop() async {}
+}
+
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
@@ -657,7 +1424,22 @@ do {
     try validateRecordingArtifactFormatFixture()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
+    try validateSystemAudioMVPHealthCanRecordIgnoresParkedDriverDiagnostics()
     try validateDiagnosticBundleService()
+    try validateLocalRecordingDiagnosticBundleNoEgressTruth()
+    try validateLocalRecordingWriterBoundedDrain()
+    try validateLocalRecordingWriterForcedFailureTruth()
+    try validateLocalRecordingWriterPartialIncomingPaddingIsNotSaved()
+    try validateLocalRecordingWriterSmallStopTailPaddingIsSaved()
+    try validateLocalRecordingManifestFailureReasonFailClosed()
+    try await validateSystemAudioPermissionFailClosed()
+    try await validateSystemAudioStartTimeoutCleanupOrdering()
+    try validateAppStopFailureFailClosedSourceInvariant()
+    try validateLiveAudioSignalMonitorFreshnessInvariant()
+    try validateRecordingMetersUseLocalWriterInvariant()
+    try validateManualGateExitCleanupInvariant()
+    try validateLocalRecordingWriterTimerWriteFailureInvariant()
+    try validateSystemAudioIncomingQualityInvariant()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

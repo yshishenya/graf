@@ -48,14 +48,32 @@ final class RouteRecoveryEvidenceTests: XCTestCase {
 
     func testRouteEngineMarksCoreAudioRestartAsStale() {
         let engine = PassthroughRouteEngine(sharedMemory: nil)
-        var log: [(String, String)] = []
+        let log = RouteRecoveryTestLog()
 
         let state = engine.markCoreAudioRestarted { event, detail in
-            log.append((event, detail))
+            log.append(event, detail)
         }
 
         XCTAssertEqual(state, .stale("coreaudiod_restarted"))
         XCTAssertTrue(log.contains { $0.0 == "passthrough_bridge_stale" })
+    }
+}
+
+private final class RouteRecoveryTestLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [(String, String)] = []
+
+    func append(_ event: String, _ detail: String) {
+        lock.lock()
+        entries.append((event, detail))
+        lock.unlock()
+    }
+
+    func contains(where predicate: ((String, String)) -> Bool) -> Bool {
+        lock.lock()
+        let snapshot = entries
+        lock.unlock()
+        return snapshot.contains(where: predicate)
     }
 }
 #endif

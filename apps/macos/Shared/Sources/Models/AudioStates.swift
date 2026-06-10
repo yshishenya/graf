@@ -12,6 +12,10 @@ public enum PhysicalDeviceClass: String, Codable, Sendable {
     case usb
     case bluetooth
     case airpodsClass = "airpods_class"
+    case aggregate
+    case multiOutput = "multi_output"
+    case hdmiAirplay = "hdmi_airplay"
+    case otherVirtual = "other_virtual"
     case unknown
 }
 
@@ -206,6 +210,7 @@ public enum RecordingStartBlocker: String, Codable, Sendable {
     case indicatorUnavailable = "indicator_unavailable"
     case sourceAppIneligible = "source_app_ineligible"
     case alreadyRecording = "already_recording"
+    case captureFailed = "capture_failed"
     case unknown
 }
 
@@ -241,6 +246,7 @@ public enum RecordingEvidenceInitiator: String, Codable, Sendable {
 public enum RecordingRouteEvidenceKind: String, Codable, Sendable {
     case lowResourceTruth = "low_resource_truth"
     case liveRoute = "live_route"
+    case systemAudioCapture = "system_audio_capture"
     case publicationOnly = "publication_only"
     case stale
     case unknown
@@ -250,6 +256,7 @@ public enum LocalRecordingSessionStatus: String, Codable, Sendable {
     case active
     case saved
     case degraded
+    case blocked
     case failed
 }
 
@@ -259,6 +266,7 @@ public enum LocalRecordingTrackStatus: String, Codable, Sendable {
     case saved
     case missing
     case degraded
+    case blocked
     case failed
 }
 
@@ -270,6 +278,16 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case emptyRequiredTrack = "empty_required_track"
     case formatNotReady = "format_not_ready"
     case timelineMisaligned = "timeline_misaligned"
+    case permissionDenied = "permission_denied"
+    case scopeUnavailable = "scope_unavailable"
+    case protectedAudioBlocked = "protected_audio_blocked"
+    case silentInput = "silent_input"
+    case noFrames = "no_frames"
+    case captureFailed = "capture_failed"
+    case cpuGateFailed = "cpu_gate_failed"
+    case stoppedBeforeFrames = "stopped_before_frames"
+    case halProbeObserved = "hal_probe_observed"
+    case deviceUnavailable = "device_unavailable"
     case legacyNotReady = "legacy_not_ready"
     case appClosed = "app_closed"
     case unknown

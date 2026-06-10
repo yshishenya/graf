@@ -7,5 +7,9 @@ if [ -d "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver" ]; then
   xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver" || true
 fi
 
-killall coreaudiod >/dev/null 2>&1 || true
+if [ "${TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART:-0}" = "1" ]; then
+  killall coreaudiod >/dev/null 2>&1 || true
+else
+  echo "coreaudiod restart skipped; set TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART=1 for driver diagnostics" >&2
+fi
 exit 0

@@ -167,11 +167,7 @@ public struct AudioHealthState: Codable, Equatable, Sendable {
 
     public var canRecord: Bool {
         if isPermissionBlocked { return false }
-        if !isRouteReady { return false }
-        if passthroughStatus == .failed { return false }
         if bufferRisk == .mustDegradeOrStop { return false }
-        if virtualMicState != .available { return false }
-        if virtualSpeakerState != .available { return false }
         return true
     }
 
