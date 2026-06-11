@@ -38,6 +38,13 @@ Semantic Versioning 2.0.0.
 - Production env template больше не рассылает service-specific secret-file
   paths во все app containers, а ошибки production secret validation называют
   конкретное field name без раскрытия secret values (`feature:015`).
+- Malformed successful MediaScribe submit/result payloads now map to safe
+  retryable `mediascribe_malformed_response` processing state instead of
+  escaping as unmanaged validation exceptions (`feature:015`).
+- Missing or unreadable MediaScribe API key files now map to safe
+  `blocked_config` instead of unmanaged file-system exceptions (`feature:015`).
+- Production `rec-api` no longer mounts the MediaScribe API key Docker secret;
+  only `rec-processing-worker` receives that secret (`feature:015`).
 
 ### Security
 

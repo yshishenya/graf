@@ -155,10 +155,10 @@ command, result, date, and any blocked dependency reason.
 - `uv run --extra dev pytest -q tests/contract/test_processing_no_secret_content_egress.py tests/unit/test_deployment_evidence_scan.py tests/unit/test_redaction.py` -> `8 passed`.
 - Targeted changed-file secret scan over 47 implementation/doc/config files, excluding pre-existing `.specify/*` worktree changes -> `findings 0`.
 - GitHub issue sync completed for T001-T087 as issues #550-#636. After implementation validation, all 87 GitHub issues were closed with an evidence comment; `gh issue list --repo yshishenya/crisp --label feature:015 --state open --limit 100 --json number,title` returned `[]`.
-- Linear sync created YSH-274 through YSH-352 for T001-T079, then stopped at T080-T087 because the Linear workspace active issue limit was exceeded; see `linear-sync.md`.
-- Follow-up Linear pass on 2026-06-11 moved YSH-274 through YSH-352 to `Done`, added evidence comments, and recorded their mapping in `.specify/linear.yml`.
-- `python3 .specify/extensions/linear-sync/scripts/linear_sync.py sync --feature 015 --apply` still could not create T080-T087 because Linear returned `USAGE_LIMIT_EXCEEDED` for `activeIssueCount`.
-- `python3 .specify/extensions/linear-sync/scripts/linear_sync.py validate --feature 015 --apply` now reports exactly 8 remaining Linear gaps: T080-T087.
+- Linear sync created YSH-274 through YSH-352 for T001-T079, then stopped at
+  T080-T087 because the Linear workspace active issue limit was exceeded. This
+  is now historical only: Linear has been excluded from the required repository
+  workflow, so missing Linear issues are not a `015` blocker.
 
 ### 2026-06-11 Final Audit Notes
 
@@ -222,3 +222,47 @@ command, result, date, and any blocked dependency reason.
   `PYTHONPATH=src uv run --extra dev ruff check .` -> `All checks passed!`;
   `PYTHONPATH=src uv run --extra dev python -m compileall -q src tests scripts`
   -> passed.
+
+### 2026-06-11 Current Master Completion Re-audit
+
+- Audited `origin/master` at `965b775` after merged `015` PR #637 and
+  post-merge fixes #638-#642 and #713. Spec Kit prerequisite resolution passes
+  with `SPECIFY_FEATURE_DIRECTORY=specs/015-mediascribe-processing-pipeline`;
+  all 5 checklists pass; `tasks.md` has 87 checked tasks and 0 open tasks.
+- GitHub tracking is complete for `015`: open issues with `feature:015` -> 0;
+  closed issues with `feature:015` -> 87. Linear validation still reports the
+  historical T080-T087 gaps, but Linear is no longer part of the required
+  workflow and is not a closure blocker.
+- Current-master local gates before the new fix:
+  `PYTHONPATH=src uv run --extra dev pytest -q` -> `243 passed`;
+  `PYTHONPATH=src uv run --extra dev ruff check .` -> `All checks passed!`;
+  `PYTHONPATH=src uv run --extra dev python -m compileall -q src tests scripts`
+  -> passed;
+  `docker compose -f infra/docker-compose.dev.yml config` and
+  `docker compose -f infra/docker-compose.yml config` -> passed.
+- Review found an uncovered failure-path gap: malformed successful MediaScribe
+  submit/result payloads could escape as unmanaged validation exceptions instead
+  of safe processing failure state. Red proof:
+  `PYTHONPATH=src uv run --extra dev pytest -q tests/contract/test_mediascribe_client_contract.py tests/integration/test_processing_failures.py`
+  failed before the fix with `ValidationError` / unpersisted safe reason.
+- A second audit check found that missing/unreadable MediaScribe API key files
+  could escape as unmanaged file-system exceptions instead of safe
+  `blocked_config`. Added regression coverage and mapped that path to
+  `MediaScribeClientError("blocked_config")`.
+- A production hardening review found `rec-api` still mounted the
+  `twobrain_mediascribe_api_key` Docker secret even though only the processing
+  worker needs it. Removed that mount and added compose hardening coverage so
+  only `rec-processing-worker` receives the MediaScribe API key secret.
+- Added regression coverage for missing MediaScribe job id, invalid result
+  payload validation, import-time result validation failure, and unreadable
+  secret-file configuration. After the fix:
+  `PYTHONPATH=src uv run --extra dev pytest -q tests/contract/test_mediascribe_client_contract.py tests/integration/test_processing_failures.py`
+  -> `9 passed`;
+  `PYTHONPATH=src uv run --extra dev pytest -q tests/contract/test_mediascribe_client_contract.py tests/integration/test_processing_failures.py tests/contract/test_processing_no_secret_content_egress.py`
+  -> `11 passed`.
+- Full local gate after the completion-audit fixes:
+  `PYTHONPATH=src uv run --extra dev pytest -q` -> `247 passed`;
+  `PYTHONPATH=src uv run --extra dev ruff check .` -> `All checks passed!`;
+  `PYTHONPATH=src uv run --extra dev python -m compileall -q src tests scripts`
+  -> passed;
+  dev/prod Compose config render -> passed.

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus
@@ -36,7 +37,10 @@ class MediaScribeClient:
             raise MediaScribeClientError("blocked_config", retryable=False)
         if settings.mediascribe_api_key_file is None:
             raise MediaScribeClientError("blocked_config", retryable=False)
-        api_key = settings.mediascribe_api_key_file.read_text(encoding="utf-8").strip()
+        try:
+            api_key = settings.mediascribe_api_key_file.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise MediaScribeClientError("blocked_config", retryable=False) from exc
         if not api_key:
             raise MediaScribeClientError("blocked_config", retryable=False)
         return cls(
@@ -65,17 +69,28 @@ class MediaScribeClient:
             files=files,
         )
         external_job_id = str(data.get("id") or data.get("job_id") or "")
-        status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
-        return MediaScribeSubmitResponse(external_job_id=external_job_id, status=status)
+        if not external_job_id:
+            raise _malformed_response_error()
+        try:
+            status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+            return MediaScribeSubmitResponse(external_job_id=external_job_id, status=status)
+        except (ValueError, ValidationError) as exc:
+            raise _malformed_response_error() from exc
 
     async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
         data = await self._request_json("GET", f"/jobs/{external_job_id}")
-        status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+        try:
+            status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+        except ValueError as exc:
+            raise _malformed_response_error() from exc
         return MediaScribePollResponse(external_job_id=external_job_id, status=status)
 
     async def fetch_result(self, external_job_id: str) -> MediaScribeResult:
         data = await self._request_json("GET", f"/jobs/{external_job_id}/result")
-        return MediaScribeResult.model_validate(_normalize_result_payload(data, external_job_id=external_job_id))
+        try:
+            return MediaScribeResult.model_validate(_normalize_result_payload(data, external_job_id=external_job_id))
+        except ValidationError as exc:
+            raise _malformed_response_error() from exc
 
     async def _request_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         timeout = httpx.Timeout(self.timeout_seconds)
@@ -108,6 +123,10 @@ class MediaScribeClient:
         if not isinstance(data, dict):
             raise MediaScribeClientError("mediascribe_malformed_response", retryable=True)
         return data
+
+
+def _malformed_response_error() -> MediaScribeClientError:
+    return MediaScribeClientError("mediascribe_malformed_response", retryable=True)
 
 
 def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> dict[str, Any]:
