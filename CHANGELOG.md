@@ -64,6 +64,8 @@ Semantic Versioning 2.0.0.
 - Production Temporal теперь запускается на Postgres backend через Docker
   secret wrapper, а CD блокирует статический `POSTGRES_PWD` в compose config
   (`feature:015`).
+- Production processing worker теперь может читать local-file Docker secrets,
+  включая MediaScribe API key, при запуске из Compose (`feature:015`).
 
 ## [Unreleased Template]
 

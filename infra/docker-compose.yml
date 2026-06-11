@@ -67,6 +67,7 @@ services:
       context: ..
       dockerfile: infra/server/Dockerfile
     restart: unless-stopped
+    user: root
     env_file:
       - ./env/rec.production.env.example
     environment:
