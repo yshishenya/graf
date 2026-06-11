@@ -5,6 +5,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).parents[4]
 COMPOSE_PATH = REPO_ROOT / "infra/docker-compose.yml"
+ENV_TEMPLATE_PATH = REPO_ROOT / "infra/env/rec.production.env.example"
 DOCKERFILE_PATH = REPO_ROOT / "infra/server/Dockerfile"
 CONSTRAINTS_PATH = REPO_ROOT / "apps/server/constraints.txt"
 UV_LOCK_PATH = REPO_ROOT / "apps/server/uv.lock"
@@ -12,6 +13,16 @@ UV_LOCK_PATH = REPO_ROOT / "apps/server/uv.lock"
 
 def _compose() -> dict:
     return yaml.safe_load(COMPOSE_PATH.read_text())
+
+
+def _active_env_template_keys() -> set[str]:
+    keys: set[str] = set()
+    for line in ENV_TEMPLATE_PATH.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        keys.add(stripped.split("=", maxsplit=1)[0])
+    return keys
 
 
 def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> None:
@@ -110,6 +121,21 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
 
     postgres = compose["services"]["rec-postgres"]
     assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])
+
+
+def test_production_env_template_does_not_broadcast_service_specific_secret_files() -> None:
+    active_keys = _active_env_template_keys()
+
+    assert active_keys.isdisjoint(
+        {
+            "TWOBRAIN_MINIO_ROOT_USER_FILE",
+            "TWOBRAIN_MINIO_ROOT_PASSWORD_FILE",
+            "TWOBRAIN_SMOKE_CREDENTIAL_FILE",
+            "TWOBRAIN_MEDIASCRIBE_CREDENTIAL_FILE",
+            "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE",
+            "TWOBRAIN_LANGFUSE_CREDENTIAL_FILE",
+        }
+    )
 
 
 def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() -> None:
