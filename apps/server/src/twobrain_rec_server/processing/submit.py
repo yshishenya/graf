@@ -8,9 +8,16 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import MediaScribeJob, ProcessingWorkflow
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClientError
-from twobrain_rec_server.mediascribe.import_results import normalize_result, result_digest
+from twobrain_rec_server.mediascribe.import_results import (
+    MediaScribeResultValidationError,
+    normalize_result,
+    result_digest,
+)
 from twobrain_rec_server.processing import store
-from twobrain_rec_server.processing.reasons import BLOCKED_MISSING_ARTIFACTS
+from twobrain_rec_server.processing.reasons import (
+    BLOCKED_MISSING_ARTIFACTS,
+    MEDIASCRIBE_MALFORMED_RESPONSE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +139,34 @@ async def poll_and_import_mediascribe_result(
         return ImportProcessingResult(imported=False, status=ProcessingStatus.POLLING)
 
     await store.set_workflow_status(db, workflow, ProcessingStatus.IMPORTING)
-    result = normalize_result(await mediascribe_client.fetch_result(job.external_job_id))
+    try:
+        result = normalize_result(await mediascribe_client.fetch_result(job.external_job_id))
+    except MediaScribeClientError as exc:
+        status = ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
+        await store.update_mediascribe_job_status(
+            db,
+            job=job,
+            status=MediaScribeJobStatus.FAILED,
+            reason_code=exc.reason_code,
+            error_message=exc.reason_code,
+        )
+        await store.set_workflow_status(db, workflow, status, reason_code=exc.reason_code, terminal=not exc.retryable)
+        return ImportProcessingResult(imported=False, status=status)
+    except MediaScribeResultValidationError:
+        await store.update_mediascribe_job_status(
+            db,
+            job=job,
+            status=MediaScribeJobStatus.FAILED,
+            reason_code=MEDIASCRIBE_MALFORMED_RESPONSE,
+            error_message=MEDIASCRIBE_MALFORMED_RESPONSE,
+        )
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.FAILED_RETRYABLE,
+            reason_code=MEDIASCRIBE_MALFORMED_RESPONSE,
+        )
+        return ImportProcessingResult(imported=False, status=ProcessingStatus.FAILED_RETRYABLE)
     await store.persist_processing_result(
         db,
         job=job,

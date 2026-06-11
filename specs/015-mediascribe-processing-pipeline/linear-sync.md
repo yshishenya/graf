@@ -1,60 +1,34 @@
-# Заметка по синхронизации Linear: 015 MediaScribe Processing Pipeline
+# Legacy Linear Note: 015 MediaScribe Processing Pipeline
 
-**Дата**: 2026-06-11
-**Фича**: `015-mediascribe-processing-pipeline`
-**Проект Linear**: `2brain Rec / 015 Mediascribe Processing Pipeline`
+**Date**: 2026-06-11
+**Feature**: `015-mediascribe-processing-pipeline`
 
-## Текущее состояние
+## Current Decision
 
-- Синхронизация GitHub issues завершена для всех задач реализации: T001-T087
-  связаны с GitHub issues #550-#636 в `yshishenya/crisp`.
-- После реализации и валидации все GitHub issues #550-#636 закрыты с
-  evidence-комментарием.
-- Синхронизация Linear началась после создания GitHub issues и создала Linear
-  issues для T001-T079: с YSH-274 по YSH-352.
-- После замечания 2026-06-11 выполнен повторный Linear-pass: YSH-274..YSH-352
-  переведены в `Done`, получили evidence-комментарий, и mapping сохранен в
-  `.specify/linear.yml`.
-- Синхронизация Linear остановилась до T080-T087, потому что workspace вернул
-  ошибку лимита активных issues.
+Linear is no longer part of the required workflow for this repository.
 
-## Задачи, не созданные в Linear
+For `015`, this means:
 
-У этих задач есть GitHub issues, но во время этого прохода они не были созданы
-в Linear:
+- Missing Linear issues are not a blocker.
+- Linear sync does not need to be completed before feature closure.
+- Existing Linear references from earlier runs are legacy references only.
+- `tasks.md` and GitHub issues remain the authoritative implementation and
+  external-tracking evidence.
 
-- T080 -> GitHub #629
-- T081 -> GitHub #630
-- T082 -> GitHub #631
-- T083 -> GitHub #632
-- T084 -> GitHub #633
-- T085 -> GitHub #634
-- T086 -> GitHub #635
-- T087 -> GitHub #636
+## Historical State
 
-## Как восстановить синхронизацию
+- GitHub issue sync completed for all tasks T001-T087 as issues #550-#636 in
+  `yshishenya/crisp`.
+- After implementation validation, all GitHub issues #550-#636 were closed with
+  evidence comments.
+- Earlier Linear sync created issues for T001-T079: YSH-274 through YSH-352.
+- T080-T087 were not created in Linear because the workspace returned
+  `USAGE_LIMIT_EXCEEDED` for `activeIssueCount`.
 
-После увеличения лимита Linear workspace или после закрытия/архивации старых
-активных Linear issues повторно выполнить:
+## Closure Impact
 
-```sh
-. ./.env
-python3 .specify/extensions/linear-sync/scripts/linear_sync.py sync --feature 015 --apply
-```
+This is not a remaining blocker for `015`.
 
-После этого повторно выполнить проверки validation/import перед закрытием
-sync-checkpoint.
-
-Текущая проверка:
-
-```sh
-python3 .specify/extensions/linear-sync/scripts/linear_sync.py validate --feature 015 --apply
-```
-
-Ожидаемый результат до снятия лимита: 8 несвязанных Linear issues для T080-T087.
-
-## Влияние на реализацию
-
-Это ограничение синхронизации трекера, а не блокер проектирования реализации.
-`tasks.md` остается источником правды по порядку реализации, а traceability
-через GitHub issues уже полная.
+Do not run `.specify/extensions/linear-sync/scripts/linear_sync.py` for feature
+closure unless the user explicitly re-enables Linear for this repository or for
+this feature.

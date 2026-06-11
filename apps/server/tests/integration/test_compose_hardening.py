@@ -159,8 +159,12 @@ def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() ->
 
 
 def test_production_processing_worker_can_read_local_file_secrets() -> None:
-    worker = _compose()["services"]["rec-processing-worker"]
+    compose = _compose()
+    api = compose["services"]["rec-api"]
+    worker = compose["services"]["rec-processing-worker"]
+    api_secret_sources = {secret["source"] for secret in api["secrets"]}
 
+    assert "twobrain_mediascribe_api_key" not in api_secret_sources
     assert worker["user"] == "root"
     assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
 

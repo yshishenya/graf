@@ -29,8 +29,6 @@ services:
         target: twobrain_minio_api_secret_key
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
-      - source: twobrain_mediascribe_api_key
-        target: twobrain_mediascribe_api_key
     ports:
       - "127.0.0.1:18081:8080"
     healthcheck:

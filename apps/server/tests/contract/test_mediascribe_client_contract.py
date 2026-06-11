@@ -1,8 +1,23 @@
 import httpx
 import pytest
 
+from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
+
+
+def test_mediascribe_client_maps_unreadable_secret_file_to_safe_blocked_config(tmp_path) -> None:
+    settings = Settings(
+        mediascribe_base_url="https://mediascribe.test",
+        mediascribe_api_key_file=tmp_path / "missing.key",
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        MediaScribeClient.from_settings(settings)
+
+    assert exc.value.reason_code == "blocked_config"
+    assert not exc.value.retryable
+    assert "missing.key" not in str(exc.value)
 
 
 @pytest.mark.asyncio
@@ -49,6 +64,57 @@ async def test_mediascribe_client_maps_auth_failure_without_response_secret() ->
     assert exc.value.reason_code == "mediascribe_auth_failed"
     assert not exc.value.retryable
     assert "server-side-key" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_maps_malformed_success_payloads_to_safe_retryable_error() -> None:
+    async def submit_missing_job_id(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "uploaded"})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(submit_missing_job_id),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.submit_dual_track(
+            mic_bytes=b"mic",
+            incoming_bytes=b"incoming",
+            diarize=True,
+            summarize=False,
+        )
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
+    assert exc.value.retryable
+    assert "server-side-key" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_maps_invalid_result_payload_to_safe_retryable_error() -> None:
+    async def result_with_invalid_timing(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_bad_result"},
+                "transcript": [
+                    {"start": -1, "end": 2, "text": "bad timing", "source_role": "mic"},
+                ],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(result_with_invalid_timing),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_bad_result")
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
+    assert exc.value.retryable
+    assert "bad timing" not in str(exc.value)
 
 
 @pytest.mark.asyncio
