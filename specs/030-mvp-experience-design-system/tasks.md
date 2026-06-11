@@ -163,12 +163,17 @@
 
 **Purpose**: Ensure the complete design slice is ready for analyze, implementation review, and downstream execution.
 
-- [ ] T060 Run quickstart validation and record results in `specs/030-mvp-experience-design-system/design/validation-evidence.md`
-- [ ] T061 Update prototype handoff contract references from final design artifacts in `specs/030-mvp-experience-design-system/contracts/prototype-handoff-contract.md`
-- [ ] T062 Update route visibility contract references from final matrix decisions in `specs/030-mvp-experience-design-system/contracts/route-visibility-contract.md`
-- [ ] T063 Update cross-surface status contract references from final state matrix decisions in `specs/030-mvp-experience-design-system/contracts/cross-surface-status-contract.md`
-- [ ] T064 Update current product status summary for this design-readiness slice in `docs/current-product-status.md`
-- [ ] T065 Update changelog entry for feature `030` in `CHANGELOG.md`
+- [ ] T060 Create consolidated screen inventory from all desktop, embedded, and web screen specs in `specs/030-mvp-experience-design-system/design/screen-inventory.md`
+- [ ] T061 Create consolidated user flow map for record, upload, processing, review, degraded, deletion, access, and browser handoff paths in `specs/030-mvp-experience-design-system/design/user-flows.md`
+- [ ] T062 Create design QA checklist for route/status/prototype/accessibility/brand-distance acceptance in `specs/030-mvp-experience-design-system/design/qa-checklist.md`
+- [ ] T063 Create final prototype source decision and accepted clickable-artifact evidence in `specs/030-mvp-experience-design-system/design/prototype/prototype-source-decision.md`
+- [ ] T064 Create reviewer readiness scorecard for MVP scope comprehension in `specs/030-mvp-experience-design-system/design/reviewer-readiness-scorecard.md`
+- [ ] T065 Run quickstart validation and record results in `specs/030-mvp-experience-design-system/design/validation-evidence.md`
+- [ ] T066 Update prototype handoff contract references from final design artifacts in `specs/030-mvp-experience-design-system/contracts/prototype-handoff-contract.md`
+- [ ] T067 Update route visibility contract references from final matrix decisions in `specs/030-mvp-experience-design-system/contracts/route-visibility-contract.md`
+- [ ] T068 Update cross-surface status contract references from final state matrix decisions in `specs/030-mvp-experience-design-system/contracts/cross-surface-status-contract.md`
+- [ ] T069 Update current product status summary for this design-readiness slice in `docs/current-product-status.md`
+- [ ] T070 Update changelog entry for feature `030` in `CHANGELOG.md`
 
 ---
 
@@ -233,6 +238,9 @@ Task: T031 [US3] Specify manual media upload flow for audio and common video/mee
 
 - Every task is marked `[x]`.
 - Every domain checklist remains fully checked.
+- Screen inventory, user flows, route matrix, status matrix, component inventory,
+  visual direction, static visual pack, clickable prototype evidence, and QA
+  checklist exist as reviewable artifacts.
 - `quickstart.md` validation evidence exists.
 - Route/status/prototype contracts reference final design artifacts.
 - No production capture/auth/MediaScribe/deletion code is changed by this feature.
