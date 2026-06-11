@@ -57,8 +57,8 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("last_error_code", sa.String(length=120)),
         sa.Column("last_error_message", sa.String(length=500)),
-        sa.UniqueConstraint("workspace_id", "meeting_id"),
-        sa.UniqueConstraint("workspace_id", "external_job_id"),
+        sa.UniqueConstraint("workspace_id", "meeting_id", name="uq_mediascribe_jobs_workspace_meeting"),
+        sa.UniqueConstraint("workspace_id", "external_job_id", name="uq_mediascribe_jobs_workspace_external_job"),
     )
     op.create_table(
         "processing_results",

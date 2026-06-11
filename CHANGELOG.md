@@ -29,6 +29,9 @@ Semantic Versioning 2.0.0.
 - MediaScribe client now follows the live production contract for polling and
   result import via `/jobs/{job_id}` and normalizes `start`/`end`/`speaker`
   fields into persisted processing rows (`feature:015`).
+- Исправлены имена unique constraints для MediaScribe processing migration,
+  чтобы production PostgreSQL migration не падала на конфликте имен
+  (`feature:015`).
 
 ### Security
 

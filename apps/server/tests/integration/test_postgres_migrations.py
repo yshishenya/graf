@@ -59,6 +59,16 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert (versions / "0004_mediascribe_processing_pipeline.py").exists()
 
 
+def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -> None:
+    migration = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/db/migrations/versions/0004_mediascribe_processing_pipeline.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'name="uq_mediascribe_jobs_workspace_meeting"' in migration
+    assert 'name="uq_mediascribe_jobs_workspace_external_job"' in migration
+
+
 def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:
     database_url = f"sqlite+aiosqlite:///{tmp_path / 'migrated.db'}"
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database_url)

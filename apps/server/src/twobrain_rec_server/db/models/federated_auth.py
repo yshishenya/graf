@@ -57,7 +57,7 @@ class AuthSession(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     device_id: Mapped[UUID | None] = mapped_column(ForeignKey("registered_devices.id"))
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
-    session_token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    session_token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="active")
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
