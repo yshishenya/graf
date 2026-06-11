@@ -54,3 +54,6 @@ out/
 
 # Spec Kit local runtime state that should not contain project source
 .specify/feature.json
+
+# Spec Kit workflow run logs
+.specify/workflows/runs/
