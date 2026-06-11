@@ -945,6 +945,568 @@
       "linear_project_name": "2brain Rec / 013 Federated Auth Foundation",
       "linear_project_id": "6bd8387f-cd22-4fdd-9208-67eb265fe056",
       "linear_project_url": "https://linear.app/yshishneya/project/2brain-rec-013-federated-auth-foundation-7bbc494a4fab"
+    },
+    "015": {
+      "name": "015-mediascribe-processing-pipeline",
+      "github_repo": "yshishenya/crisp",
+      "tasks": {
+        "T001": {
+          "title": "Add runtime dependencies for `httpx` and `temporalio` plus any required dev constraints in `apps/server/pyproject.toml`",
+          "source_line": 21,
+          "done": true,
+          "linear_issue": "YSH-274",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-274/015t001-vypolnit-zadachu-t001-servernaya-chast"
+        },
+        "T002": {
+          "title": "Add processing package exports in `apps/server/src/twobrain_rec_server/processing/__init__.py`",
+          "source_line": 22,
+          "done": true,
+          "linear_issue": "YSH-275",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-275/015t002-vypolnit-zadachu-t002-servernaya-chast"
+        },
+        "T003": {
+          "title": "Add MediaScribe package exports in `apps/server/src/twobrain_rec_server/mediascribe/__init__.py`",
+          "source_line": 23,
+          "done": true,
+          "linear_issue": "YSH-276",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-276/015t003-vypolnit-zadachu-t003-servernaya-chast"
+        },
+        "T004": {
+          "title": "Add workflow package exports in `apps/server/src/twobrain_rec_server/workflows/__init__.py`",
+          "source_line": 24,
+          "done": true,
+          "linear_issue": "YSH-277",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-277/015t004-vypolnit-zadachu-t004-servernaya-chast"
+        },
+        "T005": {
+          "title": "Add processing configuration fields and production validation for MediaScribe/Temporal secrets in `apps/server/src/twobrain_rec_server/config.py`",
+          "source_line": 25,
+          "done": true,
+          "linear_issue": "YSH-278",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-278/015t005-vypolnit-zadachu-t005-servernaya-chast"
+        },
+        "T006": {
+          "title": "Add local fake MediaScribe helper scaffold in `apps/server/tests/fakes/fake_mediascribe.py`",
+          "source_line": 26,
+          "done": true,
+          "linear_issue": "YSH-279",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-279/015t006-vypolnit-zadachu-t006-servernaya-chast"
+        },
+        "T007": {
+          "title": "Add local fake Temporal helper scaffold in `apps/server/tests/fakes/fake_temporal.py`",
+          "source_line": 27,
+          "done": true,
+          "linear_issue": "YSH-280",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-280/015t007-vypolnit-zadachu-t007-servernaya-chast"
+        },
+        "T008": {
+          "title": "Add processing env placeholders without live secrets in `apps/server/.env.example`",
+          "source_line": 28,
+          "done": true,
+          "linear_issue": "YSH-281",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-281/015t008-vypolnit-zadachu-t008-servernaya-chast"
+        },
+        "T009": {
+          "title": "Add Temporal worker runner entrypoint in `apps/server/src/twobrain_rec_server/workflows/worker.py`",
+          "source_line": 29,
+          "done": true,
+          "linear_issue": "YSH-282",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-282/015t009-vypolnit-zadachu-t009-servernaya-chast"
+        },
+        "T010": {
+          "title": "Add Temporal and processing worker service placeholders in `infra/docker-compose.dev.yml` and `infra/docker-compose.yml`",
+          "source_line": 30,
+          "done": true,
+          "linear_issue": "YSH-283",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-283/015t010-vypolnit-zadachu-t010-realizaciya"
+        },
+        "T011": {
+          "title": "Add processing status enums and MediaScribe status enums in `apps/server/src/twobrain_rec_server/domain/statuses.py`",
+          "source_line": 40,
+          "done": true,
+          "linear_issue": "YSH-284",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-284/015t011-vypolnit-zadachu-t011-servernaya-chast"
+        },
+        "T012": {
+          "title": "Add SQLAlchemy processing models in `apps/server/src/twobrain_rec_server/db/models/processing.py`",
+          "source_line": 41,
+          "done": true,
+          "linear_issue": "YSH-285",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-285/015t012-vypolnit-zadachu-t012-servernaya-chast"
+        },
+        "T013": {
+          "title": "Add processing models to DB model exports in `apps/server/src/twobrain_rec_server/db/models/__init__.py`",
+          "source_line": 42,
+          "done": true,
+          "linear_issue": "YSH-286",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-286/015t013-vypolnit-zadachu-t013-servernaya-chast"
+        },
+        "T014": {
+          "title": "Add Alembic migration for processing workflows, jobs, results, segments, audit events, and dependency states in `apps/server/src/twobrain_rec_server/db/migrations/versions/0004_mediascribe_processing_pipeline.py`",
+          "source_line": 43,
+          "done": true,
+          "linear_issue": "YSH-287",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-287/015t014-vypolnit-zadachu-t014-servernaya-chast"
+        },
+        "T015": {
+          "title": "Add processing Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`",
+          "source_line": 44,
+          "done": true,
+          "linear_issue": "YSH-288",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-288/015t015-vypolnit-zadachu-t015-servernaya-chast"
+        },
+        "T016": {
+          "title": "Add MediaScribe request/response schemas in `apps/server/src/twobrain_rec_server/mediascribe/schemas.py`",
+          "source_line": 45,
+          "done": true,
+          "linear_issue": "YSH-289",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-289/015t016-vypolnit-zadachu-t016-servernaya-chast"
+        },
+        "T017": {
+          "title": "Add processing reason-code constants in `apps/server/src/twobrain_rec_server/processing/reasons.py`",
+          "source_line": 46,
+          "done": true,
+          "linear_issue": "YSH-290",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-290/015t017-vypolnit-zadachu-t017-servernaya-chast"
+        },
+        "T018": {
+          "title": "Add server-side MinIO read helpers for stored track artifacts in `apps/server/src/twobrain_rec_server/storage/minio_client.py`",
+          "source_line": 47,
+          "done": true,
+          "linear_issue": "YSH-291",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-291/015t018-vypolnit-zadachu-t018-servernaya-chast"
+        },
+        "T019": {
+          "title": "Add processing audit metadata builder in `apps/server/src/twobrain_rec_server/processing/audit.py`",
+          "source_line": 48,
+          "done": true,
+          "linear_issue": "YSH-292",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-292/015t019-vypolnit-zadachu-t019-servernaya-chast"
+        },
+        "T020": {
+          "title": "Add processing persistence helpers in `apps/server/src/twobrain_rec_server/processing/store.py`",
+          "source_line": 49,
+          "done": true,
+          "linear_issue": "YSH-293",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-293/015t020-vypolnit-zadachu-t020-servernaya-chast"
+        },
+        "T021": {
+          "title": "Add processing state transition helpers in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`",
+          "source_line": 50,
+          "done": true,
+          "linear_issue": "YSH-294",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-294/015t021-vypolnit-zadachu-t021-servernaya-chast"
+        },
+        "T022": {
+          "title": "Add processing contract tests for OpenAPI status schema in `apps/server/tests/contract/test_processing_status_contract.py`",
+          "source_line": 51,
+          "done": true,
+          "linear_issue": "YSH-295",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-295/015t022-vypolnit-zadachu-t022-servernaya-chast"
+        },
+        "T023": {
+          "title": "Add MediaScribe client contract tests in `apps/server/tests/contract/test_mediascribe_client_contract.py`",
+          "source_line": 52,
+          "done": true,
+          "linear_issue": "YSH-296",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-296/015t023-vypolnit-zadachu-t023-servernaya-chast"
+        },
+        "T024": {
+          "title": "Add processing state-machine unit tests in `apps/server/tests/unit/test_processing_state_machine.py`",
+          "source_line": 53,
+          "done": true,
+          "linear_issue": "YSH-297",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-297/015t024-vypolnit-zadachu-t024-servernaya-chast"
+        },
+        "T025": {
+          "title": "Add processing migration integration tests in `apps/server/tests/integration/test_processing_migrations.py`",
+          "source_line": 54,
+          "done": true,
+          "linear_issue": "YSH-298",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-298/015t025-vypolnit-zadachu-t025-servernaya-chast"
+        },
+        "T026": {
+          "title": "Verify foundational tests fail before implementation and record expected red state in `specs/015-mediascribe-processing-pipeline/quickstart.md`",
+          "source_line": 55,
+          "done": true,
+          "linear_issue": "YSH-299",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-299/015t026-vypolnit-zadachu-t026-proverka-kachestva"
+        },
+        "T027": {
+          "title": "Add integration tests for eligible pickup and duplicate workflow reuse in `apps/server/tests/integration/test_processing_pickup.py`",
+          "source_line": 69,
+          "done": true,
+          "linear_issue": "YSH-300",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-300/015t027-vypolnit-zadachu-t027-servernaya-chast-us1"
+        },
+        "T028": {
+          "title": "Add integration tests blocking degraded/failed/aborted/expired/incomplete meetings in `apps/server/tests/integration/test_processing_pickup_blockers.py`",
+          "source_line": 70,
+          "done": true,
+          "linear_issue": "YSH-301",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-301/015t028-vypolnit-zadachu-t028-servernaya-chast-us1"
+        },
+        "T029": {
+          "title": "Add workflow id safety tests in `apps/server/tests/unit/test_processing_workflow_identity.py`",
+          "source_line": 71,
+          "done": true,
+          "linear_issue": "YSH-302",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-302/015t029-vypolnit-zadachu-t029-avtorizaciya-i-dostup-us1"
+        },
+        "T030": {
+          "title": "Implement workflow id generation and validation in `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`",
+          "source_line": 75,
+          "done": true,
+          "linear_issue": "YSH-303",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-303/015t030-vypolnit-zadachu-t030-servernaya-chast-us1"
+        },
+        "T031": {
+          "title": "Implement processing eligibility checks in `apps/server/src/twobrain_rec_server/processing/pickup.py`",
+          "source_line": 76,
+          "done": true,
+          "linear_issue": "YSH-304",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-304/015t031-vypolnit-zadachu-t031-servernaya-chast-us1"
+        },
+        "T032": {
+          "title": "Implement idempotent workflow start/reuse using the Temporal adapter in `apps/server/src/twobrain_rec_server/processing/pickup.py`",
+          "source_line": 77,
+          "done": true,
+          "linear_issue": "YSH-305",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-305/015t032-vypolnit-zadachu-t032-servernaya-chast-us1"
+        },
+        "T033": {
+          "title": "Implement workflow orchestration shell in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`",
+          "source_line": 78,
+          "done": true,
+          "linear_issue": "YSH-306",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-306/015t033-vypolnit-zadachu-t033-servernaya-chast-us1"
+        },
+        "T034": {
+          "title": "Add internal processing pickup endpoint in `apps/server/src/twobrain_rec_server/api/processing.py`",
+          "source_line": 79,
+          "done": true,
+          "linear_issue": "YSH-307",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-307/015t034-vypolnit-zadachu-t034-servernaya-chast-us1"
+        },
+        "T035": {
+          "title": "Register processing router in `apps/server/src/twobrain_rec_server/main.py`",
+          "source_line": 80,
+          "done": true,
+          "linear_issue": "YSH-308",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-308/015t035-vypolnit-zadachu-t035-servernaya-chast-us1"
+        },
+        "T036": {
+          "title": "Update processing placeholder loader to prefer persisted processing workflow state in `apps/server/src/twobrain_rec_server/ingest/processing_placeholder.py`",
+          "source_line": 81,
+          "done": true,
+          "linear_issue": "YSH-309",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-309/015t036-vypolnit-zadachu-t036-servernaya-chast-us1"
+        },
+        "T037": {
+          "title": "Run US1 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`",
+          "source_line": 82,
+          "done": true,
+          "linear_issue": "YSH-310",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-310/015t037-vypolnit-zadachu-t037-proverka-kachestva-us1"
+        },
+        "T038": {
+          "title": "Add dual-track request mapping tests for `mic_file`, `incoming_file`, no mixed file, and no silence stripping in `apps/server/tests/unit/test_mediascribe_request_mapping.py`",
+          "source_line": 96,
+          "done": true,
+          "linear_issue": "YSH-311",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-311/015t038-vypolnit-zadachu-t038-servernaya-chast-us2"
+        },
+        "T039": {
+          "title": "Add integration happy-path submit test in `apps/server/tests/integration/test_mediascribe_submit.py`",
+          "source_line": 97,
+          "done": true,
+          "linear_issue": "YSH-312",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-312/015t039-vypolnit-zadachu-t039-servernaya-chast-us2"
+        },
+        "T040": {
+          "title": "Add no desktop/response secret egress tests in `apps/server/tests/contract/test_processing_no_secret_content_egress.py`",
+          "source_line": 98,
+          "done": true,
+          "linear_issue": "YSH-313",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-313/015t040-vypolnit-zadachu-t040-servernaya-chast-us2"
+        },
+        "T041": {
+          "title": "Implement server-side MediaScribe HTTP client in `apps/server/src/twobrain_rec_server/mediascribe/client.py`",
+          "source_line": 102,
+          "done": true,
+          "linear_issue": "YSH-314",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-314/015t041-vypolnit-zadachu-t041-servernaya-chast-us2"
+        },
+        "T042": {
+          "title": "Implement artifact-to-MediaScribe request mapping in `apps/server/src/twobrain_rec_server/mediascribe/client.py`",
+          "source_line": 103,
+          "done": true,
+          "linear_issue": "YSH-315",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-315/015t042-vypolnit-zadachu-t042-servernaya-chast-us2"
+        },
+        "T043": {
+          "title": "Implement submit activity/service in `apps/server/src/twobrain_rec_server/processing/submit.py`",
+          "source_line": 104,
+          "done": true,
+          "linear_issue": "YSH-316",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-316/015t043-vypolnit-zadachu-t043-servernaya-chast-us2"
+        },
+        "T044": {
+          "title": "Persist MediaScribe job id and request metadata before retry continuation in `apps/server/src/twobrain_rec_server/processing/store.py`",
+          "source_line": 105,
+          "done": true,
+          "linear_issue": "YSH-317",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-317/015t044-vypolnit-zadachu-t044-servernaya-chast-us2"
+        },
+        "T045": {
+          "title": "Wire submission step into workflow orchestration in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`",
+          "source_line": 106,
+          "done": true,
+          "linear_issue": "YSH-318",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-318/015t045-vypolnit-zadachu-t045-servernaya-chast-us2"
+        },
+        "T046": {
+          "title": "Extend health/readiness detail with processing dependency configuration in `apps/server/src/twobrain_rec_server/api/health.py`",
+          "source_line": 107,
+          "done": true,
+          "linear_issue": "YSH-319",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-319/015t046-vypolnit-zadachu-t046-servernaya-chast-us2"
+        },
+        "T047": {
+          "title": "Run US2 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`",
+          "source_line": 108,
+          "done": true,
+          "linear_issue": "YSH-320",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-320/015t047-vypolnit-zadachu-t047-proverka-kachestva-us2"
+        },
+        "T048": {
+          "title": "Add result import unit tests in `apps/server/tests/unit/test_mediascribe_result_import.py`",
+          "source_line": 122,
+          "done": true,
+          "linear_issue": "YSH-321",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-321/015t048-vypolnit-zadachu-t048-servernaya-chast-us3"
+        },
+        "T049": {
+          "title": "Add processing happy-path integration tests in `apps/server/tests/integration/test_mediascribe_processing_happy_path.py`",
+          "source_line": 123,
+          "done": true,
+          "linear_issue": "YSH-322",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-322/015t049-vypolnit-zadachu-t049-servernaya-chast-us3"
+        },
+        "T050": {
+          "title": "Add idempotent import tests in `apps/server/tests/integration/test_processing_result_idempotency.py`",
+          "source_line": 124,
+          "done": true,
+          "linear_issue": "YSH-323",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-323/015t050-vypolnit-zadachu-t050-servernaya-chast-us3"
+        },
+        "T051": {
+          "title": "Implement MediaScribe polling response mapping in `apps/server/src/twobrain_rec_server/mediascribe/client.py`",
+          "source_line": 128,
+          "done": true,
+          "linear_issue": "YSH-324",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-324/015t051-vypolnit-zadachu-t051-servernaya-chast-us3"
+        },
+        "T052": {
+          "title": "Implement result normalization and validation in `apps/server/src/twobrain_rec_server/mediascribe/import_results.py`",
+          "source_line": 129,
+          "done": true,
+          "linear_issue": "YSH-325",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-325/015t052-vypolnit-zadachu-t052-servernaya-chast-us3"
+        },
+        "T053": {
+          "title": "Implement transcript and diarization segment persistence in `apps/server/src/twobrain_rec_server/processing/store.py`",
+          "source_line": 130,
+          "done": true,
+          "linear_issue": "YSH-326",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-326/015t053-vypolnit-zadachu-t053-servernaya-chast-us3"
+        },
+        "T054": {
+          "title": "Implement summary dependency state persistence in `apps/server/src/twobrain_rec_server/processing/store.py`",
+          "source_line": 131,
+          "done": true,
+          "linear_issue": "YSH-327",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-327/015t054-vypolnit-zadachu-t054-servernaya-chast-us3"
+        },
+        "T055": {
+          "title": "Wire poll/fetch/import steps into workflow orchestration in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`",
+          "source_line": 132,
+          "done": true,
+          "linear_issue": "YSH-328",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-328/015t055-vypolnit-zadachu-t055-servernaya-chast-us3"
+        },
+        "T056": {
+          "title": "Run US3 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`",
+          "source_line": 133,
+          "done": true,
+          "linear_issue": "YSH-329",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-329/015t056-vypolnit-zadachu-t056-proverka-kachestva-us3"
+        },
+        "T057": {
+          "title": "Add failure matrix integration tests in `apps/server/tests/integration/test_processing_failures.py`",
+          "source_line": 147,
+          "done": true,
+          "linear_issue": "YSH-330",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-330/015t057-vypolnit-zadachu-t057-servernaya-chast-us4"
+        },
+        "T058": {
+          "title": "Add worker restart/resume integration tests in `apps/server/tests/integration/test_processing_worker_restart.py`",
+          "source_line": 148,
+          "done": true,
+          "linear_issue": "YSH-331",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-331/015t058-vypolnit-zadachu-t058-servernaya-chast-us4"
+        },
+        "T059": {
+          "title": "Add readiness separation tests in `apps/server/tests/integration/test_processing_readiness.py`",
+          "source_line": 149,
+          "done": true,
+          "linear_issue": "YSH-332",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-332/015t059-vypolnit-zadachu-t059-servernaya-chast-us4"
+        },
+        "T060": {
+          "title": "Implement MediaScribe error classification in `apps/server/src/twobrain_rec_server/mediascribe/client.py`",
+          "source_line": 153,
+          "done": true,
+          "linear_issue": "YSH-333",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-333/015t060-vypolnit-zadachu-t060-servernaya-chast-us4"
+        },
+        "T061": {
+          "title": "Implement retry/terminal transition handling in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`",
+          "source_line": 154,
+          "done": true,
+          "linear_issue": "YSH-334",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-334/015t061-vypolnit-zadachu-t061-servernaya-chast-us4"
+        },
+        "T062": {
+          "title": "Implement restart-safe resume from persisted job/result state in `apps/server/src/twobrain_rec_server/processing/pickup.py`",
+          "source_line": 155,
+          "done": true,
+          "linear_issue": "YSH-335",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-335/015t062-vypolnit-zadachu-t062-servernaya-chast-us4"
+        },
+        "T063": {
+          "title": "Ensure processing failures do not rewrite ingest status in `apps/server/src/twobrain_rec_server/processing/store.py`",
+          "source_line": 156,
+          "done": true,
+          "linear_issue": "YSH-336",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-336/015t063-vypolnit-zadachu-t063-servernaya-chast-us4"
+        },
+        "T064": {
+          "title": "Run US4 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`",
+          "source_line": 157,
+          "done": true,
+          "linear_issue": "YSH-337",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-337/015t064-vypolnit-zadachu-t064-proverka-kachestva-us4"
+        },
+        "T065": {
+          "title": "Add processing audit metadata tests in `apps/server/tests/integration/test_processing_audit.py`",
+          "source_line": 171,
+          "done": true,
+          "linear_issue": "YSH-338",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-338/015t065-vypolnit-zadachu-t065-servernaya-chast-us5"
+        },
+        "T066": {
+          "title": "Add deletion dependency accounting tests in `apps/server/tests/integration/test_processing_deletion_dependency.py`",
+          "source_line": 172,
+          "done": true,
+          "linear_issue": "YSH-339",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-339/015t066-vypolnit-zadachu-t066-servernaya-chast-us5"
+        },
+        "T067": {
+          "title": "Add no secret/content egress scans for processing in `apps/server/tests/contract/test_processing_no_secret_content_egress.py`",
+          "source_line": 173,
+          "done": true,
+          "linear_issue": "YSH-340",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-340/015t067-vypolnit-zadachu-t067-servernaya-chast-us5"
+        },
+        "T068": {
+          "title": "Persist metadata-only processing audit events in `apps/server/src/twobrain_rec_server/processing/audit.py`",
+          "source_line": 177,
+          "done": true,
+          "linear_issue": "YSH-341",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-341/015t068-vypolnit-zadachu-t068-servernaya-chast-us5"
+        },
+        "T069": {
+          "title": "Persist ProcessingDependencyState records in `apps/server/src/twobrain_rec_server/processing/store.py`",
+          "source_line": 178,
+          "done": true,
+          "linear_issue": "YSH-342",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-342/015t069-vypolnit-zadachu-t069-servernaya-chast-us5"
+        },
+        "T070": {
+          "title": "Extend redaction/scan helpers for processing content classes in `apps/server/src/twobrain_rec_server/observability/redaction.py`",
+          "source_line": 179,
+          "done": true,
+          "linear_issue": "YSH-343",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-343/015t070-vypolnit-zadachu-t070-servernaya-chast-us5"
+        },
+        "T071": {
+          "title": "Add deployment/env templates for MediaScribe/Temporal secret files without live values in `infra/env/rec.production.env.example`",
+          "source_line": 180,
+          "done": true,
+          "linear_issue": "YSH-344",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-344/015t071-vypolnit-zadachu-t071-bezopasnost-us5"
+        },
+        "T072": {
+          "title": "Run US5 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`",
+          "source_line": 181,
+          "done": true,
+          "linear_issue": "YSH-345",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-345/015t072-vypolnit-zadachu-t072-proverka-kachestva-us5"
+        },
+        "T073": {
+          "title": "Add processing status API contract tests in `apps/server/tests/contract/test_processing_status_contract.py`",
+          "source_line": 195,
+          "done": true,
+          "linear_issue": "YSH-346",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-346/015t073-vypolnit-zadachu-t073-servernaya-chast-us6"
+        },
+        "T074": {
+          "title": "Add tenant authorization tests for processing status in `apps/server/tests/integration/test_processing_tenant_authorization.py`",
+          "source_line": 196,
+          "done": true,
+          "linear_issue": "YSH-347",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-347/015t074-vypolnit-zadachu-t074-avtorizaciya-i-dostup-us6"
+        },
+        "T075": {
+          "title": "Add out-of-scope boundary tests in `apps/server/tests/integration/test_processing_out_of_scope_boundaries.py`",
+          "source_line": 197,
+          "done": true,
+          "linear_issue": "YSH-348",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-348/015t075-vypolnit-zadachu-t075-servernaya-chast-us6"
+        },
+        "T076": {
+          "title": "Implement content-safe processing status query service in `apps/server/src/twobrain_rec_server/processing/status.py`",
+          "source_line": 201,
+          "done": true,
+          "linear_issue": "YSH-349",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-349/015t076-vypolnit-zadachu-t076-servernaya-chast-us6"
+        },
+        "T077": {
+          "title": "Implement processing status endpoint in `apps/server/src/twobrain_rec_server/api/processing.py`",
+          "source_line": 202,
+          "done": true,
+          "linear_issue": "YSH-350",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-350/015t077-vypolnit-zadachu-t077-servernaya-chast-us6"
+        },
+        "T078": {
+          "title": "Ensure transcript/audio/summary download, share, dashboard, delete, and assisted-recording endpoints remain absent in `apps/server/src/twobrain_rec_server/api/processing.py`",
+          "source_line": 203,
+          "done": true,
+          "linear_issue": "YSH-351",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-351/015t078-vypolnit-zadachu-t078-servernaya-chast-us6"
+        },
+        "T079": {
+          "title": "Run US6 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`",
+          "source_line": 204,
+          "done": true,
+          "linear_issue": "YSH-352",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-352/015t079-vypolnit-zadachu-t079-proverka-kachestva-us6"
+        }
+      },
+      "linear_project_id": "36c4c364-d656-4811-8316-98aa10be4c1c",
+      "linear_project_name": "2brain Rec / 015 Mediascribe Processing Pipeline",
+      "linear_project_url": "https://linear.app/yshishneya/project/2brain-rec-015-mediascribe-processing-pipeline-d44b8f989de5"
     }
   },
   "team_key": "",

@@ -122,3 +122,30 @@ class FinalizeUploadResponse(BaseModel):
 
 class AbortUploadRequest(BaseModel):
     reason: Annotated[SafeClientText, Field(max_length=240)] | None = None
+
+
+class ProcessingPickupRequest(BaseModel):
+    meeting_id: UUID | None = None
+    limit: int = Field(default=25, ge=1, le=100)
+
+
+class ProcessingPickupResponse(BaseModel):
+    accepted: bool
+    started_count: int = Field(ge=0)
+    reused_count: int = Field(ge=0)
+    blocked_count: int = Field(ge=0)
+    meeting_ids: list[UUID] = Field(default_factory=list)
+
+
+class ProcessingStatusResponse(BaseModel):
+    meeting_id: UUID
+    workspace_id: UUID
+    state: ProcessingStatus
+    reason_code: str | None = None
+    workflow_id: str | None = None
+    mediascribe_job_id_present: bool = False
+    content_available: bool = False
+    transcript_available: bool = False
+    diarization_available: bool = False
+    summary_status: str = "not_requested"
+    updated_at: datetime | None = None

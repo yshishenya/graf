@@ -24,6 +24,37 @@ services:
       rec-minio-init:
         condition: service_completed_successfully
 
+  rec-processing-worker:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    env_file:
+      - ../apps/server/.env.example
+    environment:
+      TWOBRAIN_PROCESSING_ENABLED: "true"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
+      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+    command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
+    depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
+      rec-temporal:
+        condition: service_started
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+
+  rec-temporal:
+    image: temporalio/auto-setup:1.27.2
+    ports:
+      - "7233:7233"
+
   rec-migrate:
     build:
       context: ..

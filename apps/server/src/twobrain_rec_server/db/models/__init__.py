@@ -24,16 +24,32 @@ from twobrain_rec_server.db.models.ingest import (
     UploadSession,
 )
 from twobrain_rec_server.db.models.meeting import Meeting, ProcessingPlaceholder
+from twobrain_rec_server.db.models.processing import (
+    DiarizationSegment,
+    MediaScribeJob,
+    ProcessingAuditEvent,
+    ProcessingDependencyState,
+    ProcessingResult,
+    ProcessingWorkflow,
+    TranscriptSegment,
+)
 
 __all__ = [
+    "DiarizationSegment",
     "IngestAuditEvent",
     "ManifestSnapshot",
+    "MediaScribeJob",
     "Meeting",
     "Organization",
+    "ProcessingAuditEvent",
+    "ProcessingDependencyState",
     "ProcessingPlaceholder",
+    "ProcessingResult",
+    "ProcessingWorkflow",
     "RegisteredDevice",
     "TemporaryUploadObject",
     "TrackArtifact",
+    "TranscriptSegment",
     "UploadPart",
     "UploadSession",
     "UserIdentity",

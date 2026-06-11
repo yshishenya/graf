@@ -120,7 +120,13 @@ if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MIN
   exit 1
 fi
 
-docker compose -f infra/docker-compose.yml up -d --build rec-api rec-migrate rec-minio rec-minio-init
+docker compose -f infra/docker-compose.yml up -d --build \
+  rec-api \
+  rec-migrate \
+  rec-minio \
+  rec-minio-init \
+  rec-temporal \
+  rec-processing-worker
 rec_api_container="$(docker compose -f infra/docker-compose.yml ps -q rec-api)"
 if [ -z "$rec_api_container" ]; then
   echo "deploy_result=blocked"
