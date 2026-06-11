@@ -132,6 +132,13 @@ def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() ->
     assert temporal["depends_on"]["rec-postgres"]["condition"] == "service_healthy"
 
 
+def test_production_processing_worker_can_read_local_file_secrets() -> None:
+    worker = _compose()["services"]["rec-processing-worker"]
+
+    assert worker["user"] == "root"
+    assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
+
+
 def test_remote_cd_blocks_static_postgres_pwd_in_compose_config() -> None:
     script = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
 
