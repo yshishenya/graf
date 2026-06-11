@@ -118,6 +118,25 @@ services:
   rec-temporal:
     image: temporalio/auto-setup:1.27.2
     restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: rec-postgres
+      POSTGRES_USER: twobrain_rec
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    secrets:
+      - source: twobrain_postgres_password
+        target: twobrain_postgres_password
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        export POSTGRES_PWD="$$(cat /run/secrets/twobrain_postgres_password)"
+        exec /etc/temporal/entrypoint.sh autosetup
+    depends_on:
+      rec-postgres:
+        condition: service_healthy
     expose:
       - "7233"
     logging:

@@ -110,3 +110,28 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
 
     postgres = compose["services"]["rec-postgres"]
     assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])
+
+
+def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() -> None:
+    compose = _compose()
+    temporal = compose["services"]["rec-temporal"]
+    temporal_env = temporal["environment"]
+    entrypoint = "\n".join(temporal["entrypoint"])
+
+    assert temporal_env["DB"] == "postgres12"
+    assert temporal_env["DB_PORT"] == "5432"
+    assert temporal_env["POSTGRES_SEEDS"] == "rec-postgres"
+    assert temporal_env["POSTGRES_USER"] == "twobrain_rec"
+    assert temporal_env["DBNAME"] == "temporal"
+    assert temporal_env["VISIBILITY_DBNAME"] == "temporal_visibility"
+    assert "POSTGRES_PWD" not in temporal_env
+    assert 'POSTGRES_PWD="$$(cat /run/secrets/twobrain_postgres_password)"' in entrypoint
+    assert "/etc/temporal/entrypoint.sh autosetup" in entrypoint
+    assert {"source": "twobrain_postgres_password", "target": "twobrain_postgres_password"} in temporal["secrets"]
+    assert temporal["depends_on"]["rec-postgres"]["condition"] == "service_healthy"
+
+
+def test_remote_cd_blocks_static_postgres_pwd_in_compose_config() -> None:
+    script = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
+
+    assert "POSTGRES_PWD:" in script

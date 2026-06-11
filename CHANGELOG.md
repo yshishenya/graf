@@ -58,6 +58,9 @@ Semantic Versioning 2.0.0.
   worker без live secrets (`feature:015`, `T010`, `T071`, `T085`).
 - Remote CD теперь запускает Temporal и processing worker, которые нужны для
   production-проверки обработки (`feature:015`).
+- Production Temporal теперь запускается на Postgres backend через Docker
+  secret wrapper, а CD блокирует статический `POSTGRES_PWD` в compose config
+  (`feature:015`).
 
 ## [Unreleased Template]
 

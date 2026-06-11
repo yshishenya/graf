@@ -114,7 +114,7 @@ set -a
 . ./.env
 set +a
 docker compose -f infra/docker-compose.yml config >/tmp/twobrain-rec-compose-deploy.yml
-if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY):|MINIO_ROOT_PASSWORD:|MINIO_ROOT_USER:' /tmp/twobrain-rec-compose-deploy.yml; then
+if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY):|MINIO_ROOT_PASSWORD:|MINIO_ROOT_USER:|POSTGRES_PWD:' /tmp/twobrain-rec-compose-deploy.yml; then
   echo "deploy_result=blocked"
   echo "reason=secret_env_exposure"
   exit 1
