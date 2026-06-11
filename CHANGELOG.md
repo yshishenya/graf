@@ -32,6 +32,9 @@ Semantic Versioning 2.0.0.
 - Исправлены имена unique constraints для MediaScribe processing migration,
   чтобы production PostgreSQL migration не падала на конфликте имен
   (`feature:015`).
+- Укорочен Alembic revision id для `0004`, чтобы он помещался в стандартный
+  `alembic_version.version_num`, и Temporal production wrapper теперь читает
+  local-file secrets с корректными правами (`feature:015`).
 
 ### Security
 

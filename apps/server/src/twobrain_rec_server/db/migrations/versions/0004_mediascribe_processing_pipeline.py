@@ -1,6 +1,6 @@
 """mediascribe processing pipeline
 
-Revision ID: 0004_mediascribe_processing_pipeline
+Revision ID: 0004_mediascribe_processing
 Revises: 0003_federated_auth_foundation
 Create Date: 2026-06-11
 """
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0004_mediascribe_processing_pipeline"
+revision: str = "0004_mediascribe_processing"
 down_revision: str | None = "0003_federated_auth_foundation"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
