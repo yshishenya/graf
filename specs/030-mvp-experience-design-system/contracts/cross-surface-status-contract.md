@@ -22,6 +22,8 @@ Each status definition must include:
 - `allowed_claims`
 - `forbidden_claims`
 - `deletion_or_retention_note`
+- `source_or_track_provenance_note` when the state appears in meeting review or
+  upload flows
 
 ## Required Statuses
 
@@ -51,6 +53,40 @@ Each status definition must include:
   action is available.
 - Deletion copy must use truthful control-bounded language.
 - Access denied states must not leak meeting metadata beyond allowed policy.
+
+## Lifecycle And Dependency Truth
+
+Deletion, retention, degraded, and failed statuses must include product-safe
+copy principles for these artifact classes when they are relevant:
+
+- local desktop buffers and local packages;
+- server database records;
+- object storage artifacts;
+- workflow payloads and workflow history;
+- backup expiry;
+- MediaScribe dependency state;
+- Langfuse trace/content state;
+- diagnostics and support bundles;
+- external post-egress limits;
+- unreachable clients.
+
+Statuses must not expose credentials, bucket names, signed URLs, tokens, live
+local paths, internal IDs, or private meeting content. When a dependency cannot
+confirm deletion or processing state, the status must say what is known and
+what is not confirmed.
+
+## Source And Track Provenance Truth
+
+Meeting review and upload statuses must distinguish:
+
+- desktop-captured separate microphone/system tracks;
+- uploaded mixed audio;
+- uploaded video or meeting container with extracted audio;
+- media with no usable audio;
+- unknown or unavailable speaker/track separation.
+
+The UI copy must not imply dual-track capture, speaker separation, or transcript
+quality guarantees when the source file does not support those claims.
 
 ## Review-Surface Requirements
 

@@ -40,8 +40,12 @@ Expected: all commands exit successfully.
 ## 3. Check Clarification And Placeholder Hygiene
 
 ```sh
-rg -n "NEEDS CLARIFICATION|TODO|TBD|\\[FEATURE\\]|\\[DATE\\]|\\[e.g." \
-  specs/030-mvp-experience-design-system
+rg -n "T[O]DO|T[B]D|\\[(FEATURE|DATE)\\]" \
+  specs/030-mvp-experience-design-system/spec.md \
+  specs/030-mvp-experience-design-system/plan.md \
+  specs/030-mvp-experience-design-system/research.md \
+  specs/030-mvp-experience-design-system/data-model.md \
+  specs/030-mvp-experience-design-system/contracts
 ```
 
 Expected: no matches in finalized planning artifacts.
@@ -74,6 +78,11 @@ Expected:
 - uploaded never means transcript ready;
 - transcript ready never means notes ready;
 - deletion copy is limited to what `2brain Rec` controls.
+- deletion and retention notes account for local buffers, server records,
+  object storage, workflow payloads, backups, MediaScribe, Langfuse,
+  diagnostics, post-egress limits, and unreachable clients where relevant.
+- uploaded-media review states do not imply separate microphone/system tracks
+  or speaker separation unless the source provenance supports it.
 
 ## 6. Validate Owner Value Loop Prototype
 
@@ -90,6 +99,7 @@ Walk the clickable prototype from both desktop and browser entry points:
 9. degraded/failure state;
 10. browser-only handoff;
 11. deletion/access entry point.
+12. source/track provenance for desktop recording and manual upload.
 
 Expected: at least 95% of primary MVP journey steps can be completed without
 inventing missing screens or states.

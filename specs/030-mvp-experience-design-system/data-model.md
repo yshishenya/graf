@@ -32,6 +32,9 @@ to implementation readiness.
 
 - `recording_state`: Idle, permission-blocked, ready, active, stopping,
   saved-local, degraded, failed.
+- `recording_start_policy`: Manual available, policy-blocked, signed-out local
+  allowed, assisted auto-start unavailable, or future assisted auto-start
+  policy-gated.
 - `capture_indicator`: Visible state and location.
 - `stop_control`: One-action stop availability.
 - `local_artifact_truth`: Saved, degraded, failed, local-only, queued.
@@ -45,6 +48,9 @@ to implementation readiness.
   capture-critical controls.
 - Signed-out states may block upload but must not falsely imply local recording
   deletion.
+- Assisted auto-start, when shown as a future setting or policy marker, must be
+  visible, auditable, scoped to approved meetings or explicit user selection,
+  and never described as arbitrary hidden system-audio recording.
 
 ## Server Web Cabinet
 
@@ -154,6 +160,9 @@ desktop recorder app.
 
 - `accepted_media_category`: Audio file, video/meeting file with usable audio,
   unsupported, encrypted, corrupted, duplicate, oversized, or no usable audio.
+- `track_provenance`: Desktop separate microphone/system tracks, uploaded mixed
+  audio, uploaded extracted audio, no usable audio, or unknown/unavailable
+  speaker separation.
 - `upload_state`
 - `audio_extraction_state`
 - `processing_state`
@@ -165,6 +174,8 @@ desktop recorder app.
 - Common video/meeting files may be accepted only with audio-first copy.
 - Full video playback and video timeline review are deferred.
 - Unsupported/no-audio states must be explicit and recoverable where possible.
+- Uploaded media must not imply separate microphone/system tracks or speaker
+  separation unless that provenance is known.
 
 ## Owner Value Loop
 

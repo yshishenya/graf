@@ -182,6 +182,9 @@ As engineering, I want the design feature to end with implementation-ready slice
 - **FR-029**: The status model MUST define cross-surface consistency for local recording saved, local only, queued, uploading, uploaded, audio extraction, transcription, transcript ready, notes ready, partial/degraded, failed, deleted, and access denied states across desktop app and web cabinet.
 - **FR-030**: The first prototype MUST defer broad admin, billing, team management, public sharing, downloads/exports, detailed audit, help/legal, and full video UX unless they are needed as entry points or handoff markers in the launch-critical owner journey.
 - **FR-031**: The feature MUST not authorize implementation of capture behavior, auth credentials, MediaScribe processing, sharing, deletion jobs, or production rollout by itself; it defines product/design readiness for later slices.
+- **FR-032**: The desktop experience MUST define recording start/stop policy states, including manual start availability, visible user-controlled stop, signed-out/local-policy behavior, and any future assisted auto-start entry as policy-gated, user-acknowledged, visible, auditable, and limited to approved meeting targets or explicit user-selected capture scopes.
+- **FR-033**: The deletion and retention experience MUST account for local desktop buffers, server database records, object storage, workflow payloads, backups, MediaScribe dependency state, Langfuse trace/content state, diagnostics, external post-egress limits, and unreachable clients without exposing credentials or promising universal erasure.
+- **FR-034**: The recording, upload, and meeting review experience MUST label source and track provenance truthfully, including desktop-captured separate microphone/system tracks, uploaded mixed audio, uploaded video/meeting containers with extracted audio, no-usable-audio media, and unknown speaker/track separation.
 
 ### Key Entities *(include if feature involves data)*
 
