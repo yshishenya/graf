@@ -46,8 +46,8 @@ class ProcessingWorkflow(Base):
 class MediaScribeJob(Base):
     __tablename__ = "mediascribe_jobs"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "meeting_id"),
-        UniqueConstraint("workspace_id", "external_job_id"),
+        UniqueConstraint("workspace_id", "meeting_id", name="uq_mediascribe_jobs_workspace_meeting"),
+        UniqueConstraint("workspace_id", "external_job_id", name="uq_mediascribe_jobs_workspace_external_job"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
