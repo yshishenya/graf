@@ -330,3 +330,32 @@ Rollback:
 Next action:
 
 - Merge current `origin/master` into `014-desktop-upload-queue`, rerun validation, push, then repeat production deploy/smoke.
+
+## 2026-06-11 Production migration-lineage merge validation
+
+Status: PASS.
+
+Reason:
+
+- The first production deploy attempt proved that production DB currently references Alembic revision `0003_federated_auth_foundation`.
+- GitHub `master` was behind production commit `5dabd4f`, so feature `014` had to merge the production commit directly before retrying deploy.
+
+Merge resolution:
+
+- Kept feature `014` Spec Kit/Linear infrastructure from HEAD.
+- Kept active AGENTS plan pointer on `specs/014-desktop-upload-queue/plan.md`.
+- Added production feature `013` runtime and migration lineage, including `0003_federated_auth_foundation.py`.
+
+Validation after merge:
+
+- `infra/scripts/ci-local.sh`: PASS.
+- Full server test suite: PASS, 200 tests passed.
+- Server lint: PASS.
+- Python compile: PASS.
+- Docker Compose config render: PASS.
+- Deployment evidence scan: PASS.
+- Focused production smoke/helper pytest set: PASS, 12 tests passed.
+- macOS `swift build`: PASS.
+- macOS `swift test`: PASS, 373 tests passed.
+- `swift run ContractValidation`: PASS.
+- `apps/macos/Scripts/validate-desktop-upload-queue.sh`: PASS.

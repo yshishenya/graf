@@ -5,6 +5,7 @@ from tests.fakes.auth_contexts import (
     FORGED_USER_ID,
     ORG_ID,
     REVOKED_DEVICE_ID,
+    USER_ID,
     WORKSPACE_ID,
 )
 from twobrain_rec_server.db.models import (
@@ -22,6 +23,7 @@ OTHER_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000002")
 OTHER_WORKSPACE_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000004")
 INACTIVE_USER_ID = UUID("30000000-0000-0000-0000-000000000003")
 INACTIVE_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000003")
+QUARANTINED_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000005")
 
 
 def test_cross_workspace_upload_session_read_is_denied_without_existence_leak(client) -> None:
@@ -52,6 +54,32 @@ def test_forged_user_without_workspace_membership_is_denied(client) -> None:
     assert response.status_code == 403
 
 
+def test_quarantined_device_is_denied_for_ingest_operations(client) -> None:
+    async def seed_quarantined_device() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                RegisteredDevice(
+                    id=QUARANTINED_DEVICE_ID,
+                    workspace_id=WORKSPACE_ID,
+                    user_id=USER_ID,
+                    device_public_id="quarantined-device",
+                    status="quarantined",
+                    registration_state="approved",
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed_quarantined_device)
+    response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers() | {"X-Device-Id": str(QUARANTINED_DEVICE_ID)},
+        json={"local_recording_id": "quarantined-device", "duration_seconds": 60},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "device_quarantined"
+
+
 def test_wrong_organization_header_is_denied(client) -> None:
     response = client.post(
         "/api/v1/meetings",
@@ -71,6 +99,7 @@ def test_revoked_device_is_denied_for_ingest_operations(client) -> None:
     )
 
     assert response.status_code == 403
+    assert response.json()["code"] == "device_revoked"
 
 
 def test_auth_fails_closed_without_persistent_context(client) -> None:

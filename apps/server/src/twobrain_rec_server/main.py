@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from twobrain_rec_server.api.auth import router as auth_router
 from twobrain_rec_server.api.health import router as health_router
 from twobrain_rec_server.api.ingest import router as ingest_router
 from twobrain_rec_server.api.problems import ProblemDetail, problem_exception_handler
@@ -44,5 +45,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.middleware("http")(request_logging_middleware)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(ingest_router)
     return app

@@ -70,6 +70,703 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/providers:
+    get:
+      tags:
+      - auth
+      summary: List Providers
+      operationId: list_providers_api_v1_auth_providers_get
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvidersResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/policy:
+    get:
+      tags:
+      - auth
+      summary: Get Workspace Auth Policy
+      operationId: get_workspace_auth_policy_api_v1_auth_policy_get
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvidersResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    patch:
+      tags:
+      - auth
+      summary: Patch Workspace Auth Policy
+      operationId: patch_workspace_auth_policy_api_v1_auth_policy_patch
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthPolicyUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvidersResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/providers/{provider}/start:
+    post:
+      tags:
+      - auth
+      summary: Start Provider Flow
+      operationId: start_provider_flow_api_v1_auth_providers__provider__start_post
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthStartRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStartResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/callback/{provider}:
+    get:
+      tags:
+      - auth
+      summary: Auth Callback
+      operationId: auth_callback_api_v1_auth_callback__provider__get
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider
+      - name: state
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Callback state
+          title: State
+        description: Callback state
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthCallbackResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/link:
+    post:
+      tags:
+      - auth
+      summary: Link Provider
+      operationId: link_provider_api_v1_auth_link_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLinkRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthLinkResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/devices/register:
+    post:
+      tags:
+      - auth
+      summary: Register Device
+      operationId: register_device_api_v1_auth_devices_register_post
+      parameters:
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthDeviceRegisterRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthDeviceStateResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/devices/{device_id}/revoke:
+    post:
+      tags:
+      - auth
+      summary: Revoke Device
+      operationId: revoke_device_api_v1_auth_devices__device_id__revoke_post
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Device Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthDeviceRevokeResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/me:
+    get:
+      tags:
+      - auth
+      summary: Get Me
+      operationId: get_me_api_v1_auth_me_get
+      parameters:
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/meetings:
     post:
       tags:
@@ -894,6 +1591,307 @@ components:
           title: Reason
       type: object
       title: AbortUploadRequest
+    AuthCallbackResponse:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        active_session_id:
+          type: string
+          format: uuid
+          title: Active Session Id
+        session_token:
+          type: string
+          title: Session Token
+        session_expires_at:
+          type: string
+          format: date-time
+          title: Session Expires At
+        provider:
+          type: string
+          title: Provider
+        provider_subject:
+          type: string
+          title: Provider Subject
+        external_identity_id:
+          type: string
+          format: uuid
+          title: External Identity Id
+      type: object
+      required:
+      - user_id
+      - workspace_id
+      - active_session_id
+      - session_token
+      - session_expires_at
+      - provider
+      - provider_subject
+      - external_identity_id
+      title: AuthCallbackResponse
+    AuthDeviceRegisterRequest:
+      properties:
+        device_public_id:
+          type: string
+          maxLength: 160
+          minLength: 1
+          title: Device Public Id
+        platform:
+          type: string
+          maxLength: 32
+          minLength: 1
+          title: Platform
+          default: macos
+        client_version:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Client Version
+      type: object
+      required:
+      - device_public_id
+      title: AuthDeviceRegisterRequest
+    AuthDeviceRevokeResponse:
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          title: Device Id
+        status:
+          type: string
+          title: Status
+        revoked_at:
+          type: string
+          format: date-time
+          title: Revoked At
+      type: object
+      required:
+      - device_id
+      - status
+      - revoked_at
+      title: AuthDeviceRevokeResponse
+    AuthDeviceStateResponse:
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          title: Device Id
+        status:
+          type: string
+          title: Status
+        registration_state:
+          type: string
+          title: Registration State
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - device_id
+      - status
+      - registration_state
+      - created_at
+      title: AuthDeviceStateResponse
+    AuthLinkRequest:
+      properties:
+        candidate_provider:
+          type: string
+          minLength: 1
+          title: Candidate Provider
+        candidate_provider_subject:
+          type: string
+          maxLength: 240
+          minLength: 1
+          title: Candidate Provider Subject
+        candidate_display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Candidate Display Name
+        candidate_email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Candidate Email
+        candidate_phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Candidate Phone
+        expected_workspace_id:
+          type: string
+          format: uuid
+          title: Expected Workspace Id
+      type: object
+      required:
+      - candidate_provider
+      - candidate_provider_subject
+      - expected_workspace_id
+      title: AuthLinkRequest
+    AuthLinkResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        provider:
+          type: string
+          title: Provider
+        linked_identity_id:
+          type: string
+          format: uuid
+          title: Linked Identity Id
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - status
+      - user_id
+      - provider
+      - linked_identity_id
+      - message
+      title: AuthLinkResponse
+    AuthPolicyUpdateRequest:
+      properties:
+        allow_yandex:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Yandex
+        allow_vk:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Vk
+        allow_telegram:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Telegram
+        allow_tid:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Tid
+        allow_sber_id:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Sber Id
+        allow_mts_id:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Mts Id
+        allow_esia:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Esia
+        allow_provider_self_enrollment:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Allow Provider Self Enrollment
+        require_ru_local:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Require Ru Local
+        residency_region_tag:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Residency Region Tag
+        consent_text_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Consent Text Version
+      type: object
+      title: AuthPolicyUpdateRequest
+    AuthProvidersResponse:
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        providers:
+          items:
+            $ref: '#/components/schemas/_ProviderEntry'
+          type: array
+          title: Providers
+        residency:
+          $ref: '#/components/schemas/_ResidencyState'
+        enrollment:
+          $ref: '#/components/schemas/_EnrollmentState'
+        consent_version:
+          type: string
+          title: Consent Version
+        consent:
+          $ref: '#/components/schemas/_ConsentCopy'
+      type: object
+      required:
+      - workspace_id
+      - providers
+      - residency
+      - enrollment
+      - consent_version
+      - consent
+      title: AuthProvidersResponse
+    AuthStartRequest:
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        workspace_return_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workspace Return Url
+        continue_session_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Continue Session Id
+      type: object
+      required:
+      - workspace_id
+      title: AuthStartRequest
+    AuthStartResponse:
+      properties:
+        authorization_url:
+          type: string
+          title: Authorization Url
+        state_nonce:
+          type: string
+          title: State Nonce
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        provider:
+          type: string
+          title: Provider
+      type: object
+      required:
+      - authorization_url
+      - state_nonce
+      - expires_at
+      - provider
+      title: AuthStartResponse
     CreateMeetingRequest:
       properties:
         local_recording_id:
@@ -1010,6 +2008,65 @@ components:
           default: ok
       type: object
       title: HealthResponse
+    LinkedProvider:
+      properties:
+        provider:
+          type: string
+          title: Provider
+        provider_subject:
+          type: string
+          title: Provider Subject
+        is_primary:
+          type: boolean
+          title: Is Primary
+        confirmed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Confirmed At
+      type: object
+      required:
+      - provider
+      - provider_subject
+      - is_primary
+      title: LinkedProvider
+    MeResponse:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        active_session_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Active Session Id
+        linked_providers:
+          items:
+            $ref: '#/components/schemas/LinkedProvider'
+          type: array
+          title: Linked Providers
+        policy:
+          $ref: '#/components/schemas/AuthProvidersResponse'
+        registered_devices:
+          items:
+            $ref: '#/components/schemas/AuthDeviceStateResponse'
+          type: array
+          title: Registered Devices
+      type: object
+      required:
+      - user_id
+      - workspace_id
+      - linked_providers
+      - policy
+      - registered_devices
+      title: MeResponse
     MeetingResponse:
       properties:
         meeting_id:
@@ -1335,3 +2392,63 @@ components:
       - msg
       - type
       title: ValidationError
+    _ConsentCopy:
+      properties:
+        language:
+          type: string
+          title: Language
+        version:
+          type: string
+          title: Version
+        content_markdown:
+          type: string
+          title: Content Markdown
+      type: object
+      required:
+      - language
+      - version
+      - content_markdown
+      title: _ConsentCopy
+    _EnrollmentState:
+      properties:
+        allow_provider_self_enrollment:
+          type: boolean
+          title: Allow Provider Self Enrollment
+      type: object
+      required:
+      - allow_provider_self_enrollment
+      title: _EnrollmentState
+    _ProviderEntry:
+      properties:
+        provider:
+          type: string
+          title: Provider
+        enabled:
+          type: boolean
+          title: Enabled
+        label:
+          type: string
+          title: Label
+        requires_email:
+          type: boolean
+          title: Requires Email
+      type: object
+      required:
+      - provider
+      - enabled
+      - label
+      - requires_email
+      title: _ProviderEntry
+    _ResidencyState:
+      properties:
+        require_ru_local:
+          type: boolean
+          title: Require Ru Local
+        residency_region_tag:
+          type: string
+          title: Residency Region Tag
+      type: object
+      required:
+      - require_ru_local
+      - residency_region_tag
+      title: _ResidencyState

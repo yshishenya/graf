@@ -22,6 +22,18 @@ SECRET_KEYS = {
     "raw_log",
     "object_key",
     "session",
+    "provider",
+    "provider_subject",
+    "provider_username",
+    "external_subject",
+    "external_identity_id",
+    "claims_fingerprint",
+    "session_token",
+    "session_token_hash",
+    "registration_state",
+    "workspace_auth_policy",
+    "auth_callback_state",
+    "id_token",
 }
 
 FORBIDDEN_EVIDENCE_PATTERNS = (

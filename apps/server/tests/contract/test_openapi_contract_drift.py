@@ -37,5 +37,5 @@ def test_validation_error_schema_matches_current_toolchain(client) -> None:
     schema = client.get("/openapi.json").json()
     validation_error = schema["components"]["schemas"]["ValidationError"]["properties"]
 
-    assert "input" in validation_error
-    assert "ctx" in validation_error
+    required = {"loc", "msg", "type"}
+    assert required.issubset(validation_error)

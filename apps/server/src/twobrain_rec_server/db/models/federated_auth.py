@@ -1,0 +1,146 @@
+from datetime import datetime
+from uuid import UUID, uuid4
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+
+from twobrain_rec_server.db.base import Base
+
+
+class ExternalIdentity(Base):
+    __tablename__ = "external_identities"
+    __table_args__ = (UniqueConstraint("provider", "provider_subject"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_subject: Mapped[str] = mapped_column(String(240), nullable=False)
+    provider_username: Mapped[str | None] = mapped_column(String(160))
+    email: Mapped[str | None] = mapped_column(String(240))
+    phone: Mapped[str | None] = mapped_column(String(64))
+    display_name: Mapped[str | None] = mapped_column(String(240))
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    subject_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WorkspaceAuthPolicy(Base):
+    __tablename__ = "workspace_auth_policies"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), unique=True, nullable=False)
+    allow_yandex: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_vk: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_telegram: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_tid: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_sber_id: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_mts_id: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_esia: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_provider_self_enrollment: Mapped[bool] = mapped_column(Boolean, default=False)
+    require_ru_local: Mapped[bool] = mapped_column(Boolean, default=True)
+    residency_region_tag: Mapped[str] = mapped_column(String(16), default="ru")
+    consent_text_version: Mapped[str] = mapped_column(String(64), default="v1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (UniqueConstraint("session_token_hash"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    device_id: Mapped[UUID | None] = mapped_column(ForeignKey("registered_devices.id"))
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    session_token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    claims_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AuthSessionDeviceBinding(Base):
+    __tablename__ = "auth_session_device_bindings"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    auth_session_id: Mapped[UUID] = mapped_column(ForeignKey("auth_sessions.id"), nullable=False)
+    registered_device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
+    device_state: Mapped[str] = mapped_column(String(32), default="untrusted")
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revocation_reason: Mapped[str | None] = mapped_column(String(240))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WorkspaceProviderLinkState(Base):
+    __tablename__ = "workspace_provider_link_states"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    initiating_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    source_provider_identity_id: Mapped[UUID] = mapped_column(ForeignKey("external_identities.id"), nullable=False)
+    target_provider_identity_id: Mapped[UUID | None] = mapped_column(ForeignKey("external_identities.id"))
+    candidate_identity_subject: Mapped[str | None] = mapped_column(String(240))
+    candidate_email: Mapped[str | None] = mapped_column(String(240))
+    candidate_phone: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="initiated")
+    resolution: Mapped[str | None] = mapped_column(String(240))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AuthCallbackState(Base):
+    __tablename__ = "auth_callback_states"
+    __table_args__ = (UniqueConstraint("state_nonce"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    requested_redirect: Mapped[str | None] = mapped_column(String(512))
+    expected_state: Mapped[str] = mapped_column(String(256), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result: Mapped[str] = mapped_column(String(32), default="pending")
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuthAuditEvent(Base):
+    __tablename__ = "auth_audit_events"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(64))
+    actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    actor_ip_hash: Mapped[str | None] = mapped_column(String(128))
+    request_id: Mapped[str | None] = mapped_column(String(128))
+    outcome: Mapped[str] = mapped_column(String(32), default="success")
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkspaceConsentCopy(Base):
+    __tablename__ = "workspace_consent_copy"
+    __table_args__ = (UniqueConstraint("workspace_id", "language", "version"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    language: Mapped[str] = mapped_column(String(8), default="ru")
+    version: Mapped[str] = mapped_column(String(32), default="v1")
+    content_markdown: Mapped[str] = mapped_column(String(4000), nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

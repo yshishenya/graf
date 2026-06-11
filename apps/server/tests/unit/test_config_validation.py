@@ -12,6 +12,7 @@ def _production_settings(**overrides):
         "minio_access_key": "twobrain_rec_api",
         "minio_secret_key": "prod-api-secret",
         "minio_bucket": "twobrain-rec-ingest",
+        "auth_ru_local_storage_attested": True,
     }
     values.update(overrides)
     return Settings(**values)
@@ -111,6 +112,16 @@ def test_production_rejects_missing_secret_files(tmp_path) -> None:
 def test_production_rejects_non_internal_smoke_identity_class() -> None:
     with pytest.raises(ValidationError, match="internal_smoke"):
         _production_settings(smoke_identity_class="local_dev")
+
+
+def test_production_rejects_missing_auth_ru_local_storage_attestation() -> None:
+    with pytest.raises(ValidationError, match="RU-local storage attestation"):
+        _production_settings(auth_ru_local_storage_attested=False)
+
+
+def test_production_rejects_non_ru_auth_storage_region() -> None:
+    with pytest.raises(ValidationError, match="auth storage region"):
+        _production_settings(auth_storage_region_tag="eu")
 
 
 def test_production_rejects_local_dev_smoke_ids() -> None:
