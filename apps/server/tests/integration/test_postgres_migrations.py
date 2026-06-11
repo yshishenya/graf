@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from uuid import UUID
 
@@ -67,6 +68,17 @@ def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -
 
     assert 'name="uq_mediascribe_jobs_workspace_meeting"' in migration
     assert 'name="uq_mediascribe_jobs_workspace_external_job"' in migration
+
+
+def test_alembic_revision_ids_fit_default_version_table_length() -> None:
+    versions = ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions"
+
+    for migration_path in versions.glob("*.py"):
+        migration = migration_path.read_text(encoding="utf-8")
+        match = re.search(r'^revision: str = "([^"]+)"', migration, re.MULTILINE)
+
+        assert match is not None, migration_path.name
+        assert len(match.group(1)) <= 32, migration_path.name
 
 
 def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:

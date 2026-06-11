@@ -125,6 +125,7 @@ def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() ->
     assert temporal_env["DBNAME"] == "temporal"
     assert temporal_env["VISIBILITY_DBNAME"] == "temporal_visibility"
     assert "POSTGRES_PWD" not in temporal_env
+    assert temporal["user"] == "root"
     assert 'POSTGRES_PWD="$$(cat /run/secrets/twobrain_postgres_password)"' in entrypoint
     assert "/etc/temporal/entrypoint.sh autosetup" in entrypoint
     assert {"source": "twobrain_postgres_password", "target": "twobrain_postgres_password"} in temporal["secrets"]

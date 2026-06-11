@@ -118,6 +118,7 @@ services:
   rec-temporal:
     image: temporalio/auto-setup:1.27.2
     restart: unless-stopped
+    user: root
     environment:
       DB: postgres12
       DB_PORT: "5432"
