@@ -27,7 +27,15 @@ def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> N
 def test_production_compose_sets_log_rotation_and_resource_limits_for_services() -> None:
     compose = _compose()
 
-    for service_name in ["rec-api", "rec-migrate", "rec-postgres", "rec-minio", "rec-minio-init"]:
+    for service_name in [
+        "rec-api",
+        "rec-migrate",
+        "rec-postgres",
+        "rec-minio",
+        "rec-minio-init",
+        "rec-temporal",
+        "rec-processing-worker",
+    ]:
         service = compose["services"][service_name]
         assert service["logging"]["driver"] == "json-file"
         assert service["logging"]["options"]["max-size"] == "10m"

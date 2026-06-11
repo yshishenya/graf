@@ -53,6 +53,8 @@ Semantic Versioning 2.0.0.
   (`feature:014`, `T036-T038`).
 - Добавлены production/dev Compose placeholders для Temporal и processing
   worker без live secrets (`feature:015`, `T010`, `T071`, `T085`).
+- Remote CD теперь запускает Temporal и processing worker, которые нужны для
+  production-проверки обработки (`feature:015`).
 
 ## [Unreleased Template]
 
