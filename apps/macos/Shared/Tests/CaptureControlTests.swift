@@ -155,5 +155,60 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertEqual(track.role, .localMic)
         XCTAssertEqual(track.state, .capturing)
     }
+
+    func testUploadSummaryPrefersRetryingItem() {
+        let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
+        let retrying = uploadItem(id: "retrying", state: .retrying, updatedAt: Date(timeIntervalSince1970: 10))
+
+        let summary = CaptureControlView.uploadSummary(for: [queued, retrying])
+
+        XCTAssertEqual(summary?.primaryItem.id, "retrying")
+        XCTAssertEqual(summary?.pendingCount, 2)
+        XCTAssertEqual(summary?.title, "Retrying + 1 more")
+    }
+
+    private func uploadItem(
+        id: String,
+        state: UploadItemState,
+        updatedAt: Date
+    ) -> DesktopUploadQueueItem {
+        let profile = ArtifactCompletenessProfile(
+            schemaVersion: LocalRecordingManifest.schemaVersion,
+            manifestPresent: true,
+            microphonePresent: true,
+            systemAudioPresent: true,
+            manifestSha256: String(repeating: "a", count: 64),
+            microphoneSha256: String(repeating: "b", count: 64),
+            systemAudioSha256: String(repeating: "c", count: 64),
+            manifestSizeBytes: 64,
+            microphoneSizeBytes: 128,
+            systemAudioSizeBytes: 128,
+            durationSeconds: 1,
+            trackCompleteness: [],
+            isUploadable: true
+        )
+        return DesktopUploadQueueItem(
+            id: id,
+            sessionId: "session-\(id)",
+            directoryId: "directory-\(id)",
+            directoryPath: "/tmp/\(id)",
+            manifestPath: "/tmp/\(id)/manifest.json",
+            microphonePath: "/tmp/\(id)/mic.wav",
+            systemAudioPath: "/tmp/\(id)/incoming.wav",
+            state: state,
+            retryMode: .automatic,
+            retentionDeadline: Date(timeIntervalSince1970: 100),
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: updatedAt,
+            artifactProfile: profile,
+            retentionDecision: RetentionDecision(
+                decision: .retain,
+                decidedAt: Date(timeIntervalSince1970: 1),
+                reason: "test",
+                localArtifactsRetained: true,
+                policyReference: "test"
+            )
+        )
+    }
 }
 #endif

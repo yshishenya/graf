@@ -1351,6 +1351,464 @@ public struct LocalBufferItem: Codable, Equatable, Sendable {
     }
 }
 
+public enum DesktopUploadTransportRole: String, Codable, CaseIterable, Sendable {
+    case microphone
+    case system
+    case manifest
+
+    public static func role(forLocalTrackRole role: AudioTrackRole) -> DesktopUploadTransportRole? {
+        switch role {
+        case .localMic:
+            return .microphone
+        case .remoteSpeaker:
+            return .system
+        case .derivedLocalMic, .mixedMeetingAudio:
+            return nil
+        }
+    }
+}
+
+public enum UploadItemState: String, Codable, CaseIterable, Sendable {
+    case queued
+    case uploading
+    case retrying
+    case uploaded
+    case degraded
+    case failed
+    case blocked
+    case terminalDeleted = "terminal_deleted"
+
+    public var isTerminal: Bool {
+        switch self {
+        case .uploaded, .failed, .terminalDeleted:
+            return true
+        case .queued, .uploading, .retrying, .degraded, .blocked:
+            return false
+        }
+    }
+
+    public var canAutomaticallyRetry: Bool {
+        switch self {
+        case .queued, .retrying, .degraded:
+            return true
+        case .uploading, .uploaded, .failed, .blocked, .terminalDeleted:
+            return false
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .queued:
+            return "Queued"
+        case .uploading:
+            return "Uploading"
+        case .retrying:
+            return "Retrying"
+        case .uploaded:
+            return "Uploaded"
+        case .degraded:
+            return "Upload degraded"
+        case .failed:
+            return "Upload failed"
+        case .blocked:
+            return "Upload blocked"
+        case .terminalDeleted:
+            return "Upload closed"
+        }
+    }
+
+    public var sortPriority: Int {
+        switch self {
+        case .uploading:
+            return 0
+        case .retrying:
+            return 1
+        case .blocked, .degraded:
+            return 2
+        case .queued:
+            return 3
+        case .failed:
+            return 4
+        case .uploaded:
+            return 5
+        case .terminalDeleted:
+            return 6
+        }
+    }
+}
+
+public enum UploadFailureCategory: String, Codable, CaseIterable, Sendable {
+    case none
+    case network
+    case authSession = "auth_session"
+    case serverValidation = "server_validation"
+    case schemaIncompatibility = "schema_incompatibility"
+    case localResource = "local_resource"
+    case storageQuota = "storage_quota"
+    case cancelled
+    case unknown
+
+    public var isAutomaticallyRetryable: Bool {
+        switch self {
+        case .none, .network, .storageQuota, .unknown:
+            return true
+        case .authSession, .serverValidation, .schemaIncompatibility, .localResource, .cancelled:
+            return false
+        }
+    }
+}
+
+public enum UploadRetryMode: String, Codable, CaseIterable, Sendable {
+    case automatic
+    case manualOnly = "manual_only"
+    case terminal
+
+    public var displayName: String {
+        switch self {
+        case .automatic:
+            return "Automatic retry"
+        case .manualOnly:
+            return "Manual recovery"
+        case .terminal:
+            return "Terminal"
+        }
+    }
+}
+
+public struct UploadTrackCompleteness: Codable, Equatable, Sendable {
+    public var transportRole: DesktopUploadTransportRole
+    public var fileName: String
+    public var present: Bool
+    public var byteCount: Int64
+    public var sha256: String?
+    public var durationSeconds: Int?
+
+    public init(
+        transportRole: DesktopUploadTransportRole,
+        fileName: String,
+        present: Bool,
+        byteCount: Int64,
+        sha256: String? = nil,
+        durationSeconds: Int? = nil
+    ) {
+        self.transportRole = transportRole
+        self.fileName = fileName
+        self.present = present
+        self.byteCount = byteCount
+        self.sha256 = sha256
+        self.durationSeconds = durationSeconds
+    }
+
+    public var uploadable: Bool {
+        present && byteCount > 0 && sha256?.count == 64
+    }
+}
+
+public struct ArtifactCompletenessProfile: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var manifestPresent: Bool
+    public var microphonePresent: Bool
+    public var systemAudioPresent: Bool
+    public var manifestSha256: String?
+    public var microphoneSha256: String?
+    public var systemAudioSha256: String?
+    public var manifestSizeBytes: Int64
+    public var microphoneSizeBytes: Int64
+    public var systemAudioSizeBytes: Int64
+    public var durationSeconds: Int
+    public var trackCompleteness: [UploadTrackCompleteness]
+    public var isUploadable: Bool
+
+    public init(
+        schemaVersion: String,
+        manifestPresent: Bool,
+        microphonePresent: Bool,
+        systemAudioPresent: Bool,
+        manifestSha256: String?,
+        microphoneSha256: String?,
+        systemAudioSha256: String?,
+        manifestSizeBytes: Int64,
+        microphoneSizeBytes: Int64,
+        systemAudioSizeBytes: Int64,
+        durationSeconds: Int,
+        trackCompleteness: [UploadTrackCompleteness],
+        isUploadable: Bool
+    ) {
+        self.schemaVersion = schemaVersion
+        self.manifestPresent = manifestPresent
+        self.microphonePresent = microphonePresent
+        self.systemAudioPresent = systemAudioPresent
+        self.manifestSha256 = manifestSha256
+        self.microphoneSha256 = microphoneSha256
+        self.systemAudioSha256 = systemAudioSha256
+        self.manifestSizeBytes = manifestSizeBytes
+        self.microphoneSizeBytes = microphoneSizeBytes
+        self.systemAudioSizeBytes = systemAudioSizeBytes
+        self.durationSeconds = max(1, durationSeconds)
+        self.trackCompleteness = trackCompleteness
+        self.isUploadable = isUploadable
+    }
+
+    public var totalUploadBytes: Int64 {
+        manifestSizeBytes + microphoneSizeBytes + systemAudioSizeBytes
+    }
+}
+
+public struct RetryRecord: Codable, Equatable, Sendable {
+    public var attemptNumber: Int
+    public var startedAt: Date
+    public var finishedAt: Date?
+    public var stateBefore: UploadItemState
+    public var stateAfter: UploadItemState
+    public var failureCategory: UploadFailureCategory
+    public var failureReason: String?
+    public var acceptedBytesByTrack: [String: Int64]
+    public var nextRetryAt: Date?
+
+    public init(
+        attemptNumber: Int,
+        startedAt: Date,
+        finishedAt: Date? = nil,
+        stateBefore: UploadItemState,
+        stateAfter: UploadItemState,
+        failureCategory: UploadFailureCategory,
+        failureReason: String? = nil,
+        acceptedBytesByTrack: [String: Int64] = [:],
+        nextRetryAt: Date? = nil
+    ) {
+        self.attemptNumber = max(0, attemptNumber)
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.stateBefore = stateBefore
+        self.stateAfter = stateAfter
+        self.failureCategory = failureCategory
+        self.failureReason = failureReason
+        self.acceptedBytesByTrack = acceptedBytesByTrack
+        self.nextRetryAt = nextRetryAt
+    }
+}
+
+public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
+    public var meetingId: String?
+    public var uploadSessionId: String?
+    public var serverStatus: String?
+    public var processingStatus: String?
+    public var acceptedBytesByTrack: [String: Int64]
+    public var requiredTrackSha256: [String: String]
+    public var finalizedAt: Date?
+    public var desktopTruthRule: String?
+
+    public init(
+        meetingId: String? = nil,
+        uploadSessionId: String? = nil,
+        serverStatus: String? = nil,
+        processingStatus: String? = nil,
+        acceptedBytesByTrack: [String: Int64] = [:],
+        requiredTrackSha256: [String: String] = [:],
+        finalizedAt: Date? = nil,
+        desktopTruthRule: String? = nil
+    ) {
+        self.meetingId = meetingId
+        self.uploadSessionId = uploadSessionId
+        self.serverStatus = serverStatus
+        self.processingStatus = processingStatus
+        self.acceptedBytesByTrack = acceptedBytesByTrack
+        self.requiredTrackSha256 = requiredTrackSha256
+        self.finalizedAt = finalizedAt
+        self.desktopTruthRule = desktopTruthRule
+    }
+
+    public func hasAcceptedAll(profile: ArtifactCompletenessProfile) -> Bool {
+        for track in profile.trackCompleteness {
+            guard acceptedBytesByTrack[track.transportRole.rawValue, default: 0] >= track.byteCount else {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+public enum RetentionDecisionValue: String, Codable, CaseIterable, Sendable {
+    case retain
+    case manualOnly = "manual_only"
+    case terminalUploaded = "terminal_uploaded"
+    case terminalFailed = "terminal_failed"
+    case terminalDeleted = "terminal_deleted"
+}
+
+public struct RetentionDecision: Codable, Equatable, Sendable {
+    public var decision: RetentionDecisionValue
+    public var decidedAt: Date
+    public var reason: String
+    public var localArtifactsRetained: Bool
+    public var policyReference: String
+
+    public init(
+        decision: RetentionDecisionValue,
+        decidedAt: Date,
+        reason: String,
+        localArtifactsRetained: Bool,
+        policyReference: String
+    ) {
+        self.decision = decision
+        self.decidedAt = decidedAt
+        self.reason = reason
+        self.localArtifactsRetained = localArtifactsRetained
+        self.policyReference = policyReference
+    }
+}
+
+public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var sessionId: String
+    public var directoryId: String
+    public var directoryPath: String
+    public var manifestPath: String
+    public var microphonePath: String
+    public var systemAudioPath: String
+    public var state: UploadItemState
+    public var failureCategory: UploadFailureCategory
+    public var failureReason: String?
+    public var retryMode: UploadRetryMode
+    public var attemptCount: Int
+    public var nextRetryAt: Date?
+    public var retentionDeadline: Date
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var meetingId: String?
+    public var uploadSessionId: String?
+    public var artifactProfile: ArtifactCompletenessProfile
+    public var serverTruth: ServerTruthFingerprint
+    public var retryRecords: [RetryRecord]
+    public var retentionDecision: RetentionDecision
+
+    public init(
+        id: String,
+        sessionId: String,
+        directoryId: String,
+        directoryPath: String,
+        manifestPath: String,
+        microphonePath: String,
+        systemAudioPath: String,
+        state: UploadItemState,
+        failureCategory: UploadFailureCategory = .none,
+        failureReason: String? = nil,
+        retryMode: UploadRetryMode,
+        attemptCount: Int = 0,
+        nextRetryAt: Date? = nil,
+        retentionDeadline: Date,
+        createdAt: Date,
+        updatedAt: Date,
+        meetingId: String? = nil,
+        uploadSessionId: String? = nil,
+        artifactProfile: ArtifactCompletenessProfile,
+        serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
+        retryRecords: [RetryRecord] = [],
+        retentionDecision: RetentionDecision
+    ) {
+        self.id = id
+        self.sessionId = sessionId
+        self.directoryId = directoryId
+        self.directoryPath = directoryPath
+        self.manifestPath = manifestPath
+        self.microphonePath = microphonePath
+        self.systemAudioPath = systemAudioPath
+        self.state = state
+        self.failureCategory = failureCategory
+        self.failureReason = failureReason
+        self.retryMode = retryMode
+        self.attemptCount = max(0, attemptCount)
+        self.nextRetryAt = nextRetryAt
+        self.retentionDeadline = retentionDeadline
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.meetingId = meetingId
+        self.uploadSessionId = uploadSessionId
+        self.artifactProfile = artifactProfile
+        self.serverTruth = serverTruth
+        self.retryRecords = retryRecords
+        self.retentionDecision = retentionDecision
+    }
+
+    public var progressFraction: Double {
+        let total = artifactProfile.totalUploadBytes
+        guard total > 0 else { return state == .uploaded ? 1 : 0 }
+        let accepted = serverTruth.acceptedBytesByTrack.values.reduce(Int64(0), +)
+        return min(1, max(0, Double(accepted) / Double(total)))
+    }
+
+    public var nextActionLabel: String? {
+        switch retryMode {
+        case .automatic:
+            return state == .retrying ? "Stop retry" : nil
+        case .manualOnly:
+            return "Retry"
+        case .terminal:
+            return nil
+        }
+    }
+
+    public func withTransition(
+        to nextState: UploadItemState,
+        now: Date,
+        failureCategory: UploadFailureCategory? = nil,
+        failureReason: String? = nil,
+        retryMode: UploadRetryMode? = nil,
+        nextRetryAt: Date? = nil,
+        serverTruth: ServerTruthFingerprint? = nil,
+        retentionDecision: RetentionDecision? = nil
+    ) -> DesktopUploadQueueItem {
+        if state.isTerminal && !nextState.isTerminal {
+            return self
+        }
+
+        var copy = self
+        copy.state = nextState
+        copy.updatedAt = now
+        if let failureCategory {
+            copy.failureCategory = failureCategory
+        }
+        if let failureReason {
+            copy.failureReason = failureReason
+        }
+        if let retryMode {
+            copy.retryMode = retryMode
+        }
+        copy.nextRetryAt = nextRetryAt
+        if let serverTruth {
+            copy.serverTruth = serverTruth
+            copy.meetingId = serverTruth.meetingId ?? copy.meetingId
+            copy.uploadSessionId = serverTruth.uploadSessionId ?? copy.uploadSessionId
+        }
+        if let retentionDecision {
+            copy.retentionDecision = retentionDecision
+        }
+        return copy
+    }
+
+    public static func deterministicId(directoryId: String, sessionId: String) -> String {
+        "\(directoryId)--\(sessionId)"
+    }
+}
+
+public struct DesktopUploadQueueDocument: Codable, Equatable, Sendable {
+    public static let schemaVersion = "desktop-upload-queue.v1"
+
+    public var schemaVersion: String
+    public var updatedAt: Date
+    public var items: [DesktopUploadQueueItem]
+
+    public init(
+        schemaVersion: String = Self.schemaVersion,
+        updatedAt: Date,
+        items: [DesktopUploadQueueItem]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.updatedAt = updatedAt
+        self.items = items
+    }
+}
+
 public struct DriverHealthReport: Codable, Equatable, Sendable {
     public var id: String
     public var driverStatus: DriverInstallationState

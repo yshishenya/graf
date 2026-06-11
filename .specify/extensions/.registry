@@ -16,7 +16,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-04T16:03:56.915720+00:00"
+      "installed_at": "2026-06-11T10:32:26.045183+00:00"
     },
     "git": {
       "version": "1.0.0",
@@ -41,7 +41,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-04T16:03:57.459725+00:00"
+      "installed_at": "2026-06-11T10:32:26.784518+00:00"
     },
     "github-issue-canon": {
       "version": "0.1.0",
@@ -62,7 +62,30 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-04T16:04:03.377358+00:00"
+      "installed_at": "2026-06-11T10:32:28.480348+00:00"
+    },
+    "linear-sync": {
+      "version": "0.1.0",
+      "source": "local",
+      "manifest_hash": "sha256:a07e93c96539818472faaeb86bb5727ce31ce78fcf3efd207a3e5da76bdcf9e3",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "agy": [
+          "speckit.linear-sync.init",
+          "speckit.linear-sync.import",
+          "speckit.linear-sync.sync",
+          "speckit.linear-sync.validate"
+        ],
+        "codex": [
+          "speckit.linear-sync.init",
+          "speckit.linear-sync.import",
+          "speckit.linear-sync.sync",
+          "speckit.linear-sync.validate"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-06-11T10:32:29.670692+00:00"
     }
   }
 }

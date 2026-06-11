@@ -9,6 +9,8 @@ Semantic Versioning 2.0.0.
 ### Added
 
 - Добавлена обязанность вести Changelog в репозитории для всех значимых изменений.
+- Добавлена macOS desktop upload queue: durable local queue, truthful retry/upload states,
+  server-mediated ingest mapping and compact queue UI (`feature:014`, `T001-T030`).
 
 ### Changed
 
@@ -27,6 +29,12 @@ Semantic Versioning 2.0.0.
   - добавлен раздел `Versioning And Changelog`;
   - закреплён процесс обязательного обновления `CHANGELOG.md`;
   - закреплён системный подход к SemVer и git-тегам релизов.
+
+### Ops
+
+- Production smoke для desktop upload queue теперь выпускает временную Rec
+  `AuthSession` вместо использования инфраструктурного smoke secret как bearer
+  (`feature:014`, `T036-T038`).
 
 ## [Unreleased Template]
 

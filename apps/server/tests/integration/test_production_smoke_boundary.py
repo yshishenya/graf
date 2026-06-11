@@ -1,5 +1,7 @@
+import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[4]
@@ -26,6 +28,49 @@ def test_production_smoke_runner_dry_run_is_remote_first_and_non_ready() -> None
     assert "remote_path=/opt/projects/2brain-rec" in output
     assert "production_ready" not in output
     assert "user_rollout_ready" not in output
+
+
+def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
+    script = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
+
+    assert "python scripts/issue_smoke_auth_session.py" in script
+    assert "python scripts/cleanup_smoke_auth_session.py" in script
+    assert "require_json_status \"$SMOKE_AUTH_CLEANUP_JSON\" auth_cleanup_result pass" in script
+    assert "require_json_status \"$SMOKE_ARTIFACT_CLEANUP_JSON\" cleanup_result pass" in script
+    assert "trap cleanup_on_exit EXIT" in script
+    assert "trap - EXIT" in script
+    assert 'SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"' in script
+    assert "--auth-session-id" in script
+    assert '--token-file "$SMOKE_TOKEN_FILE"' in script
+    assert "TWOBRAIN_SMOKE_CREDENTIAL_FILE" not in script
+    assert "--token " not in script
+    assert "cat $SMOKE_TOKEN_FILE" not in script
+
+
+def test_issue_smoke_auth_session_dry_run_never_writes_raw_token(tmp_path: Path) -> None:
+    token_file = tmp_path / "smoke-token"
+    script = REPO_ROOT / "apps/server/scripts/issue_smoke_auth_session.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--run-id",
+            "smoke-014-dry-run",
+            "--token-file",
+            str(token_file),
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["auth_session_result"] == "dry_run"
+    assert payload["token_written"] is False
+    assert payload["token_file"] == str(token_file)
+    assert not token_file.exists()
+    assert "bearer" not in result.stdout.lower()
 
 
 def test_smoke_upload_wrapper_dry_run_uses_internal_smoke_identity(tmp_path: Path) -> None:

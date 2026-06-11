@@ -59,10 +59,14 @@ def main() -> None:
     parser.add_argument("--user", required=True)
     parser.add_argument("--device", required=True)
     parser.add_argument("--token")
+    parser.add_argument("--token-file", type=Path)
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--stop-after-parts", type=int)
     parser.add_argument("--smoke-dry-run", action="store_true")
     args = parser.parse_args()
+
+    if args.token and args.token_file:
+        parser.error("--token and --token-file are mutually exclusive")
 
     if args.smoke_dry_run:
         _validate_smoke_identity(args.organization, args.workspace, args.user, args.device)
@@ -93,8 +97,11 @@ def main() -> None:
         "X-User-Id": args.user,
         "X-Device-Id": args.device,
     }
-    if args.token:
-        headers["Authorization"] = f"Bearer {args.token}"
+    bearer_token = args.token
+    if args.token_file:
+        bearer_token = args.token_file.read_text(encoding="utf-8").strip()
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
     files = [
         ("manifest", "manifest.json"),
         ("microphone", "mic.wav"),

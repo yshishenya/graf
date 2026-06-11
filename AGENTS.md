@@ -117,8 +117,8 @@ Planning must stop if constitution gates fail or important clarifications remain
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan at
-specs/025-system-audio-capture-pivot/plan.md
+shell commands, and other important information, read the current plan
+at specs/014-desktop-upload-queue/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
@@ -385,3 +385,50 @@ specify extension list
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ./scripts/prepare-release.sh patch
 ```
+
+<!-- SPECKIT LINEAR START -->
+## Правила работы с Linear
+
+Используй Linear как ежедневную доску проекта для Spec Kit-фич, если доступна
+интеграция Linear или API-ключи.
+
+Обязательный поток:
+
+- После `$speckit-tasks` убедись, что каждая исполняемая задача может быть
+  связана с внешним issue.
+- После `$speckit-taskstoissues` автоматически синхронизируй фичу в Linear через
+  `$speckit-linear-sync` или проектный скрипт синхронизации Linear, если он
+  доступен.
+- Не создавай вручную дубли Linear issues. Сначала импортируй или сопоставь
+  существующие задачи по номеру фичи, task ID, ссылке на GitHub issue и
+  заголовку.
+- `tasks.md` остается источником правды по реализации. Linear используется как
+  рабочая доска для статуса, приоритета, цикла, владельца, комментариев,
+  блокеров и общего трекинга проекта.
+- Когда задача отмечена `[X]` в `tasks.md`, закрой или переведи в Done
+  соответствующие GitHub и Linear issues, затем добавь короткий комментарий с
+  доказательством выполнения.
+- Если Linear показывает задачу как Done, но в `tasks.md` она еще открыта, не
+  отмечай ее выполненной молча. Сначала проверь реализацию и evidence.
+- Используй Linear projects для feature slices, cycles для рабочих периодов,
+  labels для feature/task/area/gate metadata, priorities для срочности user
+  stories, relations для блокировок и comments для коротких статус-апдейтов.
+- Называй Linear projects с контекстом продукта и фичи, например
+  `2brain Rec / 013 Federated Auth Foundation`, чтобы задачи разных продуктов
+  не смешивались на одной доске.
+- Если автоматизация Linear недоступна, зафиксируй отсутствие синхронизации как
+  blocker или follow-up, а не создавай неотслеживаемую работу.
+
+Правила языка и понятности:
+
+- Все GitHub issues, Linear issues, комментарии к issues, комментарии в Linear,
+  project updates и sync notes по умолчанию должны быть написаны на русском.
+- Пиши простым и понятным языком, чтобы текст был ясен не только техническим
+  специалистам, но и обычным участникам проекта.
+- Предпочитай короткие предложения, конкретный результат и понятные критерии
+  приемки.
+- Избегай лишнего жаргона, внутренних сокращений и деталей реализации, если они
+  не нужны исполнителю для безопасной работы.
+- Блокеры объясняй как простые факты: что заблокировано, почему заблокировано и
+  какое точное решение или действие разблокирует работу.
+<!-- SPECKIT LINEAR END -->

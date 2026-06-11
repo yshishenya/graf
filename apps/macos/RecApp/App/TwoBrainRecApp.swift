@@ -33,9 +33,12 @@ private struct ContentView: View {
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var localRecordingLocation: String?
+    @State private var desktopUploadQueueService = DesktopUploadQueueService()
+    @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
+    @State private var uploadQueueRefreshInProgress = false
     @State private var terminationCleanupInProgress = false
     @State private var recordingStartInProgress = false
     @State private var recordingStopInProgress = false
@@ -70,6 +73,7 @@ private struct ContentView: View {
                         blockedReason: recordingBlocker,
                         localRecordingStatus: localRecordingStatusText,
                         localRecordingLocation: localRecordingLocation,
+                        uploadQueueItems: uploadQueueItems,
                         routeSignalLevels: liveRouteSignalLevels,
                         recordDisabled: recordingStartInProgress || recordingStopInProgress,
                         stopDisabled: recordingStartInProgress || recordingStopInProgress,
@@ -78,6 +82,12 @@ private struct ContentView: View {
                         },
                         onStop: {
                             Task { await stopManualRecording() }
+                        },
+                        onUploadRetry: { itemId in
+                            retryUpload(itemId: itemId)
+                        },
+                        onUploadStopRetry: { itemId in
+                            stopUploadRetry(itemId: itemId)
                         }
                     )
                     AudioHealthView(state: snapshot.healthState)
@@ -136,6 +146,7 @@ private struct ContentView: View {
                     }
                 }
             }
+            refreshUploadQueueAndProcess(reason: "app_appeared")
         }
         .task(id: localRecordingActive) {
             guard localRecordingActive else { return }
@@ -341,6 +352,11 @@ private struct ContentView: View {
             let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
             localRecordingManifest = manifest
             localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
+            enqueueLocalRecordingForUpload(
+                manifest: manifest,
+                directoryURL: recordingDirectory,
+                reason: reason
+            )
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason) failureReason=\(manifest.failureReason.rawValue)"
@@ -421,6 +437,7 @@ private struct ContentView: View {
 
         do {
             _ = try captureController.requestStop(reason: .userRequested)
+            let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
             let systemAudioSession = try await systemAudioCaptureService.stop()
             let manifest = try await localRecordingWriter.stopAsync(
                 failureReason: systemAudioSession.failureReason
@@ -428,6 +445,7 @@ private struct ContentView: View {
             let stopped = try captureController.completeStop()
             captureSession = stopped
             localRecordingManifest = manifest
+            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
             recordingEvidenceEvents.append(
                 RecordingEvidenceService().event(
                     for: stopped,
@@ -448,6 +466,11 @@ private struct ContentView: View {
             AppLog.writeRaw(
                 event: localEvent.rawValue,
                 detail: "sessionId=\(stopped.id) status=\(manifest.status.rawValue) directoryId=\(manifest.directoryId)"
+            )
+            enqueueLocalRecordingForUpload(
+                manifest: manifest,
+                directoryURL: recordingDirectory,
+                reason: "manual_stop_finalized"
             )
             AppLog.writeRaw(
                 event: AuditEventName.recordingStopped.rawValue,
@@ -505,6 +528,11 @@ private struct ContentView: View {
             let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
             localRecordingManifest = manifest
             localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
+            enqueueLocalRecordingForUpload(
+                manifest: manifest,
+                directoryURL: recordingDirectory,
+                reason: "app_exit_resource_release"
+            )
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release failureReason=\(manifest.failureReason.rawValue)"
@@ -513,6 +541,110 @@ private struct ContentView: View {
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "app_exit_resource_release_failed error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func refreshUploadQueueAndProcess(reason: String) {
+        guard !uploadQueueRefreshInProgress else { return }
+        uploadQueueRefreshInProgress = true
+        let service = desktopUploadQueueService
+        Task {
+            do {
+                _ = try service.scanAndEnqueueCompletedRecordings()
+                _ = try service.applyRetentionExpiry()
+                let items = try await service.processDueItems()
+                await MainActor.run {
+                    uploadQueueItems = items
+                    uploadQueueRefreshInProgress = false
+                    AppLog.writeRaw(
+                        event: "upload.queue_refreshed",
+                        detail: "reason=\(reason) total=\(items.count) pending=\(items.filter { !$0.state.isTerminal }.count)"
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    uploadQueueRefreshInProgress = false
+                    AppLog.writeRaw(
+                        event: AuditEventName.uploadFailed.rawValue,
+                        detail: "reason=\(reason) error=\(error)"
+                    )
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func enqueueLocalRecordingForUpload(
+        manifest: LocalRecordingManifest,
+        directoryURL: URL?,
+        reason: String
+    ) {
+        guard let directoryURL else { return }
+        do {
+            let item = try desktopUploadQueueService.enqueue(
+                manifest: manifest,
+                directoryURL: directoryURL,
+                reason: reason
+            )
+            uploadQueueItems = try desktopUploadQueueService.loadItems()
+            let event: AuditEventName = switch item.state {
+            case .queued, .uploading:
+                .uploadQueued
+            case .retrying:
+                .uploadRetrying
+            case .uploaded:
+                .uploadUploaded
+            case .degraded, .blocked:
+                .uploadBlocked
+            case .failed, .terminalDeleted:
+                .uploadFailed
+            }
+            AppLog.writeRaw(
+                event: event.rawValue,
+                detail: "queueId=\(item.id) directoryId=\(item.directoryId) state=\(item.state.rawValue) retryMode=\(item.retryMode.rawValue) failureCategory=\(item.failureCategory.rawValue)"
+            )
+            refreshUploadQueueAndProcess(reason: "enqueue_\(reason)")
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.uploadFailed.rawValue,
+                detail: "reason=enqueue_\(reason) sessionId=\(manifest.sessionId) directoryId=\(manifest.directoryId) error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func retryUpload(itemId: String) {
+        do {
+            _ = try desktopUploadQueueService.retry(itemId: itemId)
+            uploadQueueItems = try desktopUploadQueueService.loadItems()
+            AppLog.writeRaw(
+                event: AuditEventName.uploadRetrying.rawValue,
+                detail: "queueId=\(itemId) reason=manual_retry_requested"
+            )
+            refreshUploadQueueAndProcess(reason: "manual_retry")
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.uploadFailed.rawValue,
+                detail: "queueId=\(itemId) reason=manual_retry_failed error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func stopUploadRetry(itemId: String) {
+        do {
+            let item = try desktopUploadQueueService.stopRetry(itemId: itemId)
+            uploadQueueItems = try desktopUploadQueueService.loadItems()
+            AppLog.writeRaw(
+                event: AuditEventName.uploadBlocked.rawValue,
+                detail: "queueId=\(itemId) state=\(item.state.rawValue) reason=automatic_retry_stopped"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.uploadFailed.rawValue,
+                detail: "queueId=\(itemId) reason=stop_retry_failed error=\(error)"
             )
         }
     }

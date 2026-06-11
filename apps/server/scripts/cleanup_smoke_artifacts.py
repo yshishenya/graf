@@ -8,66 +8,90 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.deployment import SmokeCleanupRecord
+from twobrain_rec_server.deployment import SmokeCleanupRecord, build_smoke_identity_seed
 
 
-async def cleanup_smoke_artifacts(meeting_id: str, session_id: str) -> tuple[int, int]:
+async def _table_exists(conn, table_name: str) -> bool:
+    result = await conn.execute(
+        text("select to_regclass(:table_name) is not null"),
+        {"table_name": table_name},
+    )
+    return bool(result.scalar())
+
+
+async def cleanup_smoke_artifacts(
+    run_id: str,
+    meeting_id: str | None = None,
+    session_id: str | None = None,
+) -> tuple[int, int]:
     settings = Settings()
     engine = create_async_engine(settings.database_url)
     object_keys: list[str] = []
     removed_rows = 0
-    smoke_identity: dict[str, str] = {}
+    seed = build_smoke_identity_seed(run_id)
+    smoke_identity: dict[str, str] = {
+        "workspace_id": str(seed.workspace_id),
+        "user_id": str(seed.user_id),
+        "device_id": str(seed.device_id),
+        "organization_id": str(seed.organization_id),
+    }
 
     async with engine.begin() as conn:
-        row = (
-            await conn.execute(
-                text(
-                    """
-                    select
-                        m.workspace_id,
-                        m.created_by_user_id,
-                        m.device_id,
-                        w.organization_id,
-                        w.slug as workspace_slug,
-                        o.slug as organization_slug,
-                        d.device_public_id
-                    from meetings m
-                    join workspaces w on w.id = m.workspace_id
-                    join organizations o on o.id = w.organization_id
-                    join registered_devices d on d.id = m.device_id
-                    where m.id=:meeting_id
-                    """
-                ),
-                {"meeting_id": meeting_id},
-            )
-        ).mappings().first()
-        if row and (
-            str(row["workspace_slug"]).startswith("internal-smoke-workspace-")
-            and str(row["organization_slug"]).startswith("internal-smoke-org-")
-            and str(row["device_public_id"]).startswith("internal-smoke-")
-        ):
-            smoke_identity = {
-                "workspace_id": str(row["workspace_id"]),
-                "user_id": str(row["created_by_user_id"]),
-                "device_id": str(row["device_id"]),
-                "organization_id": str(row["organization_id"]),
-            }
+        if meeting_id:
+            row = (
+                await conn.execute(
+                    text(
+                        """
+                        select
+                            m.workspace_id,
+                            m.created_by_user_id,
+                            m.device_id,
+                            w.organization_id,
+                            w.slug as workspace_slug,
+                            o.slug as organization_slug,
+                            d.device_public_id
+                        from meetings m
+                        join workspaces w on w.id = m.workspace_id
+                        join organizations o on o.id = w.organization_id
+                        join registered_devices d on d.id = m.device_id
+                        where m.id=:meeting_id
+                        """
+                    ),
+                    {"meeting_id": meeting_id},
+                )
+            ).mappings().first()
+            if row and (
+                str(row["workspace_slug"]).startswith("internal-smoke-workspace-")
+                and str(row["organization_slug"]).startswith("internal-smoke-org-")
+                and str(row["device_public_id"]).startswith("internal-smoke-")
+            ):
+                smoke_identity = {
+                    "workspace_id": str(row["workspace_id"]),
+                    "user_id": str(row["created_by_user_id"]),
+                    "device_id": str(row["device_id"]),
+                    "organization_id": str(row["organization_id"]),
+                }
 
-        for table, column in (("upload_parts", "upload_session_id"), ("temporary_upload_objects", "upload_session_id")):
+        if session_id:
+            for table, column in (("upload_parts", "upload_session_id"), ("temporary_upload_objects", "upload_session_id")):
+                rows = (
+                    await conn.execute(
+                        text(f"select storage_object_key from {table} where {column}=:session_id"),
+                        {"session_id": session_id},
+                    )
+                ).fetchall()
+                object_keys.extend(row[0] for row in rows)
+        if meeting_id:
             rows = (
                 await conn.execute(
-                    text(f"select storage_object_key from {table} where {column}=:session_id"),
-                    {"session_id": session_id},
+                    text("select storage_object_key from track_artifacts where meeting_id=:meeting_id"),
+                    {"meeting_id": meeting_id},
                 )
             ).fetchall()
             object_keys.extend(row[0] for row in rows)
-        rows = (
-            await conn.execute(
-                text("select storage_object_key from track_artifacts where meeting_id=:meeting_id"),
-                {"meeting_id": meeting_id},
-            )
-        ).fetchall()
-        object_keys.extend(row[0] for row in rows)
+
+        has_auth_bindings = await _table_exists(conn, "auth_session_device_bindings")
+        has_auth_sessions = await _table_exists(conn, "auth_sessions")
 
     storage = Minio(
         settings.minio_endpoint,
@@ -81,17 +105,35 @@ async def cleanup_smoke_artifacts(meeting_id: str, session_id: str) -> tuple[int
         removed_objects += 1
 
     async with engine.begin() as conn:
-        statements = [
-            ("delete from ingest_audit_events where upload_session_id=:session_id or meeting_id=:meeting_id", {"session_id": session_id, "meeting_id": meeting_id}),
-            ("delete from manifest_snapshots where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
-            ("delete from track_artifacts where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
-            ("delete from temporary_upload_objects where upload_session_id=:session_id", {"session_id": session_id}),
-            ("delete from upload_parts where upload_session_id=:session_id", {"session_id": session_id}),
-            ("delete from upload_sessions where id=:session_id", {"session_id": session_id}),
-            ("delete from processing_placeholders where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
-            ("delete from meetings where id=:meeting_id", {"meeting_id": meeting_id}),
-        ]
+        statements = []
+        if meeting_id and session_id:
+            statements.extend(
+                [
+                    ("delete from ingest_audit_events where upload_session_id=:session_id or meeting_id=:meeting_id", {"session_id": session_id, "meeting_id": meeting_id}),
+                    ("delete from manifest_snapshots where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
+                    ("delete from track_artifacts where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
+                    ("delete from temporary_upload_objects where upload_session_id=:session_id", {"session_id": session_id}),
+                    ("delete from upload_parts where upload_session_id=:session_id", {"session_id": session_id}),
+                    ("delete from upload_sessions where id=:session_id", {"session_id": session_id}),
+                    ("delete from processing_placeholders where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
+                    ("delete from meetings where id=:meeting_id", {"meeting_id": meeting_id}),
+                ]
+            )
         if smoke_identity:
+            if has_auth_bindings:
+                statements.append(
+                    (
+                        "delete from auth_session_device_bindings where registered_device_id=:device_id",
+                        smoke_identity,
+                    )
+                )
+            if has_auth_sessions:
+                statements.append(
+                    (
+                        "delete from auth_sessions where user_id=:user_id and workspace_id=:workspace_id",
+                        smoke_identity,
+                    )
+                )
             statements.extend(
                 [
                     (
@@ -135,9 +177,13 @@ def main() -> None:
 
     database_records_removed = 0
     object_keys_removed = 0
-    if args.execute and args.meeting_id and args.session_id:
+    if args.execute:
         database_records_removed, object_keys_removed = asyncio.run(
-            cleanup_smoke_artifacts(args.meeting_id, args.session_id)
+            cleanup_smoke_artifacts(
+                args.run_id,
+                meeting_id=args.meeting_id,
+                session_id=args.session_id,
+            )
         )
 
     cleanup = SmokeCleanupRecord(

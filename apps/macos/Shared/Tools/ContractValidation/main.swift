@@ -1416,6 +1416,74 @@ private final class FailingContractRuntime: SystemAudioCaptureRuntime, @unchecke
     func stop() async {}
 }
 
+func validateDesktopUploadQueueContract() throws {
+    try require(
+        DesktopUploadTransportRole.role(forLocalTrackRole: .localMic) == .microphone,
+        "Desktop upload queue must map local mic to backend microphone role"
+    )
+    try require(
+        DesktopUploadTransportRole.role(forLocalTrackRole: .remoteSpeaker) == .system,
+        "Desktop upload queue must map remote/system incoming audio to backend system role"
+    )
+    try require(
+        DiagnosticRedactor.forbiddenKeys.isSuperset(of: [
+            "rawAudio",
+            "transcriptText",
+            "meetingContent",
+            "signedUrl",
+            "uploadToken",
+            "bearerToken",
+            "uploadBearerToken",
+            "authorization",
+            "mediaScribeCredentials",
+            "objectStorageCredentials"
+        ]),
+        "Desktop upload diagnostics must forbid raw content, credentials, tokens, and signed URLs"
+    )
+
+    let profile = ArtifactCompletenessProfile(
+        schemaVersion: LocalRecordingManifest.schemaVersion,
+        manifestPresent: true,
+        microphonePresent: true,
+        systemAudioPresent: true,
+        manifestSha256: String(repeating: "a", count: 64),
+        microphoneSha256: String(repeating: "b", count: 64),
+        systemAudioSha256: String(repeating: "c", count: 64),
+        manifestSizeBytes: 128,
+        microphoneSizeBytes: 256,
+        systemAudioSizeBytes: 512,
+        durationSeconds: 1,
+        trackCompleteness: [],
+        isUploadable: true
+    )
+    let terminal = DesktopUploadQueueItem(
+        id: "queue",
+        sessionId: "session",
+        directoryId: "directory",
+        directoryPath: "/private/directory",
+        manifestPath: "/private/directory/manifest.json",
+        microphonePath: "/private/directory/mic.wav",
+        systemAudioPath: "/private/directory/incoming.wav",
+        state: .uploaded,
+        retryMode: .terminal,
+        retentionDeadline: Date(timeIntervalSince1970: 100),
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 1),
+        artifactProfile: profile,
+        retentionDecision: RetentionDecision(
+            decision: .terminalUploaded,
+            decidedAt: Date(timeIntervalSince1970: 1),
+            reason: "server_finalized_upload",
+            localArtifactsRetained: true,
+            policyReference: "server_truth.finalized"
+        )
+    )
+    try require(
+        terminal.withTransition(to: .retrying, now: Date(timeIntervalSince1970: 2)).state == .uploaded,
+        "Desktop upload terminal truth must not regress to retrying"
+    )
+}
+
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
@@ -1442,6 +1510,7 @@ do {
     try validateManualGateExitCleanupInvariant()
     try validateLocalRecordingWriterTimerWriteFailureInvariant()
     try validateSystemAudioIncomingQualityInvariant()
+    try validateDesktopUploadQueueContract()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

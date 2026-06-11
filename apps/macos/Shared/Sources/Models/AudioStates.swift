@@ -371,8 +371,12 @@ public enum UploadState: String, Codable, Sendable {
     case notReady = "not_ready"
     case queued
     case uploading
+    case retrying
     case uploaded
+    case degraded
     case failed
+    case blocked
+    case terminalDeleted = "terminal_deleted"
     case serverUnavailable = "server_unavailable"
     case networkUnavailable = "network_unavailable"
 }

@@ -56,6 +56,10 @@ public enum AuditEventName: String, Codable, Sendable {
     case derivedCleanedTrackValidated = "derived_cleaned_track_validated"
     case assistedAutoStartReadinessRecorded = "assisted_auto_start.readiness_recorded"
     case localBufferEntered = "local_buffer.entered"
+    case uploadQueued = "upload.queued"
+    case uploadRetrying = "upload.retrying"
+    case uploadUploaded = "upload.uploaded"
+    case uploadBlocked = "upload.blocked"
     case uploadFailed = "upload.failed"
     case localPurgeAcknowledged = "local_purge.acknowledged"
 }

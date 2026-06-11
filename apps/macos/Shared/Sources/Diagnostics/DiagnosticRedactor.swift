@@ -40,13 +40,22 @@ public struct DiagnosticRedactor: Sendable {
         "signedUrls",
         "token",
         "temporaryUploadUrl",
-        "temporaryDownloadUrl"
+        "temporaryDownloadUrl",
+        "mediaScribeCredentials",
+        "minioCredentials",
+        "objectStorageCredentials",
+        "uploadToken",
+        "bearerToken",
+        "uploadBearerToken",
+        "authBearerToken",
+        "authorization"
     ]
 
     public static let forbiddenValuePatterns: [String] = [
         "-----BEGIN PRIVATE KEY-----",
         "X-API-Key:",
         "Authorization: Bearer ",
+        "Bearer ",
         "presigned"
     ]
 
@@ -141,6 +150,12 @@ public struct DiagnosticRedactor: Sendable {
         "retentionDeadlines",
         "uploadReadiness",
         "uploadFailureCategory",
+        "uploadQueue",
+        "uploadQueueItems",
+        "uploadAttempt",
+        "acceptedBytesByTrack",
+        "retryMode",
+        "serverTruth",
         "redactionEngineVersion",
         "diagnosticSchemaVersion",
         "failureFamily",

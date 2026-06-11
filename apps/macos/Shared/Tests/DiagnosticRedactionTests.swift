@@ -300,5 +300,50 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("localRecordingManifest.rawAudio"))
         XCTAssertTrue(result.removedFields.contains("localRecordingTracks[0].meetingContent"))
     }
+
+    func testUploadQueueDiagnosticsKeepSafeMetadataAndRemoveSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "uploadQueue": .object([
+                "pendingCount": .int(1),
+                "state": .string("retrying"),
+                "absolutePath": .string("/Users/example/Recordings/session"),
+                "uploadToken": .string("forbidden"),
+                "uploadBearerToken": .string("forbidden")
+            ]),
+            "uploadQueueItems": .array([
+                .object([
+                    "id": .string("queue-id"),
+                    "state": .string("blocked"),
+                    "failureCategory": .string("auth_session"),
+                    "failureReason": .string("Bearer leaked-token"),
+                    "authorization": .string("Bearer forbidden"),
+                    "signedUrl": .string("https://example.presigned/upload")
+                ])
+            ]),
+            "serverTruth": .object([
+                "acceptedBytesByTrack": .object([
+                    "microphone": .int(128),
+                    "system": .int(128),
+                    "manifest": .int(64)
+                ]),
+                "mediaScribeCredentials": .string("forbidden")
+            ]),
+            "rawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["uploadQueue"])
+        XCTAssertNotNil(result.manifest["uploadQueueItems"])
+        XCTAssertNotNil(result.manifest["serverTruth"])
+        XCTAssertNil(result.manifest["rawAudio"])
+        XCTAssertTrue(result.removedFields.contains("uploadQueue.absolutePath"))
+        XCTAssertTrue(result.removedFields.contains("uploadQueue.uploadToken"))
+        XCTAssertTrue(result.removedFields.contains("uploadQueue.uploadBearerToken"))
+        XCTAssertTrue(result.removedFields.contains("uploadQueueItems[0].failureReason"))
+        XCTAssertTrue(result.removedFields.contains("uploadQueueItems[0].authorization"))
+        XCTAssertTrue(result.removedFields.contains("uploadQueueItems[0].signedUrl"))
+        XCTAssertTrue(result.removedFields.contains("serverTruth.mediaScribeCredentials"))
+    }
 }
 #endif

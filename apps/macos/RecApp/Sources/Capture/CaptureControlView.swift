@@ -6,32 +6,41 @@ public struct CaptureControlView: View {
     private let blockedReason: String?
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
+    private let uploadQueueItems: [DesktopUploadQueueItem]
     private let routeSignalLevels: LiveRouteSignalLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
     private let onRecord: () -> Void
     private let onStop: () -> Void
+    private let onUploadRetry: (String) -> Void
+    private let onUploadStopRetry: (String) -> Void
 
     public init(
         session: CaptureSession?,
         blockedReason: String? = nil,
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
+        uploadQueueItems: [DesktopUploadQueueItem] = [],
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
         onRecord: @escaping () -> Void,
-        onStop: @escaping () -> Void
+        onStop: @escaping () -> Void,
+        onUploadRetry: @escaping (String) -> Void = { _ in },
+        onUploadStopRetry: @escaping (String) -> Void = { _ in }
     ) {
         self.session = session
         self.blockedReason = blockedReason
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
+        self.uploadQueueItems = uploadQueueItems
         self.routeSignalLevels = routeSignalLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
         self.onRecord = onRecord
         self.onStop = onStop
+        self.onUploadRetry = onUploadRetry
+        self.onUploadStopRetry = onUploadStopRetry
     }
 
     public var body: some View {
@@ -93,6 +102,14 @@ public struct CaptureControlView: View {
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingLocation)
             }
 
+            if let summary = Self.uploadSummary(for: uploadQueueItems) {
+                UploadQueueStatusView(
+                    summary: summary,
+                    onRetry: onUploadRetry,
+                    onStopRetry: onUploadStopRetry
+                )
+            }
+
             Divider()
 
             LiveRecordingMetersView(
@@ -117,6 +134,10 @@ public struct CaptureControlView: View {
         shouldShowRecordButton(for: session) && !recordDisabled
     }
 
+    public static func uploadSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadQueueSummary? {
+        DesktopUploadQueueService.visibleSummary(for: items)
+    }
+
     private var localRecordingStatusIcon: String {
         guard let localRecordingStatus else { return "waveform.path.badge.plus" }
         if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
@@ -137,6 +158,96 @@ public struct CaptureControlView: View {
             return .orange
         }
         return .secondary
+    }
+}
+
+private struct UploadQueueStatusView: View {
+    let summary: DesktopUploadQueueSummary
+    let onRetry: (String) -> Void
+    let onStopRetry: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label(summary.title, systemImage: iconName)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Spacer()
+                Text("\(Int((summary.primaryItem.progressFraction * 100).rounded()))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            ProgressView(value: summary.primaryItem.progressFraction)
+                .progressViewStyle(.linear)
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(summary.detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                if let actionLabel = summary.primaryItem.nextActionLabel {
+                    Button {
+                        if summary.primaryItem.retryMode == .automatic {
+                            onStopRetry(summary.primaryItem.id)
+                        } else {
+                            onRetry(summary.primaryItem.id)
+                        }
+                    } label: {
+                        Label(actionLabel, systemImage: actionIcon(for: actionLabel))
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(statusColor.opacity(0.3), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Upload queue \(summary.title), \(summary.detail)")
+    }
+
+    private var iconName: String {
+        switch summary.primaryItem.state {
+        case .uploaded:
+            return "checkmark.icloud.fill"
+        case .uploading:
+            return "icloud.and.arrow.up"
+        case .retrying:
+            return "arrow.clockwise.icloud"
+        case .blocked, .failed, .degraded:
+            return "exclamationmark.icloud.fill"
+        case .queued:
+            return "tray.and.arrow.up"
+        case .terminalDeleted:
+            return "xmark.icloud"
+        }
+    }
+
+    private var statusColor: Color {
+        switch summary.primaryItem.state {
+        case .uploaded:
+            return .green
+        case .uploading, .queued:
+            return .blue
+        case .retrying, .degraded, .blocked:
+            return .orange
+        case .failed, .terminalDeleted:
+            return .red
+        }
+    }
+
+    private func actionIcon(for label: String) -> String {
+        label.localizedCaseInsensitiveContains("stop") ? "pause.circle" : "arrow.clockwise"
     }
 }
 

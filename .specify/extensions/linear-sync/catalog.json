@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-06-11T00:00:00Z",
+  "extensions": {
+    "linear-sync": {
+      "name": "Linear Sync",
+      "version": "0.1.0",
+      "description": "Sync Spec Kit tasks and GitHub issues into Linear projects without duplicate work",
+      "author": "yshishenya",
+      "repository": "https://github.com/yshishenya/spec-kit-ext-linear-sync",
+      "download_url": "https://github.com/yshishenya/spec-kit-ext-linear-sync/archive/refs/heads/main.zip",
+      "license": "MIT",
+      "verified": false,
+      "tags": [
+        "linear",
+        "issues",
+        "projects",
+        "taskstoissues",
+        "workflow"
+      ]
+    }
+  }
+}
