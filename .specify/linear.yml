@@ -313,6 +313,638 @@
       "linear_project_name": "2brain Rec / 014 Desktop Upload Queue",
       "linear_project_id": "bfc18098-7891-4190-9e17-c33f9595fff1",
       "linear_project_url": "https://linear.app/yshishneya/project/2brain-rec-014-desktop-upload-queue-b79862296e69"
+    },
+    "013": {
+      "name": "013-federated-auth-foundation",
+      "github_repo": "yshishenya/crisp",
+      "tasks": {
+        "T001": {
+          "title": "Create dedicated auth feature directory scaffold in `apps/server/src/twobrain_rec_server/auth/providers/` and `apps/server/src/twobrain_rec_server/api/`",
+          "source_line": 13,
+          "done": true,
+          "linear_issue": "YSH-38",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-38/013p2auth-t001-create-dedicated-auth-feature-directory-scaffold"
+        },
+        "T002": {
+          "title": "Create server-side provider adapter package structure in `apps/server/src/twobrain_rec_server/auth/providers/base.py`, `apps/server/src/twobrain_rec_server/auth/providers/yandex.py`, `apps/server/src/twobrain_rec_server/auth/providers/vk.py`, `apps/server/src/twobrain_rec_server/auth/providers/telegram.py`, and `apps/server/src/twobrain_rec_server/auth/providers/__init__.py`",
+          "source_line": 14,
+          "done": true,
+          "linear_issue": "YSH-39",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-39/013p2auth-t002-create-server-side-provider-adapter-package-structure"
+        },
+        "T003": {
+          "title": "Create reusable auth service entry points in `apps/server/src/twobrain_rec_server/auth/callbacks.py`, `apps/server/src/twobrain_rec_server/auth/sessions.py`, `apps/server/src/twobrain_rec_server/auth/links.py`, and `apps/server/src/twobrain_rec_server/auth/__init__.py`",
+          "source_line": 15,
+          "done": true,
+          "linear_issue": "YSH-40",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-40/013p2auth-t003-create-reusable-auth-service-entry-points"
+        },
+        "T004": {
+          "title": "Add auth test scaffolding directories `apps/server/tests/contract/` and `apps/server/tests/integration/` helper modules for fake providers in `apps/server/tests/fakes/auth_providers.py`",
+          "source_line": 16,
+          "done": true,
+          "linear_issue": "YSH-41",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-41/013p2tests-t004-add-auth-test-scaffolding-directories"
+        },
+        "T005": {
+          "title": "Capture unresolved dependencies and follow-up notes in `specs/013-federated-auth-foundation/checklists/security.md`, `specs/013-federated-auth-foundation/checklists/infra.md`, and `specs/013-federated-auth-foundation/checklists/ux.md`",
+          "source_line": 17,
+          "done": true,
+          "linear_issue": "YSH-42",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-42/013p2security-t005-capture-unresolved-dependencies-and-follow-up-notes"
+        },
+        "T006": {
+          "title": "Update `docs/current-product-status.md` and `docs/prd-voice-layer-final.md` status block for 013 feature ownership and boundaries before code start",
+          "source_line": 18,
+          "done": true,
+          "linear_issue": "YSH-43",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-43/013p2docs-t006-update-docscurrent-product-statusmd-and-docsprd-voice"
+        },
+        "T007": {
+          "title": "Extend auth request context to carry auth-session identity while preserving legacy headers in `apps/server/src/twobrain_rec_server/auth/context.py`",
+          "source_line": 26,
+          "done": true,
+          "linear_issue": "YSH-44",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-44/013p2auth-t007-extend-auth-request-context-to-carry-auth-session"
+        },
+        "T008": {
+          "title": "Extend device context to include session-bound trust signals in `apps/server/src/twobrain_rec_server/auth/context.py`",
+          "source_line": 27,
+          "done": true,
+          "linear_issue": "YSH-45",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-45/013p2auth-t008-extend-device-context-to-include-session-bound-trust"
+        },
+        "T009": {
+          "title": "Extend bearer/session dependency behavior with graceful fallback to legacy header-based auth in `apps/server/src/twobrain_rec_server/auth/dependencies.py`",
+          "source_line": 28,
+          "done": true,
+          "linear_issue": "YSH-46",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-46/013p2auth-t009-extend-bearersession-dependency-behavior-with-graceful"
+        },
+        "T010": {
+          "title": "Add provider auth settings and OAuth callback URLs in `apps/server/src/twobrain_rec_server/config.py` and `apps/server/.env.example`",
+          "source_line": 29,
+          "done": true,
+          "linear_issue": "YSH-47",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-47/013p2auth-t010-add-provider-auth-settings-and-oauth-callback-urls"
+        },
+        "T011": {
+          "title": "Add provider credential source fields (env file paths + safe placeholders) in `apps/server/src/twobrain_rec_server/config.py`",
+          "source_line": 30,
+          "done": true,
+          "linear_issue": "YSH-48",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-48/013p2auth-t011-add-provider-credential-source-fields-env-file-paths"
+        },
+        "T012": {
+          "title": "Add RU-local policy and provider allow-list model wiring in `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`",
+          "source_line": 31,
+          "done": true,
+          "linear_issue": "YSH-49",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-49/013p2auth-t012-add-ru-local-policy-and-provider-allow-list-model"
+        },
+        "T013": {
+          "title": "Add new auth entities in `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`: `external_identities`, `workspace_auth_policies`, `auth_sessions`, `auth_session_device_bindings`, `workspace_provider_link_states`, `auth_callback_states`, `workspace_consent_copy`",
+          "source_line": 32,
+          "done": true,
+          "linear_issue": "YSH-50",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-50/013p2auth-t013-add-new-auth-entities"
+        },
+        "T014": {
+          "title": "Export new auth entities from `apps/server/src/twobrain_rec_server/db/models/__init__.py`",
+          "source_line": 33,
+          "done": true,
+          "linear_issue": "YSH-51",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-51/013p2auth-t014-export-new-auth-entities-from-appsserversrctwobrain-rec"
+        },
+        "T015": {
+          "title": "Add migration for 013 auth schema in `apps/server/src/twobrain_rec_server/db/migrations/versions/0003_federated_auth_foundation.py`",
+          "source_line": 34,
+          "done": true,
+          "linear_issue": "YSH-52",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-52/013p2infra-t015-add-migration-for-013-auth-schema"
+        },
+        "T016": {
+          "title": "Add callback state and session security helpers (single-use state hashing, expiry, nonce generation) in `apps/server/src/twobrain_rec_server/auth/sessions.py`",
+          "source_line": 35,
+          "done": true,
+          "linear_issue": "YSH-53",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-53/013p2auth-t016-add-callback-state-and-session-security-helpers-single"
+        },
+        "T017": {
+          "title": "Add canonical auth audit model and events in `apps/server/src/twobrain_rec_server/auth/audit.py`",
+          "source_line": 36,
+          "done": true,
+          "linear_issue": "YSH-54",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-54/013p2auth-t017-add-canonical-auth-audit-model-and-events"
+        },
+        "T018": {
+          "title": "Expand redaction policy for auth-related fields in `apps/server/src/twobrain_rec_server/observability/redaction.py`",
+          "source_line": 37,
+          "done": true,
+          "linear_issue": "YSH-8",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-8/013p2auth-t018-expand-redaction-policy-for-auth-related-fields"
+        },
+        "T019": {
+          "title": "Add failure code constants and deterministic problem mapping in `apps/server/src/twobrain_rec_server/api/problems.py` and `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 38,
+          "done": true,
+          "linear_issue": "YSH-9",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-9/013p2auth-t019-add-failure-code-constants-and-deterministic-problem"
+        },
+        "T020": {
+          "title": "Add reusable provider policy service utilities in `apps/server/src/twobrain_rec_server/auth/policy.py`",
+          "source_line": 39,
+          "done": true,
+          "linear_issue": "YSH-10",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-10/013p2auth-t020-add-reusable-provider-policy-service-utilities"
+        },
+        "T021": {
+          "title": "Add auth provider fixture setup helpers in `apps/server/tests/fakes/auth_providers.py`",
+          "source_line": 40,
+          "done": true,
+          "linear_issue": "YSH-11",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-11/013p2tests-t021-add-auth-provider-fixture-setup-helpers"
+        },
+        "T022": {
+          "title": "Add contract tests for `/api/v1/auth/providers` and `/api/v1/auth/providers/{provider}/start` in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 52,
+          "done": true,
+          "linear_issue": "YSH-12",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-12/013p1tests-t022-add-contract-tests-for-apiv1authproviders-and"
+        },
+        "T023": {
+          "title": "Add callback contract tests for success, unavailable, and denied states in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 53,
+          "done": true,
+          "linear_issue": "YSH-13",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-13/013p1tests-t023-add-callback-contract-tests-for-success-unavailable"
+        },
+        "T024": {
+          "title": "Add integration happy-path test with provider adapter stubs in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 54,
+          "done": true,
+          "linear_issue": "YSH-14",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-14/013p1tests-t024-add-integration-happy-path-test-with-provider-adapter"
+        },
+        "T025": {
+          "title": "Implement provider registry and adapter interface in `apps/server/src/twobrain_rec_server/auth/providers/base.py`",
+          "source_line": 58,
+          "done": true,
+          "linear_issue": "YSH-15",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-15/013p1auth-t025-implement-provider-registry-and-adapter-interface"
+        },
+        "T026": {
+          "title": "Implement Yandex adapter in `apps/server/src/twobrain_rec_server/auth/providers/yandex.py`",
+          "source_line": 59,
+          "done": true,
+          "linear_issue": "YSH-16",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-16/013p1auth-t026-implement-yandex-adapter"
+        },
+        "T027": {
+          "title": "Implement VK adapter in `apps/server/src/twobrain_rec_server/auth/providers/vk.py`",
+          "source_line": 60,
+          "done": true,
+          "linear_issue": "YSH-17",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-17/013p1auth-t027-implement-vk-adapter"
+        },
+        "T028": {
+          "title": "Implement Telegram adapter in `apps/server/src/twobrain_rec_server/auth/providers/telegram.py`",
+          "source_line": 61,
+          "done": true,
+          "linear_issue": "YSH-18",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-18/013p1auth-t028-implement-telegram-adapter"
+        },
+        "T029": {
+          "title": "Implement `/api/v1/auth/providers` and `/api/v1/auth/providers/{provider}/start` in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 62,
+          "done": true,
+          "linear_issue": "YSH-19",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-19/013p1auth-t029-implement-apiv1authproviders-and"
+        },
+        "T030": {
+          "title": "Implement callback start-to-session exchange (`/api/v1/auth/callback/{provider}`) in `apps/server/src/twobrain_rec_server/api/auth.py` and `apps/server/src/twobrain_rec_server/auth/callbacks.py`",
+          "source_line": 63,
+          "done": true,
+          "linear_issue": "YSH-20",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-20/013p1auth-t030-implement-callback-start-to-session-exchange"
+        },
+        "T031": {
+          "title": "Implement provider subject normalization, external identity upsert, and user bootstrap in `apps/server/src/twobrain_rec_server/auth/callbacks.py`",
+          "source_line": 64,
+          "done": true,
+          "linear_issue": "YSH-21",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-21/013p1auth-t031-implement-provider-subject-normalization-external"
+        },
+        "T032": {
+          "title": "Implement session issuance/rotation + cookie/header transport helpers in `apps/server/src/twobrain_rec_server/auth/sessions.py`",
+          "source_line": 65,
+          "done": true,
+          "linear_issue": "YSH-22",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-22/013p1auth-t032-implement-session-issuancerotation-cookieheader"
+        },
+        "T033": {
+          "title": "Wire provider endpoints into app router in `apps/server/src/twobrain_rec_server/main.py`",
+          "source_line": 66,
+          "done": true,
+          "linear_issue": "YSH-23",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-23/013p1auth-t033-wire-provider-endpoints-into-app-router"
+        },
+        "T034": {
+          "title": "Add contract tests for `/api/v1/auth/link` success/confirm/reject flows in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 80,
+          "done": true,
+          "linear_issue": "YSH-24",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-24/013p1tests-t034-add-contract-tests-for-apiv1authlink"
+        },
+        "T035": {
+          "title": "Add integration tests for verified-match and conflict cases in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 81,
+          "done": true,
+          "linear_issue": "YSH-25",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-25/013p1tests-t035-add-integration-tests-for-verified-match-and-conflict"
+        },
+        "T036": {
+          "title": "Implement link candidate matching and conflict detection service in `apps/server/src/twobrain_rec_server/auth/links.py`",
+          "source_line": 85,
+          "done": true,
+          "linear_issue": "YSH-26",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-26/013p1auth-t036-implement-link-candidate-matching-and-conflict"
+        },
+        "T037": {
+          "title": "Implement explicit confirmation path and state machine in `apps/server/src/twobrain_rec_server/auth/links.py`",
+          "source_line": 86,
+          "done": true,
+          "linear_issue": "YSH-27",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-27/013p1auth-t037-implement-explicit-confirmation-path-and-state-machine"
+        },
+        "T038": {
+          "title": "Add `/api/v1/auth/link` endpoint in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 87,
+          "done": true,
+          "linear_issue": "YSH-28",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-28/013p1auth-t038-add-apiv1authlink-endpoint"
+        },
+        "T039": {
+          "title": "Ensure linked provider list and linkage state are reflected in `apps/server/src/twobrain_rec_server/api/auth.py` response for `/api/v1/auth/me`",
+          "source_line": 88,
+          "done": true,
+          "linear_issue": "YSH-29",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-29/013p1auth-t039-ensure-linked-provider-list-and-linkage-state-are"
+        },
+        "T040": {
+          "title": "Add auth audit records for link outcomes in `apps/server/src/twobrain_rec_server/auth/audit.py`",
+          "source_line": 89,
+          "done": true,
+          "linear_issue": "YSH-30",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-30/013p1auth-t040-add-auth-audit-records-for-link-outcomes"
+        },
+        "T041": {
+          "title": "Add contract tests for `/api/v1/auth/devices/register` and `/api/v1/auth/devices/{device_id}/revoke` in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 103,
+          "done": true,
+          "linear_issue": "YSH-31",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-31/013p1tests-t041-add-contract-tests-for-apiv1authdevicesregister-and"
+        },
+        "T042": {
+          "title": "Add integration tests for revoked-device denial in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 104,
+          "done": true,
+          "linear_issue": "YSH-32",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-32/013p1tests-t042-add-integration-tests-for-revoked-device-denial"
+        },
+        "T043": {
+          "title": "Extend `RegisteredDevice` and `AuthSessionDeviceBinding` fields in `apps/server/src/twobrain_rec_server/db/models/identity.py` and `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`",
+          "source_line": 108,
+          "done": true,
+          "linear_issue": "YSH-33",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-33/013p1auth-t043-extend-registereddevice-and-authsessiondevicebinding"
+        },
+        "T044": {
+          "title": "Implement `AuthSessionDeviceBinding` persistence and status transitions in `apps/server/src/twobrain_rec_server/auth/sessions.py`",
+          "source_line": 109,
+          "done": true,
+          "linear_issue": "YSH-34",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-34/013p1docs-t044-implement-authsessiondevicebinding-persistence-and"
+        },
+        "T045": {
+          "title": "Implement `/api/v1/auth/devices/register` in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 110,
+          "done": true,
+          "linear_issue": "YSH-35",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-35/013p1auth-t045-implement-apiv1authdevicesregister"
+        },
+        "T046": {
+          "title": "Implement `/api/v1/auth/devices/{device_id}/revoke` in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 111,
+          "done": true,
+          "linear_issue": "YSH-36",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-36/013p1auth-t046-implement-apiv1authdevicesdevice-idrevoke"
+        },
+        "T047": {
+          "title": "Update tenant authorization checks to block revoked/quarantined bindings in `apps/server/src/twobrain_rec_server/auth/dependencies.py` and `apps/server/src/twobrain_rec_server/ingest/authorization.py`",
+          "source_line": 112,
+          "done": true,
+          "linear_issue": "YSH-37",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-37/013p1auth-t047-update-tenant-authorization-checks-to-block"
+        },
+        "T048": {
+          "title": "Add contract tests for policy filtering in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 126,
+          "done": true,
+          "linear_issue": "YSH-55",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-55/013p2tests-t048-add-contract-tests-for-policy-filtering"
+        },
+        "T049": {
+          "title": "Add integration test covering require_ru_local behavior in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 127,
+          "done": true,
+          "linear_issue": "YSH-56",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-56/013p2tests-t049-add-integration-test-covering-require-ru-local"
+        },
+        "T050": {
+          "title": "Implement policy read API in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 131,
+          "done": true,
+          "linear_issue": "YSH-57",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-57/013p2auth-t050-implement-policy-read-api"
+        },
+        "T051": {
+          "title": "Implement admin policy mutation endpoint with validation in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 132,
+          "done": true,
+          "linear_issue": "YSH-58",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-58/013p2auth-t051-implement-admin-policy-mutation-endpoint-with"
+        },
+        "T052": {
+          "title": "Implement policy cache/service with defaults and drift-safe writes in `apps/server/src/twobrain_rec_server/auth/policy.py`",
+          "source_line": 133,
+          "done": true,
+          "linear_issue": "YSH-59",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-59/013p2auth-t052-implement-policy-cacheservice-with-defaults-and-drift"
+        },
+        "T053": {
+          "title": "Ensure provider list and policy checks consume workspace policy in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 134,
+          "done": true,
+          "linear_issue": "YSH-60",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-60/013p2auth-t053-ensure-provider-list-and-policy-checks-consume"
+        },
+        "T054": {
+          "title": "Add RU-residency enforcement guards on external identity/session writes in `apps/server/src/twobrain_rec_server/auth/sessions.py`",
+          "source_line": 135,
+          "done": true,
+          "linear_issue": "YSH-61",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-61/013p2auth-t054-add-ru-residency-enforcement-guards-on-external"
+        },
+        "T055": {
+          "title": "Add contract tests for deterministic codes in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 149,
+          "done": true,
+          "linear_issue": "YSH-62",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-62/013p2tests-t055-add-contract-tests-for-deterministic-codes"
+        },
+        "T056": {
+          "title": "Add integration tests for tampered/reused state and denial recovery in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 150,
+          "done": true,
+          "linear_issue": "YSH-63",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-63/013p2tests-t056-add-integration-tests-for-tamperedreused-state-and"
+        },
+        "T057": {
+          "title": "Implement callback anti-replay and expiry validation in `apps/server/src/twobrain_rec_server/auth/callbacks.py`",
+          "source_line": 154,
+          "done": true,
+          "linear_issue": "YSH-64",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-64/013p2auth-t057-implement-callback-anti-replay-and-expiry-validation"
+        },
+        "T058": {
+          "title": "Add explicit problem detail mapping for all auth failure codes in `apps/server/src/twobrain_rec_server/auth/callbacks.py` and `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 155,
+          "done": true,
+          "linear_issue": "YSH-65",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-65/013p2auth-t058-add-explicit-problem-detail-mapping-for-all-auth"
+        },
+        "T059": {
+          "title": "Implement failure-state transitions in `apps/server/src/twobrain_rec_server/auth/links.py`",
+          "source_line": 156,
+          "done": true,
+          "linear_issue": "YSH-66",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-66/013p2auth-t059-implement-failure-state-transitions"
+        },
+        "T060": {
+          "title": "Add deterministic audit events for all auth errors in `apps/server/src/twobrain_rec_server/auth/audit.py`",
+          "source_line": 157,
+          "done": true,
+          "linear_issue": "YSH-67",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-67/013p2auth-t060-add-deterministic-audit-events-for-all-auth-errors"
+        },
+        "T061": {
+          "title": "Add contract tests for `/api/v1/auth/me` and consent payload in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 171,
+          "done": true,
+          "linear_issue": "YSH-68",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-68/013p3tests-t061-add-contract-tests-for-apiv1authme-and-consent-payload"
+        },
+        "T062": {
+          "title": "Add redaction and event-content assertions in `apps/server/tests/contract/test_auth_contracts.py`",
+          "source_line": 172,
+          "done": true,
+          "linear_issue": "YSH-69",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-69/013p3tests-t062-add-redaction-and-event-content-assertions"
+        },
+        "T063": {
+          "title": "Implement workspace consent copy model and admin read path in `apps/server/src/twobrain_rec_server/db/models/federated_auth.py` and `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 176,
+          "done": true,
+          "linear_issue": "YSH-70",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-70/013p3auth-t063-implement-workspace-consent-copy-model-and-admin-read"
+        },
+        "T064": {
+          "title": "Add `/api/v1/auth/me` response shaping (linked providers, devices, policy summary) in `apps/server/src/twobrain_rec_server/api/auth.py`",
+          "source_line": 177,
+          "done": true,
+          "linear_issue": "YSH-71",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-71/013p3auth-t064-add-apiv1authme-response-shaping-linked-providers"
+        },
+        "T065": {
+          "title": "Finalize redaction policy for provider fields and auth metadata in `apps/server/src/twobrain_rec_server/observability/redaction.py`",
+          "source_line": 178,
+          "done": true,
+          "linear_issue": "YSH-72",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-72/013p3auth-t065-finalize-redaction-policy-for-provider-fields-and-auth"
+        },
+        "T066": {
+          "title": "Update quickstart and policy runbook with RU/privacy checks in `specs/013-federated-auth-foundation/quickstart.md`",
+          "source_line": 179,
+          "done": true,
+          "linear_issue": "YSH-73",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-73/013p3docs-t066-update-quickstart-and-policy-runbook-with-ruprivacy"
+        },
+        "T067": {
+          "title": "Run `$speckit-checklist` follow-up review for all generated checklists and mark resolved items in `specs/013-federated-auth-foundation/checklists/security.md`",
+          "source_line": 185,
+          "done": true,
+          "linear_issue": "YSH-74",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-74/013p3security-t067-run-dollarspeckit-checklist-follow-up-review-for"
+        },
+        "T068": {
+          "title": "Run checklist follow-up in `specs/013-federated-auth-foundation/checklists/infra.md`",
+          "source_line": 186,
+          "done": true,
+          "linear_issue": "YSH-75",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-75/013p3security-t068-run-checklist-follow-up"
+        },
+        "T069": {
+          "title": "Run checklist follow-up in `specs/013-federated-auth-foundation/checklists/ux.md`",
+          "source_line": 187,
+          "done": true,
+          "linear_issue": "YSH-76",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-76/013p3security-t069-run-checklist-follow-up"
+        },
+        "T070": {
+          "title": "Add/refresh auth migration + integration test evidence in `specs/013-federated-auth-foundation/quickstart.md`",
+          "source_line": 188,
+          "done": true,
+          "linear_issue": "YSH-77",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-77/013p3docs-t070-addrefresh-auth-migration-integration-test-evidence"
+        },
+        "T071": {
+          "title": "Run `bash .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` and record output in `specs/013-federated-auth-foundation/quickstart.md`",
+          "source_line": 189,
+          "done": true,
+          "linear_issue": "YSH-78",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-78/013p3docs-t071-run-bash-specifyscriptsbashcheck-prerequisitessh-json"
+        },
+        "T072": {
+          "title": "Run `$speckit-analyze` and address any P1/P2 blocking findings before implementation work begins",
+          "source_line": 190,
+          "done": true,
+          "linear_issue": "YSH-79",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-79/013p3auth-t072-run-dollarspeckit-analyze-and-address-any-p1p2-blocking"
+        },
+        "T073": {
+          "title": "Run quick backend contract and focused smoke commands in `specs/013-federated-auth-foundation/quickstart.md`",
+          "source_line": 191,
+          "done": true,
+          "linear_issue": "YSH-80",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-80/013p3docs-t073-run-quick-backend-contract-and-focused-smoke-commands"
+        },
+        "T074": {
+          "title": "Update `docs/github-issue-canon.md` links or references if any new issue labels/areas are introduced",
+          "source_line": 192,
+          "done": true,
+          "linear_issue": "YSH-81",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-81/013p3docs-t074-update-docsgithub-issue-canonmd-links-or-references-if"
+        },
+        "T075": {
+          "title": "Convert completed tasks into GitHub issues with Spec Kit issue canon sections and labels using `gh issue create` or the `speckit-taskstoissues` flow",
+          "source_line": 198,
+          "done": true,
+          "linear_issue": "YSH-186",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-186/013t075-zafiksirovat-task-to-issues-sync-v-github"
+        },
+        "T076": {
+          "title": "Add provider callback verification tests for forged OAuth code rejection and Telegram signature validation in `apps/server/tests/contract/test_auth_contracts.py` and `apps/server/tests/fakes/auth_providers.py` (#498)",
+          "source_line": 210,
+          "done": true,
+          "linear_issue": "YSH-96",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-96/013t076p0auth-proverit-otkaz-poddelnyh-provider-callback"
+        },
+        "T078": {
+          "title": "Add workspace enrollment abuse tests requiring membership, invite, or allowlist before callback creates a workspace member in `apps/server/tests/contract/test_auth_contracts.py` (#500)",
+          "source_line": 211,
+          "done": true,
+          "linear_issue": "YSH-98",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-98/013t078p0auth-proverit-zapret-samozapisi-v-workspace"
+        },
+        "T080": {
+          "title": "Add RU-local write-boundary tests for auth/session/device/audit write paths in `apps/server/tests/contract/test_auth_contracts.py` and `apps/server/tests/unit/test_config_validation.py` (#502)",
+          "source_line": 212,
+          "done": true,
+          "linear_issue": "YSH-100",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-100/013t080p0storage-proverit-ru-local-write-boundary"
+        },
+        "T082": {
+          "title": "Add audit redaction tests proving raw `state_nonce`, provider code, and device public identifiers are not persisted in `AuthAuditEvent.metadata_json` in `apps/server/tests/contract/test_auth_contracts.py` (#504)",
+          "source_line": 213,
+          "done": true,
+          "linear_issue": "YSH-102",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-102/013t082p1security-proverit-redaktirovanie-audit-metadata"
+        },
+        "T084": {
+          "title": "Add no-write regression tests for `GET /api/v1/auth/providers` and `GET /api/v1/auth/policy` in `apps/server/tests/contract/test_auth_contracts.py` (#506)",
+          "source_line": 214,
+          "done": true,
+          "linear_issue": "YSH-104",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-104/013t084p2contract-proverit-read-endpoints-bez-side-effects"
+        },
+        "T086": {
+          "title": "Add workspace owner/admin device revoke authorization tests in `apps/server/tests/contract/test_auth_contracts.py` (#508)",
+          "source_line": 215,
+          "done": true,
+          "linear_issue": "YSH-106",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-106/013t086p2auth-proverit-admin-device-revoke"
+        },
+        "T088": {
+          "title": "Add review evidence and task-to-issue/Linear mapping evidence for remediation tasks in `specs/013-federated-auth-foundation/quickstart.md` (#510)",
+          "source_line": 216,
+          "done": true,
+          "linear_issue": "YSH-108",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-108/013t088p2validation-zapisat-evidence-dlya-remediation-mapping"
+        },
+        "T077": {
+          "title": "Replace callback subject stubs with provider verification boundaries and fail-closed production guards in `apps/server/src/twobrain_rec_server/auth/providers/base.py`, `apps/server/src/twobrain_rec_server/auth/providers/yandex.py`, `apps/server/src/twobrain_rec_server/auth/providers/vk.py`, `apps/server/src/twobrain_rec_server/auth/providers/telegram.py`, and `apps/server/src/twobrain_rec_server/auth/callbacks.py` (#499)",
+          "source_line": 220,
+          "done": true,
+          "linear_issue": "YSH-97",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-97/013t077p0auth-realizovat-granicu-realnoj-proverki-provajdera"
+        },
+        "T079": {
+          "title": "Enforce workspace enrollment gate before callback creates or attaches `WorkspaceMembership` in `apps/server/src/twobrain_rec_server/auth/callbacks.py`, `apps/server/src/twobrain_rec_server/auth/policy.py`, `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`, and `apps/server/src/twobrain_rec_server/db/migrations/versions/0003_federated_auth_foundation.py` (#501)",
+          "source_line": 221,
+          "done": true,
+          "linear_issue": "YSH-99",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-99/013t079p0auth-vvesti-gate-dlya-zapisi-polzovatelya-v-workspace"
+        },
+        "T081": {
+          "title": "Implement RU-local auth write guard or deployment attestation check in `apps/server/src/twobrain_rec_server/auth/policy.py`, `apps/server/src/twobrain_rec_server/auth/sessions.py`, `apps/server/src/twobrain_rec_server/auth/callbacks.py`, `apps/server/src/twobrain_rec_server/auth/audit.py`, and `apps/server/src/twobrain_rec_server/config.py` (#503)",
+          "source_line": 222,
+          "done": true,
+          "linear_issue": "YSH-101",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-101/013t081p0storage-vvesti-ru-local-auth-write-guard"
+        },
+        "T083": {
+          "title": "Hash and minimize auth audit metadata in `apps/server/src/twobrain_rec_server/auth/audit.py`, `apps/server/src/twobrain_rec_server/api/auth.py`, and `apps/server/src/twobrain_rec_server/auth/callbacks.py` (#505)",
+          "source_line": 223,
+          "done": true,
+          "linear_issue": "YSH-103",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-103/013t083p1security-minimizirovat-sensitive-audit-metadata"
+        },
+        "T085": {
+          "title": "Split auth policy read from consent and policy persistence so GET endpoints are side-effect-safe in `apps/server/src/twobrain_rec_server/auth/policy.py` and `apps/server/src/twobrain_rec_server/api/auth.py` (#507)",
+          "source_line": 224,
+          "done": true,
+          "linear_issue": "YSH-105",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-105/013t085p2auth-sdelat-policy-reads-side-effect-safe"
+        },
+        "T087": {
+          "title": "Allow workspace owner/admin device revoke or narrow the contract explicitly in `apps/server/src/twobrain_rec_server/api/auth.py` and `specs/013-federated-auth-foundation/contracts/openapi-auth-contract.md` (#509)",
+          "source_line": 225,
+          "done": true,
+          "linear_issue": "YSH-107",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-107/013t087p2auth-soglasovat-device-revoke-s-kontraktom"
+        },
+        "T089": {
+          "title": "Separate Spec Kit tooling and Linear-sync changes from auth runtime review in `.specify/extensions.yml`, `.specify/extensions/linear-sync/`, and `.specify/extensions/git/` (#511)",
+          "source_line": 226,
+          "done": true,
+          "linear_issue": "YSH-109",
+          "linear_url": "https://linear.app/yshishneya/issue/YSH-109/013t089p2foundation-otdelit-tooling-changes-ot-auth-runtime"
+        }
+      },
+      "linear_project_name": "2brain Rec / 013 Federated Auth Foundation",
+      "linear_project_id": "6bd8387f-cd22-4fdd-9208-67eb265fe056",
+      "linear_project_url": "https://linear.app/yshishneya/project/2brain-rec-013-federated-auth-foundation-7bbc494a4fab"
     }
   },
   "team_key": "",
