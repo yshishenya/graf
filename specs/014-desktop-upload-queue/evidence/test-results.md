@@ -359,3 +359,54 @@ Validation after merge:
 - macOS `swift test`: PASS, 373 tests passed.
 - `swift run ContractValidation`: PASS.
 - `apps/macos/Scripts/validate-desktop-upload-queue.sh`: PASS.
+
+## 2026-06-11 Production deploy and live smoke success
+
+Status: PASS.
+
+Command:
+
+```sh
+infra/scripts/cd-remote.sh --execute --branch 014-desktop-upload-queue
+```
+
+Local deployment gate:
+
+- Full server test suite: PASS, 200 tests passed.
+- Server lint: PASS.
+- Python compile: PASS.
+- Docker Compose config render: PASS.
+- Deployment evidence scan: PASS.
+
+Remote deployment gate:
+
+- Remote host: `2brain.dev`.
+- Remote path: `/opt/projects/2brain-rec`.
+- Deployed SHA: `2212776811fdd0c33c7892326573c45fa2ba4b54`.
+- Backup before deploy: PASS.
+- Backup reference: `/opt/projects/2brain-rec/backups/20260611T105136Z`.
+- Restore rehearsal: PASS.
+- Docker build/up: PASS.
+- Production config validation: PASS.
+- Migration verification: PASS, `0003_federated_auth_foundation (head)`.
+- Production smoke: PASS.
+- Readiness verdict: `infra_smoke_ready`.
+
+Smoke evidence:
+
+- Run id: `smoke-20260611-105206`.
+- Meeting id: `dda6fe57-2779-49e6-9863-f66b49a8146f`.
+- Session id: `56435e82-121d-41ba-8c3e-433f9a97652e`.
+- Uploaded parts: 3.
+- Meeting status: `ingested_pending_processing`.
+- Auth cleanup: PASS, `auth_rows_removed=2`, `auth_session_id=28d62440-4b0a-45fa-b607-6fe9cbec9245`.
+- Artifact cleanup: PASS, `database_records_removed=24`, `object_keys_removed=3`, no residue owner/follow-up reason required.
+
+Post-deploy sanity:
+
+- Remote HEAD: `2212776 Merge commit '5dabd4f' into 014-desktop-upload-queue`.
+- `rec-api`: healthy.
+- `rec-minio`: healthy.
+- `rec-postgres`: healthy.
+- Public `https://rec.2brain.pro/api/v1/health/live`: PASS.
+- Public `https://rec.2brain.pro/api/v1/health/ready`: PASS.
