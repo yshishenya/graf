@@ -71,6 +71,8 @@ Semantic Versioning 2.0.0.
   включая MediaScribe API key, при запуске из Compose (`feature:015`).
 - Production processing worker больше не наследует smoke/awareness credential
   file settings, которые не нужны для MediaScribe processing (`feature:015`).
+- Production smoke cleanup теперь удаляет 015 processing rows перед meeting
+  cleanup, чтобы real processing e2e не оставлял residue в Postgres (`feature:015`).
 
 ## [Unreleased Template]
 

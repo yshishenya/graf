@@ -107,6 +107,32 @@ async def cleanup_smoke_artifacts(
     async with engine.begin() as conn:
         statements = []
         if meeting_id and session_id:
+            processing_tables = {
+                table_name: await _table_exists(conn, table_name)
+                for table_name in (
+                    "transcript_segments",
+                    "diarization_segments",
+                    "processing_audit_events",
+                    "processing_dependency_states",
+                    "processing_results",
+                    "mediascribe_jobs",
+                    "processing_workflows",
+                )
+            }
+            processing_statements = [
+                ("transcript_segments", "delete from transcript_segments where meeting_id=:meeting_id"),
+                ("diarization_segments", "delete from diarization_segments where meeting_id=:meeting_id"),
+                ("processing_audit_events", "delete from processing_audit_events where meeting_id=:meeting_id"),
+                ("processing_dependency_states", "delete from processing_dependency_states where meeting_id=:meeting_id"),
+                ("processing_results", "delete from processing_results where meeting_id=:meeting_id"),
+                ("mediascribe_jobs", "delete from mediascribe_jobs where meeting_id=:meeting_id"),
+                ("processing_workflows", "delete from processing_workflows where meeting_id=:meeting_id"),
+            ]
+            statements.extend(
+                (sql, {"meeting_id": meeting_id})
+                for table_name, sql in processing_statements
+                if processing_tables[table_name]
+            )
             statements.extend(
                 [
                     ("delete from ingest_audit_events where upload_session_id=:session_id or meeting_id=:meeting_id", {"session_id": session_id, "meeting_id": meeting_id}),
