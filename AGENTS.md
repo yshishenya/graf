@@ -118,7 +118,7 @@ Planning must stop if constitution gates fail or important clarifications remain
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/014-desktop-upload-queue/plan.md
+at specs/030-mvp-experience-design-system/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
