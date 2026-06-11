@@ -299,3 +299,34 @@ Post-bootstrap validation:
 - `python3 .specify/extensions/linear-sync/scripts/linear_sync.py validate --feature 014 --apply`: PASS.
 - Independent Linear GraphQL audit: PASS, project state `completed`, issues=38, done=38, project links=38, GitHub links=38.
 - GitHub issue audit: PASS, `feature:014` open=0, closed=38.
+
+## 2026-06-11 Production deploy attempt blocked by migration base mismatch
+
+Status: BLOCKED, rollback restored production health.
+
+Attempted deploy:
+
+- Command: `infra/scripts/cd-remote.sh --execute --branch 014-desktop-upload-queue`.
+- Local CI inside deploy helper: PASS, server tests `180 passed`, ruff PASS, compileall PASS, compose config rendered, deployment evidence scan PASS.
+- Remote backup before deploy: PASS.
+- Backup reference: `/opt/projects/2brain-rec/backups/20260611T104419Z`.
+- Restore rehearsal: PASS.
+
+Blocker:
+
+- Remote build completed, but `rec-migrate` failed before production smoke.
+- Alembic error: `Can't locate revision identified by '0003_federated_auth_foundation'`.
+- Root cause: feature branch `014-desktop-upload-queue` was missing the current production/master migration lineage that contains feature `013` federated auth foundation.
+
+Rollback:
+
+- Remote checkout restored to previous production commit `5dabd4f`.
+- Production secret path mismatch was corrected with local deployment-state symlink `infra/secrets -> ../secrets` so compose can find the existing secret files without copying or printing secrets.
+- `rec-api` restored to healthy state.
+- Public health checks passed:
+  - `https://rec.2brain.pro/api/v1/health/live`: PASS.
+  - `https://rec.2brain.pro/api/v1/health/ready`: PASS.
+
+Next action:
+
+- Merge current `origin/master` into `014-desktop-upload-queue`, rerun validation, push, then repeat production deploy/smoke.
