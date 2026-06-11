@@ -12,6 +12,9 @@
   evidence-комментарием.
 - Синхронизация Linear началась после создания GitHub issues и создала Linear
   issues для T001-T079: с YSH-274 по YSH-352.
+- После замечания 2026-06-11 выполнен повторный Linear-pass: YSH-274..YSH-352
+  переведены в `Done`, получили evidence-комментарий, и mapping сохранен в
+  `.specify/linear.yml`.
 - Синхронизация Linear остановилась до T080-T087, потому что workspace вернул
   ошибку лимита активных issues.
 
@@ -41,6 +44,14 @@ python3 .specify/extensions/linear-sync/scripts/linear_sync.py sync --feature 01
 
 После этого повторно выполнить проверки validation/import перед закрытием
 sync-checkpoint.
+
+Текущая проверка:
+
+```sh
+python3 .specify/extensions/linear-sync/scripts/linear_sync.py validate --feature 015 --apply
+```
+
+Ожидаемый результат до снятия лимита: 8 несвязанных Linear issues для T080-T087.
 
 ## Влияние на реализацию
 

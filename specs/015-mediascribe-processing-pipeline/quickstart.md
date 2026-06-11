@@ -156,6 +156,9 @@ command, result, date, and any blocked dependency reason.
 - Targeted changed-file secret scan over 47 implementation/doc/config files, excluding pre-existing `.specify/*` worktree changes -> `findings 0`.
 - GitHub issue sync completed for T001-T087 as issues #550-#636. After implementation validation, all 87 GitHub issues were closed with an evidence comment; `gh issue list --repo yshishenya/crisp --label feature:015 --state open --limit 100 --json number,title` returned `[]`.
 - Linear sync created YSH-274 through YSH-352 for T001-T079, then stopped at T080-T087 because the Linear workspace active issue limit was exceeded; see `linear-sync.md`.
+- Follow-up Linear pass on 2026-06-11 moved YSH-274 through YSH-352 to `Done`, added evidence comments, and recorded their mapping in `.specify/linear.yml`.
+- `python3 .specify/extensions/linear-sync/scripts/linear_sync.py sync --feature 015 --apply` still could not create T080-T087 because Linear returned `USAGE_LIMIT_EXCEEDED` for `activeIssueCount`.
+- `python3 .specify/extensions/linear-sync/scripts/linear_sync.py validate --feature 015 --apply` now reports exactly 8 remaining Linear gaps: T080-T087.
 
 ### 2026-06-11 Final Audit Notes
 
