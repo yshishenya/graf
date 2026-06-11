@@ -106,15 +106,23 @@ class Settings(BaseSettings):
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
-        for path in (
-            self.postgres_password_file,
-            self.minio_access_key_file,
-            self.minio_secret_key_file,
-            self.smoke_credential_file,
-            self.mediascribe_api_key_file if self.processing_enabled else None,
-        ):
-            if path is not None and not path.is_file():
-                raise ValueError("production Docker secret files must exist and be readable")
+        required_secret_files = {
+            "postgres_password_file": self.postgres_password_file,
+            "minio_access_key_file": self.minio_access_key_file,
+            "minio_secret_key_file": self.minio_secret_key_file,
+            "smoke_credential_file": self.smoke_credential_file,
+            "mediascribe_api_key_file": self.mediascribe_api_key_file if self.processing_enabled else None,
+        }
+        for field_name, path in required_secret_files.items():
+            if path is None:
+                continue
+            if not path.is_file():
+                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}")
+            try:
+                with path.open("r", encoding="utf-8"):
+                    pass
+            except OSError as exc:
+                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}") from exc
         if self.processing_enabled:
             if self.mediascribe_base_url is None:
                 raise ValueError("production processing requires mediascribe_base_url")

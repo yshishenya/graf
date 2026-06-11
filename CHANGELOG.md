@@ -35,6 +35,9 @@ Semantic Versioning 2.0.0.
 - Укорочен Alembic revision id для `0004`, чтобы он помещался в стандартный
   `alembic_version.version_num`, и Temporal production wrapper теперь читает
   local-file secrets с корректными правами (`feature:015`).
+- Production env template больше не рассылает service-specific secret-file
+  paths во все app containers, а ошибки production secret validation называют
+  конкретное field name без раскрытия secret values (`feature:015`).
 
 ### Security
 
@@ -66,6 +69,8 @@ Semantic Versioning 2.0.0.
   (`feature:015`).
 - Production processing worker теперь может читать local-file Docker secrets,
   включая MediaScribe API key, при запуске из Compose (`feature:015`).
+- Production processing worker больше не наследует smoke/awareness credential
+  file settings, которые не нужны для MediaScribe processing (`feature:015`).
 
 ## [Unreleased Template]
 
