@@ -117,12 +117,14 @@ apps/server/
 │   │   ├── lifecycle.py
 │   │   ├── pickup.py
 │   │   ├── status.py
+│   │   ├── submit.py
 │   │   └── store.py
 │   ├── storage/
 │   │   └── minio_client.py
 │   └── workflows/
 │       ├── processing_workflow.py
-│       └── temporal_client.py
+│       ├── temporal_client.py
+│       └── worker.py
 └── tests/
     ├── contract/
     ├── fakes/
@@ -138,8 +140,11 @@ infra/
 **Structure Decision**: Extend the existing `apps/server` FastAPI backend with
 separate `processing`, `mediascribe`, and `workflows` modules. Keep MediaScribe
 HTTP calls outside API handlers and outside Temporal workflow definitions;
-non-deterministic I/O belongs in activities/adapters. Add Postgres migrations
-for durable processing state and keep MinIO object access server-side.
+non-deterministic I/O belongs in activities/adapters, with submission activity
+logic in `apps/server/src/twobrain_rec_server/processing/submit.py`. Add
+Postgres migrations for durable processing state, keep MinIO object access
+server-side, and add Temporal/processing worker services to the Compose
+definitions without exposing live secrets.
 
 ## Phase 0 Research
 

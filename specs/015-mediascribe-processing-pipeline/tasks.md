@@ -26,6 +26,8 @@
 - [ ] T006 [P] Add local fake MediaScribe helper scaffold in `apps/server/tests/fakes/fake_mediascribe.py`
 - [ ] T007 [P] Add local fake Temporal helper scaffold in `apps/server/tests/fakes/fake_temporal.py`
 - [ ] T008 Add processing env placeholders without live secrets in `apps/server/.env.example`
+- [ ] T009 Add Temporal worker runner entrypoint in `apps/server/src/twobrain_rec_server/workflows/worker.py`
+- [ ] T010 Add Temporal and processing worker service placeholders in `infra/docker-compose.dev.yml` and `infra/docker-compose.yml`
 
 ---
 
@@ -35,22 +37,22 @@
 
 **Critical**: No user story implementation starts until these tasks are complete.
 
-- [ ] T009 Add processing status enums and MediaScribe status enums in `apps/server/src/twobrain_rec_server/domain/statuses.py`
-- [ ] T010 [P] Add SQLAlchemy processing models in `apps/server/src/twobrain_rec_server/db/models/processing.py`
-- [ ] T011 Add processing models to DB model exports in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
-- [ ] T012 Add Alembic migration for processing workflows, jobs, results, segments, audit events, and dependency states in `apps/server/src/twobrain_rec_server/db/migrations/versions/0004_mediascribe_processing_pipeline.py`
-- [ ] T013 [P] Add processing Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T014 [P] Add MediaScribe request/response schemas in `apps/server/src/twobrain_rec_server/mediascribe/schemas.py`
-- [ ] T015 [P] Add processing reason-code constants in `apps/server/src/twobrain_rec_server/processing/reasons.py`
-- [ ] T016 Add server-side MinIO read helpers for stored track artifacts in `apps/server/src/twobrain_rec_server/storage/minio_client.py`
-- [ ] T017 [P] Add processing audit metadata builder in `apps/server/src/twobrain_rec_server/processing/audit.py`
-- [ ] T018 Add processing persistence helpers in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T019 Add processing state transition helpers in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`
-- [ ] T020 [P] Add processing contract tests for OpenAPI status schema in `apps/server/tests/contract/test_processing_status_contract.py`
-- [ ] T021 [P] Add MediaScribe client contract tests in `apps/server/tests/contract/test_mediascribe_client_contract.py`
-- [ ] T022 [P] Add processing state-machine unit tests in `apps/server/tests/unit/test_processing_state_machine.py`
-- [ ] T023 [P] Add processing migration integration tests in `apps/server/tests/integration/test_processing_migrations.py`
-- [ ] T024 Verify foundational tests fail before implementation and record expected red state in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T011 Add processing status enums and MediaScribe status enums in `apps/server/src/twobrain_rec_server/domain/statuses.py`
+- [ ] T012 [P] Add SQLAlchemy processing models in `apps/server/src/twobrain_rec_server/db/models/processing.py`
+- [ ] T013 Add processing models to DB model exports in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
+- [ ] T014 Add Alembic migration for processing workflows, jobs, results, segments, audit events, and dependency states in `apps/server/src/twobrain_rec_server/db/migrations/versions/0004_mediascribe_processing_pipeline.py`
+- [ ] T015 [P] Add processing Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [ ] T016 [P] Add MediaScribe request/response schemas in `apps/server/src/twobrain_rec_server/mediascribe/schemas.py`
+- [ ] T017 [P] Add processing reason-code constants in `apps/server/src/twobrain_rec_server/processing/reasons.py`
+- [ ] T018 Add server-side MinIO read helpers for stored track artifacts in `apps/server/src/twobrain_rec_server/storage/minio_client.py`
+- [ ] T019 [P] Add processing audit metadata builder in `apps/server/src/twobrain_rec_server/processing/audit.py`
+- [ ] T020 Add processing persistence helpers in `apps/server/src/twobrain_rec_server/processing/store.py`
+- [ ] T021 Add processing state transition helpers in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`
+- [ ] T022 [P] Add processing contract tests for OpenAPI status schema in `apps/server/tests/contract/test_processing_status_contract.py`
+- [ ] T023 [P] Add MediaScribe client contract tests in `apps/server/tests/contract/test_mediascribe_client_contract.py`
+- [ ] T024 [P] Add processing state-machine unit tests in `apps/server/tests/unit/test_processing_state_machine.py`
+- [ ] T025 [P] Add processing migration integration tests in `apps/server/tests/integration/test_processing_migrations.py`
+- [ ] T026 Verify foundational tests fail before implementation and record expected red state in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 **Checkpoint**: Foundation ready. User story implementation can now begin.
 
@@ -64,20 +66,20 @@
 
 ### Tests for User Story 1
 
-- [ ] T025 [P] [US1] Add integration tests for eligible pickup and duplicate workflow reuse in `apps/server/tests/integration/test_processing_pickup.py`
-- [ ] T026 [P] [US1] Add integration tests blocking degraded/failed/aborted/expired/incomplete meetings in `apps/server/tests/integration/test_processing_pickup_blockers.py`
-- [ ] T027 [P] [US1] Add workflow id safety tests in `apps/server/tests/unit/test_processing_workflow_identity.py`
+- [ ] T027 [P] [US1] Add integration tests for eligible pickup and duplicate workflow reuse in `apps/server/tests/integration/test_processing_pickup.py`
+- [ ] T028 [P] [US1] Add integration tests blocking degraded/failed/aborted/expired/incomplete meetings in `apps/server/tests/integration/test_processing_pickup_blockers.py`
+- [ ] T029 [P] [US1] Add workflow id safety tests in `apps/server/tests/unit/test_processing_workflow_identity.py`
 
 ### Implementation for User Story 1
 
-- [ ] T028 [US1] Implement workflow id generation and validation in `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`
-- [ ] T029 [US1] Implement processing eligibility checks in `apps/server/src/twobrain_rec_server/processing/pickup.py`
-- [ ] T030 [US1] Implement idempotent workflow start/reuse using the Temporal adapter in `apps/server/src/twobrain_rec_server/processing/pickup.py`
-- [ ] T031 [US1] Implement workflow orchestration shell in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`
-- [ ] T032 [US1] Add internal processing pickup endpoint in `apps/server/src/twobrain_rec_server/api/processing.py`
-- [ ] T033 [US1] Register processing router in `apps/server/src/twobrain_rec_server/main.py`
-- [ ] T034 [US1] Update processing placeholder loader to prefer persisted processing workflow state in `apps/server/src/twobrain_rec_server/ingest/processing_placeholder.py`
-- [ ] T035 [US1] Run US1 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T030 [US1] Implement workflow id generation and validation in `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`
+- [ ] T031 [US1] Implement processing eligibility checks in `apps/server/src/twobrain_rec_server/processing/pickup.py`
+- [ ] T032 [US1] Implement idempotent workflow start/reuse using the Temporal adapter in `apps/server/src/twobrain_rec_server/processing/pickup.py`
+- [ ] T033 [US1] Implement workflow orchestration shell in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`
+- [ ] T034 [US1] Add internal processing pickup endpoint in `apps/server/src/twobrain_rec_server/api/processing.py`
+- [ ] T035 [US1] Register processing router in `apps/server/src/twobrain_rec_server/main.py`
+- [ ] T036 [US1] Update processing placeholder loader to prefer persisted processing workflow state in `apps/server/src/twobrain_rec_server/ingest/processing_placeholder.py`
+- [ ] T037 [US1] Run US1 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 **Checkpoint**: US1 is independently functional and testable.
 
@@ -91,19 +93,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T036 [P] [US2] Add dual-track request mapping tests in `apps/server/tests/unit/test_mediascribe_request_mapping.py`
-- [ ] T037 [P] [US2] Add integration happy-path submit test in `apps/server/tests/integration/test_mediascribe_submit.py`
-- [ ] T038 [P] [US2] Add no desktop/response secret egress tests in `apps/server/tests/contract/test_processing_no_secret_content_egress.py`
+- [ ] T038 [P] [US2] Add dual-track request mapping tests for `mic_file`, `incoming_file`, no mixed file, and no silence stripping in `apps/server/tests/unit/test_mediascribe_request_mapping.py`
+- [ ] T039 [P] [US2] Add integration happy-path submit test in `apps/server/tests/integration/test_mediascribe_submit.py`
+- [ ] T040 [P] [US2] Add no desktop/response secret egress tests in `apps/server/tests/contract/test_processing_no_secret_content_egress.py`
 
 ### Implementation for User Story 2
 
-- [ ] T039 [US2] Implement server-side MediaScribe HTTP client in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
-- [ ] T040 [US2] Implement artifact-to-MediaScribe request mapping in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
-- [ ] T041 [US2] Implement submit activity/service in `apps/server/src/twobrain_rec_server/processing/submit.py`
-- [ ] T042 [US2] Persist MediaScribe job id and request metadata before retry continuation in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T043 [US2] Wire submission step into workflow orchestration in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`
-- [ ] T044 [US2] Extend health/readiness detail with processing dependency configuration in `apps/server/src/twobrain_rec_server/api/health.py`
-- [ ] T045 [US2] Run US2 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T041 [US2] Implement server-side MediaScribe HTTP client in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
+- [ ] T042 [US2] Implement artifact-to-MediaScribe request mapping in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
+- [ ] T043 [US2] Implement submit activity/service in `apps/server/src/twobrain_rec_server/processing/submit.py`
+- [ ] T044 [US2] Persist MediaScribe job id and request metadata before retry continuation in `apps/server/src/twobrain_rec_server/processing/store.py`
+- [ ] T045 [US2] Wire submission step into workflow orchestration in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`
+- [ ] T046 [US2] Extend health/readiness detail with processing dependency configuration in `apps/server/src/twobrain_rec_server/api/health.py`
+- [ ] T047 [US2] Run US2 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 **Checkpoint**: US2 is independently functional and testable with fake MediaScribe.
 
@@ -117,18 +119,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T046 [P] [US3] Add result import unit tests in `apps/server/tests/unit/test_mediascribe_result_import.py`
-- [ ] T047 [P] [US3] Add processing happy-path integration tests in `apps/server/tests/integration/test_mediascribe_processing_happy_path.py`
-- [ ] T048 [P] [US3] Add idempotent import tests in `apps/server/tests/integration/test_processing_result_idempotency.py`
+- [ ] T048 [P] [US3] Add result import unit tests in `apps/server/tests/unit/test_mediascribe_result_import.py`
+- [ ] T049 [P] [US3] Add processing happy-path integration tests in `apps/server/tests/integration/test_mediascribe_processing_happy_path.py`
+- [ ] T050 [P] [US3] Add idempotent import tests in `apps/server/tests/integration/test_processing_result_idempotency.py`
 
 ### Implementation for User Story 3
 
-- [ ] T049 [US3] Implement MediaScribe polling response mapping in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
-- [ ] T050 [US3] Implement result normalization and validation in `apps/server/src/twobrain_rec_server/mediascribe/import_results.py`
-- [ ] T051 [US3] Implement transcript and diarization segment persistence in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T052 [US3] Implement summary dependency state persistence in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T053 [US3] Wire poll/fetch/import steps into workflow orchestration in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`
-- [ ] T054 [US3] Run US3 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T051 [US3] Implement MediaScribe polling response mapping in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
+- [ ] T052 [US3] Implement result normalization and validation in `apps/server/src/twobrain_rec_server/mediascribe/import_results.py`
+- [ ] T053 [US3] Implement transcript and diarization segment persistence in `apps/server/src/twobrain_rec_server/processing/store.py`
+- [ ] T054 [US3] Implement summary dependency state persistence in `apps/server/src/twobrain_rec_server/processing/store.py`
+- [ ] T055 [US3] Wire poll/fetch/import steps into workflow orchestration in `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`
+- [ ] T056 [US3] Run US3 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 **Checkpoint**: US3 is independently functional and testable.
 
@@ -142,17 +144,17 @@
 
 ### Tests for User Story 4
 
-- [ ] T055 [P] [US4] Add failure matrix integration tests in `apps/server/tests/integration/test_processing_failures.py`
-- [ ] T056 [P] [US4] Add worker restart/resume integration tests in `apps/server/tests/integration/test_processing_worker_restart.py`
-- [ ] T057 [P] [US4] Add readiness separation tests in `apps/server/tests/integration/test_processing_readiness.py`
+- [ ] T057 [P] [US4] Add failure matrix integration tests in `apps/server/tests/integration/test_processing_failures.py`
+- [ ] T058 [P] [US4] Add worker restart/resume integration tests in `apps/server/tests/integration/test_processing_worker_restart.py`
+- [ ] T059 [P] [US4] Add readiness separation tests in `apps/server/tests/integration/test_processing_readiness.py`
 
 ### Implementation for User Story 4
 
-- [ ] T058 [US4] Implement MediaScribe error classification in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
-- [ ] T059 [US4] Implement retry/terminal transition handling in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`
-- [ ] T060 [US4] Implement restart-safe resume from persisted job/result state in `apps/server/src/twobrain_rec_server/processing/pickup.py`
-- [ ] T061 [US4] Ensure processing failures do not rewrite ingest status in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T062 [US4] Run US4 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T060 [US4] Implement MediaScribe error classification in `apps/server/src/twobrain_rec_server/mediascribe/client.py`
+- [ ] T061 [US4] Implement retry/terminal transition handling in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`
+- [ ] T062 [US4] Implement restart-safe resume from persisted job/result state in `apps/server/src/twobrain_rec_server/processing/pickup.py`
+- [ ] T063 [US4] Ensure processing failures do not rewrite ingest status in `apps/server/src/twobrain_rec_server/processing/store.py`
+- [ ] T064 [US4] Run US4 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 **Checkpoint**: US4 is independently functional and testable.
 
@@ -166,17 +168,17 @@
 
 ### Tests for User Story 5
 
-- [ ] T063 [P] [US5] Add processing audit metadata tests in `apps/server/tests/integration/test_processing_audit.py`
-- [ ] T064 [P] [US5] Add deletion dependency accounting tests in `apps/server/tests/integration/test_processing_deletion_dependency.py`
-- [ ] T065 [P] [US5] Add no secret/content egress scans for processing in `apps/server/tests/contract/test_processing_no_secret_content_egress.py`
+- [ ] T065 [P] [US5] Add processing audit metadata tests in `apps/server/tests/integration/test_processing_audit.py`
+- [ ] T066 [P] [US5] Add deletion dependency accounting tests in `apps/server/tests/integration/test_processing_deletion_dependency.py`
+- [ ] T067 [P] [US5] Add no secret/content egress scans for processing in `apps/server/tests/contract/test_processing_no_secret_content_egress.py`
 
 ### Implementation for User Story 5
 
-- [ ] T066 [US5] Persist metadata-only processing audit events in `apps/server/src/twobrain_rec_server/processing/audit.py`
-- [ ] T067 [US5] Persist ProcessingDependencyState records in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T068 [US5] Extend redaction/scan helpers for processing content classes in `apps/server/src/twobrain_rec_server/observability/redaction.py`
-- [ ] T069 [US5] Add deployment/env templates for MediaScribe/Temporal secret files without live values in `infra/env/rec.production.env.example`
-- [ ] T070 [US5] Run US5 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T068 [US5] Persist metadata-only processing audit events in `apps/server/src/twobrain_rec_server/processing/audit.py`
+- [ ] T069 [US5] Persist ProcessingDependencyState records in `apps/server/src/twobrain_rec_server/processing/store.py`
+- [ ] T070 [US5] Extend redaction/scan helpers for processing content classes in `apps/server/src/twobrain_rec_server/observability/redaction.py`
+- [ ] T071 [US5] Add deployment/env templates for MediaScribe/Temporal secret files without live values in `infra/env/rec.production.env.example`
+- [ ] T072 [US5] Run US5 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 **Checkpoint**: US5 is independently functional and testable.
 
@@ -190,16 +192,16 @@
 
 ### Tests for User Story 6
 
-- [ ] T071 [P] [US6] Add processing status API contract tests in `apps/server/tests/contract/test_processing_status_contract.py`
-- [ ] T072 [P] [US6] Add tenant authorization tests for processing status in `apps/server/tests/integration/test_processing_tenant_authorization.py`
-- [ ] T073 [P] [US6] Add out-of-scope boundary tests in `apps/server/tests/integration/test_processing_out_of_scope_boundaries.py`
+- [ ] T073 [P] [US6] Add processing status API contract tests in `apps/server/tests/contract/test_processing_status_contract.py`
+- [ ] T074 [P] [US6] Add tenant authorization tests for processing status in `apps/server/tests/integration/test_processing_tenant_authorization.py`
+- [ ] T075 [P] [US6] Add out-of-scope boundary tests in `apps/server/tests/integration/test_processing_out_of_scope_boundaries.py`
 
 ### Implementation for User Story 6
 
-- [ ] T074 [US6] Implement content-safe processing status query service in `apps/server/src/twobrain_rec_server/processing/status.py`
-- [ ] T075 [US6] Implement processing status endpoint in `apps/server/src/twobrain_rec_server/api/processing.py`
-- [ ] T076 [US6] Ensure transcript/audio/summary download, share, dashboard, delete, and assisted-recording endpoints remain absent in `apps/server/src/twobrain_rec_server/api/processing.py`
-- [ ] T077 [US6] Run US6 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T076 [US6] Implement content-safe processing status query service in `apps/server/src/twobrain_rec_server/processing/status.py`
+- [ ] T077 [US6] Implement processing status endpoint in `apps/server/src/twobrain_rec_server/api/processing.py`
+- [ ] T078 [US6] Ensure transcript/audio/summary download, share, dashboard, delete, and assisted-recording endpoints remain absent in `apps/server/src/twobrain_rec_server/api/processing.py`
+- [ ] T079 [US6] Run US6 tests and update validation evidence in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 **Checkpoint**: US6 is independently functional and testable.
 
@@ -209,14 +211,14 @@
 
 **Purpose**: Full feature validation, docs, and release-readiness evidence.
 
-- [ ] T078 Update `apps/server/README.md` with processing boundary, local fake dependency flow, and no-secret rules
-- [ ] T079 Update `docs/current-product-status.md` to describe accepted `015` behavior and remaining `016/017/018` boundaries
-- [ ] T080 Update `CHANGELOG.md` under `[Unreleased]` for feature `015`
-- [ ] T081 Run full server pytest gate and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
-- [ ] T082 Run Ruff and compileall gates and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
-- [ ] T083 Run Docker Compose config/readiness validation and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
-- [ ] T084 Run secret/content scan for processing artifacts and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
-- [ ] T085 Review implementation against spec, plan, contracts, checklists, and constitution, then record audit notes in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T080 Update `apps/server/README.md` with processing boundary, local fake dependency flow, and no-secret rules
+- [ ] T081 Update `docs/current-product-status.md` to describe accepted `015` behavior and remaining `016/017/018` boundaries
+- [ ] T082 Update `CHANGELOG.md` under `[Unreleased]` for feature `015`
+- [ ] T083 Run full server pytest gate and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T084 Run Ruff and compileall gates and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T085 Run Docker Compose config/readiness validation and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T086 Run secret/content scan for processing artifacts and record result in `specs/015-mediascribe-processing-pipeline/quickstart.md`
+- [ ] T087 Review implementation against spec, plan, contracts, checklists, and constitution, then record audit notes in `specs/015-mediascribe-processing-pipeline/quickstart.md`
 
 ---
 
@@ -237,7 +239,7 @@
 ### Parallel Opportunities
 
 - T002-T004 and T006-T007 can run in parallel after T001.
-- T010, T013-T015, T017, and T020-T023 can run in parallel after T009.
+- T012, T015-T017, T019, and T022-T025 can run in parallel after T011.
 - Test tasks within each user story marked `[P]` can be written in parallel before implementation.
 - US5 audit/dependency tests can be drafted while US2/US3 implementation proceeds, but acceptance requires real processing transitions.
 
@@ -250,16 +252,16 @@ future dashboard readiness.
 ## Parallel Examples
 
 ```text
-Task: "T020 [P] Add processing contract tests for OpenAPI status schema in apps/server/tests/contract/test_processing_status_contract.py"
-Task: "T021 [P] Add MediaScribe client contract tests in apps/server/tests/contract/test_mediascribe_client_contract.py"
-Task: "T022 [P] Add processing state-machine unit tests in apps/server/tests/unit/test_processing_state_machine.py"
-Task: "T023 [P] Add processing migration integration tests in apps/server/tests/integration/test_processing_migrations.py"
+Task: "T022 [P] Add processing contract tests for OpenAPI status schema in apps/server/tests/contract/test_processing_status_contract.py"
+Task: "T023 [P] Add MediaScribe client contract tests in apps/server/tests/contract/test_mediascribe_client_contract.py"
+Task: "T024 [P] Add processing state-machine unit tests in apps/server/tests/unit/test_processing_state_machine.py"
+Task: "T025 [P] Add processing migration integration tests in apps/server/tests/integration/test_processing_migrations.py"
 ```
 
 ```text
-Task: "T046 [P] [US3] Add result import unit tests in apps/server/tests/unit/test_mediascribe_result_import.py"
-Task: "T047 [P] [US3] Add processing happy-path integration tests in apps/server/tests/integration/test_mediascribe_processing_happy_path.py"
-Task: "T048 [P] [US3] Add idempotent import tests in apps/server/tests/integration/test_processing_result_idempotency.py"
+Task: "T048 [P] [US3] Add result import unit tests in apps/server/tests/unit/test_mediascribe_result_import.py"
+Task: "T049 [P] [US3] Add processing happy-path integration tests in apps/server/tests/integration/test_mediascribe_processing_happy_path.py"
+Task: "T050 [P] [US3] Add idempotent import tests in apps/server/tests/integration/test_processing_result_idempotency.py"
 ```
 
 ## Implementation Strategy
