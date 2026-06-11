@@ -212,11 +212,12 @@ command, result, date, and any blocked dependency reason.
   workflow `processed`, MediaScribe job `ready`, processing result `imported`,
   transcript rows `2`, diarization rows `2`, roles `incoming` and `mic`,
   dependency state `mediascribe:imported`.
-- Production Rec host check: `2brain.dev:/opt/projects/2brain-rec` is currently
-  on `master` at `311c25b` with services `rec-api`, `rec-migrate`, `rec-minio`,
-  `rec-minio-init`, and `rec-postgres`; the `015` processing worker is not yet
-  deployed there. Full Rec-production pipeline validation therefore requires
-  rolling out the `015` branch and applying production secrets/migrations first.
+- Historical pre-deploy Production Rec host check:
+  `2brain.dev:/opt/projects/2brain-rec` was on `master` at `311c25b` with
+  services `rec-api`, `rec-migrate`, `rec-minio`, `rec-minio-init`, and
+  `rec-postgres`; the `015` processing worker was not yet deployed there. This
+  finding is superseded by the production deployment and real-recording e2e
+  evidence below.
 - Full server gate after live-contract fixes:
   `PYTHONPATH=src uv run --extra dev pytest -q` -> `233 passed`;
   `PYTHONPATH=src uv run --extra dev ruff check .` -> `All checks passed!`;
@@ -266,3 +267,41 @@ command, result, date, and any blocked dependency reason.
   `PYTHONPATH=src uv run --extra dev python -m compileall -q src tests scripts`
   -> passed;
   dev/prod Compose config render -> passed.
+
+### 2026-06-11 Production Deployment And Real Recording E2E
+
+- Deployed `master` at
+  `4cda38c02eec88da3bf02ba8a78abe4e7d24ccbf` to
+  `2brain.dev:/opt/projects/2brain-rec` with
+  `infra/scripts/cd-remote.sh --execute --branch master`.
+- CD evidence:
+  local server tests -> `247 passed`; Ruff -> `All checks passed!`; compileall
+  -> passed; deployment evidence scan -> passed; remote backup -> pass
+  (`/opt/projects/2brain-rec/backups/20260611T143559Z`); restore rehearsal ->
+  pass; production migration verification -> `0004_mediascribe_processing`
+  head; production smoke -> pass; public `/api/v1/health/live` -> `ok`;
+  public `/api/v1/health/ready` -> `ready`.
+- Production service state after deployment:
+  `rec-api` running and healthy; `rec-processing-worker` running; `rec-temporal`
+  running; `rec-postgres` and `rec-minio` healthy.
+- Full production e2e used the real local app recording
+  `20260610-093247-F2645A5B-6479-4E7F-AE32-34870B5AFAAE` with `mic.wav` and
+  `incoming.wav` copied into the production `rec-api` container as a temporary
+  smoke artifact. The e2e run id was `e2e-015-20260611-144103`.
+- The production e2e flow succeeded through public upload/finalize, internal
+  processing pickup, Temporal worker processing, live MediaScribe submit/poll,
+  result import, content-safe status, and cleanup:
+  upload result `ingested_pending_processing`; pickup `started_count=1`;
+  workflow `processed`; MediaScribe job `ready`; processing result `imported`;
+  transcript status `available`; diarization status `available`; transcript
+  rows `2`; diarization rows `2`; source roles `mic` and `incoming`;
+  dependency state `mediascribe:imported`.
+- The content-safe processing status endpoint returned `state=processed`,
+  `content_available=true`, `transcript_available=true`,
+  `diarization_available=true`, `mediascribe_job_id_present=true`, and did not
+  expose transcript text.
+- Cleanup after the e2e pass succeeded:
+  `auth_rows_removed=2`, `database_records_removed=34`,
+  `object_keys_removed=3`, and `residue_records=[]`.
+- Transcript text was inspected in command output for manual verification only.
+  It was not written into tracked evidence documents, logs, or issue comments.

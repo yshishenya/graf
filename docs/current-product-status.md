@@ -81,6 +81,14 @@ implementation record.
   dual-track MediaScribe submission from owner-controlled artifacts,
   poll/import services, content-safe processing status, failure/retry
   classification, restart-safe job reuse, and metadata-only dependency truth.
+  On 2026-06-11, `master` at `4cda38c` was deployed to
+  `2brain.dev:/opt/projects/2brain-rec` with the production processing worker
+  and Temporal services running. A real local app recording passed production
+  e2e through public upload/finalize, internal pickup, Temporal worker
+  processing, live MediaScribe submit/poll, result import, content-safe status,
+  and cleanup: workflow `processed`, MediaScribe job `ready`, result
+  `imported`, transcript and diarization available, dependency state
+  `mediascribe:imported`, and no cleanup residue.
   Desktop clients still do not call MediaScribe, hold MediaScribe credentials,
   receive signed dependency URLs, or receive transcript/audio/download surfaces
   in this slice.
