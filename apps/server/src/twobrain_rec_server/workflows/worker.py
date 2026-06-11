@@ -7,7 +7,7 @@ from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
-from twobrain_rec_server.processing import store
+from twobrain_rec_server.processing import reasons, store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
     submit_to_mediascribe,
@@ -22,13 +22,13 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
 
     activity.heartbeat({"state": "starting", "meeting_id": payload["meeting_id"]})
     settings = get_settings()
+    meeting_id = UUID(payload["meeting_id"])
+    workspace_id = UUID(payload["workspace_id"])
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
-    storage = get_storage(settings)
     try:
         mediascribe_client = MediaScribeClient.from_settings(settings)
-        meeting_id = UUID(payload["meeting_id"])
-        workspace_id = UUID(payload["workspace_id"])
+        storage = get_storage(settings)
         async with sessionmaker() as db:
             workflow = await store.get_processing_workflow(
                 db,
@@ -73,9 +73,57 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
             )
             return {"meeting_id": payload["meeting_id"], "processing_status": "failed_terminal"}
     except MediaScribeClientError as exc:
-        return {"meeting_id": payload["meeting_id"], "processing_status": "failed_retryable" if exc.retryable else "failed_terminal"}
+        status = _processing_status_for_client_error(exc)
+        await _persist_activity_client_error(
+            sessionmaker,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            status=status,
+            reason_code=exc.reason_code,
+        )
+        return {"meeting_id": payload["meeting_id"], "processing_status": status.value}
     finally:
         await engine.dispose()
+
+
+def _processing_status_for_client_error(exc: MediaScribeClientError) -> ProcessingStatus:
+    if exc.reason_code == reasons.BLOCKED_CONFIG:
+        return ProcessingStatus.BLOCKED
+    return ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
+
+
+async def _persist_activity_client_error(
+    sessionmaker,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    status: ProcessingStatus,
+    reason_code: str,
+) -> None:
+    async with sessionmaker() as db:
+        workflow = await store.get_processing_workflow(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+        )
+        if workflow is None:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                workflow_id=f"processing/{meeting_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+        terminal = status in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}
+        if workflow.status == status.value and workflow.last_reason_code == reason_code and (not terminal or workflow.ended_at is not None):
+            return
+        await store.set_workflow_status(
+            db,
+            workflow,
+            status,
+            reason_code=reason_code,
+            terminal=terminal,
+        )
 
 
 async def run_worker() -> None:

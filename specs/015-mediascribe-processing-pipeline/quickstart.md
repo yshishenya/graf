@@ -166,3 +166,59 @@ command, result, date, and any blocked dependency reason.
 - Privacy boundary upheld: desktop receives no MediaScribe credentials or signed dependency URLs; processing status is content-safe; audit metadata uses safe counters/status/reason codes only.
 - Lifecycle truth upheld: processing failures update processing state, not ingest status; dependency state records future deletion truth without claiming external deletion execution.
 - Design review: no user-facing UI was introduced in `015`, so Product Design did not require a visual design pass for this backend-only slice.
+
+### 2026-06-11 E2E Processing Audit
+
+- Added strict fake-MediaScribe e2e proof for accepted upload artifacts:
+  finalized ingest is picked up through `/api/v1/internal/processing/pickup`,
+  uploaded microphone/system track hashes are compared to hashes received at
+  the MediaScribe boundary, then persisted workflow/job/result/transcript/
+  diarization/dependency rows are asserted.
+- Found a worker-activity gap: missing MediaScribe configuration returned an
+  activity failure status but did not persist the processing workflow blocker.
+  Added a regression test and fixed the activity to persist `blocked` with
+  `blocked_config`.
+- `PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_mediascribe_processing_happy_path.py -vv`
+  -> `2 passed`.
+- Red/green defect proof:
+  `tests/integration/test_processing_failures.py::test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured`
+  failed before the fix with persisted `workflow_started` / no reason, then
+  passed after the fix with `blocked_config`.
+- Processing-focused suite after the fix -> `32 passed`.
+- Full server gate after the fix:
+  `PYTHONPATH=src uv run --extra dev pytest -q` -> `232 passed`;
+  `PYTHONPATH=src uv run --extra dev ruff check .` -> `All checks passed!`;
+  `PYTHONPATH=src uv run --extra dev python -m compileall -q src tests scripts`
+  -> passed.
+
+### 2026-06-11 Live MediaScribe Audit With Real App Recording
+
+- Located real local app recordings under
+  `~/Library/Application Support/2brain Rec/Recordings/` and selected
+  `20260610-093247-F2645A5B-6479-4E7F-AE32-34870B5AFAAE` because both
+  microphone and incoming WAV tracks were short and had non-zero signal.
+- Live external MediaScribe smoke using the real app recording succeeded:
+  submit returned `uploaded`, polling reached `ready`, fetch returned transcript
+  and diarization rows with both `mic` and `incoming` roles and speakers `MIC`
+  and `REMOTE_00`. No transcript text was recorded in evidence.
+- Found and fixed a live-contract mismatch: production MediaScribe polls and
+  returns results through `/jobs/{job_id}` and `/jobs/{job_id}/result`, while
+  the initial client used `/v1/audio/transcriptions/jobs/{job_id}`. The live
+  result payload also uses `start`/`end`/`speaker`, so the client now normalizes
+  that shape into internal `start_seconds`/`end_seconds`/`speaker_label`.
+- End-to-end backend storage/import proof using the real app recording and live
+  MediaScribe succeeded through finalized ingest, internal pickup, storage
+  artifact submission, poll/fetch, result import, and DB assertions:
+  workflow `processed`, MediaScribe job `ready`, processing result `imported`,
+  transcript rows `2`, diarization rows `2`, roles `incoming` and `mic`,
+  dependency state `mediascribe:imported`.
+- Production Rec host check: `2brain.dev:/opt/projects/2brain-rec` is currently
+  on `master` at `311c25b` with services `rec-api`, `rec-migrate`, `rec-minio`,
+  `rec-minio-init`, and `rec-postgres`; the `015` processing worker is not yet
+  deployed there. Full Rec-production pipeline validation therefore requires
+  rolling out the `015` branch and applying production secrets/migrations first.
+- Full server gate after live-contract fixes:
+  `PYTHONPATH=src uv run --extra dev pytest -q` -> `233 passed`;
+  `PYTHONPATH=src uv run --extra dev ruff check .` -> `All checks passed!`;
+  `PYTHONPATH=src uv run --extra dev python -m compileall -q src tests scripts`
+  -> passed.

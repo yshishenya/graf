@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from hashlib import sha256
 
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus
 from twobrain_rec_server.mediascribe.schemas import (
@@ -30,6 +31,8 @@ class FakeMediaScribeClient:
             {
                 "mic_size": len(mic_bytes),
                 "incoming_size": len(incoming_bytes),
+                "mic_sha256": sha256(mic_bytes).hexdigest(),
+                "incoming_sha256": sha256(incoming_bytes).hexdigest(),
                 "diarize": diarize,
                 "summarize": summarize,
             }

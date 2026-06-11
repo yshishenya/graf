@@ -49,3 +49,49 @@ async def test_mediascribe_client_maps_auth_failure_without_response_secret() ->
     assert exc.value.reason_code == "mediascribe_auth_failed"
     assert not exc.value.retryable
     assert "server-side-key" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() -> None:
+    captured_paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_paths.append(request.url.path)
+        if request.url.path == "/jobs/job_live":
+            return httpx.Response(200, json={"id": "job_live", "status": "ready", "result_available": True})
+        if request.url.path == "/jobs/job_live/result":
+            return httpx.Response(
+                200,
+                json={
+                    "job": {"id": "job_live"},
+                    "transcript": [
+                        {"start": 0.1, "end": 1.2, "text": "local", "source_role": "mic"},
+                        {"start": 1.3, "end": 2.4, "text": "remote", "source_role": "incoming"},
+                    ],
+                    "diarization": [
+                        {"start": 0.1, "end": 1.2, "speaker": "MIC", "text": "local", "source_role": "mic"},
+                        {"start": 1.3, "end": 2.4, "speaker": "REMOTE_00", "text": "remote", "source_role": "incoming"},
+                    ],
+                    "summary": None,
+                },
+            )
+        return httpx.Response(404, json={"detail": "missing"})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    poll = await client.poll_job("job_live")
+    result = await client.fetch_result("job_live")
+
+    assert poll.status == MediaScribeJobStatus.READY
+    assert captured_paths == ["/jobs/job_live", "/jobs/job_live/result"]
+    assert result.external_job_id == "job_live"
+    assert len(result.transcript) == 2
+    assert result.transcript[0].start_seconds == 0.1
+    assert result.transcript[1].source_role == "incoming"
+    assert len(result.diarization) == 2
+    assert result.diarization[0].speaker_label == "MIC"
+    assert result.diarization[1].speaker_label == "REMOTE_00"

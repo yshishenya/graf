@@ -69,14 +69,13 @@ class MediaScribeClient:
         return MediaScribeSubmitResponse(external_job_id=external_job_id, status=status)
 
     async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
-        data = await self._request_json("GET", f"/v1/audio/transcriptions/jobs/{external_job_id}")
+        data = await self._request_json("GET", f"/jobs/{external_job_id}")
         status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
         return MediaScribePollResponse(external_job_id=external_job_id, status=status)
 
     async def fetch_result(self, external_job_id: str) -> MediaScribeResult:
-        data = await self._request_json("GET", f"/v1/audio/transcriptions/jobs/{external_job_id}/result")
-        data.setdefault("external_job_id", external_job_id)
-        return MediaScribeResult.model_validate(data)
+        data = await self._request_json("GET", f"/jobs/{external_job_id}/result")
+        return MediaScribeResult.model_validate(_normalize_result_payload(data, external_job_id=external_job_id))
 
     async def _request_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         timeout = httpx.Timeout(self.timeout_seconds)
@@ -109,3 +108,41 @@ class MediaScribeClient:
         if not isinstance(data, dict):
             raise MediaScribeClientError("mediascribe_malformed_response", retryable=True)
         return data
+
+
+def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> dict[str, Any]:
+    job = data.get("job")
+    if not isinstance(job, dict):
+        job = {}
+    return {
+        "external_job_id": data.get("external_job_id") or data.get("id") or job.get("id") or external_job_id,
+        "language": data.get("language") or job.get("language"),
+        "transcript": [_normalize_transcript_segment(index, item) for index, item in enumerate(_list_payload(data.get("transcript")))],
+        "diarization": [_normalize_diarization_segment(index, item) for index, item in enumerate(_list_payload(data.get("diarization")))],
+        "summary_status": data.get("summary_status") or ("available" if data.get("summary") else "not_requested"),
+        "result_version": data.get("result_version") or 1,
+    }
+
+
+def _list_payload(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _normalize_transcript_segment(sequence: int, item: dict[str, Any]) -> dict[str, Any]:
+    source_role = item.get("source_role")
+    return {
+        "sequence": item.get("sequence", sequence),
+        "start_seconds": item.get("start_seconds", item.get("start", 0)),
+        "end_seconds": item.get("end_seconds", item.get("end", 0)),
+        "text": item.get("text") or "",
+        "source_role": source_role or item.get("role") or "incoming",
+        "source_role_original": item.get("source_role_original") or source_role,
+    }
+
+
+def _normalize_diarization_segment(sequence: int, item: dict[str, Any]) -> dict[str, Any]:
+    normalized = _normalize_transcript_segment(sequence, item)
+    normalized["speaker_label"] = item.get("speaker_label") or item.get("speaker") or f"SPEAKER_{sequence:02d}"
+    return normalized

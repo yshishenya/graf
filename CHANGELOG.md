@@ -26,6 +26,9 @@ Semantic Versioning 2.0.0.
 
 - В `.github` и процессе разработки зафиксирован порядок этапов и коммитов для
   Spec Kit.
+- MediaScribe client now follows the live production contract for polling and
+  result import via `/jobs/{job_id}` and normalizes `start`/`end`/`speaker`
+  fields into persisted processing rows (`feature:015`).
 
 ### Security
 
