@@ -52,6 +52,17 @@ services:
 
   rec-temporal:
     image: temporalio/auto-setup:1.27.2
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: rec-postgres
+      POSTGRES_USER: twobrain_rec
+      POSTGRES_PWD: twobrain_rec
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    depends_on:
+      rec-postgres:
+        condition: service_healthy
     ports:
       - "7233:7233"
 
