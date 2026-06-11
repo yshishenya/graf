@@ -61,6 +61,8 @@ Semantic Versioning 2.0.0.
   - закреплён системный подход к SemVer и git-тегам релизов.
 - Обновлены server README и current product status для границ `015`, fake
   dependency flow, и разделения будущих `016/017/018` поверхностей.
+- Зафиксированы production deployment и real-recording e2e evidence для
+  `015` без сохранения transcript text в tracked docs.
 
 ### Ops
 
@@ -80,6 +82,10 @@ Semantic Versioning 2.0.0.
   file settings, которые не нужны для MediaScribe processing (`feature:015`).
 - Production smoke cleanup теперь удаляет 015 processing rows перед meeting
   cleanup, чтобы real processing e2e не оставлял residue в Postgres (`feature:015`).
+- `015` развернут на `2brain.dev` (`master` at `4cda38c`) и проверен полным
+  production e2e на реальной записи приложения: upload, pickup, Temporal
+  worker, live MediaScribe, result import, content-safe status и cleanup
+  прошли успешно (`feature:015`).
 
 ## [Unreleased Template]
 
