@@ -143,3 +143,23 @@ Expected:
 Record implementation evidence in this quickstart or a dedicated evidence file
 only after commands are run. Evidence must remain metadata-only and should list
 command, result, date, and any blocked dependency reason.
+
+### 2026-06-11 Implementation Evidence
+
+- `uv run --extra dev pytest -q tests/unit/test_processing_state_machine.py tests/unit/test_processing_workflow_identity.py tests/unit/test_mediascribe_request_mapping.py tests/unit/test_mediascribe_result_import.py tests/contract/test_processing_status_contract.py tests/contract/test_mediascribe_client_contract.py tests/contract/test_processing_no_secret_content_egress.py tests/integration/test_processing_migrations.py tests/integration/test_processing_pickup.py tests/integration/test_processing_pickup_blockers.py tests/integration/test_mediascribe_submit.py tests/integration/test_mediascribe_processing_happy_path.py tests/integration/test_processing_result_idempotency.py tests/integration/test_processing_failures.py tests/integration/test_processing_worker_restart.py tests/integration/test_processing_readiness.py tests/integration/test_processing_audit.py tests/integration/test_processing_deletion_dependency.py tests/integration/test_processing_tenant_authorization.py tests/integration/test_processing_out_of_scope_boundaries.py` -> `30 passed`.
+- `uv run --extra dev pytest -q` from `apps/server` -> first pass found OpenAPI contract drift after adding processing endpoints; committed contract was regenerated from runtime OpenAPI and rerun -> `230 passed`.
+- `uv run --extra dev ruff check .` from `apps/server` -> first pass found import-order/style cleanup; safe Ruff fix plus one manual `contextlib.suppress` cleanup; rerun -> `All checks passed!`.
+- `uv run --extra dev python -m compileall -q src tests scripts` from `apps/server` -> passed.
+- `docker compose -f infra/docker-compose.dev.yml config` -> passed, rendered 286 lines to `/tmp/twobrain-rec-dev-compose.yml`.
+- `docker compose -f infra/docker-compose.yml config` -> passed, rendered 410 lines to `/tmp/twobrain-rec-prod-compose.yml`.
+- `uv run --extra dev pytest -q tests/contract/test_processing_no_secret_content_egress.py tests/unit/test_deployment_evidence_scan.py tests/unit/test_redaction.py` -> `8 passed`.
+- Targeted changed-file secret scan over 47 implementation/doc/config files, excluding pre-existing `.specify/*` worktree changes -> `findings 0`.
+- GitHub issue sync completed for T001-T087 as issues #550-#636. After implementation validation, all 87 GitHub issues were closed with an evidence comment; `gh issue list --repo yshishenya/crisp --label feature:015 --state open --limit 100 --json number,title` returned `[]`.
+- Linear sync created YSH-274 through YSH-352 for T001-T079, then stopped at T080-T087 because the Linear workspace active issue limit was exceeded; see `linear-sync.md`.
+
+### 2026-06-11 Final Audit Notes
+
+- Spec scope upheld: no dashboard, share, download, delete, notes, assisted-recording, or macOS capture/upload behavior was added.
+- Privacy boundary upheld: desktop receives no MediaScribe credentials or signed dependency URLs; processing status is content-safe; audit metadata uses safe counters/status/reason codes only.
+- Lifecycle truth upheld: processing failures update processing state, not ingest status; dependency state records future deletion truth without claiming external deletion execution.
+- Design review: no user-facing UI was introduced in `015`, so Product Design did not require a visual design pass for this backend-only slice.

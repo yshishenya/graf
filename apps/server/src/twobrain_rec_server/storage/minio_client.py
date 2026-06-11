@@ -41,6 +41,17 @@ class MinioStorage:
     async def put_stream_async(self, object_key: str, stream: BinaryIO, length: int) -> None:
         await to_thread.run_sync(self.put_stream, object_key, stream, length)
 
+    def get_bytes(self, object_key: str) -> bytes:
+        response = self.client.get_object(self.settings.minio_bucket, object_key)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
+    async def get_bytes_async(self, object_key: str) -> bytes:
+        return await to_thread.run_sync(self.get_bytes, object_key)
+
 
 def get_storage(settings: Settings | None = None) -> MinioStorage:
     return MinioStorage(settings)

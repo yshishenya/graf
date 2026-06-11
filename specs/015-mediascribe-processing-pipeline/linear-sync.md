@@ -8,6 +8,8 @@
 
 - Синхронизация GitHub issues завершена для всех задач реализации: T001-T087
   связаны с GitHub issues #550-#636 в `yshishenya/crisp`.
+- После реализации и валидации все GitHub issues #550-#636 закрыты с
+  evidence-комментарием.
 - Синхронизация Linear началась после создания GitHub issues и создала Linear
   issues для T001-T079: с YSH-274 по YSH-352.
 - Синхронизация Linear остановилась до T080-T087, потому что workspace вернул

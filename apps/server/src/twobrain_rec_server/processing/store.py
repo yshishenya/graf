@@ -1,0 +1,405 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from uuid import UUID
+
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from twobrain_rec_server.db.models import (
+    DiarizationSegment,
+    MediaScribeJob,
+    Meeting,
+    ProcessingAuditEvent,
+    ProcessingDependencyState,
+    ProcessingPlaceholder,
+    ProcessingResult,
+    ProcessingWorkflow,
+    TrackArtifact,
+    TranscriptSegment,
+)
+from twobrain_rec_server.domain.statuses import (
+    MediaScribeJobStatus,
+    ProcessingAvailabilityStatus,
+    ProcessingDependencyName,
+    ProcessingDependencyStateValue,
+    ProcessingResultStatus,
+    ProcessingStatus,
+    SummaryStatus,
+    TrackRole,
+)
+from twobrain_rec_server.mediascribe.schemas import MediaScribeResult
+from twobrain_rec_server.processing.audit import safe_audit_metadata
+
+
+async def load_meeting_for_workspace(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> Meeting | None:
+    return await db.scalar(
+        select(Meeting).where(
+            Meeting.id == meeting_id,
+            Meeting.workspace_id == workspace_id,
+        )
+    )
+
+
+async def load_track_pair(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> tuple[TrackArtifact | None, TrackArtifact | None]:
+    artifacts = await db.scalars(
+        select(TrackArtifact).where(
+            TrackArtifact.workspace_id == workspace_id,
+            TrackArtifact.meeting_id == meeting_id,
+            TrackArtifact.status == "stored",
+        )
+    )
+    mic: TrackArtifact | None = None
+    incoming: TrackArtifact | None = None
+    for artifact in artifacts:
+        if artifact.track_role == TrackRole.MICROPHONE.value:
+            mic = artifact
+        elif artifact.track_role == TrackRole.SYSTEM.value:
+            incoming = artifact
+    return mic, incoming
+
+
+async def get_processing_workflow(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> ProcessingWorkflow | None:
+    return await db.scalar(
+        select(ProcessingWorkflow).where(
+            ProcessingWorkflow.workspace_id == workspace_id,
+            ProcessingWorkflow.meeting_id == meeting_id,
+        )
+    )
+
+
+async def upsert_processing_workflow(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    workflow_id: str,
+    status: ProcessingStatus,
+    workflow_run_id: str | None = None,
+    reason_code: str | None = None,
+) -> ProcessingWorkflow:
+    now = datetime.now(UTC)
+    workflow = await get_processing_workflow(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    if workflow is None:
+        workflow = ProcessingWorkflow(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            status=status.value,
+            attempt_count=1,
+            last_reason_code=reason_code,
+            started_at=now,
+        )
+        db.add(workflow)
+    else:
+        workflow.workflow_id = workflow_id
+        if workflow_run_id is not None:
+            workflow.workflow_run_id = workflow_run_id
+        workflow.status = status.value
+        workflow.last_reason_code = reason_code
+        workflow.attempt_count += 1
+        if workflow.started_at is None:
+            workflow.started_at = now
+    await _sync_meeting_processing_status(db, workspace_id=workspace_id, meeting_id=meeting_id, status=status)
+    await db.commit()
+    return workflow
+
+
+async def set_workflow_status(
+    db: AsyncSession,
+    workflow: ProcessingWorkflow,
+    status: ProcessingStatus,
+    *,
+    reason_code: str | None = None,
+    terminal: bool = False,
+) -> ProcessingWorkflow:
+    workflow.status = status.value
+    workflow.last_reason_code = reason_code
+    workflow.attempt_count += 1
+    if terminal:
+        workflow.ended_at = datetime.now(UTC)
+    await _sync_meeting_processing_status(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+        status=status,
+    )
+    await db.commit()
+    return workflow
+
+
+async def _sync_meeting_processing_status(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    status: ProcessingStatus,
+) -> None:
+    meeting = await db.get(Meeting, meeting_id)
+    if meeting is not None:
+        meeting.processing_status = status.value
+    placeholder = await db.scalar(
+        select(ProcessingPlaceholder).where(
+            ProcessingPlaceholder.workspace_id == workspace_id,
+            ProcessingPlaceholder.meeting_id == meeting_id,
+        )
+    )
+    if placeholder is not None:
+        placeholder.status = status.value
+
+
+async def get_mediascribe_job(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> MediaScribeJob | None:
+    return await db.scalar(
+        select(MediaScribeJob).where(
+            MediaScribeJob.workspace_id == workspace_id,
+            MediaScribeJob.meeting_id == meeting_id,
+        )
+    )
+
+
+async def upsert_mediascribe_job(
+    db: AsyncSession,
+    *,
+    workflow: ProcessingWorkflow,
+    mic_artifact: TrackArtifact,
+    incoming_artifact: TrackArtifact,
+) -> MediaScribeJob:
+    job = await get_mediascribe_job(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+    )
+    if job is None:
+        job = MediaScribeJob(
+            workspace_id=workflow.workspace_id,
+            meeting_id=workflow.meeting_id,
+            processing_workflow_id=workflow.id,
+            mic_track_artifact_id=mic_artifact.id,
+            incoming_track_artifact_id=incoming_artifact.id,
+            status=MediaScribeJobStatus.NOT_SUBMITTED.value,
+            request_mode="dual_track",
+            diarize=True,
+            summarize=False,
+        )
+        db.add(job)
+        await db.commit()
+    return job
+
+
+async def persist_mediascribe_submission(
+    db: AsyncSession,
+    *,
+    job: MediaScribeJob,
+    external_job_id: str,
+    status: MediaScribeJobStatus,
+) -> MediaScribeJob:
+    job.external_job_id = external_job_id
+    job.status = status.value
+    job.submitted_at = job.submitted_at or datetime.now(UTC)
+    await db.commit()
+    return job
+
+
+async def update_mediascribe_job_status(
+    db: AsyncSession,
+    *,
+    job: MediaScribeJob,
+    status: MediaScribeJobStatus,
+    reason_code: str | None = None,
+    error_message: str | None = None,
+) -> MediaScribeJob:
+    now = datetime.now(UTC)
+    job.status = status.value
+    job.last_polled_at = now
+    job.last_error_code = reason_code
+    job.last_error_message = error_message
+    if status == MediaScribeJobStatus.READY:
+        job.ready_at = now
+    if status in {MediaScribeJobStatus.FAILED, MediaScribeJobStatus.BLOCKED}:
+        job.failed_at = now
+    await db.commit()
+    return job
+
+
+async def persist_processing_result(
+    db: AsyncSession,
+    *,
+    job: MediaScribeJob,
+    result: MediaScribeResult,
+    source_result_hash: str,
+) -> ProcessingResult:
+    existing = await db.scalar(
+        select(ProcessingResult).where(
+            ProcessingResult.workspace_id == job.workspace_id,
+            ProcessingResult.mediascribe_job_id == job.id,
+            ProcessingResult.result_version == result.result_version,
+        )
+    )
+    if existing is None:
+        existing = ProcessingResult(
+            workspace_id=job.workspace_id,
+            meeting_id=job.meeting_id,
+            mediascribe_job_id=job.id,
+            result_version=result.result_version,
+        )
+        db.add(existing)
+        await db.flush()
+    elif existing.source_result_hash == source_result_hash and existing.status == ProcessingResultStatus.IMPORTED.value:
+        return existing
+    else:
+        await db.execute(delete(TranscriptSegment).where(TranscriptSegment.processing_result_id == existing.id))
+        await db.execute(delete(DiarizationSegment).where(DiarizationSegment.processing_result_id == existing.id))
+
+    existing.status = ProcessingResultStatus.IMPORTED.value
+    existing.transcript_status = (
+        ProcessingAvailabilityStatus.AVAILABLE.value if result.transcript else ProcessingAvailabilityStatus.UNAVAILABLE.value
+    )
+    existing.diarization_status = (
+        ProcessingAvailabilityStatus.AVAILABLE.value if result.diarization else ProcessingAvailabilityStatus.UNAVAILABLE.value
+    )
+    existing.summary_status = result.summary_status.value
+    existing.language = result.language
+    existing.segment_count = len(result.transcript)
+    existing.diarization_segment_count = len(result.diarization)
+    existing.source_result_hash = source_result_hash
+    existing.imported_at = datetime.now(UTC)
+
+    for segment in result.transcript:
+        db.add(
+            TranscriptSegment(
+                processing_result_id=existing.id,
+                workspace_id=job.workspace_id,
+                meeting_id=job.meeting_id,
+                sequence=segment.sequence,
+                start_seconds=Decimal(str(segment.start_seconds)),
+                end_seconds=Decimal(str(segment.end_seconds)),
+                text=segment.text,
+                source_role=segment.source_role,
+                source_role_original=segment.source_role_original,
+            )
+        )
+    for segment in result.diarization:
+        db.add(
+            DiarizationSegment(
+                processing_result_id=existing.id,
+                workspace_id=job.workspace_id,
+                meeting_id=job.meeting_id,
+                sequence=segment.sequence,
+                start_seconds=Decimal(str(segment.start_seconds)),
+                end_seconds=Decimal(str(segment.end_seconds)),
+                speaker_label=segment.speaker_label,
+                text=segment.text,
+                source_role=segment.source_role,
+            )
+        )
+    await set_dependency_state(
+        db,
+        workspace_id=job.workspace_id,
+        meeting_id=job.meeting_id,
+        dependency=ProcessingDependencyName.MEDIASCRIBE,
+        state=ProcessingDependencyStateValue.IMPORTED,
+        external_reference=job.external_job_id,
+    )
+    await db.commit()
+    return existing
+
+
+async def latest_processing_result(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> ProcessingResult | None:
+    return await db.scalar(
+        select(ProcessingResult)
+        .where(
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+        )
+        .order_by(ProcessingResult.imported_at.desc())
+    )
+
+
+async def record_processing_audit_event(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    event_type: str,
+    meeting_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+    mediascribe_job_id: UUID | None = None,
+    actor_user_id: UUID | None = None,
+    metadata: dict[str, object] | None = None,
+) -> ProcessingAuditEvent:
+    event = ProcessingAuditEvent(
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        processing_workflow_id=processing_workflow_id,
+        mediascribe_job_id=mediascribe_job_id,
+        actor_user_id=actor_user_id,
+        event_type=event_type,
+        metadata_json=safe_audit_metadata(metadata or {}),
+    )
+    db.add(event)
+    await db.commit()
+    return event
+
+
+async def set_dependency_state(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    dependency: ProcessingDependencyName,
+    state: ProcessingDependencyStateValue,
+    external_reference: str | None = None,
+    notes: str | None = None,
+) -> ProcessingDependencyState:
+    existing = await db.scalar(
+        select(ProcessingDependencyState).where(
+            ProcessingDependencyState.workspace_id == workspace_id,
+            ProcessingDependencyState.meeting_id == meeting_id,
+            ProcessingDependencyState.dependency == dependency.value,
+        )
+    )
+    if existing is None:
+        existing = ProcessingDependencyState(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            dependency=dependency.value,
+        )
+        db.add(existing)
+    existing.state = state.value
+    existing.external_reference = external_reference
+    existing.notes = notes
+    existing.last_verified_at = datetime.now(UTC)
+    await db.commit()
+    return existing
+
+
+def summary_status_from_result(result: ProcessingResult | None) -> SummaryStatus:
+    if result is None:
+        return SummaryStatus.NOT_REQUESTED
+    return SummaryStatus(result.summary_status)

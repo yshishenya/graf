@@ -6,6 +6,7 @@ from twobrain_rec_server.api.auth import router as auth_router
 from twobrain_rec_server.api.health import router as health_router
 from twobrain_rec_server.api.ingest import router as ingest_router
 from twobrain_rec_server.api.problems import ProblemDetail, problem_exception_handler
+from twobrain_rec_server.api.processing import router as processing_router
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.observability.logging import configure_logging, request_logging_middleware
@@ -47,4 +48,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(ingest_router)
+    app.include_router(processing_router)
     return app

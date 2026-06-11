@@ -27,3 +27,6 @@ class FakeMinioStorage:
         if trailing:
             raise ValueError("stream longer than declared length")
         self.objects[object_key] = data
+
+    def get_bytes(self, object_key: str) -> bytes:
+        return self.objects[object_key]
