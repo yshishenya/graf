@@ -18,6 +18,18 @@
 - Q: Should this slice generate 2brain notes or ship a dashboard? -> A: No. `015` imports transcription and diarization output, records summary dependency state if present or explicitly not requested, and leaves notes/dashboard review to `016-meeting-dashboard-review`.
 - Q: Should ingest success depend on MediaScribe availability? -> A: No. `012` ingest remains successful without MediaScribe. `015` reports processing as blocked/degraded when MediaScribe or workflow dependencies are unavailable.
 
+### Clarification Review 2026-06-11
+
+- No additional user decision is required before planning. The remaining
+  high-risk choices are already constrained by accepted project artifacts:
+  Temporal is required by the constitution, MediaScribe is the MVP STT
+  dependency, desktop egress is forbidden, and transcript content may be stored
+  only in controlled server result stores rather than logs, diagnostics, status
+  responses, or external observability by default.
+- Public transcript/audio/summary downloads are not part of `015`. Internal
+  server-side result fetch/import is allowed only as part of MediaScribe
+  processing and lifecycle accounting.
+
 ### Product Scope Boundary
 
 This feature turns finalized server-ingested recordings into processing jobs. It
