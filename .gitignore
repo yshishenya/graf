@@ -58,5 +58,16 @@ out/
 # Spec Kit local runtime state that should not contain project source
 .specify/feature.json
 
+# Spec Kit/Codex generated working files
+.specify/extensions/.registry
+.specify/integrations/codex.manifest.json
+.specify/scripts/bash/check-prerequisites.sh
+.specify/scripts/bash/common.sh
+.specify/scripts/bash/create-new-feature.sh
+.specify/scripts/bash/setup-plan.sh
+.specify/scripts/bash/setup-tasks.sh
+.specify/workflows/workflow-registry.json
+AGENTS.md
+
 # Spec Kit workflow run logs
 .specify/workflows/runs/
