@@ -27,6 +27,10 @@ cycle."
   prove local and production-like validation first, then enable enforcement.
   Do not enable hard enforcement before positive same-tenant and negative
   cross-tenant probes pass.
+- Q: Does this feature include live production enforcement? -> A: No automatic
+  live production enablement. This feature may produce code, migrations,
+  validation evidence, and runbooks, but live production enforcement requires a
+  separate explicit decision.
 
 ## Product Scope Boundary
 
@@ -60,6 +64,11 @@ that may be enabled blindly. Hard enforcement is ready only after local and
 production-like validation prove same-tenant flows still work, cross-tenant and
 missing-context access fails closed, and rollout/halt/rollback instructions are
 available.
+
+This feature does not automatically enable hard enforcement on the live
+production service. It may prepare and validate the code, migrations, evidence,
+and runbook needed for production, but touching live production enforcement
+requires a separate explicit operator decision after the gates pass.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -183,6 +192,9 @@ available if a gate fails.
 4. **Given** hard enforcement is requested before required validation passes,
    **When** the rollout gate is evaluated, **Then** enforcement is blocked and
    the evidence explains which gate is missing or failed.
+5. **Given** local and production-like validation pass, **When** this feature
+   is closed, **Then** live production enforcement is still not enabled unless
+   a separate explicit operator decision authorizes it.
 
 ---
 
@@ -283,34 +295,37 @@ public page, deletion execution, retention job, or new UI surface was added.
 - **FR-015**: Hard enforcement MUST remain blocked until positive same-tenant
   probes, negative cross-tenant probes, missing-context probes, worker-context
   probes, and maintenance-context probes pass.
-- **FR-016**: Migration and rollback guidance MUST distinguish safe rollout,
+- **FR-016**: This feature MUST NOT automatically enable hard enforcement on
+  the live production service; live production enforcement requires a separate
+  explicit operator decision after validation gates pass.
+- **FR-017**: Migration and rollback guidance MUST distinguish safe rollout,
   halt, rollback, and manual-investigation outcomes.
-- **FR-017**: Logs, diagnostics, traces, validation evidence, and failure
+- **FR-018**: Logs, diagnostics, traces, validation evidence, and failure
   messages MUST NOT expose raw transcript text, raw audio, credentials, tokens,
   signed URLs, passwords, or live secret paths.
-- **FR-018**: The system MUST produce metadata-only evidence for denied or
+- **FR-019**: The system MUST produce metadata-only evidence for denied or
   missing tenant context, including request/job class, table or feature area,
   reason category, and validation outcome.
-- **FR-019**: The system MUST produce metadata-only evidence for every
+- **FR-020**: The system MUST produce metadata-only evidence for every
   approved operator maintenance-context use, including operation name, actor or
   automation identity, time, reason category, affected feature area, and
   pass/blocked outcome.
-- **FR-020**: The feature MUST keep dashboard meeting detail, share links,
+- **FR-021**: The feature MUST keep dashboard meeting detail, share links,
   downloads/exports, retention jobs, deletion execution, public pages, billing,
   admin UI, product RBAC changes, and desktop capture/upload behavior out of
   scope.
-- **FR-021**: The feature MUST document compensating controls that remain until
+- **FR-022**: The feature MUST document compensating controls that remain until
   all future tables and downstream features are covered by tenant isolation.
-- **FR-022**: The feature MUST define how newly added tenant-owned tables must
+- **FR-023**: The feature MUST define how newly added tenant-owned tables must
   declare their isolation scope before future implementation begins.
-- **FR-023**: The feature MUST provide a repeatable verification path that can
+- **FR-024**: The feature MUST provide a repeatable verification path that can
   be run in CI/local validation without requiring live customer data.
-- **FR-024**: The feature MUST document how environments without database-level
+- **FR-025**: The feature MUST document how environments without database-level
   enforcement are handled in tests without weakening production guarantees.
-- **FR-025**: The feature MUST preserve owner-controlled storage and egress
+- **FR-026**: The feature MUST preserve owner-controlled storage and egress
   boundaries: no desktop-held object-storage credentials, no MediaScribe
   credentials in clients, and no new direct object upload behavior.
-- **FR-026**: The feature MUST update product/status documentation only to
+- **FR-027**: The feature MUST update product/status documentation only to
   describe the hardening boundary and MUST NOT claim user rollout readiness by
   itself.
 
@@ -366,8 +381,8 @@ public page, deletion execution, retention job, or new UI surface was added.
   metadata-only evidence, and 0 product UI/admin RBAC paths can disable tenant
   isolation.
 - **SC-008**: Rollout evidence includes pass/blocked verdicts for local and
-  production-like validation, an explicit enforcement decision, and rollback or
-  halt instructions for failures.
+  production-like validation, an explicit live-production enforcement decision
+  field, and rollback or halt instructions for failures.
 - **SC-009**: Secret/content scans over specs, plans, contracts, quickstart,
   evidence, tests, and logs find 0 raw audio, transcript text, credentials,
   tokens, signed URLs, passwords, or live secret paths.
