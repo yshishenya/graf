@@ -28,7 +28,8 @@ Required probe categories:
 Production verification must run probes against a disposable `twobrain_rec_rls_*`
 database unless an operator intentionally provides a separate test database URL.
 Do not point `RLS_TEST_DATABASE_URL` at the live `twobrain_rec` production
-database.
+database. The validation helper fail-closes before migrations or probes when
+the URL database name is `twobrain_rec`.
 
 ## Halt Criteria
 
