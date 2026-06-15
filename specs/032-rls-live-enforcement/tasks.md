@@ -195,3 +195,12 @@ merge.
 Issues must use `docs/github-issue-canon.md`, Russian issue text, and labels:
 `feature:032`, `type:hardening`, `area:security` or `area:infra`, and the
 appropriate priority/gate labels.
+
+Created issues:
+
+- #737: T001-T008 foundation, covered table inventory, validation vocabulary.
+- #738: T009-T014 safe disposable/test RLS probe gate.
+- #739: T015-T020 production read-only RLS state verifier.
+- #740: T021-T027 stale 031 production RLS wording correction.
+- #741: T028-T032 closeout evidence and forbidden-content safety.
+- #742: T033-T037 final RLS truth validation gates.
