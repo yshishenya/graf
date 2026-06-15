@@ -31,6 +31,10 @@ cycle."
   live production enablement. This feature may produce code, migrations,
   validation evidence, and runbooks, but live production enforcement requires a
   separate explicit decision.
+- Q: What should API callers see when tenant access is blocked? -> A:
+  Cross-tenant reads return not found or empty without confirming foreign row
+  existence; cross-tenant writes and deletes return an authorization error;
+  missing tenant context returns an auth/context error.
 
 ## Product Scope Boundary
 
@@ -70,6 +74,11 @@ production service. It may prepare and validate the code, migrations, evidence,
 and runbook needed for production, but touching live production enforcement
 requires a separate explicit operator decision after the gates pass.
 
+Blocked access has a privacy-preserving API contract. Cross-tenant reads must
+not reveal whether a foreign row exists. Cross-tenant writes and deletes must
+return a clear authorization failure. Missing tenant context must be reported as
+an authentication or tenant-context failure, not as a successful empty result.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Prevent Cross-Workspace Meeting Exposure (Priority: P1)
@@ -101,6 +110,10 @@ rows and all missing or mismatched contexts fail closed.
    **When** it runs under workspace A context, **Then** workspace B meetings,
    transcript text, diarization labels, artifact metadata, and audit rows remain
    inaccessible.
+4. **Given** a request in workspace A guesses a meeting or session identifier
+   from workspace B, **When** it reads through an API path, **Then** the caller
+   receives not found or an empty result without confirmation that the foreign
+   identifier exists.
 
 ---
 
@@ -228,6 +241,8 @@ public page, deletion execution, retention job, or new UI surface was added.
 - A user belongs to multiple workspaces and switches context between requests.
 - A workspace admin attempts to access another workspace in the same
   organization.
+- A user guesses a foreign tenant row identifier and tries to distinguish
+  "does not exist" from "exists but forbidden".
 - A product admin looks for a setting that would disable tenant isolation or
   grant "see all tenant data" access.
 - A production smoke identity needs cleanup across seeded rows without
@@ -289,43 +304,49 @@ public page, deletion execution, retention job, or new UI surface was added.
   validation probes.
 - **FR-013**: Cross-tenant writes and deletes MUST be blocked in 100% of
   validation probes.
-- **FR-014**: Hardening rollout MUST include local and production-like
+- **FR-014**: Cross-tenant read attempts through API-facing paths MUST return
+  not found or an empty result without confirming that a foreign row exists.
+- **FR-015**: Cross-tenant write and delete attempts through API-facing paths
+  MUST return an authorization failure.
+- **FR-016**: Missing tenant context through API-facing paths MUST return an
+  authentication or tenant-context failure.
+- **FR-017**: Hardening rollout MUST include local and production-like
   validation evidence before hard enforcement is enabled or any
   production-readiness claim is made.
-- **FR-015**: Hard enforcement MUST remain blocked until positive same-tenant
+- **FR-018**: Hard enforcement MUST remain blocked until positive same-tenant
   probes, negative cross-tenant probes, missing-context probes, worker-context
   probes, and maintenance-context probes pass.
-- **FR-016**: This feature MUST NOT automatically enable hard enforcement on
+- **FR-019**: This feature MUST NOT automatically enable hard enforcement on
   the live production service; live production enforcement requires a separate
   explicit operator decision after validation gates pass.
-- **FR-017**: Migration and rollback guidance MUST distinguish safe rollout,
+- **FR-020**: Migration and rollback guidance MUST distinguish safe rollout,
   halt, rollback, and manual-investigation outcomes.
-- **FR-018**: Logs, diagnostics, traces, validation evidence, and failure
+- **FR-021**: Logs, diagnostics, traces, validation evidence, and failure
   messages MUST NOT expose raw transcript text, raw audio, credentials, tokens,
   signed URLs, passwords, or live secret paths.
-- **FR-019**: The system MUST produce metadata-only evidence for denied or
+- **FR-022**: The system MUST produce metadata-only evidence for denied or
   missing tenant context, including request/job class, table or feature area,
   reason category, and validation outcome.
-- **FR-020**: The system MUST produce metadata-only evidence for every
+- **FR-023**: The system MUST produce metadata-only evidence for every
   approved operator maintenance-context use, including operation name, actor or
   automation identity, time, reason category, affected feature area, and
   pass/blocked outcome.
-- **FR-021**: The feature MUST keep dashboard meeting detail, share links,
+- **FR-024**: The feature MUST keep dashboard meeting detail, share links,
   downloads/exports, retention jobs, deletion execution, public pages, billing,
   admin UI, product RBAC changes, and desktop capture/upload behavior out of
   scope.
-- **FR-022**: The feature MUST document compensating controls that remain until
+- **FR-025**: The feature MUST document compensating controls that remain until
   all future tables and downstream features are covered by tenant isolation.
-- **FR-023**: The feature MUST define how newly added tenant-owned tables must
+- **FR-026**: The feature MUST define how newly added tenant-owned tables must
   declare their isolation scope before future implementation begins.
-- **FR-024**: The feature MUST provide a repeatable verification path that can
+- **FR-027**: The feature MUST provide a repeatable verification path that can
   be run in CI/local validation without requiring live customer data.
-- **FR-025**: The feature MUST document how environments without database-level
+- **FR-028**: The feature MUST document how environments without database-level
   enforcement are handled in tests without weakening production guarantees.
-- **FR-026**: The feature MUST preserve owner-controlled storage and egress
+- **FR-029**: The feature MUST preserve owner-controlled storage and egress
   boundaries: no desktop-held object-storage credentials, no MediaScribe
   credentials in clients, and no new direct object upload behavior.
-- **FR-027**: The feature MUST update product/status documentation only to
+- **FR-030**: The feature MUST update product/status documentation only to
   describe the hardening boundary and MUST NOT claim user rollout readiness by
   itself.
 
@@ -355,6 +376,10 @@ public page, deletion execution, retention job, or new UI surface was added.
 - **Hardening Evidence**: Metadata-only proof that rollout, validation,
   rollback, and denied-access outcomes were checked without exposing meeting
   content or secrets.
+- **Access Outcome**: The API-facing result category for a tenant-isolation
+  decision: same-tenant success, cross-tenant not found or empty read,
+  cross-tenant authorization failure for mutation, missing-context failure, or
+  approved maintenance-context result.
 
 ## Success Criteria *(mandatory)*
 
@@ -365,13 +390,15 @@ public page, deletion execution, retention job, or new UI surface was added.
   transcript, audit, and dependency slices are
   classified by isolation scope before implementation begins.
 - **SC-002**: 100% of current tenant-owned backend tables deny or return no rows
-  for missing tenant context in automated validation.
+  for missing tenant context in automated validation, with auth/context failure
+  classification for API-facing paths.
 - **SC-003**: 100% of cross-workspace read probes against covered meeting,
   upload, artifact, processing, transcript, diarization, dependency, auth,
   session, device, membership, and audit data are denied or return no foreign
-  rows.
+  rows, and API-facing read probes expose no foreign-row existence signal.
 - **SC-004**: 100% of cross-workspace write/delete probes against covered
-  tenant-owned data are denied.
+  tenant-owned data are denied with authorization-failure classification for
+  API-facing paths.
 - **SC-005**: Existing accepted same-tenant server validation for ingest, auth,
   upload helper, processing, and production-smoke cleanup remains green after
   hardening.
