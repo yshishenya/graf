@@ -162,6 +162,7 @@ PostgreSQL policy suite with disposable local RLS_TEST_DATABASE_URL:
 RLS validation helper with disposable local RLS_TEST_DATABASE_URL:
 rls_validation_result=pass
 ready_for_operator_decision=true
+probe_suite=direct_sql_rls_probes
 ```
 
 Command:
@@ -237,8 +238,13 @@ Post-review remediation status:
 - On 2026-06-15, the PostgreSQL policy suite passed against a disposable local
   PostgreSQL database with `4 passed`.
 - On 2026-06-15, `apps/server/scripts/verify_rls_hardening.py` returned
-  `rls_validation_result=pass` and `ready_for_operator_decision=true` against a
-  disposable local PostgreSQL database.
+  `rls_validation_result=pass`, `ready_for_operator_decision=true`, and
+  `probe_suite=direct_sql_rls_probes` against a disposable local PostgreSQL
+  database.
+- Production `infra/scripts/verify-rec-migration.sh --execute` creates and
+  cleans up a disposable `twobrain_rec_rls_*` PostgreSQL database when
+  `RLS_TEST_DATABASE_URL` is not explicitly provided, so direct probes do not
+  seed the live production database.
 - Live production enforcement is still not changed by this local proof.
 
 Secret/content scan review:

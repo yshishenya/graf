@@ -64,10 +64,12 @@ def test_migration_execute_blocks_when_rls_validation_is_blocked(tmp_path: Path)
     assert result.returncode != 0 or "migration_verification_result=blocked" in output
 
 
-def test_rls_validation_script_references_real_postgres_probe_suite() -> None:
+def test_rls_validation_script_uses_runtime_safe_direct_sql_probes() -> None:
     script = (REPO_ROOT / "apps/server/scripts/verify_rls_hardening.py").read_text(encoding="utf-8")
 
-    assert "tests/integration/test_rls_postgres_policies.py" in script
+    assert "direct_sql_rls_probes" in script
+    assert "uv run" not in script
+    assert "pytest" not in script
     assert "rls_probe_execution_not_implemented_in_script" not in script
 
 

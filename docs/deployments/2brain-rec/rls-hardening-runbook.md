@@ -11,7 +11,8 @@ It does not enable live production enforcement by itself.
 Run these gates before asking for a separate operator decision:
 
 1. Local regression: `./infra/scripts/ci-local.sh`
-2. PostgreSQL RLS probe suite with `RLS_TEST_DATABASE_URL` set.
+2. PostgreSQL RLS probe suite with `RLS_TEST_DATABASE_URL` set, or the
+   disposable database path created by `verify-rec-migration.sh --execute`.
 3. Production-like migration verification: `./infra/scripts/verify-rec-migration.sh --remote`
 4. Metadata-only evidence scan for specs, tests, scripts, and deployment notes.
 
@@ -23,6 +24,11 @@ Required probe categories:
 - `missing_context_auth_or_context_error`
 - `worker_context`
 - `maintenance_context`
+
+Production verification must run probes against a disposable `twobrain_rec_rls_*`
+database unless an operator intentionally provides a separate test database URL.
+Do not point `RLS_TEST_DATABASE_URL` at the live `twobrain_rec` production
+database.
 
 ## Halt Criteria
 
