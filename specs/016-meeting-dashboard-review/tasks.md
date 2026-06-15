@@ -167,7 +167,10 @@
 - [ ] T049 Run full server pytest and Ruff validation from `specs/016-meeting-dashboard-review/quickstart.md`
 - [ ] T050 Capture sanitized implementation screenshots for list, ready detail, processing detail, and embedded route into `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
 - [ ] T051 Scan tracked feature evidence for private content, secrets, signed URLs, raw audio, live paths, and account identifiers in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
-- [ ] T052 Reconcile completed tasks and validation evidence in `specs/016-meeting-dashboard-review/tasks.md`
+- [ ] T052 Compare implemented UI screenshots against V8 and Krisp/Krisp reference findings in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [ ] T053 Record keyboard navigation, focus visibility, contrast, responsive width, and no-overflow checks in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [ ] T054 Record local API timing and list-to-detail navigation evidence for SC-001 in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [ ] T055 Reconcile completed tasks and validation evidence in `specs/016-meeting-dashboard-review/tasks.md`
 
 ---
 
