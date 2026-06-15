@@ -12,6 +12,18 @@ Rec backend data before dashboard, access, sharing, retention, and deletion
 slices expose meeting and transcript content. Follow the full SDD Spec Kit
 cycle."
 
+## Clarifications
+
+### Session 2026-06-15
+
+- Q: What scope must this RLS hardening cover? -> A: Full current backend scope:
+  identity/auth/session/device, ingest/upload/artifacts, meetings, processing,
+  transcript, audit, and dependency tables from the accepted backend slices.
+- Q: Should product admins receive a UI setting or broad RBAC permission to
+  bypass tenant isolation? -> A: No product UI setting and no product-level
+  broad admin bypass. Only fixed, allowlisted, metadata-logged operator
+  maintenance contexts are allowed for infrastructure tasks.
+
 ## Product Scope Boundary
 
 This feature adds a database-enforced tenant isolation layer for the accepted
@@ -26,6 +38,18 @@ This feature does not add product UI, dashboard screens, sharing, downloads,
 retention jobs, deletion execution, MediaScribe behavior, desktop capture,
 upload queue behavior, or new account-login flows. It is a backend security and
 operational-readiness slice.
+
+The minimum accepted coverage is the full current backend tenant-owned schema:
+identity/auth/session/device records, ingest/upload/artifact records, meeting
+records, processing/workflow/MediaScribe result records, transcript and
+diarization records, audit records, and dependency/lifecycle records created by
+the accepted backend slices.
+
+This feature does not create a product RBAC permission or admin setting that
+lets a workspace admin, organization admin, or product UI user bypass tenant
+isolation. Any broader-than-workspace access is limited to fixed operator
+maintenance contexts for infrastructure tasks, outside product UI, with
+metadata-only evidence.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -179,6 +203,8 @@ public page, deletion execution, retention job, or new UI surface was added.
 - A user belongs to multiple workspaces and switches context between requests.
 - A workspace admin attempts to access another workspace in the same
   organization.
+- A product admin looks for a setting that would disable tenant isolation or
+  grant "see all tenant data" access.
 - A production smoke identity needs cleanup across seeded rows without
   permanently granting unbounded access.
 - A migration, backup, restore, or readiness probe runs before normal request
@@ -203,22 +229,26 @@ public page, deletion execution, retention job, or new UI surface was added.
   or return no rows when no active tenant context is present.
 - **FR-003**: Workspace-scoped context MUST expose only rows belonging to the
   active workspace unless a narrower owner/device rule denies them.
-- **FR-004**: Organization-scoped or admin context MUST be explicit,
-  role-gated, auditable, and no broader than the actor's approved
-  organization/workspace scope.
+- **FR-004**: Product user, workspace admin, and organization admin context
+  MUST remain bounded by approved workspace/organization scope and MUST NOT
+  provide a product UI setting or RBAC permission that disables tenant
+  isolation.
 - **FR-005**: Internal worker and maintenance paths MUST set explicit tenant or
   approved maintenance context before reading or mutating tenant-owned rows.
-- **FR-006**: Approved maintenance context MUST be bounded to named operational
-  tasks such as migration verification, smoke cleanup, backup/restore
-  rehearsal, or explicit operator diagnostics.
-- **FR-007**: The system MUST protect meeting, upload, artifact, manifest,
-  temporary object, ingest audit, processing workflow, MediaScribe job,
+- **FR-006**: Approved maintenance context MUST be outside product UI and
+  bounded to fixed allowlisted operational tasks such as migration
+  verification, smoke cleanup, backup/restore rehearsal, or explicit operator
+  diagnostics.
+- **FR-007**: The system MUST protect all current meeting-content backend rows:
+  meeting, upload session, upload part, track artifact, manifest snapshot,
+  temporary upload object, ingest audit, processing workflow, MediaScribe job,
   processing result, transcript segment, diarization segment, processing audit,
   and processing dependency rows.
-- **FR-008**: The system MUST protect organization, workspace, user identity,
-  workspace membership, registered device, external identity, auth session,
-  session-device binding, workspace auth policy, provider-link state, callback
-  state, consent copy, and auth audit rows according to their tenant scope.
+- **FR-008**: The system MUST protect all current identity/auth/session/device
+  backend rows: organization, workspace, user identity, workspace membership,
+  registered device, external identity, auth session, session-device binding,
+  workspace auth policy, provider-link state, callback state, consent copy, and
+  auth audit rows according to their tenant scope.
 - **FR-009**: Tenant context MUST be derived from authenticated request,
   session, membership, registered device, worker job, or explicit operator
   maintenance context, not from client-supplied meeting titles, file names, or
@@ -247,21 +277,26 @@ public page, deletion execution, retention job, or new UI surface was added.
 - **FR-018**: The system MUST produce metadata-only evidence for denied or
   missing tenant context, including request/job class, table or feature area,
   reason category, and validation outcome.
-- **FR-019**: The feature MUST keep dashboard meeting detail, share links,
+- **FR-019**: The system MUST produce metadata-only evidence for every
+  approved operator maintenance-context use, including operation name, actor or
+  automation identity, time, reason category, affected feature area, and
+  pass/blocked outcome.
+- **FR-020**: The feature MUST keep dashboard meeting detail, share links,
   downloads/exports, retention jobs, deletion execution, public pages, billing,
-  admin UI, and desktop capture/upload behavior out of scope.
-- **FR-020**: The feature MUST document compensating controls that remain until
+  admin UI, product RBAC changes, and desktop capture/upload behavior out of
+  scope.
+- **FR-021**: The feature MUST document compensating controls that remain until
   all future tables and downstream features are covered by tenant isolation.
-- **FR-021**: The feature MUST define how newly added tenant-owned tables must
+- **FR-022**: The feature MUST define how newly added tenant-owned tables must
   declare their isolation scope before future implementation begins.
-- **FR-022**: The feature MUST provide a repeatable verification path that can
+- **FR-023**: The feature MUST provide a repeatable verification path that can
   be run in CI/local validation without requiring live customer data.
-- **FR-023**: The feature MUST document how environments without database-level
+- **FR-024**: The feature MUST document how environments without database-level
   enforcement are handled in tests without weakening production guarantees.
-- **FR-024**: The feature MUST preserve owner-controlled storage and egress
+- **FR-025**: The feature MUST preserve owner-controlled storage and egress
   boundaries: no desktop-held object-storage credentials, no MediaScribe
   credentials in clients, and no new direct object upload behavior.
-- **FR-025**: The feature MUST update product/status documentation only to
+- **FR-026**: The feature MUST update product/status documentation only to
   describe the hardening boundary and MUST NOT claim user rollout readiness by
   itself.
 
@@ -282,6 +317,9 @@ public page, deletion execution, retention job, or new UI surface was added.
 - **Maintenance Context**: A bounded operator or internal-job context used for
   migration verification, smoke cleanup, backup/restore rehearsal, or
   diagnostics when ordinary request context is unavailable.
+- **Product Admin Context**: A user-facing admin role for workspace or
+  organization administration. It remains tenant-scoped and cannot disable
+  tenant isolation through UI or RBAC settings in this feature.
 - **Isolation Probe**: A positive or negative validation scenario proving that
   same-tenant access works, missing-context access fails closed, and
   cross-tenant access cannot see or mutate foreign rows.
@@ -293,10 +331,12 @@ public page, deletion execution, retention job, or new UI surface was added.
 
 ### Measurable Outcomes
 
-- **SC-001**: 100% of identified existing tenant-owned backend tables are
+- **SC-001**: 100% of current tenant-owned backend tables from accepted
+  identity/auth/session/device, ingest/upload/artifact, meeting, processing,
+  transcript, audit, and dependency slices are
   classified by isolation scope before implementation begins.
-- **SC-002**: 100% of covered tenant-owned tables deny or return no rows for
-  missing tenant context in automated validation.
+- **SC-002**: 100% of current tenant-owned backend tables deny or return no rows
+  for missing tenant context in automated validation.
 - **SC-003**: 100% of cross-workspace read probes against covered meeting,
   upload, artifact, processing, transcript, diarization, dependency, auth,
   session, device, membership, and audit data are denied or return no foreign
@@ -308,15 +348,18 @@ public page, deletion execution, retention job, or new UI surface was added.
   hardening.
 - **SC-006**: Worker-style processing and maintenance-context validation covers
   matching, mismatched, missing, and approved-maintenance context outcomes.
-- **SC-007**: Rollout evidence includes pass/blocked verdicts for local and
+- **SC-007**: 100% of approved maintenance-context validation outcomes include
+  metadata-only evidence, and 0 product UI/admin RBAC paths can disable tenant
+  isolation.
+- **SC-008**: Rollout evidence includes pass/blocked verdicts for local and
   production-like validation plus rollback or halt instructions for failures.
-- **SC-008**: Secret/content scans over specs, plans, contracts, quickstart,
+- **SC-009**: Secret/content scans over specs, plans, contracts, quickstart,
   evidence, tests, and logs find 0 raw audio, transcript text, credentials,
   tokens, signed URLs, passwords, or live secret paths.
-- **SC-009**: No new dashboard detail, transcript download, audio download,
+- **SC-010**: No new dashboard detail, transcript download, audio download,
   share, public page, retention, deletion execution, billing, admin UI, desktop
   capture, or desktop upload behavior is observable after the slice.
-- **SC-010**: Future feature authors can identify the required tenant isolation
+- **SC-011**: Future feature authors can identify the required tenant isolation
   contract for a new backend table from this feature's artifacts without reading
   implementation code.
 
