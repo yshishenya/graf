@@ -476,13 +476,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def _current_git_commit() -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "--short=12", "HEAD"],
-        cwd=SERVER_ROOT,
-        check=False,
-        text=True,
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=SERVER_ROOT,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        return "unknown"
     return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else "unknown"
 
 

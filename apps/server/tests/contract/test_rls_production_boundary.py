@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from tests.fixtures.rls_production_truth import passing_table_state_json
@@ -127,7 +128,7 @@ def test_production_read_only_cli_accepts_metadata_fixture(tmp_path: Path) -> No
     fixture.write_text(json.dumps(passing_table_state_json()), encoding="utf-8")
 
     result = _run_command_result(
-        "python3",
+        sys.executable,
         "apps/server/scripts/verify_rls_hardening.py",
         "--production-read-only",
         "--table-state-json",
@@ -147,6 +148,27 @@ def test_production_read_only_cli_accepts_metadata_fixture(tmp_path: Path) -> No
     assert "live_production_enforcement=enabled" in output
     assert "failed_table_names=none" in output
     assert "not_changed" not in output
+
+
+def test_production_read_only_cli_does_not_require_git_binary(tmp_path: Path) -> None:
+    fixture = tmp_path / "rls-state.json"
+    fixture.write_text(json.dumps(passing_table_state_json()), encoding="utf-8")
+
+    result = _run_command_result(
+        sys.executable,
+        "apps/server/scripts/verify_rls_hardening.py",
+        "--production-read-only",
+        "--table-state-json",
+        str(fixture),
+        "--alembic-revision",
+        "0005_rls_hardening",
+        env={**os.environ.copy(), "PATH": str(tmp_path)},
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0
+    assert "production_rls_state_result=pass" in output
+    assert "deployed_commit=unknown" in output
 
 
 def test_production_read_only_cli_blocks_failed_metadata_fixture(tmp_path: Path) -> None:
