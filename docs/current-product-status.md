@@ -174,6 +174,20 @@ implementation record.
   been implemented or accepted.
 - Signed/notarized production installer evidence remains separate from local
   ad-hoc development package evidence.
+- Feature `030-mvp-experience-design-system` now provides the MVP product
+  experience/design handoff: full clean-room Krisp/2brain audit, native vs web
+  route boundaries, status/provenance matrices, screen specs, server-owned
+  embedded product UI contract, and the active Figma v8 clean Russian review
+  candidate. V8 supersedes the v5-v7.4 prototype lineage after stakeholder and
+  five-critic reviews found flow, density, settings, technical-copy, and
+  visual-quality blockers in earlier drafts. Current V8 evidence covers 17
+  top-level MVP frames, 98 valid click reactions, dark/light theme proof,
+  shared upload/search overlays, desktop/web owner-value-loop coverage, and a
+  stakeholder visual approval pack.
+  V8 is the implementation baseline for the first real desktop/web UI slice;
+  final stakeholder visual acceptance remains the polish gate for declaring the
+  interface handoff final. This is design-readiness evidence only; it does not
+  implement production desktop or web UI.
 
 ## Next Product Slice
 

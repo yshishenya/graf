@@ -19,6 +19,11 @@ Semantic Versioning 2.0.0.
   request/worker/auth bootstrap/session lookup/callback lookup/maintenance DB
   contexts, rollout validation helper, and future-table ADR (`feature:031`,
   `T001-T052`).
+- Добавлен MVP experience/design handoff для `2brain Rec`: clean-room audit,
+  native/web route boundaries, status matrices, screen specs, embedded
+  server-owned speaker assignment для desktop shell и активный Figma v8 clean
+  Russian implementation baseline с 98 валидными click reactions
+  (`feature:030`, `T001-T085`).
 
 ### Changed
 

@@ -1,0 +1,134 @@
+# Contract: Cross-Surface Status Model
+
+## Purpose
+
+Ensure the macOS app, embedded desktop cabinet subset, and full browser web
+cabinet communicate the same user-facing truth for recording, upload,
+transcription, review, deletion, and access.
+
+## Status Fields
+
+Each status definition must include:
+
+- `status_id`
+- `meaning`
+- `desktop_label_ru`
+- `desktop_label_en`
+- `web_label_ru`
+- `web_label_en`
+- `desktop_primary_action`
+- `web_primary_action`
+- `terminality`
+- `allowed_claims`
+- `forbidden_claims`
+- `deletion_or_retention_note`
+- `source_or_track_provenance_note` when the state appears in meeting review or
+  upload flows
+
+## Required Statuses
+
+| Status ID | Meaning | Terminality | Key Forbidden Claim |
+|---|---|---|---|
+| `local_recording_saved` | Local package saved after stop | `non_terminal` | Must not imply 2brain Rec upload. |
+| `local_only` | Meeting exists only on this Mac | `non_terminal` | Must not imply backup/server retention. |
+| `queued` | Waiting for upload | `non_terminal` | Must not imply upload completion. |
+| `uploading` | Transfer to Rec server in progress | `non_terminal` | Must not imply transcription started. |
+| `uploaded` | 2brain Rec accepted required artifacts | `non_terminal` | Must not imply transcript or notes readiness. |
+| `audio_extraction` | Audio extraction from uploaded media is pending/running | `non_terminal` | Must not imply transcript readiness. |
+| `transcription` | Transcription is pending/running | `non_terminal` | Must not show empty transcript as failure. |
+| `transcript_ready` | Transcript is available | `non_terminal` | Must not imply notes/summary readiness. |
+| `notes_ready` | Summary/decisions/action items are available | `terminal_success` | Must still show provenance/status. |
+| `partial_degraded` | Some artifacts or generated outputs failed | `terminal_failure` or `non_terminal` by case | Must not hide missing outputs. |
+| `failed` | Processing or upload cannot continue automatically | `terminal_failure` | Must not delete local artifacts silently. |
+| `deleted` | Deleted where 2brain Rec controls deletion | `terminal_deleted` | Must not promise universal external erasure. |
+| `access_denied` | User/session cannot access the meeting | `terminal_failure` for that viewer | Must not reveal private meeting content. |
+
+## Surface Consistency Rules
+
+- Desktop, embedded cabinet, and browser cabinet may use different layouts but
+  must use the same meaning for each status.
+- Upload success is separate from transcription readiness.
+- Transcript readiness is separate from notes readiness.
+- Failure and degraded states must explain what exists, what failed, and what
+  action is available.
+- Deletion copy must use truthful control-bounded language.
+- Access denied states must not leak meeting metadata beyond allowed policy.
+
+## Lifecycle And Dependency Truth
+
+Deletion, retention, degraded, and failed statuses must include product-safe
+copy principles for these artifact classes when they are relevant:
+
+- local desktop buffers and local packages;
+- server database records;
+- object storage artifacts;
+- workflow payloads and workflow history;
+- backup expiry;
+- MediaScribe dependency state;
+- Langfuse trace/content state;
+- diagnostics and support bundles;
+- external post-egress limits;
+- unreachable clients.
+
+Statuses must not expose credentials, bucket names, signed URLs, tokens, live
+local paths, internal IDs, or private meeting content. When a dependency cannot
+confirm deletion or processing state, the status must say what is known and
+what is not confirmed.
+
+## Source And Track Provenance Truth
+
+Meeting review and upload statuses must distinguish:
+
+- desktop-captured separate microphone/system tracks;
+- uploaded mixed audio;
+- uploaded video or meeting container with extracted audio;
+- media with no usable audio;
+- unknown or unavailable speaker/track separation.
+
+The UI copy must not imply dual-track capture, speaker separation, or transcript
+quality guarantees when the source file does not support those claims.
+
+Speaker assignment status is server-owned across browser and embedded desktop.
+Desktop shells may display loading, saving, saved, conflict, low-confidence, and
+failed states for the embedded speaker panel, but must not invent local speaker
+truth outside the backend/web model.
+
+## Review-Surface Requirements
+
+A complete meeting review must include:
+
+- readable transcript navigation;
+- playback context;
+- summary;
+- decisions;
+- action items;
+- source/status provenance;
+- next actions;
+- deletion/access entry points.
+
+When an output is unavailable, the review must show an explicit unavailable or
+degraded state rather than leaving the area blank.
+
+## Validation
+
+- Walk the owner value loop from desktop and browser entry points.
+- Compare every displayed status across desktop and web.
+- Confirm no prototype screen claims transcript, notes, deletion, or upload
+  success before the corresponding status allows it.
+- Confirm embedded desktop speaker assignment uses backend/web saving and
+  conflict states, not native-only speaker truth.
+
+## Final Design References
+
+- Status source: `design/status-state-matrix.md`.
+- Terminology: `design/system/terminology.md`.
+- Provenance rules: `design/source-track-provenance.md`.
+- Active Figma status references on page `030 MVP Experience v8 - Clean RU`:
+  - `V8 06 - Загрузка и обработка в списке`
+  - `V8 07 - Транскрипт и спикеры в приложении`
+  - `V8 10 - Веб-кабинет: встречи и фильтры`
+  - `V8 11 - Веб-детали встречи и транскрипт`
+  - `V8 12 - Поделиться, экспорт, удаление`
+  - `V8 14 - Правила интерфейса и QA`
+- Historical V5 boards are retained only as coverage evidence and must not be
+  used as current implementation handoff without reconciling against V8.
