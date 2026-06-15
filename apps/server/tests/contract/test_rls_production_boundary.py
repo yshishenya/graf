@@ -73,6 +73,13 @@ def test_rls_validation_script_uses_runtime_safe_direct_sql_probes() -> None:
     assert "rls_probe_execution_not_implemented_in_script" not in script
 
 
+def test_rls_validation_probe_url_keeps_generated_password_visible_to_driver() -> None:
+    script = (REPO_ROOT / "apps/server/scripts/verify_rls_hardening.py").read_text(encoding="utf-8")
+
+    assert "render_as_string(hide_password=False)" in script
+    assert "str(make_url(database_url).set(username=probe_role, password=password))" not in script
+
+
 def test_postgres_policy_probes_use_non_owner_role_for_rls_enforcement() -> None:
     probes = (REPO_ROOT / "apps/server/tests/integration/test_rls_postgres_policies.py").read_text(
         encoding="utf-8"

@@ -154,7 +154,9 @@ async def _prepare_urls(database_url: str) -> MigratedPostgresUrls:
     probe_role, password = await _create_probe_role(database_url)
     return MigratedPostgresUrls(
         migration_url=database_url,
-        probe_url=str(make_url(database_url).set(username=probe_role, password=password)),
+        probe_url=make_url(database_url)
+        .set(username=probe_role, password=password)
+        .render_as_string(hide_password=False),
         probe_role=probe_role,
     )
 
