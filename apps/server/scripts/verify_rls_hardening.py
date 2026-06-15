@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 from uuid import UUID, uuid4
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,8 @@ get_settings = None
 MaintenanceTenantContext = None
 TenantDatabaseContext = None
 apply_tenant_context_to_connection = None
+
+LIVE_PRODUCTION_DATABASE_NAMES = frozenset({"twobrain_rec"})
 
 
 def _load_probe_dependencies() -> None:
@@ -97,6 +100,15 @@ def _quote_literal(value: str) -> str:
 def _print_report(report: RLSValidationReport) -> None:
     for line in report.evidence_lines():
         print(line)
+
+
+def _database_name_from_url(database_url: str) -> str:
+    path = urlsplit(database_url).path.lstrip("/")
+    return unquote(path.split("/", 1)[0]) if path else ""
+
+
+def _is_forbidden_live_database_url(database_url: str) -> bool:
+    return _database_name_from_url(database_url) in LIVE_PRODUCTION_DATABASE_NAMES
 
 
 async def _create_probe_role(migration_url: str) -> tuple[str, str]:
@@ -428,6 +440,11 @@ def main() -> int:
         _print_report(RLSValidationReport(environment="postgres_test"))
         print("reason=postgres_test_database_required")
         return 0
+    if _is_forbidden_live_database_url(database_url):
+        _print_report(RLSValidationReport(environment="postgres_test"))
+        print("reason=live_production_database_probe_forbidden")
+        print(f"database_name={_database_name_from_url(database_url)}")
+        return 1
 
     try:
         _load_probe_dependencies()

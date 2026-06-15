@@ -245,6 +245,8 @@ Post-review remediation status:
   cleans up a disposable `twobrain_rec_rls_*` PostgreSQL database when
   `RLS_TEST_DATABASE_URL` is not explicitly provided, so direct probes do not
   seed the live production database.
+- `apps/server/scripts/verify_rls_hardening.py` blocks before migrations or
+  probes when `RLS_TEST_DATABASE_URL` points at database name `twobrain_rec`.
 - Live production enforcement is still not changed by this local proof.
 
 Secret/content scan review:

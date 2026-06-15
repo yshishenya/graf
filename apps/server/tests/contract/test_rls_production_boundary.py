@@ -40,6 +40,22 @@ def test_rls_validation_script_blocks_without_postgres_url_and_does_not_touch_li
     assert "live_production_enforcement=not_changed" in output
 
 
+def test_rls_validation_script_rejects_live_production_database_url() -> None:
+    env = os.environ.copy()
+    env["RLS_TEST_DATABASE_URL"] = "postgresql+asyncpg://twobrain_rec:secret@127.0.0.1:5432/twobrain_rec"
+    env.pop("RLS_TEST_PROBE_DATABASE_URL", None)
+
+    result = _run_command_result("python3", "apps/server/scripts/verify_rls_hardening.py", env=env)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "rls_validation_result=blocked" in output
+    assert "live_production_enforcement=not_changed" in output
+    assert "reason=live_production_database_probe_forbidden" in output
+    assert "database_name=twobrain_rec" in output
+    assert "twobrain_rec:secret" not in output
+
+
 def test_migration_verification_references_rls_validation_without_enabling_live_enforcement() -> None:
     output = _run_command("sh", "infra/scripts/verify-rec-migration.sh", "--dry-run")
 
