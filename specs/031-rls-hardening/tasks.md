@@ -213,6 +213,16 @@ tests and documentation review.
 
 ## Dependencies & Execution Order
 
+## GitHub Issue Sync
+
+- #716: T001-T012, foundation and RLS migration scaffold.
+- #717: T013-T021, US1 meeting-content tenant isolation.
+- #718: T022-T030, US2 worker and maintenance tenant context.
+- #719: T031-T037, US3 identity, session, device, and membership boundaries.
+- #720: T038-T045, US4 rollout gates, rollback, and production boundary.
+- #721: T046-T052, US5 future isolation contract and downstream boundary.
+- #722: T053-T056, final validation and evidence scan.
+
 ### Phase Dependencies
 
 - **Setup (Phase 1)**: no dependencies.
