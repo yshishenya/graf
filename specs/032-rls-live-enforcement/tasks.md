@@ -18,8 +18,8 @@ implementation and validation.
 **Purpose**: Prepare traceable fixtures and contract-test scaffolding.
 
 - [ ] T001 [P] Add production RLS truth fixture helpers in `apps/server/tests/fixtures/rls_production_truth.py`
-- [ ] T002 [P] Add 032 validation command notes placeholder in `specs/032-rls-live-enforcement/quickstart.md`
-- [ ] T003 Add 032 stale-wording scan notes placeholder in `specs/032-rls-live-enforcement/quickstart.md`
+- [ ] T002 [P] Add 032 validation command sections in `specs/032-rls-live-enforcement/quickstart.md`
+- [ ] T003 Add 032 stale-wording scan sections in `specs/032-rls-live-enforcement/quickstart.md`
 
 ---
 
