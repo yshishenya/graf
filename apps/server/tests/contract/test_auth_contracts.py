@@ -632,6 +632,57 @@ def test_auth_link_accepts_candidate_phone(monkeypatch, client: TestClient) -> N
     assert link_event.metadata_json["link_status"] == "confirmed"
 
 
+def test_auth_link_conflict_persists_metadata_only_audit(monkeypatch, client: TestClient) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    other_user_id = uuid4()
+
+    start = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    state_nonce = start.json()["state_nonce"]
+    callback_payload = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": state_nonce, "code": "TEST-YA-USER"},
+    ).json()
+
+    async def seed_conflicting_link_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)))
+            db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active"))
+            db.add(
+                ExternalIdentity(
+                    user_id=other_user_id,
+                    provider="vk",
+                    provider_subject="vk-conflict-subject",
+                    is_verified=True,
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_conflicting_link_identity())
+
+    response = client.post(
+        "/api/v1/auth/link",
+        headers={"Authorization": f"Bearer {callback_payload['session_token']}", "X-Workspace-Id": str(WORKSPACE_ID)},
+        json={
+            "candidate_provider": "vk",
+            "candidate_provider_subject": "vk-conflict-subject",
+            "expected_workspace_id": str(WORKSPACE_ID),
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "link_conflict"
+    events = _load_auth_audit_events(client)
+    conflict_events = [event for event in events if event.event_type == "provider_link_conflict"]
+    assert len(conflict_events) == 1
+    assert conflict_events[0].outcome == "failure"
+    assert conflict_events[0].metadata_json == {"error_code": "link_conflict"}
+
+
 def test_auth_device_register_revoke_blocks_session_bound_ingest(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
 

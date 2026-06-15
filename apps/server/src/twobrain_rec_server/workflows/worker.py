@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 from uuid import UUID
 
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
 from twobrain_rec_server.processing import reasons, store
@@ -20,16 +22,26 @@ from twobrain_rec_server.workflows.temporal_client import connect_temporal_clien
 async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str, str]:
     from temporalio import activity
 
-    activity.heartbeat({"state": "starting", "meeting_id": payload["meeting_id"]})
+    meeting_ref = payload.get("meeting_id", "unknown")
+    activity.heartbeat({"state": "starting", "meeting_id": meeting_ref})
+    try:
+        tenant_scope = tenant_scope_from_processing_payload(payload)
+        meeting_id = UUID(payload["meeting_id"])
+        workspace_id = UUID(payload["workspace_id"])
+    except (KeyError, ValueError):
+        return {
+            "meeting_id": meeting_ref,
+            "processing_status": ProcessingStatus.BLOCKED.value,
+            "reason_code": reasons.BLOCKED_UNAUTHORIZED,
+        }
     settings = get_settings()
-    meeting_id = UUID(payload["meeting_id"])
-    workspace_id = UUID(payload["workspace_id"])
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     try:
         mediascribe_client = MediaScribeClient.from_settings(settings)
         storage = get_storage(settings)
         async with sessionmaker() as db:
+            await apply_tenant_scope(db, tenant_scope, context_kind="worker")
             workflow = await store.get_processing_workflow(
                 db,
                 workspace_id=workspace_id,
@@ -78,6 +90,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
             sessionmaker,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
+            tenant_scope=tenant_scope,
             status=status,
             reason_code=exc.reason_code,
         )
@@ -92,15 +105,43 @@ def _processing_status_for_client_error(exc: MediaScribeClientError) -> Processi
     return ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
 
 
+def _required_uuid_from_payload(payload: dict[str, str], field_name: str) -> UUID:
+    value = payload.get(field_name)
+    if not value:
+        raise ValueError(f"missing tenant scope field: {field_name}")
+    try:
+        return UUID(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid tenant scope field: {field_name}") from exc
+
+
+def tenant_scope_from_processing_payload(payload: dict[str, str]) -> TenantScope:
+    required = {"organization_id", "workspace_id", "user_id", "device_id"}
+    missing = sorted(required - payload.keys())
+    if missing:
+        raise ValueError(f"missing tenant scope fields: {', '.join(missing)}")
+    auth_session_id = payload.get("auth_session_id")
+    return TenantScope(
+        organization_id=_required_uuid_from_payload(payload, "organization_id"),
+        workspace_id=_required_uuid_from_payload(payload, "workspace_id"),
+        user_id=_required_uuid_from_payload(payload, "user_id"),
+        device_id=_required_uuid_from_payload(payload, "device_id"),
+        auth_session_id=UUID(auth_session_id) if auth_session_id else None,
+    )
+
+
 async def _persist_activity_client_error(
     sessionmaker,
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    tenant_scope: TenantScope | None = None,
     status: ProcessingStatus,
     reason_code: str,
 ) -> None:
     async with sessionmaker() as db:
+        if tenant_scope is not None:
+            await apply_tenant_scope(db, tenant_scope, context_kind="worker")
         workflow = await store.get_processing_workflow(
             db,
             workspace_id=workspace_id,

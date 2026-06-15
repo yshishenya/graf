@@ -20,6 +20,21 @@ SENSITIVE_METADATA_KEYS = frozenset(
     }
 )
 
+DENIED_AUTH_ACCESS_METADATA_KEYS = frozenset(
+    {
+        "route_name",
+        "outcome",
+        "reason_code",
+        "workspace_id",
+        "organization_id",
+        "user_id",
+        "device_id",
+        "provider",
+        "context_kind",
+        "request_id",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class AuthAuditEventRecord:
@@ -49,6 +64,14 @@ def sanitize_audit_metadata(metadata: Mapping[str, object] | None) -> dict[str, 
         else:
             sanitized[key] = value
     return sanitized
+
+
+def denied_auth_access_metadata(**values: object) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in values.items()
+        if key in DENIED_AUTH_ACCESS_METADATA_KEYS and value is not None
+    }
 
 
 async def write_auth_audit_event(

@@ -8,6 +8,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.tenant_context import (
+    MaintenanceTenantContext,
+    apply_tenant_context_to_connection,
+)
 from twobrain_rec_server.deployment import SmokeCleanupRecord, build_smoke_identity_seed
 
 
@@ -37,6 +41,15 @@ async def cleanup_smoke_artifacts(
     }
 
     async with engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="production_smoke_cleanup",
+                actor_id="cleanup_smoke_artifacts.py",
+                reason_category="smoke_cleanup",
+                feature_area="ingest",
+            ),
+        )
         if meeting_id:
             row = (
                 await conn.execute(
@@ -105,6 +118,15 @@ async def cleanup_smoke_artifacts(
         removed_objects += 1
 
     async with engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="production_smoke_cleanup",
+                actor_id="cleanup_smoke_artifacts.py",
+                reason_category="smoke_cleanup",
+                feature_area="ingest",
+            ),
+        )
         statements = []
         if meeting_id and session_id:
             processing_tables = {

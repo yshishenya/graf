@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.audit import write_auth_audit_event
@@ -29,6 +30,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceAuthPolicy,
     WorkspaceMembership,
 )
+from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,14 @@ async def _record_callback_audit_event(
 def _fingerprint_identity(subject: str, provider: str, workspace_id: UUID) -> str:
     key = f"{workspace_id}|{provider}|{subject}".encode()
     return hashlib.sha256(key).hexdigest()
+
+
+def _is_external_identity_unique_conflict(exc: IntegrityError) -> bool:
+    message = str(exc.orig).lower()
+    return (
+        "external_identities.provider" in message
+        and "external_identities.provider_subject" in message
+    ) or "external_identities_provider_provider_subject_key" in message
 
 
 async def _mark_state_error(state, code: str, now: datetime | None = None) -> None:
@@ -160,34 +170,62 @@ async def _create_scoped_user(
     provider_subject: str,
     profile: dict[str, str | None],
 ) -> UserIdentity:
-    user = UserIdentity(
-        organization_id=organization_id,
-        external_subject=provider_subject,
-        display_name=profile.get("display_name"),
-    )
-    db.add(user)
-    await db.flush()
-    db.add(
-        WorkspaceMembership(
+    try:
+        async with db.begin_nested():
+            user = UserIdentity(
+                organization_id=organization_id,
+                external_subject=provider_subject,
+                display_name=profile.get("display_name"),
+            )
+            db.add(user)
+            await db.flush()
+            await apply_tenant_context(
+                db,
+                WorkspaceAuthContext(
+                    workspace_id=workspace_id,
+                    organization_id=organization_id,
+                    user_id=user.id,
+                    context_kind="auth_bootstrap",
+                ),
+            )
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=workspace_id,
+                    user_id=user.id,
+                    role="member",
+                    status="active",
+                )
+            )
+            db.add(
+                ExternalIdentity(
+                    user_id=user.id,
+                    provider=provider,
+                    provider_subject=provider_subject,
+                    provider_username=profile.get("provider_username"),
+                    email=profile.get("email"),
+                    phone=profile.get("phone"),
+                    display_name=profile.get("display_name"),
+                    is_verified=True,
+                    subject_issued_at=datetime.now(UTC),
+                    last_seen_at=datetime.now(UTC),
+                    meta={},
+                )
+            )
+            await db.flush()
+    except IntegrityError as exc:
+        if _is_external_identity_unique_conflict(exc):
+            raise CallbackFlowError(
+                "identity_subject_conflict",
+                "identity already linked to an account in another organization",
+            ) from exc
+        raise
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
             workspace_id=workspace_id,
+            organization_id=organization_id,
             user_id=user.id,
-            role="member",
-            status="active",
-        )
-    )
-    db.add(
-        ExternalIdentity(
-            user_id=user.id,
-            provider=provider,
-            provider_subject=provider_subject,
-            provider_username=profile.get("provider_username"),
-            email=profile.get("email"),
-            phone=profile.get("phone"),
-            display_name=profile.get("display_name"),
-            is_verified=True,
-            subject_issued_at=datetime.now(UTC),
-            last_seen_at=datetime.now(UTC),
-            meta={},
+            context_kind="auth_bootstrap",
         )
     )
     return user
@@ -215,6 +253,15 @@ async def _get_or_create_user_from_provider_claims(
     if user is not None:
         if user.status != "active":
             raise CallbackFlowError("identity_user_inactive", "identity owner account is not active")
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=workspace_id,
+                organization_id=organization_id,
+                user_id=user.id,
+                context_kind="auth_bootstrap",
+            ),
+        )
         membership = await db.scalar(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.workspace_id == workspace_id,
@@ -324,6 +371,14 @@ async def resolve_callback_to_user(
             raise CallbackFlowError("callback_state_expired", "callback state expired") from exc
         raise CallbackFlowError("callback_state_invalid", "callback state invalid") from exc
 
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=state.workspace_id,
+            context_kind="auth_bootstrap",
+        ),
+    )
+
     try:
         _resolve_oauth_denial(query)
         adapter = get_provider_adapter(provider)
@@ -407,6 +462,14 @@ async def resolve_callback_to_user(
         )
         raise CallbackFlowError("workspace_not_found", "workspace from callback not found")
 
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=workspace.id,
+            organization_id=workspace.organization_id,
+            context_kind="auth_bootstrap",
+        ),
+    )
     state.result = "completed"
 
     try:

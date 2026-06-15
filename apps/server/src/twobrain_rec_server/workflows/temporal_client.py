@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
 
 WORKFLOW_ID_PATTERN = re.compile(r"^processing/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -39,6 +40,7 @@ async def start_processing_workflow(
     settings: Settings,
     meeting_id: UUID,
     workspace_id: UUID,
+    tenant_scope: TenantScope | None = None,
 ) -> ProcessingWorkflowStart:
     workflow_id = processing_workflow_id(meeting_id)
     validate_processing_workflow_id(workflow_id)
@@ -48,6 +50,17 @@ async def start_processing_workflow(
         "requested_by": "processing-pickup",
         "source": "ingested_pending_processing",
     }
+    if tenant_scope is not None:
+        payload.update(
+            {
+                "organization_id": str(tenant_scope.organization_id),
+                "workspace_id": str(tenant_scope.workspace_id),
+                "user_id": str(tenant_scope.user_id),
+                "device_id": str(tenant_scope.device_id),
+            }
+        )
+        if tenant_scope.auth_session_id is not None:
+            payload["auth_session_id"] = str(tenant_scope.auth_session_id)
     from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
 
     try:

@@ -15,6 +15,11 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
 )
+from twobrain_rec_server.db.tenant_context import (
+    AuthSessionLookupContext,
+    TenantDatabaseContext,
+    apply_tenant_context,
+)
 
 
 def _parse_uuid(value: str | None, header_name: str) -> UUID:
@@ -61,6 +66,7 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
 
     token_hash = decode_session_token(token)
     async with sessionmaker() as db:
+        await apply_tenant_context(db, AuthSessionLookupContext(session_token_hash=token_hash))
         session = await db.scalar(
             select(AuthSession).where(
                 AuthSession.session_token_hash == token_hash,
@@ -162,6 +168,16 @@ async def get_tenant_scope(
             title="Authentication context unavailable",
         )
     async with sessionmaker() as db:
+        await apply_tenant_context(
+            db,
+            TenantDatabaseContext(
+                organization_id=principal.organization_id,
+                workspace_id=device.workspace_id,
+                user_id=principal.user_id,
+                device_id=device.device_id,
+                auth_session_id=principal.session_id,
+            ),
+        )
         user = await db.get(UserIdentity, principal.user_id)
         workspace = await db.get(Workspace, device.workspace_id)
         membership = await db.scalar(

@@ -15,6 +15,10 @@ Semantic Versioning 2.0.0.
   state, idempotent Temporal workflow identity, server-side dual-track submit,
   poll/import, content-safe status API, failure classification, restart-safe job
   reuse, and dependency truth for future deletion (`feature:015`, `T001-T087`).
+- Добавлен backend tenant-isolation RLS hardening слой: PostgreSQL policies,
+  request/worker/auth bootstrap/session lookup/callback lookup/maintenance DB
+  contexts, rollout validation helper, and future-table ADR (`feature:031`,
+  `T001-T052`).
 
 ### Changed
 
@@ -52,6 +56,20 @@ Semantic Versioning 2.0.0.
   processing status, audit metadata, logs, and evidence must not expose raw
   audio, transcript text, signed URLs, API keys, bearer tokens, passwords, or
   live secret paths (`feature:015`, `T040`, `T065-T071`, `T086`).
+- RLS hardening adds database-level tenant isolation coverage for accepted
+  identity, auth/session/device, ingest, meeting, processing, transcript, audit,
+  and dependency tables, while keeping product/admin bypass out of scope
+  (`feature:031`, `T016-T037`).
+- RLS post-review hardening now requires explicit auth-session lookup context,
+  complete maintenance actor/reason/feature metadata, and fail-closed worker
+  tenant scope before tenant-owned processing DB operations (`feature:031`,
+  `CR-003`, `CR-005`, `CR-006`).
+- RLS post-review hardening now preserves controlled auth/link conflict outcomes
+  for globally unique provider identities, requires membership or bounded auth
+  bootstrap guards for organization-scoped policies, and rejects unknown tenant
+  context kinds at runtime (`feature:031`, `CR-004`, `CR-007`, `CR-008`).
+- Provider link conflict/rejected paths now commit metadata-only auth audit
+  evidence before returning controlled error responses (`feature:031`, `CR-009`).
 
 ### Docs
 
@@ -63,6 +81,9 @@ Semantic Versioning 2.0.0.
   dependency flow, и разделения будущих `016/017/018` поверхностей.
 - Зафиксированы production deployment и real-recording e2e evidence для
   `015` без сохранения transcript text в tracked docs.
+- Добавлены RLS rollout runbook, ADR `003-tenant-isolation-rls`, and current
+  product-status notes clarifying that live production enforcement is a
+  separate operator decision (`feature:031`, `T043`, `T049-T052`).
 
 ### Ops
 
@@ -86,6 +107,16 @@ Semantic Versioning 2.0.0.
   production e2e на реальной записи приложения: upload, pickup, Temporal
   worker, live MediaScribe, result import, content-safe status и cleanup
   прошли успешно (`feature:015`).
+- Local CI and migration verification now reference RLS validation without
+  enabling live production enforcement automatically (`feature:031`,
+  `T041-T045`).
+- RLS migration verification now blocks when the validation helper returns a
+  blocked verdict, and the helper delegates to a real PostgreSQL policy suite
+  when `RLS_TEST_DATABASE_URL` is supplied (`feature:031`, `CR-001`, `CR-002`).
+- PostgreSQL RLS probes now use a non-owner probe role and a SQL-only UUID GUC
+  helper, so validation checks enforced RLS behavior without superuser/owner
+  bypass and avoids PL/pgSQL migration hangs observed on local PostgreSQL 14
+  (`feature:031`, `CR-001`).
 
 ## [Unreleased Template]
 

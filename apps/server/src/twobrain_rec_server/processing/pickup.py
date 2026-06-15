@@ -6,8 +6,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Meeting
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import MeetingStatus, ProcessingStatus
 from twobrain_rec_server.processing import reasons, store
 from twobrain_rec_server.workflows.temporal_client import (
@@ -44,7 +46,10 @@ async def pick_up_processing(
     meeting_id: UUID | None = None,
     limit: int = 25,
     temporal_client: object | None = None,
+    tenant_scope: TenantScope | None = None,
 ) -> ProcessingPickupResult:
+    if tenant_scope is not None:
+        await apply_tenant_scope(db, tenant_scope, context_kind="worker")
     meetings = await _candidate_meetings(db, workspace_id=workspace_id, meeting_id=meeting_id, limit=limit)
     result = ProcessingPickupResult(accepted=True)
     if not meetings:
@@ -102,6 +107,7 @@ async def pick_up_processing(
             settings=settings,
             meeting_id=meeting.id,
             workspace_id=workspace_id,
+            tenant_scope=tenant_scope,
         )
         workflow = await store.upsert_processing_workflow(
             db,

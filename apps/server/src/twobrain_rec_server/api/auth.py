@@ -35,6 +35,12 @@ from twobrain_rec_server.db.models import (
     UserIdentity,
     WorkspaceMembership,
 )
+from twobrain_rec_server.db.tenant_context import (
+    AuthCallbackLookupContext,
+    TenantDatabaseContext,
+    WorkspaceAuthContext,
+    apply_tenant_context,
+)
 
 
 class _ProviderEntry(BaseModel):
@@ -214,6 +220,28 @@ def _workspace_membership_scope_condition(workspace_id: UUID, user_id: UUID) -> 
     )
 
 
+async def _apply_auth_public_context(db: AsyncSession, workspace_id: UUID) -> None:
+    await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
+
+
+async def _apply_auth_request_context(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    principal: AuthenticatedPrincipal,
+) -> None:
+    await apply_tenant_context(
+        db,
+        TenantDatabaseContext(
+            organization_id=principal.organization_id,
+            workspace_id=workspace_id,
+            user_id=principal.user_id,
+            auth_session_id=principal.session_id,
+            context_kind="request",
+        ),
+    )
+
+
 def _provider_client_id(settings: Settings, provider: str) -> str:
     normalized = provider.lower()
     if normalized == "yandex":
@@ -326,7 +354,8 @@ async def list_providers(
             status=503,
             code="auth_dependency_unavailable",
             title="Authentication DB dependency unavailable",
-    )
+        )
+    await _apply_auth_public_context(db, workspace_id)
     adapters = build_provider_registry()
     snapshot = await read_auth_providers(db, workspace_id, adapters=adapters)
     return _policy_to_response(snapshot)
@@ -343,7 +372,8 @@ async def get_workspace_auth_policy(
             status=503,
             code="auth_dependency_unavailable",
             title="Authentication DB dependency unavailable",
-    )
+        )
+    await _apply_auth_public_context(db, workspace_id)
     adapters = build_provider_registry()
     snapshot = await read_auth_providers(db, workspace_id, adapters=adapters)
     return _policy_to_response(snapshot, include_disabled=True)
@@ -369,6 +399,7 @@ async def patch_workspace_auth_policy(
             code="workspace_scope_denied",
             title="Workspace scope denied",
         )
+    await _apply_auth_request_context(db, workspace_id=workspace_id, principal=principal)
     membership = await db.scalar(
         select(WorkspaceMembership).where(
             and_(
@@ -422,6 +453,7 @@ async def start_provider_flow(
             code="auth_dependency_unavailable",
             title="Authentication DB dependency unavailable",
         )
+    await _apply_auth_public_context(db, payload.workspace_id)
     normalized_provider = provider.lower()
     adapters = build_provider_registry()
     try:
@@ -511,6 +543,7 @@ async def callback(
             title="Callback state is missing",
             detail="callback state is required",
         )
+    await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
     provider = provider.lower()
     query = dict(request.query_params)
     settings = request.app.state.settings
@@ -577,6 +610,11 @@ async def link_provider(
             code="workspace_scope_denied",
             title="Workspace scope denied",
         )
+    await _apply_auth_request_context(
+        db,
+        workspace_id=payload.expected_workspace_id,
+        principal=principal,
+    )
     try:
         result: LinkResult = await link_provider_identity(
             db,
@@ -602,6 +640,7 @@ async def link_provider(
             provider=payload.candidate_provider,
             metadata={"error_code": exc.code},
         )
+        await db.commit()
         raise ProblemDetail(
             status=status_code,
             code=exc.code,
@@ -619,6 +658,7 @@ async def link_provider(
             provider=payload.candidate_provider,
             metadata={"error_code": "link_failed"},
         )
+        await db.commit()
         raise ProblemDetail(
             status=400,
             code="link_failed",
@@ -665,6 +705,7 @@ async def register_device(
             code="workspace_scope_denied",
             title="Workspace scope denied",
         )
+    await _apply_auth_request_context(db, workspace_id=workspace_id, principal=principal)
     membership = await db.scalar(
         select(WorkspaceMembership).where(
             and_(
@@ -782,6 +823,7 @@ async def revoke_device(
             code="workspace_scope_denied",
             title="Workspace scope denied",
         )
+    await _apply_auth_request_context(db, workspace_id=workspace_id, principal=principal)
     device = await db.get(RegisteredDevice, device_id)
     if device is None or device.workspace_id != workspace_id:
         raise ProblemDetail(
@@ -864,6 +906,7 @@ async def get_me(
             code="workspace_scope_denied",
             title="Workspace scope denied",
         )
+    await _apply_auth_request_context(db, workspace_id=workspace_id, principal=principal)
     user = await db.get(UserIdentity, principal.user_id)
     if user is None:
         raise ProblemDetail(

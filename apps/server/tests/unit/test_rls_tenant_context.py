@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+from uuid import UUID
+
+import pytest
+
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.rls import RLS_ALLOWED_MAINTENANCE_OPERATIONS
+from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.db.tenant_context import (
+    AuthCallbackLookupContext,
+    AuthSessionLookupContext,
+    MaintenanceTenantContext,
+    TenantDatabaseContext,
+    WorkspaceAuthContext,
+    auth_session_lookup_settings,
+    tenant_context_from_scope,
+    tenant_context_settings,
+)
+
+
+def test_tenant_context_from_scope_maps_all_trusted_fields() -> None:
+    auth_session_id = UUID("50000000-0000-0000-0000-000000000001")
+    upload_session_id = UUID("60000000-0000-0000-0000-000000000001")
+    scope = TenantScope(
+        organization_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        user_id=USER_ID,
+        device_id=DEVICE_ID,
+        auth_session_id=auth_session_id,
+        upload_session_id=upload_session_id,
+    )
+
+    context = tenant_context_from_scope(scope)
+
+    assert context == TenantDatabaseContext(
+        organization_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        user_id=USER_ID,
+        device_id=DEVICE_ID,
+        auth_session_id=auth_session_id,
+        upload_session_id=upload_session_id,
+        context_kind="request",
+    )
+
+
+def test_tenant_context_settings_are_postgres_guc_strings() -> None:
+    context = TenantDatabaseContext(
+        organization_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        user_id=USER_ID,
+        device_id=DEVICE_ID,
+        context_kind="worker",
+    )
+
+    assert tenant_context_settings(context) == {
+        "app.organization_id": str(ORG_ID),
+        "app.workspace_id": str(WORKSPACE_ID),
+        "app.user_id": str(USER_ID),
+        "app.device_id": str(DEVICE_ID),
+        "app.context_kind": "worker",
+    }
+
+
+def test_tenant_context_rejects_unknown_context_kind() -> None:
+    with pytest.raises(ValueError, match="context_kind"):
+        TenantDatabaseContext(
+            organization_id=ORG_ID,
+            workspace_id=WORKSPACE_ID,
+            user_id=USER_ID,
+            context_kind="debug_bypass",
+        )
+
+
+def test_auth_context_helpers_reject_wrong_context_kind() -> None:
+    with pytest.raises(ValueError, match="auth_session_lookup"):
+        AuthSessionLookupContext(session_token_hash="hash", context_kind="maintenance")
+    with pytest.raises(ValueError, match="auth_public"):
+        WorkspaceAuthContext(workspace_id=WORKSPACE_ID, context_kind="request")
+    with pytest.raises(ValueError, match="auth_callback_lookup"):
+        AuthCallbackLookupContext(state_nonce="state", context_kind="auth_public")
+
+
+def test_maintenance_context_rejects_unknown_operation() -> None:
+    with pytest.raises(ValueError, match="maintenance operation"):
+        MaintenanceTenantContext(
+            operation_name="ad_hoc_browse_everything",
+            actor_id="operator",
+            reason_category="diagnostics",
+            feature_area="security",
+        )
+
+
+def test_allowed_maintenance_operations_match_contract() -> None:
+    assert "auth_session_lookup" not in RLS_ALLOWED_MAINTENANCE_OPERATIONS
+    assert MaintenanceTenantContext(
+        operation_name="operator_diagnostics",
+        actor_id="operator",
+        reason_category="diagnostics",
+        feature_area="security",
+    ).operation_name == "operator_diagnostics"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("actor_id", ""),
+        ("reason_category", " "),
+        ("feature_area", ""),
+    ),
+)
+def test_maintenance_context_rejects_blank_metadata(field: str, value: str) -> None:
+    payload = {
+        "operation_name": "operator_diagnostics",
+        "actor_id": "operator",
+        "reason_category": "diagnostics",
+        "feature_area": "security",
+        field: value,
+    }
+    with pytest.raises(ValueError, match=field):
+        MaintenanceTenantContext(**payload)
+
+
+def test_auth_session_lookup_context_sets_only_token_hash_and_kind() -> None:
+    context = AuthSessionLookupContext(session_token_hash="token-hash")
+
+    assert auth_session_lookup_settings(context) == {
+        "app.context_kind": "auth_session_lookup",
+        "app.auth_session_token_hash": "token-hash",
+    }

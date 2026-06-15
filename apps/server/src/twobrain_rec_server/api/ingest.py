@@ -23,6 +23,7 @@ from twobrain_rec_server.auth.dependencies import (
     get_principal,
     get_tenant_scope,
 )
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import TrackRole
 from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
 from twobrain_rec_server.ingest.finalize import finalize_upload
@@ -54,12 +55,16 @@ PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
 
 
-async def get_request_db_session(request: Request):
+async def get_request_db_session(
+    request: Request,
+    tenant_scope: TenantScope = TenantDependency,
+):
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
         yield None
         return
     async with sessionmaker() as session:
+        await apply_tenant_scope(session, tenant_scope)
         yield session
 
 
