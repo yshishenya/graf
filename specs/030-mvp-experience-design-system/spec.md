@@ -46,7 +46,7 @@ As a macOS user, I want the desktop app to feel simple, trustworthy, and always 
 
 **Acceptance Scenarios**:
 
-1. **Given** no recording is active, **when** the user opens the app, **then** the primary surface shows readiness, account/server status, recent local/uploaded meetings, and a clear recording action.
+1. **Given** no recording is active, **when** the user opens the app, **then** the primary surface shows native readiness, a minimal connection/session/policy badge for route guarding, embedded server-owned recent local/uploaded meetings, and a clear recording action.
 2. **Given** recording is active, **when** server or account state changes, **then** the app keeps local recording state and Stop visible and does not depend on server-rendered UI.
 3. **Given** upload is blocked or delayed, **when** the user views the desktop shell, **then** the app explains whether data is local, queued, retrying, uploaded, or blocked and offers the correct next action.
 4. **Given** the user needs account or workspace state, **when** they open the account area, **then** an allowlisted server-loaded cabinet subset is visible without giving remote UI control over capture-critical actions.
@@ -145,7 +145,8 @@ As engineering, I want the design feature to end with implementation-ready slice
 - Design includes a component that could be mistaken for an OS recording indicator or a Krisp-specific UI element.
 - Long technical status text overflows in compact desktop surfaces.
 - Light/dark theme or color-only status would make a warning inaccessible.
-- Future Windows design wants to reuse dashboard/account patterns but cannot reuse macOS capture controls.
+- Future Windows/Linux design wants to reuse the same server-owned product UI
+  while keeping platform-specific capture controls native.
 
 ## Requirements *(mandatory)*
 
@@ -154,13 +155,13 @@ As engineering, I want the design feature to end with implementation-ready slice
 - **FR-001**: The feature MUST produce a launch-scope MVP experience map that separates accepted foundations, required first-launch gaps, deferred items, and out-of-scope items.
 - **FR-002**: The feature MUST define the desktop app information architecture for home, live recording, account/workspace, recent meetings, upload queue, media upload entry point, audio health, privacy, retention, diagnostics, and settings.
 - **FR-003**: The desktop experience MUST preserve native local authority for active capture state, visible recording indicator, one-action stop, permission state, local artifact truth, and offline/degraded recording states.
-- **FR-004**: The desktop experience MUST define a hybrid cabinet model where the browser web cabinet remains the full product surface and the macOS app embeds only an allowlisted desktop-relevant subset for non-capture workflows.
-- **FR-005**: The embedded desktop cabinet subset MUST include only app-relevant server surfaces such as sign-in/session recovery, account and workspace status, recent meetings, manual media upload, upload/processing status, meeting review, basic account/security visibility, and basic settings entry points.
+- **FR-004**: The desktop experience MUST define a hybrid cabinet model where each platform desktop shell owns only platform-critical native responsibilities, while variable product UI is server/web-owned and embeddable across macOS, future Windows, and future Linux shells.
+- **FR-005**: The embedded desktop cabinet subset MUST include app-relevant server surfaces such as sign-in/session recovery, account and workspace status, recent meetings, manual media upload, upload/processing status, meeting review, speaker assignment, basic account/security visibility, and basic settings entry points.
 - **FR-006**: The embedded desktop cabinet subset MUST exclude or hand off browser-only surfaces such as broad admin, billing, team management, public sharing pages, advanced exports/downloads, legal/help content, detailed audit views, and other routes that are not needed inside the recorder app.
 - **FR-007**: The desktop experience MUST ensure server-loaded cabinet content cannot own, obscure, restyle, replace, contradict, or delay native capture-critical controls, including active recording status, visible recording indicator, one-action Stop, permission state, local artifact truth, upload queue truth, and local recovery actions.
 - **FR-008**: The feature MUST define the full browser web cabinet information architecture for meeting list, meeting detail, manual media upload, processing status, transcript review, notes/action items, account/security, admin settings, audit, retention, deletion, sharing, downloads, billing, team/workspace administration, help/legal, and any browser-only launch surfaces.
 - **FR-009**: The feature MUST define desktop-vs-browser visibility rules for every cabinet route and navigation element: embedded, browser-only, hidden in desktop, disabled in desktop, or hand off to browser.
-- **FR-010**: The feature MUST define multiplatform cabinet rules so future desktop apps can reuse the same server cabinet subset contract while each platform keeps its own native capture trust shell.
+- **FR-010**: The feature MUST define multiplatform cabinet rules so future desktop apps reuse the same server-owned product UI contract while each platform keeps its own native capture trust shell for recording, permissions, local buffers, tray/menu status, diagnostics, and embedded route guarding.
 - **FR-011**: The manual media upload experience MUST support user-owned audio files and common video/meeting files while clearly limiting the MVP promise to audio extraction, audio processing, transcript, notes, and meeting review.
 - **FR-012**: The manual media upload experience MUST define accepted user goals, accepted media categories, upload states, audio extraction states, processing states, failure states, duplicate handling, ownership labeling, and deletion/retention implications.
 - **FR-013**: The manual media upload experience MUST NOT promise full video playback, video timeline review, video-native annotations, or video collaboration in the MVP.
@@ -178,7 +179,7 @@ As engineering, I want the design feature to end with implementation-ready slice
 - **FR-025**: The feature MUST keep repository Spec Kit artifacts as the product source of truth for requirements, screen inventory, route visibility matrix, state matrix, acceptance criteria, backlog, and validation gates regardless of whether Figma or StitchFlow produces the visual prototype.
 - **FR-026**: The feature MUST produce the required pre-implementation design artifacts: screen inventory, user flows, route visibility matrix, state matrix, component inventory, visual direction, static visual pack for key macOS and web cabinet screens, clickable prototype for key flows, and QA checklist.
 - **FR-027**: The clickable prototype MUST prove the launch-critical owner value loop across desktop app and web: record or upload, current status everywhere, transcription in progress, completed transcript, meeting review, degraded/failure truth, and deletion/access entry points.
-- **FR-028**: The meeting review experience MUST prioritize high-value meeting outcomes beyond raw transcript, including playback context, readable transcript navigation, summary, decisions, action items, source/status provenance, and clear next actions.
+- **FR-028**: The meeting review experience MUST prioritize high-value meeting outcomes beyond raw transcript, including playback context, readable transcript navigation, speaker naming/merge/assignment, summary, decisions, action items, source/status provenance, and clear next actions.
 - **FR-029**: The status model MUST define cross-surface consistency for local recording saved, local only, queued, uploading, uploaded, audio extraction, transcription, transcript ready, notes ready, partial/degraded, failed, deleted, and access denied states across desktop app and web cabinet.
 - **FR-030**: The first prototype MUST defer broad admin, billing, team management, public sharing, downloads/exports, detailed audit, help/legal, and full video UX unless they are needed as entry points or handoff markers in the launch-critical owner journey.
 - **FR-031**: The feature MUST not authorize implementation of capture behavior, auth credentials, MediaScribe processing, sharing, deletion jobs, or production rollout by itself; it defines product/design readiness for later slices.
@@ -189,7 +190,7 @@ As engineering, I want the design feature to end with implementation-ready slice
 ### Key Entities *(include if feature involves data)*
 
 - **MVP Experience Map**: The launch product boundary across desktop, web cabinet, server account state, upload, processing, and governance surfaces.
-- **Desktop Trust Shell**: Native desktop experience responsible for active capture, local recording truth, upload truth, account/server status, and local recovery.
+- **Desktop Trust Shell**: Native desktop experience responsible for active capture, local recording truth, upload truth, minimal connection/session/policy badge for route guarding, and local recovery. Full account/workspace summaries are server-owned embedded product UI.
 - **Server Web Cabinet**: Full browser-based workspace for meetings, manual uploads, transcripts, notes, sharing, retention, deletion, audit, account, admin, billing, team/workspace management, help/legal, and browser-only workflows.
 - **Embedded Desktop Cabinet Subset**: Allowlisted server-loaded cabinet mode available inside the desktop app for account, workspace, upload, processing, meeting review, and basic settings workflows that are useful inside the recorder app and safe to show beside native capture controls.
 - **Browser-Only Cabinet Route**: Server cabinet route or navigation element that belongs in the full browser experience and is hidden, disabled, or handed off from the embedded desktop subset.

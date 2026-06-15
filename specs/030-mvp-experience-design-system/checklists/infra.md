@@ -26,7 +26,7 @@
 
 - [x] CHK013 Are server/storage/processing requirements consistent between the constitution, spec, plan, status contract, route contract, data model, and quickstart? [Consistency, Constitution §III-IV, Spec §FR-020, Plan §Constraints]
 - [x] CHK014 Are desktop and web requirements consistent about server unavailability not changing local recording truth or local artifact existence? [Consistency, Spec §US2, Data Model §Desktop Trust Shell]
-- [x] CHK015 Are processing-state requirements consistent with already implemented `015` processing context and future dashboard/review work rather than implying this slice implements processing? [Consistency, Plan §Technical Context, Research §Owner Value Loop]
+- [x] CHK015 Are processing-state requirements consistent with separate-worktree `015` processing context and future dashboard/review work rather than implying this slice implements processing? [Consistency, Plan §Technical Context, Research §Owner Value Loop]
 - [x] CHK016 Are manual upload requirements consistent with already implemented `014` desktop upload context and future browser upload/review surfaces? [Consistency, Plan §Technical Context, Spec §FR-011-FR-012]
 - [x] CHK017 Are deletion/access requirements consistent between meeting review, status labels, route visibility, deferred retention/deletion slices, and future admin/audit surfaces? [Consistency, Spec §SC-005, Spec §FR-030, Contract cross-surface-status]
 - [x] CHK018 Are external dependency requirements consistent with owner-controlled infrastructure positioning while still acknowledging allowlisted MediaScribe and Langfuse egress? [Consistency, Constitution §III, Spec §FR-020]

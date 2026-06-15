@@ -35,7 +35,7 @@ Each route row must include:
 
 | Route ID | Route Name | Classification | Notes |
 |---|---|---|---|
-| `desktop.native.home` | Native desktop home | `embedded_desktop` context only | Native shell owns readiness, recording, Stop, account summary, and recent status. |
+| `desktop.native.home` | Native desktop trust shell | `embedded_desktop` context only | Native shell owns recording readiness, record/stop controls, permission/local artifact truth, minimal connection/session/policy badge for route guard, and the embedded route host. Account/workspace summaries and recent meeting status render through embedded server-owned routes. |
 | `desktop.native.recording` | Active recording | Native-only | Must never be server-rendered. |
 | `cabinet.account.status` | Account/workspace status | `embedded_desktop` | Useful in app; cannot own capture truth. |
 | `cabinet.auth.recover` | Sign-in/session recovery | `embedded_desktop` | Blocks upload only; local recording truth remains local. |
@@ -43,6 +43,7 @@ Each route row must include:
 | `cabinet.upload.manual` | Manual media upload | `embedded_desktop` | Audio-first upload, no direct credentials. |
 | `cabinet.processing.status` | Upload/processing status | `embedded_desktop` | Must align with cross-surface status model. |
 | `cabinet.meeting.review` | Meeting review | `embedded_desktop` | Core review is allowed; broad admin/share/download actions may hand off. |
+| `cabinet.meeting.speakers` | Speaker assignment | `embedded_desktop` | Server-owned speaker naming, merge, and assignment may render inside desktop; native macOS hosts the route but does not own diarization/editing logic. |
 | `cabinet.settings.basic` | Basic account/settings entry | `embedded_desktop` | Keep compact; hand off advanced settings. |
 | `web.admin.workspace` | Broad workspace admin | `browser_only` | Too broad for recorder app. |
 | `web.billing` | Billing | `browser_only` | Business/accounting surface, not recorder-app core. |
@@ -55,11 +56,14 @@ Each route row must include:
 
 ## Native Boundary Rules
 
-- Embedded routes must not show Stop, recording indicator, microphone/system
+- Embedded routes must not show stop, recording indicator, microphone/system
   audio permission controls, local queue control, or capture recovery controls.
-- Embedded routes must not obscure native recording status or one-action Stop.
+- Embedded routes must not obscure native recording status or one-action stop.
 - Embedded route copy must not claim recording, upload, transcription, deletion,
   or access truth unless that truth is sourced from the approved status model.
+- Embedded speaker assignment must source speakers, segments, confidence, and
+  save state from the server/web cabinet contract. Native macOS may only host
+  the route and keep capture status visible.
 - Browser-only handoff must be explicit and understandable.
 
 ## Validation
@@ -68,3 +72,18 @@ Each route row must include:
 - 100% of embedded desktop routes are reviewed against the native capture
   boundary.
 - Unknown routes are treated as safe handoff/hidden until explicitly approved.
+
+## Final Design References
+
+- Matrix source: `design/route-visibility-matrix.md`.
+- Screen mapping: `design/screen-inventory.md`.
+- Active Figma route references on page `030 MVP Experience v8 - Clean RU`:
+  - `V8 00 - Карта MVP-потока и границы`
+  - `V8 03 - Рабочее пространство встреч`
+  - `V8 09 - Настройки записи и темы`
+  - `V8 10 - Веб-кабинет: встречи и фильтры`
+  - `V8 11 - Веб-детали встречи и транскрипт`
+  - `V8 12 - Поделиться, экспорт, удаление`
+  - `V8 14 - Правила интерфейса и QA`
+- Historical V5 route boards are retained only as coverage evidence and must
+  not be used as current implementation handoff without reconciling against V8.

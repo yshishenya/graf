@@ -51,7 +51,7 @@
 
 ## Dependencies And Assumptions
 
-- [x] CHK029 Are dependencies on already implemented `014` desktop upload and `015` processing documented as context rather than new implementation scope? [Dependency, Plan §Technical Context, Research §Owner Value Loop]
+- [x] CHK029 Are dependencies on implemented `014` desktop upload and separate-worktree `015` processing documented as context rather than new implementation scope? [Dependency, Plan §Technical Context, Research §Owner Value Loop]
 - [x] CHK030 Are assumptions about Figma free-plan delivery and StitchFlow fallback documented with safe evidence requirements? [Assumption, Plan §Primary Dependencies, Contract prototype-handoff]
 - [x] CHK031 Are requirements clear that `016+` dashboard/access/deletion work may later implement surfaces but this design slice does not authorize production code? [Scope, Spec §FR-031, Plan §Summary]
 - [x] CHK032 Are external dependency limitations for MediaScribe/Langfuse/deletion represented in copy/status requirements rather than left for implementation teams to infer? [Dependency, Constitution §III-IV, Spec §FR-020]

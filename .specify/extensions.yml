@@ -2,7 +2,6 @@ installed:
 - agent-context
 - git
 - github-issue-canon
-- linear-sync
 settings:
   auto_execute_hooks: true
 hooks:
@@ -73,15 +72,6 @@ hooks:
     priority: 10
     prompt: Execute speckit.github-issue-canon.validate?
     description: Validate GitHub issues after task-to-issue sync
-    condition: null
-  - extension: linear-sync
-    command: speckit.linear-sync.sync
-    enabled: true
-    optional: true
-    priority: 10
-    prompt: Execute speckit.linear-sync.sync?
-    description: Sync tasks and GitHub issue links into Linear after task-to-issue
-      sync
     condition: null
   before_constitution:
   - extension: git

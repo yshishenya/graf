@@ -29,11 +29,11 @@ Each status definition must include:
 
 | Status ID | Meaning | Terminality | Key Forbidden Claim |
 |---|---|---|---|
-| `local_recording_saved` | Local package saved after Stop | `non_terminal` | Must not imply server upload. |
+| `local_recording_saved` | Local package saved after stop | `non_terminal` | Must not imply 2brain Rec upload. |
 | `local_only` | Meeting exists only on this Mac | `non_terminal` | Must not imply backup/server retention. |
 | `queued` | Waiting for upload | `non_terminal` | Must not imply upload completion. |
 | `uploading` | Transfer to Rec server in progress | `non_terminal` | Must not imply transcription started. |
-| `uploaded` | Server accepted required artifacts | `non_terminal` | Must not imply transcript or notes readiness. |
+| `uploaded` | 2brain Rec accepted required artifacts | `non_terminal` | Must not imply transcript or notes readiness. |
 | `audio_extraction` | Audio extraction from uploaded media is pending/running | `non_terminal` | Must not imply transcript readiness. |
 | `transcription` | Transcription is pending/running | `non_terminal` | Must not show empty transcript as failure. |
 | `transcript_ready` | Transcript is available | `non_terminal` | Must not imply notes/summary readiness. |
@@ -88,6 +88,11 @@ Meeting review and upload statuses must distinguish:
 The UI copy must not imply dual-track capture, speaker separation, or transcript
 quality guarantees when the source file does not support those claims.
 
+Speaker assignment status is server-owned across browser and embedded desktop.
+Desktop shells may display loading, saving, saved, conflict, low-confidence, and
+failed states for the embedded speaker panel, but must not invent local speaker
+truth outside the backend/web model.
+
 ## Review-Surface Requirements
 
 A complete meeting review must include:
@@ -110,3 +115,20 @@ degraded state rather than leaving the area blank.
 - Compare every displayed status across desktop and web.
 - Confirm no prototype screen claims transcript, notes, deletion, or upload
   success before the corresponding status allows it.
+- Confirm embedded desktop speaker assignment uses backend/web saving and
+  conflict states, not native-only speaker truth.
+
+## Final Design References
+
+- Status source: `design/status-state-matrix.md`.
+- Terminology: `design/system/terminology.md`.
+- Provenance rules: `design/source-track-provenance.md`.
+- Active Figma status references on page `030 MVP Experience v8 - Clean RU`:
+  - `V8 06 - Загрузка и обработка в списке`
+  - `V8 07 - Транскрипт и спикеры в приложении`
+  - `V8 10 - Веб-кабинет: встречи и фильтры`
+  - `V8 11 - Веб-детали встречи и транскрипт`
+  - `V8 12 - Поделиться, экспорт, удаление`
+  - `V8 14 - Правила интерфейса и QA`
+- Historical V5 boards are retained only as coverage evidence and must not be
+  used as current implementation handoff without reconciling against V8.

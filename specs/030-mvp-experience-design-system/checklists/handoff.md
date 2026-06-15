@@ -12,7 +12,7 @@
 - [x] CHK002 Are requirements complete for recording project/file links, screen ids, frame names, clickable paths, design-system status, and export warnings? [Completeness, Contract prototype-handoff]
 - [x] CHK003 Are repo handoff requirements complete for screen inventory, owner value loop, route visibility matrix, cross-surface status model, component inventory, copy principles, accessibility notes, and launch backlog map? [Completeness, Spec §FR-025-FR-026]
 - [x] CHK004 Are contract requirements complete for route visibility, status semantics, and prototype evidence as separate handoff artifacts? [Completeness, Plan §Phase 1 Design Summary]
-- [x] CHK005 Are requirements complete for mapping implemented `014` upload and `015` processing behavior into design artifacts without treating them as future unimplemented slices? [Completeness, Plan §Technical Context, Research §Owner Value Loop]
+- [x] CHK005 Are requirements complete for mapping implemented `014` upload and parallel-worktree `015` processing behavior into design artifacts without duplicating processing scope in this slice? [Completeness, Plan §Technical Context, Research §Owner Value Loop]
 - [x] CHK006 Are remaining downstream feature candidates defined at the right level for `016` dashboard review, `017` access/sharing, `018` retention/deletion, design-system polish, and desktop/web UX refinement? [Completeness, Spec §FR-021, Research §Owner Value Loop]
 
 ## Requirement Clarity
@@ -30,7 +30,7 @@
 - [x] CHK014 Are route classifications consistent between spec requirements, data model entities, route visibility contract, and quickstart validation? [Consistency, Spec §FR-009, Data Model §Browser-Only Cabinet Route, Quickstart §4]
 - [x] CHK015 Are status requirements consistent between spec success criteria, cross-surface status contract, data model, and quickstart validation? [Consistency, Spec §SC-013, Contract cross-surface-status, Quickstart §5]
 - [x] CHK016 Are Figma/StitchFlow fallback requirements consistent across spec, plan, research, prototype contract, and quickstart? [Consistency, Spec §FR-022-FR-024, Quickstart §7]
-- [x] CHK017 Are downstream slice references consistent with current git reality: `014` and `015` implemented context, `016+` remaining downstream work? [Consistency, Plan §Technical Context, Research §Owner Value Loop]
+- [x] CHK017 Are downstream slice references consistent with current git reality: `014` local context, `015` separate worktree/branch dependency, and `016+` remaining downstream product-surface work? [Consistency, Plan §Technical Context, Research §Owner Value Loop]
 
 ## Acceptance Criteria Quality
 

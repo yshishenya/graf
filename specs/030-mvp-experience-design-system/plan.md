@@ -13,11 +13,12 @@ UX, embedded desktop cabinet subset rules, cross-surface status model, design
 system direction, prototype source plan, clean-room Krisp benchmark, and
 implementation-ready backlog for follow-up slices.
 
-The planned value proof is an owner value loop across macOS app and web: a user
-records in the app or uploads owned media, sees truthful current status in both
-surfaces, watches transcription progress, and receives a complete meeting
-review with transcript, playback context, summary, decisions, action items,
-status provenance, and deletion/access entry points.
+The planned value proof is an owner value loop across a platform desktop shell
+and web: a user records in the native shell or uploads owned media, sees
+truthful current status in both surfaces, watches transcription progress, and
+receives a complete meeting review with transcript, playback context, speaker
+assignment, summary, decisions, action items, status provenance, and
+deletion/access entry points.
 
 ## Technical Context
 
@@ -26,10 +27,11 @@ preferred visual/prototype source; StitchFlow 1.4.0 as fallback artifact
 pipeline; downstream implementation targets Swift 6.0 macOS app and Python
 FastAPI server/web surfaces already present in this repository.
 
-**Primary Dependencies**: Existing desktop upload and processing slices `014`
-and `015`, auth/account specs `028` and `029`, PRD/status docs, ADR
-`001-local-trust-shell-and-server-dashboard`, constitution 2.0.0, Figma
-Starter-compatible workflow where possible, StitchFlow fallback outputs
+**Primary Dependencies**: Existing desktop upload slice `014`, the parallel
+`015-mediascribe-processing-pipeline` worktree/branch for processing status and
+transcript import contracts, auth/account specs `028` and `029`, PRD/status
+docs, ADR `001-local-trust-shell-and-server-dashboard`, constitution 2.0.0,
+Figma Starter-compatible workflow where possible, StitchFlow fallback outputs
 (`DESIGN.md`, screenshots, HTML/code checkpoints, project metadata).
 
 **Storage**: No production storage changes in this slice. Design artifacts are
@@ -41,9 +43,11 @@ checklists, route visibility matrix review, cross-surface status walkthrough,
 prototype path review, visual screenshot QA, text overflow/accessibility scan,
 and clean-room brand-distance review.
 
-**Target Platform**: macOS MVP desktop app plus browser web cabinet at
-`https://rec.2brain.dev` once later implementation slices exist. Future desktop
-platforms reuse contracts only; they do not inherit macOS capture UI.
+**Target Platform**: macOS MVP desktop shell plus browser web cabinet at
+`https://rec.2brain.dev` once later implementation slices exist. Future Windows
+and Linux desktop shells reuse the same server-owned product UI contract while
+keeping their own native capture, permission, local buffer, tray/menu, and
+route-guard implementations.
 
 **Project Type**: Product/design-system planning slice for a native macOS
 desktop app plus server web cabinet. No production app code is authorized.
@@ -60,7 +64,13 @@ desktop app plus server web cabinet. No production app code is authorized.
 **Constraints**:
 
 - Capture-critical state, visible indicator, Stop, permissions, local artifact
-  truth, upload queue truth, and recovery actions remain native/local.
+  truth, upload queue truth, tray/menu status, diagnostics, and recovery actions
+  remain native/local for each platform shell.
+- Variable product UI is server/web-owned and embedded through an allowlisted
+  cabinet subset, not duplicated as native macOS/Windows/Linux views.
+- Speaker assignment is desktop-available only through the embedded
+  server-owned product UI; native shells do not own diarization or speaker
+  editing logic.
 - Desktop embedded cabinet is an allowlisted subset, not the full web product.
 - Full browser cabinet may contain routes intentionally absent from desktop.
 - Manual upload is audio-first: audio files and common video/meeting files may
@@ -70,12 +80,26 @@ desktop app plus server web cabinet. No production app code is authorized.
 - Design/prototype artifacts must not contain credentials, raw meeting content,
   signed URLs, tokens, passwords, or live local paths.
 
-**Scale/Scope**: Design-ready MVP blueprint with approximately 20-30 key
-screens/states across macOS app, embedded cabinet subset, full browser cabinet,
-meeting review, status/degraded states, and design-system components. The plan
-must incorporate already implemented `014` desktop upload and `015` processing
-behavior, then produce implementation-ready follow-up candidates for remaining
-dashboard, access, deletion, design-system, and desktop/web polish work.
+**Scale/Scope**: Design-ready MVP blueprint with the active Figma v8 clean
+Russian review candidate: 17 top-level frames across compact provider sign-in,
+guided macOS permissions, desktop meeting workspace, auto-detected meeting
+prompt, active recording native chrome, inline upload/processing, transcript
+review, speaker assignment lanes, settings with recording/theme policy, browser
+meetings list, browser meeting detail, share/export/delete governance,
+shared upload sheet, command search/filter overlay, light-theme proof, and
+component/QA rules. V8 supersedes the v5-v7.4 prototype lineage for
+implementation review. V5.1/V5.2 remain historical coverage
+evidence only after stakeholder and five-critic reviews found flow, density,
+settings, technical-copy, and visual-quality blockers. The current v8 evidence
+shows 92 valid `ON_CLICK` reactions, frame-bound overflow `0`, bad button
+heights `0`, bad chip heights `0`, visible forbidden implementation copy `0`,
+and a completed stakeholder visual approval pack; final stakeholder visual
+acceptance remains the open handoff gate.
+The plan must
+incorporate the current `014` desktop upload foundation and stay aligned with
+the separate `015` processing pipeline worktree/branch, then produce
+implementation-ready follow-up candidates for remaining dashboard, access,
+deletion, design-system, and desktop/web polish work.
 
 ## Constitution Check
 

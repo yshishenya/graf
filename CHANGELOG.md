@@ -11,6 +11,12 @@ Semantic Versioning 2.0.0.
 - Добавлена обязанность вести Changelog в репозитории для всех значимых изменений.
 - Добавлена macOS desktop upload queue: durable local queue, truthful retry/upload states,
   server-mediated ingest mapping and compact queue UI (`feature:014`, `T001-T030`).
+- Добавлен MVP experience/design handoff для `2brain Rec`: clean-room audit,
+  native/web route boundaries, status matrices, screen specs и Figma v5
+  full-flow redesign на базе Figma Simple Design System + Apple macOS 26
+  reference, 36 top-level frames, 82 button reactions, 130 sidebar/nav
+  reactions, 8 meeting-row/status-pill reactions и embedded server-owned
+  speaker assignment для desktop shell (`feature:030`, `T001-T085`).
 
 ### Changed
 
