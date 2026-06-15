@@ -8,6 +8,9 @@ policies fail closed when context is missing or mismatched.
 
 ## Context Kinds
 
+All context kinds are fixed values. Unknown strings must fail before database
+settings are applied.
+
 ### Request Context
 
 Required fields:
@@ -23,6 +26,56 @@ Allowed use:
 - FastAPI request handlers.
 - Auth/session/device checks.
 - Ingest/upload/meeting/status routes.
+
+### Auth Public And Bootstrap Context
+
+Allowed values:
+
+- `auth_public`
+- `auth_bootstrap`
+
+Required fields:
+
+- `workspace_id`
+- `organization_id` when the workspace has been resolved
+- `user_id` only after the auth bootstrap flow has identified or created the
+  user
+
+Allowed use:
+
+- Public provider and consent reads for the requested workspace.
+- Bounded callback/bootstrap operations for the current workspace.
+- Creating a self-enrolled user only inside the resolved workspace
+  organization.
+
+Forbidden use:
+
+- Content table access.
+- Product/admin bypass.
+- Organization-wide browsing without the current workspace bootstrap bound.
+
+### Auth Lookup Context
+
+Allowed values:
+
+- `auth_session_lookup`
+- `auth_callback_lookup`
+
+Required fields:
+
+- `auth_session_lookup`: session token hash only.
+- `auth_callback_lookup`: callback state nonce only.
+
+Allowed use:
+
+- Finding one auth session by token hash.
+- Finding one callback state by nonce.
+
+Forbidden use:
+
+- Maintenance operations.
+- Meeting/content/processing table access.
+- Unbounded user, organization, or workspace queries.
 
 ### Worker Context
 
@@ -90,7 +143,12 @@ Planned setting names:
 - `app.auth_session_id`
 - `app.upload_session_id`
 - `app.context_kind`
+- `app.auth_session_token_hash`
+- `app.auth_callback_state_nonce`
 - `app.maintenance_operation`
+- `app.maintenance_actor`
+- `app.maintenance_reason`
+- `app.maintenance_feature_area`
 
 ## Failure Contract
 

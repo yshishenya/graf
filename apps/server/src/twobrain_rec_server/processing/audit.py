@@ -28,6 +28,13 @@ ALLOWED_AUDIT_KEYS = {
     "workspace_id",
 }
 
+DENIED_ACCESS_AUDIT_KEYS = {
+    "request_class",
+    "feature_area",
+    "reason_category",
+    "validation_outcome",
+}
+
 
 def safe_audit_metadata(values: Mapping[str, object]) -> dict[str, object]:
     """Return metadata allowed for logs/audit without content-bearing fields."""
@@ -40,3 +47,13 @@ def safe_audit_metadata(values: Mapping[str, object]) -> dict[str, object]:
         else:
             sanitized[key] = value
     return redact_mapping(sanitized)
+
+
+def safe_denied_access_metadata(**values: object) -> dict[str, object]:
+    return redact_mapping(
+        {
+            key: value
+            for key, value in values.items()
+            if key in DENIED_ACCESS_AUDIT_KEYS
+        }
+    )

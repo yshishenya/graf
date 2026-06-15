@@ -13,7 +13,9 @@ Fields:
 - `device_id`: UUID for the registered device when applicable.
 - `auth_session_id`: UUID for the auth session when applicable.
 - `upload_session_id`: UUID for upload-scoped operations when applicable.
-- `context_kind`: one of `request`, `worker`, `maintenance`.
+- `context_kind`: one of `request`, `worker`, `auth_public`,
+  `auth_bootstrap`, `auth_session_lookup`, `auth_callback_lookup`, or
+  `maintenance`.
 - `maintenance_operation`: fixed allowlisted operation name for maintenance
   context.
 
@@ -59,7 +61,8 @@ Fields:
 - `operation_name`: request route, worker operation, migration check, or
   maintenance operation name.
 - `actor_or_automation`: user/operator/automation identifier without secrets.
-- `context_kind`: request, worker, or maintenance.
+- `context_kind`: request, worker, auth public/bootstrap/session/callback
+  lookup, or maintenance.
 - `reason_category`: same tenant, cross tenant, missing context, stale context,
   revoked context, maintenance allowed, or maintenance blocked.
 - `outcome`: pass, blocked, halt, rollback, or manual investigation.
@@ -116,8 +119,9 @@ checks.
 
 ### Organization Scope
 
-Rows are organization-owned and visible only through explicit membership or
-approved organization-level context.
+Rows are organization-owned and visible only through explicit active workspace
+membership or a bounded auth-bootstrap exception for the current workspace
+inside the current organization.
 
 - `organizations`
 - `user_identities`

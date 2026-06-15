@@ -123,3 +123,133 @@ Expected result without explicit remote execution:
 
 If a later explicit operator decision authorizes remote validation, run that
 decision in its own documented step and capture metadata-only evidence.
+
+## 8. RLS-Only Scope Evidence
+
+```sh
+cd apps/server
+PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/contract/test_rls_out_of_scope_boundaries.py \
+  tests/contract/test_rls_future_table_contract.py \
+  tests/contract/test_rls_openapi_scope.py
+```
+
+Expected result:
+
+- Future dashboard, share, download, retention, deletion, billing, admin UI,
+  desktop capture/upload, and direct MediaScribe routes remain absent.
+- Future tenant-owned tables must follow ADR `003-tenant-isolation-rls`.
+  `016`, `017`, and `018` must reuse the RLS contract before adding product
+  surfaces.
+
+## 9. Validation Results
+
+Recorded on 2026-06-15 in local branch `031-rls-hardening`.
+
+```text
+RLS focused suite:
+66 passed, 4 skipped
+
+Post-review remediation focused set:
+29 passed
+
+PostgreSQL policy suite without RLS_TEST_DATABASE_URL:
+4 skipped
+
+PostgreSQL policy suite with disposable local RLS_TEST_DATABASE_URL:
+4 passed
+
+RLS validation helper with disposable local RLS_TEST_DATABASE_URL:
+rls_validation_result=pass
+ready_for_operator_decision=true
+```
+
+Command:
+
+```sh
+cd apps/server
+PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_rls_tenant_context.py \
+  tests/contract/test_rls_policy_matrix_contract.py \
+  tests/contract/test_rls_evidence_contract.py \
+  tests/contract/test_rls_access_outcomes.py \
+  tests/contract/test_rls_auth_access_outcomes.py \
+  tests/contract/test_rls_migration_rollback_contract.py \
+  tests/contract/test_rls_production_boundary.py \
+  tests/contract/test_rls_out_of_scope_boundaries.py \
+  tests/contract/test_rls_future_table_contract.py \
+  tests/contract/test_rls_openapi_scope.py \
+  tests/integration/test_rls_auth_conflict_handling.py \
+  tests/integration/test_rls_postgres_migrations.py \
+  tests/integration/test_rls_postgres_policies.py \
+  tests/integration/test_rls_meeting_content_policies.py \
+  tests/integration/test_rls_application_boundaries.py \
+  tests/integration/test_rls_worker_context.py \
+  tests/integration/test_rls_maintenance_context.py \
+  tests/integration/test_rls_smoke_cleanup_context.py \
+  tests/integration/test_rls_identity_policies.py \
+  tests/integration/test_rls_stale_session_device_context.py \
+  tests/integration/test_rls_rollout_gates.py
+```
+
+```text
+Full local CI:
+314 passed, 4 skipped
+Ruff: All checks passed
+Python compile: pass
+RLS validation boundary: blocked because RLS_TEST_DATABASE_URL is not set
+Compose config: pass
+Deployment evidence scan: pass
+ci_local_result=pass
+```
+
+Command:
+
+```sh
+./infra/scripts/ci-local.sh
+```
+
+The RLS validation helper intentionally reports:
+
+```text
+rls_validation_result=blocked
+environment=postgres_test
+live_production_enforcement=not_changed
+reason=postgres_test_database_required
+```
+
+This is acceptable for local CI because PostgreSQL RLS proof requires an
+explicit `RLS_TEST_DATABASE_URL`. It is not a live-production enforcement
+claim.
+
+Post-review remediation status:
+
+- `infra/scripts/verify-rec-migration.sh --execute` now blocks when RLS
+  validation does not return `rls_validation_result=pass`.
+- Auth session lookup now requires the explicit `auth_session_lookup` context
+  and is not part of the maintenance operation allowlist.
+- Worker activity payloads without complete tenant scope now fail closed before
+  tenant-owned database operations.
+- Maintenance context now requires operation, actor, reason, and feature
+  metadata in Python helpers and SQL policy.
+- Real PostgreSQL policy probes run through a non-owner probe role so PostgreSQL
+  RLS is enforced rather than bypassed by a database owner or superuser.
+- On 2026-06-15, the PostgreSQL policy suite passed against a disposable local
+  PostgreSQL database with `4 passed`.
+- On 2026-06-15, `apps/server/scripts/verify_rls_hardening.py` returned
+  `rls_validation_result=pass` and `ready_for_operator_decision=true` against a
+  disposable local PostgreSQL database.
+- Live production enforcement is still not changed by this local proof.
+
+Secret/content scan review:
+
+- Matches were reviewed as requirement prohibitions, test placeholders,
+  development-only fixture values, or redaction/negative tests.
+- No live credential, customer meeting content, raw audio, transcript evidence,
+  signed dependency URL, or live secret path was added by this slice.
+
+Out-of-scope scan review:
+
+- Matches were reviewed as spec exclusions, existing placeholder contracts, or
+  tests proving future routes remain absent.
+- The RLS OpenAPI and route boundary tests passed with `6 passed`.

@@ -50,6 +50,7 @@ async def trigger_processing_pickup(
         meeting_id=payload.meeting_id,
         limit=payload.limit,
         temporal_client=getattr(request.app.state, "temporal_client", None),
+        tenant_scope=tenant_scope,
     )
     return ProcessingPickupResponse(
         accepted=result.accepted,

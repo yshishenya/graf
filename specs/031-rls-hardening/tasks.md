@@ -25,10 +25,10 @@ implementation and validation. Foundation tasks must finish before story work.
 **Purpose**: Prepare local task scaffolding and table inventory for the RLS
 implementation.
 
-- [ ] T001 [P] Create RLS table inventory fixture in `apps/server/tests/fixtures/rls.py`
-- [ ] T002 [P] Create PostgreSQL RLS test helpers in `apps/server/tests/fixtures/postgres_rls.py`
-- [ ] T003 [P] Create initial RLS evidence scan test in `apps/server/tests/contract/test_rls_evidence_contract.py`
-- [ ] T004 Add feature validation command notes to `specs/031-rls-hardening/quickstart.md`
+- [X] T001 [P] Create RLS table inventory fixture in `apps/server/tests/fixtures/rls.py`
+- [X] T002 [P] Create PostgreSQL RLS test helpers in `apps/server/tests/fixtures/postgres_rls.py`
+- [X] T003 [P] Create initial RLS evidence scan test in `apps/server/tests/contract/test_rls_evidence_contract.py`
+- [X] T004 Add feature validation command notes to `specs/031-rls-hardening/quickstart.md`
 
 ---
 
@@ -41,17 +41,17 @@ user stories.
 
 ### Tests First
 
-- [ ] T005 [P] Add tenant-context unit tests in `apps/server/tests/unit/test_rls_tenant_context.py`
-- [ ] T006 [P] Add migration helper contract tests in `apps/server/tests/contract/test_rls_policy_matrix_contract.py`
-- [ ] T007 [P] Add PostgreSQL migration smoke test in `apps/server/tests/integration/test_rls_postgres_migrations.py`
+- [X] T005 [P] Add tenant-context unit tests in `apps/server/tests/unit/test_rls_tenant_context.py`
+- [X] T006 [P] Add migration helper contract tests in `apps/server/tests/contract/test_rls_policy_matrix_contract.py`
+- [X] T007 [P] Add PostgreSQL migration smoke test in `apps/server/tests/integration/test_rls_postgres_migrations.py`
 
 ### Implementation
 
-- [ ] T008 Implement tenant database context helper in `apps/server/src/twobrain_rec_server/db/tenant_context.py`
-- [ ] T009 Wire request tenant context into database sessions in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
-- [ ] T010 Add RLS helper SQL functions and rollback skeleton in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
-- [ ] T011 Export tenant context helper symbols in `apps/server/src/twobrain_rec_server/db/__init__.py`
-- [ ] T012 Add safe tenant access problem codes in `apps/server/src/twobrain_rec_server/api/problems.py`
+- [X] T008 Implement tenant database context helper in `apps/server/src/twobrain_rec_server/db/tenant_context.py`
+- [X] T009 Wire request tenant context into database sessions in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
+- [X] T010 Add RLS helper SQL functions and rollback skeleton in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
+- [X] T011 Export tenant context helper symbols in `apps/server/src/twobrain_rec_server/db/__init__.py`
+- [X] T012 Add safe tenant access problem codes in `apps/server/src/twobrain_rec_server/api/problems.py`
 
 **Checkpoint**: Tenant context can be set transaction-locally, migration helpers
 exist, and PostgreSQL migration smoke coverage is ready.
@@ -69,18 +69,18 @@ not found/empty, and cross-tenant writes/deletes are denied.
 
 ### Tests First
 
-- [ ] T013 [P] [US1] Add API access-outcome contract tests in `apps/server/tests/contract/test_rls_access_outcomes.py`
-- [ ] T014 [P] [US1] Add meeting-content RLS PostgreSQL probes in `apps/server/tests/integration/test_rls_meeting_content_policies.py`
-- [ ] T015 [P] [US1] Add application boundary regression tests in `apps/server/tests/integration/test_rls_application_boundaries.py`
+- [X] T013 [P] [US1] Add API access-outcome contract tests in `apps/server/tests/contract/test_rls_access_outcomes.py`
+- [X] T014 [P] [US1] Add meeting-content RLS PostgreSQL probes in `apps/server/tests/integration/test_rls_meeting_content_policies.py`
+- [X] T015 [P] [US1] Add application boundary regression tests in `apps/server/tests/integration/test_rls_application_boundaries.py`
 
 ### Implementation
 
-- [ ] T016 [US1] Add RLS policies for `meetings`, `upload_sessions`, `upload_parts`, `temporary_upload_objects`, `track_artifacts`, `manifest_snapshots`, and `ingest_audit_events` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
-- [ ] T017 [US1] Add RLS policies for `processing_placeholders`, `processing_workflows`, `mediascribe_jobs`, `processing_results`, `transcript_segments`, `diarization_segments`, `processing_audit_events`, and `processing_dependency_states` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
-- [ ] T018 [US1] Map cross-tenant read misses to not-found or empty responses in `apps/server/src/twobrain_rec_server/api/ingest.py`
-- [ ] T019 [US1] Map cross-tenant processing status reads to not-found behavior in `apps/server/src/twobrain_rec_server/api/processing.py`
-- [ ] T020 [US1] Add metadata-only denied-access evidence for meeting-content boundaries in `apps/server/src/twobrain_rec_server/ingest/audit.py`
-- [ ] T021 [US1] Add metadata-only denied-access evidence for processing boundaries in `apps/server/src/twobrain_rec_server/processing/audit.py`
+- [X] T016 [US1] Add RLS policies for `meetings`, `upload_sessions`, `upload_parts`, `temporary_upload_objects`, `track_artifacts`, `manifest_snapshots`, and `ingest_audit_events` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
+- [X] T017 [US1] Add RLS policies for `processing_placeholders`, `processing_workflows`, `mediascribe_jobs`, `processing_results`, `transcript_segments`, `diarization_segments`, `processing_audit_events`, and `processing_dependency_states` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
+- [X] T018 [US1] Map cross-tenant read misses to not-found or empty responses in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T019 [US1] Map cross-tenant processing status reads to not-found behavior in `apps/server/src/twobrain_rec_server/api/processing.py`
+- [X] T020 [US1] Add metadata-only denied-access evidence for meeting-content boundaries in `apps/server/src/twobrain_rec_server/ingest/audit.py`
+- [X] T021 [US1] Add metadata-only denied-access evidence for processing boundaries in `apps/server/src/twobrain_rec_server/processing/audit.py`
 
 **Checkpoint**: US1 can be validated independently with the meeting-content
 policy probes and API access-outcome contract tests.
@@ -99,18 +99,18 @@ allowed only for fixed operations with metadata-only evidence.
 
 ### Tests First
 
-- [ ] T022 [P] [US2] Add worker tenant context tests in `apps/server/tests/integration/test_rls_worker_context.py`
-- [ ] T023 [P] [US2] Add maintenance context tests in `apps/server/tests/integration/test_rls_maintenance_context.py`
-- [ ] T024 [P] [US2] Add smoke-cleanup RLS regression tests in `apps/server/tests/integration/test_rls_smoke_cleanup_context.py`
+- [X] T022 [P] [US2] Add worker tenant context tests in `apps/server/tests/integration/test_rls_worker_context.py`
+- [X] T023 [P] [US2] Add maintenance context tests in `apps/server/tests/integration/test_rls_maintenance_context.py`
+- [X] T024 [P] [US2] Add smoke-cleanup RLS regression tests in `apps/server/tests/integration/test_rls_smoke_cleanup_context.py`
 
 ### Implementation
 
-- [ ] T025 [US2] Set worker tenant context for processing pickup in `apps/server/src/twobrain_rec_server/processing/pickup.py`
-- [ ] T026 [US2] Set worker tenant context for processing status/store operations in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T027 [US2] Set worker tenant context for MediaScribe result import in `apps/server/src/twobrain_rec_server/mediascribe/import_results.py`
-- [ ] T028 [US2] Add allowlisted maintenance context support in `apps/server/src/twobrain_rec_server/db/tenant_context.py`
-- [ ] T029 [US2] Use maintenance context for smoke auth cleanup in `apps/server/scripts/cleanup_smoke_auth_session.py`
-- [ ] T030 [US2] Use maintenance context for smoke artifact cleanup in `apps/server/scripts/cleanup_smoke_artifacts.py`
+- [X] T025 [US2] Set worker tenant context for processing pickup in `apps/server/src/twobrain_rec_server/processing/pickup.py`
+- [X] T026 [US2] Set worker tenant context before processing status/store operations in `apps/server/src/twobrain_rec_server/workflows/worker.py`
+- [X] T027 [US2] Set worker tenant context before MediaScribe result import in `apps/server/src/twobrain_rec_server/workflows/worker.py`
+- [X] T028 [US2] Add allowlisted maintenance context support in `apps/server/src/twobrain_rec_server/db/tenant_context.py`
+- [X] T029 [US2] Use maintenance context for smoke auth cleanup in `apps/server/scripts/cleanup_smoke_auth_session.py`
+- [X] T030 [US2] Use maintenance context for smoke artifact cleanup in `apps/server/scripts/cleanup_smoke_artifacts.py`
 
 **Checkpoint**: US2 can be validated independently with worker and maintenance
 context tests.
@@ -128,16 +128,16 @@ Prove each actor sees only allowed identity and policy records.
 
 ### Tests First
 
-- [ ] T031 [P] [US3] Add identity/session RLS PostgreSQL probes in `apps/server/tests/integration/test_rls_identity_policies.py`
-- [ ] T032 [P] [US3] Add auth API boundary contract tests in `apps/server/tests/contract/test_rls_auth_access_outcomes.py`
-- [ ] T033 [P] [US3] Add stale/revoked context regression tests in `apps/server/tests/integration/test_rls_stale_session_device_context.py`
+- [X] T031 [P] [US3] Add identity/session RLS PostgreSQL probes in `apps/server/tests/integration/test_rls_identity_policies.py`
+- [X] T032 [P] [US3] Add auth API boundary contract tests in `apps/server/tests/contract/test_rls_auth_access_outcomes.py`
+- [X] T033 [P] [US3] Add stale/revoked context regression tests in `apps/server/tests/integration/test_rls_stale_session_device_context.py`
 
 ### Implementation
 
-- [ ] T034 [US3] Add RLS policies for `organizations`, `workspaces`, `user_identities`, `workspace_memberships`, and `registered_devices` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
-- [ ] T035 [US3] Add RLS policies for `external_identities`, `auth_sessions`, `auth_session_device_bindings`, `workspace_auth_policies`, `workspace_provider_link_states`, `auth_callback_states`, `workspace_consent_copy`, and `auth_audit_events` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
-- [ ] T036 [US3] Ensure auth dependencies reject stale or revoked context before database access in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
-- [ ] T037 [US3] Add metadata-only denied-access auth audit evidence in `apps/server/src/twobrain_rec_server/auth/audit.py`
+- [X] T034 [US3] Add RLS policies for `organizations`, `workspaces`, `user_identities`, `workspace_memberships`, and `registered_devices` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
+- [X] T035 [US3] Add RLS policies for `external_identities`, `auth_sessions`, `auth_session_device_bindings`, `workspace_auth_policies`, `workspace_provider_link_states`, `auth_callback_states`, `workspace_consent_copy`, and `auth_audit_events` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py`
+- [X] T036 [US3] Ensure auth dependencies reject stale or revoked context before database access in `apps/server/src/twobrain_rec_server/auth/dependencies.py`
+- [X] T037 [US3] Add metadata-only denied-access auth audit evidence in `apps/server/src/twobrain_rec_server/auth/audit.py`
 
 **Checkpoint**: US3 can be validated independently with identity/session policy
 probes and auth access-outcome tests.
@@ -156,17 +156,17 @@ live production enablement is not automatic.
 
 ### Tests First
 
-- [ ] T038 [P] [US4] Add rollout gate tests in `apps/server/tests/integration/test_rls_rollout_gates.py`
-- [ ] T039 [P] [US4] Add migration rollback contract tests in `apps/server/tests/contract/test_rls_migration_rollback_contract.py`
-- [ ] T040 [P] [US4] Add production-boundary tests in `apps/server/tests/contract/test_rls_production_boundary.py`
+- [X] T038 [P] [US4] Add rollout gate tests in `apps/server/tests/integration/test_rls_rollout_gates.py`
+- [X] T039 [P] [US4] Add migration rollback contract tests in `apps/server/tests/contract/test_rls_migration_rollback_contract.py`
+- [X] T040 [P] [US4] Add production-boundary tests in `apps/server/tests/contract/test_rls_production_boundary.py`
 
 ### Implementation
 
-- [ ] T041 [US4] Add RLS validation service in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
-- [ ] T042 [US4] Add RLS validation script in `apps/server/scripts/verify_rls_hardening.py`
-- [ ] T043 [US4] Document rollout, halt, rollback, and live-production decision states in `docs/deployments/2brain-rec/rls-hardening-runbook.md`
-- [ ] T044 [US4] Reference RLS validation without automatic enforcement in `infra/scripts/verify-rec-migration.sh`
-- [ ] T045 [US4] Add RLS validation command to `infra/scripts/ci-local.sh`
+- [X] T041 [US4] Add RLS validation service in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
+- [X] T042 [US4] Add RLS validation script in `apps/server/scripts/verify_rls_hardening.py`
+- [X] T043 [US4] Document rollout, halt, rollback, and live-production decision states in `docs/deployments/2brain-rec/rls-hardening-runbook.md`
+- [X] T044 [US4] Reference RLS validation without automatic enforcement in `infra/scripts/verify-rec-migration.sh`
+- [X] T045 [US4] Add RLS validation command to `infra/scripts/ci-local.sh`
 
 **Checkpoint**: US4 can be validated independently with rollout gate tests and
 the RLS hardening runbook.
@@ -184,16 +184,16 @@ admin UI, desktop capture/upload, or MediaScribe behavior was added.
 
 ### Tests First
 
-- [ ] T046 [P] [US5] Add out-of-scope route boundary tests in `apps/server/tests/contract/test_rls_out_of_scope_boundaries.py`
-- [ ] T047 [P] [US5] Add future-table isolation contract tests in `apps/server/tests/contract/test_rls_future_table_contract.py`
-- [ ] T048 [P] [US5] Add OpenAPI drift coverage for RLS-only scope in `apps/server/tests/contract/test_rls_openapi_scope.py`
+- [X] T046 [P] [US5] Add out-of-scope route boundary tests in `apps/server/tests/contract/test_rls_out_of_scope_boundaries.py`
+- [X] T047 [P] [US5] Add future-table isolation contract tests in `apps/server/tests/contract/test_rls_future_table_contract.py`
+- [X] T048 [P] [US5] Add OpenAPI drift coverage for RLS-only scope in `apps/server/tests/contract/test_rls_openapi_scope.py`
 
 ### Implementation
 
-- [ ] T049 [US5] Add future tenant-table guidance in `docs/adr/003-tenant-isolation-rls.md`
-- [ ] T050 [US5] Update product status with RLS boundary and no rollout claim in `docs/current-product-status.md`
-- [ ] T051 [US5] Add unreleased changelog entry for feature 031 in `CHANGELOG.md`
-- [ ] T052 [US5] Update quickstart validation evidence notes in `specs/031-rls-hardening/quickstart.md`
+- [X] T049 [US5] Add future tenant-table guidance in `docs/adr/003-tenant-isolation-rls.md`
+- [X] T050 [US5] Update product status with RLS boundary and no rollout claim in `docs/current-product-status.md`
+- [X] T051 [US5] Add unreleased changelog entry for feature 031 in `CHANGELOG.md`
+- [X] T052 [US5] Update quickstart validation evidence notes in `specs/031-rls-hardening/quickstart.md`
 
 **Checkpoint**: US5 can be validated independently with out-of-scope contract
 tests and documentation review.
@@ -204,10 +204,31 @@ tests and documentation review.
 
 **Purpose**: Validation, cleanup, and traceability across the whole feature.
 
-- [ ] T053 Run RLS quickstart validation and record command results in `specs/031-rls-hardening/quickstart.md`
-- [ ] T054 Run full local CI and record pass/fail notes in `specs/031-rls-hardening/quickstart.md`
-- [ ] T055 Review secret/content scan findings and record safe evidence in `specs/031-rls-hardening/quickstart.md`
-- [ ] T056 Update final implementation notes in `specs/031-rls-hardening/tasks.md`
+- [X] T053 Run RLS quickstart validation and record command results in `specs/031-rls-hardening/quickstart.md`
+- [X] T054 Run full local CI and record pass/fail notes in `specs/031-rls-hardening/quickstart.md`
+- [X] T055 Review secret/content scan findings and record safe evidence in `specs/031-rls-hardening/quickstart.md`
+- [X] T056 Update final implementation notes in `specs/031-rls-hardening/tasks.md`
+
+## Final Implementation Notes
+
+- Implemented PostgreSQL RLS migration `0005_rls_hardening`; it is a no-op on
+  SQLite and requires PostgreSQL probes for the RLS acceptance claim.
+- Added request, worker, auth public/bootstrap, auth session lookup, auth
+  callback lookup, and allowlisted maintenance database contexts.
+- Preserved the clarified product boundary: no product-admin bypass, no new
+  dashboard/share/download/retention/deletion/billing/admin UI/desktop
+  capture/upload/MediaScribe behavior, and no automatic live production
+  enforcement.
+- Validation on 2026-06-15: focused RLS suite `66 passed, 4 skipped`; full
+  local CI `ci_local_result=pass` with `314 passed, 4 skipped`, Ruff pass,
+  compile pass, compose config pass, and deployment evidence scan pass. Real
+  PostgreSQL RLS proof passed against a disposable local PostgreSQL database
+  with `4 passed`, and `apps/server/scripts/verify_rls_hardening.py` returned
+  `rls_validation_result=pass`.
+- Post-implementation code review on 2026-06-15 found PR/deployment blockers.
+  R001-R008 are fixed locally and validated. Track status in
+  `specs/031-rls-hardening/code-review.md` and
+  `specs/031-rls-hardening/code-review-tasks.md`.
 
 ---
 
@@ -222,6 +243,7 @@ tests and documentation review.
 - #720: T038-T045, US4 rollout gates, rollback, and production boundary.
 - #721: T046-T052, US5 future isolation contract and downstream boundary.
 - #722: T053-T056, final validation and evidence scan.
+- #723-#730: R001-R008, post-implementation code-review remediation tasks.
 
 ### Phase Dependencies
 

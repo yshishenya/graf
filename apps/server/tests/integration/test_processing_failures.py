@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from temporalio import activity
 
+from tests.fakes.auth_contexts import tenant_scope
 from tests.fixtures.processing import create_finalized_meeting
 from twobrain_rec_server.db.models import ProcessingWorkflow
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingStatus
@@ -61,8 +62,15 @@ def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigure
                 workflow_id=f"processing/{meeting_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
+        scope = tenant_scope()
         result = await worker.run_processing_pipeline_activity(
-            {"meeting_id": str(meeting_id), "workspace_id": str(workspace_id)}
+            {
+                "meeting_id": str(meeting_id),
+                "workspace_id": str(workspace_id),
+                "organization_id": str(scope.organization_id),
+                "user_id": str(scope.user_id),
+                "device_id": str(scope.device_id),
+            }
         )
         async with client.app_state["sessionmaker"]() as db:
             persisted = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id))
