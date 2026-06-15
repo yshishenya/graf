@@ -1,4 +1,4 @@
-# Specification Quality Checklist: RLS Live Production Enforcement Gate
+# Specification Quality Checklist: RLS Production Enforcement Truth
 
 **Purpose**: Validate specification completeness and quality before proceeding to clarification and planning
 **Created**: 2026-06-15
@@ -25,16 +25,18 @@
 ## Feature Readiness
 
 - [x] All functional requirements have clear acceptance criteria
-- [x] User scenarios cover primary operator decision, execution, halt, rollback, and status-truth flows
+- [x] User scenarios cover primary test gate, production read-only verification, stale-doc correction, halt, rollback, and status-truth flows
 - [x] Feature meets measurable outcomes defined in Success Criteria
 - [x] No implementation details leak into the specification beyond accepted product/domain constraints from 031 and production operations
 
 ## Scope Guardrails
 
-- [x] Spec explicitly excludes dashboard, sharing, deletion execution, desktop upload, MediaScribe behavior, product admin bypass, customer settings, and automatic live enforcement
+- [x] Spec explicitly excludes dashboard, sharing, deletion execution, desktop upload, MediaScribe behavior, product admin bypass, customer settings, and blind live enforcement before test gates pass
 - [x] Spec preserves the 031 forbidden live database validation rule
+- [x] Spec preserves disposable/test PostgreSQL validation before production truth claims
+- [x] Spec requires read-only production table-state inspection for RLS enabled and forced status
 - [x] Spec requires metadata-only evidence and forbids raw audio, transcript text, object keys, credentials, signed URLs, live secret paths, and customer meeting content
-- [x] Spec requires truthful final state when enforcement is enabled, deferred, halted, rolled back, or unchanged
+- [x] Spec requires truthful final state when enforcement is production-verified-enabled, production-verification-blocked, halted, rolled back, or unchanged
 
 ## Notes
 
