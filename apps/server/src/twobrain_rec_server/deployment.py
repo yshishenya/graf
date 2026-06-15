@@ -308,3 +308,10 @@ def scan_deployment_evidence_text(text: str) -> None:
     for verdict in FORBIDDEN_READINESS_VERDICTS:
         if verdict in scannable_text:
             raise ValueError(f"deployment evidence contains forbidden verdict: {verdict}")
+    if "live_production_enforcement=not_changed" in scannable_text:
+        raise ValueError("deployment evidence contains stale RLS production enforcement wording")
+    if (
+        "production_rls_state_result=pass" in scannable_text
+        and "live_production_enforcement=enabled" not in scannable_text
+    ):
+        raise ValueError("passing production RLS evidence must record enabled enforcement")

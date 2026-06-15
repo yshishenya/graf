@@ -134,8 +134,8 @@ pre-production/test validation.
    product status is updated, **Then** it says live production RLS enforcement
    is enabled with metadata-only evidence references.
 2. **Given** a validation command is only testing a disposable database,
-   **When** it reports `not_changed`, **Then** the wording is explicitly about
-   the live production database not being used for destructive probes.
+   **When** it reports production scope, **Then** the wording explicitly says
+   live production was not inspected or touched by destructive probes.
 3. **Given** stale docs say live enforcement still needs a separate decision,
    **When** this feature closes, **Then** those docs are corrected or marked as
    historical `031` pre-production wording.

@@ -59,5 +59,9 @@ accounting, and dependency deletion truth.
   product UI/RBAC.
 - SQLite can test application behavior, but PostgreSQL probes are required for
   the RLS acceptance claim.
-- Live production enforcement requires separate operator approval after local,
-  PostgreSQL, and production-like gates pass.
+- Destructive same/cross-tenant RLS probes remain limited to disposable or
+  explicit test databases.
+- Production enforcement truth is accepted through read-only PostgreSQL catalog
+  metadata. On 2026-06-15, the live Rec database at Alembic
+  `0005_rls_hardening` reported every covered table with RLS enabled and
+  forced.

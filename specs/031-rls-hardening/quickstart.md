@@ -10,8 +10,9 @@ tasks create them.
 - Docker available for Compose checks.
 - PostgreSQL test database URL for RLS proof, exported as
   `RLS_TEST_DATABASE_URL`.
-- No live production enforcement unless a separate explicit operator decision
-  authorizes it.
+- Destructive same/cross-tenant probes must run only on disposable or explicit
+  test databases. Current production RLS truth is verified separately through
+  read-only catalog metadata by feature `032-rls-live-enforcement`.
 
 ## 1. Local Regression
 
@@ -74,7 +75,8 @@ Expected result:
 
 - Local and production-like gate evidence has pass/blocked verdicts.
 - Enforcement is blocked when any required probe fails.
-- Live production enforcement decision is recorded as explicit and separate.
+- Production RLS state is recorded through read-only metadata verification,
+  not destructive live probes.
 - Rollback/halt instructions are available for failed gates.
 
 ## 5. Metadata-Only Evidence Scan
@@ -161,7 +163,7 @@ PostgreSQL policy suite with disposable local RLS_TEST_DATABASE_URL:
 
 RLS validation helper with disposable local RLS_TEST_DATABASE_URL:
 rls_validation_result=pass
-ready_for_operator_decision=true
+ready_for_production_truth=true
 probe_suite=direct_sql_rls_probes
 ```
 
@@ -210,18 +212,22 @@ Command:
 ./infra/scripts/ci-local.sh
 ```
 
-The RLS validation helper intentionally reports:
+032 correction note: the RLS validation helper intentionally reports a
+test/disposable probe boundary when no PostgreSQL test database is provided:
 
 ```text
 rls_validation_result=blocked
 environment=postgres_test
-live_production_enforcement=not_changed
+live_production_probe=not_attempted
+live_production_enforcement=not_inspected
 reason=postgres_test_database_required
 ```
 
 This is acceptable for local CI because PostgreSQL RLS proof requires an
 explicit `RLS_TEST_DATABASE_URL`. It is not a live-production enforcement
-claim.
+claim. Current production truth is recorded by `032` through read-only catalog
+metadata: Alembic `0005_rls_hardening` and all covered tables enabled and
+forced.
 
 Post-review remediation status:
 
@@ -238,7 +244,7 @@ Post-review remediation status:
 - On 2026-06-15, the PostgreSQL policy suite passed against a disposable local
   PostgreSQL database with `4 passed`.
 - On 2026-06-15, `apps/server/scripts/verify_rls_hardening.py` returned
-  `rls_validation_result=pass`, `ready_for_operator_decision=true`, and
+  `rls_validation_result=pass`, `ready_for_production_truth=true`, and
   `probe_suite=direct_sql_rls_probes` against a disposable local PostgreSQL
   database.
 - Production `infra/scripts/verify-rec-migration.sh --execute` creates and
@@ -247,7 +253,8 @@ Post-review remediation status:
   seed the live production database.
 - `apps/server/scripts/verify_rls_hardening.py` blocks before migrations or
   probes when `RLS_TEST_DATABASE_URL` points at database name `twobrain_rec`.
-- Live production enforcement is still not changed by this local proof.
+- Local proof does not inspect production. Production RLS state is verified by
+  `032` with read-only PostgreSQL catalog metadata.
 
 Secret/content scan review:
 

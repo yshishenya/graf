@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import asyncio
 import importlib.util
+import json
 import os
+import subprocess
 import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -23,9 +26,12 @@ if spec is None or spec.loader is None:
 rls_validation = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = rls_validation
 spec.loader.exec_module(rls_validation)
+RLS_COVERED_TABLES = rls_validation.RLS_COVERED_TABLES
 REQUIRED_RLS_PROBES = rls_validation.REQUIRED_RLS_PROBES
 RLSProbeEvidence = rls_validation.RLSProbeEvidence
+RLSTableStateEvidence = rls_validation.RLSTableStateEvidence
 RLSValidationReport = rls_validation.RLSValidationReport
+evaluate_production_rls_state = rls_validation.evaluate_production_rls_state
 
 command = None
 Config = None
@@ -98,6 +104,11 @@ def _quote_literal(value: str) -> str:
 
 
 def _print_report(report: RLSValidationReport) -> None:
+    for line in report.evidence_lines():
+        print(line)
+
+
+def _print_production_report(report: Any) -> None:
     for line in report.evidence_lines():
         print(line)
 
@@ -434,14 +445,171 @@ async def _run_probes(database_url: str) -> list[RLSProbeEvidence]:
             await _drop_probe_role(urls.migration_url, urls.probe_role)
 
 
-def main() -> int:
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Validate 2brain Rec RLS hardening state.")
+    parser.add_argument(
+        "--production-read-only",
+        action="store_true",
+        help="inspect live-production RLS state through PostgreSQL catalog metadata only",
+    )
+    parser.add_argument(
+        "--table-state-json",
+        help="read production RLS table state evidence from a metadata-only JSON fixture",
+    )
+    parser.add_argument(
+        "--deployed-commit",
+        default=os.getenv("PRODUCTION_DEPLOYED_COMMIT"),
+        help="metadata-only deployed commit label for production read-only evidence",
+    )
+    parser.add_argument(
+        "--alembic-revision",
+        default=os.getenv("PRODUCTION_ALEMBIC_REVISION"),
+        help="metadata-only Alembic revision for JSON-fixture production read-only evidence",
+    )
+    parser.add_argument(
+        "--destructive-probe-database",
+        choices=("disposable", "explicit_test"),
+        default=os.getenv("RLS_DESTRUCTIVE_PROBE_DATABASE_CLASS", "explicit_test"),
+        help="classify the non-production database used for destructive direct probes",
+    )
+    return parser.parse_args(argv)
+
+
+def _current_git_commit() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--short=12", "HEAD"],
+        cwd=SERVER_ROOT,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else "unknown"
+
+
+def _table_state_from_mapping(raw_state: dict[str, Any]) -> Any:
+    return RLSTableStateEvidence(
+        table_name=str(raw_state["table_name"]),
+        rls_enabled=bool(raw_state["rls_enabled"]),
+        rls_forced=bool(raw_state["rls_forced"]),
+        table_exists=bool(raw_state.get("table_exists", True)),
+    )
+
+
+def _load_table_state_json(path: str) -> list[Any]:
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw_states = raw.get("table_states", raw) if isinstance(raw, dict) else raw
+    if not isinstance(raw_states, list):
+        raise ValueError("table state JSON must be a list or object with table_states")
+    return [_table_state_from_mapping(raw_state) for raw_state in raw_states]
+
+
+def _production_rls_state_sql() -> str:
+    values_sql = ", ".join(f"({_quote_literal(table_name)})" for table_name in RLS_COVERED_TABLES)
+    return f"""
+        with required(table_name) as (
+            values {values_sql}
+        )
+        select
+            required.table_name as table_name,
+            coalesce(c.relrowsecurity, false) as rls_enabled,
+            coalesce(c.relforcerowsecurity, false) as rls_forced,
+            c.oid is not null as table_exists
+        from required
+        left join pg_namespace n on n.nspname = 'public'
+        left join pg_class c
+            on c.relnamespace = n.oid
+            and c.relkind = 'r'
+            and c.relname = required.table_name
+        order by required.table_name
+    """
+
+
+async def _fetch_production_table_state(database_url: str) -> tuple[list[Any], str]:
+    engine = create_async_engine(database_url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            alembic_revision = await conn.scalar(text("select version_num from alembic_version limit 1"))
+            result = await conn.execute(text(_production_rls_state_sql()))
+            rows = result.mappings().all()
+    finally:
+        await engine.dispose()
+    return (
+        [
+            RLSTableStateEvidence(
+                table_name=str(row["table_name"]),
+                rls_enabled=bool(row["rls_enabled"]),
+                rls_forced=bool(row["rls_forced"]),
+                table_exists=bool(row["table_exists"]),
+            )
+            for row in rows
+        ],
+        str(alembic_revision or "unknown"),
+    )
+
+
+def _production_database_url() -> str | None:
+    return os.getenv("PRODUCTION_RLS_DATABASE_URL") or get_settings().database_url or os.getenv("TWOBRAIN_DATABASE_URL")
+
+
+def _run_production_read_only(args: argparse.Namespace) -> int:
+    deployed_commit = args.deployed_commit or _current_git_commit()
+    try:
+        if args.table_state_json:
+            table_states = _load_table_state_json(args.table_state_json)
+            alembic_revision = args.alembic_revision or "unknown"
+        else:
+            _load_probe_dependencies()
+            database_url = _production_database_url()
+            if not database_url:
+                report = evaluate_production_rls_state(
+                    [],
+                    deployed_commit=deployed_commit,
+                    alembic_revision=args.alembic_revision or "unknown",
+                )
+                _print_production_report(report)
+                print("reason=production_database_url_required")
+                return 1
+            table_states, alembic_revision = asyncio.run(_fetch_production_table_state(database_url))
+    except Exception as exc:
+        report = evaluate_production_rls_state(
+            [],
+            deployed_commit=deployed_commit,
+            alembic_revision=args.alembic_revision or "unknown",
+        )
+        _print_production_report(report)
+        print("reason=production_read_only_check_failed")
+        print(f"error_type={type(exc).__name__}")
+        return 1
+
+    report = evaluate_production_rls_state(
+        table_states,
+        deployed_commit=deployed_commit,
+        alembic_revision=alembic_revision,
+    )
+    _print_production_report(report)
+    if report.production_rls_state_result != "pass":
+        print("reason=production_rls_state_blocked")
+        return 1
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(sys.argv[1:] if argv is None else argv)
+    if args.production_read_only:
+        return _run_production_read_only(args)
+
     database_url = os.getenv("RLS_TEST_DATABASE_URL")
     if not database_url:
         _print_report(RLSValidationReport(environment="postgres_test"))
         print("reason=postgres_test_database_required")
         return 0
     if _is_forbidden_live_database_url(database_url):
-        _print_report(RLSValidationReport(environment="postgres_test"))
+        _print_report(
+            RLSValidationReport(
+                environment="postgres_test",
+                destructive_probe_database=args.destructive_probe_database,
+            )
+        )
         print("reason=live_production_database_probe_forbidden")
         print(f"database_name={_database_name_from_url(database_url)}")
         return 1
@@ -456,7 +624,11 @@ def main() -> int:
         print(f"error_type={type(exc).__name__}")
         return 1
 
-    report = RLSValidationReport(environment="postgres_test", probes=probes)
+    report = RLSValidationReport(
+        environment="postgres_test",
+        probes=probes,
+        destructive_probe_database=args.destructive_probe_database,
+    )
     _print_report(report)
     if report.validation_result != "pass":
         print("reason=rls_probe_failed")

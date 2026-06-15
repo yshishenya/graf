@@ -76,7 +76,7 @@ Fields:
 
 Validation rules:
 
-- Stale `not_changed` wording may remain only when explicitly scoped to
-  test/disposable validation not touching live production.
+- Current validation output must use `not_inspected` for test/disposable
+  validation that does not touch live production.
 - Current product status must not say live production RLS is still only a
   future separate decision when production metadata proves enabled/forced.

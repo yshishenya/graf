@@ -23,8 +23,9 @@ The implementation must review and update:
   read-only production metadata proves enabled/forced state.
 - Historical `031` pre-production wording may stay only when clearly framed as
   historical or as test/disposable probe behavior.
-- `live_production_enforcement=not_changed` may remain only for commands that
-  explicitly do not inspect or change live production.
+- Current command output must use `live_production_enforcement=not_inspected`
+  for test/disposable validation that does not inspect or change live
+  production.
 - Production read-only verification must use a different field/value from
   destructive test probe validation.
 

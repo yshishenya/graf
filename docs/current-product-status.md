@@ -99,17 +99,22 @@ implementation record.
   first-smoke evidence templates, cleanup accounting, and forbidden-content
   scans. The highest allowed successful status is `infra_smoke_ready`; this is
   not production readiness, user rollout readiness, or internal pilot readiness.
-- Feature `031-rls-hardening` is implemented locally as a backend tenant
+- Feature `031-rls-hardening` is implemented and deployed as a backend tenant
   isolation hardening slice. It adds PostgreSQL RLS policies for accepted
   tenant-owned identity, auth/session/device, ingest, meeting, processing,
   transcript, audit, and dependency tables; explicit request, worker,
   auth-bootstrap, session-lookup, callback-lookup, and allowlisted maintenance
   DB contexts; rollout/rollback validation helpers; and ADR `003` for future
-  tenant-owned tables. It does not add dashboard, share/download, retention,
-  deletion execution, billing, admin UI, desktop capture/upload, or new
-  MediaScribe behavior. Live production enforcement is not enabled by this
-  slice and still requires a separate explicit operator decision after gates
-  pass.
+  tenant-owned tables. Production inspection on 2026-06-15 showed
+  `/opt/projects/2brain-rec` at commit `3fd2162`, Alembic
+  `0005_rls_hardening`, and every covered production table reporting
+  `relrowsecurity=true` plus `relforcerowsecurity=true`. It does not add
+  dashboard, share/download, retention, deletion execution, billing, admin UI,
+  desktop capture/upload, or new MediaScribe behavior.
+- Feature `032-rls-live-enforcement` corrects the stale `031` rollout truth:
+  production RLS enforcement is verified enabled and forced through read-only
+  PostgreSQL catalog metadata, while destructive same/cross-tenant probes
+  remain limited to disposable or explicit test databases.
 - Feature `025-system-audio-capture-pivot` is accepted as the macOS MVP
   recording path. It records local microphone plus incoming/system audio without
   requiring virtual device selection, preserves dual-track local artifacts, and
@@ -161,10 +166,9 @@ implementation record.
 - The `012` backend foundation exists as a repository implementation with
   `021` remote-first infrastructure smoke readiness scaffolding; real user
   rollout and desktop uploader slices are still not accepted.
-- Live production enforcement of `031-rls-hardening` RLS policies is not
-  accepted automatically. The code, migration, validation helper, and runbook
-  are present, but production enforcement remains blocked until a separate
-  operator decision records fresh metadata-only evidence.
+- Production RLS coverage is accepted only for the `031` covered table
+  inventory. Future tenant-owned tables and product surfaces still need their
+  own ADR `003` classification, tests, and metadata-only evidence before merge.
 - Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
   detect-and-ask, automatic naming, and future auto-record behavior have not
   been implemented or accepted.
@@ -231,9 +235,10 @@ the current accepted implementation or `012` ingest slice.
   require unavailable hardware before claiming broad hardware speakerphone
   acceptance. Current automated acceptance covers persisted-package
   finalization behavior, not every physical device route.
-- `031-rls-hardening`: future tenant-owned tables and product surfaces must
-  follow ADR `003-tenant-isolation-rls`; live production enforcement remains a
-  separate operator decision after local, PostgreSQL, and production-like gates.
+- `031-rls-hardening` / `032-rls-live-enforcement`: future tenant-owned tables
+  and product surfaces must follow ADR `003-tenant-isolation-rls`; destructive
+  RLS probes stay on disposable/test databases, and production truth must be
+  proven with read-only catalog metadata.
 - `direct-object-upload`: future upload optimization only after a separate
   security and lifecycle review; `012` remains `server_mediated`.
 - Browser/packaging evidence still pending: Yandex Browser smoke, long-duration

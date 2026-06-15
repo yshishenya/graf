@@ -24,6 +24,27 @@ Expected:
 
 ## 2. Local Regression
 
+Focused 032 contract and boundary tests:
+
+```sh
+cd apps/server
+PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/contract/test_rls_table_inventory_contract.py \
+  tests/contract/test_rls_validation_output_contract.py \
+  tests/contract/test_rls_production_boundary.py \
+  tests/contract/test_rls_production_state_contract.py \
+  tests/contract/test_rls_rollout_truth_docs.py \
+  tests/contract/test_rls_production_truth_contract.py \
+  tests/integration/test_rls_rollout_gates.py
+```
+
+Expected:
+
+- Covered-table inventory matches the `031` migration.
+- Test/disposable output uses `live_production_enforcement=not_inspected`.
+- Production read-only output uses `live_production_enforcement=enabled` only
+  when every covered table is enabled and forced.
+
 ```sh
 ./infra/scripts/ci-local.sh
 ```
@@ -48,6 +69,8 @@ Expected:
 
 - Output is blocked because a PostgreSQL test database is required.
 - Output must not imply production RLS is disabled.
+- Output includes `live_production_probe=not_attempted`.
+- Output includes `live_production_enforcement=not_inspected`.
 
 With a disposable or explicit test database:
 
@@ -61,8 +84,40 @@ Expected:
 - Direct SQL RLS probes pass.
 - Destructive probes run only on the disposable/test database.
 - `RLS_TEST_DATABASE_URL` pointing at live `twobrain_rec` remains blocked.
+- Passing test output includes `ready_for_production_truth=true`.
+
+Metadata fixture contract path:
+
+```sh
+python3 apps/server/scripts/verify_rls_hardening.py \
+  --production-read-only \
+  --table-state-json /path/to/metadata-only-rls-state.json \
+  --deployed-commit 3fd2162 \
+  --alembic-revision 0005_rls_hardening
+```
+
+Expected:
+
+- Fixture-based command does not connect to production.
+- Output uses the same production read-only vocabulary as the live command.
 
 ## 4. Production Read-Only State Inspection
+
+Preferred script command on the production host:
+
+```sh
+ssh 2brain.dev "cd /opt/projects/2brain-rec && \
+  docker compose -f infra/docker-compose.yml run --rm --no-deps rec-migrate \
+    python scripts/verify_rls_hardening.py --production-read-only"
+```
+
+Expected:
+
+- `production_rls_state_result=pass`.
+- `live_production_probe=read_only_metadata`.
+- `live_production_enforcement=enabled`.
+- `covered_table_count` equals `rls_enabled_and_forced_count`.
+- `failed_table_names=none`.
 
 Read-only manual inspection command used during clarification:
 
@@ -125,3 +180,52 @@ Final closeout must record:
 - production RLS enabled/forced count;
 - stale wording scan result;
 - forbidden content scan result.
+
+## 8. 032 Validation Results
+
+Recorded on 2026-06-15 from branch `codex/032-rls-live-enforcement`.
+
+Focused 032 RLS truth tests:
+
+```text
+31 passed
+```
+
+Full local CI:
+
+```text
+server tests: 336 passed, 4 skipped
+server lint: pass
+python compile: pass
+rls hardening validation boundary: blocked without RLS_TEST_DATABASE_URL
+production compose config: pass
+deployment evidence scan: pass
+ci_local_result=pass
+```
+
+Production read-only state inspection:
+
+```text
+remote_sha=3fd2162f9899
+alembic_revision=0005_rls_hardening (head)
+covered_table_count=28
+rls_enabled_and_forced_count=28
+failed_table_names=none
+```
+
+The production check used only PostgreSQL catalog metadata for the covered
+table list. It did not seed, mutate, or read customer rows.
+
+Stale-language scan result:
+
+- Current product status, ADR, runbook, changelog, scripts, and command output
+  no longer contain stale production-disabled or `not_changed` claims.
+- Remaining matches are historical `031` spec/plan/analysis/code-review text
+  or negative tests/scanner rules that intentionally block the stale wording.
+
+Forbidden-content scan result:
+
+- Remaining matches are approved deployment paths, code field names,
+  placeholders, or negative tests for redaction behavior.
+- `./infra/scripts/ci-local.sh` deployment evidence scan passed for
+  `docs/deployments/2brain-rec`.

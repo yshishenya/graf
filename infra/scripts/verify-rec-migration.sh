@@ -22,8 +22,10 @@ run_rls_validation() {
     cat <<EOF
 rls_validation_result=blocked
 environment=postgres_test
-live_production_enforcement=not_changed
-ready_for_operator_decision=false
+live_production_probe=not_attempted
+destructive_probe_database=not_provided
+live_production_enforcement=not_inspected
+ready_for_production_truth=false
 reason=rls_disposable_database_create_failed
 EOF
     return 1
@@ -42,6 +44,7 @@ print(quote(sys.argv[1], safe=""))
 PY
 )"
     export RLS_TEST_DATABASE_URL="postgresql+asyncpg://twobrain_rec:${encoded_password}@rec-postgres:5432/${db_name}"
+    export RLS_DESTRUCTIVE_PROBE_DATABASE_CLASS=disposable
     python scripts/verify_rls_hardening.py
   ' sh "$rls_db_name" 2>&1)"
   rls_status=$?
@@ -59,8 +62,10 @@ PY
     cat <<EOF
 rls_validation_result=blocked
 environment=postgres_test
-live_production_enforcement=not_changed
-ready_for_operator_decision=false
+live_production_probe=not_attempted
+destructive_probe_database=not_provided
+live_production_enforcement=not_inspected
+ready_for_production_truth=false
 reason=rls_disposable_database_cleanup_failed
 EOF
     return 1
@@ -99,8 +104,10 @@ if [ -z "$rls_output" ]; then
   rls_output="$(cat <<EOF
 rls_validation_result=blocked
 environment=postgres_test
-live_production_enforcement=not_changed
-ready_for_operator_decision=false
+live_production_probe=not_attempted
+destructive_probe_database=not_provided
+live_production_enforcement=not_inspected
+ready_for_production_truth=false
 reason=rls_validation_output_missing
 EOF
 )"

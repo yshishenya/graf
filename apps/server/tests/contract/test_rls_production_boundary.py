@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
+
+from tests.fixtures.rls_production_truth import passing_table_state_json
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -37,7 +40,10 @@ def test_rls_validation_script_blocks_without_postgres_url_and_does_not_touch_li
 
     assert "rls_validation_result=blocked" in output
     assert "reason=postgres_test_database_required" in output
-    assert "live_production_enforcement=not_changed" in output
+    assert "live_production_probe=not_attempted" in output
+    assert "destructive_probe_database=not_provided" in output
+    assert "live_production_enforcement=not_inspected" in output
+    assert "not_changed" not in output
 
 
 def test_rls_validation_script_rejects_live_production_database_url() -> None:
@@ -50,18 +56,22 @@ def test_rls_validation_script_rejects_live_production_database_url() -> None:
 
     assert result.returncode != 0
     assert "rls_validation_result=blocked" in output
-    assert "live_production_enforcement=not_changed" in output
+    assert "live_production_probe=not_attempted" in output
+    assert "destructive_probe_database=explicit_test" in output
+    assert "live_production_enforcement=not_inspected" in output
     assert "reason=live_production_database_probe_forbidden" in output
     assert "database_name=twobrain_rec" in output
     assert "twobrain_rec:secret" not in output
+    assert "not_changed" not in output
 
 
 def test_migration_verification_references_rls_validation_without_enabling_live_enforcement() -> None:
     output = _run_command("sh", "infra/scripts/verify-rec-migration.sh", "--dry-run")
 
     assert "rls_validation_result=blocked" in output
-    assert "live_production_enforcement=not_changed" in output
+    assert "live_production_enforcement=not_inspected" in output
     assert "live_production_enforcement=enabled" not in output
+    assert "not_changed" not in output
 
 
 def test_migration_execute_blocks_when_rls_validation_is_blocked(tmp_path: Path) -> None:
@@ -110,3 +120,58 @@ def test_local_ci_includes_rls_validation_command() -> None:
     script = (REPO_ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
 
     assert "verify_rls_hardening.py" in script
+
+
+def test_production_read_only_cli_accepts_metadata_fixture(tmp_path: Path) -> None:
+    fixture = tmp_path / "rls-state.json"
+    fixture.write_text(json.dumps(passing_table_state_json()), encoding="utf-8")
+
+    result = _run_command_result(
+        "python3",
+        "apps/server/scripts/verify_rls_hardening.py",
+        "--production-read-only",
+        "--table-state-json",
+        str(fixture),
+        "--deployed-commit",
+        "3fd2162",
+        "--alembic-revision",
+        "0005_rls_hardening",
+        env=os.environ.copy(),
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0
+    assert "production_rls_state_result=pass" in output
+    assert "environment=live_production" in output
+    assert "live_production_probe=read_only_metadata" in output
+    assert "live_production_enforcement=enabled" in output
+    assert "failed_table_names=none" in output
+    assert "not_changed" not in output
+
+
+def test_production_read_only_cli_blocks_failed_metadata_fixture(tmp_path: Path) -> None:
+    fixture_data = passing_table_state_json()
+    fixture_data["table_states"][0]["rls_forced"] = False
+    failed_table_name = fixture_data["table_states"][0]["table_name"]
+    fixture = tmp_path / "rls-state.json"
+    fixture.write_text(json.dumps(fixture_data), encoding="utf-8")
+
+    result = _run_command_result(
+        "python3",
+        "apps/server/scripts/verify_rls_hardening.py",
+        "--production-read-only",
+        "--table-state-json",
+        str(fixture),
+        "--deployed-commit",
+        "3fd2162",
+        "--alembic-revision",
+        "0005_rls_hardening",
+        env=os.environ.copy(),
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "production_rls_state_result=blocked" in output
+    assert "live_production_enforcement=verification_blocked" in output
+    assert f"failed_table_names={failed_table_name}" in output
+    assert "reason=production_rls_state_blocked" in output

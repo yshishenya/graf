@@ -17,9 +17,9 @@ implementation and validation.
 
 **Purpose**: Prepare traceable fixtures and contract-test scaffolding.
 
-- [ ] T001 [P] Add production RLS truth fixture helpers in `apps/server/tests/fixtures/rls_production_truth.py`
-- [ ] T002 [P] Add 032 validation command sections in `specs/032-rls-live-enforcement/quickstart.md`
-- [ ] T003 Add 032 stale-wording scan sections in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T001 [P] Add production RLS truth fixture helpers in `apps/server/tests/fixtures/rls_production_truth.py`
+- [X] T002 [P] Add 032 validation command sections in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T003 Add 032 stale-wording scan sections in `specs/032-rls-live-enforcement/quickstart.md`
 
 ---
 
@@ -32,14 +32,14 @@ by all stories.
 
 ### Tests First
 
-- [ ] T004 [P] Add covered table inventory contract tests in `apps/server/tests/contract/test_rls_table_inventory_contract.py`
-- [ ] T005 [P] Add validation output vocabulary tests in `apps/server/tests/contract/test_rls_validation_output_contract.py`
+- [X] T004 [P] Add covered table inventory contract tests in `apps/server/tests/contract/test_rls_table_inventory_contract.py`
+- [X] T005 [P] Add validation output vocabulary tests in `apps/server/tests/contract/test_rls_validation_output_contract.py`
 
 ### Implementation
 
-- [ ] T006 Extract canonical RLS covered table inventory in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
-- [ ] T007 Update RLS validation report states in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
-- [ ] T008 Update validation script output mapping in `apps/server/scripts/verify_rls_hardening.py`
+- [X] T006 Extract canonical RLS covered table inventory in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
+- [X] T007 Update RLS validation report states in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
+- [X] T008 Update validation script output mapping in `apps/server/scripts/verify_rls_hardening.py`
 
 **Checkpoint**: Table inventory and validation output vocabulary are stable
 for story work.
@@ -57,15 +57,15 @@ live DB URL, and with contract tests proving test output is test-scoped.
 
 ### Tests First
 
-- [ ] T009 [P] [US1] Update live database guard tests in `apps/server/tests/contract/test_rls_production_boundary.py`
-- [ ] T010 [P] [US1] Add disposable/test probe output tests in `apps/server/tests/contract/test_rls_validation_output_contract.py`
+- [X] T009 [P] [US1] Update live database guard tests in `apps/server/tests/contract/test_rls_production_boundary.py`
+- [X] T010 [P] [US1] Add disposable/test probe output tests in `apps/server/tests/contract/test_rls_validation_output_contract.py`
 
 ### Implementation
 
-- [ ] T011 [US1] Preserve live `twobrain_rec` destructive probe blocking in `apps/server/scripts/verify_rls_hardening.py`
-- [ ] T012 [US1] Replace ambiguous test-mode `live_production_enforcement=not_changed` output in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
-- [ ] T013 [US1] Update disposable/test validation notes in `specs/031-rls-hardening/quickstart.md`
-- [ ] T014 [US1] Update 032 test-gate validation evidence notes in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T011 [US1] Preserve live `twobrain_rec` destructive probe blocking in `apps/server/scripts/verify_rls_hardening.py`
+- [X] T012 [US1] Replace ambiguous test-mode `live_production_enforcement=not_changed` output in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
+- [X] T013 [US1] Update disposable/test validation notes in `specs/031-rls-hardening/quickstart.md`
+- [X] T014 [US1] Update 032 test-gate validation evidence notes in `specs/032-rls-live-enforcement/quickstart.md`
 
 **Checkpoint**: US1 proves test/disposable validation remains safe and
 truthful independently of production state.
@@ -83,15 +83,15 @@ evidence.
 
 ### Tests First
 
-- [ ] T015 [P] [US2] Add production RLS state contract tests in `apps/server/tests/contract/test_rls_production_state_contract.py`
-- [ ] T016 [P] [US2] Add production verifier CLI tests in `apps/server/tests/contract/test_rls_production_boundary.py`
+- [X] T015 [P] [US2] Add production RLS state contract tests in `apps/server/tests/contract/test_rls_production_state_contract.py`
+- [X] T016 [P] [US2] Add production verifier CLI tests in `apps/server/tests/contract/test_rls_production_boundary.py`
 
 ### Implementation
 
-- [ ] T017 [US2] Implement covered-table state evaluation in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
-- [ ] T018 [US2] Add production read-only verification mode in `apps/server/scripts/verify_rls_hardening.py`
-- [ ] T019 [US2] Add remote-safe production state helper command documentation in `docs/deployments/2brain-rec/rls-hardening-runbook.md`
-- [ ] T020 [US2] Record production read-only state evidence in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T017 [US2] Implement covered-table state evaluation in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
+- [X] T018 [US2] Add production read-only verification mode in `apps/server/scripts/verify_rls_hardening.py`
+- [X] T019 [US2] Add remote-safe production state helper command documentation in `docs/deployments/2brain-rec/rls-hardening-runbook.md`
+- [X] T020 [US2] Record production read-only state evidence in `specs/032-rls-live-enforcement/quickstart.md`
 
 **Checkpoint**: US2 can independently prove production RLS enabled/forced
 state without customer-row access or mutation.
@@ -108,16 +108,16 @@ for current production truth.
 
 ### Tests First
 
-- [ ] T021 [P] [US3] Add stale rollout wording tests in `apps/server/tests/contract/test_rls_rollout_truth_docs.py`
-- [ ] T022 [US3] Add product status truth tests in `apps/server/tests/contract/test_rls_rollout_truth_docs.py`
+- [X] T021 [P] [US3] Add stale rollout wording tests in `apps/server/tests/contract/test_rls_rollout_truth_docs.py`
+- [X] T022 [US3] Add product status truth tests in `apps/server/tests/contract/test_rls_rollout_truth_docs.py`
 
 ### Implementation
 
-- [ ] T023 [US3] Update RLS production status in `docs/current-product-status.md`
-- [ ] T024 [US3] Update RLS production decision wording in `docs/adr/003-tenant-isolation-rls.md`
-- [ ] T025 [US3] Update RLS runbook production truth wording in `docs/deployments/2brain-rec/rls-hardening-runbook.md`
-- [ ] T026 [US3] Update 031 analysis or quickstart historical wording in `specs/031-rls-hardening/quickstart.md`
-- [ ] T027 [US3] Update unreleased changelog with 032 production truth correction in `CHANGELOG.md`
+- [X] T023 [US3] Update RLS production status in `docs/current-product-status.md`
+- [X] T024 [US3] Update RLS production decision wording in `docs/adr/003-tenant-isolation-rls.md`
+- [X] T025 [US3] Update RLS runbook production truth wording in `docs/deployments/2brain-rec/rls-hardening-runbook.md`
+- [X] T026 [US3] Update 031 analysis or quickstart historical wording in `specs/031-rls-hardening/quickstart.md`
+- [X] T027 [US3] Update unreleased changelog with 032 production truth correction in `CHANGELOG.md`
 
 **Checkpoint**: US3 can independently prove stale wording is corrected or
 scoped as historical/test-only.
@@ -134,14 +134,14 @@ and evidence scans pass without forbidden content.
 
 ### Tests First
 
-- [ ] T028 [P] [US4] Add quickstart closeout evidence contract tests in `apps/server/tests/contract/test_rls_production_truth_contract.py`
-- [ ] T029 [US4] Add forbidden content regression coverage for 032 evidence in `apps/server/tests/contract/test_rls_production_truth_contract.py`
+- [X] T028 [P] [US4] Add quickstart closeout evidence contract tests in `apps/server/tests/contract/test_rls_production_truth_contract.py`
+- [X] T029 [US4] Add forbidden content regression coverage for 032 evidence in `apps/server/tests/contract/test_rls_production_truth_contract.py`
 
 ### Implementation
 
-- [ ] T030 [US4] Update 032 closeout evidence section in `specs/032-rls-live-enforcement/quickstart.md`
-- [ ] T031 [US4] Update deployment evidence scan expectations in `apps/server/src/twobrain_rec_server/deployment.py`
-- [ ] T032 [US4] Record final task/evidence notes in `specs/032-rls-live-enforcement/tasks.md`
+- [X] T030 [US4] Update 032 closeout evidence section in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T031 [US4] Update deployment evidence scan expectations in `apps/server/src/twobrain_rec_server/deployment.py`
+- [X] T032 [US4] Record final task/evidence notes in `specs/032-rls-live-enforcement/tasks.md`
 
 **Checkpoint**: US4 gives a truthful closeout path for production-enabled or
 blocked outcomes.
@@ -152,11 +152,11 @@ blocked outcomes.
 
 **Purpose**: Run the planned gates and record safe evidence.
 
-- [ ] T033 Run focused RLS production truth tests and record results in `specs/032-rls-live-enforcement/quickstart.md`
-- [ ] T034 Run `./infra/scripts/ci-local.sh` and record result in `specs/032-rls-live-enforcement/quickstart.md`
-- [ ] T035 Run production read-only RLS state inspection and record metadata-only result in `specs/032-rls-live-enforcement/quickstart.md`
-- [ ] T036 Run stale-language scan and record remaining justified matches in `specs/032-rls-live-enforcement/quickstart.md`
-- [ ] T037 Run forbidden-content scan and record result in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T033 Run focused RLS production truth tests and record results in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T034 Run `./infra/scripts/ci-local.sh` and record result in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T035 Run production read-only RLS state inspection and record metadata-only result in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T036 Run stale-language scan and record remaining justified matches in `specs/032-rls-live-enforcement/quickstart.md`
+- [X] T037 Run forbidden-content scan and record result in `specs/032-rls-live-enforcement/quickstart.md`
 
 ## Dependencies & Execution Order
 
@@ -204,3 +204,18 @@ Created issues:
 - #740: T021-T027 stale 031 production RLS wording correction.
 - #741: T028-T032 closeout evidence and forbidden-content safety.
 - #742: T033-T037 final RLS truth validation gates.
+
+Implementation evidence recorded on 2026-06-15:
+
+- Focused 032 RLS truth tests: `31 passed`.
+- Full local CI: `336 passed, 4 skipped`; Ruff, Python compile, production
+  Compose config, RLS boundary, and deployment evidence scan passed.
+- Production read-only metadata inspection: remote commit `3fd2162f9899`,
+  Alembic `0005_rls_hardening (head)`, `covered_table_count=28`,
+  `rls_enabled_and_forced_count=28`, `failed_table_names=none`.
+- Stale-language scan: remaining matches are historical `031` artifacts or
+  negative tests/scanner rules; current status, ADR, runbook, changelog, and
+  command output are corrected.
+- Forbidden-content scan: remaining matches are approved deployment paths,
+  code field names, placeholders, or redaction negative tests; deployment
+  evidence scan passed.
