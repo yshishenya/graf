@@ -25,6 +25,8 @@ Semantic Versioning 2.0.0.
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
   были сквозными.
+- RLS validation wording now separates destructive test/disposable probes from
+  production read-only RLS state truth (`feature:032`, `T001-T014`).
 
 ### Fixed
 
@@ -73,6 +75,10 @@ Semantic Versioning 2.0.0.
 - RLS validation now blocks before migrations or probes when
   `RLS_TEST_DATABASE_URL` points at the live `twobrain_rec` database
   (`feature:031`, `#734`, `#735`).
+- Production RLS enforcement is now recorded as verified enabled and forced
+  through read-only PostgreSQL catalog metadata: production Alembic
+  `0005_rls_hardening` and all covered tables report RLS enabled/forced
+  (`feature:032`, `T015-T020`).
 
 ### Docs
 
@@ -85,8 +91,12 @@ Semantic Versioning 2.0.0.
 - Зафиксированы production deployment и real-recording e2e evidence для
   `015` без сохранения transcript text в tracked docs.
 - Добавлены RLS rollout runbook, ADR `003-tenant-isolation-rls`, and current
-  product-status notes clarifying that live production enforcement is a
-  separate operator decision (`feature:031`, `T043`, `T049-T052`).
+  product-status notes for RLS rollout gates (`feature:031`, `T043`,
+  `T049-T052`).
+- Corrected stale `031` RLS rollout wording in product status, ADR, runbook,
+  and quickstart so current docs reflect verified production enabled/forced
+  state while preserving test-only destructive probe boundaries
+  (`feature:032`, `T021-T027`).
 
 ### Ops
 
@@ -111,8 +121,7 @@ Semantic Versioning 2.0.0.
   worker, live MediaScribe, result import, content-safe status и cleanup
   прошли успешно (`feature:015`).
 - Local CI and migration verification now reference RLS validation without
-  enabling live production enforcement automatically (`feature:031`,
-  `T041-T045`).
+  using destructive live production probes (`feature:031`, `T041-T045`).
 - RLS migration verification now blocks when the validation helper returns a
   blocked verdict, and the helper delegates to a real PostgreSQL policy suite
   when `RLS_TEST_DATABASE_URL` is supplied (`feature:031`, `CR-001`, `CR-002`).
@@ -120,6 +129,9 @@ Semantic Versioning 2.0.0.
   helper, so validation checks enforced RLS behavior without superuser/owner
   bypass and avoids PL/pgSQL migration hangs observed on local PostgreSQL 14
   (`feature:031`, `CR-001`).
+- Added production read-only RLS state verification output for covered-table
+  counts, enabled/forced counts, failed tables, deployed commit, and Alembic
+  revision (`feature:032`, `T015-T020`, `T028-T037`).
 
 ## [Unreleased Template]
 

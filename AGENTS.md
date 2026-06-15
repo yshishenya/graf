@@ -118,7 +118,7 @@ Planning must stop if constitution gates fail or important clarifications remain
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/031-rls-hardening/plan.md
+at specs/032-rls-live-enforcement/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
@@ -385,6 +385,18 @@ specify extension list
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ./scripts/prepare-release.sh patch
 ```
+
+<!-- SPECKIT GITHUB ISSUE START -->
+## Правила GitHub issues
+
+- `tasks.md` остается источником правды по реализации.
+- GitHub issues используются как внешний трекер выполнения, review, PR-связей и evidence.
+- Все GitHub issue titles, issue bodies, status comments, closure comments и sync notes по умолчанию пиши на русском.
+- Пиши простым, понятным языком, чтобы текст был ясен не только инженерам, но и обычным участникам проекта.
+- Не создавай дубли GitHub issues. Сначала ищи существующие issue по номеру фичи, task ID, ссылке и заголовку.
+- Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй короткий комментарий с результатом проверки.
+- Если GitHub issue закрыт, но `tasks.md` еще открыт, сначала проверь реализацию и evidence, а не отмечай задачу выполненной молча.
+<!-- SPECKIT GITHUB ISSUE END -->
 
 <!-- SPECKIT LINEAR START -->
 ## Linear Workflow Status

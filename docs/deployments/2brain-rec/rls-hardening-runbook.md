@@ -3,18 +3,22 @@
 Feature: `031-rls-hardening`
 
 This runbook covers PostgreSQL row-level security validation for the current
-2brain Rec backend schema. It prepares evidence and rollback guidance only.
-It does not enable live production enforcement by itself.
+2brain Rec backend schema. The `031` migration enables and forces RLS when it
+is applied. A 2026-06-15 production inspection confirmed the live Rec database
+is at `0005_rls_hardening` and every covered table has RLS enabled and forced.
 
 ## Required Gates
 
-Run these gates before asking for a separate operator decision:
+Run these gates before changing RLS policy coverage or accepting a new
+production truth record:
 
 1. Local regression: `./infra/scripts/ci-local.sh`
 2. PostgreSQL RLS probe suite with `RLS_TEST_DATABASE_URL` set, or the
    disposable database path created by `verify-rec-migration.sh --execute`.
 3. Production-like migration verification: `./infra/scripts/verify-rec-migration.sh --remote`
-4. Metadata-only evidence scan for specs, tests, scripts, and deployment notes.
+4. Production read-only state inspection:
+   `python3 apps/server/scripts/verify_rls_hardening.py --production-read-only`
+5. Metadata-only evidence scan for specs, tests, scripts, and deployment notes.
 
 Required probe categories:
 
@@ -49,12 +53,29 @@ reason before retrying.
 
 ## Live Production Decision
 
-After local, PostgreSQL, and production-like gates pass, the only allowed
-status is `ready_for_operator_decision=true`. Live production enforcement
-requires a separate explicit operator decision and fresh metadata-only evidence.
+Current production truth is accepted only from metadata-only state inspection,
+not from destructive probes. The 2026-06-15 inspection showed:
 
-Expected safe default:
+- deploy path: `/opt/projects/2brain-rec`;
+- deployed commit: `3fd2162`;
+- Alembic revision: `0005_rls_hardening`;
+- covered tables: all enabled and forced through PostgreSQL catalog metadata.
+
+Expected production read-only success:
 
 ```text
-live_production_enforcement=not_changed
+production_rls_state_result=pass
+environment=live_production
+live_production_probe=read_only_metadata
+live_production_enforcement=enabled
+```
+
+Expected test/disposable safe default when no PostgreSQL test database is
+provided:
+
+```text
+rls_validation_result=blocked
+environment=postgres_test
+live_production_probe=not_attempted
+live_production_enforcement=not_inspected
 ```

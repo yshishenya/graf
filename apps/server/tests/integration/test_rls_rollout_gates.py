@@ -18,7 +18,7 @@ def test_rls_validation_report_passes_only_when_all_required_probes_pass() -> No
     report = RLSValidationReport(environment="postgres_test", probes=_passing_probes())
 
     assert report.validation_result == "pass"
-    assert report.ready_for_operator_decision is True
+    assert report.ready_for_production_truth is True
 
 
 def test_rls_validation_report_blocks_missing_or_failed_probes() -> None:
@@ -32,7 +32,7 @@ def test_rls_validation_report_blocks_missing_or_failed_probes() -> None:
     assert REQUIRED_RLS_PROBES[-1] in report.blocking_reasons
 
 
-def test_live_production_enforcement_requires_separate_explicit_decision() -> None:
+def test_live_production_enforcement_requires_read_only_state() -> None:
     report = RLSValidationReport(
         environment="live_production",
         probes=_passing_probes(),
@@ -40,5 +40,5 @@ def test_live_production_enforcement_requires_separate_explicit_decision() -> No
     )
 
     assert report.validation_result == "blocked"
-    assert "live_production_decision_required" in report.blocking_reasons
-    assert report.live_production_enforcement == "not_changed"
+    assert "production_read_only_state_required" in report.blocking_reasons
+    assert report.live_production_enforcement == "not_inspected"
