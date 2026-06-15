@@ -70,6 +70,9 @@ Semantic Versioning 2.0.0.
   context kinds at runtime (`feature:031`, `CR-004`, `CR-007`, `CR-008`).
 - Provider link conflict/rejected paths now commit metadata-only auth audit
   evidence before returning controlled error responses (`feature:031`, `CR-009`).
+- RLS validation now blocks before migrations or probes when
+  `RLS_TEST_DATABASE_URL` points at the live `twobrain_rec` database
+  (`feature:031`, `#734`, `#735`).
 
 ### Docs
 
