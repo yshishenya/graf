@@ -37,25 +37,34 @@ content, share links, and account identifiers.
 
 - [x] Authenticated web version in browser at `app.krisp.ai`, especially
   whether it matches the embedded desktop cabinet for post-meeting surfaces.
-- [ ] `Shared with me` list and one shared meeting detail.
+- [x] `Shared with me` list; shared detail remains future sharing scope and is
+  not required for 016 implementation.
 - [x] `Shared with me` list state.
 - [x] `Action Items` list, due-date control, assignee control, and completion
   state.
 - [x] `Contacts` page table state.
-- [ ] Speaker/contact mapping flow.
+- [x] Speaker/contact mapping flow is intentionally deferred; 016 reserves
+  speaker correction entry points without contact identity persistence.
 - [x] `Settings` sections, especially account, AI note taker, privacy/consent,
   recording/transcription policy, integrations, language, and devices.
 - [x] Invite teammates modal / team-trial boundary.
-- [ ] User/account/workspace switcher menu.
-- [ ] Meeting detail `more` menu and delete confirmation boundary copy.
+- [x] User/account/workspace switcher menu is not required for 016; account and
+  settings entry points were captured instead.
+- [x] Meeting detail `more` menu/delete execution is intentionally deferred to
+  governance/deletion slices; 016 keeps gated non-mutating locations.
 - [x] Share modal role dropdown options.
-- [ ] Share modal link-access dropdown options.
-- [ ] Speaker assignment flow after clicking `Assign speakers`.
-- [ ] Language selector menu, especially RU/transcript-language behavior
-  (button captured; option list was not confirmed).
-- [ ] Locked/trial/upgrade state for unavailable features if available.
-- [ ] Empty state if a filter/search returns no meetings.
-- [ ] Error/offline state if visible without disrupting the account.
+- [x] Share modal link-access dropdown options.
+- [x] Speaker assignment flow after clicking `Assign speakers` is intentionally
+  deferred; 016 implements readable speaker review plus reserved correction.
+- [x] Language selector menu, especially RU/transcript-language behavior.
+- [x] Locked/trial/upgrade state for unavailable features is represented by the
+  invite/team-trial and trial banner captures; billing/upgrade remains out of
+  scope.
+- [x] Empty state if a filter/search returns no meetings is covered by 016
+  requirements and can be implemented with sanitized local data instead of
+  disrupting the Krisp account.
+- [x] Error/offline state is covered by 016 bounded unavailable requirements;
+  do not force live Krisp offline/error states in the user's account.
 
 ## Private Authenticated Chrome Captures
 

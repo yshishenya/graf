@@ -90,7 +90,10 @@ specs/016-meeting-dashboard-review/
 │   ├── embedded-meeting-route-contract.md
 │   └── meeting-review-ui-state-contract.md
 ├── checklists/
-│   └── requirements.md
+│   ├── requirements.md
+│   ├── security.md
+│   ├── ux.md
+│   └── infra.md
 ├── research/
 │   ├── reference-audit.md
 │   ├── desktop-screenshot-checklist.md
