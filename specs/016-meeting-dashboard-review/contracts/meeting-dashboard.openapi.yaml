@@ -1,0 +1,420 @@
+openapi: 3.1.0
+info:
+  title: 2brain Rec Meeting Dashboard API
+  version: 0.1.0
+  description: Content-safe meeting list and authorized meeting review contracts for feature 016.
+servers:
+  - url: /api/v1
+security:
+  - legacyHeaderAuth: []
+paths:
+  /cabinet/meetings:
+    get:
+      summary: List authorized meetings for the active workspace
+      operationId: listCabinetMeetings
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 120
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/MeetingReviewStatus"
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [updated_desc, updated_asc, started_desc, started_asc, duration_desc, duration_asc]
+            default: updated_desc
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Authorized meeting rows only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingListResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /cabinet/meetings/{meeting_id}:
+    get:
+      summary: Get authorized meeting review detail
+      operationId: getCabinetMeetingReview
+      parameters:
+        - name: meeting_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Authorized meeting review detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingReviewResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          description: Privacy-preserving not found or denied response
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  securitySchemes:
+    legacyHeaderAuth:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: Existing development/session auth context also requires X-Organization-Id, X-Workspace-Id, and X-Device-Id or an accepted session token.
+  responses:
+    Problem:
+      description: Content-safe problem response
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: object
+      required: [title, status, code]
+      properties:
+        type:
+          type: string
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+          nullable: true
+        request_id:
+          type: string
+          nullable: true
+    MeetingReviewStatus:
+      type: string
+      enum:
+        - local_only
+        - uploading
+        - submitted
+        - processing
+        - ready
+        - partial
+        - blocked
+        - failed
+        - unavailable
+        - deleted_future
+    MeetingListResponse:
+      type: object
+      required: [items, filters, generated_at]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeetingListItem"
+        filters:
+          $ref: "#/components/schemas/MeetingFilterState"
+        generated_at:
+          type: string
+          format: date-time
+    MeetingFilterState:
+      type: object
+      required: [q, status, sort]
+      properties:
+        q:
+          type: string
+          nullable: true
+        status:
+          allOf:
+            - $ref: "#/components/schemas/MeetingReviewStatus"
+          nullable: true
+        sort:
+          type: string
+    MeetingListItem:
+      type: object
+      required:
+        - meeting_id
+        - title
+        - duration_seconds
+        - status
+        - status_label
+        - primary_action
+        - transcript_available
+        - diarization_available
+        - governance
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+        duration_seconds:
+          type: integer
+          minimum: 0
+        source:
+          type: string
+          enum: [desktop_recording, manual_upload, unknown]
+        status:
+          $ref: "#/components/schemas/MeetingReviewStatus"
+        status_label:
+          type: string
+        status_reason:
+          type: string
+          nullable: true
+        primary_action:
+          type: string
+          enum: [open, wait, retry_future, open_status, unavailable]
+        transcript_available:
+          type: boolean
+        diarization_available:
+          type: boolean
+        notes_available:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        governance:
+          $ref: "#/components/schemas/GovernanceActionSummary"
+    MeetingReviewResponse:
+      type: object
+      required: [meeting, processing, transcript, speakers, notes, governance, assistant, template]
+      properties:
+        meeting:
+          $ref: "#/components/schemas/MeetingListItem"
+        provenance:
+          $ref: "#/components/schemas/MeetingProvenance"
+        processing:
+          $ref: "#/components/schemas/ProcessingReviewState"
+        transcript:
+          $ref: "#/components/schemas/TranscriptReviewState"
+        speakers:
+          $ref: "#/components/schemas/SpeakerReviewState"
+        notes:
+          $ref: "#/components/schemas/NotesReviewState"
+        playback:
+          $ref: "#/components/schemas/PlaybackReviewState"
+        governance:
+          $ref: "#/components/schemas/GovernanceActionSummary"
+        assistant:
+          $ref: "#/components/schemas/SlotState"
+        template:
+          $ref: "#/components/schemas/SlotState"
+    MeetingProvenance:
+      type: object
+      properties:
+        source_roles:
+          type: array
+          items:
+            type: string
+            enum: [local_microphone, incoming_system, unknown]
+        processing_dependency:
+          type: string
+          nullable: true
+        content_policy:
+          type: string
+    ProcessingReviewState:
+      type: object
+      required: [state, content_available, transcript_available, diarization_available, summary_available]
+      properties:
+        state:
+          $ref: "#/components/schemas/MeetingReviewStatus"
+        stage:
+          type: string
+          nullable: true
+        reason_code:
+          type: string
+          nullable: true
+        reason_label:
+          type: string
+          nullable: true
+        content_available:
+          type: boolean
+        transcript_available:
+          type: boolean
+        diarization_available:
+          type: boolean
+        summary_available:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    TranscriptReviewState:
+      type: object
+      required: [available, segments]
+      properties:
+        available:
+          type: boolean
+        language:
+          type: string
+          nullable: true
+        degraded_reason:
+          type: string
+          nullable: true
+        search_enabled:
+          type: boolean
+        segments:
+          type: array
+          items:
+            $ref: "#/components/schemas/TranscriptSegmentView"
+    TranscriptSegmentView:
+      type: object
+      required: [segment_id, sequence, start_seconds, end_seconds, timestamp_label, speaker_label, source_role, text]
+      properties:
+        segment_id:
+          type: string
+        sequence:
+          type: integer
+        start_seconds:
+          type: number
+        end_seconds:
+          type: number
+        timestamp_label:
+          type: string
+        speaker_label:
+          type: string
+        source_role:
+          type: string
+          enum: [local_microphone, incoming_system, unknown]
+        text:
+          type: string
+          description: Present only in authorized detail responses; never returned in list, logs, or diagnostics.
+        confidence_label:
+          type: string
+          nullable: true
+    SpeakerReviewState:
+      type: object
+      required: [available, assignment_state, speakers]
+      properties:
+        available:
+          type: boolean
+        assignment_state:
+          type: string
+          enum: [available, reserved, disabled, conflict_future, unavailable]
+        degraded_reason:
+          type: string
+          nullable: true
+        speakers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpeakerLane"
+    SpeakerLane:
+      type: object
+      required: [speaker_key, label, talk_time_percent, segments]
+      properties:
+        speaker_key:
+          type: string
+        label:
+          type: string
+        talk_time_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        source_roles:
+          type: array
+          items:
+            type: string
+        segments:
+          type: array
+          items:
+            type: object
+            required: [start_seconds, end_seconds]
+            properties:
+              start_seconds:
+                type: number
+              end_seconds:
+                type: number
+    NotesReviewState:
+      type: object
+      required: [available, sections, unavailable_reason]
+      properties:
+        available:
+          type: boolean
+        unavailable_reason:
+          type: string
+          enum: [none, not_requested, processing, generation_future, partial_transcript, policy_blocked]
+        sections:
+          type: array
+          items:
+            type: object
+    PlaybackReviewState:
+      type: object
+      properties:
+        available:
+          type: boolean
+        duration_seconds:
+          type: integer
+        speed_options:
+          type: array
+          items:
+            type: number
+    GovernanceActionSummary:
+      type: object
+      required: [share, export, download, retention, delete]
+      properties:
+        share:
+          $ref: "#/components/schemas/GovernanceActionState"
+        export:
+          $ref: "#/components/schemas/GovernanceActionState"
+        download:
+          $ref: "#/components/schemas/GovernanceActionState"
+        retention:
+          $ref: "#/components/schemas/GovernanceActionState"
+        delete:
+          $ref: "#/components/schemas/GovernanceActionState"
+    GovernanceActionState:
+      type: object
+      required: [state, label, destructive]
+      properties:
+        state:
+          type: string
+          enum: [available, disabled, planned, policy_blocked, browser_handoff, out_of_scope]
+        label:
+          type: string
+        reason:
+          type: string
+          nullable: true
+        destructive:
+          type: boolean
+    SlotState:
+      type: object
+      required: [state, label]
+      properties:
+        state:
+          type: string
+          enum: [available, disabled, planned, policy_blocked, out_of_scope]
+        label:
+          type: string
+        reason:
+          type: string
+          nullable: true
