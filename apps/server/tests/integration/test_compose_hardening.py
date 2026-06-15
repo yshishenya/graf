@@ -5,6 +5,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).parents[4]
 COMPOSE_PATH = REPO_ROOT / "infra/docker-compose.yml"
+ENV_TEMPLATE_PATH = REPO_ROOT / "infra/env/rec.production.env.example"
 DOCKERFILE_PATH = REPO_ROOT / "infra/server/Dockerfile"
 CONSTRAINTS_PATH = REPO_ROOT / "apps/server/constraints.txt"
 UV_LOCK_PATH = REPO_ROOT / "apps/server/uv.lock"
@@ -12,6 +13,16 @@ UV_LOCK_PATH = REPO_ROOT / "apps/server/uv.lock"
 
 def _compose() -> dict:
     return yaml.safe_load(COMPOSE_PATH.read_text())
+
+
+def _active_env_template_keys() -> set[str]:
+    keys: set[str] = set()
+    for line in ENV_TEMPLATE_PATH.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        keys.add(stripped.split("=", maxsplit=1)[0])
+    return keys
 
 
 def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> None:
@@ -27,7 +38,15 @@ def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> N
 def test_production_compose_sets_log_rotation_and_resource_limits_for_services() -> None:
     compose = _compose()
 
-    for service_name in ["rec-api", "rec-migrate", "rec-postgres", "rec-minio", "rec-minio-init"]:
+    for service_name in [
+        "rec-api",
+        "rec-migrate",
+        "rec-postgres",
+        "rec-minio",
+        "rec-minio-init",
+        "rec-temporal",
+        "rec-processing-worker",
+    ]:
         service = compose["services"][service_name]
         assert service["logging"]["driver"] == "json-file"
         assert service["logging"]["options"]["max-size"] == "10m"
@@ -102,3 +121,55 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
 
     postgres = compose["services"]["rec-postgres"]
     assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])
+
+
+def test_production_env_template_does_not_broadcast_service_specific_secret_files() -> None:
+    active_keys = _active_env_template_keys()
+
+    assert active_keys.isdisjoint(
+        {
+            "TWOBRAIN_MINIO_ROOT_USER_FILE",
+            "TWOBRAIN_MINIO_ROOT_PASSWORD_FILE",
+            "TWOBRAIN_SMOKE_CREDENTIAL_FILE",
+            "TWOBRAIN_MEDIASCRIBE_CREDENTIAL_FILE",
+            "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE",
+            "TWOBRAIN_LANGFUSE_CREDENTIAL_FILE",
+        }
+    )
+
+
+def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() -> None:
+    compose = _compose()
+    temporal = compose["services"]["rec-temporal"]
+    temporal_env = temporal["environment"]
+    entrypoint = "\n".join(temporal["entrypoint"])
+
+    assert temporal_env["DB"] == "postgres12"
+    assert temporal_env["DB_PORT"] == "5432"
+    assert temporal_env["POSTGRES_SEEDS"] == "rec-postgres"
+    assert temporal_env["POSTGRES_USER"] == "twobrain_rec"
+    assert temporal_env["DBNAME"] == "temporal"
+    assert temporal_env["VISIBILITY_DBNAME"] == "temporal_visibility"
+    assert "POSTGRES_PWD" not in temporal_env
+    assert temporal["user"] == "root"
+    assert 'POSTGRES_PWD="$$(cat /run/secrets/twobrain_postgres_password)"' in entrypoint
+    assert "/etc/temporal/entrypoint.sh autosetup" in entrypoint
+    assert {"source": "twobrain_postgres_password", "target": "twobrain_postgres_password"} in temporal["secrets"]
+    assert temporal["depends_on"]["rec-postgres"]["condition"] == "service_healthy"
+
+
+def test_production_processing_worker_can_read_local_file_secrets() -> None:
+    compose = _compose()
+    api = compose["services"]["rec-api"]
+    worker = compose["services"]["rec-processing-worker"]
+    api_secret_sources = {secret["source"] for secret in api["secrets"]}
+
+    assert "twobrain_mediascribe_api_key" not in api_secret_sources
+    assert worker["user"] == "root"
+    assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
+
+
+def test_remote_cd_blocks_static_postgres_pwd_in_compose_config() -> None:
+    script = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
+
+    assert "POSTGRES_PWD:" in script

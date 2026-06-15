@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from uuid import UUID
 
@@ -56,6 +57,28 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     versions = ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions"
     assert (versions / "0001_ingest_foundation.py").exists()
     assert (versions / "0002_access_placeholders.py").exists()
+    assert (versions / "0004_mediascribe_processing_pipeline.py").exists()
+
+
+def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -> None:
+    migration = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/db/migrations/versions/0004_mediascribe_processing_pipeline.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'name="uq_mediascribe_jobs_workspace_meeting"' in migration
+    assert 'name="uq_mediascribe_jobs_workspace_external_job"' in migration
+
+
+def test_alembic_revision_ids_fit_default_version_table_length() -> None:
+    versions = ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions"
+
+    for migration_path in versions.glob("*.py"):
+        migration = migration_path.read_text(encoding="utf-8")
+        match = re.search(r'^revision: str = "([^"]+)"', migration, re.MULTILINE)
+
+        assert match is not None, migration_path.name
+        assert len(match.group(1)) <= 32, migration_path.name
 
 
 def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:
@@ -90,8 +113,10 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, m
             headers=headers,
             json={"local_recording_id": "migrated-clean-db", "duration_seconds": 60},
         )
+        openapi = test_client.get("/openapi.json")
 
     get_settings.cache_clear()
     asyncio.run(engine.dispose())
     assert ready.status_code == 200
     assert meeting.status_code == 200
+    assert "/api/v1/meetings/{meeting_id}/processing" in openapi.json()["paths"]

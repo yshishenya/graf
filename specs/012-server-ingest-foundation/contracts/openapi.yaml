@@ -1578,6 +1578,139 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/internal/processing/pickup:
+    post:
+      tags:
+      - processing
+      summary: Trigger Processing Pickup
+      operationId: trigger_processing_pickup_api_v1_internal_processing_pickup_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessingPickupRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingPickupResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/meetings/{meeting_id}/processing:
+    get:
+      tags:
+      - processing
+      summary: Get Processing Status
+      operationId: get_processing_status_api_v1_meetings__meeting_id__processing_get
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingStatusResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AbortUploadRequest:
@@ -2187,12 +2320,123 @@ components:
       - status
       - code
       title: Problem
+    ProcessingPickupRequest:
+      properties:
+        meeting_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Meeting Id
+        limit:
+          type: integer
+          maximum: 100.0
+          minimum: 1.0
+          title: Limit
+          default: 25
+      type: object
+      title: ProcessingPickupRequest
+    ProcessingPickupResponse:
+      properties:
+        accepted:
+          type: boolean
+          title: Accepted
+        started_count:
+          type: integer
+          minimum: 0.0
+          title: Started Count
+        reused_count:
+          type: integer
+          minimum: 0.0
+          title: Reused Count
+        blocked_count:
+          type: integer
+          minimum: 0.0
+          title: Blocked Count
+        meeting_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          title: Meeting Ids
+      type: object
+      required:
+      - accepted
+      - started_count
+      - reused_count
+      - blocked_count
+      title: ProcessingPickupResponse
     ProcessingStatus:
       type: string
       enum:
       - not_submitted
       - pending_processing
+      - starting
+      - workflow_started
+      - submitting
+      - submitted
+      - polling
+      - importing
+      - processed
+      - blocked
+      - failed_retryable
+      - failed_terminal
+      - canceled
       title: ProcessingStatus
+    ProcessingStatusResponse:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        state:
+          $ref: '#/components/schemas/ProcessingStatus'
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+        workflow_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workflow Id
+        mediascribe_job_id_present:
+          type: boolean
+          title: Mediascribe Job Id Present
+          default: false
+        content_available:
+          type: boolean
+          title: Content Available
+          default: false
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        summary_status:
+          type: string
+          title: Summary Status
+          default: not_requested
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+      type: object
+      required:
+      - meeting_id
+      - workspace_id
+      - state
+      title: ProcessingStatusResponse
     ReadyDetailResponse:
       properties:
         status:

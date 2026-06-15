@@ -5,8 +5,11 @@ REPO_ROOT = Path(__file__).parents[4]
 
 
 def _run_script(path: str, *args: str, env: dict[str, str] | None = None) -> str:
+    command = [str(REPO_ROOT / path), *args]
+    if path.endswith(".sh"):
+        command = ["sh", *command]
     result = subprocess.run(
-        [str(REPO_ROOT / path), *args],
+        command,
         check=True,
         text=True,
         capture_output=True,

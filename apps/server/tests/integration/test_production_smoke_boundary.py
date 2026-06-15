@@ -47,6 +47,14 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert "cat $SMOKE_TOKEN_FILE" not in script
 
 
+def test_remote_cd_deploys_processing_runtime_services() -> None:
+    script = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
+
+    assert "docker compose -f infra/docker-compose.yml up -d --build" in script
+    assert "rec-temporal" in script
+    assert "rec-processing-worker" in script
+
+
 def test_issue_smoke_auth_session_dry_run_never_writes_raw_token(tmp_path: Path) -> None:
     token_file = tmp_path / "smoke-token"
     script = REPO_ROOT / "apps/server/scripts/issue_smoke_auth_session.py"

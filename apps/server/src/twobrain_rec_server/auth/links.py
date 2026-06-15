@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import and_, distinct, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models import (
@@ -27,6 +28,14 @@ class LinkError(ValueError):
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(detail)
         self.code = code
+
+
+def _is_external_identity_unique_conflict(exc: IntegrityError) -> bool:
+    message = str(exc.orig).lower()
+    return (
+        "external_identities.provider" in message
+        and "external_identities.provider_subject" in message
+    ) or "external_identities_provider_provider_subject_key" in message
 
 
 async def _find_existing_identity(
@@ -176,20 +185,26 @@ async def link_provider_identity(
     if len(candidate_user_ids) > 1:
         raise LinkError("link_conflict", "multiple candidate users found")
 
-    record = ExternalIdentity(
-        user_id=user_id,
-        provider=provider,
-        provider_subject=provider_subject,
-        provider_username=None,
-        email=email,
-        phone=phone,
-        display_name=display_name,
-        is_verified=True,
-        last_seen_at=datetime.now(UTC),
-        meta={"expected_workspace_id": str(expected_workspace_id)},
-    )
-    db.add(record)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            record = ExternalIdentity(
+                user_id=user_id,
+                provider=provider,
+                provider_subject=provider_subject,
+                provider_username=None,
+                email=email,
+                phone=phone,
+                display_name=display_name,
+                is_verified=True,
+                last_seen_at=datetime.now(UTC),
+                meta={"expected_workspace_id": str(expected_workspace_id)},
+            )
+            db.add(record)
+            await db.flush()
+    except IntegrityError as exc:
+        if _is_external_identity_unique_conflict(exc):
+            raise LinkError("link_conflict", "provider identity already linked to another user") from exc
+        raise
     return LinkResult(
         status="confirmed",
         user_id=user_id,

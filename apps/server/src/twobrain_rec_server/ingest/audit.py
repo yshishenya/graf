@@ -4,6 +4,13 @@ from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.store import AuditEvent
 from twobrain_rec_server.observability.redaction import redact_mapping
 
+DENIED_ACCESS_METADATA_KEYS = {
+    "request_class",
+    "feature_area",
+    "reason_category",
+    "validation_outcome",
+}
+
 
 def _truncate_metadata(value: object) -> object:
     if isinstance(value, str):
@@ -37,3 +44,13 @@ def record_audit_event(
     )
     store_module.store.audit_events.append(event)
     return event
+
+
+def denied_access_metadata(**values: object) -> dict[str, object]:
+    return redact_mapping(
+        {
+            key: _truncate_metadata(value)
+            for key, value in values.items()
+            if key in DENIED_ACCESS_METADATA_KEYS
+        }
+    )

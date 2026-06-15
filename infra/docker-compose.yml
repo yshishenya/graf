@@ -60,6 +60,98 @@ services:
     networks:
       - rec-private
 
+  rec-processing-worker:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: unless-stopped
+    user: root
+    env_file:
+      - ./env/rec.production.env.example
+    environment:
+      TWOBRAIN_ENV: production
+      TWOBRAIN_PROCESSING_ENABLED: "true"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_SECRET_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_api_access_key
+      TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
+    secrets:
+      - source: twobrain_postgres_password
+        target: twobrain_postgres_password
+      - source: twobrain_minio_api_access_key
+        target: twobrain_minio_api_access_key
+      - source: twobrain_minio_api_secret_key
+        target: twobrain_minio_api_secret_key
+      - source: twobrain_mediascribe_api_key
+        target: twobrain_mediascribe_api_key
+    command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
+    depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
+      rec-temporal:
+        condition: service_started
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    networks:
+      - rec-private
+
+  rec-temporal:
+    image: temporalio/auto-setup:1.27.2
+    restart: unless-stopped
+    user: root
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: rec-postgres
+      POSTGRES_USER: twobrain_rec
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    secrets:
+      - source: twobrain_postgres_password
+        target: twobrain_postgres_password
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        export POSTGRES_PWD="$$(cat /run/secrets/twobrain_postgres_password)"
+        exec /etc/temporal/entrypoint.sh autosetup
+    depends_on:
+      rec-postgres:
+        condition: service_healthy
+    expose:
+      - "7233"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    networks:
+      - rec-private
+
   rec-migrate:
     build:
       context: ..
@@ -235,3 +327,5 @@ secrets:
     file: ${TWOBRAIN_MINIO_API_SECRET_KEY_FILE:-./secrets/twobrain_minio_api_secret_key}
   twobrain_smoke_credential:
     file: ${TWOBRAIN_SMOKE_CREDENTIAL_FILE:-./secrets/twobrain_smoke_credential}
+  twobrain_mediascribe_api_key:
+    file: ${TWOBRAIN_MEDIASCRIBE_API_KEY_FILE:-./secrets/twobrain_mediascribe_api_key}

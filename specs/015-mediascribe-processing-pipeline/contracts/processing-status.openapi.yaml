@@ -1,0 +1,172 @@
+openapi: 3.1.0
+info:
+  title: 2brain Rec Processing Status API
+  version: 0.1.0
+  description: Content-safe processing status contract for feature 015.
+paths:
+  /api/v1/meetings/{meeting_id}/processing:
+    get:
+      summary: Get content-safe processing status for one meeting
+      operationId: getMeetingProcessingStatus
+      parameters:
+        - name: meeting_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Processing status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingStatusResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /api/v1/internal/processing/pickup:
+    post:
+      summary: Trigger processing pickup for eligible finalized meetings
+      operationId: triggerProcessingPickup
+      description: Internal/operator endpoint or worker hook; must be tenant/service authorized.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcessingPickupRequest"
+      responses:
+        "202":
+          description: Pickup accepted or duplicate workflow reused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingPickupResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+components:
+  schemas:
+    ProcessingState:
+      type: string
+      enum:
+        - not_submitted
+        - starting
+        - workflow_started
+        - submitting
+        - submitted
+        - polling
+        - importing
+        - processed
+        - blocked
+        - failed_retryable
+        - failed_terminal
+        - canceled
+    ProcessingStatusResponse:
+      type: object
+      required:
+        - meeting_id
+        - workspace_id
+        - state
+        - content_available
+        - transcript_available
+        - diarization_available
+        - summary_status
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/ProcessingState"
+        reason_code:
+          type: string
+          nullable: true
+        workflow_id:
+          type: string
+          nullable: true
+          description: Non-sensitive workflow id only.
+        mediascribe_job_id_present:
+          type: boolean
+        content_available:
+          type: boolean
+        transcript_available:
+          type: boolean
+        diarization_available:
+          type: boolean
+        summary_status:
+          type: string
+          enum: [not_requested, available, unavailable, failed]
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    ProcessingPickupRequest:
+      type: object
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+    ProcessingPickupResponse:
+      type: object
+      required: [accepted, started_count, reused_count, blocked_count]
+      properties:
+        accepted:
+          type: boolean
+        started_count:
+          type: integer
+          minimum: 0
+        reused_count:
+          type: integer
+          minimum: 0
+        blocked_count:
+          type: integer
+          minimum: 0
+        meeting_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    Problem:
+      type: object
+      required: [title, status, code]
+      properties:
+        type:
+          type: string
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+          nullable: true
+        request_id:
+          type: string
+          nullable: true
+  responses:
+    Problem:
+      description: Problem detail response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"

@@ -12,6 +12,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.tenant_context import (
+    MaintenanceTenantContext,
+    apply_tenant_context_to_connection,
+)
 from twobrain_rec_server.deployment import build_smoke_identity_seed
 
 
@@ -43,6 +47,15 @@ async def cleanup_smoke_auth_session(
     rows_removed = 0
     try:
         async with engine.begin() as conn:
+            await apply_tenant_context_to_connection(
+                conn,
+                MaintenanceTenantContext(
+                    operation_name="production_smoke_cleanup",
+                    actor_id="cleanup_smoke_auth_session.py",
+                    reason_category="smoke_cleanup",
+                    feature_area="auth",
+                ),
+            )
             has_bindings = await _table_exists(conn, "auth_session_device_bindings")
             has_sessions = await _table_exists(conn, "auth_sessions")
             if not has_sessions:

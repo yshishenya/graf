@@ -1,6 +1,6 @@
 # Current Product Status
 
-Date: 2026-06-10
+Date: 2026-06-15
 
 This document is the short status source after accepting the local recording
 artifact-format slice and drafting the next architecture/product decisions. The
@@ -74,6 +74,24 @@ implementation record.
 - Feature `013-federated-auth-foundation` is implemented on the backend and
   provides provider-based auth, workspace membership, session, account linking,
   and registered-device identity scaffolding for later desktop upload.
+- Feature `015-mediascribe-processing-pipeline` is implemented as the first
+  server-side processing slice after accepted ingest. It adds durable
+  processing workflow/job/result/segment/audit/dependency tables, idempotent
+  `processing/<meeting_id>` workflow identity, internal pickup, server-side
+  dual-track MediaScribe submission from owner-controlled artifacts,
+  poll/import services, content-safe processing status, failure/retry
+  classification, restart-safe job reuse, and metadata-only dependency truth.
+  On 2026-06-11, `master` at `4cda38c` was deployed to
+  `2brain.dev:/opt/projects/2brain-rec` with the production processing worker
+  and Temporal services running. A real local app recording passed production
+  e2e through public upload/finalize, internal pickup, Temporal worker
+  processing, live MediaScribe submit/poll, result import, content-safe status,
+  and cleanup: workflow `processed`, MediaScribe job `ready`, result
+  `imported`, transcript and diarization available, dependency state
+  `mediascribe:imported`, and no cleanup residue.
+  Desktop clients still do not call MediaScribe, hold MediaScribe credentials,
+  receive signed dependency URLs, or receive transcript/audio/download surfaces
+  in this slice.
 - Feature `021-production-deployment-plan` is implemented as a remote-first
   infrastructure readiness slice for `2brain.dev` and `/opt/projects/2brain-rec`.
   It adds production Compose hardening, env/secret templates, remote backup,
@@ -81,6 +99,22 @@ implementation record.
   first-smoke evidence templates, cleanup accounting, and forbidden-content
   scans. The highest allowed successful status is `infra_smoke_ready`; this is
   not production readiness, user rollout readiness, or internal pilot readiness.
+- Feature `031-rls-hardening` is implemented and deployed as a backend tenant
+  isolation hardening slice. It adds PostgreSQL RLS policies for accepted
+  tenant-owned identity, auth/session/device, ingest, meeting, processing,
+  transcript, audit, and dependency tables; explicit request, worker,
+  auth-bootstrap, session-lookup, callback-lookup, and allowlisted maintenance
+  DB contexts; rollout/rollback validation helpers; and ADR `003` for future
+  tenant-owned tables. Production inspection on 2026-06-15 showed
+  `/opt/projects/2brain-rec` at commit `3fd2162`, Alembic
+  `0005_rls_hardening`, and every covered production table reporting
+  `relrowsecurity=true` plus `relforcerowsecurity=true`. It does not add
+  dashboard, share/download, retention, deletion execution, billing, admin UI,
+  desktop capture/upload, or new MediaScribe behavior.
+- Feature `032-rls-live-enforcement` corrects the stale `031` rollout truth:
+  production RLS enforcement is verified enabled and forced through read-only
+  PostgreSQL catalog metadata, while destructive same/cross-tenant probes
+  remain limited to disposable or explicit test databases.
 - Feature `025-system-audio-capture-pivot` is accepted as the macOS MVP
   recording path. It records local microphone plus incoming/system audio without
   requiring virtual device selection, preserves dual-track local artifacts, and
@@ -127,12 +161,14 @@ implementation record.
 - Driver live virtual-device publication is not accepted for MVP recording and
   must not be revived without a separate future advanced-routing spec,
   implementation, and safety evidence.
-- Desktop upload queue wiring, MediaScribe transcription, dashboard notes,
-  Temporal workflow starts, server retention, and deletion workflows are not
-  accepted yet.
+- Dashboard notes/review, share/download surfaces, server retention, and
+  deletion workflows are not accepted yet.
 - The `012` backend foundation exists as a repository implementation with
   `021` remote-first infrastructure smoke readiness scaffolding; real user
   rollout and desktop uploader slices are still not accepted.
+- Production RLS coverage is accepted only for the `031` covered table
+  inventory. Future tenant-owned tables and product surfaces still need their
+  own ADR `003` classification, tests, and metadata-only evidence before merge.
 - Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
   detect-and-ask, automatic naming, and future auto-record behavior have not
   been implemented or accepted.
@@ -155,48 +191,23 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `014-desktop-upload-queue`.
-`014` remains the next user-visible upload slice, but it depends on the
-user/session/workspace/device identity foundation from `013` unless a future
-spec explicitly accepts a narrower temporary identity path.
-The `021` deployment slice can be used as the infrastructure runbook baseline
-while these product slices remain separate.
+Recommended next feature: `016-meeting-dashboard-review`.
+`015` now provides backend processing state and imported transcript/diarization
+data, but intentionally exposes no dashboard meeting detail, transcript review,
+notes, playback, share, download, or deletion execution surface. `016` should
+turn the accepted processing state into a simple authorized review experience
+without weakening local recording visibility, one-action stop, metadata-only
+diagnostics, explicit egress policy, storage truth, or deletion accounting.
 
-Goal: turn the provider-neutral auth and tenant/device contracts from `012`
-into real user, workspace, session, and registered-device identity that can
-support a trusted macOS uploader later, without weakening local recording
-visibility, stop control, metadata-only diagnostics, explicit egress policy,
-storage truth, or deletion accounting.
-
-Recommended `014` scope:
-
-- Register the `013` identities into uploader session handoff and upload-status
-  transitions.
-- Send accepted local artifacts through `012` ingest with stable session/device
-  evidence.
-- Implement robust retry/degraded/fail semantics without silently dropping local
-  artifacts.
-- Keep local artifacts until definitive upload truth is known.
-
-Immediate follow-up after `013`:
-
-- `014-desktop-upload-queue`: macOS app picks up accepted local artifacts,
-  calls the `012` ingest API with `013` identity, shows
-  pending/uploading/retrying/uploaded/degraded/failed truth, retries safely,
-  and preserves local files until server status is known.
-- A remote `021` infrastructure smoke on `2brain.dev` can continue only within
-  the `infra_smoke_ready` boundary until product slices approve real users,
-  desktop upload, processing, dashboard, retention, and deletion behavior.
+A remote `021` infrastructure smoke on `2brain.dev` can continue only within
+the `infra_smoke_ready` boundary until dashboard, access, retention, deletion,
+and user rollout slices are separately accepted.
 
 Keep separate unless the next spec explicitly changes scope:
 
 - `014-desktop-upload-queue`: macOS app sends local recordings to the server,
   shows upload status, retries failures, and preserves local artifacts until
   upload truth is known.
-- `015-mediascribe-processing-pipeline`: server-side MediaScribe
-  submit/poll/result import from finalized ingested artifacts. This slice owns
-  starting the durable processing workflow after ingest finalization, using
-  internal meeting/upload/artifact identifiers and idempotent workflow IDs.
 - `016-meeting-dashboard-review`: web dashboard meeting list/detail,
   processing state, transcript, notes, playback, and review surfaces.
 - `017-access-sharing-downloads`: role-based meeting access, team visibility,
@@ -224,9 +235,6 @@ the current accepted implementation or `012` ingest slice.
 - `014-desktop-upload-queue`: make the macOS app send local artifacts to the
   server, show upload status, retry safely, and preserve local artifacts until
   upload truth is known.
-- `015-mediascribe-processing-pipeline`: start the durable processing workflow
-  after ingest, submit/poll/import MediaScribe results, and keep credentials
-  server-side.
 - `016-meeting-dashboard-review`: show meetings, processing state, transcript,
   notes, playback, and review surfaces.
 - `017-access-sharing-downloads`: add RBAC/team visibility, audio/transcript/
@@ -241,9 +249,10 @@ the current accepted implementation or `012` ingest slice.
   require unavailable hardware before claiming broad hardware speakerphone
   acceptance. Current automated acceptance covers persisted-package
   finalization behavior, not every physical device route.
-- `RLS-hardening`: if PostgreSQL Row-Level Security is deferred by `012` plan,
-  create a traceable task or GitHub issue candidate with compensating
-  application-level authorization checks.
+- `031-rls-hardening` / `032-rls-live-enforcement`: future tenant-owned tables
+  and product surfaces must follow ADR `003-tenant-isolation-rls`; destructive
+  RLS probes stay on disposable/test databases, and production truth must be
+  proven with read-only catalog metadata.
 - `direct-object-upload`: future upload optimization only after a separate
   security and lifecycle review; `012` remains `server_mediated`.
 - Browser/packaging evidence still pending: Yandex Browser smoke, long-duration

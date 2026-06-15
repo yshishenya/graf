@@ -20,6 +20,13 @@ REQUIRED_INGEST_TABLES = (
     "processing_placeholders",
     "temporary_upload_objects",
     "ingest_audit_events",
+    "processing_workflows",
+    "mediascribe_jobs",
+    "processing_results",
+    "transcript_segments",
+    "diarization_segments",
+    "processing_audit_events",
+    "processing_dependency_states",
 )
 
 
@@ -59,16 +66,30 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         except Exception:
             minio_status = "unreachable"
 
+    temporal_status = "not_required"
+    if settings.processing_enabled:
+        temporal_status = "configured" if settings.temporal_address else "missing"
+    mediascribe_status = "not_configured"
+    if settings.processing_enabled:
+        mediascribe_status = (
+            "configured"
+            if settings.mediascribe_base_url is not None and settings.mediascribe_api_key_file is not None
+            else "missing"
+        )
+    elif settings.mediascribe_base_url is not None:
+        mediascribe_status = "configured"
+
     checks = {
         "api_config": "ok",
         "postgres": postgres_status,
         "minio": minio_status,
         "ingest_limits": "configured",
-        "temporal": "not_required",
-        "mediascribe": "not_configured" if settings.mediascribe_base_url is None else "configured",
+        "processing": "enabled" if settings.processing_enabled else "disabled",
+        "temporal": temporal_status,
+        "mediascribe": mediascribe_status,
         "langfuse": "not_configured" if settings.langfuse_base_url is None else "configured",
     }
-    non_blocking_statuses = {"ok", "configured", "not_required", "not_configured"}
+    non_blocking_statuses = {"ok", "configured", "not_required", "not_configured", "disabled", "enabled"}
     status = "ready" if all(v in non_blocking_statuses for v in checks.values()) else "not_ready"
     return status, checks
 

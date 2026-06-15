@@ -385,3 +385,41 @@ specify extension list
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ./scripts/prepare-release.sh patch
 ```
+
+<!-- SPECKIT GITHUB ISSUE START -->
+## Правила GitHub issues
+
+- `tasks.md` остается источником правды по реализации.
+- GitHub issues используются как внешний трекер выполнения, review, PR-связей и evidence.
+- Все GitHub issue titles, issue bodies, status comments, closure comments и sync notes по умолчанию пиши на русском.
+- Пиши простым, понятным языком, чтобы текст был ясен не только инженерам, но и обычным участникам проекта.
+- Не создавай дубли GitHub issues. Сначала ищи существующие issue по номеру фичи, task ID, ссылке и заголовку.
+- Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй короткий комментарий с результатом проверки.
+- Если GitHub issue закрыт, но `tasks.md` еще открыт, сначала проверь реализацию и evidence, а не отмечай задачу выполненной молча.
+<!-- SPECKIT GITHUB ISSUE END -->
+
+<!-- SPECKIT LINEAR START -->
+## Linear Workflow Status
+
+Linear is excluded from the required Spec Kit workflow for this repository.
+
+Rules:
+
+- Do not treat missing Linear issues, Linear project sync, Linear comments, or
+  Linear usage-limit failures as implementation blockers.
+- Do not run Linear sync automatically during normal feature closure.
+- `tasks.md` remains the source of truth for implementation state.
+- GitHub issues created through `$speckit-taskstoissues` remain the required
+  external tracker for task traceability.
+- If old Linear links exist from earlier workflow runs, treat them as legacy
+  references only. Do not create duplicate Linear issues to fill historical
+  gaps unless the user explicitly re-enables Linear for a specific feature.
+
+Language rules for GitHub issues and comments:
+
+- All GitHub issues and issue comments should be written in Russian by default.
+- Use short, clear sentences with concrete acceptance criteria and validation
+  evidence.
+- Explain blockers as simple facts: what is blocked, why it is blocked, and
+  what exact action unblocks it.
+<!-- SPECKIT LINEAR END -->

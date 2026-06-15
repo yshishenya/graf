@@ -105,8 +105,15 @@ def test_production_reads_runtime_credentials_from_secret_files(tmp_path) -> Non
 def test_production_rejects_missing_secret_files(tmp_path) -> None:
     missing = tmp_path / "missing-secret"
 
-    with pytest.raises(ValidationError, match="Docker secret files"):
+    with pytest.raises(ValidationError, match="minio_secret_key_file"):
         _production_settings(minio_secret_key_file=missing)
+
+
+def test_production_missing_secret_error_names_field(tmp_path) -> None:
+    missing = tmp_path / "missing-smoke-secret"
+
+    with pytest.raises(ValidationError, match="smoke_credential_file"):
+        _production_settings(smoke_credential_file=missing)
 
 
 def test_production_rejects_non_internal_smoke_identity_class() -> None:

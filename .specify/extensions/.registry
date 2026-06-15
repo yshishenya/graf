@@ -16,7 +16,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-11T10:32:26.045183+00:00"
+      "installed_at": "2026-06-15T20:03:32.683753+00:00"
     },
     "git": {
       "version": "1.0.0",
@@ -41,7 +41,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-11T10:32:26.784518+00:00"
+      "installed_at": "2026-06-15T20:03:33.202169+00:00"
     },
     "github-issue-canon": {
       "version": "0.1.0",
@@ -62,7 +62,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-11T10:32:28.480348+00:00"
+      "installed_at": "2026-06-15T20:03:36.061621+00:00"
     }
   }
 }

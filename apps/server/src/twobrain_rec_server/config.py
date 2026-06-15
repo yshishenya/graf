@@ -57,9 +57,20 @@ class Settings(BaseSettings):
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None
     mediascribe_credential_file: Path | None = None
+    mediascribe_api_key_file: Path | None = None
+    mediascribe_request_timeout_seconds: PositiveInt = Field(default=30)
+    mediascribe_diarize: bool = True
+    mediascribe_summarize: bool = False
     langfuse_base_url: AnyUrl | None = None
     langfuse_health_url: AnyUrl | None = None
     langfuse_credential_file: Path | None = None
+
+    processing_enabled: bool = False
+    processing_poll_interval_seconds: PositiveInt = Field(default=5)
+    processing_max_poll_attempts: PositiveInt = Field(default=120)
+    temporal_address: str | None = None
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "twobrain-rec-processing"
 
     max_recording_duration_seconds: PositiveInt = Field(default=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
@@ -95,14 +106,32 @@ class Settings(BaseSettings):
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
-        for path in (
-            self.postgres_password_file,
-            self.minio_access_key_file,
-            self.minio_secret_key_file,
-            self.smoke_credential_file,
-        ):
-            if path is not None and not path.is_file():
-                raise ValueError("production Docker secret files must exist and be readable")
+        required_secret_files = {
+            "postgres_password_file": self.postgres_password_file,
+            "minio_access_key_file": self.minio_access_key_file,
+            "minio_secret_key_file": self.minio_secret_key_file,
+            "smoke_credential_file": self.smoke_credential_file,
+            "mediascribe_api_key_file": self.mediascribe_api_key_file if self.processing_enabled else None,
+        }
+        for field_name, path in required_secret_files.items():
+            if path is None:
+                continue
+            if not path.is_file():
+                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}")
+            try:
+                with path.open("r", encoding="utf-8"):
+                    pass
+            except OSError as exc:
+                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}") from exc
+        if self.processing_enabled:
+            if self.mediascribe_base_url is None:
+                raise ValueError("production processing requires mediascribe_base_url")
+            if self.mediascribe_api_key_file is None:
+                raise ValueError("production processing requires mediascribe_api_key_file")
+            if self.mediascribe_api_key_file.read_text(encoding="utf-8").strip() == "":
+                raise ValueError("production MediaScribe API key file must be non-empty")
+            if not self.temporal_address:
+                raise ValueError("production processing requires temporal_address")
         if self.postgres_password_file is not None:
             postgres_password = self.postgres_password_file.read_text(encoding="utf-8").strip()
             self.database_url = self.database_url.replace("__POSTGRES_PASSWORD__", quote(postgres_password, safe=""))

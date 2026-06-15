@@ -48,3 +48,19 @@ def forbidden(code: str = "forbidden", title: str = "Forbidden") -> ProblemDetai
 
 def not_found(code: str = "not_found", title: str = "Not found") -> ProblemDetail:
     return ProblemDetail(status=404, code=code, title=title)
+
+
+def tenant_context_missing(title: str = "Tenant context missing") -> ProblemDetail:
+    return ProblemDetail(status=403, code="tenant_context_missing", title=title)
+
+
+def tenant_scope_denied(title: str = "Tenant scope denied") -> ProblemDetail:
+    return ProblemDetail(status=403, code="tenant_scope_denied", title=title)
+
+
+def tenant_mutation_denied(title: str = "Tenant mutation denied") -> ProblemDetail:
+    return ProblemDetail(status=403, code="tenant_mutation_denied", title=title)
+
+
+def tenant_resource_not_found(title: str = "Not found") -> ProblemDetail:
+    return ProblemDetail(status=404, code="tenant_resource_not_found", title=title)
