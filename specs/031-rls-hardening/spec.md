@@ -23,6 +23,10 @@ cycle."
   bypass tenant isolation? -> A: No product UI setting and no product-level
   broad admin bypass. Only fixed, allowlisted, metadata-logged operator
   maintenance contexts are allowed for infrastructure tasks.
+- Q: How should RLS enforcement be rolled out? -> A: Use a gated rollout:
+  prove local and production-like validation first, then enable enforcement.
+  Do not enable hard enforcement before positive same-tenant and negative
+  cross-tenant probes pass.
 
 ## Product Scope Boundary
 
@@ -50,6 +54,12 @@ lets a workspace admin, organization admin, or product UI user bypass tenant
 isolation. Any broader-than-workspace access is limited to fixed operator
 maintenance contexts for infrastructure tasks, outside product UI, with
 metadata-only evidence.
+
+This feature treats enforcement as a gated operational step, not as a migration
+that may be enabled blindly. Hard enforcement is ready only after local and
+production-like validation prove same-tenant flows still work, cross-tenant and
+missing-context access fails closed, and rollout/halt/rollback instructions are
+available.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -170,6 +180,9 @@ available if a gate fails.
    clearly instructed before production readiness is claimed.
 3. **Given** cross-tenant negative probes are executed, **When** hardening is
    active, **Then** all probes are denied or return no foreign tenant data.
+4. **Given** hard enforcement is requested before required validation passes,
+   **When** the rollout gate is evaluated, **Then** enforcement is blocked and
+   the evidence explains which gate is missing or failed.
 
 ---
 
@@ -265,10 +278,11 @@ public page, deletion execution, retention job, or new UI surface was added.
 - **FR-013**: Cross-tenant writes and deletes MUST be blocked in 100% of
   validation probes.
 - **FR-014**: Hardening rollout MUST include local and production-like
-  validation evidence before any production-readiness claim.
-- **FR-015**: Rollout evidence MUST include positive same-tenant probes,
-  negative cross-tenant probes, missing-context probes, worker-context probes,
-  and maintenance-context probes.
+  validation evidence before hard enforcement is enabled or any
+  production-readiness claim is made.
+- **FR-015**: Hard enforcement MUST remain blocked until positive same-tenant
+  probes, negative cross-tenant probes, missing-context probes, worker-context
+  probes, and maintenance-context probes pass.
 - **FR-016**: Migration and rollback guidance MUST distinguish safe rollout,
   halt, rollback, and manual-investigation outcomes.
 - **FR-017**: Logs, diagnostics, traces, validation evidence, and failure
@@ -352,7 +366,8 @@ public page, deletion execution, retention job, or new UI surface was added.
   metadata-only evidence, and 0 product UI/admin RBAC paths can disable tenant
   isolation.
 - **SC-008**: Rollout evidence includes pass/blocked verdicts for local and
-  production-like validation plus rollback or halt instructions for failures.
+  production-like validation, an explicit enforcement decision, and rollback or
+  halt instructions for failures.
 - **SC-009**: Secret/content scans over specs, plans, contracts, quickstart,
   evidence, tests, and logs find 0 raw audio, transcript text, credentials,
   tokens, signed URLs, passwords, or live secret paths.
