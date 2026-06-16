@@ -51,3 +51,21 @@ struct LowResourceAudioContractTestPlan {
         "recording_trigger"
     ]
 }
+
+struct MeetingMuteTruthContractTestPlan {
+    static let validationCommand = "swift run --package-path apps/macos ContractValidation"
+
+    static let allowedDecisions = [
+        "meeting_mute_unproven",
+        "unsupported",
+        "degraded",
+        "failed"
+    ]
+
+    static let requiredFixtureFiles = [
+        "pause-validated.json",
+        "unsupported.json",
+        "deferred.json",
+        "unsafe.json"
+    ]
+}

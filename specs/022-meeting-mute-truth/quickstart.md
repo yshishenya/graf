@@ -7,6 +7,18 @@
 - Microphone and Screen/System Audio permissions available for manual toggling.
 - Controlled non-sensitive meeting/audio sources for Zoom native,
   Chrome/Telemost, and Opera/Telemost.
+- For local desktop QA, install the staged app into the permissioned
+  `/Applications/2brain Rec.app` bundle before launch so macOS privacy
+  permissions remain attached to the same bundle path across repeated checks.
+  If a developer cannot write to `/Applications`, the helper can still be run
+  without `TWO_BRAIN_REC_USER_APP_DEST` to use `~/Applications`, but acceptance
+  evidence for this slice uses `/Applications`:
+
+```sh
+TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh
+TWO_BRAIN_REC_USER_APP_DEST="/Applications/2brain Rec.app" sh apps/macos/Installer/Scripts/install-user-app.sh
+open -n "/Applications/2brain Rec.app"
+```
 
 ## 1. Static Spec And Secret/Content Scan
 
@@ -48,14 +60,21 @@ After implementation, run:
 
 ```sh
 apps/macos/Scripts/validate-meeting-mute-truth.sh --fixtures
+apps/macos/Scripts/validate-meeting-mute-truth.sh --runtime-proof
 apps/macos/Scripts/validate-meeting-mute-truth.sh --latest-artifact-directory
 ```
 
 Expected:
 
 - fixture manifests pass the contract rules;
+- runtime proof creates a fresh synthetic local artifact through
+  `LocalRecordingWriter` with product Pause/Resume/Stop metadata;
 - latest local artifact reports product pause segments and mute-truth decision
   metadata without raw audio or meeting content.
+
+Note: `--runtime-proof` uses synthetic samples and metadata-safe modeled
+permissions. It proves the writer/manifest/validator path, not a human UI click
+through the desktop app.
 
 ## 4. Product Pause Manual Artifact Check
 

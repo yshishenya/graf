@@ -5,38 +5,50 @@ public struct DesktopCabinetWorkspaceView: View {
     public static let workspaceAccessibilityLabel = "Встречи и обзор записей"
     public static let unavailableTitle = "Кабинет встреч недоступен"
     public static let embeddedSurfaceHeight: CGFloat = 420
+    public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
 
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?
+    private let presentation: DesktopCabinetWorkspacePresentation
     @State private var cabinetState: DesktopCabinetState
 
     public init(
         configuration: DesktopCabinetConfiguration? = DesktopCabinetConfiguration.configuredFromEnvironment(),
         initialRoute: URL? = nil,
+        presentation: DesktopCabinetWorkspacePresentation = .card,
         initialState: DesktopCabinetState? = nil
     ) {
         self.configuration = configuration
         self.initialRoute = initialRoute
+        self.presentation = presentation
         _cabinetState = State(initialValue: initialState ?? (configuration == nil ? .notConfigured : .loading))
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let stack = VStack(alignment: .leading, spacing: 12) {
             header
             content
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
-        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Self.workspaceAccessibilityLabel)
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
+
+        switch presentation {
+        case .card:
+            stack
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                )
+        case .shell:
+            stack
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
     }
 
     private var header: some View {
@@ -57,17 +69,29 @@ public struct DesktopCabinetWorkspaceView: View {
     @ViewBuilder
     private var content: some View {
         if let configuration {
-            EmbeddedCabinetWebView(
+            let webView = EmbeddedCabinetWebView(
                 request: configuration.urlRequest(for: initialRoute ?? configuration.meetingsURL()),
                 routePolicy: DesktopCabinetRoutePolicy(baseURL: configuration.baseURL),
                 cabinetState: $cabinetState
             )
-            .frame(
-                maxWidth: .infinity,
-                minHeight: Self.embeddedSurfaceHeight,
-                maxHeight: Self.embeddedSurfaceHeight
-            )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.embeddedSurface)
+
+            switch presentation {
+            case .card:
+                webView
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: Self.embeddedSurfaceHeight,
+                        maxHeight: Self.embeddedSurfaceHeight
+                    )
+            case .shell:
+                webView
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: Self.shellEmbeddedSurfaceMinHeight,
+                        maxHeight: .infinity
+                    )
+            }
         } else {
             unavailableState
         }
@@ -83,7 +107,7 @@ public struct DesktopCabinetWorkspaceView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: presentation == .shell ? 360 : 160, alignment: .leading)
         .padding(14)
         .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -118,4 +142,9 @@ public struct DesktopCabinetWorkspaceView: View {
             return .orange
         }
     }
+}
+
+public enum DesktopCabinetWorkspacePresentation: Equatable, Sendable {
+    case card
+    case shell
 }

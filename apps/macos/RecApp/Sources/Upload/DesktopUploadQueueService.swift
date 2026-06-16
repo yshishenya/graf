@@ -565,18 +565,34 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
     public let pendingCount: Int
     public let totalCount: Int
 
+    public init(primaryItem: DesktopUploadQueueItem, pendingCount: Int, totalCount: Int) {
+        self.primaryItem = primaryItem
+        self.pendingCount = pendingCount
+        self.totalCount = totalCount
+    }
+
     public var title: String {
         pendingCount > 1
-            ? "\(primaryItem.state.displayName) + \(pendingCount - 1) more"
+            ? "\(primaryItem.state.displayName) + ещё \(pendingCount - 1)"
             : primaryItem.state.displayName
     }
 
     public var detail: String {
-        let progress = Int((primaryItem.progressFraction * 100).rounded())
         if let reason = primaryItem.failureReason, !reason.isEmpty {
-            return "\(progress)% - \(reason)"
+            return Self.failureReasonText(reason)
         }
-        return "\(progress)% - \(primaryItem.retryMode.displayName)"
+        return primaryItem.retryMode.displayName
+    }
+
+    private static func failureReasonText(_ reason: String) -> String {
+        switch reason {
+        case "local_recording_package_not_uploadable", "local_artifacts_not_uploadable":
+            return "нужна ручная проверка локальной записи"
+        case "automatic_retry_window_expired":
+            return "автоповтор остановлен"
+        default:
+            return "нужна проверка"
+        }
     }
 }
 

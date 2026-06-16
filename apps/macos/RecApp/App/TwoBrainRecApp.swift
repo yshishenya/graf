@@ -28,6 +28,7 @@ private struct ContentView: View {
     @State private var systemAudioPermissionAuthorizer = CoreGraphicsSystemAudioPermissionAuthorizer()
     @State private var systemAudioPermissionGate = SystemAudioPermissionGate()
     @State private var captureScopeApprovalService = CaptureScopeApprovalService()
+    @State private var meetingMuteTruthService = MeetingMuteTruthService()
     @State private var captureSession: CaptureSession?
     @State private var recordingBlocker: String?
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
@@ -52,69 +53,80 @@ private struct ContentView: View {
     let runCheck: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    CaptureControlView(
-                        session: captureSession,
-                        blockedReason: recordingBlocker,
-                        localRecordingStatus: localRecordingStatusText,
-                        localRecordingLocation: localRecordingLocation,
-                        uploadQueueItems: uploadQueueItems,
-                        cabinetConfiguration: desktopCabinetConfiguration,
-                        routeSignalLevels: liveRouteSignalLevels,
-                        recordDisabled: recordingStartInProgress || recordingStopInProgress,
-                        stopDisabled: recordingStartInProgress || recordingStopInProgress,
-                        onRecord: {
-                            Task { await startManualRecording() }
-                        },
-                        onStop: {
-                            Task { await stopManualRecording() }
-                        },
-                        onUploadRetry: { itemId in
-                            retryUpload(itemId: itemId)
-                        },
-                        onUploadStopRetry: { itemId in
-                            stopUploadRetry(itemId: itemId)
-                        },
-                        onUploadReview: { route in
-                            selectedCabinetRoute = route
-                        }
-                    )
-                    .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
-                    DesktopCabinetWorkspaceView(
-                        configuration: desktopCabinetConfiguration,
-                        initialRoute: selectedCabinetRoute
-                    )
-                    DisclosureGroup("Local audio readiness") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            DriverSetupView(
-                                driverState: snapshot.driverState,
-                                microphoneState: snapshot.virtualMicrophoneState,
-                                speakerState: snapshot.virtualSpeakerState,
-                                onInstall: refresh,
-                                onRepair: refresh
-                            )
-                            RouteVerificationView(
-                                snapshot: snapshot.routeVerification,
-                                canVerify: true,
-                                isVerifying: isChecking,
-                                onVerify: runCheck
-                            )
-                            AudioHealthView(state: snapshot.healthState)
-                            DiagnosticLogView(
-                                path: AppLog.fileURL.path,
-                                lastEvent: snapshot.lastEventSummary
-                            )
-                        }
-                        .padding(.top, 8)
-                    }
-                    .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.nativeShellRegion)
+        DesktopMeetingShellView(
+            session: captureSession,
+            uploadQueueItems: uploadQueueItems,
+            pendingUploadCount: uploadQueueItems.filter { !$0.state.isTerminal }.count,
+            cabinetConfigured: desktopCabinetConfiguration != nil,
+            statusSummary: snapshot.summary,
+            lastEventSummary: snapshot.lastEventSummary,
+            isChecking: isChecking,
+            onRefresh: refresh,
+            onRunCheck: runCheck
+        ) {
+            CaptureControlView(
+                session: captureSession,
+                blockedReason: recordingBlocker,
+                localRecordingStatus: localRecordingStatusText,
+                localRecordingLocation: localRecordingLocation,
+                muteTruthWarning: meetingMuteTruthWarningText,
+                uploadQueueItems: uploadQueueItems,
+                cabinetConfiguration: desktopCabinetConfiguration,
+                routeSignalLevels: liveRouteSignalLevels,
+                recordDisabled: recordingStartInProgress || recordingStopInProgress,
+                stopDisabled: recordingStartInProgress || recordingStopInProgress,
+                pauseDisabled: recordingStartInProgress || recordingStopInProgress,
+                onRecord: {
+                    Task { await startManualRecording() }
+                },
+                onStop: {
+                    Task { await stopManualRecording() }
+                },
+                onPause: {
+                    Task { await pauseManualRecording() }
+                },
+                onResume: {
+                    Task { await resumeManualRecording() }
+                },
+                onUploadRetry: { itemId in
+                    retryUpload(itemId: itemId)
+                },
+                onUploadStopRetry: { itemId in
+                    stopUploadRetry(itemId: itemId)
+                },
+                onUploadReview: { route in
+                    selectedCabinetRoute = route
                 }
-                .padding(18)
+            )
+            .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
+        } meetingsWorkspace: {
+            DesktopCabinetWorkspaceView(
+                configuration: desktopCabinetConfiguration,
+                initialRoute: selectedCabinetRoute,
+                presentation: .shell
+            )
+        } diagnosticsContent: {
+            VStack(alignment: .leading, spacing: 12) {
+                DriverSetupView(
+                    driverState: snapshot.driverState,
+                    microphoneState: snapshot.virtualMicrophoneState,
+                    speakerState: snapshot.virtualSpeakerState,
+                    onInstall: refresh,
+                    onRepair: refresh
+                )
+                RouteVerificationView(
+                    snapshot: snapshot.routeVerification,
+                    canVerify: true,
+                    isVerifying: isChecking,
+                    onVerify: runCheck
+                )
+                AudioHealthView(state: snapshot.healthState)
+                DiagnosticLogView(
+                    path: AppLog.fileURL.path,
+                    lastEvent: snapshot.lastEventSummary
+                )
             }
+            .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.nativeShellRegion)
         }
         .onAppear {
             passthroughCoordinator.recordLaunchState()
@@ -188,28 +200,6 @@ private struct ContentView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "waveform.badge.mic")
-                .font(.system(size: 28, weight: .semibold))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("2brain Rec")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text(snapshot.summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button(action: refresh) {
-                Image(systemName: "arrow.clockwise")
-            }
-            .accessibilityLabel("Refresh audio device status")
-            .help("Refresh audio device status")
-        }
-        .padding(18)
-    }
-
     @MainActor
     private func startManualRecording() async {
         guard !recordingStartInProgress, !recordingStopInProgress else { return }
@@ -231,7 +221,7 @@ private struct ContentView: View {
                 eligibleReason: .manualMeetingScope
             )
         } catch {
-            recordingBlocker = "Recording blocked: capture scope could not be approved."
+            recordingBlocker = "Запись не началась: не удалось подтвердить область записи."
             return
         }
         do {
@@ -241,7 +231,7 @@ private struct ContentView: View {
             )
             captureSession = preparing
         } catch {
-            recordingBlocker = "Recording blocked: \(recordingStartFailureMessage(for: error))"
+            recordingBlocker = "Запись не началась: \(recordingStartFailureMessage(for: error))"
             return
         }
         let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight(
@@ -302,6 +292,14 @@ private struct ContentView: View {
             ])
             let starting = try captureController.start()
             captureSession = starting
+            let targetMuteCapability = meetingMuteTruthService.capability(for: scopeApproval.sourceDisplayName)
+            let targetMuteEvidence = meetingMuteTruthService.evidence(
+                sessionId: starting.id,
+                capability: targetMuteCapability,
+                limitationCopyShown: true,
+                recordedAt: Date()
+            )
+            let limitationCopyShownAt = Date()
             _ = try await systemAudioCaptureService.start(
                 sessionId: starting.id,
                 permissionState: permissionGate.snapshot.systemAudio,
@@ -317,7 +315,10 @@ private struct ContentView: View {
                 sessionId: starting.id,
                 startedAt: Date(),
                 scopeApproval: scopeApproval,
-                permissions: permissionGate.snapshot
+                permissions: permissionGate.snapshot,
+                targetMuteCapability: targetMuteCapability,
+                meetingMuteTruthEvidence: [targetMuteEvidence],
+                limitationCopyShownAt: limitationCopyShownAt
             )
             localRecordingActive = true
             let active = try captureController.markCapturing()
@@ -348,7 +349,7 @@ private struct ContentView: View {
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
-            recordingBlocker = "Recording could not start: \(recordingStartFailureMessage(for: error))"
+            recordingBlocker = "Запись не началась: \(recordingStartFailureMessage(for: error))"
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "category=\(failureCategory.rawValue) error=\(error)"
@@ -416,32 +417,80 @@ private struct ContentView: View {
         if let writerError = error as? LocalRecordingWriterError {
             switch writerError {
             case .alreadyRecording:
-                return "a recording is already active."
+                return "запись уже идет."
             case .directoryUnavailable:
-                return "local recording storage is unavailable."
+                return "локальное хранилище недоступно."
             case .notRecording:
-                return "local recording was not active."
+                return "активной записи нет."
             }
         }
         if let captureError = error as? SystemAudioCaptureServiceError {
             switch captureError {
             case .permissionDenied:
-                return "Screen/System Audio permission is not granted."
+                return "нужен доступ к записи системного звука."
             case .alreadyRunning:
-                return "system audio capture is already running."
+                return "запись системного звука уже идет."
             case .scopeNotApproved:
-                return "the capture scope was not approved."
+                return "область записи не подтверждена."
             case .runtimeStartFailed:
-                return "macOS system audio capture could not start."
+                return "macOS не запустила запись системного звука."
             case .screenCaptureKitUnavailable:
-                return "ScreenCaptureKit is unavailable on this Mac."
+                return "запись системного звука недоступна на этом Mac."
             case .noShareableDisplay:
-                return "no shareable display was available for system audio capture."
+                return "нет доступного экрана для записи системного звука."
             case .notRunning:
-                return "system audio capture was not running."
+                return "запись системного звука не была активна."
             }
         }
-        return "\(error)"
+        return "нужна повторная попытка."
+    }
+
+    @MainActor
+    private func pauseManualRecording() async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        guard captureSession?.state == .active else { return }
+
+        do {
+            let pausedAt = Date()
+            try await localRecordingWriter.pausePrivacyAsync(startedAt: pausedAt)
+            let paused = try captureController.pause()
+            captureSession = paused
+            recordingBlocker = nil
+            AppLog.writeRaw(
+                event: "recording.pause_requested",
+                detail: "sessionId=\(paused.id) localMicTreatment=silenced stopAvailable=\(paused.stopActionAvailable)"
+            )
+        } catch {
+            recordingBlocker = "Не удалось поставить запись на паузу: \(error)"
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "pause_failed error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func resumeManualRecording() async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        guard captureSession?.state == .paused else { return }
+
+        do {
+            let resumedAt = Date()
+            try await localRecordingWriter.resumePrivacyAsync(endedAt: resumedAt)
+            let active = try captureController.resume()
+            captureSession = active
+            recordingBlocker = nil
+            AppLog.writeRaw(
+                event: "recording.resume_requested",
+                detail: "sessionId=\(active.id) localMicTreatment=capturing stopAvailable=\(active.stopActionAvailable)"
+            )
+        } catch {
+            recordingBlocker = "Не удалось продолжить запись: \(error)"
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "resume_failed error=\(error)"
+            )
+        }
     }
 
     @MainActor
@@ -505,7 +554,7 @@ private struct ContentView: View {
             )
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
-            recordingBlocker = "Recording could not stop cleanly: \(error)"
+            recordingBlocker = "Не удалось остановить запись: \(error)"
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "category=\(failureCategory.rawValue) error=\(error)"
@@ -667,50 +716,77 @@ private struct ContentView: View {
     }
 
     private func recordingBlockerText(for snapshot: RecordingPrerequisiteSnapshot) -> String {
-        let action = snapshot.recoveryAction ?? "Resolve blocker before recording"
+        let action = snapshot.recoveryAction.map(recoveryActionText) ?? "Проверьте состояние перед записью"
         switch snapshot.blockedReason {
         case .none:
             return ""
         case .routeNotReady, .publicationOnly:
-            return "Recording blocked: audio route is not ready. \(action)."
+            return "Запись не началась: звук еще не готов. \(action)."
         case .policyDisabled:
-            return "Recording blocked by policy. \(action)."
+            return "Запись отключена политикой. \(action)."
         case .permissionDenied:
-            return "Recording blocked: microphone permission is unavailable. \(action)."
+            return "Запись не началась: нужен доступ к микрофону или системному звуку. \(action)."
         case .storageUnsafe:
-            return "Recording blocked: local storage reserve is unsafe. \(action)."
+            return "Запись не началась: недостаточно безопасного места для локальной копии. \(action)."
         case .indicatorUnavailable:
-            return "Recording blocked: visible indicator is unavailable. \(action)."
+            return "Запись не началась: локальный индикатор недоступен. \(action)."
         case .sourceAppIneligible:
-            return "Recording blocked: target is not approved. \(action)."
+            return "Запись не началась: источник не подтвержден. \(action)."
         case .alreadyRecording:
-            return "Recording already active."
+            return "Запись уже идет."
         case .captureFailed:
-            return "Recording blocked: system audio capture could not start. \(action)."
+            return "Запись не началась: системный звук не запустился. \(action)."
         case .unknown:
-            return "Recording blocked: unknown prerequisite failure. \(action)."
+            return "Запись не началась: нужна повторная проверка. \(action)."
+        }
+    }
+
+    private func recoveryActionText(_ action: String) -> String {
+        switch action {
+        case "refresh_local_audio_status":
+            return "Обновите состояние звука"
+        case "select_physical_microphone":
+            return "Выберите физический микрофон"
+        case "select_physical_speaker":
+            return "Выберите физические динамики"
+        case "grant_microphone":
+            return "Разрешите доступ к микрофону"
+        case "grant_system_audio":
+            return "Разрешите запись системного звука"
+        default:
+            return action
         }
     }
 
     private var localRecordingStatusText: String? {
         guard let manifest = localRecordingManifest else {
             if localRecordingActive {
-                return "Local recording in progress"
+                if captureSession?.state == .paused {
+                    return SystemAudioStatusLabels.localRecordingPausedStatus
+                }
+                return "Локальная запись идет"
             }
             return nil
         }
         switch manifest.status {
         case .saved:
-            return "Local recording saved"
+            return "Локальная запись сохранена"
         case .degraded:
-            return "Local recording saved with missing or degraded track"
+            return "Локальная запись сохранена с ограничениями"
         case .blocked:
-            return "Local recording blocked"
+            return "Локальная запись заблокирована"
         case .failed:
-            return "Local recording failed"
+            return "Локальная запись не сохранена"
         case .active:
-            return "Local recording in progress"
+            return "Локальная запись идет"
         }
+    }
+
+    private var meetingMuteTruthWarningText: String? {
+        guard localRecordingActive || localRecordingManifest?.meetingMuteTruth != nil else {
+            return nil
+        }
+        return SystemAudioStatusLabels.meetingMuteTruthLimitationCopy
     }
 
     @MainActor
@@ -861,6 +937,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             if mainWindow.isMiniaturized {
                 mainWindow.deminiaturize(nil)
             }
+            configureMainWindowCollectionBehavior(mainWindow)
             mainWindow.setIsVisible(true)
             mainWindow.makeKeyAndOrderFront(nil)
             mainWindow.orderFrontRegardless()
@@ -873,16 +950,17 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "2brain Rec"
-        window.minSize = NSSize(width: 720, height: 620)
+        window.minSize = NSSize(width: 1040, height: 680)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("2brain-rec-main-window")
+        configureMainWindowCollectionBehavior(window)
         window.contentViewController = NSHostingController(
             rootView: AppContentRoot()
         )
@@ -895,6 +973,14 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func configureMainWindowCollectionBehavior(_ window: NSWindow) {
+        window.collectionBehavior = [
+            .managed,
+            .moveToActiveSpace,
+            .fullScreenAuxiliary
+        ]
     }
 
     private func logWindowVisibility() {
@@ -929,17 +1015,17 @@ private struct AppContentRoot: View {
                 snapshot = updated
             },
             refresh: {
-                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Status refreshed without CoreAudio probe")
+                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Состояние обновлено")
                 AppLog.write(event: "refresh", snapshot: snapshot)
             },
             runCheck: {
                 isChecking = true
-                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Recording permissions are checked when Record starts")
+                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Права проверяются при старте записи")
                 AppLog.write(event: "status_refresh", snapshot: snapshot)
                 isChecking = false
             }
         )
-        .frame(minWidth: 720, minHeight: 620)
+        .frame(minWidth: 1040, minHeight: 680)
     }
 }
 
@@ -964,7 +1050,7 @@ fileprivate struct LocalAudioSnapshot {
         ).summary
     }
 
-    static func placeholder(lastEventSummary: String = "Opening app") -> LocalAudioSnapshot {
+    static func placeholder(lastEventSummary: String = "Приложение открыто") -> LocalAudioSnapshot {
         let driverExists = FileManager.default.fileExists(
             atPath: "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"
         )
@@ -977,7 +1063,7 @@ fileprivate struct LocalAudioSnapshot {
             microphonePermission: .unknown,
             outputPermission: .unknown,
             passthroughStatus: .unknown,
-            continuityStatus: "System audio recording uses macOS permissions; virtual devices are parked.",
+            continuityStatus: "Запись системного звука использует права macOS.",
             bufferRisk: .healthy,
             livePassthroughStatus: .inactive,
             recoveryActions: []
@@ -1016,7 +1102,7 @@ fileprivate struct LocalAudioSnapshot {
             system: CoreAudioSystemSnapshot.current(),
             routeVerification: nil,
             routeEngineState: routeEngineState,
-            lastEventSummary: "Status refreshed"
+            lastEventSummary: "Состояние обновлено"
         )
     }
 
@@ -1070,10 +1156,10 @@ fileprivate struct LocalAudioSnapshot {
             routeVerification: routeSnapshot,
             passthroughStatus: routeIsActive ? .healthy : .unknown,
             continuityStatus: routeIsActive
-                ? "Local audio route is active; recording still starts only from Record."
+                ? "Локальный аудиомаршрут активен; запись начинается вручную."
                 : (hasMic && hasSpeaker
-                    ? "Legacy virtual devices are visible for diagnostics; recording uses macOS permissions."
-                    : "System audio recording uses macOS permissions; virtual devices are parked."),
+                    ? "Виртуальные устройства видны для диагностики; запись использует права macOS."
+                    : "Запись системного звука использует права macOS."),
             bufferRisk: .healthy,
             livePassthroughStatus: routeIsActive ? .active : .inactive,
             recoveryActions: recoveryActions

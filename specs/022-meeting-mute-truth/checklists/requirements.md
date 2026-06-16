@@ -14,7 +14,7 @@ to clarification and planning
 
 ## Requirement Completeness
 
-- [x] No inline `[NEEDS CLARIFICATION]` markers remain
+- [x] No inline clarification markers remain
 - [x] Requirements are fully unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic

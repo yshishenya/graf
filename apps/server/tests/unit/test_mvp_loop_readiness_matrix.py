@@ -164,13 +164,13 @@ def test_required_launch_blockers_have_severity_owner_and_next_actions() -> None
     gaps = {gap.id: gap for gap in report.launch_gaps}
 
     assert {
-        "meeting-app-mute-truth",
         "signed-installer-evidence",
         "browser-target-gaps",
         "live-desktop-evidence",
         "notes-action-output",
         "production-user-rollout-evidence",
     } <= set(gaps)
+    assert "meeting-app-mute-truth" not in gaps
     assert "product-status-next-slice-drift" not in gaps
     for gap in gaps.values():
         assert gap.recommended_next_action

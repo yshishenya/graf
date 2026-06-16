@@ -1484,6 +1484,91 @@ func validateDesktopUploadQueueContract() throws {
     )
 }
 
+func validateMeetingMuteTruthContract() throws {
+    try require(
+        DiagnosticRedactor.forbiddenKeys.isSuperset(of: [
+            "rawAudio",
+            "audioSnippet",
+            "transcriptText",
+            "meetingContent",
+            "meetingNotes",
+            "participantSpeech",
+            "signedUrl",
+            "authorization"
+        ]),
+        "Meeting mute-truth diagnostics must forbid raw content, credentials, and signed URLs"
+    )
+
+    let pauseSegment = ProductPrivacySegment(
+        segmentId: "contract-segment",
+        sessionId: "contract-session",
+        control: .pause,
+        startedAt: Date(timeIntervalSince1970: 10),
+        endedAt: Date(timeIntervalSince1970: 12),
+        startMonotonicMs: 1000,
+        endMonotonicMs: 3000
+    )
+    let evidence = MeetingMuteTruthEvidence(
+        evidenceId: "contract-evidence",
+        sessionId: "contract-session",
+        targetId: TargetMuteCapability.chromeTelemost.targetId,
+        targetDisplayName: TargetMuteCapability.chromeTelemost.targetDisplayName,
+        source: .productPause,
+        status: .meetingMuteUnproven,
+        freshness: .unavailable,
+        limitationCopyShown: true,
+        recordedAt: Date(timeIntervalSince1970: 10)
+    )
+    let pauseDecision = MuteTruthDecision.mvpDecision(
+        sessionId: "contract-session",
+        privacySegments: [pauseSegment],
+        targetEvidence: [evidence],
+        targetCapability: .chromeTelemost,
+        decidedAt: Date(timeIntervalSince1970: 12)
+    )
+    try require(
+        pauseDecision.decision == .meetingMuteUnproven,
+        "Product Pause must not become a meeting-app mute-respecting claim"
+    )
+    try require(
+        pauseDecision.reason == .productPauseSegmentsPresent,
+        "Product Pause decision must preserve product-owned privacy segment reason"
+    )
+
+    let unsupportedDecision = MuteTruthDecision.mvpDecision(
+        sessionId: "contract-session",
+        privacySegments: [],
+        targetEvidence: [],
+        targetCapability: .unknown,
+        decidedAt: Date(timeIntervalSince1970: 12)
+    )
+    try require(
+        unsupportedDecision.decision == .unsupported,
+        "Unsupported meeting targets must fail closed"
+    )
+
+    let redaction = DiagnosticRedactor().redact([
+        "privacySegments": .array([
+            .object([
+                "segmentId": .string("contract-segment"),
+                "rawAudio": .string("forbidden")
+            ])
+        ]),
+        "meetingMuteTruth": .object([
+            "decision": .string("meeting_mute_unproven"),
+            "meetingContent": .string("forbidden")
+        ])
+    ])
+    try require(
+        redaction.status == .blockedSensitiveContent,
+        "Mute-truth redaction must report blocked sensitive nested content"
+    )
+    try require(
+        redaction.manifest["privacySegments"] != nil && redaction.manifest["meetingMuteTruth"] != nil,
+        "Mute-truth redaction must preserve metadata top-level fields"
+    )
+}
+
 do {
     try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
@@ -1511,6 +1596,7 @@ do {
     try validateLocalRecordingWriterTimerWriteFailureInvariant()
     try validateSystemAudioIncomingQualityInvariant()
     try validateDesktopUploadQueueContract()
+    try validateMeetingMuteTruthContract()
     print("ContractValidation: PASS")
 } catch {
     fputs("ContractValidation: FAIL - \(error)\n", stderr)

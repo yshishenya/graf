@@ -5,7 +5,6 @@ Feature: `034-mvp-loop-readiness`
 | Gap | Severity | Journey | Missing Evidence | Next Action |
 |-----|----------|---------|------------------|-------------|
 | `live-desktop-evidence` | `P1` | desktop-embedded-cabinet | Fresh metadata-safe live desktop screenshots or explicit product-owner acceptance of the blocker. | Capture desktop first-surface and embedded detail screenshots without private content. |
-| `meeting-app-mute-truth` | `P1` | local-recording-visible-stop | Canonical handling for meeting-app mute states across approved targets. | Run the dedicated 022 meeting mute truth Spec Kit slice. |
 | `notes-action-output` | `P1` | notes-action-output | Notes/action output availability or truthful blocked state in review surfaces. | Decide whether the next slice is assistant notes/actions or explicit MVP deferral. |
 | `production-user-rollout-evidence` | `P1` | production-deployment-smoke | Internal pilot or user rollout validation with live app journey evidence. | Keep production claim capped until a pilot runbook or live loop validation passes. |
 | `browser-target-gaps` | `P2` | capture-target-coverage | Target matrix decision for browser coverage before pilot promises. | Keep unsupported targets explicit or run a browser target hardening slice. |

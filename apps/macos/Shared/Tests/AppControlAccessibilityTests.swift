@@ -51,9 +51,10 @@ final class AppControlAccessibilityTests: XCTestCase {
     func testDesktopCabinetLayoutStartsWithNativeCaptureThenMeetings() {
         XCTAssertEqual(
             DesktopCabinetLayoutPolicy.defaultSectionOrder,
-            [.capture, .meetings, .localAudioReadiness]
+            [.meetings, .capture, .localAudioReadiness]
         )
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedSurfaceHeight, 420)
+        XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
     }
 
     func testDesktopCabinetCopyStaysCleanRoomAndProductFacing() {

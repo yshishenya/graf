@@ -14,15 +14,15 @@ final class SystemAudioAccessibilityTests: XCTestCase {
     }
 
     func testPrimaryControlLabelsAreExplicitForAssistiveTech() {
-        XCTAssertEqual(SystemAudioStatusLabels.captureRegion, "System audio recording controls")
-        XCTAssertEqual(SystemAudioStatusLabels.recordButtonAccessibilityLabel, "Start system audio recording")
-        XCTAssertEqual(SystemAudioStatusLabels.stopButtonAccessibilityLabel, "Stop recording")
+        XCTAssertEqual(SystemAudioStatusLabels.captureRegion, "Управление записью")
+        XCTAssertEqual(SystemAudioStatusLabels.recordButtonAccessibilityLabel, "Начать запись системного звука")
+        XCTAssertEqual(SystemAudioStatusLabels.stopButtonAccessibilityLabel, "Остановить запись")
         XCTAssertEqual(
             SystemAudioStatusLabels.meterAccessibilityLabel(
                 title: SystemAudioStatusLabels.incomingTitle,
-                detail: "System audio is reaching the recorder."
+                detail: "Звук встречи поступает в запись."
             ),
-            "Incoming: System audio is reaching the recorder."
+            "Встреча: Звук встречи поступает в запись."
         )
     }
 }

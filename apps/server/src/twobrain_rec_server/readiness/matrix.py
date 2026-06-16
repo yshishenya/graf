@@ -114,7 +114,19 @@ def build_default_evidence(captured_at: str, deployed_commit: str) -> list[Readi
             scope="Accepted system-audio-first macOS MVP capture path.",
             strength="docs_only",
             forbidden_content_scan="not_applicable",
-            limitations=["Meeting-app mute truth remains a separate launch blocker."],
+        ),
+        ReadinessEvidence(
+            id="feature-022-meeting-mute-truth",
+            type="document",
+            source="specs/022-meeting-mute-truth/evidence/test-results.md",
+            captured_at=captured_at,
+            scope=(
+                "Accepted product-owned Pause/Resume mute truth, privacy segment "
+                "metadata, fail-closed unsupported target handling, and installed "
+                "/Applications runtime evidence."
+            ),
+            strength="local_runtime",
+            forbidden_content_scan="pass",
         ),
         ReadinessEvidence(
             id="feature-014-desktop-upload",
@@ -284,15 +296,6 @@ def build_default_launch_gaps() -> list[LaunchGap]:
     return sort_launch_gaps(
         [
             LaunchGap(
-                id="meeting-app-mute-truth",
-                severity="P1",
-                affected_journey="local-recording-visible-stop",
-                current_evidence="Mute truth is preserved as backlog feature 022.",
-                missing_evidence="Canonical handling for meeting-app mute states across approved targets.",
-                recommended_next_action="Run the dedicated 022 meeting mute truth Spec Kit slice.",
-                owner_area="desktop",
-            ),
-            LaunchGap(
                 id="live-desktop-evidence",
                 severity="P1",
                 affected_journey="desktop-embedded-cabinet",
@@ -347,12 +350,18 @@ def build_default_stages() -> list[MvpLoopStage]:
             id="local-recording-visible-stop",
             label="Local recording and visible stop",
             owner_surface="macos_native",
-            status="degraded",
+            status="ready",
             evidence_strength="local_runtime",
-            evidence_ids=["feature-025-system-audio", "desktop-shell-regression-tests"],
-            launch_gap_ids=["meeting-app-mute-truth"],
+            evidence_ids=[
+                "feature-025-system-audio",
+                "feature-022-meeting-mute-truth",
+                "desktop-shell-regression-tests",
+            ],
             claim_impact=["desktop_loop_verified", "mvp_loop_ready"],
-            notes="System-audio capture and shell visibility regressions pass locally, but meeting-app mute truth remains a P1 launch blocker.",
+            notes=(
+                "System-audio capture, visible stop, product-owned Pause/Resume "
+                "privacy truth, and installed /Applications runtime evidence are accepted."
+            ),
         ),
         MvpLoopStage(
             id="local-artifact-finalization",

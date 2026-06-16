@@ -268,6 +268,54 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(manifest.recordingTimelineEvidence?.alignmentBand, .accepted)
     }
 
+    func testManifestRoundTripsMuteTruthFieldsWithoutChangingTrackRoles() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-manifest-mute-truth-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let service = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+        let segment = ProductPrivacySegment(
+            segmentId: "segment-1",
+            sessionId: "session",
+            control: .pause,
+            startedAt: Date(timeIntervalSince1970: 12),
+            endedAt: Date(timeIntervalSince1970: 13),
+            startMonotonicMs: 2_000,
+            endMonotonicMs: 3_000
+        )
+        let manifest = service.manifest(
+            sessionId: "session",
+            directoryId: "dir",
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions(),
+            privacySegments: [segment],
+            targetMuteCapability: .chromeTelemost,
+            meetingMuteTruthEvidence: [
+                MeetingMuteTruthEvidence(
+                    evidenceId: "evidence-1",
+                    sessionId: "session",
+                    targetId: "chrome_telemost",
+                    targetDisplayName: "Chrome + Telemost",
+                    source: .productPause,
+                    status: .meetingMuteUnproven,
+                    freshness: .unavailable,
+                    limitationCopyShown: true,
+                    recordedAt: Date(timeIntervalSince1970: 11)
+                )
+            ]
+        )
+
+        try service.write(manifest, to: url)
+        let decoded = try service.read(from: url)
+
+        XCTAssertEqual(decoded.privacySegments?.map(\.segmentId), ["segment-1"])
+        XCTAssertEqual(decoded.meetingMuteTruth?.decision, .meetingMuteUnproven)
+        XCTAssertEqual(decoded.targetMuteCapability?.targetId, "chrome_telemost")
+        XCTAssertEqual(decoded.tracks.map(\.role), [.localMic, .remoteSpeaker])
+    }
+
     func testLegacySchemaIsNotTranscriptionReady() {
         XCTAssertEqual(
             LocalRecordingManifest.transcriptionReadiness(forSchemaVersion: "local-recording-manifest.v1"),

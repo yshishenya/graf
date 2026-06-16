@@ -91,8 +91,8 @@ public enum DesktopCabinetLayoutSection: String, Equatable, Sendable {
 
 public enum DesktopCabinetLayoutPolicy {
     public static let defaultSectionOrder: [DesktopCabinetLayoutSection] = [
-        .capture,
         .meetings,
+        .capture,
         .localAudioReadiness
     ]
 }

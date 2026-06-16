@@ -3,12 +3,12 @@
 ## Claim Summary
 
 - Feature: `034-mvp-loop-readiness`
-- Generated at: `2026-06-16T08:46:26Z`
-- Deployed commit: `ab875e7ba50f15ff57323581ba0edfa7abd5ad5c`
+- Generated at: `2026-06-16T00:00:00Z`
+- Deployed commit: `unknown`
 - Outcome: `pilot_blocked`
 - Bounded claims: `infra_smoke_ready`
 - Excluded claims: `mvp_loop_ready`, `internal_pilot_candidate`, `user_rollout_ready`, `production_ready`
-- P0/P1 blockers: `4`
+- P0/P1 blockers: `3`
 
 infra_smoke_ready is not user rollout readiness, internal pilot readiness, or production readiness.
 
@@ -16,7 +16,7 @@ infra_smoke_ready is not user rollout readiness, internal pilot readiness, or pr
 
 | Stage | Surface | Status | Evidence | Gaps | Claim Impact |
 |-------|---------|--------|----------|------|--------------|
-| `local-recording-visible-stop` | `macos_native` | `degraded` | `local_runtime` `feature-025-system-audio`, `desktop-shell-regression-tests` | `meeting-app-mute-truth` | `desktop_loop_verified`, `mvp_loop_ready` |
+| `local-recording-visible-stop` | `macos_native` | `ready` | `local_runtime` `feature-025-system-audio`, `feature-022-meeting-mute-truth`, `desktop-shell-regression-tests` | `none` | `desktop_loop_verified`, `mvp_loop_ready` |
 | `local-artifact-finalization` | `macos_native` | `ready` | `docs_only` `feature-020-finalization` | `none` | `desktop_loop_verified`, `mvp_loop_ready` |
 | `upload-server-ingest` | `server_backend` | `ready` | `docs_only` `feature-014-desktop-upload` | `none` | `web_review_verified`, `mvp_loop_ready` |
 | `mediascribe-processing-import` | `server_backend` | `ready` | `docs_only` `feature-015-processing` | `none` | `web_review_verified`, `mvp_loop_ready` |
@@ -31,7 +31,7 @@ infra_smoke_ready is not user rollout readiness, internal pilot readiness, or pr
 
 ## Desktop App Evidence
 
-- `local-recording-visible-stop`: `degraded` / `local_runtime`. System-audio capture and shell visibility regressions pass locally, but meeting-app mute truth remains a P1 launch blocker.
+- `local-recording-visible-stop`: `ready` / `local_runtime`. System-audio capture, visible stop, product-owned Pause/Resume privacy truth, and installed /Applications runtime evidence are accepted.
 - `desktop-embedded-cabinet`: `degraded` / `local_runtime`. Embedding has synthetic and local regression evidence; fresh metadata-safe live screenshots are still required.
 
 Evidence records:
@@ -114,7 +114,6 @@ Evidence records:
 | Gap | Severity | Journey | Missing Evidence | Next Action |
 |-----|----------|---------|------------------|-------------|
 | `live-desktop-evidence` | `P1` | desktop-embedded-cabinet | Fresh metadata-safe live desktop screenshots or explicit product-owner acceptance of the blocker. | Capture desktop first-surface and embedded detail screenshots without private content. |
-| `meeting-app-mute-truth` | `P1` | local-recording-visible-stop | Canonical handling for meeting-app mute states across approved targets. | Run the dedicated 022 meeting mute truth Spec Kit slice. |
 | `notes-action-output` | `P1` | notes-action-output | Notes/action output availability or truthful blocked state in review surfaces. | Decide whether the next slice is assistant notes/actions or explicit MVP deferral. |
 | `production-user-rollout-evidence` | `P1` | production-deployment-smoke | Internal pilot or user rollout validation with live app journey evidence. | Keep production claim capped until a pilot runbook or live loop validation passes. |
 | `browser-target-gaps` | `P2` | capture-target-coverage | Target matrix decision for browser coverage before pilot promises. | Keep unsupported targets explicit or run a browser target hardening slice. |
@@ -122,4 +121,4 @@ Evidence records:
 
 ## Next Slice Recommendation
 
-Recommended next product slice: `022-meeting-mute-truth`. Before any pilot claim, also close validation gates for live desktop/web evidence and production user-journey proof.
+Recommended next product slice: `035-mvp-loop-live-evidence`. Before any pilot claim, close metadata-safe live desktop/web evidence and production user-journey proof, while keeping notes/action output truthful if it remains deferred.

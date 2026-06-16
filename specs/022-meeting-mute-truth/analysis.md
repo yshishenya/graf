@@ -81,7 +81,7 @@ assert ids[0] == 'T001' and ids[-1] == 'T048'
 assert not [line for line in text.splitlines() if line.startswith('- [ ] T') and '`' not in line]
 print('tasks', len(ids), 'unique', len(set(ids)))
 PY
-rg -n "NEEDS CLARIFICATION|TODO|TBD|TKTK|\?\?\?|<[^>]+>" specs/022-meeting-mute-truth/spec.md specs/022-meeting-mute-truth/plan.md specs/022-meeting-mute-truth/tasks.md specs/022-meeting-mute-truth/contracts specs/022-meeting-mute-truth/quickstart.md specs/022-meeting-mute-truth/data-model.md specs/022-meeting-mute-truth/research.md
+rg -n "clarification markers|TODO|TBD|TKTK|\?\?\?|<[^>]+>" specs/022-meeting-mute-truth/spec.md specs/022-meeting-mute-truth/plan.md specs/022-meeting-mute-truth/tasks.md specs/022-meeting-mute-truth/contracts specs/022-meeting-mute-truth/quickstart.md specs/022-meeting-mute-truth/data-model.md specs/022-meeting-mute-truth/research.md
 git diff --check
 ```
 

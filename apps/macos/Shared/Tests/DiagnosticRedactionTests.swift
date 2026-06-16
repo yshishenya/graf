@@ -235,6 +235,38 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("recordingPrerequisites[0].signedUrl"))
     }
 
+    func testMuteTruthFieldsKeepMetadataAndRemoveNestedSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "recordingEvidence": .array([
+                .object([
+                    "sessionId": .string("session"),
+                    "eventType": .string("recording.paused"),
+                    "participantSpeech": .string("forbidden")
+                ])
+            ]),
+            "privacySegments": .array([
+                .object([
+                    "segmentId": .string("segment-1"),
+                    "durationMs": .int(1000),
+                    "audioSnippet": .string("forbidden")
+                ])
+            ]),
+            "meetingMuteTruth": .object([
+                "decision": .string("meeting_mute_unproven"),
+                "meetingNotes": .string("forbidden")
+            ])
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["recordingEvidence"])
+        XCTAssertNotNil(result.manifest["privacySegments"])
+        XCTAssertNotNil(result.manifest["meetingMuteTruth"])
+        XCTAssertTrue(result.removedFields.contains("recordingEvidence[0].participantSpeech"))
+        XCTAssertTrue(result.removedFields.contains("privacySegments[0].audioSnippet"))
+        XCTAssertTrue(result.removedFields.contains("meetingMuteTruth.meetingNotes"))
+    }
+
     func testRouteEvidenceKeepsMetadataAndRemovesForbiddenContent() {
         let manifest: [String: DiagnosticFieldValue] = [
             "routeEvidenceEvents": .array([

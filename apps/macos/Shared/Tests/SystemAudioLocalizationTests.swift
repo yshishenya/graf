@@ -5,14 +5,16 @@ import XCTest
 
 final class SystemAudioLocalizationTests: XCTestCase {
     func testStateLabelsComeFromSharedLabelModel() {
-        XCTAssertEqual(SystemAudioStatusLabels.recordingIdle, "Recording idle")
-        XCTAssertEqual(SystemAudioStatusLabels.recordButtonTitle, "Record System Audio")
-        XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, "Stop")
-        XCTAssertEqual(SystemAudioStatusLabels.activeState, "Active")
-        XCTAssertEqual(SystemAudioStatusLabels.silentState, "Silent")
+        XCTAssertEqual(SystemAudioStatusLabels.recordingIdle, "Запись не идет")
+        XCTAssertEqual(SystemAudioStatusLabels.recordButtonTitle, "Начать запись")
+        XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, "Остановить")
+        XCTAssertEqual(SystemAudioStatusLabels.pauseButtonTitle, "Пауза")
+        XCTAssertEqual(SystemAudioStatusLabels.resumeButtonTitle, "Продолжить")
+        XCTAssertEqual(SystemAudioStatusLabels.activeState, "Есть звук")
+        XCTAssertEqual(SystemAudioStatusLabels.silentState, "Тихо")
         XCTAssertEqual(
             SystemAudioStatusLabels.localAudioRouteActiveNotRecording,
-            "Local audio route is active; recording still starts only from Record"
+            "Локальный аудиомаршрут активен; запись начинается только вручную"
         )
     }
 
@@ -42,7 +44,7 @@ final class SystemAudioLocalizationTests: XCTestCase {
         )
         XCTAssertEqual(
             SystemAudioStatusLabels.incomingDetail(routeIsActive: true, incomingIsLive: true),
-            "System audio is reaching the recorder."
+            "Звук встречи поступает в запись."
         )
         XCTAssertEqual(SystemAudioStatusLabels.meterState(isLive: true), SystemAudioStatusLabels.activeState)
         XCTAssertEqual(SystemAudioStatusLabels.meterState(isLive: false), SystemAudioStatusLabels.silentState)
@@ -51,6 +53,17 @@ final class SystemAudioLocalizationTests: XCTestCase {
     func testRecordingMeterFreshnessAllowsBatchedSystemAudioDelivery() {
         XCTAssertGreaterThanOrEqual(SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds, 1.5)
         XCTAssertLessThanOrEqual(SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds, 2.0)
+    }
+
+    func testMuteTruthLimitationCopyDoesNotClaimMeetingAppMuteSupport() {
+        XCTAssertEqual(
+            SystemAudioStatusLabels.meetingMuteTruthLimitationCopy,
+            "2brain не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в 2brain."
+        )
+        XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("Паузу или Остановить"))
+        XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("не может проверить"))
+        XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.localizedCaseInsensitiveContains("mute-respecting"))
+        XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.localizedCaseInsensitiveContains("guarantee"))
     }
 }
 #endif

@@ -8,6 +8,11 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен product-owned слой meeting-app mute truth для macOS: `Pause`/`Resume`
+  рядом с постоянным `Stop`, подавление локального микрофона во время паузы,
+  metadata-only `privacySegments`, target capability matrix, fail-closed
+  `meetingMuteTruth` decisions, fixture validator и QA evidence templates без
+  claims о third-party meeting-app mute support (`feature:022`, `T001-T048`).
 - Добавлен launch-readiness gate `034-mvp-loop-readiness`: metadata-only
   readiness JSON/Markdown report, launch gap register, clean-room reference
   comparison, desktop/web/policy lifecycle evidence notes, bounded claim rules,
@@ -52,10 +57,11 @@ Semantic Versioning 2.0.0.
 
 ### Changed
 
-- `docs/current-product-status.md` now records `034` as the current readiness
-  outcome, removes stale `018` next-slice guidance, and recommends
-  `022-meeting-mute-truth` as the next product slice while keeping live evidence
-  and production user-journey proof as validation gates (`feature:034`,
+- `docs/current-product-status.md` and the MVP readiness report now record
+  `022-meeting-mute-truth` as closed, remove stale `018`/`022` next-slice
+  guidance, and recommend validation-only `035-mvp-loop-live-evidence` while
+  keeping live desktop/web evidence, notes/action truth, and production
+  user-journey proof as launch gates (`feature:022`, `feature:034`,
   `T045-T051`).
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
@@ -89,6 +95,11 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Meeting-app mute truth remains fail-closed: diagnostics/redaction allow only
+  metadata fields, fixture validation rejects raw audio/transcripts/meeting
+  content/credentials/signed URLs, unsupported targets never become
+  `mute_respecting`, and upload queue completeness is not reinterpreted by
+  mute-truth metadata (`feature:022`, `T006-T011`, `T022-T042`).
 - Readiness evidence for `034` is metadata-only by contract: unsafe screenshots
   are rejected, reference-comparison evidence IDs are validated, committed
   evidence cannot include private Krisp screenshots or private meeting content,
@@ -148,6 +159,10 @@ Semantic Versioning 2.0.0.
 
 ### Docs
 
+- Added feature `022` evidence scaffold, target matrix, manual validation
+  template, and current-product-status update for the boundary between
+  product-owned Pause truth and future meeting-app mute adapters (`feature:022`,
+  `T041-T044`).
 - Added sanitized feature `017` evidence index and refreshed current product
   status so access, login-required sharing, server-mediated downloads, and safe
   exports are no longer listed as deferred launch gaps (`feature:017`,

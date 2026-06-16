@@ -18,7 +18,7 @@ def test_default_readiness_report_contains_all_contract_sections_and_stage_rows(
     assert len(report.stages) >= 12
     assert "infra_smoke_ready is not user rollout readiness" in markdown
     assert "mvp_loop_ready" in markdown
-    assert "meeting-app mute truth" in markdown
+    assert "product-owned Pause/Resume privacy truth" in markdown
     assert "signed installer evidence" in markdown
     assert "desktop-shell-regression-tests" in markdown
     assert "desktop-first-surface-blocker-note" in markdown
@@ -48,8 +48,9 @@ def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() 
     markdown = render_markdown_report(report)
     status_doc = (Path(__file__).resolve().parents[4] / "docs/current-product-status.md").read_text()
 
-    assert "Recommended next product slice: `022-meeting-mute-truth`" in markdown
-    assert "validation gates for live desktop/web evidence and production user-journey proof" in markdown
+    assert "Recommended next product slice: `035-mvp-loop-live-evidence`" in markdown
+    assert "metadata-safe live desktop/web evidence and production user-journey proof" in markdown
     assert "Recommended next feature: `018-retention-deletion-execution`" not in status_doc
-    assert "Recommended next feature: `022-meeting-mute-truth`" in status_doc
+    assert "Recommended next feature: `022-meeting-mute-truth`" not in status_doc
+    assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" in status_doc
     assert "034-mvp-loop-readiness" in status_doc

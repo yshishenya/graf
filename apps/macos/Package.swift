@@ -27,6 +27,10 @@ let package = Package(
         .executable(
             name: "LeakageValidation",
             targets: ["LeakageValidation"]
+        ),
+        .executable(
+            name: "MeetingMuteTruthRuntimeProof",
+            targets: ["MeetingMuteTruthRuntimeProof"]
         )
     ],
     targets: [
@@ -60,10 +64,18 @@ let package = Package(
             dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
             path: "Shared/Tools/LeakageValidation"
         ),
+        .executableTarget(
+            name: "MeetingMuteTruthRuntimeProof",
+            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
+            path: "Shared/Tools/MeetingMuteTruthRuntimeProof"
+        ),
         .testTarget(
             name: "TwoBrainRecSharedTests",
             dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
-            path: "Shared/Tests"
+            path: "Shared/Tests",
+            resources: [
+                .copy("Fixtures")
+            ]
         )
     ]
 )

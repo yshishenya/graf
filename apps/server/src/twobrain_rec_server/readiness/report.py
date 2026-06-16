@@ -229,11 +229,12 @@ def _launch_gap_table(report: ReadinessReport) -> str:
 
 def _next_slice_recommendation(report: ReadinessReport) -> str:
     p1_gaps = [gap for gap in report.launch_gaps if gap.severity == "P1"]
-    if any(gap.id == "meeting-app-mute-truth" for gap in p1_gaps):
+    if any(gap.id in {"live-desktop-evidence", "production-user-rollout-evidence"} for gap in p1_gaps):
         return (
-            "Recommended next product slice: `022-meeting-mute-truth`. "
-            "Before any pilot claim, also close validation gates for live desktop/web evidence "
-            "and production user-journey proof."
+            "Recommended next product slice: `035-mvp-loop-live-evidence`. "
+            "Before any pilot claim, close metadata-safe live desktop/web evidence "
+            "and production user-journey proof, while keeping notes/action output "
+            "truthful if it remains deferred."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."

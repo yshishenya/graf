@@ -18,9 +18,9 @@
 
 **Purpose**: Prepare evidence and fixture locations used by implementation and validation.
 
-- [ ] T001 [P] Create mute-truth evidence scaffold in `specs/022-meeting-mute-truth/evidence/README.md`
-- [ ] T002 [P] Create fixture documentation for mute-truth validation in `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/README.md`
-- [ ] T003 [P] Create validation script scaffold with usage text in `apps/macos/Scripts/validate-meeting-mute-truth.sh`
+- [X] T001 [P] Create mute-truth evidence scaffold in `specs/022-meeting-mute-truth/evidence/README.md`
+- [X] T002 [P] Create fixture documentation for mute-truth validation in `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/README.md`
+- [X] T003 [P] Create validation script scaffold with usage text in `apps/macos/Scripts/validate-meeting-mute-truth.sh`
 
 ---
 
@@ -30,14 +30,14 @@
 
 **Critical**: No user story implementation starts until the shared models, manifest wiring, and redaction contract are in place.
 
-- [ ] T004 [P] Add failing shared model tests for `ProductPrivacySegment`, `MeetingMuteTruthEvidence`, `TargetMuteCapability`, and `MuteTruthDecision` in `apps/macos/Shared/Tests/MeetingMuteTruthTests.swift`
-- [ ] T005 [P] Add failing manifest extension tests for privacy segments and mute-truth decision fields in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
-- [ ] T006 [P] Add failing metadata-only redaction tests for mute-truth evidence in `apps/macos/Shared/Tests/MeetingMuteTruthDiagnosticTests.swift`
-- [ ] T007 Implement shared mute-truth model types in `apps/macos/Shared/Sources/Models/MeetingMuteTruthModels.swift`
-- [ ] T008 Extend local recording manifest fields for privacy segments, target capability, mute-truth decision, and limitation timestamp in `apps/macos/Shared/Sources/Models/AudioModels.swift`
-- [ ] T009 Extend local recording failure/status enums for mute-truth degraded and unproven states where needed in `apps/macos/Shared/Sources/Models/AudioStates.swift`
-- [ ] T010 Wire manifest creation, normalization, and JSON round-trip support for mute-truth fields in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
-- [ ] T011 Extend diagnostic redaction coverage for mute-truth metadata while preserving forbidden content removal in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
+- [X] T004 [P] Add failing shared model tests for `ProductPrivacySegment`, `MeetingMuteTruthEvidence`, `TargetMuteCapability`, and `MuteTruthDecision` in `apps/macos/Shared/Tests/MeetingMuteTruthTests.swift`
+- [X] T005 [P] Add failing manifest extension tests for privacy segments and mute-truth decision fields in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
+- [X] T006 [P] Add failing metadata-only redaction tests for mute-truth evidence in `apps/macos/Shared/Tests/MeetingMuteTruthDiagnosticTests.swift`
+- [X] T007 Implement shared mute-truth model types in `apps/macos/Shared/Sources/Models/MeetingMuteTruthModels.swift`
+- [X] T008 Extend local recording manifest fields for privacy segments, target capability, mute-truth decision, and limitation timestamp in `apps/macos/Shared/Sources/Models/AudioModels.swift`
+- [X] T009 Extend local recording failure/status enums for mute-truth degraded and unproven states where needed in `apps/macos/Shared/Sources/Models/AudioStates.swift`
+- [X] T010 Wire manifest creation, normalization, and JSON round-trip support for mute-truth fields in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
+- [X] T011 Extend diagnostic redaction coverage for mute-truth metadata while preserving forbidden content removal in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
 
 **Checkpoint**: Shared model and manifest foundation is ready; user story phases may begin.
 
@@ -51,19 +51,19 @@
 
 ### Tests for User Story 1
 
-- [ ] T012 [P] [US1] Add failing pause/resume state and Stop-available tests in `apps/macos/Shared/Tests/CaptureControlTests.swift`
-- [ ] T013 [P] [US1] Add failing capture indicator tests for paused visible state in `apps/macos/Shared/Tests/CaptureIndicatorTests.swift`
-- [ ] T014 [P] [US1] Add failing local writer suppression tests for paused mic samples in `apps/macos/Shared/Tests/LocalRecordingWriterTests.swift`
-- [ ] T015 [P] [US1] Add failing manifest privacy-segment acceptance tests in `apps/macos/Shared/Tests/MeetingMuteTruthTests.swift`
+- [X] T012 [P] [US1] Add failing pause/resume state and Stop-available tests in `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T013 [P] [US1] Add failing capture indicator tests for paused visible state in `apps/macos/Shared/Tests/CaptureIndicatorTests.swift`
+- [X] T014 [P] [US1] Add failing local writer suppression tests for paused mic samples in `apps/macos/Shared/Tests/LocalRecordingWriterTests.swift`
+- [X] T015 [P] [US1] Add failing manifest privacy-segment acceptance tests in `apps/macos/Shared/Tests/MeetingMuteTruthTests.swift`
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Add privacy suppressing sample source for local microphone capture in `apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift`
-- [ ] T017 [US1] Integrate pause-aware mic sample suppression and privacy segment collection in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
-- [ ] T018 [US1] Persist pause/resume transitions through capture session state in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`
-- [ ] T019 [US1] Add paused visible state, pause/resume actions, and Stop availability to native capture controls in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T020 [US1] Add paused state labels, accessibility identifiers, and localization-safe copy in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T021 [US1] Integrate pause/resume actions and privacy segment finalization in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T016 [US1] Add privacy suppressing sample source for local microphone capture in `apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift`
+- [X] T017 [US1] Integrate pause-aware mic sample suppression and privacy segment collection in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
+- [X] T018 [US1] Persist pause/resume transitions through capture session state in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift`
+- [X] T019 [US1] Add paused visible state, pause/resume actions, and Stop availability to native capture controls in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T020 [US1] Add paused state labels, accessibility identifiers, and localization-safe copy in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [X] T021 [US1] Integrate pause/resume actions and privacy segment finalization in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
 
 **Checkpoint**: User Story 1 can be validated independently with focused Swift tests and a local artifact fixture.
 
@@ -77,18 +77,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T022 [P] [US2] Add failing target matrix tests for Zoom native, Chrome/Telemost, Opera/Telemost, Yandex Browser, and unknown targets in `apps/macos/Shared/Tests/MeetingMuteTruthValidationTests.swift`
-- [ ] T023 [P] [US2] Add failing limitation copy and accessibility tests in `apps/macos/Shared/Tests/SystemAudioLocalizationTests.swift`
-- [ ] T024 [P] [US2] Add failing desktop warning visibility tests in `apps/macos/Shared/Tests/CaptureControlTests.swift`
-- [ ] T025 [P] [US2] Add failing manifest decision tests for `meeting_mute_unproven`, `unsupported`, and `deferred` states in `apps/macos/Shared/Tests/MeetingMuteTruthTests.swift`
+- [X] T022 [P] [US2] Add failing target matrix tests for Zoom native, Chrome/Telemost, Opera/Telemost, Yandex Browser, and unknown targets in `apps/macos/Shared/Tests/MeetingMuteTruthValidationTests.swift`
+- [X] T023 [P] [US2] Add failing limitation copy and accessibility tests in `apps/macos/Shared/Tests/SystemAudioLocalizationTests.swift`
+- [X] T024 [P] [US2] Add failing desktop warning visibility tests in `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T025 [P] [US2] Add failing manifest decision tests for `meeting_mute_unproven`, `unsupported`, and `deferred` states in `apps/macos/Shared/Tests/MeetingMuteTruthTests.swift`
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] Implement target capability resolution and mute-truth decisions in `apps/macos/RecApp/Sources/Capture/MeetingMuteTruthService.swift`
-- [ ] T027 [US2] Add required limitation copy, target warning labels, and accessibility text in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
-- [ ] T028 [US2] Show limitation warning without obscuring Pause/Resume/Stop in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T029 [US2] Attach target capability and mute-truth decision metadata during recording finalization in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T030 [US2] Preserve unproven/degraded mute-truth state in manifest normalization in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
+- [X] T026 [US2] Implement target capability resolution and mute-truth decisions in `apps/macos/RecApp/Sources/Capture/MeetingMuteTruthService.swift`
+- [X] T027 [US2] Add required limitation copy, target warning labels, and accessibility text in `apps/macos/Shared/Sources/Models/SystemAudioCaptureModels.swift`
+- [X] T028 [US2] Show limitation warning without obscuring Pause/Resume/Stop in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T029 [US2] Attach target capability and mute-truth decision metadata during recording finalization in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T030 [US2] Preserve unproven/degraded mute-truth state in manifest normalization in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
 
 **Checkpoint**: User Story 2 can be validated independently from target fixtures and UI/static label tests.
 
@@ -102,16 +102,16 @@
 
 ### Tests for User Story 3
 
-- [ ] T031 [P] [US3] Add regression tests proving existing recording evidence remains metadata-only with mute-truth fields in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
-- [ ] T032 [P] [US3] Add regression tests proving upload queue completeness does not invent mute-respecting claims in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
-- [ ] T033 [P] [US3] Add regression tests proving dual-track role mapping remains unchanged with mute-truth manifest fields in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
+- [X] T031 [P] [US3] Add regression tests proving existing recording evidence remains metadata-only with mute-truth fields in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
+- [X] T032 [P] [US3] Add regression tests proving upload queue completeness does not invent mute-respecting claims in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T033 [P] [US3] Add regression tests proving dual-track role mapping remains unchanged with mute-truth manifest fields in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] Add mute-truth metadata to diagnostic bundle safe fields without content-bearing payloads in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
-- [ ] T035 [US3] Preserve existing upload queue dual-track completeness behavior and ensure mute-truth fields do not add or reinterpret upload decisions in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T036 [US3] Ensure capture status text distinguishes paused, degraded, failed, and local recording outcomes in `apps/macos/RecApp/Sources/Shared/AdaptiveStatusText.swift`
-- [ ] T037 [US3] Re-run and update existing local recording contract validation coverage in `apps/macos/Shared/TestPlans/ContractValidationPlan.swift`
+- [X] T034 [US3] Add mute-truth metadata to diagnostic bundle safe fields without content-bearing payloads in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
+- [X] T035 [US3] Preserve existing upload queue dual-track completeness behavior and ensure mute-truth fields do not add or reinterpret upload decisions in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T036 [US3] Ensure capture status text distinguishes paused, degraded, failed, and local recording outcomes in `apps/macos/RecApp/Sources/Shared/AdaptiveStatusText.swift`
+- [X] T037 [US3] Re-run and update existing local recording contract validation coverage in `apps/macos/Shared/TestPlans/ContractValidationPlan.swift`
 
 **Checkpoint**: User Story 3 can be validated with regression tests and existing local scripts.
 
@@ -125,14 +125,14 @@
 
 ### Tests for User Story 4
 
-- [ ] T038 [P] [US4] Add fixture manifest JSON files for pause-validated, unsupported, deferred, and unsafe cases in `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/pause-validated.json`, `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/unsupported.json`, `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/deferred.json`, and `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/unsafe.json`
-- [ ] T039 [P] [US4] Add failing validation script tests or fixture assertions in `apps/macos/Shared/Tests/MeetingMuteTruthValidationTests.swift`
+- [X] T038 [P] [US4] Add fixture manifest JSON files for pause-validated, unsupported, deferred, and unsafe cases in `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/pause-validated.json`, `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/unsupported.json`, `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/deferred.json`, and `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/unsafe.json`
+- [X] T039 [P] [US4] Add failing validation script tests or fixture assertions in `apps/macos/Shared/Tests/MeetingMuteTruthValidationTests.swift`
 
 ### Implementation for User Story 4
 
-- [ ] T040 [US4] Implement fixture and latest-artifact validation modes in `apps/macos/Scripts/validate-meeting-mute-truth.sh`
-- [ ] T041 [US4] Document target matrix evidence expectations in `specs/022-meeting-mute-truth/evidence/target-matrix.md`
-- [ ] T042 [US4] Document manual validation results template in `specs/022-meeting-mute-truth/evidence/manual-validation.md`
+- [X] T040 [US4] Implement fixture and latest-artifact validation modes in `apps/macos/Scripts/validate-meeting-mute-truth.sh`
+- [X] T041 [US4] Document target matrix evidence expectations in `specs/022-meeting-mute-truth/evidence/target-matrix.md`
+- [X] T042 [US4] Document manual validation results template in `specs/022-meeting-mute-truth/evidence/manual-validation.md`
 
 **Checkpoint**: User Story 4 can be validated through script output and committed metadata-only evidence templates.
 
@@ -142,12 +142,12 @@
 
 **Purpose**: Complete cross-cutting documentation, changelog, and quickstart evidence.
 
-- [ ] T043 [P] Update current product status for meeting-app mute truth scope and remaining future adapter boundary in `docs/current-product-status.md`
-- [ ] T044 [P] Add unreleased changelog entry for feature 022 in `CHANGELOG.md`
-- [ ] T045 Run static forbidden-content and stale-marker scans from quickstart and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
-- [ ] T046 Run `swift build`, `swift test`, and `swift run ContractValidation` in `apps/macos` and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
-- [ ] T047 Run `apps/macos/Scripts/validate-meeting-mute-truth.sh --fixtures` and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
-- [ ] T048 Run preserved capture/local-artifact scripts from quickstart and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
+- [X] T043 [P] Update current product status for meeting-app mute truth scope and remaining future adapter boundary in `docs/current-product-status.md`
+- [X] T044 [P] Add unreleased changelog entry for feature 022 in `CHANGELOG.md`
+- [X] T045 Run static forbidden-content and stale-marker scans from quickstart and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
+- [X] T046 Run `swift build`, `swift test`, and `swift run ContractValidation` in `apps/macos` and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
+- [X] T047 Run `apps/macos/Scripts/validate-meeting-mute-truth.sh --fixtures` and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
+- [X] T048 Run preserved capture/local-artifact scripts from quickstart and record results in `specs/022-meeting-mute-truth/evidence/test-results.md`
 
 ---
 

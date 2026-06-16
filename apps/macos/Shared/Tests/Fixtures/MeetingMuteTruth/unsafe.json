@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "meeting-mute-truth.fixture.v1",
+  "fixtureId": "unsafe",
+  "expectedValidation": "blocked_sensitive_content",
+  "privacySegments": [
+    {
+      "segmentId": "unsafe-segment",
+      "sessionId": "fixture-session",
+      "control": "pause",
+      "durationMs": 1000,
+      "rawAudio": "forbidden"
+    }
+  ],
+  "meetingMuteTruth": {
+    "sessionId": "fixture-session",
+    "decision": "failed",
+    "reason": "diagnostic_redaction_failed",
+    "safeForDiagnostics": false
+  }
+}
