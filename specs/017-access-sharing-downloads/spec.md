@@ -143,7 +143,7 @@ audited.
 - A public-link policy is disabled for the workspace but a user tries to enable
   public access.
 - A share, revoke, download, or export event cannot be written to the audit
-  trail.
+  trail before the action completes.
 
 ## Requirements *(mandatory)*
 
@@ -200,6 +200,9 @@ audited.
 - **FR-018**: The system MUST provide validation evidence showing permitted,
   denied, revoked, missing-artifact, and policy-disabled states without using
   private customer content.
+- **FR-019**: Share grants, share revokes, downloads, and exports MUST fail
+  closed when the required metadata-only audit event cannot be recorded before
+  the action completes.
 
 ### Key Entities *(include if feature involves data)*
 

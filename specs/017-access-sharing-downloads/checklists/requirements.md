@@ -34,3 +34,6 @@
 - Initial validation passed after drafting. The spec intentionally keeps public
   links disabled by default, reserves retention/deletion execution for feature
   `018`, and keeps policy execution browser/server-owned.
+- Clarify pass resolved the only material egress ambiguity by requiring
+  share/download/export actions to fail closed when required audit cannot be
+  recorded.
