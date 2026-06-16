@@ -10,13 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.ingest import get_request_db_session
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
+    AccessState,
+    ArtifactEgressState,
     MeetingListItem,
     MeetingListResponse,
     MeetingReviewResponse,
     MeetingReviewStatus,
     TranscriptSegmentView,
 )
-from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
     get_principal,
@@ -32,6 +34,7 @@ DeviceDependency = Depends(get_device_context)
 DbDependency = Depends(get_request_db_session)
 CabinetSearchQuery = Query(default=None, max_length=120)
 CabinetStatusQuery = Query(default=None)
+CabinetAccessQuery = Query(default=None)
 CabinetSortQuery = Query(default="updated_desc")
 CabinetLimitQuery = Query(default=50, ge=1, le=100)
 
@@ -116,6 +119,9 @@ button[disabled]:not(.primary), .is-disabled { color: var(--muted); opacity: .72
 .chip.processing, .chip.submitted { color: var(--accent); border-color: rgba(139, 115, 255, .5); }
 .chip.partial { color: var(--yellow); border-color: rgba(242, 200, 91, .45); }
 .chip.failed, .chip.blocked { color: var(--red); border-color: rgba(251, 107, 107, .45); }
+.chip.owner, .chip.team, .chip.shared, .chip.available { color: var(--green); border-color: rgba(46, 198, 163, .45); }
+.chip.denied, .chip.policy_blocked, .chip.owner_only, .chip.audit_unavailable { color: var(--red); border-color: rgba(251, 107, 107, .45); }
+.chip.disabled, .chip.missing, .chip.deleted, .chip.deleted_future { color: var(--soft); }
 .future-actions { display: flex; gap: 5px; }
 .icon-button { width: 30px; height: 30px; border-radius: 7px; padding: 0; color: var(--muted); }
 .floating-search { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(520px, calc(100vw - 48px)); min-height: 44px; border-radius: 999px; border: 1px solid #454a51; background: #24272b; color: var(--muted); display: flex; align-items: center; padding: 0 18px; }
@@ -140,8 +146,17 @@ button[disabled]:not(.primary), .is-disabled { color: var(--muted); opacity: .72
 .lane-fill { height: 100%; background: var(--accent); border-radius: inherit; }
 .governance { display: grid; gap: 8px; }
 .governance button { justify-content: flex-start; width: 100%; }
+.state-list { display: grid; gap: 7px; }
+.state-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; min-width: 0; }
+.state-row strong, .state-row span { min-width: 0; overflow-wrap: anywhere; }
+.state-row .muted { font-size: 11px; }
+.mini-link { color: #dcd7ff; font-weight: 700; font-size: 12px; }
+.activity-list { display: grid; gap: 8px; }
+.activity-item { border-top: 1px solid var(--border); padding-top: 8px; display: grid; gap: 2px; }
+.truth-copy { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .playback { position: fixed; left: 184px; right: 0; bottom: 0; min-height: 64px; border-top: 1px solid var(--border); background: #222529; display: flex; align-items: center; justify-content: center; gap: 16px; color: var(--muted); }
-.desktop-embedded .playback { left: 0; }
+.detail-playback { right: calc(302px + clamp(24px, 7vw, 132px)); }
+.desktop-embedded .playback { position: static; left: 0; right: 0; margin-top: 16px; }
 .desktop-embedded .main { padding-right: clamp(20px, 5vw, 88px); }
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -159,7 +174,8 @@ button[disabled]:not(.primary), .is-disabled { color: var(--muted); opacity: .72
   .segment .speaker { margin-top: 3px; }
   .segment .text, .notes .muted { display: block; max-width: calc(100vw - 36px); margin-top: 7px; }
   .floating-search { position: static; transform: none; width: 100%; margin-top: 16px; }
-  .playback { left: 0; }
+  .playback { position: static; left: 0; right: 0; margin-top: 16px; }
+  .detail-playback { right: 0; }
 }
 """
 
@@ -168,9 +184,11 @@ button[disabled]:not(.primary), .is-disabled { color: var(--muted); opacity: .72
 async def meeting_list_page(
     q: str | None = CabinetSearchQuery,
     status: MeetingReviewStatus | None = CabinetStatusQuery,
+    access: AccessState | None = CabinetAccessQuery,
     sort: str = CabinetSortQuery,
     limit: int = CabinetLimitQuery,
     tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
 ) -> HTMLResponse:
     if db is None:
@@ -178,8 +196,10 @@ async def meeting_list_page(
     response = await list_cabinet_meetings(
         db,
         workspace_id=tenant_scope.workspace_id,
+        viewer_user_id=principal.user_id,
         q=q,
         status=status,
+        access=access,
         sort=sort,
         limit=limit,
     )
@@ -190,11 +210,17 @@ async def meeting_list_page(
 async def meeting_detail_page(
     meeting_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
 ) -> HTMLResponse:
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
-    response = await get_cabinet_meeting_review(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
+    response = await get_cabinet_meeting_review(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return HTMLResponse(render_meeting_detail_page(response))
@@ -204,9 +230,11 @@ async def meeting_detail_page(
 async def embedded_meeting_list_page(
     q: str | None = CabinetSearchQuery,
     status: MeetingReviewStatus | None = CabinetStatusQuery,
+    access: AccessState | None = CabinetAccessQuery,
     sort: str = CabinetSortQuery,
     limit: int = CabinetLimitQuery,
     tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
 ) -> HTMLResponse:
     if db is None:
@@ -214,8 +242,10 @@ async def embedded_meeting_list_page(
     response = await list_cabinet_meetings(
         db,
         workspace_id=tenant_scope.workspace_id,
+        viewer_user_id=principal.user_id,
         q=q,
         status=status,
+        access=access,
         sort=sort,
         limit=limit,
     )
@@ -226,11 +256,17 @@ async def embedded_meeting_list_page(
 async def embedded_meeting_detail_page(
     meeting_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
 ) -> HTMLResponse:
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
-    response = await get_cabinet_meeting_review(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
+    response = await get_cabinet_meeting_review(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return HTMLResponse(render_meeting_detail_page(response, embedded=True))
@@ -289,7 +325,7 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
     content = f"""
       <main class="main">
         <div class="topline">
-          <div class="crumbs"><a href="{_base_path(embedded)}">My Meetings</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(review.meeting.status_label)}</span></div>
+          <div class="crumbs"><a href="{_base_path(embedded)}">My Meetings</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(review.meeting.status_label)}</span>{_render_access_chip(review.meeting.access)}</div>
           <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
         </div>
         <div class="tabs">
@@ -305,17 +341,26 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
             <div class="transcript">{transcript}</div>
           </section>
           <aside class="right-panel">
+            <h3>Access</h3>
+            {_render_access_summary(review)}
+            <h3>Share</h3>
+            {_render_share_panel(review)}
+            <h3>Artifacts</h3>
+            {_render_artifacts(review)}
+            <div class="truth-copy">{escape(review.deletion_truth_copy or "")}</div>
             <h3>Assign speakers</h3>
             {speaker_lanes}
             <h3>Governance</h3>
             <div class="governance">{_render_governance(review)}</div>
+            <h3>Activity</h3>
+            {_render_activity(review)}
             <h3>Assistant</h3>
             <button type="button" disabled>{escape(review.assistant.label)}</button>
             <h3>Template</h3>
             <button type="button" disabled>{escape(review.template.label)}</button>
           </aside>
         </div>
-        <div class="playback"><span>{escape(review.meeting.status_label)}</span><span>1x</span><span>{_duration(review.playback.duration_seconds)}</span></div>
+        <div class="playback detail-playback"><span>{escape(review.meeting.status_label)}</span><span>1x</span><span>{_duration(review.playback.duration_seconds)}</span></div>
       </main>
     """
     return _page_shell(review.meeting.title, content, embedded=embedded)
@@ -361,6 +406,7 @@ def _sidebar() -> str:
 def _render_meeting_row(item: MeetingListItem, *, embedded: bool) -> str:
     href = f"{_base_path(embedded)}/{item.meeting_id}"
     future = "".join(f'<button class="icon-button" type="button" disabled>{escape(slot.label[:1])}</button>' for slot in item.future_slots)
+    access_chip = _render_access_chip(item.access)
     return f"""
       <a class="meeting-row" href="{href}">
         <span class="row-icon">◌</span>
@@ -368,7 +414,7 @@ def _render_meeting_row(item: MeetingListItem, *, embedded: bool) -> str:
           <span class="row-title">{escape(item.title)}</span>
           <span class="row-meta"><span>{_duration(item.duration_seconds)}</span><span>{_date_label(item)}</span></span>
         </span>
-        <span class="chip {escape(item.status)}">{escape(item.status_label)}</span>
+        <span class="state-list"><span class="chip {escape(item.status)}">{escape(item.status_label)}</span>{access_chip}</span>
         <span class="future-actions">{future}</span>
       </a>
     """
@@ -401,6 +447,103 @@ def _render_speaker_lanes(review: MeetingReviewResponse) -> str:
     )
 
 
+def _render_access_chip(access) -> str:
+    if access is None:
+        return ""
+    return f'<span class="chip {escape(access.state)}">{escape(access.label)}</span>'
+
+
+def _render_access_summary(review: MeetingReviewResponse) -> str:
+    access = review.access
+    if access is None:
+        return '<div class="muted">Access state is unavailable.</div>'
+    reason = f'<div class="muted">{escape(access.reason)}</div>' if access.reason else ""
+    capabilities = [
+        ("Share", access.can_share),
+        ("Download", access.can_download),
+        ("Export", access.can_export),
+    ]
+    capability_rows = "".join(
+        f'<div class="state-row"><span>{escape(label)}</span><span class="chip {"available" if enabled else "disabled"}">{ "On" if enabled else "Off" }</span></div>'
+        for label, enabled in capabilities
+    )
+    return f"""
+      <div class="state-list">
+        <div class="state-row"><strong>{escape(access.label)}</strong><span class="chip {escape(access.state)}">{escape(access.state)}</span></div>
+        {reason}
+        {capability_rows}
+      </div>
+    """
+
+
+def _render_share_panel(review: MeetingReviewResponse) -> str:
+    share = review.share
+    if share is None:
+        return '<div class="muted">Sharing is unavailable for this meeting.</div>'
+    grants = "".join(
+        f"""
+        <div class="state-row">
+          <span><strong>{escape(grant.display_name)}</strong><br><span class="muted">{escape(grant.role_label)}</span></span>
+          <span class="chip {escape(grant.status)}">{escape(grant.status)}</span>
+        </div>
+        """
+        for grant in share.active_grants
+    )
+    if not grants:
+        grants = '<div class="muted">No active user grants.</div>'
+    return f"""
+      <div class="state-list">
+        <div class="state-row"><span>Team visibility</span><span class="chip {escape(share.team_visibility)}">{escape(share.team_visibility.replace("_", " "))}</span></div>
+        <div class="state-row"><span>Copy link</span><span class="chip {escape(share.copy_link_state)}">{escape(share.copy_link_state.replace("_", " "))}</span></div>
+        <div class="state-row"><span>Public links</span><span class="chip {escape(share.public_link_state)}">{escape(share.public_link_state.replace("_", " "))}</span></div>
+        {grants}
+      </div>
+    """
+
+
+def _render_artifacts(review: MeetingReviewResponse) -> str:
+    if not review.artifacts:
+        return '<div class="muted">No exportable artifacts yet.</div>'
+    rows = "".join(_render_artifact_state(review, artifact) for artifact in review.artifacts)
+    return f'<div class="state-list">{rows}</div>'
+
+
+def _render_artifact_state(review: MeetingReviewResponse, artifact: ArtifactEgressState) -> str:
+    label = escape(artifact.label)
+    reason = f'<span class="muted">{escape(artifact.reason)}</span>' if artifact.reason else ""
+    if artifact.state == "available" and artifact.artifact_class != "package":
+        action = (
+            f'<a class="mini-link" href="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/downloads/'
+            f'{escape(artifact.artifact_class)}">Download</a>'
+        )
+    elif artifact.state == "available":
+        action = '<span class="chip available">Export ready</span>'
+    else:
+        action = f'<span class="chip {escape(artifact.state)}">{escape(artifact.state.replace("_", " "))}</span>'
+    return f"""
+      <div class="state-row">
+        <span><strong>{label}</strong><br>{reason}</span>
+        {action}
+      </div>
+    """
+
+
+def _render_activity(review: MeetingReviewResponse) -> str:
+    activity = review.activity
+    if activity is None or not activity.items:
+        return '<div class="muted">No access activity yet.</div>'
+    rows = "".join(
+        f"""
+        <div class="activity-item">
+          <div class="state-row"><strong>{escape(item.event_type.replace("_", " "))}</strong><span class="chip {escape(item.outcome)}">{escape(item.outcome)}</span></div>
+          <div class="muted">{escape(item.actor_label)} · {escape(item.created_at.strftime("%Y-%m-%d %H:%M"))}</div>
+        </div>
+        """
+        for item in activity.items[:6]
+    )
+    return f'<div class="activity-list">{rows}</div>'
+
+
 def _render_governance(review: MeetingReviewResponse) -> str:
     actions = [
         review.governance.share,
@@ -409,15 +552,21 @@ def _render_governance(review: MeetingReviewResponse) -> str:
         review.governance.retention,
         review.governance.delete,
     ]
-    return "\n".join(f'<button type="button" disabled>{escape(action.label)}</button>' for action in actions)
+    return "\n".join(
+        f'<button type="button" title="{escape(action.reason or action.label)}" {"disabled" if action.state != "available" else ""}>{escape(action.label)}</button>'
+        for action in actions
+    )
 
 
 def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str:
     if embedded:
         return '<button type="button" disabled>Open in browser</button>'
+    export_disabled = "disabled" if review.governance.export.state != "available" else ""
+    share_disabled = "disabled" if review.governance.share.state != "available" else ""
     return f"""
       <button type="button" disabled>{escape(review.template.label)}</button>
-      <button type="button" disabled>{escape(review.governance.share.label)}</button>
+      <button type="button" {export_disabled}>{escape(review.governance.export.label)}</button>
+      <button type="button" {share_disabled}>{escape(review.governance.share.label)}</button>
       <button type="button" disabled>More</button>
     """
 

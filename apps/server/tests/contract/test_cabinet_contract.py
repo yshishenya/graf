@@ -21,7 +21,7 @@ def test_cabinet_list_contract_shape_and_future_slots(client) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert set(payload) == {"items", "filters", "generated_at"}
-    assert payload["filters"] == {"q": None, "status": None, "sort": "updated_desc"}
+    assert payload["filters"] == {"q": None, "status": None, "access": None, "sort": "updated_desc"}
     assert len(payload["items"]) == 4
     first = payload["items"][0]
     assert {
@@ -34,6 +34,8 @@ def test_cabinet_list_contract_shape_and_future_slots(client) -> None:
         "transcript_available",
         "diarization_available",
         "notes_available",
+        "access",
+        "artifacts",
         "governance",
         "future_slots",
     }.issubset(first)
@@ -57,6 +59,11 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
         "notes",
         "playback",
         "governance",
+        "access",
+        "share",
+        "artifacts",
+        "activity",
+        "deletion_truth_copy",
         "assistant",
         "template",
     } == set(payload)
@@ -73,6 +80,9 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
     }
     assert payload["governance"]["delete"]["destructive"] is True
     assert "2brain Rec" in payload["governance"]["delete"]["label"]
+    assert payload["access"]["state"] == "owner"
+    assert payload["share"]["public_link_state"] == "disabled_by_default"
+    assert payload["activity"]["redaction_state"] == "metadata_only"
 
 
 def test_cabinet_embedded_routes_are_contractually_bounded(client) -> None:
@@ -108,4 +118,3 @@ def test_cabinet_denied_detail_is_privacy_preserving(client) -> None:
     body = json.dumps(response.json(), ensure_ascii=False)
     assert "Foreign private meeting" not in body
     assert "foreign-private-recording" not in body
-

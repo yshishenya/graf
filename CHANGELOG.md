@@ -8,6 +8,11 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен browser/server-owned слой доступа, шаринга, скачивания и экспорта
+  встреч: owner/team/shared/denied access states, login-required share grants
+  and revoke, server-mediated artifact downloads, policy-filtered export
+  packages, metadata-only access/egress activity и truthful post-egress deletion
+  copy (`feature:017`, `T001-T045`).
 - Добавлен macOS desktop cabinet embedding: приложение открывает `Встречи`
   внутри native shell, встраивает server-owned list/detail route classes,
   сохраняет native Record/Stop/upload truth вне WebKit surface, показывает
@@ -68,6 +73,14 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Access/sharing/download/export routes now re-check effective viewer access,
+  never expose object-store keys, signed URLs, raw local paths, bearer tokens,
+  MediaScribe identifiers, or private artifact content in egress responses, and
+  fail closed when metadata-only audit cannot be written before share/revoke/
+  download/export actions (`feature:017`, `T008`, `T020-T024`, `T028-T039`).
+- RLS coverage now includes meeting share grants, artifact policies, egress
+  audit events, and export packages via `0006_access_sharing_downloads`
+  (`feature:017`, `T004-T006`).
 - Desktop cabinet embedding adds an explicit embedded route allowlist for
   `/desktop/meetings` and meeting detail routes, blocks native capture/local
   diagnostics/share/export/download/delete destinations inside the embedded
@@ -106,6 +119,10 @@ Semantic Versioning 2.0.0.
 
 ### Docs
 
+- Added sanitized feature `017` evidence index and refreshed current product
+  status so access, login-required sharing, server-mediated downloads, and safe
+  exports are no longer listed as deferred launch gaps (`feature:017`,
+  `T040-T045`).
 - Обновлены feature `033` implementation evidence, clean-room screenshot notes,
   and current product status so `016` is no longer treated as the next product
   slice after desktop cabinet embedding (`feature:033`, `T034-T037`).

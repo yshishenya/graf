@@ -149,9 +149,9 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
 def test_governance_states_are_non_mutating_and_truthful() -> None:
     governance = view_models.governance_summary()
 
-    assert governance.share.state == "planned"
-    assert governance.export.state == "planned"
-    assert governance.download.state == "planned"
+    assert governance.share.state == "available"
+    assert governance.export.state == "disabled"
+    assert governance.download.state == "disabled"
     assert governance.retention.state == "planned"
     assert governance.delete.destructive is True
     assert "2brain Rec" in governance.delete.label
@@ -174,4 +174,3 @@ def test_processing_state_uses_safe_reason_and_next_action() -> None:
     assert state.reason_code == "mediascribe_validation_failed"
     assert state.next_action == "contact_operator"
     assert "private-workflow" not in state.model_dump_json()
-

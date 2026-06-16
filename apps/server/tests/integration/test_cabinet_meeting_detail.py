@@ -65,8 +65,9 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Recording &amp; Transcript" in ready.text
     assert SAFE_TRANSCRIPT_TEXT in ready.text
     assert "Assign speakers" in ready.text
-    assert "Share planned" in ready.text
+    assert "Access" in ready.text
+    assert "Team visibility" in ready.text
+    assert "Artifacts" in ready.text
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
-

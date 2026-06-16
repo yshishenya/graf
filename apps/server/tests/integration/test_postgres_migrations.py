@@ -58,6 +58,7 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert (versions / "0001_ingest_foundation.py").exists()
     assert (versions / "0002_access_placeholders.py").exists()
     assert (versions / "0004_mediascribe_processing_pipeline.py").exists()
+    assert (versions / "0006_access_sharing_downloads.py").exists()
 
 
 def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -> None:

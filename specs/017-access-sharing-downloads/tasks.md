@@ -18,9 +18,9 @@
 
 **Purpose**: Add the feature scaffolding needed by all stories without changing behavior yet.
 
-- [ ] T001 Create access policy module skeleton in `apps/server/src/twobrain_rec_server/cabinet/access.py`
-- [ ] T002 [P] Create artifact egress module skeleton in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
-- [ ] T003 [P] Create shared access/egress test fixtures in `apps/server/tests/fixtures/cabinet_access.py`
+- [X] T001 Create access policy module skeleton in `apps/server/src/twobrain_rec_server/cabinet/access.py`
+- [X] T002 [P] Create artifact egress module skeleton in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
+- [X] T003 [P] Create shared access/egress test fixtures in `apps/server/tests/fixtures/cabinet_access.py`
 
 ---
 
@@ -28,13 +28,13 @@
 
 **Purpose**: Shared persistence, schemas, and redaction-safe audit plumbing that block all user stories.
 
-- [ ] T004 Add meeting access, artifact policy, egress audit, and export package SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/meeting_access.py`
-- [ ] T005 Export meeting access models from `apps/server/src/twobrain_rec_server/db/models/__init__.py`
-- [ ] T006 Create access/sharing/downloads migration in `apps/server/src/twobrain_rec_server/db/migrations/versions/0006_access_sharing_downloads.py`
-- [ ] T007 Add access/share/artifact/export Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T008 Implement metadata-only egress audit persistence and redaction helpers in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
-- [ ] T009 [P] Add migration/model coverage in `apps/server/tests/integration/test_access_sharing_downloads_migrations.py`
-- [ ] T010 [P] Add schema no-secret contract coverage in `apps/server/tests/contract/test_access_sharing_no_secret_egress.py`
+- [X] T004 Add meeting access, artifact policy, egress audit, and export package SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/meeting_access.py`
+- [X] T005 Export meeting access models from `apps/server/src/twobrain_rec_server/db/models/__init__.py`
+- [X] T006 Create access/sharing/downloads migration in `apps/server/src/twobrain_rec_server/db/migrations/versions/0006_access_sharing_downloads.py`
+- [X] T007 Add access/share/artifact/export Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T008 Implement metadata-only egress audit persistence and redaction helpers in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
+- [X] T009 [P] Add migration/model coverage in `apps/server/tests/integration/test_access_sharing_downloads_migrations.py`
+- [X] T010 [P] Add schema no-secret contract coverage in `apps/server/tests/contract/test_access_sharing_no_secret_egress.py`
 
 **Checkpoint**: Shared access/egress entities, schema contracts, and audit helper are ready before story work starts.
 
@@ -48,16 +48,16 @@
 
 ### Tests for User Story 1
 
-- [ ] T011 [P] [US1] Add access-state contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
-- [ ] T012 [P] [US1] Add owner/team/shared/denied integration tests in `apps/server/tests/integration/test_meeting_access_policy.py`
+- [X] T011 [P] [US1] Add access-state contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
+- [X] T012 [P] [US1] Add owner/team/shared/denied integration tests in `apps/server/tests/integration/test_meeting_access_policy.py`
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement effective access decisions in `apps/server/src/twobrain_rec_server/cabinet/access.py`
-- [ ] T014 [US1] Update cabinet list/detail queries to accept viewer context and filter by effective access in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
-- [ ] T015 [US1] Pass principal and device context through cabinet API routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T016 [US1] Map access states and governance labels into cabinet view models in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T017 [US1] Render owner/team/shared/denied access states in cabinet web routes in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T013 [US1] Implement effective access decisions in `apps/server/src/twobrain_rec_server/cabinet/access.py`
+- [X] T014 [US1] Update cabinet list/detail queries to accept viewer context and filter by effective access in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T015 [US1] Pass principal and device context through cabinet API routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T016 [US1] Map access states and governance labels into cabinet view models in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T017 [US1] Render owner/team/shared/denied access states in cabinet web routes in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 
 **Checkpoint**: User Story 1 is independently functional and protects list/detail access before sharing or egress is enabled.
 
@@ -71,16 +71,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Add share grant/revoke API contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
-- [ ] T019 [P] [US2] Add share link integration tests in `apps/server/tests/integration/test_meeting_share_links.py`
+- [X] T018 [P] [US2] Add share grant/revoke API contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
+- [X] T019 [P] [US2] Add share link integration tests in `apps/server/tests/integration/test_meeting_share_links.py`
 
 ### Implementation for User Story 2
 
-- [ ] T020 [US2] Implement share grant, duplicate-access, revoke, and share-link resolution services in `apps/server/src/twobrain_rec_server/cabinet/access.py`
-- [ ] T021 [US2] Add share grant, revoke, and login-required share-link routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T022 [US2] Add share panel and metadata-only activity state mapping for active grants, team visibility, public-link disabled state, and audit-failure state in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T023 [US2] Render share modal/drawer, login-required copy, and metadata-only activity trail in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T024 [US2] Persist metadata-only share grant/revoke/open audit events before share state changes in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
+- [X] T020 [US2] Implement share grant, duplicate-access, revoke, and share-link resolution services in `apps/server/src/twobrain_rec_server/cabinet/access.py`
+- [X] T021 [US2] Add share grant, revoke, and login-required share-link routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T022 [US2] Add share panel and metadata-only activity state mapping for active grants, team visibility, public-link disabled state, and audit-failure state in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T023 [US2] Render share modal/drawer, login-required copy, and metadata-only activity trail in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T024 [US2] Persist metadata-only share grant/revoke/open audit events before share state changes in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
 
 **Checkpoint**: User Story 2 is independently functional and all share actions are login-required, revocable, and audited.
 
@@ -94,17 +94,17 @@
 
 ### Tests for User Story 3
 
-- [ ] T025 [P] [US3] Add download and no-secret contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
-- [ ] T026 [P] [US3] Add artifact egress policy integration tests in `apps/server/tests/integration/test_artifact_egress_policy.py`
-- [ ] T027 [P] [US3] Add artifact egress view-model and audit-fail-closed unit tests in `apps/server/tests/unit/test_artifact_egress_view_models.py`
+- [X] T025 [P] [US3] Add download and no-secret contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
+- [X] T026 [P] [US3] Add artifact egress policy integration tests in `apps/server/tests/integration/test_artifact_egress_policy.py`
+- [X] T027 [P] [US3] Add artifact egress view-model and audit-fail-closed unit tests in `apps/server/tests/unit/test_artifact_egress_view_models.py`
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Implement artifact policy resolution and lifecycle state decisions in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
-- [ ] T029 [US3] Add server-mediated artifact download routes with authorization and audit-before-egress in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T030 [US3] Map audio/transcript/summary egress states into governance actions in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T031 [US3] Render download states, disabled reasons, and deletion-truth copy in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T032 [US3] Add direct-route denial and no-storage-key assertions to `apps/server/tests/contract/test_access_sharing_no_secret_egress.py`
+- [X] T028 [US3] Implement artifact policy resolution and lifecycle state decisions in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
+- [X] T029 [US3] Add server-mediated artifact download routes with authorization and audit-before-egress in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T030 [US3] Map audio/transcript/summary egress states into governance actions in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T031 [US3] Render download states, disabled reasons, and deletion-truth copy in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T032 [US3] Add direct-route denial and no-storage-key assertions to `apps/server/tests/contract/test_access_sharing_no_secret_egress.py`
 
 **Checkpoint**: User Story 3 is independently functional and direct artifact egress cannot bypass current policy.
 
@@ -118,16 +118,16 @@
 
 ### Tests for User Story 4
 
-- [ ] T033 [P] [US4] Add export package contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
-- [ ] T034 [P] [US4] Add export package integration tests in `apps/server/tests/integration/test_artifact_egress_policy.py`
-- [ ] T035 [P] [US4] Add export manifest no-secret unit tests in `apps/server/tests/unit/test_artifact_egress_audit.py`
+- [X] T033 [P] [US4] Add export package contract tests in `apps/server/tests/contract/test_access_sharing_downloads_contract.py`
+- [X] T034 [P] [US4] Add export package integration tests in `apps/server/tests/integration/test_artifact_egress_policy.py`
+- [X] T035 [P] [US4] Add export manifest no-secret unit tests in `apps/server/tests/unit/test_artifact_egress_audit.py`
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Implement policy-filtered export package builder and manifest generation in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
-- [ ] T037 [US4] Add export create and export download routes with audit-before-egress in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T038 [US4] Map package export states and included/excluded artifact classes in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T039 [US4] Render export package states and post-egress deletion truth in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T036 [US4] Implement policy-filtered export package builder and manifest generation in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
+- [X] T037 [US4] Add export create and export download routes with audit-before-egress in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T038 [US4] Map package export states and included/excluded artifact classes in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T039 [US4] Render export package states and post-egress deletion truth in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 
 **Checkpoint**: User Story 4 is independently functional and packages are policy-filtered, auditable, and no-secret.
 
@@ -137,12 +137,12 @@
 
 **Purpose**: Evidence, documentation, release-readiness, and full validation across all stories.
 
-- [ ] T040 [P] Update feature status and launch-readiness notes in `docs/current-product-status.md`
-- [ ] T041 [P] Add Unreleased changelog entry for feature 017 in `CHANGELOG.md`
-- [ ] T042 [P] Add sanitized screenshot/evidence index in `docs/evidence/017-access-sharing-downloads/README.md`
-- [ ] T043 Run focused quickstart validation and record commands/results in `docs/evidence/017-access-sharing-downloads/README.md`
-- [ ] T044 Run `./infra/scripts/ci-local.sh` and record the result in `docs/evidence/017-access-sharing-downloads/README.md`
-- [ ] T045 Review tracked evidence for private content, credentials, signed URLs, object keys, and local paths in `docs/evidence/017-access-sharing-downloads/README.md`
+- [X] T040 [P] Update feature status and launch-readiness notes in `docs/current-product-status.md`
+- [X] T041 [P] Add Unreleased changelog entry for feature 017 in `CHANGELOG.md`
+- [X] T042 [P] Add sanitized screenshot/evidence index in `docs/evidence/017-access-sharing-downloads/README.md`
+- [X] T043 Run focused quickstart validation and record commands/results in `docs/evidence/017-access-sharing-downloads/README.md`
+- [X] T044 Run `./infra/scripts/ci-local.sh` and record the result in `docs/evidence/017-access-sharing-downloads/README.md`
+- [X] T045 Review tracked evidence for private content, credentials, signed URLs, object keys, and local paths in `docs/evidence/017-access-sharing-downloads/README.md`
 
 ---
 

@@ -6,8 +6,11 @@ from decimal import Decimal
 from typing import cast
 
 from twobrain_rec_server.api.schemas import (
+    ArtifactEgressState,
     GovernanceActionState,
     GovernanceActionSummary,
+    MeetingAccessState,
+    MeetingActivityResponse,
     MeetingListItem,
     MeetingProvenance,
     MeetingReviewResponse,
@@ -15,6 +18,7 @@ from twobrain_rec_server.api.schemas import (
     NotesReviewState,
     PlaybackReviewState,
     ProcessingReviewState,
+    SharePanelState,
     SlotState,
     SourceRoleView,
     SpeakerLane,
@@ -23,6 +27,8 @@ from twobrain_rec_server.api.schemas import (
     TranscriptReviewState,
     TranscriptSegmentView,
 )
+from twobrain_rec_server.cabinet.access import owner_access_state
+from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     Meeting,
@@ -142,25 +148,42 @@ def review_status(
     return "unavailable"
 
 
-def governance_summary() -> GovernanceActionSummary:
-    planned_reason = "Planned for a later governance slice."
+def governance_summary(
+    *,
+    access: MeetingAccessState | None = None,
+    artifacts: list[ArtifactEgressState] | None = None,
+) -> GovernanceActionSummary:
+    access = access or owner_access_state()
+    artifacts = artifacts or []
+    download_available = any(
+        artifact.artifact_class in {"audio", "transcript", "summary"} and artifact.state == "available"
+        for artifact in artifacts
+    )
+    export_available = any(
+        artifact.artifact_class == "package" and artifact.state == "available"
+        for artifact in artifacts
+    )
     return GovernanceActionSummary(
         share=GovernanceActionState(
-            state="planned",
-            label="Share planned",
-            reason=planned_reason,
+            state="available" if access.can_share else "disabled",
+            label="Share",
+            reason="Login-required sharing is available." if access.can_share else "Only permitted owners can manage sharing.",
             destructive=False,
         ),
         export=GovernanceActionState(
-            state="planned",
-            label="Export planned",
-            reason=planned_reason,
+            state="available" if export_available and access.can_export else "disabled",
+            label="Export package",
+            reason="Includes only currently policy-allowed artifacts."
+            if export_available and access.can_export
+            else "No policy-allowed export package is available.",
             destructive=False,
         ),
         download=GovernanceActionState(
-            state="planned",
-            label="Download planned",
-            reason=planned_reason,
+            state="available" if download_available and access.can_download else "disabled",
+            label="Download",
+            reason="Server-mediated artifact download is available."
+            if download_available and access.can_download
+            else "No policy-allowed artifact download is available.",
             destructive=False,
         ),
         retention=GovernanceActionState(
@@ -196,8 +219,12 @@ def build_list_item(
     *,
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
+    access: MeetingAccessState | None = None,
+    artifacts: list[ArtifactEgressState] | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
+    access_state = access or owner_access_state()
+    artifact_states = artifacts or []
     return MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting),
@@ -213,7 +240,9 @@ def build_list_item(
         diarization_available=diarization_available(result),
         notes_available=False,
         updated_at=meeting.updated_at,
-        governance=governance_summary(),
+        access=access_state,
+        artifacts=artifact_states,
+        governance=governance_summary(access=access_state, artifacts=artifact_states),
         future_slots=future_slots(),
     )
 
@@ -419,8 +448,20 @@ def build_review_response(
     transcript_segments: list[TranscriptSegment],
     diarization_segments: list[DiarizationSegment],
     dependency: ProcessingDependencyState | None,
+    access: MeetingAccessState | None = None,
+    share: SharePanelState | None = None,
+    artifacts: list[ArtifactEgressState] | None = None,
+    activity: MeetingActivityResponse | None = None,
 ) -> MeetingReviewResponse:
-    item = build_list_item(meeting, result=result, workflow=workflow)
+    access_state = access or owner_access_state()
+    artifact_states = artifacts or []
+    item = build_list_item(
+        meeting,
+        result=result,
+        workflow=workflow,
+        access=access_state,
+        artifacts=artifact_states,
+    )
     status = cast(MeetingReviewStatus, item.status)
     return MeetingReviewResponse(
         meeting=item,
@@ -439,7 +480,12 @@ def build_review_response(
         speakers=speaker_state(diarization_segments),
         notes=notes_state(status),
         playback=playback_state(meeting, status),
-        governance=governance_summary(),
+        governance=governance_summary(access=access_state, artifacts=artifact_states),
+        access=access_state,
+        share=share,
+        artifacts=artifact_states,
+        activity=activity,
+        deletion_truth_copy=DELETION_TRUTH_COPY,
         assistant=slot_state("Assistant"),
         template=slot_state("Template"),
     )

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from twobrain_rec_server.db.rls_validation import RLS_COVERED_TABLES
 from twobrain_rec_server.deployment import scan_deployment_evidence_text
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -33,9 +34,9 @@ def test_deployment_evidence_scan_accepts_032_safe_rls_truth_record() -> None:
                 "live_production_probe=read_only_metadata",
                 "live_production_enforcement=enabled",
                 "deployed_commit=3fd2162",
-                "alembic_revision=0005_rls_hardening",
-                "covered_table_count=28",
-                "rls_enabled_and_forced_count=28",
+                "alembic_revision=0006_access_sharing_downloads",
+                f"covered_table_count={len(RLS_COVERED_TABLES)}",
+                f"rls_enabled_and_forced_count={len(RLS_COVERED_TABLES)}",
                 "failed_table_names=none",
             ]
         )

@@ -54,6 +54,6 @@ def test_cabinet_processing_detail_does_not_invent_transcript_notes_or_success(c
     assert payload["transcript"]["segments"] == []
     assert payload["notes"]["available"] is False
     assert SAFE_TRANSCRIPT_TEXT not in body
-    assert "Copy Link" not in body
-    assert "public_link" not in body
-
+    assert "share_token_hash" not in body
+    assert "storage_object_key" not in body
+    assert payload["share"]["public_link_state"] == "disabled_by_default"

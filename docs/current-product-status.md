@@ -100,6 +100,17 @@ implementation record.
   screenshots, and no-secret/no-private-content validation. It intentionally
   does not execute share/export/download/delete/retention policies or replace
   native desktop capture controls.
+- Feature `017-access-sharing-downloads` is implemented as the browser/server
+  owned access, sharing, download, and export layer for accepted meeting review
+  data. It adds effective owner/team/shared/denied access decisions for list,
+  detail, share, download, export, and desktop-embedded routes; login-required
+  share grants and revocation; server-mediated artifact downloads;
+  policy-filtered export packages; metadata-only access/egress activity; truthful
+  post-egress deletion copy; RLS coverage for the new access/egress tables; and
+  synthetic screenshot evidence for desktop and compact layouts. It does not
+  enable public links, external-recipient invitations, retention execution,
+  deletion execution, admin policy editing, billing, or desktop-owned egress
+  policy.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -178,8 +189,9 @@ implementation record.
 - Driver live virtual-device publication is not accepted for MVP recording and
   must not be revived without a separate future advanced-routing spec,
   implementation, and safety evidence.
-- Share/download surfaces, server retention, and deletion workflows are not
-  accepted yet.
+- Server retention and deletion workflows are not accepted yet. Public meeting
+  links, external-recipient invitations, admin policy editing, and billing are
+  also still later slices.
 - The `012` backend foundation exists as a repository implementation with
   `021` remote-first infrastructure smoke readiness scaffolding; real user
   rollout and desktop uploader slices are still not accepted.
@@ -208,12 +220,14 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `017-access-sharing-downloads`.
-`016` now provides the authorized review cabinet and `033` embeds that cabinet
-inside the macOS shell without weakening native capture authority. The next
-launch-moving product slice should add browser-owned access, sharing, export,
-and download policy around accepted meeting review data while preserving
-explicit egress, audit, retention, deletion truth, and no-secret evidence gates.
+Recommended next feature: `018-retention-deletion-execution`.
+`016` provides the authorized review cabinet, `033` embeds that cabinet inside
+the macOS shell without weakening native capture authority, and `017` now adds
+browser-owned access, login-required sharing, server-mediated downloads, safe
+exports, audit, and egress truth. The next launch-moving product slice should
+turn the existing deletion/retention truth surfaces into actual server-side
+retention jobs, deletion workflows, reports, local desktop purge coordination,
+backup expiry accounting, and external dependency deletion boundaries.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until dashboard, access, retention, deletion,
@@ -221,9 +235,8 @@ and user rollout slices are separately accepted.
 
 Keep separate unless the next spec explicitly changes scope:
 
-- `017-access-sharing-downloads`: role-based meeting access, team visibility,
-  download/export permissions, login-required share links, optional public-link
-  policy, and share-page lifecycle/audit.
+- Public-link and external-recipient sharing policy: optional public links,
+  expiration, abuse controls, external invitations, and legal/admin copy.
 - `018-retention-deletion-execution`: server-side retention jobs, deletion
   workflows, deletion verification reports, local desktop purge coordination,
   backup expiry accounting, and external dependency deletion truth.
@@ -243,8 +256,9 @@ the current accepted implementation or `012` ingest slice.
   `009-respect-meeting-mute` draft branch as the canonical backlog record.
 - `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
   naming, and any future auto-start behavior from the accepted requirements.
-- `017-access-sharing-downloads`: add RBAC/team visibility, audio/transcript/
-  summary downloads, share links/pages, lifecycle, and audit.
+- Public-link and external-recipient sharing policy: add optional public links,
+  expiration, external invitations, abuse controls, and admin/legal copy after
+  the login-required 017 flow is accepted.
 - `018-retention-deletion-execution`: implement retention/deletion workflows,
   deletion reports, local purge coordination, backup expiry, and external
   dependency deletion truth.

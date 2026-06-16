@@ -169,6 +169,108 @@ SourceRoleView = Literal["local_microphone", "incoming_system", "unknown"]
 GovernanceState = Literal["available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"]
 SlotStateValue = Literal["available", "disabled", "planned", "policy_blocked", "out_of_scope"]
 NextAction = Literal["wait", "retry_future", "contact_operator", "open_desktop_queue", "none"]
+AccessState = Literal["owner", "team", "shared", "denied", "unavailable", "deleted"]
+ArtifactClass = Literal["audio", "transcript", "summary", "package"]
+ArtifactEgressStateValue = Literal[
+    "available",
+    "policy_blocked",
+    "missing",
+    "processing",
+    "failed",
+    "deleted",
+    "owner_only",
+    "audit_unavailable",
+]
+ArtifactAction = Literal["download", "export", "disabled"]
+TeamVisibilityState = Literal["enabled", "disabled", "policy_blocked"]
+CopyLinkState = Literal["available", "auth_required", "disabled"]
+PublicLinkState = Literal["disabled_by_default", "policy_blocked"]
+ShareGrantStatus = Literal["active", "revoked"]
+ActivityOutcome = Literal["allowed", "denied", "completed", "failed"]
+ExportPackageStatus = Literal["requested", "ready", "failed", "expired"]
+
+
+class MeetingAccessState(BaseModel):
+    state: AccessState
+    label: str
+    reason: str | None = None
+    can_view: bool
+    can_share: bool
+    can_manage_team_visibility: bool
+    can_download: bool
+    can_export: bool
+
+
+class ArtifactEgressState(BaseModel):
+    artifact_class: ArtifactClass
+    state: ArtifactEgressStateValue
+    label: str
+    reason: str | None = None
+    action: ArtifactAction
+
+
+class ShareGrantView(BaseModel):
+    grant_id: UUID
+    display_name: str
+    role_label: Literal["Owner", "Team", "Can view"]
+    status: ShareGrantStatus
+    created_at: datetime
+
+
+class SharePanelState(BaseModel):
+    team_visibility: TeamVisibilityState
+    active_grants: list[ShareGrantView] = Field(default_factory=list)
+    copy_link_state: CopyLinkState
+    public_link_state: PublicLinkState
+
+
+class MeetingActivityItem(BaseModel):
+    event_id: UUID
+    event_type: str
+    actor_label: str
+    artifact_class: ArtifactClass | None = None
+    outcome: ActivityOutcome
+    reason: str | None = None
+    created_at: datetime
+
+
+class MeetingActivityResponse(BaseModel):
+    meeting_id: UUID
+    redaction_state: Literal["metadata_only", "limited_by_policy"] = "metadata_only"
+    items: list[MeetingActivityItem] = Field(default_factory=list)
+
+
+class MeetingAccessResponse(BaseModel):
+    meeting_id: UUID
+    access: MeetingAccessState
+    share: SharePanelState
+    artifacts: list[ArtifactEgressState] = Field(default_factory=list)
+    deletion_truth_copy: str
+
+
+class CreateShareGrantRequest(BaseModel):
+    grantee_user_id: UUID
+
+
+class ShareGrantResponse(BaseModel):
+    grant: ShareGrantView
+    share_url: str
+
+
+class CreateExportPackageRequest(BaseModel):
+    artifact_classes: list[ArtifactClass] = Field(min_length=1)
+
+
+class ExportPackageExclusion(BaseModel):
+    artifact_class: ArtifactClass
+    policy_reason: str
+
+
+class ExportPackageResponse(BaseModel):
+    export_id: UUID
+    status: ExportPackageStatus
+    included_artifacts: list[ArtifactClass] = Field(default_factory=list)
+    excluded_artifacts: list[ExportPackageExclusion] = Field(default_factory=list)
 
 
 class GovernanceActionState(BaseModel):
@@ -195,6 +297,7 @@ class SlotState(BaseModel):
 class MeetingFilterState(BaseModel):
     q: str | None = None
     status: MeetingReviewStatus | None = None
+    access: AccessState | None = None
     sort: str = "updated_desc"
 
 
@@ -213,6 +316,8 @@ class MeetingListItem(BaseModel):
     diarization_available: bool = False
     notes_available: bool = False
     updated_at: datetime | None = None
+    access: MeetingAccessState | None = None
+    artifacts: list[ArtifactEgressState] = Field(default_factory=list)
     governance: GovernanceActionSummary
     future_slots: list[SlotState] = Field(default_factory=list)
 
@@ -311,5 +416,10 @@ class MeetingReviewResponse(BaseModel):
     notes: NotesReviewState
     playback: PlaybackReviewState
     governance: GovernanceActionSummary
+    access: MeetingAccessState | None = None
+    share: SharePanelState | None = None
+    artifacts: list[ArtifactEgressState] = Field(default_factory=list)
+    activity: MeetingActivityResponse | None = None
+    deletion_truth_copy: str | None = None
     assistant: SlotState
     template: SlotState

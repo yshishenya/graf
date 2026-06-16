@@ -7,11 +7,14 @@ from sqlalchemy import Select, asc, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import (
+    AccessState,
     MeetingFilterState,
     MeetingListResponse,
     MeetingReviewResponse,
     MeetingReviewStatus,
 )
+from twobrain_rec_server.cabinet.access import decide_meeting_access, share_panel_state
+from twobrain_rec_server.cabinet.egress import activity_response, artifact_egress_states
 from twobrain_rec_server.cabinet.view_models import build_list_item, build_review_response
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -27,8 +30,10 @@ async def list_cabinet_meetings(
     db: AsyncSession,
     *,
     workspace_id: UUID,
+    viewer_user_id: UUID,
     q: str | None = None,
     status: MeetingReviewStatus | None = None,
+    access: AccessState | None = None,
     sort: str = "updated_desc",
     limit: int = 50,
 ) -> MeetingListResponse:
@@ -41,9 +46,26 @@ async def list_cabinet_meetings(
 
     items = []
     for meeting in meetings:
+        decision = await decide_meeting_access(
+            db,
+            meeting,
+            workspace_id=workspace_id,
+            viewer_user_id=viewer_user_id,
+        )
+        if not decision.can_view:
+            continue
+        if access is not None and decision.state != access:
+            continue
         workflow = await _latest_workflow(db, workspace_id=workspace_id, meeting_id=meeting.id)
         result = await _latest_result(db, workspace_id=workspace_id, meeting_id=meeting.id)
-        item = build_list_item(meeting, result=result, workflow=workflow)
+        artifacts = await artifact_egress_states(db, meeting=meeting, access=decision, result=result)
+        item = build_list_item(
+            meeting,
+            result=result,
+            workflow=workflow,
+            access=decision.to_schema(),
+            artifacts=artifacts,
+        )
         if status is not None and item.status != status:
             continue
         items.append(item)
@@ -51,7 +73,7 @@ async def list_cabinet_meetings(
             break
     return MeetingListResponse(
         items=items,
-        filters=MeetingFilterState(q=q, status=status, sort=sort),
+        filters=MeetingFilterState(q=q, status=status, access=access, sort=sort),
         generated_at=datetime.now(UTC),
     )
 
@@ -61,6 +83,7 @@ async def get_cabinet_meeting_review(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    viewer_user_id: UUID,
 ) -> MeetingReviewResponse | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -69,6 +92,14 @@ async def get_cabinet_meeting_review(
         )
     )
     if meeting is None:
+        return None
+    decision = await decide_meeting_access(
+        db,
+        meeting,
+        workspace_id=workspace_id,
+        viewer_user_id=viewer_user_id,
+    )
+    if not decision.can_view:
         return None
     workflow = await _latest_workflow(db, workspace_id=workspace_id, meeting_id=meeting_id)
     result = await _latest_result(db, workspace_id=workspace_id, meeting_id=meeting_id)
@@ -112,6 +143,15 @@ async def get_cabinet_meeting_review(
         transcript_segments=transcript_segments,
         diarization_segments=diarization_segments,
         dependency=dependency,
+        access=decision.to_schema(),
+        share=await share_panel_state(db, meeting, decision),
+        artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
+        activity=await activity_response(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            viewer_user_id=viewer_user_id,
+        ),
     )
 
 
@@ -157,3 +197,12 @@ async def _latest_result(
         )
         .order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc())
     )
+
+
+async def latest_processing_result(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> ProcessingResult | None:
+    return await _latest_result(db, workspace_id=workspace_id, meeting_id=meeting_id)
