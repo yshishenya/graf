@@ -1,0 +1,857 @@
+{
+  "feature": "035-mvp-loop-live-evidence",
+  "generated_at": "2026-06-16T17:13:41Z",
+  "deployed_commit": "7cb5c9f9ed7aca679e782fd824a9bd6312ee7f4f",
+  "claim_summary": {
+    "outcome": "pilot_blocked",
+    "bounded_claims": [
+      "infra_smoke_ready"
+    ],
+    "excluded_claims": [
+      "mvp_loop_ready",
+      "internal_pilot_candidate",
+      "user_rollout_ready",
+      "production_ready"
+    ],
+    "p0_p1_blockers": 3
+  },
+  "stages": [
+    {
+      "id": "local-recording-visible-stop",
+      "label": "Local recording and visible stop",
+      "owner_surface": "macos_native",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-025-system-audio",
+        "feature-022-meeting-mute-truth",
+        "desktop-shell-regression-tests",
+        "feature-035-live-evidence-pack",
+        "feature-035-validation-log"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "desktop_loop_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Installed /Applications runtime evidence now covers Record, Pause, Resume, Stop, latest artifact validation, and visible local capture truth."
+    },
+    {
+      "id": "local-artifact-finalization",
+      "label": "Local artifact finalization and leakage gate",
+      "owner_surface": "macos_native",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-020-finalization"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "desktop_loop_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Finalization truth gate is accepted for dual-track packages."
+    },
+    {
+      "id": "upload-server-ingest",
+      "label": "Upload queue and server ingest",
+      "owner_surface": "server_backend",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-014-desktop-upload"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Desktop upload queue and server-mediated ingest are accepted foundations."
+    },
+    {
+      "id": "mediascribe-processing-import",
+      "label": "MediaScribe processing and result import",
+      "owner_surface": "server_backend",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-015-processing"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Processing pipeline is accepted; desktop clients still do not hold MediaScribe credentials."
+    },
+    {
+      "id": "meeting-list",
+      "label": "Meeting list",
+      "owner_surface": "web_cabinet",
+      "status": "degraded",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-016-web-review",
+        "feature-017-access-egress",
+        "web-cabinet-regression-tests",
+        "web-meeting-list-blocker-note",
+        "feature-035-web-live-auth-blocker",
+        "feature-035-web-list-evidence"
+      ],
+      "launch_gap_ids": [
+        "web-owner-live-auth-context"
+      ],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Production list route exists and fixture evidence is safe, but live owner review is blocked until auth/session context is available on rec.2brain.pro."
+    },
+    {
+      "id": "meeting-detail-transcript-playback",
+      "label": "Meeting detail transcript, playback, and provenance",
+      "owner_surface": "web_cabinet",
+      "status": "degraded",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-016-web-review",
+        "web-cabinet-regression-tests",
+        "web-meeting-detail-blocker-note",
+        "feature-035-web-live-auth-blocker",
+        "feature-035-web-detail-evidence"
+      ],
+      "launch_gap_ids": [
+        "web-owner-live-auth-context"
+      ],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Ready/partial/processing/failed detail states are fixture-backed; live private detail proof is blocked by missing production auth context."
+    },
+    {
+      "id": "notes-action-output",
+      "label": "Notes and action output",
+      "owner_surface": "web_cabinet",
+      "status": "blocked",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "web-cabinet-regression-tests",
+        "web-meeting-detail-blocker-note",
+        "feature-035-web-detail-evidence"
+      ],
+      "launch_gap_ids": [
+        "notes-action-output"
+      ],
+      "claim_impact": [
+        "mvp_loop_ready"
+      ],
+      "notes": "The interface shows truthful planned notes/assistant placeholders; launchable notes/action output remains missing."
+    },
+    {
+      "id": "desktop-embedded-cabinet",
+      "label": "Desktop embedded cabinet",
+      "owner_surface": "desktop_embedded_web",
+      "status": "degraded",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-033-desktop-embedding",
+        "desktop-shell-regression-tests",
+        "desktop-first-surface-blocker-note",
+        "desktop-embedded-detail-blocker-note"
+      ],
+      "launch_gap_ids": [
+        "desktop-product-surface-polish"
+      ],
+      "claim_impact": [
+        "desktop_loop_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Installed desktop capture proof is current, but the broader product surface still needs V8 clean-room polish before a broad launch claim."
+    },
+    {
+      "id": "access-sharing-download-export",
+      "label": "Access, sharing, download, and export",
+      "owner_surface": "web_cabinet",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-017-access-egress",
+        "policy-lifecycle-regression-tests",
+        "policy-lifecycle-evidence-note",
+        "feature-035-web-governance-evidence"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "policy_lifecycle_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Access/egress policy is accepted and locally regressed with bounded artifact actions."
+    },
+    {
+      "id": "retention-deletion-local-purge",
+      "label": "Retention, deletion, and local purge truth",
+      "owner_surface": "server_backend",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-018-retention-deletion",
+        "policy-lifecycle-regression-tests",
+        "policy-lifecycle-evidence-note"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "policy_lifecycle_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Deletion reports, dependency limits, post-egress limits, and local purge acknowledgements are locally regressed as metadata-only truth."
+    },
+    {
+      "id": "production-deployment-smoke",
+      "label": "Production deployment and smoke boundary",
+      "owner_surface": "production_infra",
+      "status": "degraded",
+      "evidence_strength": "production_smoke",
+      "evidence_ids": [
+        "production-018-infra-smoke"
+      ],
+      "launch_gap_ids": [
+        "production-user-rollout-evidence"
+      ],
+      "claim_impact": [
+        "infra_smoke_ready"
+      ],
+      "notes": "Production evidence proves infra_smoke_ready, not pilot or user rollout readiness."
+    },
+    {
+      "id": "product-status-next-slice",
+      "label": "Product status and next-slice truth",
+      "owner_surface": "docs_status",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-035-readiness-report-json",
+        "feature-035-readiness-report-md",
+        "feature-035-launch-gap-register",
+        "current-product-status-035-next-slice",
+        "changelog-035"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "partial_readiness"
+      ],
+      "notes": "The generated 035 readiness pack records the current bounded claim and next product slice."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "spec-034",
+      "type": "document",
+      "source": "specs/034-mvp-loop-readiness/spec.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Defines the MVP loop readiness requirements and forbidden evidence boundaries.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "plan-034",
+      "type": "document",
+      "source": "specs/034-mvp-loop-readiness/plan.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Defines the server-side readiness harness and validation strategy.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "tasks-034",
+      "type": "github",
+      "source": "specs/034-mvp-loop-readiness/issues.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Maps Spec Kit tasks to GitHub issues #956-#1014.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-016-web-review",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-016-meeting-dashboard-review",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted server-owned meeting list/detail review cabinet.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Synthetic and fixture evidence cannot prove live private meeting review."
+      ]
+    },
+    {
+      "id": "feature-017-access-egress",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-017-access-sharing-downloads",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted browser/server-owned access, sharing, download, and export layer.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-018-retention-deletion",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-018-retention-deletion-execution",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted retention/deletion execution and local purge truth.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-020-finalization",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-020-speaker-to-mic-leakage",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted finalization truth gate for dual-track recording packages.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-025-system-audio",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-025-system-audio-capture-pivot",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted system-audio-first macOS MVP capture path.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-022-meeting-mute-truth",
+      "type": "document",
+      "source": "specs/022-meeting-mute-truth/evidence/test-results.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted product-owned Pause/Resume mute truth, privacy segment metadata, fail-closed unsupported target handling, and installed /Applications runtime evidence.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-014-desktop-upload",
+      "type": "document",
+      "source": "CHANGELOG.md#unreleased",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted desktop upload queue and server-mediated ingest mapping.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-015-processing",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-015-mediascribe-processing-pipeline",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted server-side MediaScribe processing/import path.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-033-desktop-embedding",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-033-desktop-cabinet-embedding",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Accepted desktop shell bridge for embedded cabinet routes using synthetic evidence.",
+      "strength": "synthetic",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Fresh live app screenshot evidence is still required for launch claims."
+      ]
+    },
+    {
+      "id": "desktop-shell-regression-tests",
+      "type": "command",
+      "source": "swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinet|DesktopLocalPurge'",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Local macOS regression coverage for workspace-first routing, native capture boundaries, embedded route policy, upload review identity, and local purge truth.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Command evidence does not replace metadata-safe live desktop screenshots."
+      ]
+    },
+    {
+      "id": "desktop-first-surface-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/desktop-first-surface-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents safe first-surface desktop evidence and the remaining live screenshot blocker.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live screenshot is committed."
+      ]
+    },
+    {
+      "id": "desktop-embedded-detail-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/desktop-embedded-detail-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents safe embedded detail evidence and the remaining live screenshot blocker.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live embedded detail screenshot is committed."
+      ]
+    },
+    {
+      "id": "web-cabinet-regression-tests",
+      "type": "command",
+      "source": "uv run --extra dev pytest -q tests/unit/test_cabinet_web_shell.py tests/integration/test_cabinet_meeting_list.py tests/integration/test_cabinet_meeting_detail.py",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Local fixture coverage for web list/detail IA, embedded cabinet boundaries, transcript/playback/provenance, notes placeholders, and governance slots.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Fixture web tests do not prove live private meeting screenshots."
+      ]
+    },
+    {
+      "id": "web-meeting-list-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-list-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents metadata-safe web list evidence and live screenshot boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live browser screenshot is committed."
+      ]
+    },
+    {
+      "id": "web-meeting-detail-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-detail-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents metadata-safe meeting detail evidence and live screenshot boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live browser screenshot is committed."
+      ]
+    },
+    {
+      "id": "reference-comparison-note",
+      "type": "reference_review",
+      "source": "docs/evidence/034-mvp-loop-readiness/reference-comparison.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Clean-room comparison of allowed IA lessons and forbidden Krisp similarity.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "policy-lifecycle-regression-tests",
+      "type": "command",
+      "source": "uv run --extra dev pytest -q tests/contract/test_access_sharing_downloads_contract.py tests/contract/test_retention_deletion_contract.py tests/unit/test_deletion_report_view_models.py tests/integration/test_local_purge_coordination.py",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Local fixture coverage for login-required sharing, bounded download/export, deletion report partitioning, dependency truth, post-egress limits, and local purge acknowledgements.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Fixture lifecycle tests do not perform destructive production deletion."
+      ]
+    },
+    {
+      "id": "policy-lifecycle-evidence-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/policy-lifecycle-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents metadata-safe policy, egress, retention, deletion, and local purge evidence boundaries.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "production-018-infra-smoke",
+      "type": "production_smoke",
+      "source": "master deploy/smoke for commit 7cb5c9f9ed7aca679e782fd824a9bd6312ee7f4f",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Production deployment reached infra_smoke_ready after 018 merge.",
+      "strength": "production_smoke",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "infra_smoke_ready is not user rollout readiness."
+      ]
+    },
+    {
+      "id": "reference-clean-room-contract",
+      "type": "reference_review",
+      "source": "specs/034-mvp-loop-readiness/contracts/reference-comparison-contract.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Defines allowed IA/category reference lessons and forbidden Krisp copy/private content.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "current-product-status-034-next-slice",
+      "type": "document",
+      "source": "docs/current-product-status.md#next-product-slice",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Current status records the 034 readiness outcome and evidence-based next product slice.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-live-evidence-pack",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/README.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Defines metadata-safe evidence boundaries and the strongest truthful 035 claim.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-validation-log",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/validation-log.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Records 035 command/manual validation evidence and blockers.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-clean-room-reference",
+      "type": "reference_review",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/clean-room-reference.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Records allowed reference lessons and forbidden similarity checks for 035.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-github-issues",
+      "type": "github",
+      "source": "specs/035-mvp-loop-live-evidence/issues.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Maps all 035 Spec Kit tasks to GitHub issues #1064-#1106.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-web-live-auth-blocker",
+      "type": "endpoint",
+      "source": "https://rec.2brain.pro/meetings",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Production web route exists but live Chrome owner review returned 401 missing_auth_context without a committed private session.",
+      "strength": "blocked",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No private screenshots, cookies, tokens, or account content are committed.",
+        "Route availability is proven separately from authenticated owner review."
+      ]
+    },
+    {
+      "id": "feature-035-web-list-evidence",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-list-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents production list route blocker and fixture-backed meeting list coverage.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "Fixture-backed list evidence does not prove a live private owner account."
+      ]
+    },
+    {
+      "id": "feature-035-web-detail-evidence",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-detail-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents production detail route blocker and fixture-backed transcript/playback coverage.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "Fixture-backed detail evidence does not include private meeting content."
+      ]
+    },
+    {
+      "id": "feature-035-web-governance-evidence",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/screenshots/web-governance-evidence.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Documents fixture-backed share/export/deletion governance coverage and live auth blocker.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No destructive production sharing, export, or deletion action was performed."
+      ]
+    },
+    {
+      "id": "feature-035-readiness-report-json",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/readiness-report.json",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Structured 035 readiness report generated from the current evidence matrix.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-readiness-report-md",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/readiness-report.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Reviewer-facing 035 readiness summary with the current bounded claim.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-launch-gap-register",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/launch-gap-register.md",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "035 launch gap register with remaining P1/P2 blockers and next actions.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "current-product-status-035-next-slice",
+      "type": "document",
+      "source": "docs/current-product-status.md#next-product-slice",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Current status records the 035 outcome and the next evidence-based product slice.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "changelog-035",
+      "type": "document",
+      "source": "CHANGELOG.md#unreleased",
+      "captured_at": "2026-06-16T17:13:41Z",
+      "scope": "Changelog records the 035 validation-only evidence pack and claim boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    }
+  ],
+  "launch_gaps": [
+    {
+      "id": "notes-action-output",
+      "severity": "P1",
+      "affected_journey": "notes-action-output",
+      "current_evidence": "Meeting detail shows truthful planned notes/assistant placeholders.",
+      "missing_evidence": "Notes/action output availability or truthful blocked state in review surfaces.",
+      "recommended_next_action": "Decide whether the next slice is assistant notes/actions or explicit MVP deferral.",
+      "owner_area": "web",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "production-user-rollout-evidence",
+      "severity": "P1",
+      "affected_journey": "production-deployment-smoke",
+      "current_evidence": "Production smoke proves infra_smoke_ready only.",
+      "missing_evidence": "Internal pilot or user rollout validation with live app journey evidence.",
+      "recommended_next_action": "Keep production claim capped until a pilot runbook or live loop validation passes.",
+      "owner_area": "ops",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "web-owner-live-auth-context",
+      "severity": "P1",
+      "affected_journey": "meeting-list",
+      "current_evidence": "Production /meetings route exists and fixture-backed list/detail/governance evidence is committed, but live Chrome owner review returned missing auth context.",
+      "missing_evidence": "Commit-safe authenticated owner review proof on rec.2brain.pro for list, detail, and governance states.",
+      "recommended_next_action": "Implement or validate the owner auth/session path for rec.2brain.pro, then capture metadata-safe owner review evidence.",
+      "owner_area": "web",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "browser-target-gaps",
+      "severity": "P2",
+      "affected_journey": "capture-target-coverage",
+      "current_evidence": "Yandex Browser remains intentionally skipped/not accepted.",
+      "missing_evidence": "Target matrix decision for browser coverage before pilot promises.",
+      "recommended_next_action": "Keep unsupported targets explicit or run a browser target hardening slice.",
+      "owner_area": "desktop",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "desktop-product-surface-polish",
+      "severity": "P2",
+      "affected_journey": "desktop-embedded-cabinet",
+      "current_evidence": "Installed desktop screenshots prove the local capture loop but show an operational local-mode surface.",
+      "missing_evidence": "Accepted desktop/web product surface polish against the clean-room V8 implementation baseline.",
+      "recommended_next_action": "Use the accepted 030 V8 baseline in the next UI implementation slice.",
+      "owner_area": "ux",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "signed-installer-evidence",
+      "severity": "P2",
+      "affected_journey": "desktop-distribution",
+      "current_evidence": "Local/ad-hoc development package evidence exists.",
+      "missing_evidence": "signed installer evidence for broader pilot distribution.",
+      "recommended_next_action": "Plan installer signing/notarization as a follow-up slice if pilot distribution needs it.",
+      "owner_area": "ops",
+      "deferred": false,
+      "deferral_guardrail": null
+    }
+  ],
+  "reference_comparisons": [
+    {
+      "id": "desktop-first-viewport",
+      "surface": "desktop_home",
+      "allowed_lessons": [
+        "Meeting workspace first",
+        "Native capture authority remains local"
+      ],
+      "implementation_alignment": "033 establishes the desktop cabinet shell and 034 adds local regression evidence; live screenshots are still blocked.",
+      "intentional_differences": [
+        "2brain keeps Record/Stop as native trust controls."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "needs_polish",
+      "evidence_ids": [
+        "feature-033-desktop-embedding",
+        "desktop-shell-regression-tests",
+        "desktop-first-surface-blocker-note",
+        "reference-clean-room-contract",
+        "reference-comparison-note"
+      ]
+    },
+    {
+      "id": "web-list-workspace",
+      "surface": "web_list",
+      "allowed_lessons": [
+        "Meeting list, filters, sort, upload slot, and future action slots are discoverable"
+      ],
+      "implementation_alignment": "034 verifies the web list and desktop-embedded list with fixture-backed local tests.",
+      "intentional_differences": [
+        "2brain keeps capture creation out of embedded web content."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "pass",
+      "evidence_ids": [
+        "web-cabinet-regression-tests",
+        "web-meeting-list-blocker-note",
+        "reference-comparison-note"
+      ]
+    },
+    {
+      "id": "web-review-workspace",
+      "surface": "web_detail",
+      "allowed_lessons": [
+        "Transcript/playback/provenance are discoverable in one review workspace"
+      ],
+      "implementation_alignment": "016/017/018 provide the server-owned review/governance surfaces; 034 verifies placeholders and embedded boundaries.",
+      "intentional_differences": [
+        "2brain uses its own design language and truthful placeholder policy."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "pass",
+      "evidence_ids": [
+        "feature-016-web-review",
+        "feature-017-access-egress",
+        "web-cabinet-regression-tests",
+        "web-meeting-detail-blocker-note",
+        "reference-comparison-note"
+      ]
+    },
+    {
+      "id": "governance-actions",
+      "surface": "governance",
+      "allowed_lessons": [
+        "Share, export/download, deletion, and lifecycle truth must be visible by policy"
+      ],
+      "implementation_alignment": "017/018 cover policy-owned access, egress, retention, deletion, and purge truth.",
+      "intentional_differences": [
+        "External public links remain out of scope."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "pass",
+      "evidence_ids": [
+        "feature-017-access-egress",
+        "feature-018-retention-deletion",
+        "policy-lifecycle-regression-tests",
+        "policy-lifecycle-evidence-note"
+      ]
+    }
+  ],
+  "forbidden_content_scan": {
+    "status": "pass",
+    "commands": [
+      "rg -n -i real private-value patterns specs/035-mvp-loop-live-evidence docs/evidence/035-mvp-loop-live-evidence docs/current-product-status.md CHANGELOG.md",
+      "find docs/evidence/035-mvp-loop-live-evidence/screenshots -type f -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.webp'",
+      "rg -n -i evidence payload-id patterns docs/evidence/035-mvp-loop-live-evidence"
+    ],
+    "matches": []
+  }
+}

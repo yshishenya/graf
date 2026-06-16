@@ -22,7 +22,7 @@ def build_default_readiness_report(
     deployed_commit: str = "unknown",
 ) -> ReadinessReport:
     generated_at = generated_at or utc_now_iso()
-    launch_gaps = build_default_launch_gaps()
+    launch_gaps = build_default_launch_gaps(feature=feature)
     p0_p1_count = p0_p1_blocker_count(launch_gaps)
     summary = ClaimSummary(
         outcome="pilot_blocked" if p0_p1_count else "internal_pilot_candidate",
@@ -40,7 +40,7 @@ def build_default_readiness_report(
         generated_at=generated_at,
         deployed_commit=deployed_commit,
         claim_summary=summary,
-        stages=build_default_stages(),
+        stages=build_default_stages(feature=feature),
         evidence=build_default_evidence(generated_at, deployed_commit, feature=feature),
         launch_gaps=launch_gaps,
         reference_comparisons=build_default_reference_comparisons(),
@@ -246,6 +246,12 @@ def _next_slice_recommendation(report: ReadinessReport) -> str:
             "Before any pilot claim, close metadata-safe live desktop/web evidence "
             "and production user-journey proof, while keeping notes/action output "
             "truthful if it remains deferred."
+        )
+    if report.feature == "035-mvp-loop-live-evidence" and p1_gaps:
+        return (
+            "Recommended next product slice: `036-owner-review-live-polish`. "
+            "Close `web-owner-live-auth-context`, decide `notes-action-output`, "
+            "and keep production rollout capped until a commit-safe owner journey passes."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."

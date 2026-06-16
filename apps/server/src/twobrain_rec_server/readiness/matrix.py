@@ -379,14 +379,61 @@ def build_default_evidence(
                     forbidden_content_scan="pass",
                     limitations=["No destructive production sharing, export, or deletion action was performed."],
                 ),
+                ReadinessEvidence(
+                    id="feature-035-readiness-report-json",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/readiness-report.json",
+                    captured_at=captured_at,
+                    scope="Structured 035 readiness report generated from the current evidence matrix.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-035-readiness-report-md",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/readiness-report.md",
+                    captured_at=captured_at,
+                    scope="Reviewer-facing 035 readiness summary with the current bounded claim.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-035-launch-gap-register",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/launch-gap-register.md",
+                    captured_at=captured_at,
+                    scope="035 launch gap register with remaining P1/P2 blockers and next actions.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="current-product-status-035-next-slice",
+                    type="document",
+                    source="docs/current-product-status.md#next-product-slice",
+                    captured_at=captured_at,
+                    scope="Current status records the 035 outcome and the next evidence-based product slice.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="changelog-035",
+                    type="document",
+                    source="CHANGELOG.md#unreleased",
+                    captured_at=captured_at,
+                    scope="Changelog records the 035 validation-only evidence pack and claim boundary.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
             ]
         )
     return evidence
 
 
-def build_default_launch_gaps() -> list[LaunchGap]:
-    return sort_launch_gaps(
-        [
+def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[LaunchGap]:
+    live_desktop_gap = (
+        []
+        if feature == "035-mvp-loop-live-evidence"
+        else [
             LaunchGap(
                 id="live-desktop-evidence",
                 severity="P1",
@@ -395,7 +442,46 @@ def build_default_launch_gaps() -> list[LaunchGap]:
                 missing_evidence="Fresh metadata-safe live desktop screenshots or explicit product-owner acceptance of the blocker.",
                 recommended_next_action="Capture desktop first-surface and embedded detail screenshots without private content.",
                 owner_area="desktop",
+            )
+        ]
+    )
+    feature_035_gaps = (
+        [
+            LaunchGap(
+                id="web-owner-live-auth-context",
+                severity="P1",
+                affected_journey="meeting-list",
+                current_evidence=(
+                    "Production /meetings route exists and fixture-backed list/detail/governance "
+                    "evidence is committed, but live Chrome owner review returned missing auth context."
+                ),
+                missing_evidence=(
+                    "Commit-safe authenticated owner review proof on rec.2brain.pro for list, "
+                    "detail, and governance states."
+                ),
+                recommended_next_action=(
+                    "Implement or validate the owner auth/session path for rec.2brain.pro, then "
+                    "capture metadata-safe owner review evidence."
+                ),
+                owner_area="web",
             ),
+            LaunchGap(
+                id="desktop-product-surface-polish",
+                severity="P2",
+                affected_journey="desktop-embedded-cabinet",
+                current_evidence="Installed desktop screenshots prove the local capture loop but show an operational local-mode surface.",
+                missing_evidence="Accepted desktop/web product surface polish against the clean-room V8 implementation baseline.",
+                recommended_next_action="Use the accepted 030 V8 baseline in the next UI implementation slice.",
+                owner_area="ux",
+            ),
+        ]
+        if feature == "035-mvp-loop-live-evidence"
+        else []
+    )
+    return sort_launch_gaps(
+        [
+            *live_desktop_gap,
+            *feature_035_gaps,
             LaunchGap(
                 id="notes-action-output",
                 severity="P1",
@@ -436,7 +522,57 @@ def build_default_launch_gaps() -> list[LaunchGap]:
     )
 
 
-def build_default_stages() -> list[MvpLoopStage]:
+def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoopStage]:
+    is_035 = feature == "035-mvp-loop-live-evidence"
+    desktop_capture_evidence = [
+        "feature-025-system-audio",
+        "feature-022-meeting-mute-truth",
+        "desktop-shell-regression-tests",
+    ]
+    if is_035:
+        desktop_capture_evidence.extend(["feature-035-live-evidence-pack", "feature-035-validation-log"])
+
+    meeting_list_evidence = [
+        "feature-016-web-review",
+        "feature-017-access-egress",
+        "web-cabinet-regression-tests",
+        "web-meeting-list-blocker-note",
+    ]
+    meeting_detail_evidence = [
+        "feature-016-web-review",
+        "web-cabinet-regression-tests",
+        "web-meeting-detail-blocker-note",
+    ]
+    notes_evidence = ["web-cabinet-regression-tests", "web-meeting-detail-blocker-note"]
+    governance_evidence = [
+        "feature-017-access-egress",
+        "policy-lifecycle-regression-tests",
+        "policy-lifecycle-evidence-note",
+    ]
+    product_status_evidence = ["current-product-status-034-next-slice"]
+    if is_035:
+        meeting_list_evidence.extend(
+            [
+                "feature-035-web-live-auth-blocker",
+                "feature-035-web-list-evidence",
+            ]
+        )
+        meeting_detail_evidence.extend(
+            [
+                "feature-035-web-live-auth-blocker",
+                "feature-035-web-detail-evidence",
+            ]
+        )
+        notes_evidence.extend(["feature-035-web-detail-evidence"])
+        governance_evidence.extend(["feature-035-web-governance-evidence"])
+        product_status_evidence = [
+            "feature-035-readiness-report-json",
+            "feature-035-readiness-report-md",
+            "feature-035-launch-gap-register",
+            "current-product-status-035-next-slice",
+            "changelog-035",
+        ]
+
     return [
         MvpLoopStage(
             id="local-recording-visible-stop",
@@ -444,15 +580,16 @@ def build_default_stages() -> list[MvpLoopStage]:
             owner_surface="macos_native",
             status="ready",
             evidence_strength="local_runtime",
-            evidence_ids=[
-                "feature-025-system-audio",
-                "feature-022-meeting-mute-truth",
-                "desktop-shell-regression-tests",
-            ],
+            evidence_ids=desktop_capture_evidence,
             claim_impact=["desktop_loop_verified", "mvp_loop_ready"],
             notes=(
                 "System-audio capture, visible stop, product-owned Pause/Resume "
                 "privacy truth, and installed /Applications runtime evidence are accepted."
+                if not is_035
+                else (
+                    "Installed /Applications runtime evidence now covers Record, Pause, Resume, "
+                    "Stop, latest artifact validation, and visible local capture truth."
+                )
             ),
         ),
         MvpLoopStage(
@@ -489,30 +626,37 @@ def build_default_stages() -> list[MvpLoopStage]:
             id="meeting-list",
             label="Meeting list",
             owner_surface="web_cabinet",
-            status="ready",
+            status="degraded" if is_035 else "ready",
             evidence_strength="local_runtime",
-            evidence_ids=[
-                "feature-016-web-review",
-                "feature-017-access-egress",
-                "web-cabinet-regression-tests",
-                "web-meeting-list-blocker-note",
-            ],
+            evidence_ids=meeting_list_evidence,
+            launch_gap_ids=["web-owner-live-auth-context"] if is_035 else [],
             claim_impact=["web_review_verified", "mvp_loop_ready"],
-            notes="List route has fixture and local regression evidence with authorized access states; live private list evidence is not committed.",
+            notes=(
+                "List route has fixture and local regression evidence with authorized access states; live private list evidence is not committed."
+                if not is_035
+                else (
+                    "Production list route exists and fixture evidence is safe, but live owner "
+                    "review is blocked until auth/session context is available on rec.2brain.pro."
+                )
+            ),
         ),
         MvpLoopStage(
             id="meeting-detail-transcript-playback",
             label="Meeting detail transcript, playback, and provenance",
             owner_surface="web_cabinet",
-            status="ready",
+            status="degraded" if is_035 else "ready",
             evidence_strength="local_runtime",
-            evidence_ids=[
-                "feature-016-web-review",
-                "web-cabinet-regression-tests",
-                "web-meeting-detail-blocker-note",
-            ],
+            evidence_ids=meeting_detail_evidence,
+            launch_gap_ids=["web-owner-live-auth-context"] if is_035 else [],
             claim_impact=["web_review_verified", "mvp_loop_ready"],
-            notes="Ready/partial/processing/failed detail states have local fixture evidence for transcript, playback, and provenance.",
+            notes=(
+                "Ready/partial/processing/failed detail states have local fixture evidence for transcript, playback, and provenance."
+                if not is_035
+                else (
+                    "Ready/partial/processing/failed detail states are fixture-backed; live "
+                    "private detail proof is blocked by missing production auth context."
+                )
+            ),
         ),
         MvpLoopStage(
             id="notes-action-output",
@@ -520,7 +664,7 @@ def build_default_stages() -> list[MvpLoopStage]:
             owner_surface="web_cabinet",
             status="blocked",
             evidence_strength="local_runtime",
-            evidence_ids=["web-cabinet-regression-tests", "web-meeting-detail-blocker-note"],
+            evidence_ids=notes_evidence,
             launch_gap_ids=["notes-action-output"],
             claim_impact=["mvp_loop_ready"],
             notes="The interface shows truthful planned notes/assistant placeholders; launchable notes/action output remains missing.",
@@ -537,9 +681,16 @@ def build_default_stages() -> list[MvpLoopStage]:
                 "desktop-first-surface-blocker-note",
                 "desktop-embedded-detail-blocker-note",
             ],
-            launch_gap_ids=["live-desktop-evidence"],
+            launch_gap_ids=["desktop-product-surface-polish"] if is_035 else ["live-desktop-evidence"],
             claim_impact=["desktop_loop_verified", "mvp_loop_ready"],
-            notes="Embedding has synthetic and local regression evidence; fresh metadata-safe live screenshots are still required.",
+            notes=(
+                "Embedding has synthetic and local regression evidence; fresh metadata-safe live screenshots are still required."
+                if not is_035
+                else (
+                    "Installed desktop capture proof is current, but the broader product surface "
+                    "still needs V8 clean-room polish before a broad launch claim."
+                )
+            ),
         ),
         MvpLoopStage(
             id="access-sharing-download-export",
@@ -547,11 +698,7 @@ def build_default_stages() -> list[MvpLoopStage]:
             owner_surface="web_cabinet",
             status="ready",
             evidence_strength="local_runtime",
-            evidence_ids=[
-                "feature-017-access-egress",
-                "policy-lifecycle-regression-tests",
-                "policy-lifecycle-evidence-note",
-            ],
+            evidence_ids=governance_evidence,
             claim_impact=["policy_lifecycle_verified", "mvp_loop_ready"],
             notes="Access/egress policy is accepted and locally regressed with bounded artifact actions.",
         ),
@@ -586,9 +733,13 @@ def build_default_stages() -> list[MvpLoopStage]:
             owner_surface="docs_status",
             status="ready",
             evidence_strength="docs_only",
-            evidence_ids=["current-product-status-034-next-slice"],
+            evidence_ids=product_status_evidence,
             claim_impact=["partial_readiness"],
-            notes="The status document records the 034 bounded outcome and next evidence-based product slice.",
+            notes=(
+                "The status document records the 034 bounded outcome and next evidence-based product slice."
+                if not is_035
+                else "The generated 035 readiness pack records the current bounded claim and next product slice."
+            ),
         ),
     ]
 

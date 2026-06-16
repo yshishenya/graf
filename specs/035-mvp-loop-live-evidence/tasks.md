@@ -91,16 +91,16 @@
 
 ### Tests for User Story 3
 
-- [ ] T026 [P] [US3] Add 035 readiness output generation coverage in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
-- [ ] T027 [P] [US3] Add current status/changelog stale-claim coverage in `apps/server/tests/integration/test_mvp_loop_readiness_report.py`
+- [X] T026 [P] [US3] Add 035 readiness output generation coverage in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
+- [X] T027 [P] [US3] Add current status/changelog stale-claim coverage in `apps/server/tests/integration/test_mvp_loop_readiness_report.py`
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Generate `docs/evidence/035-mvp-loop-live-evidence/readiness-report.json`
-- [ ] T029 [US3] Generate `docs/evidence/035-mvp-loop-live-evidence/readiness-report.md`
-- [ ] T030 [US3] Generate `docs/evidence/035-mvp-loop-live-evidence/launch-gap-register.md`
-- [ ] T031 [US3] Update current strongest claim and next product slice in `docs/current-product-status.md`
-- [ ] T032 [US3] Update 035 changelog entry in `CHANGELOG.md`
+- [X] T028 [US3] Generate `docs/evidence/035-mvp-loop-live-evidence/readiness-report.json`
+- [X] T029 [US3] Generate `docs/evidence/035-mvp-loop-live-evidence/readiness-report.md`
+- [X] T030 [US3] Generate `docs/evidence/035-mvp-loop-live-evidence/launch-gap-register.md`
+- [X] T031 [US3] Update current strongest claim and next product slice in `docs/current-product-status.md`
+- [X] T032 [US3] Update 035 changelog entry in `CHANGELOG.md`
 
 **Checkpoint**: US3 is complete when a reviewer can see exactly why the product is `mvp_loop_ready` or still blocked.
 

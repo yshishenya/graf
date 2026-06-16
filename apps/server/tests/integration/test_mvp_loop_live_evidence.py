@@ -36,7 +36,7 @@ def test_035_live_evidence_report_uses_feature_contract_and_caps_claims(tmp_path
         "feature-035-github-issues",
     }
     assert "Recommended next product slice: `035-mvp-loop-live-evidence`" not in markdown
-    assert "Recommended next action: resolve `live-desktop-evidence` before pilot readiness." in markdown
+    assert "Recommended next product slice: `036-owner-review-live-polish`" in markdown
     assert "P0/P1 gaps block `mvp_loop_ready` and `internal_pilot_candidate`" in gap_register
     assert any("specs/035-mvp-loop-live-evidence" in command for command in payload["forbidden_content_scan"]["commands"])
     assert any(
@@ -65,9 +65,29 @@ def test_035_launch_gap_register_keeps_accepted_022_evidence_and_current_p1_gaps
 
     assert "feature-022-meeting-mute-truth" in evidence_ids
     assert "meeting-app-mute-truth" not in gap_ids
-    assert "live-desktop-evidence" in gap_ids
+    assert "live-desktop-evidence" not in gap_ids
+    assert "web-owner-live-auth-context" in gap_ids
     assert "notes-action-output" in gap_ids
     assert "production-user-rollout-evidence" in gap_ids
+
+
+def test_035_readiness_output_generation_contains_current_claim_and_next_slice(tmp_path: Path) -> None:
+    report = build_default_readiness_report(
+        feature=FEATURE,
+        generated_at="2026-06-16T00:00:00Z",
+        deployed_commit="035-us3-test",
+    )
+    write_readiness_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "readiness-report.json").read_text())
+    markdown = (tmp_path / "readiness-report.md").read_text()
+    gap_register = (tmp_path / "launch-gap-register.md").read_text()
+
+    assert payload["feature"] == FEATURE
+    assert payload["claim_summary"]["outcome"] == "pilot_blocked"
+    assert "web-owner-live-auth-context" in gap_register
+    assert "live-desktop-evidence" not in gap_register
+    assert "Recommended next product slice: `036-owner-review-live-polish`" in markdown
 
 
 def test_035_installed_desktop_evidence_files_are_present_and_metadata_safe() -> None:

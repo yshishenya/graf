@@ -17,6 +17,12 @@ Semantic Versioning 2.0.0.
   readiness JSON/Markdown report, launch gap register, clean-room reference
   comparison, desktop/web/policy lifecycle evidence notes, bounded claim rules,
   and evidence-backed next-slice recommendation (`feature:034`, `T001-T059`).
+- Добавлен validation-only evidence pack `035-mvp-loop-live-evidence`: proof
+  установленного `/Applications/2brain Rec.app` Record/Pause/Resume/Stop loop,
+  metadata-safe desktop screenshots, latest local artifact validation,
+  production route check for `rec.2brain.pro/meetings`, fixture-backed web
+  list/detail/governance evidence, and generated readiness/gap outputs
+  (`feature:035`, `T001-T032`).
 - Добавлен server-owned слой retention/deletion execution: whole-meeting
   deletion requests, immediate access blocking for deleting/deleted meetings,
   metadata-only verification reports, retention policy snapshots and scans,
@@ -63,6 +69,10 @@ Semantic Versioning 2.0.0.
   keeping live desktop/web evidence, notes/action truth, and production
   user-journey proof as launch gates (`feature:022`, `feature:034`,
   `T045-T051`).
+- `docs/current-product-status.md` and the 035 readiness report now close the
+  stale installed-desktop evidence gap, keep production owner review blocked on
+  `401 missing_auth_context`, and recommend `036-owner-review-live-polish` as
+  the next launch slice (`feature:035`, `T026-T032`).
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
   были сквозными.
@@ -105,6 +115,10 @@ Semantic Versioning 2.0.0.
   evidence cannot include private Krisp screenshots or private meeting content,
   and production claims stay bounded to `infra_smoke_ready` until stronger
   evidence exists (`feature:034`, `T005-T014`, `T028`, `T055`).
+- Readiness evidence for `035` keeps live web owner review metadata-only:
+  private Chrome session data, account identifiers, screenshots, cookies,
+  tokens, transcript text, audio, and production destructive governance actions
+  are not committed (`feature:035`, `T020-T025`, `T039`).
 - Retention/deletion reports and lifecycle activity are metadata-only by
   default: they do not expose raw audio, transcript text, summaries, local
   paths, object-store keys, signed URLs, provider payloads, dependency job IDs,

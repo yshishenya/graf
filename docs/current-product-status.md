@@ -143,6 +143,16 @@ detailed implementation record.
   claim remains `infra_smoke_ready`, while `mvp_loop_ready`,
   `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
   excluded until P1 launch blockers are closed.
+- Feature `035-mvp-loop-live-evidence` is implemented as the current
+  validation-only evidence pack after `022`. It proves the installed
+  `/Applications/2brain Rec.app` desktop loop with Record, Pause, Resume, Stop,
+  metadata-safe screenshots, and latest local artifact validation. It also
+  checks the production web owner route on `rec.2brain.pro`: `/meetings` exists
+  but live owner review remains blocked by `401 missing_auth_context`, while
+  list/detail/governance behavior is covered by safe fixture-backed evidence.
+  The strongest truthful claim remains `pilot_blocked` with bounded
+  `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
+  `user_rollout_ready`, and `production_ready` remain excluded.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -253,23 +263,26 @@ detailed implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: validation-only `035-mvp-loop-live-evidence`.
-Feature `034-mvp-loop-readiness` shows that the product now has accepted
-foundations for local recording, server ingest, MediaScribe import, web review,
-desktop embedding, access/egress, and deletion truth. Feature
-`022-meeting-mute-truth` closes the P1 product-owned mute/privacy blocker with
-Pause/Resume, metadata-only privacy segments, and fail-closed truth for
-unsupported meeting targets. The product still cannot claim `mvp_loop_ready` or
-pilot readiness until the accepted pieces are proven together in a live
-metadata-safe desktop/web loop.
+Recommended next feature: `036-owner-review-live-polish`.
+Feature `035-mvp-loop-live-evidence` closes the stale installed-desktop proof
+gap: the permissioned `/Applications/2brain Rec.app` can run the visible local
+recording loop and produce a validated metadata-only local artifact. The
+remaining launch blockers are now more specific:
 
-Before any pilot claim, close the validation-only gates recorded by 034:
-launch from the permissioned `/Applications/2brain Rec.app`, live local
-desktop recording evidence, backend/web owner-review evidence,
-forbidden-content scans over readiness artifacts, and production user-journey
-proof. Parallel or follow-up product work should address notes/action output if
-the MVP promise requires generated notes rather than a truthful planned
-placeholder.
+- production owner review on `rec.2brain.pro` is not yet proven because the
+  protected `/meetings` route returned `401 missing_auth_context` without a
+  commit-safe authenticated owner session;
+- list/detail/governance UI is fixture-backed, not live-owner proven;
+- notes/action output is still a truthful placeholder, not a launchable
+  generated-output capability;
+- production evidence remains `infra_smoke_ready`, not a user rollout journey;
+- the installed desktop surface is operational and safe, but still needs the
+  accepted clean-room V8 product polish before a broad launch claim.
+
+Before any pilot claim, implement or validate the owner auth/session path for
+`rec.2brain.pro`, capture metadata-safe live owner review evidence, decide
+whether notes/actions are implemented or explicitly deferred for MVP, and carry
+the desktop/web product surface toward the accepted V8 baseline.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey

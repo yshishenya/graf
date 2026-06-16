@@ -52,7 +52,8 @@ def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() 
     assert "metadata-safe live desktop/web evidence and production user-journey proof" in markdown
     assert "Recommended next feature: `018-retention-deletion-execution`" not in status_doc
     assert "Recommended next feature: `022-meeting-mute-truth`" not in status_doc
-    assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" in status_doc
+    assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc
+    assert "Recommended next feature: `036-owner-review-live-polish`" in status_doc
     assert "034-mvp-loop-readiness" in status_doc
 
 
@@ -64,7 +65,8 @@ def test_035_report_does_not_recommend_completed_035_as_next_slice() -> None:
     markdown = render_markdown_report(report)
 
     assert "Recommended next product slice: `035-mvp-loop-live-evidence`" not in markdown
-    assert "Recommended next action: resolve `live-desktop-evidence` before pilot readiness." in markdown
+    assert "Recommended next product slice: `036-owner-review-live-polish`" in markdown
+    assert "resolve `live-desktop-evidence`" not in markdown
 
 
 def test_035_report_keeps_web_owner_review_truthful_when_live_auth_is_blocked() -> None:
@@ -78,6 +80,22 @@ def test_035_report_keeps_web_owner_review_truthful_when_live_auth_is_blocked() 
 
     assert evidence["feature-035-web-live-auth-blocker"].strength == "blocked"
     assert "401 missing_auth_context" in evidence["feature-035-web-live-auth-blocker"].scope
+    assert stages["meeting-list"].status == "degraded"
+    assert "web-owner-live-auth-context" in stages["meeting-list"].launch_gap_ids
     assert stages["notes-action-output"].status == "blocked"
     assert "notes-action-output" in stages["notes-action-output"].launch_gap_ids
     assert gaps["notes-action-output"].owner_area == "web"
+    assert gaps["web-owner-live-auth-context"].owner_area == "web"
+
+
+def test_035_status_and_changelog_record_current_next_slice() -> None:
+    root = Path(__file__).resolve().parents[4]
+    status_doc = (root / "docs/current-product-status.md").read_text()
+    changelog = (root / "CHANGELOG.md").read_text()
+
+    assert "Feature `035-mvp-loop-live-evidence`" in status_doc
+    assert "Recommended next feature: `036-owner-review-live-polish`" in status_doc
+    assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc
+    assert "`401 missing_auth_context`" in status_doc
+    assert "feature:035" in changelog
+    assert "036-owner-review-live-polish" in changelog

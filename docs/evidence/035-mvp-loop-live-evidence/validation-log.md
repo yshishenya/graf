@@ -23,5 +23,8 @@ Feature: `035-mvp-loop-live-evidence`
 | web-list-evidence | web | Document metadata-safe list route evidence | pass | `screenshots/web-meeting-list-evidence.md` | Fixture-backed coverage, live owner proof blocked by auth context. |
 | web-detail-evidence | web | Document metadata-safe detail route evidence | pass | `screenshots/web-meeting-detail-evidence.md` | Detail route family covered locally; private live detail not committed. |
 | web-governance-evidence | web | Document metadata-safe governance evidence | pass | `screenshots/web-governance-evidence.md` | No destructive production action performed. |
+| readiness-output-generation | readiness | `cd apps/server && PYTHONPATH=src uv run python scripts/generate_mvp_loop_readiness.py --feature 035-mvp-loop-live-evidence --output-dir ../../docs/evidence/035-mvp-loop-live-evidence` | pass | `readiness-report.json`, `readiness-report.md`, `launch-gap-register.md` | Output closes stale desktop gap and keeps web auth, notes/actions, and production user journey as blockers. |
+| current-status-update | docs | Update `docs/current-product-status.md` | pass | `docs/current-product-status.md#next-product-slice` | Next slice is now `036-owner-review-live-polish`; 035 is no longer recommended as next. |
+| changelog-update | docs | Update `CHANGELOG.md` | pass | `CHANGELOG.md#unreleased` | Records 035 validation-only evidence and metadata-safe web blocker. |
 
 Further entries are added as tasks T011-T040 complete.
