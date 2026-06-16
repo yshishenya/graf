@@ -1964,6 +1964,280 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/deletion-requests:
+    post:
+      tags:
+      - cabinet
+      summary: Create Meeting Deletion Request Route
+      operationId: createMeetingDeletionRequest
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeletionRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionRequestResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/deletion-report:
+    get:
+      tags:
+      - cabinet
+      summary: Get Meeting Deletion Report Route
+      operationId: getMeetingDeletionReport
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionVerificationReport'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/lifecycle:
+    get:
+      tags:
+      - cabinet
+      summary: Get Meeting Lifecycle State Route
+      operationId: getMeetingLifecycleState
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionLifecycleState'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/deletion-retry:
+    post:
+      tags:
+      - cabinet
+      summary: Retry Meeting Deletion Route
+      operationId: retryMeetingDeletion
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionRequestResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/activity:
     get:
       tags:
@@ -2462,6 +2736,207 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/internal/retention/run:
+    post:
+      tags:
+      - cabinet
+      summary: Run Retention Scan Route
+      operationId: runRetentionScan
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/RetentionRunRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionRunResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/desktop/local-purge-tasks:
+    get:
+      tags:
+      - cabinet
+      summary: List Desktop Local Purge Tasks Route
+      operationId: listDesktopLocalPurgeTasks
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalPurgeTaskList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/desktop/local-purge-tasks/{task_id}/ack:
+    post:
+      tags:
+      - cabinet
+      summary: Acknowledge Desktop Local Purge Task Route
+      operationId: acknowledgeDesktopLocalPurgeTask
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Task Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocalPurgeAckRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalPurgeTask'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AbortUploadRequest:
@@ -2475,6 +2950,36 @@ components:
           title: Reason
       type: object
       title: AbortUploadRequest
+    ArtifactDeletionState:
+      properties:
+        artifact_class:
+          type: string
+          title: Artifact Class
+        control_scope:
+          $ref: '#/components/schemas/DeletionControlScope'
+        state:
+          $ref: '#/components/schemas/DeletionArtifactState'
+        label:
+          type: string
+          title: Label
+        safe_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Safe Reason
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+      type: object
+      required:
+      - artifact_class
+      - control_scope
+      - state
+      - label
+      title: ArtifactDeletionState
     ArtifactEgressState:
       properties:
         artifact_class:
@@ -2820,6 +3325,20 @@ components:
       - expires_at
       - provider
       title: AuthStartResponse
+    CreateDeletionRequest:
+      properties:
+        confirmation_boundary:
+          type: string
+          const: Delete this meeting everywhere 2brain Rec controls.
+          title: Confirmation Boundary
+        reason_code:
+          $ref: '#/components/schemas/DeletionReasonCode'
+          default: user_request
+      additionalProperties: false
+      type: object
+      required:
+      - confirmation_boundary
+      title: CreateDeletionRequest
     CreateExportPackageRequest:
       properties:
         artifact_classes:
@@ -2905,6 +3424,163 @@ components:
           title: Manifest Sha256
       type: object
       title: CreateUploadSessionRequest
+    DeletionArtifactState:
+      type: string
+      enum:
+      - not_started
+      - purge_requested
+      - purged
+      - metadata_retained
+      - pending_expiry
+      - delete_requested
+      - delete_confirmed
+      - delete_not_supported
+      - unknown
+      - not_applicable
+      - retryable_failed
+      - terminal_failed
+      - local_pending
+      - local_acknowledged
+      - local_unreachable
+      - local_expiry_relied_upon
+      - outside_2brain_control
+      title: DeletionArtifactState
+    DeletionControlScope:
+      type: string
+      enum:
+      - controlled
+      - external
+      - local_device
+      - backup
+      - post_egress
+      - not_applicable
+      title: DeletionControlScope
+    DeletionLifecycleState:
+      properties:
+        state:
+          $ref: '#/components/schemas/DeletionState'
+        label:
+          type: string
+          title: Label
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        can_retry:
+          type: boolean
+          title: Can Retry
+        can_view_report:
+          type: boolean
+          title: Can View Report
+      type: object
+      required:
+      - state
+      - label
+      - can_retry
+      - can_view_report
+      title: DeletionLifecycleState
+    DeletionReasonCode:
+      type: string
+      enum:
+      - user_request
+      - retention_expired
+      - policy_blocked
+      - retry
+      title: DeletionReasonCode
+    DeletionRequestResponse:
+      properties:
+        request_id:
+          type: string
+          format: uuid
+          title: Request Id
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        lifecycle:
+          $ref: '#/components/schemas/DeletionLifecycleState'
+        report_url:
+          type: string
+          title: Report Url
+      type: object
+      required:
+      - request_id
+      - meeting_id
+      - lifecycle
+      - report_url
+      title: DeletionRequestResponse
+    DeletionState:
+      type: string
+      enum:
+      - none
+      - requested
+      - deleting
+      - active_purge_complete
+      - pending_backup_expiry
+      - complete
+      - retryable_failed
+      - terminal_failed
+      - policy_blocked
+      - post_egress_limit
+      - local_purge_unverified
+      title: DeletionState
+    DeletionVerificationReport:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        request_id:
+          type: string
+          format: uuid
+          title: Request Id
+        overall_state:
+          $ref: '#/components/schemas/DeletionState'
+        bounded_copy:
+          type: string
+          title: Bounded Copy
+        artifact_states:
+          items:
+            $ref: '#/components/schemas/ArtifactDeletionState'
+          type: array
+          title: Artifact States
+        backup:
+          $ref: '#/components/schemas/ArtifactDeletionState'
+        local_purge:
+          items:
+            $ref: '#/components/schemas/LocalPurgeTask'
+          type: array
+          title: Local Purge
+        dependencies:
+          items:
+            $ref: '#/components/schemas/ArtifactDeletionState'
+          type: array
+          title: Dependencies
+        post_egress_limits:
+          items:
+            $ref: '#/components/schemas/ArtifactDeletionState'
+          type: array
+          title: Post Egress Limits
+        activity:
+          items:
+            $ref: '#/components/schemas/LifecycleActivityItem'
+          type: array
+          title: Activity
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+      type: object
+      required:
+      - meeting_id
+      - request_id
+      - overall_state
+      - bounded_copy
+      - backup
+      title: DeletionVerificationReport
     ExportPackageExclusion:
       properties:
         artifact_class:
@@ -3064,6 +3740,51 @@ components:
           default: ok
       type: object
       title: HealthResponse
+    LifecycleActivityItem:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        event_type:
+          type: string
+          maxLength: 120
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Event Type
+        actor_label:
+          type: string
+          maxLength: 80
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Actor Label
+        outcome:
+          type: string
+          enum:
+          - accepted
+          - denied
+          - completed
+          - failed
+          - skipped
+          - blocked
+          title: Outcome
+        safe_reason:
+          anyOf:
+          - type: string
+            maxLength: 240
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Safe Reason
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - event_id
+      - event_type
+      - actor_label
+      - outcome
+      - created_at
+      title: LifecycleActivityItem
     LinkedProvider:
       properties:
         provider:
@@ -3087,6 +3808,103 @@ components:
       - provider_subject
       - is_primary
       title: LinkedProvider
+    LocalPurgeAckRequest:
+      properties:
+        state:
+          type: string
+          enum:
+          - acknowledged
+          - failed
+          - local_expiry_relied_upon
+          title: State
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 120
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Reason Code
+        client_version:
+          anyOf:
+          - type: string
+            maxLength: 80
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Client Version
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+      additionalProperties: false
+      type: object
+      required:
+      - state
+      title: LocalPurgeAckRequest
+    LocalPurgeTask:
+      properties:
+        task_id:
+          type: string
+          format: uuid
+          title: Task Id
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        task_type:
+          $ref: '#/components/schemas/LocalPurgeTaskType'
+        state:
+          $ref: '#/components/schemas/LocalPurgeTaskState'
+        safe_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Safe Reason
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        ack_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ack Url
+      type: object
+      required:
+      - task_id
+      - meeting_id
+      - task_type
+      - state
+      - expires_at
+      title: LocalPurgeTask
+    LocalPurgeTaskList:
+      properties:
+        tasks:
+          items:
+            $ref: '#/components/schemas/LocalPurgeTask'
+          type: array
+          title: Tasks
+      type: object
+      title: LocalPurgeTaskList
+    LocalPurgeTaskState:
+      type: string
+      enum:
+      - pending
+      - claimed
+      - acknowledged
+      - failed
+      - unreachable
+      - expired
+      - local_expiry_relied_upon
+      title: LocalPurgeTaskState
+    LocalPurgeTaskType:
+      type: string
+      enum:
+      - purge_local_buffers
+      - purge_local_exports
+      - confirm_local_expiry
+      title: LocalPurgeTaskType
     MeResponse:
       properties:
         user_id:
@@ -3881,6 +4699,52 @@ components:
       required:
       - status
       title: ReadyResponse
+    RetentionRunRequest:
+      properties:
+        limit:
+          type: integer
+          maximum: 500.0
+          minimum: 1.0
+          title: Limit
+          default: 100
+        dry_run:
+          type: boolean
+          title: Dry Run
+          default: false
+      additionalProperties: false
+      type: object
+      title: RetentionRunRequest
+    RetentionRunResponse:
+      properties:
+        evaluated:
+          type: integer
+          minimum: 0.0
+          title: Evaluated
+        created_requests:
+          type: integer
+          minimum: 0.0
+          title: Created Requests
+        skipped:
+          type: integer
+          minimum: 0.0
+          title: Skipped
+        blocked:
+          type: integer
+          minimum: 0.0
+          title: Blocked
+        policy_snapshot_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Policy Snapshot Id
+      type: object
+      required:
+      - evaluated
+      - created_requests
+      - skipped
+      - blocked
+      title: RetentionRunResponse
     ShareGrantResponse:
       properties:
         grant:

@@ -26,6 +26,11 @@ class Meeting(Base):
     visibility: Mapped[str] = mapped_column(String(64), default="owner_only")
     share_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
     download_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
+    deletion_state: Mapped[str] = mapped_column(String(64), default="none")
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_delete_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_policy_state: Mapped[str] = mapped_column(String(64), default="not_configured")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

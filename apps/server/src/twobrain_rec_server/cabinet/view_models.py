@@ -38,6 +38,7 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import (
+    DeletionState,
     MeetingStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
@@ -120,6 +121,8 @@ def review_status(
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
 ) -> MeetingReviewStatus:
+    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+        return "deleted_future"
     has_transcript = transcript_available(result)
     has_diarization = diarization_available(result)
     if has_transcript and has_diarization:

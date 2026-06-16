@@ -1,0 +1,456 @@
+openapi: 3.1.0
+info:
+  title: 2brain Rec Retention And Deletion API
+  version: 0.1.0
+  description: Whole-meeting deletion, retention execution, deletion reports, and local purge task contracts for feature 018.
+servers:
+  - url: /api/v1
+security:
+  - legacyHeaderAuth: []
+paths:
+  /cabinet/meetings/{meeting_id}/deletion-requests:
+    post:
+      summary: Request whole-meeting deletion with bounded confirmation
+      operationId: createMeetingDeletionRequest
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDeletionRequest"
+      responses:
+        "202":
+          description: Deletion request accepted and normal meeting access is blocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletionRequestResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+        "409":
+          description: Meeting is already deleting, deleted, processing-blocked, or policy-blocked
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: Audit or lifecycle store unavailable; deletion failed closed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /cabinet/meetings/{meeting_id}/deletion-report:
+    get:
+      summary: Get metadata-only deletion verification report
+      operationId: getMeetingDeletionReport
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: Authorized deletion report without private content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletionVerificationReport"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+  /cabinet/meetings/{meeting_id}/lifecycle:
+    get:
+      summary: Get compact lifecycle state for cabinet UI
+      operationId: getMeetingLifecycleState
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: Compact lifecycle state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletionLifecycleState"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+  /cabinet/meetings/{meeting_id}/deletion-retry:
+    post:
+      summary: Retry a retryable deletion failure
+      operationId: retryMeetingDeletion
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "202":
+          description: Retry accepted after audit write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletionRequestResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+        "409":
+          $ref: "#/components/responses/Problem"
+  /internal/retention/run:
+    post:
+      summary: Run retention eligibility scan for worker/operator contexts
+      operationId: runRetentionScan
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetentionRunRequest"
+      responses:
+        "202":
+          description: Retention scan evaluated meetings and created lifecycle actions where eligible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetentionRunResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "503":
+          description: Policy or audit store unavailable; scan failed closed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /desktop/local-purge-tasks:
+    get:
+      summary: List local purge tasks scoped to the authenticated desktop device
+      operationId: listDesktopLocalPurgeTasks
+      responses:
+        "200":
+          description: Metadata-only tasks for the current device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalPurgeTaskList"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /desktop/local-purge-tasks/{task_id}/ack:
+    post:
+      summary: Acknowledge a local purge task without private proof payloads
+      operationId: acknowledgeDesktopLocalPurgeTask
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalPurgeAckRequest"
+      responses:
+        "200":
+          description: Task acknowledgement accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalPurgeTask"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    legacyHeaderAuth:
+      type: apiKey
+      in: header
+      name: X-User-Id
+  parameters:
+    MeetingId:
+      name: meeting_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Problem:
+      description: Problem response
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    DeniedProblem:
+      description: Bounded denied or not found response without private meeting content
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: object
+      required: [status, code, title]
+      properties:
+        status:
+          type: integer
+        code:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+    CreateDeletionRequest:
+      type: object
+      required: [confirmation_boundary]
+      properties:
+        confirmation_boundary:
+          type: string
+          enum:
+            - Delete this meeting everywhere 2brain Rec controls.
+        reason_code:
+          type: string
+          enum: [user_request]
+          default: user_request
+    DeletionRequestResponse:
+      type: object
+      required: [request_id, meeting_id, lifecycle, report_url]
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        meeting_id:
+          type: string
+          format: uuid
+        lifecycle:
+          $ref: "#/components/schemas/DeletionLifecycleState"
+        report_url:
+          type: string
+    DeletionLifecycleState:
+      type: object
+      required: [state, label, can_retry, can_view_report]
+      properties:
+        state:
+          $ref: "#/components/schemas/DeletionState"
+        label:
+          type: string
+        reason:
+          type: string
+        can_retry:
+          type: boolean
+        can_view_report:
+          type: boolean
+    DeletionState:
+      type: string
+      enum:
+        - none
+        - requested
+        - deleting
+        - active_purge_complete
+        - pending_backup_expiry
+        - complete
+        - retryable_failed
+        - terminal_failed
+        - policy_blocked
+        - post_egress_limit
+        - local_purge_unverified
+    ArtifactDeletionState:
+      type: object
+      required: [artifact_class, control_scope, state, label]
+      properties:
+        artifact_class:
+          type: string
+        control_scope:
+          type: string
+          enum: [controlled, external, local_device, backup, post_egress, not_applicable]
+        state:
+          $ref: "#/components/schemas/ArtifactDeletionStateValue"
+        label:
+          type: string
+        safe_reason:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+    ArtifactDeletionStateValue:
+      type: string
+      enum:
+        - not_started
+        - purge_requested
+        - purged
+        - metadata_retained
+        - pending_expiry
+        - delete_requested
+        - delete_confirmed
+        - delete_not_supported
+        - unknown
+        - not_applicable
+        - retryable_failed
+        - terminal_failed
+        - local_pending
+        - local_acknowledged
+        - local_unreachable
+        - local_expiry_relied_upon
+        - outside_2brain_control
+    DeletionVerificationReport:
+      type: object
+      required:
+        - meeting_id
+        - request_id
+        - overall_state
+        - bounded_copy
+        - artifact_states
+        - backup
+        - local_purge
+        - dependencies
+        - post_egress_limits
+        - activity
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        overall_state:
+          $ref: "#/components/schemas/DeletionState"
+        bounded_copy:
+          type: string
+        artifact_states:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactDeletionState"
+        backup:
+          $ref: "#/components/schemas/ArtifactDeletionState"
+        local_purge:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocalPurgeTask"
+        dependencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactDeletionState"
+        post_egress_limits:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactDeletionState"
+        activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/LifecycleActivityItem"
+        generated_at:
+          type: string
+          format: date-time
+    LifecycleActivityItem:
+      type: object
+      required: [event_id, event_type, actor_label, outcome, created_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          maxLength: 120
+        actor_label:
+          type: string
+          maxLength: 80
+        outcome:
+          type: string
+          enum: [accepted, denied, completed, failed, skipped, blocked]
+        safe_reason:
+          type: string
+          maxLength: 240
+        created_at:
+          type: string
+          format: date-time
+    RetentionRunRequest:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+        dry_run:
+          type: boolean
+          default: false
+    RetentionRunResponse:
+      type: object
+      required: [evaluated, created_requests, skipped, blocked]
+      properties:
+        evaluated:
+          type: integer
+        created_requests:
+          type: integer
+        skipped:
+          type: integer
+        blocked:
+          type: integer
+        policy_snapshot_id:
+          type: string
+          format: uuid
+    LocalPurgeTaskList:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocalPurgeTask"
+    LocalPurgeTask:
+      type: object
+      required: [task_id, meeting_id, task_type, state, expires_at]
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        meeting_id:
+          type: string
+          format: uuid
+        task_type:
+          type: string
+          enum: [purge_local_buffers, purge_local_exports, confirm_local_expiry]
+        state:
+          type: string
+          enum: [pending, claimed, acknowledged, failed, unreachable, expired, local_expiry_relied_upon]
+        safe_reason:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        ack_url:
+          type: string
+    LocalPurgeAckRequest:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [acknowledged, failed, local_expiry_relied_upon]
+        reason_code:
+          type: string
+          maxLength: 120
+        client_version:
+          type: string
+          maxLength: 80
+        completed_at:
+          type: string
+          format: date-time

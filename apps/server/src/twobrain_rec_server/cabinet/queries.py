@@ -24,6 +24,7 @@ from twobrain_rec_server.db.models import (
     ProcessingWorkflow,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.statuses import DeletionState
 
 
 async def list_cabinet_meetings(
@@ -37,7 +38,10 @@ async def list_cabinet_meetings(
     sort: str = "updated_desc",
     limit: int = 50,
 ) -> MeetingListResponse:
-    query = select(Meeting).where(Meeting.workspace_id == workspace_id)
+    query = select(Meeting).where(
+        Meeting.workspace_id == workspace_id,
+        or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == DeletionState.NONE.value),
+    )
     if q:
         pattern = f"%{q.strip()}%"
         query = query.where(or_(Meeting.title.ilike(pattern), Meeting.local_recording_id.ilike(pattern)))

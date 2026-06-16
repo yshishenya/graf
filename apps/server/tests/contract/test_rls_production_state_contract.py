@@ -11,7 +11,7 @@ def test_production_state_passes_when_every_covered_table_is_enabled_and_forced(
     report = evaluate_production_rls_state(
         passing_table_states(),
         deployed_commit="3fd2162",
-        alembic_revision="0006_access_sharing_downloads",
+        alembic_revision="0007_retention_deletion_exec",
     )
     output = "\n".join(report.evidence_lines())
 
@@ -26,7 +26,7 @@ def test_production_state_blocks_when_a_table_is_not_forced() -> None:
     report = evaluate_production_rls_state(
         blocked_table_states("meetings"),
         deployed_commit="3fd2162",
-        alembic_revision="0006_access_sharing_downloads",
+        alembic_revision="0007_retention_deletion_exec",
     )
 
     assert report.production_rls_state_result == "blocked"
@@ -40,7 +40,7 @@ def test_production_state_blocks_when_a_covered_table_is_missing() -> None:
     report = evaluate_production_rls_state(
         states,
         deployed_commit="3fd2162",
-        alembic_revision="0006_access_sharing_downloads",
+        alembic_revision="0007_retention_deletion_exec",
     )
 
     assert report.production_rls_state_result == "blocked"

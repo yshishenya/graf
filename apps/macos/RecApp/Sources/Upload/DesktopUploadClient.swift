@@ -4,6 +4,13 @@ import TwoBrainRecShared
 
 public protocol DesktopUploadClientProtocol: Sendable {
     func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult
+    func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask]
+    func acknowledgeLocalPurgeTask(
+        _ task: DesktopLocalPurgeTask,
+        state: DesktopLocalPurgeTaskState,
+        reasonCode: String,
+        completedAt: Date?
+    ) async throws -> DesktopLocalPurgeTask
 }
 
 public struct DesktopUploadResult: Sendable {
@@ -13,6 +20,68 @@ public struct DesktopUploadResult: Sendable {
     public init(state: UploadItemState, serverTruth: ServerTruthFingerprint) {
         self.state = state
         self.serverTruth = serverTruth
+    }
+}
+
+public enum DesktopLocalPurgeTaskType: String, Codable, Sendable {
+    case purgeLocalBuffers = "purge_local_buffers"
+    case purgeLocalExports = "purge_local_exports"
+    case confirmLocalExpiry = "confirm_local_expiry"
+}
+
+public enum DesktopLocalPurgeTaskState: String, Codable, Sendable {
+    case pending
+    case claimed
+    case acknowledged
+    case failed
+    case unreachable
+    case expired
+    case localExpiryReliedUpon = "local_expiry_relied_upon"
+}
+
+public struct DesktopLocalPurgeTask: Decodable, Equatable, Sendable {
+    public let taskId: String
+    public let meetingId: String
+    public let taskType: DesktopLocalPurgeTaskType
+    public let state: DesktopLocalPurgeTaskState
+    public let safeReason: String?
+    public let expiresAt: Date
+    public let ackURL: URL?
+
+    private enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case meetingId = "meeting_id"
+        case taskType = "task_type"
+        case state
+        case safeReason = "safe_reason"
+        case expiresAt = "expires_at"
+        case ackURL = "ack_url"
+    }
+}
+
+public struct DesktopLocalPurgeAcknowledgement: Encodable, Equatable, Sendable {
+    public let state: DesktopLocalPurgeTaskState
+    public let reasonCode: String
+    public let clientVersion: String?
+    public let completedAt: Date?
+
+    public init(
+        state: DesktopLocalPurgeTaskState,
+        reasonCode: String,
+        clientVersion: String? = nil,
+        completedAt: Date? = nil
+    ) {
+        self.state = state
+        self.reasonCode = reasonCode
+        self.clientVersion = clientVersion
+        self.completedAt = completedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case state
+        case reasonCode = "reason_code"
+        case clientVersion = "client_version"
+        case completedAt = "completed_at"
     }
 }
 
@@ -205,6 +274,37 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             desktopTruthRule: finalSession.desktop_truth_rule
         )
         return DesktopUploadResult(state: .uploaded, serverTruth: serverTruth)
+    }
+
+    public func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
+        let request = try request(path: "/api/v1/desktop/local-purge-tasks", method: "GET")
+        let response: LocalPurgeTaskListResponse = try await perform(request)
+        return response.tasks
+    }
+
+    public func acknowledgeLocalPurgeTask(
+        _ task: DesktopLocalPurgeTask,
+        state: DesktopLocalPurgeTaskState,
+        reasonCode: String,
+        completedAt: Date? = nil
+    ) async throws -> DesktopLocalPurgeTask {
+        let path: String
+        if let ackPath = task.ackURL?.path, !ackPath.isEmpty {
+            path = ackPath
+        } else {
+            path = "/api/v1/desktop/local-purge-tasks/\(task.taskId)/ack"
+        }
+        let request = try jsonRequest(
+            path: path,
+            method: "POST",
+            body: DesktopLocalPurgeAcknowledgement(
+                state: state,
+                reasonCode: reasonCode,
+                clientVersion: headers["X-Client-Version"],
+                completedAt: completedAt
+            )
+        )
+        return try await perform(request)
     }
 
     public static func backendRole(for localRole: AudioTrackRole) -> DesktopUploadTransportRole? {
@@ -530,6 +630,10 @@ private struct FinalizeUploadResponse: Decodable {
 private struct UploadPartResponse: Decodable {
     let byte_offset: Int64
     let byte_length: Int64
+}
+
+private struct LocalPurgeTaskListResponse: Decodable {
+    let tasks: [DesktopLocalPurgeTask]
 }
 
 private struct Problem: Decodable {

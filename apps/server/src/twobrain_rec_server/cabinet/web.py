@@ -5,13 +5,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.ingest import get_request_db_session
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AccessState,
+    ArtifactDeletionState,
     ArtifactEgressState,
+    DeletionVerificationReport,
+    LocalPurgeTask,
     MeetingListItem,
     MeetingListResponse,
     MeetingReviewResponse,
@@ -25,6 +29,9 @@ from twobrain_rec_server.auth.dependencies import (
     get_tenant_scope,
 )
 from twobrain_rec_server.cabinet.queries import get_cabinet_meeting_review, list_cabinet_meetings
+from twobrain_rec_server.db.models import Meeting, WorkspaceMembership
+from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
+from twobrain_rec_server.deletion.service import deletion_report_response
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -154,6 +161,13 @@ button[disabled]:not(.primary), .is-disabled { color: var(--muted); opacity: .72
 .activity-list { display: grid; gap: 8px; }
 .activity-item { border-top: 1px solid var(--border); padding-top: 8px; display: grid; gap: 2px; }
 .truth-copy { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.delete-confirmation { border: 1px solid rgba(251, 107, 107, .35); border-radius: 8px; padding: 12px; display: grid; gap: 10px; background: rgba(251, 107, 107, .05); }
+.delete-confirmation strong { color: #ffd6d6; }
+.report-layout { max-width: 940px; display: grid; gap: 18px; padding-bottom: 96px; }
+.report-band { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 16px; display: grid; gap: 12px; }
+.report-band h3 { margin: 0; font-size: 15px; }
+.report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.report-grid .state-list { border-top: 1px solid var(--border); padding-top: 10px; }
 .playback { position: fixed; left: 184px; right: 0; bottom: 0; min-height: 64px; border-top: 1px solid var(--border); background: #222529; display: flex; align-items: center; justify-content: center; gap: 16px; color: var(--muted); }
 .detail-playback { right: calc(302px + clamp(24px, 7vw, 132px)); }
 .desktop-embedded .playback { position: static; left: 0; right: 0; margin-top: 16px; }
@@ -167,6 +181,7 @@ button[disabled]:not(.primary), .is-disabled { color: var(--muted); opacity: .72
   .action-row { justify-content: flex-start; }
   .detail-main, .detail-layout, .transcript, .notes, .segment { width: 100%; max-width: 100%; }
   .detail-layout { grid-template-columns: 1fr; }
+  .report-grid { grid-template-columns: 1fr; }
   .right-panel { position: static; }
   .meeting-row { grid-template-columns: 24px minmax(0, 1fr); padding: 10px 12px; }
   .meeting-row .chip, .meeting-row .future-actions { grid-column: 2; justify-self: start; }
@@ -226,6 +241,30 @@ async def meeting_detail_page(
     return HTMLResponse(render_meeting_detail_page(response))
 
 
+@router.get(
+    "/meetings/{meeting_id}/deletion-report",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def meeting_deletion_report_page(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> HTMLResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting = await _authorized_lifecycle_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    report = await deletion_report_response(db, meeting=meeting)
+    return HTMLResponse(render_deletion_report_page(meeting.title or "Deleted meeting", report))
+
+
 @router.get("/desktop/meetings", response_class=HTMLResponse, include_in_schema=False, dependencies=[PrincipalDependency, DeviceDependency])
 async def embedded_meeting_list_page(
     q: str | None = CabinetSearchQuery,
@@ -270,6 +309,30 @@ async def embedded_meeting_detail_page(
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return HTMLResponse(render_meeting_detail_page(response, embedded=True))
+
+
+@router.get(
+    "/desktop/meetings/{meeting_id}/deletion-report",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def embedded_meeting_deletion_report_page(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> HTMLResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting = await _authorized_lifecycle_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    report = await deletion_report_response(db, meeting=meeting)
+    return HTMLResponse(render_deletion_report_page(meeting.title or "Deleted meeting", report, embedded=True))
 
 
 def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = False) -> str:
@@ -348,6 +411,8 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
             <h3>Artifacts</h3>
             {_render_artifacts(review)}
             <div class="truth-copy">{escape(review.deletion_truth_copy or "")}</div>
+            <h3>Delete</h3>
+            {_render_delete_confirmation(review, embedded=embedded)}
             <h3>Assign speakers</h3>
             {speaker_lanes}
             <h3>Governance</h3>
@@ -364,6 +429,44 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
       </main>
     """
     return _page_shell(review.meeting.title, content, embedded=embedded)
+
+
+def render_deletion_report_page(
+    meeting_title: str,
+    report: DeletionVerificationReport,
+    *,
+    embedded: bool = False,
+) -> str:
+    content = f"""
+      <main class="main">
+        <div class="topline">
+          <div class="crumbs"><a href="{_base_path(embedded)}">My Meetings</a><span>/</span><strong>{escape(meeting_title)}</strong><span>Deletion report</span></div>
+          <div class="action-row"><a class="button" href="{_base_path(embedded)}">Back</a></div>
+        </div>
+        <section class="report-layout" aria-label="Deletion report">
+          <div class="report-band">
+            <h3>Lifecycle</h3>
+            <div class="state-row"><strong>{escape(report.overall_state.value.replace("_", " "))}</strong><span class="chip deleted_future">metadata only</span></div>
+            <div class="truth-copy">{escape(report.bounded_copy)}</div>
+          </div>
+          <div class="report-grid">
+            {_render_report_band("2brain Rec controlled artifacts", report.artifact_states)}
+            {_render_report_band("Backups", [report.backup])}
+            {_render_report_band("External dependencies", report.dependencies)}
+            {_render_report_band("Post-egress limits", report.post_egress_limits)}
+          </div>
+          <div class="report-band">
+            <h3>Local device purge</h3>
+            {_render_local_purge_tasks(report.local_purge)}
+          </div>
+          <div class="report-band">
+            <h3>Lifecycle activity</h3>
+            {_render_lifecycle_activity(report.activity)}
+          </div>
+        </section>
+      </main>
+    """
+    return _page_shell("Deletion report", content, embedded=embedded)
 
 
 def _page_shell(title: str, content: str, *, embedded: bool) -> str:
@@ -528,6 +631,73 @@ def _render_artifact_state(review: MeetingReviewResponse, artifact: ArtifactEgre
     """
 
 
+def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool) -> str:
+    report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
+    return f"""
+      <div class="delete-confirmation">
+        <strong>Delete this meeting everywhere 2brain Rec controls</strong>
+        <div class="truth-copy">{escape(BOUNDED_DELETE_COPY)}</div>
+        <div class="state-row">
+          <span class="muted">Backups, local buffers, provider metadata, and delivered copies are reported separately.</span>
+          <a class="mini-link" href="{report_href}">Report</a>
+        </div>
+        <button type="button" disabled>Request deletion</button>
+      </div>
+    """
+
+
+def _render_report_band(title: str, rows: list[ArtifactDeletionState]) -> str:
+    rendered = "".join(_render_report_artifact_row(row) for row in rows)
+    if not rendered:
+        rendered = '<div class="muted">No lifecycle rows yet.</div>'
+    return f"""
+      <div class="report-band">
+        <h3>{escape(title)}</h3>
+        <div class="state-list">{rendered}</div>
+      </div>
+    """
+
+
+def _render_report_artifact_row(row: ArtifactDeletionState) -> str:
+    reason = row.safe_reason or row.label
+    return f"""
+      <div class="state-row">
+        <span><strong>{escape(row.label)}</strong><br><span class="muted">{escape(reason)}</span></span>
+        <span class="chip {escape(row.state.value)}">{escape(row.state.value.replace("_", " "))}</span>
+      </div>
+    """
+
+
+def _render_local_purge_tasks(tasks: list[LocalPurgeTask]) -> str:
+    if not tasks:
+        return '<div class="muted">No local purge acknowledgement has been received yet.</div>'
+    return '<div class="state-list">' + "".join(_render_local_purge_task(task) for task in tasks) + "</div>"
+
+
+def _render_local_purge_task(task: LocalPurgeTask) -> str:
+    return f"""
+      <div class="state-row">
+        <span><strong>{escape(task.task_type.value.replace("_", " "))}</strong><br><span class="muted">{escape(task.safe_reason or "metadata only")}</span></span>
+        <span class="chip {escape(task.state.value)}">{escape(task.state.value.replace("_", " "))}</span>
+      </div>
+    """
+
+
+def _render_lifecycle_activity(activity: list) -> str:
+    if not activity:
+        return '<div class="muted">No lifecycle activity yet.</div>'
+    rows = "".join(
+        f"""
+        <div class="state-row">
+          <span><strong>{escape(item.event_type.replace("_", " "))}</strong><br><span class="muted">{escape(item.actor_label)} · {escape(item.safe_reason or "metadata only")}</span></span>
+          <span class="chip {escape(item.outcome)}">{escape(item.outcome)}</span>
+        </div>
+        """
+        for item in activity
+    )
+    return f'<div class="state-list">{rows}</div>'
+
+
 def _render_activity(review: MeetingReviewResponse) -> str:
     activity = review.activity
     if activity is None or not activity.items:
@@ -569,6 +739,34 @@ def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str
       <button type="button" {share_disabled}>{escape(review.governance.share.label)}</button>
       <button type="button" disabled>More</button>
     """
+
+
+async def _authorized_lifecycle_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    viewer_user_id: UUID,
+) -> Meeting:
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == viewer_user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    role = membership.role if membership is not None else None
+    if meeting.created_by_user_id != viewer_user_id and role not in {"owner", "admin"}:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return meeting
 
 
 def _notes_copy(review: MeetingReviewResponse) -> str:
