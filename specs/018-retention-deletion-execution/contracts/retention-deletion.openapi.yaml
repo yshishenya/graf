@@ -282,7 +282,7 @@ components:
           type: string
           enum: [controlled, external, local_device, backup, post_egress, not_applicable]
         state:
-          type: string
+          $ref: "#/components/schemas/ArtifactDeletionStateValue"
         label:
           type: string
         safe_reason:
@@ -290,6 +290,26 @@ components:
         completed_at:
           type: string
           format: date-time
+    ArtifactDeletionStateValue:
+      type: string
+      enum:
+        - not_started
+        - purge_requested
+        - purged
+        - metadata_retained
+        - pending_expiry
+        - delete_requested
+        - delete_confirmed
+        - delete_not_supported
+        - unknown
+        - not_applicable
+        - retryable_failed
+        - terminal_failed
+        - local_pending
+        - local_acknowledged
+        - local_unreachable
+        - local_expiry_relied_upon
+        - outside_2brain_control
     DeletionVerificationReport:
       type: object
       required:
