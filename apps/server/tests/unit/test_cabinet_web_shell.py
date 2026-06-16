@@ -266,6 +266,20 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Request deletion" in page
 
 
+def test_detail_shell_reserves_notes_assistant_template_without_internal_feature_labels() -> None:
+    review = _review()
+    review.notes = NotesReviewState(available=False, sections=[], unavailable_reason="generation_future")
+
+    page = render_meeting_detail_page(review)
+
+    assert "AI notes are reserved for a later feature" in page
+    assert "No generated summary is shown yet" in page
+    assert "<h3>Assistant</h3>" in page
+    assert "<button type=\"button\" disabled>Assistant</button>" in page
+    assert "<h3>Template</h3>" in page
+    assert "016" not in page
+
+
 def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
     list_page = render_meeting_list_page(
         MeetingListResponse(

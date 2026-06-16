@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from twobrain_rec_server.readiness import (
+    build_default_readiness_report,
+    render_markdown_report,
+    write_readiness_outputs,
+)
+
+
+def test_default_readiness_report_contains_all_contract_sections_and_stage_rows() -> None:
+    report = build_default_readiness_report(generated_at="2026-06-16T00:00:00Z")
+    markdown = render_markdown_report(report)
+
+    assert report.feature == "034-mvp-loop-readiness"
+    assert len(report.stages) >= 12
+    assert "infra_smoke_ready is not user rollout readiness" in markdown
+    assert "mvp_loop_ready" in markdown
+    assert "meeting-app mute truth" in markdown
+    assert "signed installer evidence" in markdown
+    assert "desktop-shell-regression-tests" in markdown
+    assert "desktop-first-surface-blocker-note" in markdown
+    assert "web-cabinet-regression-tests" in markdown
+    assert "reference-comparison-note" in markdown
+    assert "policy-lifecycle-regression-tests" in markdown
+
+
+def test_write_readiness_outputs_creates_json_markdown_and_gap_register(tmp_path: Path) -> None:
+    report = build_default_readiness_report(generated_at="2026-06-16T00:00:00Z")
+
+    write_readiness_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "readiness-report.json").read_text())
+    markdown = (tmp_path / "readiness-report.md").read_text()
+    gaps = (tmp_path / "launch-gap-register.md").read_text()
+
+    assert payload["claim_summary"]["outcome"] == "pilot_blocked"
+    assert payload["forbidden_content_scan"]["status"] == "pass"
+    assert "# MVP Loop Readiness" in markdown
+    assert "# Launch Gap Register" in gaps
+    assert "metadata-safe live desktop screenshots" in gaps
+
+
+def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() -> None:
+    report = build_default_readiness_report(generated_at="2026-06-16T00:00:00Z")
+    markdown = render_markdown_report(report)
+    status_doc = (Path(__file__).resolve().parents[4] / "docs/current-product-status.md").read_text()
+
+    assert "Recommended next product slice: `022-meeting-mute-truth`" in markdown
+    assert "validation gates for live desktop/web evidence and production user-journey proof" in markdown
+    assert "Recommended next feature: `018-retention-deletion-execution`" not in status_doc
+    assert "Recommended next feature: `022-meeting-mute-truth`" in status_doc
+    assert "034-mvp-loop-readiness" in status_doc

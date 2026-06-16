@@ -20,6 +20,8 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
 
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/share")).decision, .blockWithMessage)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/download")).reason, .blockedFutureGovernance)
+        XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/delete")).reason, .blockedFutureGovernance)
+        XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/retention")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/capture/record")).reason, .blockedNativeCaptureControl)
         XCTAssertEqual(policy.decision(for: try url("/desktop/diagnostics/bundle")).reason, .blockedLocalFileOrDiagnostic)
     }
@@ -46,6 +48,7 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
 
         XCTAssertFalse(decision.userMessage.localizedCaseInsensitiveContains("record now"))
         XCTAssertFalse(decision.userMessage.localizedCaseInsensitiveContains("stop recording"))
+        XCTAssertFalse(decision.userMessage.contains("/Users/"))
         XCTAssertTrue(decision.userMessage.contains("app shell"))
     }
 

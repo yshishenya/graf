@@ -47,6 +47,27 @@ final class DesktopLocalPurgeTests: XCTestCase {
         XCTAssertNil(task.ackURL)
     }
 
+    func testLocalPurgeTaskDecodesTerminalTruthStatesWithoutPrivatePayload() throws {
+        for state in ["failed", "unreachable", "expired", "local_expiry_relied_upon"] {
+            let payload = """
+            {
+              "task_id": "71000000-0000-0000-0000-000000000001",
+              "meeting_id": "72000000-0000-0000-0000-000000000001",
+              "task_type": "purge_local_buffers",
+              "state": "\(state)",
+              "safe_reason": "delete_requested",
+              "expires_at": "2026-06-17T00:00:00Z",
+              "ack_url": null
+            }
+            """.data(using: .utf8)!
+
+            let task = try localPurgeDecoder.decode(DesktopLocalPurgeTask.self, from: payload)
+
+            XCTAssertEqual(task.safeReason, "delete_requested")
+            XCTAssertNil(task.ackURL)
+        }
+    }
+
     func testLocalPurgeAcknowledgementEncodesNoPrivateProofPayload() throws {
         let ack = DesktopLocalPurgeAcknowledgement(
             state: .acknowledged,

@@ -10,6 +10,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
 
         XCTAssertEqual(DesktopCabinetWorkspace.defaultRoute(configuration: configuration).absoluteString, "https://rec.2brain.dev/desktop/meetings")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.workspace, "desktop-cabinet-workspace")
+        XCTAssertFalse(DesktopCabinetWorkspace.defaultRoute(configuration: configuration).path.localizedCaseInsensitiveContains("diagnostic"))
+        XCTAssertFalse(DesktopCabinetWorkspace.defaultRoute(configuration: configuration).path.localizedCaseInsensitiveContains("settings"))
     }
 
     func testWorkspaceOpensMeetingDetailDestination() throws {
@@ -36,6 +38,13 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     func testActiveRecordingInvariantFailsWhenStopIsHiddenOrFocusTrapped() {
+        let hiddenRecord = NativeShellInvariant(
+            recordVisible: false,
+            stopVisible: true,
+            uploadTruthVisible: true,
+            focusCanReachStop: true,
+            embeddedSurfaceLoaded: true
+        )
         let hiddenStop = NativeShellInvariant(
             recordVisible: true,
             stopVisible: false,
@@ -51,6 +60,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             embeddedSurfaceLoaded: true
         )
 
+        XCTAssertFalse(hiddenRecord.satisfiesActiveRecordingSafety(cabinetState: .ready))
         XCTAssertFalse(hiddenStop.satisfiesActiveRecordingSafety(cabinetState: .ready))
         XCTAssertFalse(focusTrap.satisfiesActiveRecordingSafety(cabinetState: .ready))
     }

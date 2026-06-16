@@ -24,3 +24,13 @@ def test_cabinet_list_contract_accepts_access_filter(client) -> None:
     parameters = schema["paths"]["/api/v1/cabinet/meetings"]["get"]["parameters"]
 
     assert any(parameter["name"] == "access" and parameter["in"] == "query" for parameter in parameters)
+
+
+def test_artifact_egress_contract_keeps_download_export_actions_bounded(client) -> None:
+    schema = client.get("/openapi.json").json()
+    artifact_schema = schema["components"]["schemas"]["ArtifactEgressState"]
+
+    assert artifact_schema["properties"]["artifact_class"]["type"] == "string"
+    assert artifact_schema["properties"]["state"]["type"] == "string"
+    assert artifact_schema["properties"]["action"]["enum"] == ["download", "export", "disabled"]
+    assert "public_link" not in artifact_schema["properties"]

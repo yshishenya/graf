@@ -2,10 +2,9 @@
 
 Date: 2026-06-16
 
-This document is the short status source after accepting the local recording
-artifact-format slice and drafting the next architecture/product decisions. The
-PRD remains the product baseline; feature specs remain the detailed
-implementation record.
+This document is the short status source after the `034-mvp-loop-readiness`
+readiness pass. The PRD remains the product baseline; feature specs and
+metadata-only evidence artifacts remain the detailed implementation record.
 
 ## Accepted Now
 
@@ -116,9 +115,9 @@ implementation record.
   showed `rec-api` healthy, Alembic `0006_access_sharing_downloads`, and
   `/api/v1/health/live` plus `/api/v1/health/ready` returning ok/ready. This is
   `infra_smoke_ready` evidence, not user rollout readiness.
-- Feature `018-retention-deletion-execution` is implemented in the current
-  feature branch as the server-owned retention and deletion execution layer
-  after access/share/download/export. It adds whole-meeting deletion requests,
+- Feature `018-retention-deletion-execution` is implemented and production-smoke
+  validated as the server-owned retention and deletion execution layer after
+  access/share/download/export. It adds whole-meeting deletion requests,
   immediate access blocking for deleting/deleted meetings, metadata-only
   deletion verification reports, retention policy snapshots and scans,
   device-scoped local desktop purge tasks and acknowledgements, truthful backup
@@ -126,9 +125,20 @@ implementation record.
   limits, post-egress copy limits from existing egress audit, lifecycle activity
   rows, safe retry guidance, and RLS coverage for deletion lifecycle tables.
   Desktop clients can list and acknowledge local purge tasks without uploading
-  private proof payloads. This slice does not add public links, external
-  recipient invitations, partial deletion, legal-hold management, admin
-  retention editing UI, billing, or desktop-owned deletion policy.
+  private proof payloads. On 2026-06-16, `master` at
+  `ab875e7ba50f15ff57323581ba0edfa7abd5ad5c` was deployed to production and
+  verified within the `infra_smoke_ready` boundary. This slice does not add
+  public links, external-recipient invitations, partial deletion, legal-hold
+  management, admin retention editing UI, billing, or desktop-owned deletion
+  policy.
+- Feature `034-mvp-loop-readiness` is implemented as the launch-readiness gate
+  over the owner MVP value loop. It produces metadata-only JSON/Markdown
+  readiness evidence, a launch gap register, clean-room reference comparison,
+  desktop/web/policy lifecycle local-runtime regression evidence, and bounded
+  claim rules. Its current outcome is `pilot_blocked`: the strongest production
+  claim remains `infra_smoke_ready`, while `mvp_loop_ready`,
+  `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
+  excluded until P1 launch blockers are closed.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -238,28 +248,32 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `018-retention-deletion-execution`.
-`016` provides the authorized review cabinet, `033` embeds that cabinet inside
-the macOS shell without weakening native capture authority, and `017` now adds
-browser-owned access, login-required sharing, server-mediated downloads, safe
-exports, audit, and egress truth. The next launch-moving product slice should
-turn the existing deletion/retention truth surfaces into actual server-side
-retention jobs, deletion workflows, reports, local desktop purge coordination,
-backup expiry accounting, and external dependency deletion boundaries.
+Recommended next feature: `022-meeting-mute-truth`.
+Feature `034-mvp-loop-readiness` shows that the product now has accepted
+foundations for local recording, server ingest, MediaScribe import, web review,
+desktop embedding, access/egress, and deletion truth, but it still cannot claim
+`mvp_loop_ready` or pilot readiness. The next product slice should close the P1
+privacy blocker around meeting-app mute behavior before broader recording
+acceptance.
+
+Before any pilot claim, close the validation-only gates recorded by 034:
+metadata-safe live desktop/web loop evidence, forbidden-content scans over
+readiness artifacts, and production user-journey proof. Parallel or follow-up
+product work should address notes/action output if the MVP promise requires
+generated notes rather than a truthful planned placeholder.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
-the `infra_smoke_ready` boundary until dashboard, access, retention, deletion,
-and user rollout slices are separately accepted.
+the `infra_smoke_ready` boundary until user rollout slices and live journey
+evidence are separately accepted.
 
 Keep separate unless the next spec explicitly changes scope:
 
 - Public-link and external-recipient sharing policy: optional public links,
   expiration, abuse controls, external invitations, and legal/admin copy.
-- `018-retention-deletion-execution`: server-side retention jobs, deletion
-  workflows, deletion verification reports, local desktop purge coordination,
-  backup expiry accounting, and external dependency deletion truth.
+- Notes/action output: decide whether the MVP requires generated notes/action
+  items next or whether a truthful planned placeholder remains acceptable for an
+  internal pilot.
 - Assisted auto-start and generalized meeting detection.
-- Feature `022-meeting-mute-truth` meeting-app mute truth.
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates
   after `020`. They are not runtime behavior in the finalization-only slice.
@@ -277,9 +291,6 @@ the current accepted implementation or `012` ingest slice.
 - Public-link and external-recipient sharing policy: add optional public links,
   expiration, external invitations, abuse controls, and admin/legal copy after
   the login-required 017 flow is accepted.
-- `018-retention-deletion-execution`: implement retention/deletion workflows,
-  deletion reports, local purge coordination, backup expiry, and external
-  dependency deletion truth.
 - `021-production-deployment-plan`: use the remote-first runbook to reach
   `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
   claims blocked until later product slices are accepted.

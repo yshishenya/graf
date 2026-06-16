@@ -8,6 +8,10 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен launch-readiness gate `034-mvp-loop-readiness`: metadata-only
+  readiness JSON/Markdown report, launch gap register, clean-room reference
+  comparison, desktop/web/policy lifecycle evidence notes, bounded claim rules,
+  and evidence-backed next-slice recommendation (`feature:034`, `T001-T059`).
 - Добавлен server-owned слой retention/deletion execution: whole-meeting
   deletion requests, immediate access blocking for deleting/deleted meetings,
   metadata-only verification reports, retention policy snapshots and scans,
@@ -48,6 +52,11 @@ Semantic Versioning 2.0.0.
 
 ### Changed
 
+- `docs/current-product-status.md` now records `034` as the current readiness
+  outcome, removes stale `018` next-slice guidance, and recommends
+  `022-meeting-mute-truth` as the next product slice while keeping live evidence
+  and production user-journey proof as validation gates (`feature:034`,
+  `T045-T051`).
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
   были сквозными.
@@ -80,6 +89,11 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Readiness evidence for `034` is metadata-only by contract: unsafe screenshots
+  are rejected, reference-comparison evidence IDs are validated, committed
+  evidence cannot include private Krisp screenshots or private meeting content,
+  and production claims stay bounded to `infra_smoke_ready` until stronger
+  evidence exists (`feature:034`, `T005-T014`, `T028`, `T055`).
 - Retention/deletion reports and lifecycle activity are metadata-only by
   default: they do not expose raw audio, transcript text, summaries, local
   paths, object-store keys, signed URLs, provider payloads, dependency job IDs,

@@ -51,6 +51,21 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
         XCTAssertEqual(link.destination?.absoluteString, "https://rec.2brain.dev/desktop/meetings/server-meeting-033")
     }
 
+    func testTerminalDeletedItemWithServerMeetingIdDoesNotOpenReviewDestination() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let item = uploadItem(
+            state: .terminalDeleted,
+            meetingId: nil,
+            serverTruth: ServerTruthFingerprint(meetingId: "server-meeting-033")
+        )
+
+        let link = configuration.reviewLink(for: item)
+
+        XCTAssertEqual(link.availability, .unavailable)
+        XCTAssertNil(link.destination)
+        XCTAssertEqual(link.reason, "server_meeting_terminal")
+    }
+
     private func uploadItem(
         state: UploadItemState,
         meetingId: String?,
