@@ -29,6 +29,16 @@ state, audit, reports, and user-visible deletion truth. Native desktop capture
 controls, active recording, upload queue truth, and local diagnostic safety
 remain native and must not be weakened by this feature.
 
+## Clarifications
+
+### Session 2026-06-16
+
+- Q: What deletion unit is supported in the MVP? -> A: Whole meeting only.
+- Q: What retention policy source is used before admin editing UI exists? -> A: Deployment/default policy snapshot.
+- Q: What if MediaScribe deletion support is unavailable or unconfirmed? -> A: Report unknown/unsupported; never claim full purge.
+- Q: What proves local desktop purge? -> A: Metadata acknowledgement or documented local-expiry reliance.
+- Q: Does this feature add public links, external invitations, legal hold management, or partial artifact deletion? -> A: No; explicitly out of scope.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Delete A Whole Meeting With Truthful Scope (Priority: P1)
