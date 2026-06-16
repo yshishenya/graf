@@ -111,6 +111,10 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "web-cabinet-regression-tests",
                     "web-meeting-list-blocker-note",
                     "web-meeting-detail-blocker-note",
+                    "feature-035-web-live-auth-blocker",
+                    "feature-035-web-list-evidence",
+                    "feature-035-web-detail-evidence",
+                    "feature-035-web-governance-evidence",
                     "reference-comparison-note",
                 ],
             ),
@@ -174,10 +178,13 @@ def _evidence_details(report: ReadinessReport, evidence_ids: list[str]) -> str:
     evidence = {item.id: item for item in report.evidence}
     lines = ["Evidence records:"]
     for evidence_id in evidence_ids:
+        if evidence_id not in evidence:
+            continue
         item = evidence[evidence_id]
         limitations = "; ".join(item.limitations) or "none"
         lines.append(
             f"- `{item.id}`: `{item.strength}` from `{item.source}`. "
+            f"Scope: {item.scope} "
             f"Scan: `{item.forbidden_content_scan}`. Limitations: {limitations}"
         )
     return "\n".join(lines)

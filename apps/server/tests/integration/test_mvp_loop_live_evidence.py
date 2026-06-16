@@ -98,6 +98,56 @@ def test_035_installed_desktop_evidence_files_are_present_and_metadata_safe() ->
     assert "/Users/" not in readme
 
 
+def test_035_web_owner_review_evidence_files_are_present_and_metadata_safe() -> None:
+    evidence_dir = Path(__file__).resolve().parents[4] / "docs/evidence/035-mvp-loop-live-evidence"
+    screenshot_dir = evidence_dir / "screenshots"
+    expected_notes = {
+        "web-meeting-list-evidence.md",
+        "web-meeting-detail-evidence.md",
+        "web-governance-evidence.md",
+    }
+
+    combined = ""
+    for file_name in expected_notes:
+        evidence_file = screenshot_dir / file_name
+        assert evidence_file.exists(), file_name
+        text = evidence_file.read_text()
+        assert "rec.2brain.pro" in text
+        assert "Fixture-Backed Coverage" in text or "Fixture-backed" in text
+        assert "/Users/" not in text
+        assert "@" not in text
+        combined += text
+
+    validation_log = (evidence_dir / "validation-log.md").read_text()
+    readme = (evidence_dir / "README.md").read_text()
+
+    assert "missing_auth_context" in combined
+    assert "notes/action" in combined
+    assert "No production share, export, delete" in combined
+    assert "prod-meetings-route" in validation_log
+    assert "chrome-meetings-route" in validation_log
+    assert "401 missing_auth_context" in readme
+
+
+def test_035_report_includes_web_auth_blocker_and_fixture_backed_evidence() -> None:
+    report = build_default_readiness_report(
+        feature=FEATURE,
+        generated_at="2026-06-16T00:00:00Z",
+    )
+    markdown = render_markdown_report(report)
+    evidence_ids = {item.id for item in report.evidence}
+
+    assert {
+        "feature-035-web-live-auth-blocker",
+        "feature-035-web-list-evidence",
+        "feature-035-web-detail-evidence",
+        "feature-035-web-governance-evidence",
+    } <= evidence_ids
+    assert "401 missing_auth_context" in markdown
+    assert "Fixture-backed list evidence does not prove a live private owner account." in markdown
+    assert "No destructive production sharing, export, or deletion action was performed." in markdown
+
+
 def test_035_clean_room_reference_assertions_stay_metadata_only() -> None:
     report = build_default_readiness_report(feature=FEATURE, generated_at="2026-06-16T00:00:00Z")
 

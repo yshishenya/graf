@@ -333,6 +333,52 @@ def build_default_evidence(
                     strength="docs_only",
                     forbidden_content_scan="pass",
                 ),
+                ReadinessEvidence(
+                    id="feature-035-web-live-auth-blocker",
+                    type="endpoint",
+                    source="https://rec.2brain.pro/meetings",
+                    captured_at=captured_at,
+                    scope=(
+                        "Production web route exists but live Chrome owner review returned "
+                        "401 missing_auth_context without a committed private session."
+                    ),
+                    strength="blocked",
+                    forbidden_content_scan="pass",
+                    limitations=[
+                        "No private screenshots, cookies, tokens, or account content are committed.",
+                        "Route availability is proven separately from authenticated owner review.",
+                    ],
+                ),
+                ReadinessEvidence(
+                    id="feature-035-web-list-evidence",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-list-evidence.md",
+                    captured_at=captured_at,
+                    scope="Documents production list route blocker and fixture-backed meeting list coverage.",
+                    strength="local_runtime",
+                    forbidden_content_scan="pass",
+                    limitations=["Fixture-backed list evidence does not prove a live private owner account."],
+                ),
+                ReadinessEvidence(
+                    id="feature-035-web-detail-evidence",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-detail-evidence.md",
+                    captured_at=captured_at,
+                    scope="Documents production detail route blocker and fixture-backed transcript/playback coverage.",
+                    strength="local_runtime",
+                    forbidden_content_scan="pass",
+                    limitations=["Fixture-backed detail evidence does not include private meeting content."],
+                ),
+                ReadinessEvidence(
+                    id="feature-035-web-governance-evidence",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/screenshots/web-governance-evidence.md",
+                    captured_at=captured_at,
+                    scope="Documents fixture-backed share/export/deletion governance coverage and live auth blocker.",
+                    strength="local_runtime",
+                    forbidden_content_scan="pass",
+                    limitations=["No destructive production sharing, export, or deletion action was performed."],
+                ),
             ]
         )
     return evidence

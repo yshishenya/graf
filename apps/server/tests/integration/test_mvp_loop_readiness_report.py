@@ -65,3 +65,19 @@ def test_035_report_does_not_recommend_completed_035_as_next_slice() -> None:
 
     assert "Recommended next product slice: `035-mvp-loop-live-evidence`" not in markdown
     assert "Recommended next action: resolve `live-desktop-evidence` before pilot readiness." in markdown
+
+
+def test_035_report_keeps_web_owner_review_truthful_when_live_auth_is_blocked() -> None:
+    report = build_default_readiness_report(
+        feature="035-mvp-loop-live-evidence",
+        generated_at="2026-06-16T00:00:00Z",
+    )
+    evidence = {item.id: item for item in report.evidence}
+    gaps = {gap.id: gap for gap in report.launch_gaps}
+    stages = {stage.id: stage for stage in report.stages}
+
+    assert evidence["feature-035-web-live-auth-blocker"].strength == "blocked"
+    assert "401 missing_auth_context" in evidence["feature-035-web-live-auth-blocker"].scope
+    assert stages["notes-action-output"].status == "blocked"
+    assert "notes-action-output" in stages["notes-action-output"].launch_gap_ids
+    assert gaps["notes-action-output"].owner_area == "web"

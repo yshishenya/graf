@@ -17,5 +17,11 @@ Feature: `035-mvp-loop-live-evidence`
 | desktop-resumed-recording | desktop | Resume recording and capture resumed state | pass | `screenshots/2026-06-16-desktop-resumed-recording-applications.png` | Shows active recording after pause with live level meters. |
 | desktop-stopped-list | desktop | Stop recording and capture stopped/list state | pass | `screenshots/2026-06-16-desktop-stopped-list-applications.png` | Shows stopped state and the new local recording row. |
 | latest-artifact-validator | desktop | `apps/macos/Scripts/validate-meeting-mute-truth.sh --latest-artifact-directory` | pass | local artifact `directoryId=20260616-163553-91CF43DD-71DA-45BA-9995-0C0788D49D7F` | Full local path intentionally omitted from committed docs; no raw audio copied. |
+| prod-root-route | web | `curl -I -L --max-time 15 https://rec.2brain.pro` | blocked | `HTTP 404` JSON root | Root is not the web cabinet route. |
+| prod-meetings-route | web | `curl -i -L --max-time 15 https://rec.2brain.pro/meetings` | blocked | `HTTP 401 missing_auth_context` | Route exists but requires auth context; no private session evidence committed. |
+| chrome-meetings-route | web | Open `https://rec.2brain.pro/meetings` in Chrome automation | blocked | `net::ERR_BLOCKED_BY_CLIENT` | Browser-side blocker observed while preserving private Chrome data. |
+| web-list-evidence | web | Document metadata-safe list route evidence | pass | `screenshots/web-meeting-list-evidence.md` | Fixture-backed coverage, live owner proof blocked by auth context. |
+| web-detail-evidence | web | Document metadata-safe detail route evidence | pass | `screenshots/web-meeting-detail-evidence.md` | Detail route family covered locally; private live detail not committed. |
+| web-governance-evidence | web | Document metadata-safe governance evidence | pass | `screenshots/web-governance-evidence.md` | No destructive production action performed. |
 
 Further entries are added as tasks T011-T040 complete.

@@ -69,15 +69,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T020 [P] [US2] Add web evidence assertions in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
-- [ ] T021 [P] [US2] Add notes/action blocker or ready-state assertion in `apps/server/tests/integration/test_mvp_loop_readiness_report.py`
+- [X] T020 [P] [US2] Add web evidence assertions in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
+- [X] T021 [P] [US2] Add notes/action blocker or ready-state assertion in `apps/server/tests/integration/test_mvp_loop_readiness_report.py`
 
 ### Implementation for User Story 2
 
-- [ ] T022 [US2] Capture or document web meeting-list evidence in `docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-list-evidence.md`
-- [ ] T023 [US2] Capture or document web meeting-detail evidence in `docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-detail-evidence.md`
-- [ ] T024 [US2] Capture or document governance/share/export/deletion evidence in `docs/evidence/035-mvp-loop-live-evidence/screenshots/web-governance-evidence.md`
-- [ ] T025 [US2] Record notes/action output truth and limitations in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T022 [US2] Capture or document web meeting-list evidence in `docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-list-evidence.md`
+- [X] T023 [US2] Capture or document web meeting-detail evidence in `docs/evidence/035-mvp-loop-live-evidence/screenshots/web-meeting-detail-evidence.md`
+- [X] T024 [US2] Capture or document governance/share/export/deletion evidence in `docs/evidence/035-mvp-loop-live-evidence/screenshots/web-governance-evidence.md`
+- [X] T025 [US2] Record notes/action output truth and limitations in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
 
 **Checkpoint**: US2 is complete when web owner review is represented as ready, blocked, or fixture-backed without private meeting content.
 

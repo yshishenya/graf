@@ -56,6 +56,9 @@ Screenshot evidence:
 - `screenshots/2026-06-16-desktop-paused-recording-applications.png`
 - `screenshots/2026-06-16-desktop-resumed-recording-applications.png`
 - `screenshots/2026-06-16-desktop-stopped-list-applications.png`
+- `screenshots/web-meeting-list-evidence.md`
+- `screenshots/web-meeting-detail-evidence.md`
+- `screenshots/web-governance-evidence.md`
 
 Latest local artifact validation:
 
@@ -84,3 +87,24 @@ Limitations:
   needs product-quality alignment work before any broad launch claim.
 - The artifact is intentionally not copied into the repository; only metadata
   and screenshots are committed.
+
+## Web Owner Review Evidence
+
+Production route truth:
+
+- `https://rec.2brain.pro/` returned JSON `404 Not Found`, confirming the root
+  is not the web cabinet route.
+- `https://rec.2brain.pro/meetings` exists but returned
+  `401 missing_auth_context` without a commit-safe authenticated session.
+- Chrome automation reported `net::ERR_BLOCKED_BY_CLIENT` when navigating to
+  the protected route.
+
+Fixture-backed web proof:
+
+- Meeting list/detail/governance UI shape remains covered by existing safe
+  server tests.
+- The committed evidence for web review is markdown-only because live
+  authenticated owner screenshots may expose private content.
+- Notes/action output remains a launch blocker; the interface may show only
+  truthful planned or placeholder states until a later feature implements or
+  explicitly defers it.
