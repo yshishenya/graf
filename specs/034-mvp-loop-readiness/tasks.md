@@ -76,8 +76,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T024 [US2] Capture or document the desktop first-surface evidence in `docs/evidence/034-mvp-loop-readiness/screenshots/desktop-first-surface.blocker-or-screenshot.md`
-- [ ] T025 [US2] Capture or document the desktop embedded detail evidence in `docs/evidence/034-mvp-loop-readiness/screenshots/desktop-embedded-detail.blocker-or-screenshot.md`
+- [ ] T024 [US2] Record desktop first-surface evidence or blocker in `docs/evidence/034-mvp-loop-readiness/screenshots/desktop-first-surface-evidence.md`
+- [ ] T025 [US2] Record desktop embedded detail evidence or blocker in `docs/evidence/034-mvp-loop-readiness/screenshots/desktop-embedded-detail-evidence.md`
 - [ ] T026 [US2] Add desktop evidence records and related gaps in `apps/server/src/twobrain_rec_server/readiness/report.py`
 - [ ] T027 [US2] Update desktop evidence and claim sections in `docs/evidence/034-mvp-loop-readiness/readiness-report.md`
 
@@ -100,8 +100,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T032 [US3] Capture or document web meeting-list evidence in `docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-list.blocker-or-screenshot.md`
-- [ ] T033 [US3] Capture or document web meeting-detail evidence in `docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-detail.blocker-or-screenshot.md`
+- [ ] T032 [US3] Record web meeting-list evidence or blocker in `docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-list-evidence.md`
+- [ ] T033 [US3] Record web meeting-detail evidence or blocker in `docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-detail-evidence.md`
 - [ ] T034 [US3] Record clean-room reference lessons and forbidden-similarity results in `docs/evidence/034-mvp-loop-readiness/reference-comparison.md`
 - [ ] T035 [US3] Add reference comparison records to `apps/server/src/twobrain_rec_server/readiness/report.py`
 - [ ] T036 [US3] Update web, embedded, and clean-room sections in `docs/evidence/034-mvp-loop-readiness/readiness-report.md`
@@ -147,10 +147,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T047 [US5] Generate the launch gap register in `docs/evidence/034-mvp-loop-readiness/launch-gap-register.md`
-- [ ] T048 [US5] Update completed-slice status and the next product slice in `docs/current-product-status.md`
-- [ ] T049 [US5] Add the 034 readiness gate entry in `CHANGELOG.md`
-- [ ] T050 [US5] Update final bounded outcome and next-slice recommendation in `docs/evidence/034-mvp-loop-readiness/readiness-report.md`
+- [ ] T047 [US5] Seed required launch blockers for mute truth, signed installer evidence, browser target gaps, live app evidence, and notes/action output in `apps/server/src/twobrain_rec_server/readiness/matrix.py`
+- [ ] T048 [US5] Generate the launch gap register in `docs/evidence/034-mvp-loop-readiness/launch-gap-register.md`
+- [ ] T049 [US5] Update completed-slice status and the next product slice in `docs/current-product-status.md`
+- [ ] T050 [US5] Add the 034 readiness gate entry in `CHANGELOG.md`
+- [ ] T051 [US5] Update final bounded outcome and next-slice recommendation in `docs/evidence/034-mvp-loop-readiness/readiness-report.md`
 
 **Checkpoint**: US5 is complete when a reviewer can choose the next slice from evidence rather than intuition.
 
@@ -160,14 +161,14 @@
 
 **Purpose**: Prove the feature is safe to review, merge, and deploy within the strongest evidence boundary actually achieved.
 
-- [ ] T051 [P] Run focused readiness tests and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
-- [ ] T052 [P] Run web cabinet and lifecycle regression tests and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
-- [ ] T053 [P] Run macOS desktop shell regression tests and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
-- [ ] T054 Run forbidden-content text and screenshot payload scans and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
-- [ ] T055 Run local repository CI and record `ci_local_result` in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
-- [ ] T056 Run production health or CD/smoke boundary checks and record the strongest valid claim in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
-- [ ] T057 Review `specs/034-mvp-loop-readiness/checklists/` against completed evidence and update blockers in `specs/034-mvp-loop-readiness/tasks.md`
-- [ ] T058 Verify GitHub issue traceability after `$speckit-taskstoissues` in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
+- [ ] T052 [P] Run focused readiness tests and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
+- [ ] T053 [P] Run web cabinet and lifecycle regression tests and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
+- [ ] T054 [P] Run macOS desktop shell regression tests and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
+- [ ] T055 Run forbidden-content text and screenshot payload scans and record results in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
+- [ ] T056 Run local repository CI and record `ci_local_result` in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
+- [ ] T057 Run production health or CD/smoke boundary checks and record the strongest valid claim in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
+- [ ] T058 Review `specs/034-mvp-loop-readiness/checklists/` against completed evidence and update blockers in `specs/034-mvp-loop-readiness/tasks.md`
+- [ ] T059 Verify GitHub issue traceability after `$speckit-taskstoissues` in `docs/evidence/034-mvp-loop-readiness/validation-log.md`
 
 ---
 
@@ -196,7 +197,7 @@
 - T005, T006, and T007 can run in parallel.
 - Story-specific test tasks marked `[P]` can run in parallel because they touch separate test files.
 - Desktop evidence tasks and web evidence tasks can run in parallel after the readiness report spine exists.
-- Validation tasks T051, T052, and T053 can run in parallel, then T054-T056 must reconcile final evidence.
+- Validation tasks T052, T053, and T054 can run in parallel, then T055-T057 must reconcile final evidence.
 
 ## Parallel Example: User Story 2
 
