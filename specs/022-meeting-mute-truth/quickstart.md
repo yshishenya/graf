@@ -1,0 +1,114 @@
+# Quickstart: Meeting-App Mute Truth
+
+## Prerequisites
+
+- macOS 14+ on Apple Silicon.
+- Current branch: `022-meeting-mute-truth`.
+- Microphone and Screen/System Audio permissions available for manual toggling.
+- Controlled non-sensitive meeting/audio sources for Zoom native,
+  Chrome/Telemost, and Opera/Telemost.
+
+## 1. Static Spec And Secret/Content Scan
+
+```sh
+rg -n "NEEDS CLARIFICATION|Backlog Draft|no implementation authorized|not ready" \
+  specs/022-meeting-mute-truth AGENTS.md \
+  --glob '!specs/022-meeting-mute-truth/quickstart.md'
+
+rg -n "rawAudio|transcriptText|meetingContent|signedUrl|password|apiKey|token" \
+  specs/022-meeting-mute-truth apps/macos/Shared/Sources apps/macos/RecApp/Sources \
+  --glob '!specs/022-meeting-mute-truth/quickstart.md'
+```
+
+Expected:
+
+- no unresolved backlog/clarification blockers;
+- forbidden-content matches, if any, are policy wording or
+  `DiagnosticRedactor` forbidden-key tests, not payload data.
+
+## 2. Swift Build And Tests
+
+```sh
+cd apps/macos
+swift build
+swift test
+swift run ContractValidation
+```
+
+Expected:
+
+- build succeeds;
+- all existing tests pass;
+- new meeting-mute-truth tests pass after implementation;
+- contract validation accepts the local manifest extensions.
+
+## 3. Focused Local Validation Script
+
+After implementation, run:
+
+```sh
+apps/macos/Scripts/validate-meeting-mute-truth.sh --fixtures
+apps/macos/Scripts/validate-meeting-mute-truth.sh --latest-artifact-directory
+```
+
+Expected:
+
+- fixture manifests pass the contract rules;
+- latest local artifact reports product pause segments and mute-truth decision
+  metadata without raw audio or meeting content.
+
+## 4. Product Pause Manual Artifact Check
+
+For each `pause_validated` target row:
+
+1. Start a controlled meeting or meeting-like session with non-sensitive audio.
+2. Start recording in 2brain Rec.
+3. Confirm the limitation copy is visible if meeting-app mute truth is
+   unproven.
+4. Speak a short non-sensitive phrase while recording normally.
+5. Activate `2brain Pause`.
+6. Speak locally during pause.
+7. Resume.
+8. Speak a short non-sensitive phrase after resume.
+9. Stop recording.
+10. Validate the latest artifact metadata:
+
+```sh
+apps/macos/Scripts/validate-meeting-mute-truth.sh --latest-artifact-directory
+```
+
+Expected:
+
+- `privacySegments` includes the pause interval;
+- local mic treatment for the pause interval is `silenced` or `redacted`;
+- `meetingMuteTruth.decision` does not claim third-party meeting-app mute
+  support;
+- Stop remained available while paused;
+- diagnostics remain metadata-only.
+
+## 5. Unsupported Target Claim Check
+
+Run or fixture-validate Yandex Browser/Telemost and unknown target rows.
+
+Expected:
+
+- limitation copy is visible;
+- target status is `deferred` or `unsupported`;
+- artifact uses `meeting_mute_unproven`, `unsupported`, or `degraded`;
+- release validation does not pass the row as meeting-app-mute-respecting.
+
+## 6. Existing Gate Regression
+
+Re-run the local gates that this feature must preserve:
+
+```sh
+apps/macos/Scripts/validate-capture-session-indicator.sh
+apps/macos/Scripts/validate-local-recording-persistence.sh
+apps/macos/Scripts/validate-recording-artifact-format.sh
+```
+
+Expected:
+
+- visible capture indicator and one-action Stop still pass;
+- local artifact persistence still passes;
+- artifact format remains compatible with dual-track local recording.
