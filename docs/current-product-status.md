@@ -1,6 +1,6 @@
 # Current Product Status
 
-Date: 2026-06-15
+Date: 2026-06-16
 
 This document is the short status source after accepting the local recording
 artifact-format slice and drafting the next architecture/product decisions. The
@@ -92,6 +92,39 @@ implementation record.
   Desktop clients still do not call MediaScribe, hold MediaScribe credentials,
   receive signed dependency URLs, or receive transcript/audio/download surfaces
   in this slice.
+- Feature `016-meeting-dashboard-review` is implemented as the server-owned web
+  cabinet for meeting review. It adds authorized meeting list/detail APIs and
+  HTML routes, ready/partial/processing/failed states, safe transcript and
+  speaker timeline rendering, truthful unavailable states, non-mutating
+  governance placeholders, desktop-embedded route variants, responsive
+  screenshots, and no-secret/no-private-content validation. It intentionally
+  does not execute share/export/download/delete/retention policies or replace
+  native desktop capture controls.
+- Feature `017-access-sharing-downloads` is implemented as the browser/server
+  owned access, sharing, download, and export layer for accepted meeting review
+  data. It adds effective owner/team/shared/denied access decisions for list,
+  detail, share, download, export, and desktop-embedded routes; login-required
+  share grants and revocation; server-mediated artifact downloads;
+  policy-filtered export packages; metadata-only access/egress activity; truthful
+  post-egress deletion copy; RLS coverage for the new access/egress tables; and
+  synthetic screenshot evidence for desktop and compact layouts. It does not
+  enable public links, external-recipient invitations, retention execution,
+  deletion execution, admin policy editing, billing, or desktop-owned egress
+  policy. On 2026-06-16, `master` at
+  `39b8c5fbfae74159e5e50f5c2471f19ff64f1e36` was deployed to
+  `2brain.dev:/opt/projects/2brain-rec`; production read-only verification
+  showed `rec-api` healthy, Alembic `0006_access_sharing_downloads`, and
+  `/api/v1/health/live` plus `/api/v1/health/ready` returning ok/ready. This is
+  `infra_smoke_ready` evidence, not user rollout readiness.
+- Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
+  bridge for the accepted `016` cabinet route classes. The desktop app now
+  opens a `Встречи` workspace after native capture controls, hosts embedded
+  meeting list/detail surfaces through WebKit, preserves native Record/Stop and
+  upload truth outside the embedded surface, shows bounded unavailable/auth
+  states, and opens review only for uploaded queue items with server meeting
+  identity. Screenshot evidence uses synthetic local fixtures and contains no
+  Krisp private captures, real account identifiers, transcript text, raw audio,
+  signed URLs, or live local paths.
 - Feature `021-production-deployment-plan` is implemented as a remote-first
   infrastructure readiness slice for `2brain.dev` and `/opt/projects/2brain-rec`.
   It adds production Compose hardening, env/secret templates, remote backup,
@@ -161,8 +194,9 @@ implementation record.
 - Driver live virtual-device publication is not accepted for MVP recording and
   must not be revived without a separate future advanced-routing spec,
   implementation, and safety evidence.
-- Dashboard notes/review, share/download surfaces, server retention, and
-  deletion workflows are not accepted yet.
+- Server retention and deletion workflows are not accepted yet. Public meeting
+  links, external-recipient invitations, admin policy editing, and billing are
+  also still later slices.
 - The `012` backend foundation exists as a repository implementation with
   `021` remote-first infrastructure smoke readiness scaffolding; real user
   rollout and desktop uploader slices are still not accepted.
@@ -191,13 +225,14 @@ implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `016-meeting-dashboard-review`.
-`015` now provides backend processing state and imported transcript/diarization
-data, but intentionally exposes no dashboard meeting detail, transcript review,
-notes, playback, share, download, or deletion execution surface. `016` should
-turn the accepted processing state into a simple authorized review experience
-without weakening local recording visibility, one-action stop, metadata-only
-diagnostics, explicit egress policy, storage truth, or deletion accounting.
+Recommended next feature: `018-retention-deletion-execution`.
+`016` provides the authorized review cabinet, `033` embeds that cabinet inside
+the macOS shell without weakening native capture authority, and `017` now adds
+browser-owned access, login-required sharing, server-mediated downloads, safe
+exports, audit, and egress truth. The next launch-moving product slice should
+turn the existing deletion/retention truth surfaces into actual server-side
+retention jobs, deletion workflows, reports, local desktop purge coordination,
+backup expiry accounting, and external dependency deletion boundaries.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until dashboard, access, retention, deletion,
@@ -205,14 +240,8 @@ and user rollout slices are separately accepted.
 
 Keep separate unless the next spec explicitly changes scope:
 
-- `014-desktop-upload-queue`: macOS app sends local recordings to the server,
-  shows upload status, retries failures, and preserves local artifacts until
-  upload truth is known.
-- `016-meeting-dashboard-review`: web dashboard meeting list/detail,
-  processing state, transcript, notes, playback, and review surfaces.
-- `017-access-sharing-downloads`: role-based meeting access, team visibility,
-  download/export permissions, login-required share links, optional public-link
-  policy, and share-page lifecycle/audit.
+- Public-link and external-recipient sharing policy: optional public links,
+  expiration, abuse controls, external invitations, and legal/admin copy.
 - `018-retention-deletion-execution`: server-side retention jobs, deletion
   workflows, deletion verification reports, local desktop purge coordination,
   backup expiry accounting, and external dependency deletion truth.
@@ -232,13 +261,9 @@ the current accepted implementation or `012` ingest slice.
   `009-respect-meeting-mute` draft branch as the canonical backlog record.
 - `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
   naming, and any future auto-start behavior from the accepted requirements.
-- `014-desktop-upload-queue`: make the macOS app send local artifacts to the
-  server, show upload status, retry safely, and preserve local artifacts until
-  upload truth is known.
-- `016-meeting-dashboard-review`: show meetings, processing state, transcript,
-  notes, playback, and review surfaces.
-- `017-access-sharing-downloads`: add RBAC/team visibility, audio/transcript/
-  summary downloads, share links/pages, lifecycle, and audit.
+- Public-link and external-recipient sharing policy: add optional public links,
+  expiration, external invitations, abuse controls, and admin/legal copy after
+  the login-required 017 flow is accepted.
 - `018-retention-deletion-execution`: implement retention/deletion workflows,
   deletion reports, local purge coordination, backup expiry, and external
   dependency deletion truth.

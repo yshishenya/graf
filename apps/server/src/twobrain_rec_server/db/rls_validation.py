@@ -13,7 +13,7 @@ RLSDestructiveProbeDatabase = Literal["not_provided", "disposable", "explicit_te
 RLSLiveProductionEnforcement = Literal["not_inspected", "enabled", "verification_blocked"]
 RLSProductionStateResult = Literal["pass", "blocked"]
 
-PRODUCTION_RLS_MINIMUM_REVISION = "0005_rls_hardening"
+PRODUCTION_RLS_MINIMUM_REVISION = "0006_access_sharing_downloads"
 
 RLS_DIRECT_WORKSPACE_TABLES = frozenset(
     {
@@ -40,6 +40,10 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "diarization_segments",
         "processing_audit_events",
         "processing_dependency_states",
+        "meeting_share_grants",
+        "meeting_artifact_policies",
+        "meeting_egress_audit_events",
+        "export_packages",
     }
 )
 

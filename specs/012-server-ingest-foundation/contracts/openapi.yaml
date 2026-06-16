@@ -1711,6 +1711,757 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings:
+    get:
+      tags:
+      - cabinet
+      summary: List Cabinet Meetings Route
+      operationId: listCabinetMeetings
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Q
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - local_only
+            - uploading
+            - submitted
+            - processing
+            - ready
+            - partial
+            - blocked
+            - failed
+            - unavailable
+            - deleted_future
+            type: string
+          - type: 'null'
+          title: Status
+      - name: access
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - owner
+            - team
+            - shared
+            - denied
+            - unavailable
+            - deleted
+            type: string
+          - type: 'null'
+          title: Access
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: updated_desc
+          title: Sort
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}:
+    get:
+      tags:
+      - cabinet
+      summary: Get Cabinet Meeting Review Route
+      operationId: getCabinetMeetingReview
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingReviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/access:
+    get:
+      tags:
+      - cabinet
+      summary: Get Meeting Access State Route
+      operationId: getMeetingAccessState
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingAccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/activity:
+    get:
+      tags:
+      - cabinet
+      summary: List Meeting Activity Route
+      operationId: listMeetingAccessActivity
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingActivityResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/shares:
+    post:
+      tags:
+      - cabinet
+      summary: Create Meeting Share Grant Route
+      operationId: createMeetingShareGrant
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareGrantRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareGrantResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/shares/{grant_id}:
+    delete:
+      tags:
+      - cabinet
+      summary: Revoke Meeting Share Grant Route
+      operationId: revokeMeetingShareGrant
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: grant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Grant Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/share/{share_token}:
+    get:
+      tags:
+      - cabinet
+      summary: Resolve Login Required Share Link Route
+      operationId: resolveLoginRequiredShareLink
+      parameters:
+      - name: share_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Share Token
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/downloads/{artifact_class}:
+    get:
+      tags:
+      - cabinet
+      summary: Download Meeting Artifact Route
+      operationId: downloadMeetingArtifact
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: artifact_class
+        in: path
+        required: true
+        schema:
+          enum:
+          - audio
+          - transcript
+          - summary
+          - package
+          type: string
+          title: Artifact Class
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/exports:
+    post:
+      tags:
+      - cabinet
+      summary: Create Meeting Export Package Route
+      operationId: createMeetingExportPackage
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExportPackageRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportPackageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/exports/{export_id}/download:
+    get:
+      tags:
+      - cabinet
+      summary: Download Meeting Export Package Route
+      operationId: downloadMeetingExportPackage
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: export_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Export Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AbortUploadRequest:
@@ -1724,6 +2475,50 @@ components:
           title: Reason
       type: object
       title: AbortUploadRequest
+    ArtifactEgressState:
+      properties:
+        artifact_class:
+          type: string
+          enum:
+          - audio
+          - transcript
+          - summary
+          - package
+          title: Artifact Class
+        state:
+          type: string
+          enum:
+          - available
+          - policy_blocked
+          - missing
+          - processing
+          - failed
+          - deleted
+          - owner_only
+          - audit_unavailable
+          title: State
+        label:
+          type: string
+          title: Label
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        action:
+          type: string
+          enum:
+          - download
+          - export
+          - disabled
+          title: Action
+      type: object
+      required:
+      - artifact_class
+      - state
+      - label
+      - action
+      title: ArtifactEgressState
     AuthCallbackResponse:
       properties:
         user_id:
@@ -2025,6 +2820,23 @@ components:
       - expires_at
       - provider
       title: AuthStartResponse
+    CreateExportPackageRequest:
+      properties:
+        artifact_classes:
+          items:
+            type: string
+            enum:
+            - audio
+            - transcript
+            - summary
+            - package
+          type: array
+          minItems: 1
+          title: Artifact Classes
+      type: object
+      required:
+      - artifact_classes
+      title: CreateExportPackageRequest
     CreateMeetingRequest:
       properties:
         local_recording_id:
@@ -2061,6 +2873,16 @@ components:
       - local_recording_id
       - duration_seconds
       title: CreateMeetingRequest
+    CreateShareGrantRequest:
+      properties:
+        grantee_user_id:
+          type: string
+          format: uuid
+          title: Grantee User Id
+      type: object
+      required:
+      - grantee_user_id
+      title: CreateShareGrantRequest
     CreateUploadSessionRequest:
       properties:
         expected_tracks:
@@ -2083,6 +2905,58 @@ components:
           title: Manifest Sha256
       type: object
       title: CreateUploadSessionRequest
+    ExportPackageExclusion:
+      properties:
+        artifact_class:
+          type: string
+          enum:
+          - audio
+          - transcript
+          - summary
+          - package
+          title: Artifact Class
+        policy_reason:
+          type: string
+          title: Policy Reason
+      type: object
+      required:
+      - artifact_class
+      - policy_reason
+      title: ExportPackageExclusion
+    ExportPackageResponse:
+      properties:
+        export_id:
+          type: string
+          format: uuid
+          title: Export Id
+        status:
+          type: string
+          enum:
+          - requested
+          - ready
+          - failed
+          - expired
+          title: Status
+        included_artifacts:
+          items:
+            type: string
+            enum:
+            - audio
+            - transcript
+            - summary
+            - package
+          type: array
+          title: Included Artifacts
+        excluded_artifacts:
+          items:
+            $ref: '#/components/schemas/ExportPackageExclusion'
+          type: array
+          title: Excluded Artifacts
+      type: object
+      required:
+      - export_id
+      - status
+      title: ExportPackageResponse
     FinalizeUploadRequest:
       properties:
         manifest_sha256:
@@ -2124,6 +2998,55 @@ components:
       - upload_session
       - object_count
       title: FinalizeUploadResponse
+    GovernanceActionState:
+      properties:
+        state:
+          type: string
+          enum:
+          - available
+          - disabled
+          - planned
+          - policy_blocked
+          - browser_handoff
+          - out_of_scope
+          title: State
+        label:
+          type: string
+          title: Label
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        destructive:
+          type: boolean
+          title: Destructive
+          default: false
+      type: object
+      required:
+      - state
+      - label
+      title: GovernanceActionState
+    GovernanceActionSummary:
+      properties:
+        share:
+          $ref: '#/components/schemas/GovernanceActionState'
+        export:
+          $ref: '#/components/schemas/GovernanceActionState'
+        download:
+          $ref: '#/components/schemas/GovernanceActionState'
+        retention:
+          $ref: '#/components/schemas/GovernanceActionState'
+        delete:
+          $ref: '#/components/schemas/GovernanceActionState'
+      type: object
+      required:
+      - share
+      - export
+      - download
+      - retention
+      - delete
+      title: GovernanceActionSummary
     HTTPValidationError:
       properties:
         detail:
@@ -2200,6 +3123,335 @@ components:
       - policy
       - registered_devices
       title: MeResponse
+    MeetingAccessResponse:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        access:
+          $ref: '#/components/schemas/MeetingAccessState'
+        share:
+          $ref: '#/components/schemas/SharePanelState'
+        artifacts:
+          items:
+            $ref: '#/components/schemas/ArtifactEgressState'
+          type: array
+          title: Artifacts
+        deletion_truth_copy:
+          type: string
+          title: Deletion Truth Copy
+      type: object
+      required:
+      - meeting_id
+      - access
+      - share
+      - deletion_truth_copy
+      title: MeetingAccessResponse
+    MeetingAccessState:
+      properties:
+        state:
+          type: string
+          enum:
+          - owner
+          - team
+          - shared
+          - denied
+          - unavailable
+          - deleted
+          title: State
+        label:
+          type: string
+          title: Label
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        can_view:
+          type: boolean
+          title: Can View
+        can_share:
+          type: boolean
+          title: Can Share
+        can_manage_team_visibility:
+          type: boolean
+          title: Can Manage Team Visibility
+        can_download:
+          type: boolean
+          title: Can Download
+        can_export:
+          type: boolean
+          title: Can Export
+      type: object
+      required:
+      - state
+      - label
+      - can_view
+      - can_share
+      - can_manage_team_visibility
+      - can_download
+      - can_export
+      title: MeetingAccessState
+    MeetingActivityItem:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        event_type:
+          type: string
+          title: Event Type
+        actor_label:
+          type: string
+          title: Actor Label
+        artifact_class:
+          anyOf:
+          - type: string
+            enum:
+            - audio
+            - transcript
+            - summary
+            - package
+          - type: 'null'
+          title: Artifact Class
+        outcome:
+          type: string
+          enum:
+          - allowed
+          - denied
+          - completed
+          - failed
+          title: Outcome
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - event_id
+      - event_type
+      - actor_label
+      - outcome
+      - created_at
+      title: MeetingActivityItem
+    MeetingActivityResponse:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        redaction_state:
+          type: string
+          enum:
+          - metadata_only
+          - limited_by_policy
+          title: Redaction State
+          default: metadata_only
+        items:
+          items:
+            $ref: '#/components/schemas/MeetingActivityItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - meeting_id
+      title: MeetingActivityResponse
+    MeetingFilterState:
+      properties:
+        q:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - local_only
+            - uploading
+            - submitted
+            - processing
+            - ready
+            - partial
+            - blocked
+            - failed
+            - unavailable
+            - deleted_future
+          - type: 'null'
+          title: Status
+        access:
+          anyOf:
+          - type: string
+            enum:
+            - owner
+            - team
+            - shared
+            - denied
+            - unavailable
+            - deleted
+          - type: 'null'
+          title: Access
+        sort:
+          type: string
+          title: Sort
+          default: updated_desc
+      type: object
+      title: MeetingFilterState
+    MeetingListItem:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        title:
+          type: string
+          title: Title
+        started_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Started At
+        ended_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Ended At
+        duration_seconds:
+          type: integer
+          minimum: 0.0
+          title: Duration Seconds
+        source:
+          type: string
+          enum:
+          - desktop_recording
+          - manual_upload
+          - unknown
+          title: Source
+          default: desktop_recording
+        status:
+          type: string
+          enum:
+          - local_only
+          - uploading
+          - submitted
+          - processing
+          - ready
+          - partial
+          - blocked
+          - failed
+          - unavailable
+          - deleted_future
+          title: Status
+        status_label:
+          type: string
+          title: Status Label
+        status_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Reason
+        primary_action:
+          type: string
+          enum:
+          - open
+          - wait
+          - retry_future
+          - open_status
+          - unavailable
+          title: Primary Action
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        notes_available:
+          type: boolean
+          title: Notes Available
+          default: false
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        access:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingAccessState'
+          - type: 'null'
+        artifacts:
+          items:
+            $ref: '#/components/schemas/ArtifactEgressState'
+          type: array
+          title: Artifacts
+        governance:
+          $ref: '#/components/schemas/GovernanceActionSummary'
+        future_slots:
+          items:
+            $ref: '#/components/schemas/SlotState'
+          type: array
+          title: Future Slots
+      type: object
+      required:
+      - meeting_id
+      - title
+      - duration_seconds
+      - status
+      - status_label
+      - primary_action
+      - governance
+      title: MeetingListItem
+    MeetingListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MeetingListItem'
+          type: array
+          title: Items
+        filters:
+          $ref: '#/components/schemas/MeetingFilterState'
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+      type: object
+      required:
+      - items
+      - filters
+      - generated_at
+      title: MeetingListResponse
+    MeetingProvenance:
+      properties:
+        source_roles:
+          items:
+            type: string
+            enum:
+            - local_microphone
+            - incoming_system
+            - unknown
+          type: array
+          title: Source Roles
+        processing_dependency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Processing Dependency
+        content_policy:
+          type: string
+          title: Content Policy
+          default: authorized_detail_only
+      type: object
+      title: MeetingProvenance
     MeetingResponse:
       properties:
         meeting_id:
@@ -2243,6 +3495,63 @@ components:
       - status
       - processing_status
       title: MeetingResponse
+    MeetingReviewResponse:
+      properties:
+        meeting:
+          $ref: '#/components/schemas/MeetingListItem'
+        provenance:
+          $ref: '#/components/schemas/MeetingProvenance'
+        processing:
+          $ref: '#/components/schemas/ProcessingReviewState'
+        transcript:
+          $ref: '#/components/schemas/TranscriptReviewState'
+        speakers:
+          $ref: '#/components/schemas/SpeakerReviewState'
+        notes:
+          $ref: '#/components/schemas/NotesReviewState'
+        playback:
+          $ref: '#/components/schemas/PlaybackReviewState'
+        governance:
+          $ref: '#/components/schemas/GovernanceActionSummary'
+        access:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingAccessState'
+          - type: 'null'
+        share:
+          anyOf:
+          - $ref: '#/components/schemas/SharePanelState'
+          - type: 'null'
+        artifacts:
+          items:
+            $ref: '#/components/schemas/ArtifactEgressState'
+          type: array
+          title: Artifacts
+        activity:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingActivityResponse'
+          - type: 'null'
+        deletion_truth_copy:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Deletion Truth Copy
+        assistant:
+          $ref: '#/components/schemas/SlotState'
+        template:
+          $ref: '#/components/schemas/SlotState'
+      type: object
+      required:
+      - meeting
+      - provenance
+      - processing
+      - transcript
+      - speakers
+      - notes
+      - playback
+      - governance
+      - assistant
+      - template
+      title: MeetingReviewResponse
     MeetingStatus:
       type: string
       enum:
@@ -2289,6 +3598,50 @@ components:
       - session_id
       - missing_ranges_by_track
       title: MissingRangesResponse
+    NotesReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+        sections:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Sections
+        unavailable_reason:
+          type: string
+          enum:
+          - none
+          - not_requested
+          - processing
+          - generation_future
+          - partial_transcript
+          - policy_blocked
+          title: Unavailable Reason
+      type: object
+      required:
+      - available
+      - unavailable_reason
+      title: NotesReviewState
+    PlaybackReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+          default: false
+        duration_seconds:
+          type: integer
+          minimum: 0.0
+          title: Duration Seconds
+          default: 0
+        speed_options:
+          items:
+            type: number
+          type: array
+          title: Speed Options
+      type: object
+      title: PlaybackReviewState
     Problem:
       properties:
         type:
@@ -2366,6 +3719,73 @@ components:
       - reused_count
       - blocked_count
       title: ProcessingPickupResponse
+    ProcessingReviewState:
+      properties:
+        state:
+          type: string
+          enum:
+          - local_only
+          - uploading
+          - submitted
+          - processing
+          - ready
+          - partial
+          - blocked
+          - failed
+          - unavailable
+          - deleted_future
+          title: State
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+        reason_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Label
+        content_available:
+          type: boolean
+          title: Content Available
+          default: false
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        summary_available:
+          type: boolean
+          title: Summary Available
+          default: false
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        next_action:
+          type: string
+          enum:
+          - wait
+          - retry_future
+          - contact_operator
+          - open_desktop_queue
+          - none
+          title: Next Action
+          default: none
+      type: object
+      required:
+      - state
+      title: ProcessingReviewState
     ProcessingStatus:
       type: string
       enum:
@@ -2461,6 +3881,189 @@ components:
       required:
       - status
       title: ReadyResponse
+    ShareGrantResponse:
+      properties:
+        grant:
+          $ref: '#/components/schemas/ShareGrantView'
+        share_url:
+          type: string
+          title: Share Url
+      type: object
+      required:
+      - grant
+      - share_url
+      title: ShareGrantResponse
+    ShareGrantView:
+      properties:
+        grant_id:
+          type: string
+          format: uuid
+          title: Grant Id
+        display_name:
+          type: string
+          title: Display Name
+        role_label:
+          type: string
+          enum:
+          - Owner
+          - Team
+          - Can view
+          title: Role Label
+        status:
+          type: string
+          enum:
+          - active
+          - revoked
+          title: Status
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - grant_id
+      - display_name
+      - role_label
+      - status
+      - created_at
+      title: ShareGrantView
+    SharePanelState:
+      properties:
+        team_visibility:
+          type: string
+          enum:
+          - enabled
+          - disabled
+          - policy_blocked
+          title: Team Visibility
+        active_grants:
+          items:
+            $ref: '#/components/schemas/ShareGrantView'
+          type: array
+          title: Active Grants
+        copy_link_state:
+          type: string
+          enum:
+          - available
+          - auth_required
+          - disabled
+          title: Copy Link State
+        public_link_state:
+          type: string
+          enum:
+          - disabled_by_default
+          - policy_blocked
+          title: Public Link State
+      type: object
+      required:
+      - team_visibility
+      - copy_link_state
+      - public_link_state
+      title: SharePanelState
+    SlotState:
+      properties:
+        state:
+          type: string
+          enum:
+          - available
+          - disabled
+          - planned
+          - policy_blocked
+          - out_of_scope
+          title: State
+        label:
+          type: string
+          title: Label
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - state
+      - label
+      title: SlotState
+    SpeakerLane:
+      properties:
+        speaker_key:
+          type: string
+          title: Speaker Key
+        label:
+          type: string
+          title: Label
+        talk_time_percent:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Talk Time Percent
+        source_roles:
+          items:
+            type: string
+            enum:
+            - local_microphone
+            - incoming_system
+            - unknown
+          type: array
+          title: Source Roles
+        segments:
+          items:
+            $ref: '#/components/schemas/SpeakerLaneSegment'
+          type: array
+          title: Segments
+        confidence_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Confidence Label
+      type: object
+      required:
+      - speaker_key
+      - label
+      - talk_time_percent
+      title: SpeakerLane
+    SpeakerLaneSegment:
+      properties:
+        start_seconds:
+          type: number
+          title: Start Seconds
+        end_seconds:
+          type: number
+          title: End Seconds
+      type: object
+      required:
+      - start_seconds
+      - end_seconds
+      title: SpeakerLaneSegment
+    SpeakerReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+        assignment_state:
+          type: string
+          enum:
+          - available
+          - reserved
+          - disabled
+          - conflict_future
+          - unavailable
+          title: Assignment State
+        degraded_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Degraded Reason
+        speakers:
+          items:
+            $ref: '#/components/schemas/SpeakerLane'
+          type: array
+          title: Speakers
+      type: object
+      required:
+      - available
+      - assignment_state
+      title: SpeakerReviewState
     TrackDescriptor:
       properties:
         track_role:
@@ -2505,6 +4108,80 @@ components:
       - system
       - manifest
       title: TrackRole
+    TranscriptReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        degraded_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Degraded Reason
+        search_enabled:
+          type: boolean
+          title: Search Enabled
+          default: false
+        segments:
+          items:
+            $ref: '#/components/schemas/TranscriptSegmentView'
+          type: array
+          title: Segments
+      type: object
+      required:
+      - available
+      title: TranscriptReviewState
+    TranscriptSegmentView:
+      properties:
+        segment_id:
+          type: string
+          title: Segment Id
+        sequence:
+          type: integer
+          title: Sequence
+        start_seconds:
+          type: number
+          title: Start Seconds
+        end_seconds:
+          type: number
+          title: End Seconds
+        timestamp_label:
+          type: string
+          title: Timestamp Label
+        speaker_label:
+          type: string
+          title: Speaker Label
+        source_role:
+          type: string
+          enum:
+          - local_microphone
+          - incoming_system
+          - unknown
+          title: Source Role
+        text:
+          type: string
+          title: Text
+        confidence_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Confidence Label
+      type: object
+      required:
+      - segment_id
+      - sequence
+      - start_seconds
+      - end_seconds
+      - timestamp_label
+      - speaker_label
+      - source_role
+      - text
+      title: TranscriptSegmentView
     UploadPartResponse:
       properties:
         session_id:

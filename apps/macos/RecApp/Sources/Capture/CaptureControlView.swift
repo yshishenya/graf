@@ -2,11 +2,14 @@ import SwiftUI
 import TwoBrainRecShared
 
 public struct CaptureControlView: View {
+    public static let uploadReviewButtonTitle = "Открыть обзор"
+
     private let session: CaptureSession?
     private let blockedReason: String?
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
     private let uploadQueueItems: [DesktopUploadQueueItem]
+    private let cabinetConfiguration: DesktopCabinetConfiguration?
     private let routeSignalLevels: LiveRouteSignalLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
@@ -14,6 +17,7 @@ public struct CaptureControlView: View {
     private let onStop: () -> Void
     private let onUploadRetry: (String) -> Void
     private let onUploadStopRetry: (String) -> Void
+    private let onUploadReview: (URL) -> Void
 
     public init(
         session: CaptureSession?,
@@ -21,19 +25,22 @@ public struct CaptureControlView: View {
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
         uploadQueueItems: [DesktopUploadQueueItem] = [],
+        cabinetConfiguration: DesktopCabinetConfiguration? = nil,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
         onRecord: @escaping () -> Void,
         onStop: @escaping () -> Void,
         onUploadRetry: @escaping (String) -> Void = { _ in },
-        onUploadStopRetry: @escaping (String) -> Void = { _ in }
+        onUploadStopRetry: @escaping (String) -> Void = { _ in },
+        onUploadReview: @escaping (URL) -> Void = { _ in }
     ) {
         self.session = session
         self.blockedReason = blockedReason
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
         self.uploadQueueItems = uploadQueueItems
+        self.cabinetConfiguration = cabinetConfiguration
         self.routeSignalLevels = routeSignalLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
@@ -41,6 +48,7 @@ public struct CaptureControlView: View {
         self.onStop = onStop
         self.onUploadRetry = onUploadRetry
         self.onUploadStopRetry = onUploadStopRetry
+        self.onUploadReview = onUploadReview
     }
 
     public var body: some View {
@@ -105,8 +113,10 @@ public struct CaptureControlView: View {
             if let summary = Self.uploadSummary(for: uploadQueueItems) {
                 UploadQueueStatusView(
                     summary: summary,
+                    reviewLink: Self.uploadReviewLink(for: summary.primaryItem, configuration: cabinetConfiguration),
                     onRetry: onUploadRetry,
-                    onStopRetry: onUploadStopRetry
+                    onStopRetry: onUploadStopRetry,
+                    onReview: onUploadReview
                 )
             }
 
@@ -138,6 +148,15 @@ public struct CaptureControlView: View {
         DesktopUploadQueueService.visibleSummary(for: items)
     }
 
+    public static func uploadReviewLink(
+        for item: DesktopUploadQueueItem,
+        configuration: DesktopCabinetConfiguration?
+    ) -> UploadReviewLink? {
+        guard let configuration else { return nil }
+        let link = configuration.reviewLink(for: item)
+        return link.availability == .available ? link : nil
+    }
+
     private var localRecordingStatusIcon: String {
         guard let localRecordingStatus else { return "waveform.path.badge.plus" }
         if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
@@ -163,8 +182,10 @@ public struct CaptureControlView: View {
 
 private struct UploadQueueStatusView: View {
     let summary: DesktopUploadQueueSummary
+    let reviewLink: UploadReviewLink?
     let onRetry: (String) -> Void
     let onStopRetry: (String) -> Void
+    let onReview: (URL) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -191,6 +212,16 @@ private struct UploadQueueStatusView: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
+                if let destination = reviewLink?.destination {
+                    Button {
+                        onReview(destination)
+                    } label: {
+                        Label(CaptureControlView.uploadReviewButtonTitle, systemImage: "rectangle.stack")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
                 if let actionLabel = summary.primaryItem.nextActionLabel {
                     Button {
                         if summary.primaryItem.retryMode == .automatic {
@@ -214,6 +245,7 @@ private struct UploadQueueStatusView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Upload queue \(summary.title), \(summary.detail)")
+        .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.uploadTruthRegion)
     }
 
     private var iconName: String {

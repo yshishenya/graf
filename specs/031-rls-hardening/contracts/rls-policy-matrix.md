@@ -49,6 +49,10 @@ Tables:
 - `diarization_segments`
 - `processing_audit_events`
 - `processing_dependency_states`
+- `meeting_share_grants`
+- `meeting_artifact_policies`
+- `meeting_egress_audit_events`
+- `export_packages`
 
 ## Inherited Workspace Tables
 

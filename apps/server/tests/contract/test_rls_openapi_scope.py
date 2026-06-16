@@ -8,8 +8,6 @@ def test_openapi_scope_does_not_include_future_product_surfaces(client) -> None:
 
     forbidden_fragments = (
         "dashboard",
-        "share",
-        "download",
         "retention",
         "deletion",
         "billing",

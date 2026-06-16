@@ -1,0 +1,560 @@
+openapi: 3.1.0
+info:
+  title: 2brain Rec Access, Sharing, And Downloads API
+  version: 0.1.0
+  description: Login-required sharing, access state, and server-mediated artifact egress contracts for feature 017.
+servers:
+  - url: /api/v1
+security:
+  - legacyHeaderAuth: []
+paths:
+  /cabinet/meetings:
+    get:
+      summary: List meetings visible to the authenticated viewer
+      operationId: listCabinetMeetings
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 120
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/MeetingReviewStatus"
+        - name: access
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [owner, team, shared]
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [updated_desc, updated_asc, started_desc, started_asc, duration_desc, duration_asc]
+            default: updated_desc
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Authorized meeting rows only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingListResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /cabinet/meetings/{meeting_id}:
+    get:
+      summary: Get meeting review detail after effective-access check
+      operationId: getCabinetMeetingReview
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: Authorized meeting review detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingReviewResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+  /cabinet/meetings/{meeting_id}/access:
+    get:
+      summary: Get viewer access, share, and artifact egress state
+      operationId: getMeetingAccessState
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: Effective access and governance state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingAccessResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+  /cabinet/meetings/{meeting_id}/activity:
+    get:
+      summary: Get metadata-only meeting access and egress activity
+      operationId: listMeetingAccessActivity
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: Metadata-only activity trail for permitted viewers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingActivityResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+  /cabinet/meetings/{meeting_id}/shares:
+    post:
+      summary: Grant login-required view access to an authenticated user
+      operationId: createMeetingShareGrant
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShareGrantRequest"
+      responses:
+        "201":
+          description: Share grant created after audit write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareGrantResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "503":
+          description: Audit unavailable; grant failed closed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /cabinet/meetings/{meeting_id}/shares/{grant_id}:
+    delete:
+      summary: Revoke a login-required share grant
+      operationId: revokeMeetingShareGrant
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+        - name: grant_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Share grant revoked after audit write
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+        "503":
+          description: Audit unavailable; revoke failed closed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /cabinet/share/{share_token}:
+    get:
+      summary: Resolve a login-required share link after authentication
+      operationId: resolveLoginRequiredShareLink
+      parameters:
+        - name: share_token
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 160
+      responses:
+        "302":
+          description: Redirect to authorized meeting detail after access check
+          headers:
+            Location:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+  /cabinet/meetings/{meeting_id}/downloads/{artifact_class}:
+    get:
+      summary: Download one permitted artifact through server-mediated egress
+      operationId: downloadMeetingArtifact
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+        - $ref: "#/components/parameters/ArtifactClass"
+      responses:
+        "200":
+          description: Downloadable content after authorization, lifecycle, policy, and audit checks
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+        "409":
+          description: Artifact unavailable, processing, deleted, or policy-disabled
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: Audit unavailable; egress failed closed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /cabinet/meetings/{meeting_id}/exports:
+    post:
+      summary: Request a policy-filtered meeting export package
+      operationId: createMeetingExportPackage
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExportPackageRequest"
+      responses:
+        "202":
+          description: Export package accepted or ready after audit write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportPackageResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "503":
+          description: Audit unavailable; export failed closed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /cabinet/meetings/{meeting_id}/exports/{export_id}/download:
+    get:
+      summary: Download a ready export package through server-mediated egress
+      operationId: downloadMeetingExportPackage
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+        - name: export_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Policy-filtered export package bytes
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "503":
+          description: Audit unavailable; package egress failed closed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  securitySchemes:
+    legacyHeaderAuth:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: Existing development/session auth context also requires X-Organization-Id, X-Workspace-Id, and X-Device-Id or an accepted session token.
+  parameters:
+    MeetingId:
+      name: meeting_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ArtifactClass:
+      name: artifact_class
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [audio, transcript, summary]
+  responses:
+    Problem:
+      description: Content-safe problem response
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    DeniedProblem:
+      description: Privacy-preserving denied or not-found response
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: object
+      required: [title, status, code]
+      properties:
+        type:
+          type: string
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+          nullable: true
+        request_id:
+          type: string
+          nullable: true
+    MeetingReviewStatus:
+      type: string
+      enum: [local_only, uploading, submitted, processing, ready, partial, blocked, failed, unavailable, deleted_future]
+    AccessState:
+      type: string
+      enum: [owner, team, shared, denied, unavailable, deleted]
+    ArtifactClass:
+      type: string
+      enum: [audio, transcript, summary, package]
+    ArtifactEgressStateValue:
+      type: string
+      enum: [available, policy_blocked, missing, processing, failed, deleted, owner_only, audit_unavailable]
+    MeetingAccessState:
+      type: object
+      required: [state, label, can_view, can_share, can_manage_team_visibility, can_download, can_export]
+      properties:
+        state:
+          $ref: "#/components/schemas/AccessState"
+        label:
+          type: string
+        reason:
+          type: string
+          nullable: true
+        can_view:
+          type: boolean
+        can_share:
+          type: boolean
+        can_manage_team_visibility:
+          type: boolean
+        can_download:
+          type: boolean
+        can_export:
+          type: boolean
+    ArtifactEgressState:
+      type: object
+      required: [artifact_class, state, label, action]
+      properties:
+        artifact_class:
+          $ref: "#/components/schemas/ArtifactClass"
+        state:
+          $ref: "#/components/schemas/ArtifactEgressStateValue"
+        label:
+          type: string
+        reason:
+          type: string
+          nullable: true
+        action:
+          type: string
+          enum: [download, export, disabled]
+    ShareGrantView:
+      type: object
+      required: [grant_id, display_name, role_label, status, created_at]
+      properties:
+        grant_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        role_label:
+          type: string
+          enum: [Owner, Team, Can view]
+        status:
+          type: string
+          enum: [active, revoked]
+        created_at:
+          type: string
+          format: date-time
+    SharePanelState:
+      type: object
+      required: [team_visibility, active_grants, copy_link_state, public_link_state]
+      properties:
+        team_visibility:
+          type: string
+          enum: [enabled, disabled, policy_blocked]
+        active_grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShareGrantView"
+        copy_link_state:
+          type: string
+          enum: [available, auth_required, disabled]
+        public_link_state:
+          type: string
+          enum: [disabled_by_default, policy_blocked]
+    MeetingAccessResponse:
+      type: object
+      required: [meeting_id, access, share, artifacts, deletion_truth_copy]
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        access:
+          $ref: "#/components/schemas/MeetingAccessState"
+        share:
+          $ref: "#/components/schemas/SharePanelState"
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactEgressState"
+        deletion_truth_copy:
+          type: string
+    CreateShareGrantRequest:
+      type: object
+      required: [grantee_user_id]
+      properties:
+        grantee_user_id:
+          type: string
+          format: uuid
+    ShareGrantResponse:
+      type: object
+      required: [grant, share_url]
+      properties:
+        grant:
+          $ref: "#/components/schemas/ShareGrantView"
+        share_url:
+          type: string
+          description: Login-required Rec route, not a public content URL.
+    MeetingActivityItem:
+      type: object
+      required: [event_id, event_type, actor_label, outcome, created_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        actor_label:
+          type: string
+        artifact_class:
+          allOf:
+            - $ref: "#/components/schemas/ArtifactClass"
+          nullable: true
+        outcome:
+          type: string
+          enum: [allowed, denied, completed, failed]
+        reason:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    MeetingActivityResponse:
+      type: object
+      required: [meeting_id, redaction_state, items]
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        redaction_state:
+          type: string
+          enum: [metadata_only, limited_by_policy]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeetingActivityItem"
+    CreateExportPackageRequest:
+      type: object
+      required: [artifact_classes]
+      properties:
+        artifact_classes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ArtifactClass"
+    ExportPackageResponse:
+      type: object
+      required: [export_id, status, included_artifacts, excluded_artifacts]
+      properties:
+        export_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [requested, ready, failed, expired]
+        included_artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactClass"
+        excluded_artifacts:
+          type: array
+          items:
+            type: object
+            required: [artifact_class, policy_reason]
+            properties:
+              artifact_class:
+                $ref: "#/components/schemas/ArtifactClass"
+              policy_reason:
+                type: string
+    MeetingListResponse:
+      type: object
+      description: Extends the 016 meeting list response with per-row access/governance state.
+    MeetingReviewResponse:
+      type: object
+      description: Extends the 016 meeting review response with access/share/artifact egress state.

@@ -8,6 +8,20 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен browser/server-owned слой доступа, шаринга, скачивания и экспорта
+  встреч: owner/team/shared/denied access states, login-required share grants
+  and revoke, server-mediated artifact downloads, policy-filtered export
+  packages, metadata-only access/egress activity и truthful post-egress deletion
+  copy (`feature:017`, `T001-T045`).
+- Добавлен macOS desktop cabinet embedding: приложение открывает `Встречи`
+  внутри native shell, встраивает server-owned list/detail route classes,
+  сохраняет native Record/Stop/upload truth вне WebKit surface, показывает
+  bounded unavailable state и связывает uploaded queue items с review только
+  при наличии server meeting identity (`feature:033`, `T001-T042`).
+- Добавлен server-owned web cabinet для review встреч: авторизованный список,
+  ready/partial/processing/failed detail states, transcript/speaker timeline,
+  truthful unavailable notes, gated governance/future slots и desktop-embedded
+  routes без native capture controls (`feature:016`, `T001-T048`).
 - Добавлена обязанность вести Changelog в репозитории для всех значимых изменений.
 - Добавлена macOS desktop upload queue: durable local queue, truthful retry/upload states,
   server-mediated ingest mapping and compact queue UI (`feature:014`, `T001-T030`).
@@ -59,6 +73,24 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Access/sharing/download/export routes now re-check effective viewer access,
+  never expose object-store keys, signed URLs, raw local paths, bearer tokens,
+  MediaScribe identifiers, or private artifact content in egress responses, and
+  fail closed when metadata-only audit cannot be written before share/revoke/
+  download/export actions (`feature:017`, `T008`, `T020-T024`, `T028-T039`).
+- RLS coverage now includes meeting share grants, artifact policies, egress
+  audit events, and export packages via `0006_access_sharing_downloads`
+  (`feature:017`, `T004-T006`).
+- Desktop cabinet embedding adds an explicit embedded route allowlist for
+  `/desktop/meetings` and meeting detail routes, blocks native capture/local
+  diagnostics/share/export/download/delete destinations inside the embedded
+  surface, and records sanitized screenshot evidence without Krisp private
+  captures, account identifiers, transcript text, raw audio, signed URLs, or
+  live local paths (`feature:033`, `T005`, `T008`, `T034-T041`).
+- Cabinet API и web routes используют существующий tenant/device auth context,
+  скрывают foreign meeting existence через privacy-preserving 404 и не отдают
+  transcript text в list responses, storage keys, signed URLs, workflow/run ids
+  или MediaScribe external ids (`feature:016`, `T011`, `T029`, `T030`).
 - MediaScribe credentials remain server-side through secret-file configuration;
   processing status, audit metadata, logs, and evidence must not expose raw
   audio, transcript text, signed URLs, API keys, bearer tokens, passwords, or
@@ -87,6 +119,13 @@ Semantic Versioning 2.0.0.
 
 ### Docs
 
+- Added sanitized feature `017` evidence index and refreshed current product
+  status so access, login-required sharing, server-mediated downloads, and safe
+  exports are no longer listed as deferred launch gaps (`feature:017`,
+  `T040-T045`).
+- Обновлены feature `033` implementation evidence, clean-room screenshot notes,
+  and current product status so `016` is no longer treated as the next product
+  slice after desktop cabinet embedding (`feature:033`, `T034-T037`).
 - Обновлён `AGENTS.md`:
   - добавлен раздел `Versioning And Changelog`;
   - закреплён процесс обязательного обновления `CHANGELOG.md`;
@@ -105,6 +144,10 @@ Semantic Versioning 2.0.0.
 
 ### Ops
 
+- `017` развернут на `2brain.dev` (`master` at `39b8c5f`) и проверен
+  production infra smoke: `rec-api` healthy, Alembic
+  `0006_access_sharing_downloads`, `/health/live` ok и `/health/ready` ready
+  (`feature:017`).
 - Production smoke для desktop upload queue теперь выпускает временную Rec
   `AuthSession` вместо использования инфраструктурного smoke secret как bearer
   (`feature:014`, `T036-T038`).
