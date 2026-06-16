@@ -35,6 +35,8 @@ Fields:
 - `meeting_id`: UUID, required.
 - `grant_type`: enum `user`, `team`.
 - `grantee_user_id`: UUID, nullable; required when `grant_type=user`.
+- `share_token_hash`: string, nullable; stable opaque login-required share-link
+  token hash, never the raw token.
 - `created_by_user_id`: UUID, required.
 - `revoked_by_user_id`: UUID, nullable.
 - `status`: enum `active`, `revoked`, `superseded`.
@@ -48,6 +50,8 @@ Validation rules:
 - `grantee_user_id` must belong to the same organization and be active.
 - A revoked grant does not confer access even if an old share URL is opened.
 - Team visibility must also require current active workspace membership.
+- Raw share tokens are shown only at creation/copy time and are never persisted,
+  logged, audited, or exposed as public content URLs.
 
 ### MeetingArtifactPolicy
 
@@ -204,6 +208,32 @@ Fields:
   at least one included artifact.
 - `retention`: planned/disabled; no execution in 017.
 - `delete`: planned/disabled with truthful deletion copy; no execution in 017.
+
+### MeetingActivityTrail
+
+Metadata-only activity view for permitted reviewers and owners.
+
+Fields:
+
+- `items`: ordered list of `MeetingActivityItem`.
+- `redaction_state`: enum `metadata_only`, `limited_by_policy`.
+
+### MeetingActivityItem
+
+Fields:
+
+- `event_id`: UUID.
+- `event_type`: display-safe event type.
+- `actor_label`: safe actor display label or generic system label.
+- `artifact_class`: enum `audio`, `transcript`, `summary`, `package`, nullable.
+- `outcome`: enum `allowed`, `denied`, `completed`, `failed`.
+- `created_at`: datetime.
+- `reason`: safe policy/lifecycle reason, nullable.
+
+Validation rules:
+
+- Activity items must not include transcript text, audio content, storage keys,
+  signed URLs, raw tokens, local paths, or dependency identifiers.
 
 ## Relationships
 

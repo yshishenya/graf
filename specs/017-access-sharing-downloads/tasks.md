@@ -78,8 +78,8 @@
 
 - [ ] T020 [US2] Implement share grant, duplicate-access, revoke, and share-link resolution services in `apps/server/src/twobrain_rec_server/cabinet/access.py`
 - [ ] T021 [US2] Add share grant, revoke, and login-required share-link routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T022 [US2] Add share panel state mapping for active grants, team visibility, public-link disabled state, and audit-failure state in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T023 [US2] Render share modal/drawer and login-required copy in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [ ] T022 [US2] Add share panel and metadata-only activity state mapping for active grants, team visibility, public-link disabled state, and audit-failure state in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [ ] T023 [US2] Render share modal/drawer, login-required copy, and metadata-only activity trail in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 - [ ] T024 [US2] Persist metadata-only share grant/revoke/open audit events before share state changes in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
 
 **Checkpoint**: User Story 2 is independently functional and all share actions are login-required, revocable, and audited.

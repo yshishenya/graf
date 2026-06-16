@@ -20,6 +20,11 @@ The feature activates previously planned governance affordances:
 - export package action;
 - metadata-only activity/audit surface or evidence slot.
 
+Activity surfaces must show only metadata-safe events such as share granted,
+share revoked, link opened, view denied, download completed, and export
+completed. They must not show transcript text, private artifact names, raw
+tokens, storage keys, signed URLs, local paths, or dependency identifiers.
+
 ## Meeting List States
 
 Rows visible to a viewer must show one safe access label:
@@ -59,6 +64,7 @@ Required controls:
 - copy login-required link;
 - show team visibility state;
 - show public links disabled by default.
+- show metadata-only share activity when activity is available.
 
 Required copy:
 

@@ -88,6 +88,8 @@ Expected outcome:
 - detail page includes share/download/export controls where allowed;
 - share modal/drawer shows login-required copy and public links disabled by
   default;
+- metadata-only activity trail shows share/revoke/denied/download/export event
+  classes without private content;
 - download/export unavailable states fit compact embedded layout;
 - denied pages do not expose private title, transcript, summary, participant,
   storage, or artifact details.

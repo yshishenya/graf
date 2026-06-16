@@ -94,6 +94,25 @@ paths:
           $ref: "#/components/responses/DeniedProblem"
         "404":
           $ref: "#/components/responses/DeniedProblem"
+  /cabinet/meetings/{meeting_id}/activity:
+    get:
+      summary: Get metadata-only meeting access and egress activity
+      operationId: listMeetingAccessActivity
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: Metadata-only activity trail for permitted viewers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingActivityResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/DeniedProblem"
+        "404":
+          $ref: "#/components/responses/DeniedProblem"
   /cabinet/meetings/{meeting_id}/shares:
     post:
       summary: Grant login-required view access to an authenticated user
@@ -461,6 +480,44 @@ components:
         share_url:
           type: string
           description: Login-required Rec route, not a public content URL.
+    MeetingActivityItem:
+      type: object
+      required: [event_id, event_type, actor_label, outcome, created_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        actor_label:
+          type: string
+        artifact_class:
+          allOf:
+            - $ref: "#/components/schemas/ArtifactClass"
+          nullable: true
+        outcome:
+          type: string
+          enum: [allowed, denied, completed, failed]
+        reason:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    MeetingActivityResponse:
+      type: object
+      required: [meeting_id, redaction_state, items]
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        redaction_state:
+          type: string
+          enum: [metadata_only, limited_by_policy]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeetingActivityItem"
     CreateExportPackageRequest:
       type: object
       required: [artifact_classes]
