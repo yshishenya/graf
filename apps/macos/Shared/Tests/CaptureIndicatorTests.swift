@@ -4,6 +4,7 @@ import TwoBrainRecShared
 #if canImport(XCTest)
 import XCTest
 
+@MainActor
 final class CaptureIndicatorTests: XCTestCase {
     func testActiveRecordingLabelIsExplicitAndAccessible() {
         let session = makeSession(state: .active, indicator: .active, stopAvailable: true)

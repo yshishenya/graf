@@ -18,9 +18,9 @@
 
 **Purpose**: Establish feature files and validation placeholders.
 
-- [ ] T001 Create the desktop cabinet source directory marker in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`
-- [ ] T002 [P] Add the feature validation evidence placeholder in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
-- [ ] T003 [P] Create the screenshot evidence directory marker in `specs/033-desktop-cabinet-embedding/validation/screenshots/.gitkeep`
+- [X] T001 Create the desktop cabinet source directory marker in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`
+- [X] T002 [P] Add the feature validation evidence placeholder in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T003 [P] Create the screenshot evidence directory marker in `specs/033-desktop-cabinet-embedding/validation/screenshots/.gitkeep`
 
 ---
 
@@ -32,15 +32,15 @@
 
 ### Tests
 
-- [ ] T004 [P] Add desktop cabinet configuration tests in `apps/macos/Shared/Tests/DesktopCabinetConfigurationTests.swift`
-- [ ] T005 [P] Add desktop cabinet route policy tests in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`
-- [ ] T006 [P] Add desktop cabinet state and shell-invariant tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
+- [X] T004 [P] Add desktop cabinet configuration tests in `apps/macos/Shared/Tests/DesktopCabinetConfigurationTests.swift`
+- [X] T005 [P] Add desktop cabinet route policy tests in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`
+- [X] T006 [P] Add desktop cabinet state and shell-invariant tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
 
 ### Implementation
 
-- [ ] T007 Implement `DesktopCabinetConfiguration`, URL building, and sanitized header handling in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
-- [ ] T008 Implement `DesktopCabinetRoutePolicy` and route decisions in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`
-- [ ] T009 Implement `DesktopCabinetState`, bounded unavailable copy, and native shell invariant helpers in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`
+- [X] T007 Implement `DesktopCabinetConfiguration`, URL building, and sanitized header handling in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
+- [X] T008 Implement `DesktopCabinetRoutePolicy` and route decisions in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`
+- [X] T009 Implement `DesktopCabinetState`, bounded unavailable copy, and native shell invariant helpers in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`
 
 **Checkpoint**: Route/config/state models pass focused tests and can be used by user stories.
 
@@ -54,15 +54,15 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add workspace URL and default destination tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
-- [ ] T011 [P] [US1] Add app accessibility label tests for the meetings workspace in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
+- [X] T010 [P] [US1] Add workspace URL and default destination tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
+- [X] T011 [P] [US1] Add app accessibility label tests for the meetings workspace in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement the WebKit bridge wrapper in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
-- [ ] T013 [US1] Implement `DesktopCabinetWorkspaceView` with native heading, route status, and embedded list/detail hosting in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
-- [ ] T014 [US1] Integrate the meetings workspace into the root macOS app layout in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T015 [US1] Update validation evidence for desktop list/detail entry points in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T012 [US1] Implement the WebKit bridge wrapper in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
+- [X] T013 [US1] Implement `DesktopCabinetWorkspaceView` with native heading, route status, and embedded list/detail hosting in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
+- [X] T014 [US1] Integrate the meetings workspace into the root macOS app layout in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T015 [US1] Update validation evidence for desktop list/detail entry points in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 1 is independently functional with a configured server route.
 
@@ -76,14 +76,14 @@
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Add native shell invariant assertions for active recording and cabinet states in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
-- [ ] T017 [P] [US2] Add forbidden embedded control copy tests in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`
+- [X] T016 [P] [US2] Add native shell invariant assertions for active recording and cabinet states in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
+- [X] T017 [P] [US2] Add forbidden embedded control copy tests in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Keep `CaptureControlView` and native upload status outside the embedded cabinet region in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T019 [US2] Add explicit native-shell accessibility identifiers and labels for cabinet/capture regions in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
-- [ ] T020 [US2] Update validation evidence for active recording and native Stop preservation in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T018 [US2] Keep `CaptureControlView` and native upload status outside the embedded cabinet region in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T019 [US2] Add explicit native-shell accessibility identifiers and labels for cabinet/capture regions in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
+- [X] T020 [US2] Update validation evidence for active recording and native Stop preservation in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 2 proves embedded review cannot hide or own capture authority.
 
@@ -97,14 +97,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T021 [P] [US3] Add unavailable/auth state copy tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
-- [ ] T022 [P] [US3] Add no-secret/no-live-path tests for cabinet state messages in `apps/macos/Shared/Tests/DesktopCabinetConfigurationTests.swift`
+- [X] T021 [P] [US3] Add unavailable/auth state copy tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
+- [X] T022 [P] [US3] Add no-secret/no-live-path tests for cabinet state messages in `apps/macos/Shared/Tests/DesktopCabinetConfigurationTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Render bounded unavailable/auth states in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
-- [ ] T024 [US3] Ensure configuration and error copy stays metadata-only in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
-- [ ] T025 [US3] Update validation evidence for unavailable/auth states in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T023 [US3] Render bounded unavailable/auth states in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
+- [X] T024 [US3] Ensure configuration and error copy stays metadata-only in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
+- [X] T025 [US3] Update validation evidence for unavailable/auth states in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 3 is independently functional without a reachable server.
 
@@ -118,15 +118,15 @@
 
 ### Tests for User Story 4
 
-- [ ] T026 [P] [US4] Add upload review link tests in `apps/macos/Shared/Tests/DesktopCabinetUploadLinkTests.swift`
-- [ ] T027 [P] [US4] Extend upload summary tests for review availability in `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T026 [P] [US4] Add upload review link tests in `apps/macos/Shared/Tests/DesktopCabinetUploadLinkTests.swift`
+- [X] T027 [P] [US4] Extend upload summary tests for review availability in `apps/macos/Shared/Tests/CaptureControlTests.swift`
 
 ### Implementation for User Story 4
 
-- [ ] T028 [US4] Implement upload review destination helpers in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
-- [ ] T029 [US4] Add review action plumbing for uploaded queue items in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T030 [US4] Wire upload review action to the embedded meeting detail in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T031 [US4] Update validation evidence for upload-to-review continuity in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T028 [US4] Implement upload review destination helpers in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
+- [X] T029 [US4] Add review action plumbing for uploaded queue items in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T030 [US4] Wire upload review action to the embedded meeting detail in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T031 [US4] Update validation evidence for upload-to-review continuity in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 4 connects local upload outcome to review without overpromising local-only items.
 
@@ -140,15 +140,15 @@
 
 ### Tests for User Story 5
 
-- [ ] T032 [P] [US5] Add no-Krisp-copy/no-private-content evidence scan notes in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
-- [ ] T033 [P] [US5] Add UI copy/accessibility regression assertions in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
+- [X] T032 [P] [US5] Add no-Krisp-copy/no-private-content evidence scan notes in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T033 [P] [US5] Add UI copy/accessibility regression assertions in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
 
 ### Implementation for User Story 5
 
-- [ ] T034 [US5] Capture sanitized desktop screenshots into `specs/033-desktop-cabinet-embedding/validation/screenshots/`
-- [ ] T035 [US5] Compare implemented screenshots against V8 and feature `016` evidence in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
-- [ ] T036 [US5] Update `CHANGELOG.md` with feature `033` behavior and validation references
-- [ ] T037 [US5] Update `docs/current-product-status.md` so `016` is no longer listed as the next product slice after 033 implementation
+- [X] T034 [US5] Capture sanitized desktop screenshots into `specs/033-desktop-cabinet-embedding/validation/screenshots/`
+- [X] T035 [US5] Compare implemented screenshots against V8 and feature `016` evidence in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T036 [US5] Update `CHANGELOG.md` with feature `033` behavior and validation references
+- [X] T037 [US5] Update `docs/current-product-status.md` so `016` is no longer listed as the next product slice after 033 implementation
 
 **Checkpoint**: User Story 5 records clean-room UI evidence and status updates.
 
@@ -158,11 +158,11 @@
 
 **Purpose**: Final validation, docs, issue traceability, and release-readiness evidence.
 
-- [ ] T038 Run focused macOS tests from `specs/033-desktop-cabinet-embedding/quickstart.md`
-- [ ] T039 Run macOS release build from `specs/033-desktop-cabinet-embedding/quickstart.md`
-- [ ] T040 Run server cabinet regression tests from `specs/033-desktop-cabinet-embedding/quickstart.md`
-- [ ] T041 Scan tracked feature evidence for secrets, signed URLs, raw audio, transcript text, private Krisp content, private account identifiers, and live local paths in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
-- [ ] T042 Reconcile completed tasks and validation evidence in `specs/033-desktop-cabinet-embedding/tasks.md`
+- [X] T038 Run focused macOS tests from `specs/033-desktop-cabinet-embedding/quickstart.md`
+- [X] T039 Run macOS release build from `specs/033-desktop-cabinet-embedding/quickstart.md`
+- [X] T040 Run server cabinet regression tests from `specs/033-desktop-cabinet-embedding/quickstart.md`
+- [X] T041 Scan tracked feature evidence for secrets, signed URLs, raw audio, transcript text, private Krisp content, private account identifiers, and live local paths in `specs/033-desktop-cabinet-embedding/validation/implementation-evidence.md`
+- [X] T042 Reconcile completed tasks and validation evidence in `specs/033-desktop-cabinet-embedding/tasks.md`
 
 ---
 

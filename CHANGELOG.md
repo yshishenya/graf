@@ -8,6 +8,11 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен macOS desktop cabinet embedding: приложение открывает `Встречи`
+  внутри native shell, встраивает server-owned list/detail route classes,
+  сохраняет native Record/Stop/upload truth вне WebKit surface, показывает
+  bounded unavailable state и связывает uploaded queue items с review только
+  при наличии server meeting identity (`feature:033`, `T001-T042`).
 - Добавлен server-owned web cabinet для review встреч: авторизованный список,
   ready/partial/processing/failed detail states, transcript/speaker timeline,
   truthful unavailable notes, gated governance/future slots и desktop-embedded
@@ -63,6 +68,12 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Desktop cabinet embedding adds an explicit embedded route allowlist for
+  `/desktop/meetings` and meeting detail routes, blocks native capture/local
+  diagnostics/share/export/download/delete destinations inside the embedded
+  surface, and records sanitized screenshot evidence without Krisp private
+  captures, account identifiers, transcript text, raw audio, signed URLs, or
+  live local paths (`feature:033`, `T005`, `T008`, `T034-T041`).
 - Cabinet API и web routes используют существующий tenant/device auth context,
   скрывают foreign meeting existence через privacy-preserving 404 и не отдают
   transcript text в list responses, storage keys, signed URLs, workflow/run ids
@@ -95,6 +106,9 @@ Semantic Versioning 2.0.0.
 
 ### Docs
 
+- Обновлены feature `033` implementation evidence, clean-room screenshot notes,
+  and current product status so `016` is no longer treated as the next product
+  slice after desktop cabinet embedding (`feature:033`, `T034-T037`).
 - Обновлён `AGENTS.md`:
   - добавлен раздел `Versioning And Changelog`;
   - закреплён процесс обязательного обновления `CHANGELOG.md`;

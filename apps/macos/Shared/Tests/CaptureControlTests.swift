@@ -167,10 +167,29 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertEqual(summary?.title, "Retrying + 1 more")
     }
 
+    func testUploadReviewActionIsAvailableOnlyForUploadedServerIdentifiedItem() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let uploaded = uploadItem(
+            id: "uploaded",
+            state: .uploaded,
+            updatedAt: Date(timeIntervalSince1970: 30),
+            serverTruth: ServerTruthFingerprint(meetingId: "server-meeting-033")
+        )
+        let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
+
+        XCTAssertEqual(
+            CaptureControlView.uploadReviewLink(for: uploaded, configuration: configuration)?.availability,
+            .available
+        )
+        XCTAssertNil(CaptureControlView.uploadReviewLink(for: queued, configuration: configuration))
+        XCTAssertNil(CaptureControlView.uploadReviewLink(for: uploaded, configuration: nil))
+    }
+
     private func uploadItem(
         id: String,
         state: UploadItemState,
-        updatedAt: Date
+        updatedAt: Date,
+        serverTruth: ServerTruthFingerprint = ServerTruthFingerprint()
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
@@ -201,6 +220,7 @@ final class CaptureControlTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: updatedAt,
             artifactProfile: profile,
+            serverTruth: serverTruth,
             retentionDecision: RetentionDecision(
                 decision: .retain,
                 decidedAt: Date(timeIntervalSince1970: 1),

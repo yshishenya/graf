@@ -42,6 +42,8 @@ private struct ContentView: View {
     @State private var terminationCleanupInProgress = false
     @State private var recordingStartInProgress = false
     @State private var recordingStopInProgress = false
+    @State private var desktopCabinetConfiguration = DesktopCabinetConfiguration.configuredFromEnvironment()
+    @State private var selectedCabinetRoute: URL?
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -55,25 +57,13 @@ private struct ContentView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    DriverSetupView(
-                        driverState: snapshot.driverState,
-                        microphoneState: snapshot.virtualMicrophoneState,
-                        speakerState: snapshot.virtualSpeakerState,
-                        onInstall: refresh,
-                        onRepair: refresh
-                    )
-                    RouteVerificationView(
-                        snapshot: snapshot.routeVerification,
-                        canVerify: true,
-                        isVerifying: isChecking,
-                        onVerify: runCheck
-                    )
                     CaptureControlView(
                         session: captureSession,
                         blockedReason: recordingBlocker,
                         localRecordingStatus: localRecordingStatusText,
                         localRecordingLocation: localRecordingLocation,
                         uploadQueueItems: uploadQueueItems,
+                        cabinetConfiguration: desktopCabinetConfiguration,
                         routeSignalLevels: liveRouteSignalLevels,
                         recordDisabled: recordingStartInProgress || recordingStopInProgress,
                         stopDisabled: recordingStartInProgress || recordingStopInProgress,
@@ -88,13 +78,40 @@ private struct ContentView: View {
                         },
                         onUploadStopRetry: { itemId in
                             stopUploadRetry(itemId: itemId)
+                        },
+                        onUploadReview: { route in
+                            selectedCabinetRoute = route
                         }
                     )
-                    AudioHealthView(state: snapshot.healthState)
-                    DiagnosticLogView(
-                        path: AppLog.fileURL.path,
-                        lastEvent: snapshot.lastEventSummary
+                    .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
+                    DesktopCabinetWorkspaceView(
+                        configuration: desktopCabinetConfiguration,
+                        initialRoute: selectedCabinetRoute
                     )
+                    DisclosureGroup("Local audio readiness") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            DriverSetupView(
+                                driverState: snapshot.driverState,
+                                microphoneState: snapshot.virtualMicrophoneState,
+                                speakerState: snapshot.virtualSpeakerState,
+                                onInstall: refresh,
+                                onRepair: refresh
+                            )
+                            RouteVerificationView(
+                                snapshot: snapshot.routeVerification,
+                                canVerify: true,
+                                isVerifying: isChecking,
+                                onVerify: runCheck
+                            )
+                            AudioHealthView(state: snapshot.healthState)
+                            DiagnosticLogView(
+                                path: AppLog.fileURL.path,
+                                lastEvent: snapshot.lastEventSummary
+                            )
+                        }
+                        .padding(.top, 8)
+                    }
+                    .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.nativeShellRegion)
                 }
                 .padding(18)
             }

@@ -11,6 +11,15 @@ Canon validation:
 - `python3 .specify/extensions/github-issue-canon/scripts/validate_issue_canon.py`
 - Result: `github-issue-canon: OK (168 Spec Kit issue(s) checked)`
 
+Closure status:
+
+- Issues `#801`-`#842` were closed after all tasks were marked `[X]`,
+  implementation evidence was updated, focused macOS tests passed, macOS release
+  build passed, server cabinet regression passed, feature evidence scans passed,
+  and canonical local CI returned `ci_local_result=pass`.
+- `gh issue list --repo yshishenya/crisp --state open --search 'label:feature:033'`
+  returned `[]` after closure.
+
 | Task | Story | Issue |
 |---|---|---|
 | `T001` | shared | [#801](https://github.com/yshishenya/crisp/issues/801) |
