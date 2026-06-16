@@ -110,7 +110,12 @@ implementation record.
   synthetic screenshot evidence for desktop and compact layouts. It does not
   enable public links, external-recipient invitations, retention execution,
   deletion execution, admin policy editing, billing, or desktop-owned egress
-  policy.
+  policy. On 2026-06-16, `master` at
+  `39b8c5fbfae74159e5e50f5c2471f19ff64f1e36` was deployed to
+  `2brain.dev:/opt/projects/2brain-rec`; production read-only verification
+  showed `rec-api` healthy, Alembic `0006_access_sharing_downloads`, and
+  `/api/v1/health/live` plus `/api/v1/health/ready` returning ok/ready. This is
+  `infra_smoke_ready` evidence, not user rollout readiness.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded

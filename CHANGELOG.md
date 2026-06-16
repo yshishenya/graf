@@ -144,6 +144,10 @@ Semantic Versioning 2.0.0.
 
 ### Ops
 
+- `017` развернут на `2brain.dev` (`master` at `39b8c5f`) и проверен
+  production infra smoke: `rec-api` healthy, Alembic
+  `0006_access_sharing_downloads`, `/health/live` ok и `/health/ready` ready
+  (`feature:017`).
 - Production smoke для desktop upload queue теперь выпускает временную Rec
   `AuthSession` вместо использования инфраструктурного smoke secret как bearer
   (`feature:014`, `T036-T038`).

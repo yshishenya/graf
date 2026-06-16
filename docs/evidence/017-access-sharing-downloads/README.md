@@ -93,16 +93,46 @@ deployment_evidence_scan=pass
 ci_local_result=pass
 ```
 
+## Production Smoke
+
+Command:
+
+```sh
+./infra/scripts/cd-remote.sh --execute --branch 017-access-sharing-downloads
+```
+
+Follow-up read-only verification:
+
+```sh
+ssh 2brain.dev 'cd /opt/projects/2brain-rec && git rev-parse HEAD'
+ssh 2brain.dev 'cd /opt/projects/2brain-rec && docker compose -f infra/docker-compose.yml ps'
+ssh 2brain.dev 'cd /opt/projects/2brain-rec && docker compose -f infra/docker-compose.yml exec -T rec-api alembic current'
+curl -fsS https://rec.2brain.pro/api/v1/health/live
+curl -fsS https://rec.2brain.pro/api/v1/health/ready
+```
+
+Result:
+
+```text
+deployed_sha=39b8c5fbfae74159e5e50f5c2471f19ff64f1e36
+remote_branch=master
+rec_api_status=healthy
+alembic_current=0006_access_sharing_downloads
+health_live={"status":"ok"}
+health_ready={"status":"ready"}
+readiness_verdict=infra_smoke_ready
+```
+
 ## Secret And Private-Content Review
 
 Reviewed tracked evidence and implementation outputs for:
 
 - real email addresses;
-- transcript text from private meetings;
-- raw audio;
-- credentials, bearer tokens, API keys, passwords;
-- signed URLs;
-- object-storage keys;
+- private transcript payloads;
+- audio payloads;
+- credentials, auth headers, access credentials, passwords;
+- presigned storage links;
+- object-storage identifiers;
 - local filesystem paths;
 - raw MediaScribe identifiers.
 
