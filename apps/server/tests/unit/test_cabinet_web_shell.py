@@ -1,10 +1,14 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from twobrain_rec_server.api.schemas import (
+    ArtifactDeletionState,
     ArtifactEgressState,
+    DeletionVerificationReport,
     GovernanceActionState,
     GovernanceActionSummary,
+    LifecycleActivityItem,
+    LocalPurgeTask,
     MeetingAccessState,
     MeetingActivityResponse,
     MeetingFilterState,
@@ -20,7 +24,19 @@ from twobrain_rec_server.api.schemas import (
     SpeakerReviewState,
     TranscriptReviewState,
 )
-from twobrain_rec_server.cabinet.web import render_meeting_detail_page, render_meeting_list_page
+from twobrain_rec_server.cabinet.web import (
+    render_deletion_report_page,
+    render_meeting_detail_page,
+    render_meeting_list_page,
+)
+from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
+from twobrain_rec_server.domain.statuses import (
+    DeletionArtifactState,
+    DeletionControlScope,
+    DeletionState,
+    LocalPurgeTaskState,
+    LocalPurgeTaskType,
+)
 
 
 def _governance() -> GovernanceActionSummary:
@@ -130,6 +146,94 @@ def _review() -> MeetingReviewResponse:
     )
 
 
+def _deletion_report() -> DeletionVerificationReport:
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    return DeletionVerificationReport(
+        meeting_id=uuid4(),
+        request_id=uuid4(),
+        overall_state=DeletionState.DELETING,
+        bounded_copy=BOUNDED_DELETE_COPY,
+        artifact_states=[
+            ArtifactDeletionState(
+                artifact_class="audio_object",
+                control_scope=DeletionControlScope.CONTROLLED,
+                state=DeletionArtifactState.PURGE_REQUESTED,
+                label="Server audio purge requested",
+                safe_reason="artifact_lifecycle_state",
+            )
+        ],
+        backup=ArtifactDeletionState(
+            artifact_class="backup",
+            control_scope=DeletionControlScope.BACKUP,
+            state=DeletionArtifactState.PENDING_EXPIRY,
+            label="Backup expiry pending",
+            safe_reason="backup_expiry_pending",
+        ),
+        dependencies=[
+            ArtifactDeletionState(
+                artifact_class="mediascribe",
+                control_scope=DeletionControlScope.EXTERNAL,
+                state=DeletionArtifactState.UNKNOWN,
+                label="External deletion support is not confirmed",
+                safe_reason="dependency_unconfirmed",
+            )
+        ],
+        post_egress_limits=[
+            ArtifactDeletionState(
+                artifact_class="post_egress_copy",
+                control_scope=DeletionControlScope.POST_EGRESS,
+                state=DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL,
+                label="Delivered copies are outside 2brain Rec control",
+                safe_reason="outside_control",
+            )
+        ],
+        local_purge=[
+            LocalPurgeTask(
+                task_id=uuid4(),
+                meeting_id=uuid4(),
+                task_type=LocalPurgeTaskType.PURGE_LOCAL_BUFFERS,
+                state=LocalPurgeTaskState.PENDING,
+                safe_reason="delete_requested",
+                expires_at=expires_at,
+            ),
+            LocalPurgeTask(
+                task_id=uuid4(),
+                meeting_id=uuid4(),
+                task_type=LocalPurgeTaskType.PURGE_LOCAL_EXPORTS,
+                state=LocalPurgeTaskState.ACKNOWLEDGED,
+                safe_reason="local_buffers_purged",
+                expires_at=expires_at,
+            ),
+            LocalPurgeTask(
+                task_id=uuid4(),
+                meeting_id=uuid4(),
+                task_type=LocalPurgeTaskType.CONFIRM_LOCAL_EXPIRY,
+                state=LocalPurgeTaskState.UNREACHABLE,
+                safe_reason="device_unreachable",
+                expires_at=expires_at,
+            ),
+        ],
+        activity=[
+            LifecycleActivityItem(
+                event_id=uuid4(),
+                event_type="deletion_requested",
+                actor_label="Owner/Admin",
+                outcome="accepted",
+                safe_reason="user_request",
+                created_at=datetime.now(UTC),
+            ),
+            LifecycleActivityItem(
+                event_id=uuid4(),
+                event_type="local_purge_acknowledged",
+                actor_label="Desktop device",
+                outcome="completed",
+                safe_reason="local_buffers_purged",
+                created_at=datetime.now(UTC),
+            ),
+        ],
+    )
+
+
 def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
@@ -159,6 +263,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Public links" in page
     assert "Files already downloaded" in page
     assert "Delete this meeting everywhere 2brain Rec controls" in page
+    assert "Request deletion" in page
 
 
 def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
@@ -177,3 +282,27 @@ def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
     assert "Recording &amp; Transcript" not in html
     for forbidden in ["Record live", "Stop", "Screen Recording", "Noise", "Accent", "Krisp Devices"]:
         assert forbidden not in html
+
+
+def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:
+    page = render_deletion_report_page("Sensitive customer sync", _deletion_report())
+
+    assert "Deletion report" in page
+    assert "2brain Rec controlled artifacts" in page
+    assert "External dependencies" in page
+    assert "Post-egress limits" in page
+    assert "Local device purge" in page
+    assert "Lifecycle activity" in page
+    assert "deletion requested" in page
+    assert "local purge acknowledged" in page
+    assert "Owner/Admin" in page
+    assert "Desktop device" in page
+    assert "pending" in page
+    assert "acknowledged" in page
+    assert "unreachable" in page
+    assert BOUNDED_DELETE_COPY in page
+    assert "Sensitive customer sync" in page
+    assert "storage_object_key" not in page
+    assert "external_job_id" not in page
+    assert "/Users/" not in page
+    assert "SAFE_TRANSCRIPT_TEXT" not in page

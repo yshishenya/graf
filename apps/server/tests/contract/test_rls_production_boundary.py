@@ -136,7 +136,7 @@ def test_production_read_only_cli_accepts_metadata_fixture(tmp_path: Path) -> No
         "--deployed-commit",
         "3fd2162",
         "--alembic-revision",
-        "0006_access_sharing_downloads",
+        "0007_retention_deletion_exec",
         env=os.environ.copy(),
     )
     output = result.stdout + result.stderr
@@ -161,7 +161,7 @@ def test_production_read_only_cli_does_not_require_git_binary(tmp_path: Path) ->
         "--table-state-json",
         str(fixture),
         "--alembic-revision",
-        "0006_access_sharing_downloads",
+        "0007_retention_deletion_exec",
         env={**os.environ.copy(), "PATH": str(tmp_path)},
     )
     output = result.stdout + result.stderr
@@ -187,7 +187,7 @@ def test_production_read_only_cli_blocks_failed_metadata_fixture(tmp_path: Path)
         "--deployed-commit",
         "3fd2162",
         "--alembic-revision",
-        "0006_access_sharing_downloads",
+        "0007_retention_deletion_exec",
         env=os.environ.copy(),
     )
     output = result.stdout + result.stderr

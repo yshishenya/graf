@@ -2,9 +2,15 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from twobrain_rec_server.domain.statuses import (
+    DeletionArtifactState,
+    DeletionControlScope,
+    DeletionReasonCode,
+    DeletionState,
+    LocalPurgeTaskState,
+    LocalPurgeTaskType,
     MeetingStatus,
     ProcessingStatus,
     TrackRole,
@@ -149,6 +155,105 @@ class ProcessingStatusResponse(BaseModel):
     diarization_available: bool = False
     summary_status: str = "not_requested"
     updated_at: datetime | None = None
+
+
+class CreateDeletionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_boundary: Literal["Delete this meeting everywhere 2brain Rec controls."]
+    reason_code: DeletionReasonCode = DeletionReasonCode.USER_REQUEST
+
+
+class DeletionLifecycleState(BaseModel):
+    state: DeletionState
+    label: str
+    reason: str | None = None
+    can_retry: bool
+    can_view_report: bool
+
+
+class ArtifactDeletionState(BaseModel):
+    artifact_class: str
+    control_scope: DeletionControlScope
+    state: DeletionArtifactState
+    label: str
+    safe_reason: str | None = None
+    completed_at: datetime | None = None
+
+
+class LocalPurgeTask(BaseModel):
+    task_id: UUID
+    meeting_id: UUID
+    task_type: LocalPurgeTaskType
+    state: LocalPurgeTaskState
+    safe_reason: str | None = None
+    expires_at: datetime
+    ack_url: str | None = None
+
+
+class LocalPurgeTaskList(BaseModel):
+    tasks: list[LocalPurgeTask] = Field(default_factory=list)
+
+
+class LocalPurgeAckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal[
+        LocalPurgeTaskState.ACKNOWLEDGED,
+        LocalPurgeTaskState.FAILED,
+        LocalPurgeTaskState.LOCAL_EXPIRY_RELIED_UPON,
+    ]
+    reason_code: Annotated[SafeClientText, Field(max_length=120)] | None = None
+    client_version: Annotated[SafeClientText, Field(max_length=80)] | None = None
+    completed_at: datetime | None = None
+
+
+LifecycleActivityOutcome = Literal["accepted", "denied", "completed", "failed", "skipped", "blocked"]
+
+
+class LifecycleActivityItem(BaseModel):
+    event_id: UUID
+    event_type: Annotated[SafeClientText, Field(max_length=120)]
+    actor_label: Annotated[SafeClientText, Field(max_length=80)]
+    outcome: LifecycleActivityOutcome
+    safe_reason: Annotated[SafeClientText, Field(max_length=240)] | None = None
+    created_at: datetime
+
+
+class DeletionVerificationReport(BaseModel):
+    meeting_id: UUID
+    request_id: UUID
+    overall_state: DeletionState
+    bounded_copy: str
+    artifact_states: list[ArtifactDeletionState] = Field(default_factory=list)
+    backup: ArtifactDeletionState
+    local_purge: list[LocalPurgeTask] = Field(default_factory=list)
+    dependencies: list[ArtifactDeletionState] = Field(default_factory=list)
+    post_egress_limits: list[ArtifactDeletionState] = Field(default_factory=list)
+    activity: list[LifecycleActivityItem] = Field(default_factory=list)
+    generated_at: datetime | None = None
+
+
+class DeletionRequestResponse(BaseModel):
+    request_id: UUID
+    meeting_id: UUID
+    lifecycle: DeletionLifecycleState
+    report_url: str
+
+
+class RetentionRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=100, ge=1, le=500)
+    dry_run: bool = False
+
+
+class RetentionRunResponse(BaseModel):
+    evaluated: int = Field(ge=0)
+    created_requests: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    blocked: int = Field(ge=0)
+    policy_snapshot_id: UUID | None = None
 
 
 MeetingReviewStatus = Literal[

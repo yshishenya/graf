@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
     auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
     auth_callback_state_ttl_seconds: PositiveInt = Field(default=900)
+    retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
+    retention_backup_expiry_days: PositiveInt | None = Field(default=30)
+    retention_local_buffer_expiry_days: PositiveInt | None = Field(default=7)
     auth_storage_region_tag: str = "ru"
     auth_ru_local_storage_attested: bool = False
 

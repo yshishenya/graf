@@ -16,6 +16,10 @@ ACCESS_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0006_access_sharing_downloads.py"
 )
+RETENTION_DELETION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0007_retention_deletion_execution.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -39,6 +43,10 @@ def test_rls_validation_inventory_matches_test_fixture() -> None:
 def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
     migration = _load_migration_module(MIGRATION, "rls_hardening_migration")
     access_migration = _load_migration_module(ACCESS_MIGRATION, "access_sharing_downloads_migration")
+    retention_deletion_migration = _load_migration_module(
+        RETENTION_DELETION_MIGRATION,
+        "retention_deletion_execution_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -46,6 +54,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(migration.ORGANIZATION_POLICIES)
         | set(migration.INHERITED_POLICIES)
         | set(access_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(retention_deletion_migration.CONTENT_WORKSPACE_POLICIES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

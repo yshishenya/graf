@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,14 +12,23 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AccessState,
     ArtifactClass,
+    CreateDeletionRequest,
     CreateExportPackageRequest,
     CreateShareGrantRequest,
+    DeletionLifecycleState,
+    DeletionRequestResponse,
+    DeletionVerificationReport,
     ExportPackageResponse,
+    LocalPurgeAckRequest,
+    LocalPurgeTask,
+    LocalPurgeTaskList,
     MeetingAccessResponse,
     MeetingActivityResponse,
     MeetingListResponse,
     MeetingReviewResponse,
     MeetingReviewStatus,
+    RetentionRunRequest,
+    RetentionRunResponse,
     ShareGrantResponse,
 )
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
@@ -49,7 +58,19 @@ from twobrain_rec_server.cabinet.queries import (
     latest_processing_result,
     list_cabinet_meetings,
 )
-from twobrain_rec_server.db.models import Meeting
+from twobrain_rec_server.db.models import Meeting, WorkspaceMembership
+from twobrain_rec_server.deletion.local_purge import (
+    acknowledge_local_purge_task,
+    list_local_purge_tasks,
+)
+from twobrain_rec_server.deletion.report import lifecycle_state
+from twobrain_rec_server.deletion.retention import run_retention_scan
+from twobrain_rec_server.deletion.service import (
+    deletion_report_response,
+    deletion_retry_guidance,
+    lifecycle_for_meeting,
+    request_meeting_deletion,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["cabinet"])
 
@@ -147,6 +168,118 @@ async def get_meeting_access_state_route(
         share=await share_panel_state(db, meeting, decision),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
         deletion_truth_copy=DELETION_TRUTH_COPY,
+    )
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/deletion-requests",
+    response_model=DeletionRequestResponse,
+    status_code=202,
+    operation_id="createMeetingDeletionRequest",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def create_meeting_deletion_request_route(
+    meeting_id: UUID,
+    payload: CreateDeletionRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> DeletionRequestResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    _ensure_lifecycle_manager(decision)
+    response = await request_meeting_deletion(
+        db,
+        meeting=meeting,
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+        confirmation_boundary=payload.confirmation_boundary,
+        reason_code=payload.reason_code,
+    )
+    await db.commit()
+    return response
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/deletion-report",
+    response_model=DeletionVerificationReport,
+    operation_id="getMeetingDeletionReport",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_meeting_deletion_report_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> DeletionVerificationReport:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting = await _authorized_lifecycle_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    return await deletion_report_response(db, meeting=meeting)
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/lifecycle",
+    response_model=DeletionLifecycleState,
+    operation_id="getMeetingLifecycleState",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_meeting_lifecycle_state_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> DeletionLifecycleState:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting = await _authorized_lifecycle_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    return lifecycle_state(await lifecycle_for_meeting(db, meeting=meeting))
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/deletion-retry",
+    response_model=DeletionRequestResponse,
+    status_code=202,
+    operation_id="retryMeetingDeletion",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def retry_meeting_deletion_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> DeletionRequestResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting = await _authorized_lifecycle_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    state = await lifecycle_for_meeting(db, meeting=meeting)
+    raise ProblemDetail(
+        status=409,
+        code="deletion_retry_unavailable",
+        title="Deletion retry is not available",
+        detail=deletion_retry_guidance(state),
     )
 
 
@@ -392,6 +525,80 @@ async def download_meeting_export_package_route(
     )
 
 
+@router.post(
+    "/internal/retention/run",
+    response_model=RetentionRunResponse,
+    status_code=202,
+    operation_id="runRetentionScan",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def run_retention_scan_route(
+    request: Request,
+    payload: RetentionRunRequest | None = None,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> RetentionRunResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    retention_payload = payload or RetentionRunRequest()
+    response = await run_retention_scan(
+        db,
+        settings=request.app.state.settings,
+        workspace_id=tenant_scope.workspace_id,
+        limit=retention_payload.limit,
+        dry_run=retention_payload.dry_run,
+    )
+    await db.commit()
+    return response
+
+
+@router.get(
+    "/desktop/local-purge-tasks",
+    response_model=LocalPurgeTaskList,
+    operation_id="listDesktopLocalPurgeTasks",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def list_desktop_local_purge_tasks_route(
+    tenant_scope: TenantScope = TenantDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> LocalPurgeTaskList:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    tasks = await list_local_purge_tasks(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        device_id=device.device_id,
+    )
+    return LocalPurgeTaskList(tasks=tasks)
+
+
+@router.post(
+    "/desktop/local-purge-tasks/{task_id}/ack",
+    response_model=LocalPurgeTask,
+    operation_id="acknowledgeDesktopLocalPurgeTask",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def acknowledge_desktop_local_purge_task_route(
+    task_id: UUID,
+    payload: LocalPurgeAckRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> LocalPurgeTask:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    task = await acknowledge_local_purge_task(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        device_id=device.device_id,
+        task_id=task_id,
+        payload=payload,
+    )
+    await db.commit()
+    return task
+
+
 async def _authorized_meeting(
     db: AsyncSession,
     *,
@@ -416,3 +623,36 @@ async def _authorized_meeting(
     if not decision.can_view:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return meeting, decision
+
+
+async def _authorized_lifecycle_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    viewer_user_id: UUID,
+) -> Meeting:
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == viewer_user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    role = membership.role if membership is not None else None
+    if meeting.created_by_user_id != viewer_user_id and role not in {"owner", "admin"}:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return meeting
+
+
+def _ensure_lifecycle_manager(decision) -> None:
+    if decision.state != "owner" and decision.role not in {"owner", "admin"}:
+        raise ProblemDetail(status=403, code="deletion_forbidden", title="Deletion is not available")

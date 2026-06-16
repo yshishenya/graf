@@ -241,6 +241,24 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return try loadItems()
     }
 
+    public func acknowledgePendingLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
+        guard let client else {
+            return []
+        }
+        let tasks = try await client.listLocalPurgeTasks()
+        var acknowledged: [DesktopLocalPurgeTask] = []
+        for task in tasks where task.state == .pending || task.state == .claimed {
+            let updated = try await client.acknowledgeLocalPurgeTask(
+                task,
+                state: .acknowledged,
+                reasonCode: "local_buffers_purged",
+                completedAt: clock()
+            )
+            acknowledged.append(updated)
+        }
+        return acknowledged
+    }
+
     public static func visibleSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadQueueSummary? {
         let sorted = items.sortedForDisplay()
         guard let primary = sorted.first else { return nil }

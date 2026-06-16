@@ -322,6 +322,7 @@ components:
         - local_purge
         - dependencies
         - post_egress_limits
+        - activity
       properties:
         meeting_id:
           type: string
@@ -351,7 +352,33 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ArtifactDeletionState"
+        activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/LifecycleActivityItem"
         generated_at:
+          type: string
+          format: date-time
+    LifecycleActivityItem:
+      type: object
+      required: [event_id, event_type, actor_label, outcome, created_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          maxLength: 120
+        actor_label:
+          type: string
+          maxLength: 80
+        outcome:
+          type: string
+          enum: [accepted, denied, completed, failed, skipped, blocked]
+        safe_reason:
+          type: string
+          maxLength: 240
+        created_at:
           type: string
           format: date-time
     RetentionRunRequest:
@@ -409,6 +436,8 @@ components:
         expires_at:
           type: string
           format: date-time
+        ack_url:
+          type: string
     LocalPurgeAckRequest:
       type: object
       required: [state]

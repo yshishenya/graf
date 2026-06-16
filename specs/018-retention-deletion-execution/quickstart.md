@@ -117,7 +117,7 @@ Run web-state tests:
 
 ```sh
 uv run --extra dev pytest -q \
-  apps/server/tests/integration/test_cabinet_web_deletion_states.py
+  apps/server/tests/unit/test_cabinet_web_shell.py
 ```
 
 Expected outcome:

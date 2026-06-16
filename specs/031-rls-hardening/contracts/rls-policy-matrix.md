@@ -53,6 +53,12 @@ Tables:
 - `meeting_artifact_policies`
 - `meeting_egress_audit_events`
 - `export_packages`
+- `meeting_deletion_requests`
+- `meeting_deletion_artifact_states`
+- `meeting_deletion_reports`
+- `retention_policy_snapshots`
+- `local_purge_tasks`
+- `meeting_lifecycle_audit_events`
 
 ## Inherited Workspace Tables
 

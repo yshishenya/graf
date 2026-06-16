@@ -8,6 +8,13 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен server-owned слой retention/deletion execution: whole-meeting
+  deletion requests, immediate access blocking for deleting/deleted meetings,
+  metadata-only verification reports, retention policy snapshots and scans,
+  local desktop purge task/ack flow, backup expiry truth, dependency truth for
+  MediaScribe/Langfuse/workflow/temp/diagnostics, post-egress copy limits,
+  lifecycle activity rows, safe retry guidance, and RLS coverage for deletion
+  lifecycle tables (`feature:018`, `T001-T066`).
 - Добавлен browser/server-owned слой доступа, шаринга, скачивания и экспорта
   встреч: owner/team/shared/denied access states, login-required share grants
   and revoke, server-mediated artifact downloads, policy-filtered export
@@ -73,6 +80,14 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Retention/deletion reports and lifecycle activity are metadata-only by
+  default: they do not expose raw audio, transcript text, summaries, local
+  paths, object-store keys, signed URLs, provider payloads, dependency job IDs,
+  bearer tokens, credentials, or private desktop proof payloads. Deletion
+  requests fail closed when audit/report evidence cannot be written before
+  lifecycle mutation, and desktop local purge acknowledgements reject private
+  path/content payloads (`feature:018`, `T011-T015`, `T020-T028`,
+  `T037-T045`, `T053-T059`).
 - Access/sharing/download/export routes now re-check effective viewer access,
   never expose object-store keys, signed URLs, raw local paths, bearer tokens,
   MediaScribe identifiers, or private artifact content in egress responses, and

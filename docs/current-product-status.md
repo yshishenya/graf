@@ -116,6 +116,19 @@ implementation record.
   showed `rec-api` healthy, Alembic `0006_access_sharing_downloads`, and
   `/api/v1/health/live` plus `/api/v1/health/ready` returning ok/ready. This is
   `infra_smoke_ready` evidence, not user rollout readiness.
+- Feature `018-retention-deletion-execution` is implemented in the current
+  feature branch as the server-owned retention and deletion execution layer
+  after access/share/download/export. It adds whole-meeting deletion requests,
+  immediate access blocking for deleting/deleted meetings, metadata-only
+  deletion verification reports, retention policy snapshots and scans,
+  device-scoped local desktop purge tasks and acknowledgements, truthful backup
+  expiry state, MediaScribe/Langfuse/workflow/temp/diagnostics dependency
+  limits, post-egress copy limits from existing egress audit, lifecycle activity
+  rows, safe retry guidance, and RLS coverage for deletion lifecycle tables.
+  Desktop clients can list and acknowledge local purge tasks without uploading
+  private proof payloads. This slice does not add public links, external
+  recipient invitations, partial deletion, legal-hold management, admin
+  retention editing UI, billing, or desktop-owned deletion policy.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -194,9 +207,9 @@ implementation record.
 - Driver live virtual-device publication is not accepted for MVP recording and
   must not be revived without a separate future advanced-routing spec,
   implementation, and safety evidence.
-- Server retention and deletion workflows are not accepted yet. Public meeting
-  links, external-recipient invitations, admin policy editing, and billing are
-  also still later slices.
+- Public meeting links, external-recipient invitations, partial deletion,
+  legal-hold management, admin retention editing UI, billing, and desktop-owned
+  deletion policy remain later slices.
 - The `012` backend foundation exists as a repository implementation with
   `021` remote-first infrastructure smoke readiness scaffolding; real user
   rollout and desktop uploader slices are still not accepted.

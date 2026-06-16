@@ -18,6 +18,7 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
 )
+from twobrain_rec_server.domain.statuses import DeletionState
 
 TEAM_VISIBLE_VALUES = {"team", "team_visible", "workspace", "workspace_visible"}
 PRIVILEGED_ROLES = {"owner", "admin"}
@@ -84,6 +85,17 @@ async def decide_meeting_access(
 ) -> AccessDecision:
     if meeting.workspace_id != workspace_id:
         return _denied_decision()
+    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+        return AccessDecision(
+            state="deleted",
+            label="Deleted",
+            reason="Meeting deletion is in progress.",
+            can_view=False,
+            can_share=False,
+            can_manage_team_visibility=False,
+            can_download=False,
+            can_export=False,
+        )
 
     membership = await db.scalar(
         select(WorkspaceMembership).where(

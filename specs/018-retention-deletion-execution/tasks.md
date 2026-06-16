@@ -18,9 +18,9 @@
 
 **Purpose**: Add feature scaffolding and fixtures without changing behavior yet.
 
-- [ ] T001 Create deletion domain package skeleton in `apps/server/src/twobrain_rec_server/deletion/__init__.py`
-- [ ] T002 [P] Create deletion test fixture skeleton in `apps/server/tests/fixtures/deletion_lifecycle.py`
-- [ ] T003 [P] Create desktop local purge Swift test skeleton in `apps/macos/Shared/Tests/DesktopLocalPurgeTests.swift`
+- [X] T001 Create deletion domain package skeleton in `apps/server/src/twobrain_rec_server/deletion/__init__.py`
+- [X] T002 [P] Create deletion test fixture skeleton in `apps/server/tests/fixtures/deletion_lifecycle.py`
+- [X] T003 [P] Create desktop local purge Swift test skeleton in `apps/macos/Shared/Tests/DesktopLocalPurgeTests.swift`
 
 ---
 
@@ -28,18 +28,18 @@
 
 **Purpose**: Shared persistence, schemas, lifecycle enums, RLS, audit, and report plumbing that block all user stories.
 
-- [ ] T004 Add deletion lifecycle, artifact, retention, local purge, and audit enums in `apps/server/src/twobrain_rec_server/domain/statuses.py`
-- [ ] T005 Add deletion SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/deletion.py`
-- [ ] T006 Export deletion models from `apps/server/src/twobrain_rec_server/db/models/__init__.py`
-- [ ] T007 Add meeting deletion and retention lifecycle columns in `apps/server/src/twobrain_rec_server/db/models/meeting.py`
-- [ ] T008 Create retention/deletion migration in `apps/server/src/twobrain_rec_server/db/migrations/versions/0007_retention_deletion_execution.py`
-- [ ] T009 Update RLS validation table inventory for lifecycle tables in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
-- [ ] T010 Add lifecycle/report/retention/local-purge Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T011 Implement metadata-only lifecycle audit helpers in `apps/server/src/twobrain_rec_server/deletion/audit.py`
-- [ ] T012 Implement lifecycle report row composition primitives in `apps/server/src/twobrain_rec_server/deletion/report.py`
-- [ ] T013 [P] Add migration and RLS coverage in `apps/server/tests/integration/test_retention_deletion_migrations.py`
-- [ ] T014 [P] Add schema and no-secret contract coverage in `apps/server/tests/contract/test_deletion_no_secret_leakage.py`
-- [ ] T015 [P] Add audit metadata unit tests in `apps/server/tests/unit/test_deletion_audit_metadata.py`
+- [X] T004 Add deletion lifecycle, artifact, retention, local purge, and audit enums in `apps/server/src/twobrain_rec_server/domain/statuses.py`
+- [X] T005 Add deletion SQLAlchemy models in `apps/server/src/twobrain_rec_server/db/models/deletion.py`
+- [X] T006 Export deletion models from `apps/server/src/twobrain_rec_server/db/models/__init__.py`
+- [X] T007 Add meeting deletion and retention lifecycle columns in `apps/server/src/twobrain_rec_server/db/models/meeting.py`
+- [X] T008 Create retention/deletion migration in `apps/server/src/twobrain_rec_server/db/migrations/versions/0007_retention_deletion_execution.py`
+- [X] T009 Update RLS validation table inventory for lifecycle tables in `apps/server/src/twobrain_rec_server/db/rls_validation.py`
+- [X] T010 Add lifecycle/report/retention/local-purge Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T011 Implement metadata-only lifecycle audit helpers in `apps/server/src/twobrain_rec_server/deletion/audit.py`
+- [X] T012 Implement lifecycle report row composition primitives in `apps/server/src/twobrain_rec_server/deletion/report.py`
+- [X] T013 [P] Add migration and RLS coverage in `apps/server/tests/integration/test_retention_deletion_migrations.py`
+- [X] T014 [P] Add schema and no-secret contract coverage in `apps/server/tests/contract/test_deletion_no_secret_leakage.py`
+- [X] T015 [P] Add audit metadata unit tests in `apps/server/tests/unit/test_deletion_audit_metadata.py`
 
 **Checkpoint**: Shared deletion/retention entities, lifecycle schemas, audit helpers, and RLS expectations are ready before story work starts.
 
@@ -53,22 +53,22 @@
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Add deletion request/report API contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
-- [ ] T017 [P] [US1] Add manual deletion workflow integration tests in `apps/server/tests/integration/test_meeting_deletion_workflow.py`
-- [ ] T018 [P] [US1] Add lifecycle access-blocking integration tests in `apps/server/tests/integration/test_deletion_lifecycle_blocks_access.py`
-- [ ] T019 [P] [US1] Add deletion report view-model unit tests in `apps/server/tests/unit/test_deletion_report_view_models.py`
+- [X] T016 [P] [US1] Add deletion request/report API contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
+- [X] T017 [P] [US1] Add manual deletion workflow integration tests in `apps/server/tests/integration/test_meeting_deletion_workflow.py`
+- [X] T018 [P] [US1] Add lifecycle access-blocking integration tests in `apps/server/tests/integration/test_deletion_lifecycle_blocks_access.py`
+- [X] T019 [P] [US1] Add deletion report view-model unit tests in `apps/server/tests/unit/test_deletion_report_view_models.py`
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implement deletion request validation and fail-closed audit ordering in `apps/server/src/twobrain_rec_server/deletion/service.py`
-- [ ] T021 [US1] Implement active server purge accounting for meeting artifacts in `apps/server/src/twobrain_rec_server/deletion/service.py`
-- [ ] T022 [US1] Implement deletion verification report assembly in `apps/server/src/twobrain_rec_server/deletion/report.py`
-- [ ] T023 [US1] Add deletion request, lifecycle, report, and retry routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T024 [US1] Block deleted/deleting meetings in effective access decisions in `apps/server/src/twobrain_rec_server/cabinet/access.py`
-- [ ] T025 [US1] Hide deleted/deleting meetings from normal list queries by default in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
-- [ ] T026 [US1] Block artifact egress for deleting/deleted meetings in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
-- [ ] T027 [US1] Map deletion lifecycle and governance states in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T028 [US1] Render bounded delete confirmation and report states in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T020 [US1] Implement deletion request validation and fail-closed audit ordering in `apps/server/src/twobrain_rec_server/deletion/service.py`
+- [X] T021 [US1] Implement active server purge accounting for meeting artifacts in `apps/server/src/twobrain_rec_server/deletion/service.py`
+- [X] T022 [US1] Implement deletion verification report assembly in `apps/server/src/twobrain_rec_server/deletion/report.py`
+- [X] T023 [US1] Add deletion request, lifecycle, report, and retry routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T024 [US1] Block deleted/deleting meetings in effective access decisions in `apps/server/src/twobrain_rec_server/cabinet/access.py`
+- [X] T025 [US1] Hide deleted/deleting meetings from normal list queries by default in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T026 [US1] Block artifact egress for deleting/deleted meetings in `apps/server/src/twobrain_rec_server/cabinet/egress.py`
+- [X] T027 [US1] Map deletion lifecycle and governance states in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T028 [US1] Render bounded delete confirmation and report states in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 
 **Checkpoint**: User Story 1 is independently functional and prevents content access after deletion starts.
 
@@ -82,17 +82,17 @@
 
 ### Tests for User Story 2
 
-- [ ] T029 [P] [US2] Add retention run API contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
-- [ ] T030 [P] [US2] Add retention policy execution integration tests in `apps/server/tests/integration/test_retention_policy_execution.py`
-- [ ] T031 [P] [US2] Add retention policy snapshot unit tests in `apps/server/tests/unit/test_retention_policy_snapshot.py`
+- [X] T029 [P] [US2] Add retention run API contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
+- [X] T030 [P] [US2] Add retention policy execution integration tests in `apps/server/tests/integration/test_retention_policy_execution.py`
+- [X] T031 [P] [US2] Add retention policy snapshot unit tests in `apps/server/tests/unit/test_retention_policy_snapshot.py`
 
 ### Implementation for User Story 2
 
-- [ ] T032 [US2] Implement default/deployment retention policy snapshot resolution in `apps/server/src/twobrain_rec_server/deletion/policy.py`
-- [ ] T033 [US2] Implement retention eligibility scan and skip/block reasons in `apps/server/src/twobrain_rec_server/deletion/retention.py`
-- [ ] T034 [US2] Reuse deletion request workflow for retention-triggered actions in `apps/server/src/twobrain_rec_server/deletion/retention.py`
-- [ ] T035 [US2] Add internal retention run route in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T036 [US2] Add retention lifecycle activity rows to report assembly in `apps/server/src/twobrain_rec_server/deletion/report.py`
+- [X] T032 [US2] Implement default/deployment retention policy snapshot resolution in `apps/server/src/twobrain_rec_server/deletion/policy.py`
+- [X] T033 [US2] Implement retention eligibility scan and skip/block reasons in `apps/server/src/twobrain_rec_server/deletion/retention.py`
+- [X] T034 [US2] Reuse deletion request workflow for retention-triggered actions in `apps/server/src/twobrain_rec_server/deletion/retention.py`
+- [X] T035 [US2] Add internal retention run route in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T036 [US2] Add retention lifecycle activity rows to report assembly in `apps/server/src/twobrain_rec_server/deletion/report.py`
 
 **Checkpoint**: User Story 2 is independently functional and retention cannot mutate unsafe or ineligible meetings.
 
@@ -106,18 +106,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T037 [P] [US3] Add local purge API contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
-- [ ] T038 [P] [US3] Add local purge coordination integration tests in `apps/server/tests/integration/test_local_purge_coordination.py`
-- [ ] T039 [P] [US3] Add desktop local purge Swift client tests in `apps/macos/Shared/Tests/DesktopLocalPurgeTests.swift`
+- [X] T037 [P] [US3] Add local purge API contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
+- [X] T038 [P] [US3] Add local purge coordination integration tests in `apps/server/tests/integration/test_local_purge_coordination.py`
+- [X] T039 [P] [US3] Add desktop local purge Swift client tests in `apps/macos/Shared/Tests/DesktopLocalPurgeTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T040 [US3] Implement local purge task creation and report state mapping in `apps/server/src/twobrain_rec_server/deletion/local_purge.py`
-- [ ] T041 [US3] Add desktop local purge task list and ack routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T042 [US3] Reject private/local-path acknowledgement payloads in `apps/server/src/twobrain_rec_server/deletion/local_purge.py`
-- [ ] T043 [US3] Add local purge task models to desktop upload client in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
-- [ ] T044 [US3] Add local purge acknowledgement coordination in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T045 [US3] Render local purge pending/acknowledged/unreachable states in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T040 [US3] Implement local purge task creation and report state mapping in `apps/server/src/twobrain_rec_server/deletion/local_purge.py`
+- [X] T041 [US3] Add desktop local purge task list and ack routes in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T042 [US3] Reject private/local-path acknowledgement payloads in `apps/server/src/twobrain_rec_server/deletion/local_purge.py`
+- [X] T043 [US3] Add local purge task models to desktop upload client in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
+- [X] T044 [US3] Add local purge acknowledgement coordination in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T045 [US3] Render local purge pending/acknowledged/unreachable states in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 
 **Checkpoint**: User Story 3 is independently functional and local purge truth is visible without private proof uploads.
 
@@ -131,16 +131,16 @@
 
 ### Tests for User Story 4
 
-- [ ] T046 [P] [US4] Add dependency and backup state contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
-- [ ] T047 [P] [US4] Add dependency deletion state unit tests in `apps/server/tests/unit/test_dependency_deletion_states.py`
-- [ ] T048 [P] [US4] Add post-egress and backup report integration tests in `apps/server/tests/integration/test_meeting_deletion_workflow.py`
+- [X] T046 [P] [US4] Add dependency and backup state contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
+- [X] T047 [P] [US4] Add dependency deletion state unit tests in `apps/server/tests/unit/test_dependency_deletion_states.py`
+- [X] T048 [P] [US4] Add post-egress and backup report integration tests in `apps/server/tests/integration/test_meeting_deletion_workflow.py`
 
 ### Implementation for User Story 4
 
-- [ ] T049 [US4] Implement dependency state mapping for MediaScribe, Langfuse, workflow/temp, diagnostics, and backups in `apps/server/src/twobrain_rec_server/deletion/report.py`
-- [ ] T050 [US4] Persist post-egress limits from share/download/export audit data in deletion report rows in `apps/server/src/twobrain_rec_server/deletion/report.py`
-- [ ] T051 [US4] Add backup expiry policy state to retention policy snapshots in `apps/server/src/twobrain_rec_server/deletion/policy.py`
-- [ ] T052 [US4] Render backup, dependency, and post-egress limit rows in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T049 [US4] Implement dependency state mapping for MediaScribe, Langfuse, workflow/temp, diagnostics, and backups in `apps/server/src/twobrain_rec_server/deletion/report.py`
+- [X] T050 [US4] Persist post-egress limits from share/download/export audit data in deletion report rows in `apps/server/src/twobrain_rec_server/deletion/report.py`
+- [X] T051 [US4] Add backup expiry policy state to retention policy snapshots in `apps/server/src/twobrain_rec_server/deletion/policy.py`
+- [X] T052 [US4] Render backup, dependency, and post-egress limit rows in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 
 **Checkpoint**: User Story 4 is independently functional and reports do not claim full external purge unless confirmed.
 
@@ -154,16 +154,16 @@
 
 ### Tests for User Story 5
 
-- [ ] T053 [P] [US5] Add lifecycle activity contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
-- [ ] T054 [P] [US5] Add metadata-only activity integration tests in `apps/server/tests/integration/test_meeting_deletion_workflow.py`
-- [ ] T055 [P] [US5] Extend no-secret audit tests in `apps/server/tests/unit/test_deletion_audit_metadata.py`
+- [X] T053 [P] [US5] Add lifecycle activity contract tests in `apps/server/tests/contract/test_retention_deletion_contract.py`
+- [X] T054 [P] [US5] Add metadata-only activity integration tests in `apps/server/tests/integration/test_meeting_deletion_workflow.py`
+- [X] T055 [P] [US5] Extend no-secret audit tests in `apps/server/tests/unit/test_deletion_audit_metadata.py`
 
 ### Implementation for User Story 5
 
-- [ ] T056 [US5] Add lifecycle audit activity response mapping in `apps/server/src/twobrain_rec_server/deletion/report.py`
-- [ ] T057 [US5] Include lifecycle events in cabinet activity surfaces in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T058 [US5] Render metadata-only lifecycle activity in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T059 [US5] Add safe retry guidance for retryable and terminal failures in `apps/server/src/twobrain_rec_server/deletion/service.py`
+- [X] T056 [US5] Add lifecycle audit activity response mapping in `apps/server/src/twobrain_rec_server/deletion/report.py`
+- [X] T057 [US5] Include lifecycle events in cabinet activity surfaces in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T058 [US5] Render metadata-only lifecycle activity in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T059 [US5] Add safe retry guidance for retryable and terminal failures in `apps/server/src/twobrain_rec_server/deletion/service.py`
 
 **Checkpoint**: User Story 5 is independently functional and audit/report evidence remains metadata-only.
 
@@ -173,13 +173,13 @@
 
 **Purpose**: Evidence, documentation, release-readiness, and full validation across all stories.
 
-- [ ] T060 [P] Update feature status and launch-readiness notes in `docs/current-product-status.md`
-- [ ] T061 [P] Add Unreleased changelog entry for feature 018 in `CHANGELOG.md`
-- [ ] T062 [P] Add sanitized screenshot/evidence index in `docs/evidence/018-retention-deletion-execution/README.md`
-- [ ] T063 Run focused quickstart validation and record commands/results in `docs/evidence/018-retention-deletion-execution/README.md`
-- [ ] T064 Run browser screenshot validation for delete/report states and record sanitized evidence in `docs/evidence/018-retention-deletion-execution/README.md`
-- [ ] T065 Run `./infra/scripts/ci-local.sh` and record the result in `docs/evidence/018-retention-deletion-execution/README.md`
-- [ ] T066 Review tracked evidence for private content, credentials, signed URLs, object keys, provider payloads, and local paths in `docs/evidence/018-retention-deletion-execution/README.md`
+- [X] T060 [P] Update feature status and launch-readiness notes in `docs/current-product-status.md`
+- [X] T061 [P] Add Unreleased changelog entry for feature 018 in `CHANGELOG.md`
+- [X] T062 [P] Add sanitized screenshot/evidence index in `docs/evidence/018-retention-deletion-execution/README.md`
+- [X] T063 Run focused quickstart validation and record commands/results in `docs/evidence/018-retention-deletion-execution/README.md`
+- [X] T064 Run browser screenshot validation for delete/report states and record sanitized evidence in `docs/evidence/018-retention-deletion-execution/README.md`
+- [X] T065 Run `./infra/scripts/ci-local.sh` and record the result in `docs/evidence/018-retention-deletion-execution/README.md`
+- [X] T066 Review tracked evidence for private content, credentials, signed URLs, object keys, provider payloads, and local paths in `docs/evidence/018-retention-deletion-execution/README.md`
 
 ---
 

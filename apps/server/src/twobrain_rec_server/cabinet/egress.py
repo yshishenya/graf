@@ -33,6 +33,7 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import (
+    DeletionState,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     SummaryStatus,
@@ -117,6 +118,8 @@ async def artifact_egress_states(
     access: AccessDecision,
     result: ProcessingResult | None,
 ) -> list[ArtifactEgressState]:
+    if meeting_deletion_active(meeting):
+        return _deleted_artifact_states()
     policy = await resolve_artifact_policy(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     audio_artifacts = await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     states = [
@@ -184,6 +187,20 @@ async def download_artifact(
     actor_user_id: UUID,
     device_id: UUID,
 ) -> DownloadArtifact:
+    if meeting_deletion_active(meeting):
+        await record_egress_audit_event(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            event_type="download_denied",
+            outcome="denied",
+            artifact_class=artifact_class,
+            policy_reason="meeting_deletion_active",
+            metadata={"artifact_class": artifact_class, "outcome": "denied"},
+        )
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
     states = {
         state.artifact_class: state
         for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
@@ -259,6 +276,20 @@ async def create_export_package(
     actor_user_id: UUID,
     device_id: UUID,
 ) -> ExportPackageResponse:
+    if meeting_deletion_active(meeting):
+        await record_egress_audit_event(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            event_type="export_denied",
+            artifact_class="package",
+            outcome="denied",
+            policy_reason="meeting_deletion_active",
+            metadata={"artifact_class": "package", "outcome": "denied"},
+        )
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
     states = {
         state.artifact_class: state
         for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
@@ -363,6 +394,20 @@ async def export_package_bytes(
     actor_user_id: UUID,
     device_id: UUID,
 ) -> DownloadArtifact:
+    if meeting_deletion_active(meeting):
+        await record_egress_audit_event(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            event_type="export_denied",
+            artifact_class="package",
+            outcome="denied",
+            policy_reason="meeting_deletion_active",
+            metadata={"artifact_class": "package", "outcome": "denied"},
+        )
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
     if not access.can_export:
         raise ProblemDetail(status=403, code="export_forbidden", title="Export is not available")
     package = await db.scalar(
@@ -422,6 +467,23 @@ async def activity_response(
         for event in events
     ]
     return MeetingActivityResponse(meeting_id=meeting_id, redaction_state="metadata_only", items=items)
+
+
+def meeting_deletion_active(meeting: Meeting) -> bool:
+    return (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
+
+
+def _deleted_artifact_states() -> list[ArtifactEgressState]:
+    return [
+        ArtifactEgressState(
+            artifact_class=artifact_class,
+            state="deleted",
+            label="Deleted",
+            reason="Meeting deletion is in progress. Use the deletion report for lifecycle truth.",
+            action="disabled",
+        )
+        for artifact_class in ("audio", "transcript", "summary", "package")
+    ]
 
 
 def _audio_state(policy_value: str, access: AccessDecision, artifacts: list[TrackArtifact]) -> ArtifactEgressState:
