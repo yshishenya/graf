@@ -1711,6 +1711,177 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings:
+    get:
+      tags:
+      - cabinet
+      summary: List Cabinet Meetings Route
+      operationId: listCabinetMeetings
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Q
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - local_only
+            - uploading
+            - submitted
+            - processing
+            - ready
+            - partial
+            - blocked
+            - failed
+            - unavailable
+            - deleted_future
+            type: string
+          - type: 'null'
+          title: Status
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: updated_desc
+          title: Sort
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}:
+    get:
+      tags:
+      - cabinet
+      summary: Get Cabinet Meeting Review Route
+      operationId: getCabinetMeetingReview
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingReviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AbortUploadRequest:
@@ -2124,6 +2295,55 @@ components:
       - upload_session
       - object_count
       title: FinalizeUploadResponse
+    GovernanceActionState:
+      properties:
+        state:
+          type: string
+          enum:
+          - available
+          - disabled
+          - planned
+          - policy_blocked
+          - browser_handoff
+          - out_of_scope
+          title: State
+        label:
+          type: string
+          title: Label
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        destructive:
+          type: boolean
+          title: Destructive
+          default: false
+      type: object
+      required:
+      - state
+      - label
+      title: GovernanceActionState
+    GovernanceActionSummary:
+      properties:
+        share:
+          $ref: '#/components/schemas/GovernanceActionState'
+        export:
+          $ref: '#/components/schemas/GovernanceActionState'
+        download:
+          $ref: '#/components/schemas/GovernanceActionState'
+        retention:
+          $ref: '#/components/schemas/GovernanceActionState'
+        delete:
+          $ref: '#/components/schemas/GovernanceActionState'
+      type: object
+      required:
+      - share
+      - export
+      - download
+      - retention
+      - delete
+      title: GovernanceActionSummary
     HTTPValidationError:
       properties:
         detail:
@@ -2200,6 +2420,175 @@ components:
       - policy
       - registered_devices
       title: MeResponse
+    MeetingFilterState:
+      properties:
+        q:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - local_only
+            - uploading
+            - submitted
+            - processing
+            - ready
+            - partial
+            - blocked
+            - failed
+            - unavailable
+            - deleted_future
+          - type: 'null'
+          title: Status
+        sort:
+          type: string
+          title: Sort
+          default: updated_desc
+      type: object
+      title: MeetingFilterState
+    MeetingListItem:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        title:
+          type: string
+          title: Title
+        started_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Started At
+        ended_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Ended At
+        duration_seconds:
+          type: integer
+          minimum: 0.0
+          title: Duration Seconds
+        source:
+          type: string
+          enum:
+          - desktop_recording
+          - manual_upload
+          - unknown
+          title: Source
+          default: desktop_recording
+        status:
+          type: string
+          enum:
+          - local_only
+          - uploading
+          - submitted
+          - processing
+          - ready
+          - partial
+          - blocked
+          - failed
+          - unavailable
+          - deleted_future
+          title: Status
+        status_label:
+          type: string
+          title: Status Label
+        status_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Reason
+        primary_action:
+          type: string
+          enum:
+          - open
+          - wait
+          - retry_future
+          - open_status
+          - unavailable
+          title: Primary Action
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        notes_available:
+          type: boolean
+          title: Notes Available
+          default: false
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        governance:
+          $ref: '#/components/schemas/GovernanceActionSummary'
+        future_slots:
+          items:
+            $ref: '#/components/schemas/SlotState'
+          type: array
+          title: Future Slots
+      type: object
+      required:
+      - meeting_id
+      - title
+      - duration_seconds
+      - status
+      - status_label
+      - primary_action
+      - governance
+      title: MeetingListItem
+    MeetingListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MeetingListItem'
+          type: array
+          title: Items
+        filters:
+          $ref: '#/components/schemas/MeetingFilterState'
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+      type: object
+      required:
+      - items
+      - filters
+      - generated_at
+      title: MeetingListResponse
+    MeetingProvenance:
+      properties:
+        source_roles:
+          items:
+            type: string
+            enum:
+            - local_microphone
+            - incoming_system
+            - unknown
+          type: array
+          title: Source Roles
+        processing_dependency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Processing Dependency
+        content_policy:
+          type: string
+          title: Content Policy
+          default: authorized_detail_only
+      type: object
+      title: MeetingProvenance
     MeetingResponse:
       properties:
         meeting_id:
@@ -2243,6 +2632,41 @@ components:
       - status
       - processing_status
       title: MeetingResponse
+    MeetingReviewResponse:
+      properties:
+        meeting:
+          $ref: '#/components/schemas/MeetingListItem'
+        provenance:
+          $ref: '#/components/schemas/MeetingProvenance'
+        processing:
+          $ref: '#/components/schemas/ProcessingReviewState'
+        transcript:
+          $ref: '#/components/schemas/TranscriptReviewState'
+        speakers:
+          $ref: '#/components/schemas/SpeakerReviewState'
+        notes:
+          $ref: '#/components/schemas/NotesReviewState'
+        playback:
+          $ref: '#/components/schemas/PlaybackReviewState'
+        governance:
+          $ref: '#/components/schemas/GovernanceActionSummary'
+        assistant:
+          $ref: '#/components/schemas/SlotState'
+        template:
+          $ref: '#/components/schemas/SlotState'
+      type: object
+      required:
+      - meeting
+      - provenance
+      - processing
+      - transcript
+      - speakers
+      - notes
+      - playback
+      - governance
+      - assistant
+      - template
+      title: MeetingReviewResponse
     MeetingStatus:
       type: string
       enum:
@@ -2289,6 +2713,50 @@ components:
       - session_id
       - missing_ranges_by_track
       title: MissingRangesResponse
+    NotesReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+        sections:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Sections
+        unavailable_reason:
+          type: string
+          enum:
+          - none
+          - not_requested
+          - processing
+          - generation_future
+          - partial_transcript
+          - policy_blocked
+          title: Unavailable Reason
+      type: object
+      required:
+      - available
+      - unavailable_reason
+      title: NotesReviewState
+    PlaybackReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+          default: false
+        duration_seconds:
+          type: integer
+          minimum: 0.0
+          title: Duration Seconds
+          default: 0
+        speed_options:
+          items:
+            type: number
+          type: array
+          title: Speed Options
+      type: object
+      title: PlaybackReviewState
     Problem:
       properties:
         type:
@@ -2366,6 +2834,73 @@ components:
       - reused_count
       - blocked_count
       title: ProcessingPickupResponse
+    ProcessingReviewState:
+      properties:
+        state:
+          type: string
+          enum:
+          - local_only
+          - uploading
+          - submitted
+          - processing
+          - ready
+          - partial
+          - blocked
+          - failed
+          - unavailable
+          - deleted_future
+          title: State
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+        reason_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Label
+        content_available:
+          type: boolean
+          title: Content Available
+          default: false
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        summary_available:
+          type: boolean
+          title: Summary Available
+          default: false
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        next_action:
+          type: string
+          enum:
+          - wait
+          - retry_future
+          - contact_operator
+          - open_desktop_queue
+          - none
+          title: Next Action
+          default: none
+      type: object
+      required:
+      - state
+      title: ProcessingReviewState
     ProcessingStatus:
       type: string
       enum:
@@ -2461,6 +2996,110 @@ components:
       required:
       - status
       title: ReadyResponse
+    SlotState:
+      properties:
+        state:
+          type: string
+          enum:
+          - available
+          - disabled
+          - planned
+          - policy_blocked
+          - out_of_scope
+          title: State
+        label:
+          type: string
+          title: Label
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - state
+      - label
+      title: SlotState
+    SpeakerLane:
+      properties:
+        speaker_key:
+          type: string
+          title: Speaker Key
+        label:
+          type: string
+          title: Label
+        talk_time_percent:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Talk Time Percent
+        source_roles:
+          items:
+            type: string
+            enum:
+            - local_microphone
+            - incoming_system
+            - unknown
+          type: array
+          title: Source Roles
+        segments:
+          items:
+            $ref: '#/components/schemas/SpeakerLaneSegment'
+          type: array
+          title: Segments
+        confidence_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Confidence Label
+      type: object
+      required:
+      - speaker_key
+      - label
+      - talk_time_percent
+      title: SpeakerLane
+    SpeakerLaneSegment:
+      properties:
+        start_seconds:
+          type: number
+          title: Start Seconds
+        end_seconds:
+          type: number
+          title: End Seconds
+      type: object
+      required:
+      - start_seconds
+      - end_seconds
+      title: SpeakerLaneSegment
+    SpeakerReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+        assignment_state:
+          type: string
+          enum:
+          - available
+          - reserved
+          - disabled
+          - conflict_future
+          - unavailable
+          title: Assignment State
+        degraded_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Degraded Reason
+        speakers:
+          items:
+            $ref: '#/components/schemas/SpeakerLane'
+          type: array
+          title: Speakers
+      type: object
+      required:
+      - available
+      - assignment_state
+      title: SpeakerReviewState
     TrackDescriptor:
       properties:
         track_role:
@@ -2505,6 +3144,80 @@ components:
       - system
       - manifest
       title: TrackRole
+    TranscriptReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        degraded_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Degraded Reason
+        search_enabled:
+          type: boolean
+          title: Search Enabled
+          default: false
+        segments:
+          items:
+            $ref: '#/components/schemas/TranscriptSegmentView'
+          type: array
+          title: Segments
+      type: object
+      required:
+      - available
+      title: TranscriptReviewState
+    TranscriptSegmentView:
+      properties:
+        segment_id:
+          type: string
+          title: Segment Id
+        sequence:
+          type: integer
+          title: Sequence
+        start_seconds:
+          type: number
+          title: Start Seconds
+        end_seconds:
+          type: number
+          title: End Seconds
+        timestamp_label:
+          type: string
+          title: Timestamp Label
+        speaker_label:
+          type: string
+          title: Speaker Label
+        source_role:
+          type: string
+          enum:
+          - local_microphone
+          - incoming_system
+          - unknown
+          title: Source Role
+        text:
+          type: string
+          title: Text
+        confidence_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Confidence Label
+      type: object
+      required:
+      - segment_id
+      - sequence
+      - start_seconds
+      - end_seconds
+      - timestamp_label
+      - speaker_label
+      - source_role
+      - text
+      title: TranscriptSegmentView
     UploadPartResponse:
       properties:
         session_id:

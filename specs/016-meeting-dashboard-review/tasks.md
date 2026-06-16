@@ -18,9 +18,9 @@
 
 **Purpose**: Establish shared files for the server-owned cabinet surface.
 
-- [ ] T001 Create the cabinet package marker in `apps/server/src/twobrain_rec_server/cabinet/__init__.py`
-- [ ] T002 [P] Create cabinet test fixture helpers for seeded ready/processing/failed/foreign meetings in `apps/server/tests/fixtures/cabinet.py`
-- [ ] T003 [P] Add the feature validation evidence placeholder in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T001 Create the cabinet package marker in `apps/server/src/twobrain_rec_server/cabinet/__init__.py`
+- [X] T002 [P] Create cabinet test fixture helpers for seeded ready/processing/failed/foreign meetings in `apps/server/tests/fixtures/cabinet.py`
+- [X] T003 [P] Add the feature validation evidence placeholder in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
 
 ---
 
@@ -30,12 +30,12 @@
 
 **Critical**: No user story implementation begins until this phase is complete.
 
-- [ ] T004 Add cabinet Pydantic response schemas and enums in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T005 [P] Implement content-safe status, governance, timestamp, and source-role mapping helpers in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T006 [P] Implement cabinet database query function skeletons in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
-- [ ] T007 [P] Implement cabinet HTML shell helpers and shared CSS tokens in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T008 Add the cabinet API router skeleton in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T009 Register cabinet API and web routers in `apps/server/src/twobrain_rec_server/main.py`
+- [X] T004 Add cabinet Pydantic response schemas and enums in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T005 [P] Implement content-safe status, governance, timestamp, and source-role mapping helpers in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T006 [P] Implement cabinet database query function skeletons in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T007 [P] Implement cabinet HTML shell helpers and shared CSS tokens in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T008 Add the cabinet API router skeleton in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T009 Register cabinet API and web routers in `apps/server/src/twobrain_rec_server/main.py`
 
 **Checkpoint**: Cabinet route modules import successfully and user story tests can be written against stable paths.
 
@@ -49,18 +49,18 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add list API contract and schema tests in `apps/server/tests/contract/test_cabinet_contract.py`
-- [ ] T011 [P] [US1] Add list no-secret/no-content egress tests in `apps/server/tests/contract/test_cabinet_no_secret_content_egress.py`
-- [ ] T012 [P] [US1] Add authorized meeting list integration tests in `apps/server/tests/integration/test_cabinet_meeting_list.py`
-- [ ] T013 [P] [US1] Add list/search/filter/sort view-model unit tests in `apps/server/tests/unit/test_cabinet_view_models.py`
+- [X] T010 [P] [US1] Add list API contract and schema tests in `apps/server/tests/contract/test_cabinet_contract.py`
+- [X] T011 [P] [US1] Add list no-secret/no-content egress tests in `apps/server/tests/contract/test_cabinet_no_secret_content_egress.py`
+- [X] T012 [P] [US1] Add authorized meeting list integration tests in `apps/server/tests/integration/test_cabinet_meeting_list.py`
+- [X] T013 [P] [US1] Add list/search/filter/sort view-model unit tests in `apps/server/tests/unit/test_cabinet_view_models.py`
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] Implement meeting list item mapping and safe fallback titles in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T015 [US1] Implement authorized meeting list query with workspace scoping, status filter, search, sort, and limit in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
-- [ ] T016 [US1] Implement `GET /api/v1/cabinet/meetings` in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T017 [US1] Implement browser `/meetings` list shell with dense rows, search, filters, sort, `New` placeholder, and row future slots in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T018 [US1] Update focused validation steps for the authorized list in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T014 [US1] Implement meeting list item mapping and safe fallback titles in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T015 [US1] Implement authorized meeting list query with workspace scoping, status filter, search, sort, and limit in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T016 [US1] Implement `GET /api/v1/cabinet/meetings` in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T017 [US1] Implement browser `/meetings` list shell with dense rows, search, filters, sort, `New` placeholder, and row future slots in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T018 [US1] Update focused validation steps for the authorized list in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 1 is independently functional through API and browser list routes.
 
@@ -74,18 +74,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T019 [P] [US2] Add ready detail contract assertions in `apps/server/tests/contract/test_cabinet_contract.py`
-- [ ] T020 [P] [US2] Add ready detail integration tests in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
-- [ ] T021 [P] [US2] Add transcript and speaker mapping unit tests in `apps/server/tests/unit/test_cabinet_view_models.py`
-- [ ] T022 [P] [US2] Add web detail shell tests for `Notes` and `Recording & Transcript` IA in `apps/server/tests/unit/test_cabinet_web_shell.py`
+- [X] T019 [P] [US2] Add ready detail contract assertions in `apps/server/tests/contract/test_cabinet_contract.py`
+- [X] T020 [P] [US2] Add ready detail integration tests in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
+- [X] T021 [P] [US2] Add transcript and speaker mapping unit tests in `apps/server/tests/unit/test_cabinet_view_models.py`
+- [X] T022 [P] [US2] Add web detail shell tests for `Notes` and `Recording & Transcript` IA in `apps/server/tests/unit/test_cabinet_web_shell.py`
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Implement ready meeting detail query with latest processing result, transcript segments, and diarization segments in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
-- [ ] T024 [US2] Implement transcript segment, speaker lane, talk-time, playback, provenance, and notes-unavailable view models in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T025 [US2] Implement `GET /api/v1/cabinet/meetings/{meeting_id}` ready-detail response in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T026 [US2] Implement browser `/meetings/{meeting_id}` detail shell with `Notes` and `Recording & Transcript` tabs in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T027 [US2] Update ready-detail validation evidence and clean-room UI notes in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T023 [US2] Implement ready meeting detail query with latest processing result, transcript segments, and diarization segments in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T024 [US2] Implement transcript segment, speaker lane, talk-time, playback, provenance, and notes-unavailable view models in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T025 [US2] Implement `GET /api/v1/cabinet/meetings/{meeting_id}` ready-detail response in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T026 [US2] Implement browser `/meetings/{meeting_id}` detail shell with `Notes` and `Recording & Transcript` tabs in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T027 [US2] Update ready-detail validation evidence and clean-room UI notes in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 2 is independently functional for processed meetings.
 
@@ -99,18 +99,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T028 [P] [US3] Add processing/degraded/detail-state integration tests in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
-- [ ] T029 [P] [US3] Add privacy-preserving denial tests for foreign meetings in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
-- [ ] T030 [P] [US3] Add processing/degraded no-secret/no-content tests in `apps/server/tests/contract/test_cabinet_no_secret_content_egress.py`
-- [ ] T031 [P] [US3] Add processing-state web shell tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
+- [X] T028 [P] [US3] Add processing/degraded/detail-state integration tests in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
+- [X] T029 [P] [US3] Add privacy-preserving denial tests for foreign meetings in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
+- [X] T030 [P] [US3] Add processing/degraded no-secret/no-content tests in `apps/server/tests/contract/test_cabinet_no_secret_content_egress.py`
+- [X] T031 [P] [US3] Add processing-state web shell tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
 
 ### Implementation for User Story 3
 
-- [ ] T032 [US3] Implement processing, partial, blocked, failed, unavailable, and empty-transcript status mapping in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T033 [US3] Implement content-safe processing/degraded query fallbacks and privacy-preserving not-found behavior in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
-- [ ] T034 [US3] Return privacy-preserving 404/403 problem responses for denied cabinet detail access in `apps/server/src/twobrain_rec_server/api/cabinet.py`
-- [ ] T035 [US3] Render processing/degraded/failed/unavailable web states without fake content in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T036 [US3] Update degraded-state validation evidence in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T032 [US3] Implement processing, partial, blocked, failed, unavailable, and empty-transcript status mapping in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T033 [US3] Implement content-safe processing/degraded query fallbacks and privacy-preserving not-found behavior in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T034 [US3] Return privacy-preserving 404/403 problem responses for denied cabinet detail access in `apps/server/src/twobrain_rec_server/api/cabinet.py`
+- [X] T035 [US3] Render processing/degraded/failed/unavailable web states without fake content in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T036 [US3] Update degraded-state validation evidence in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 3 is independently functional across non-ready states.
 
@@ -124,14 +124,14 @@
 
 ### Tests for User Story 4
 
-- [ ] T037 [P] [US4] Add governance action contract assertions in `apps/server/tests/contract/test_cabinet_contract.py`
-- [ ] T038 [P] [US4] Add non-mutating disabled-action web shell tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
+- [X] T037 [P] [US4] Add governance action contract assertions in `apps/server/tests/contract/test_cabinet_contract.py`
+- [X] T038 [P] [US4] Add non-mutating disabled-action web shell tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
 
 ### Implementation for User Story 4
 
-- [ ] T039 [US4] Implement stable governance, assistant, template, and row future-slot states in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T040 [US4] Render gated governance, assistant, template, tag, saved/starred, and collaboration/access controls in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T041 [US4] Update governance validation evidence and deletion-truth copy notes in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T039 [US4] Implement stable governance, assistant, template, and row future-slot states in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T040 [US4] Render gated governance, assistant, template, tag, saved/starred, and collaboration/access controls in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T041 [US4] Update governance validation evidence and deletion-truth copy notes in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 4 is independently inspectable and non-mutating.
 
@@ -145,14 +145,14 @@
 
 ### Tests for User Story 5
 
-- [ ] T042 [P] [US5] Add embedded route contract tests in `apps/server/tests/contract/test_cabinet_contract.py`
-- [ ] T043 [P] [US5] Add embedded shell no-native-capture-control tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
+- [X] T042 [P] [US5] Add embedded route contract tests in `apps/server/tests/contract/test_cabinet_contract.py`
+- [X] T043 [P] [US5] Add embedded shell no-native-capture-control tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
 
 ### Implementation for User Story 5
 
-- [ ] T044 [US5] Implement `/desktop/meetings` and `/desktop/meetings/{meeting_id}` route variants in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T045 [US5] Enforce embedded route forbidden-control copy and bounded unavailable states in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T046 [US5] Update embedded-route validation evidence in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T044 [US5] Implement `/desktop/meetings` and `/desktop/meetings/{meeting_id}` route variants in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T045 [US5] Enforce embedded route forbidden-control copy and bounded unavailable states in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T046 [US5] Update embedded-route validation evidence in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
 
 **Checkpoint**: User Story 5 is independently inspectable through desktop embedded routes.
 
@@ -162,15 +162,15 @@
 
 **Purpose**: Final validation, evidence, docs, and release-readiness updates.
 
-- [ ] T047 [P] Update `[Unreleased]` changelog entry for feature 016 in `CHANGELOG.md`
-- [ ] T048 Run focused cabinet test suite from `specs/016-meeting-dashboard-review/quickstart.md`
-- [ ] T049 Run full server pytest and Ruff validation from `specs/016-meeting-dashboard-review/quickstart.md`
-- [ ] T050 Capture sanitized implementation screenshots for list, ready detail, processing detail, and embedded route into `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
-- [ ] T051 Scan tracked feature evidence for private content, secrets, signed URLs, raw audio, live paths, and account identifiers in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
-- [ ] T052 Compare implemented UI screenshots against V8 and Krisp/Krisp reference findings in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
-- [ ] T053 Record keyboard navigation, focus visibility, contrast, responsive width, and no-overflow checks in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
-- [ ] T054 Record local API timing and list-to-detail navigation evidence for SC-001 in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
-- [ ] T055 Reconcile completed tasks and validation evidence in `specs/016-meeting-dashboard-review/tasks.md`
+- [X] T047 [P] Update `[Unreleased]` changelog entry for feature 016 in `CHANGELOG.md`
+- [X] T048 Run focused cabinet test suite from `specs/016-meeting-dashboard-review/quickstart.md`
+- [X] T049 Run full server pytest and Ruff validation from `specs/016-meeting-dashboard-review/quickstart.md`
+- [X] T050 Capture sanitized implementation screenshots for list, ready detail, processing detail, and embedded route into `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T051 Scan tracked feature evidence for private content, secrets, signed URLs, raw audio, live paths, and account identifiers in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T052 Compare implemented UI screenshots against V8 and Krisp/Krisp reference findings in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T053 Record keyboard navigation, focus visibility, contrast, responsive width, and no-overflow checks in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T054 Record local API timing and list-to-detail navigation evidence for SC-001 in `specs/016-meeting-dashboard-review/validation/implementation-evidence.md`
+- [X] T055 Reconcile completed tasks and validation evidence in `specs/016-meeting-dashboard-review/tasks.md`
 
 ---
 

@@ -8,9 +8,9 @@ patterns only. Do not copy private meeting text, email addresses, tokens, or
 share URLs into repo artifacts.
 
 Addendum: authenticated Krisp web was also inspected in the user's already-open
-Chrome session on 2026-06-16. Raw screenshots were saved outside git under
-`/Users/yshishenya/.codex/private-reference-captures/2brain-rec/016-meeting-dashboard-review/2026-06-16/`
-because they contain private account, contact, meeting, and transcript data.
+Chrome session on 2026-06-16. Raw screenshots were saved in a private reference
+directory outside git because they contain private account, contact, meeting,
+and transcript data.
 
 ## Surfaces Observed
 

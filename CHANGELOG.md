@@ -8,6 +8,10 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен server-owned web cabinet для review встреч: авторизованный список,
+  ready/partial/processing/failed detail states, transcript/speaker timeline,
+  truthful unavailable notes, gated governance/future slots и desktop-embedded
+  routes без native capture controls (`feature:016`, `T001-T048`).
 - Добавлена обязанность вести Changelog в репозитории для всех значимых изменений.
 - Добавлена macOS desktop upload queue: durable local queue, truthful retry/upload states,
   server-mediated ingest mapping and compact queue UI (`feature:014`, `T001-T030`).
@@ -59,6 +63,10 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Cabinet API и web routes используют существующий tenant/device auth context,
+  скрывают foreign meeting existence через privacy-preserving 404 и не отдают
+  transcript text в list responses, storage keys, signed URLs, workflow/run ids
+  или MediaScribe external ids (`feature:016`, `T011`, `T029`, `T030`).
 - MediaScribe credentials remain server-side through secret-file configuration;
   processing status, audit metadata, logs, and evidence must not expose raw
   audio, transcript text, signed URLs, API keys, bearer tokens, passwords, or

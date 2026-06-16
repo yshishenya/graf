@@ -68,11 +68,8 @@ content, share links, and account identifiers.
 
 ## Private Authenticated Chrome Captures
 
-Raw authenticated web screenshots were saved outside git at:
-
-```text
-/Users/yshishenya/.codex/private-reference-captures/2brain-rec/016-meeting-dashboard-review/2026-06-16/
-```
+Raw authenticated web screenshots were saved in a private reference directory
+outside git.
 
 The private folder contains `manifest.json` and 23 PNG captures for the list,
 menus, row actions, search, processing detail, processed notes, share controls,
@@ -82,11 +79,9 @@ files contain private account/contact/transcript data and must not be committed.
 
 ## Why Raw Appshots Are Not Saved Here Yet
 
-The user-provided appshots arrived in chat as appshot attachments. A local
-filesystem search for the referenced filenames did not find corresponding PNG
-files under `/Users/yshishenya`. The raw screenshots also contain private
-meeting content and account identity, so they should not be committed under
-`specs/`.
+The user-provided appshots arrived in chat as appshot attachments. The raw
+screenshots contain private meeting content and account identity, so they
+should not be committed under `specs/`.
 
 Preferred options:
 

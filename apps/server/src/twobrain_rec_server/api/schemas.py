@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints
@@ -149,3 +149,167 @@ class ProcessingStatusResponse(BaseModel):
     diarization_available: bool = False
     summary_status: str = "not_requested"
     updated_at: datetime | None = None
+
+
+MeetingReviewStatus = Literal[
+    "local_only",
+    "uploading",
+    "submitted",
+    "processing",
+    "ready",
+    "partial",
+    "blocked",
+    "failed",
+    "unavailable",
+    "deleted_future",
+]
+MeetingSource = Literal["desktop_recording", "manual_upload", "unknown"]
+PrimaryAction = Literal["open", "wait", "retry_future", "open_status", "unavailable"]
+SourceRoleView = Literal["local_microphone", "incoming_system", "unknown"]
+GovernanceState = Literal["available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"]
+SlotStateValue = Literal["available", "disabled", "planned", "policy_blocked", "out_of_scope"]
+NextAction = Literal["wait", "retry_future", "contact_operator", "open_desktop_queue", "none"]
+
+
+class GovernanceActionState(BaseModel):
+    state: GovernanceState
+    label: str
+    reason: str | None = None
+    destructive: bool = False
+
+
+class GovernanceActionSummary(BaseModel):
+    share: GovernanceActionState
+    export: GovernanceActionState
+    download: GovernanceActionState
+    retention: GovernanceActionState
+    delete: GovernanceActionState
+
+
+class SlotState(BaseModel):
+    state: SlotStateValue
+    label: str
+    reason: str | None = None
+
+
+class MeetingFilterState(BaseModel):
+    q: str | None = None
+    status: MeetingReviewStatus | None = None
+    sort: str = "updated_desc"
+
+
+class MeetingListItem(BaseModel):
+    meeting_id: UUID
+    title: str
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    duration_seconds: int = Field(ge=0)
+    source: MeetingSource = "desktop_recording"
+    status: MeetingReviewStatus
+    status_label: str
+    status_reason: str | None = None
+    primary_action: PrimaryAction
+    transcript_available: bool = False
+    diarization_available: bool = False
+    notes_available: bool = False
+    updated_at: datetime | None = None
+    governance: GovernanceActionSummary
+    future_slots: list[SlotState] = Field(default_factory=list)
+
+
+class MeetingListResponse(BaseModel):
+    items: list[MeetingListItem]
+    filters: MeetingFilterState
+    generated_at: datetime
+
+
+class MeetingProvenance(BaseModel):
+    source_roles: list[SourceRoleView] = Field(default_factory=list)
+    processing_dependency: str | None = None
+    content_policy: str = "authorized_detail_only"
+
+
+class ProcessingReviewState(BaseModel):
+    state: MeetingReviewStatus
+    stage: str | None = None
+    reason_code: str | None = None
+    reason_label: str | None = None
+    content_available: bool = False
+    transcript_available: bool = False
+    diarization_available: bool = False
+    summary_available: bool = False
+    updated_at: datetime | None = None
+    next_action: NextAction = "none"
+
+
+class TranscriptSegmentView(BaseModel):
+    segment_id: str
+    sequence: int
+    start_seconds: float
+    end_seconds: float
+    timestamp_label: str
+    speaker_label: str
+    source_role: SourceRoleView
+    text: str
+    confidence_label: str | None = None
+
+
+class TranscriptReviewState(BaseModel):
+    available: bool
+    language: str | None = None
+    degraded_reason: str | None = None
+    search_enabled: bool = False
+    segments: list[TranscriptSegmentView] = Field(default_factory=list)
+
+
+class SpeakerLaneSegment(BaseModel):
+    start_seconds: float
+    end_seconds: float
+
+
+class SpeakerLane(BaseModel):
+    speaker_key: str
+    label: str
+    talk_time_percent: int = Field(ge=0, le=100)
+    source_roles: list[SourceRoleView] = Field(default_factory=list)
+    segments: list[SpeakerLaneSegment] = Field(default_factory=list)
+    confidence_label: str | None = None
+
+
+class SpeakerReviewState(BaseModel):
+    available: bool
+    assignment_state: Literal["available", "reserved", "disabled", "conflict_future", "unavailable"]
+    degraded_reason: str | None = None
+    speakers: list[SpeakerLane] = Field(default_factory=list)
+
+
+class NotesReviewState(BaseModel):
+    available: bool
+    sections: list[dict] = Field(default_factory=list)
+    unavailable_reason: Literal[
+        "none",
+        "not_requested",
+        "processing",
+        "generation_future",
+        "partial_transcript",
+        "policy_blocked",
+    ]
+
+
+class PlaybackReviewState(BaseModel):
+    available: bool = False
+    duration_seconds: int = Field(default=0, ge=0)
+    speed_options: list[float] = Field(default_factory=lambda: [0.75, 1.0, 1.25, 1.5, 2.0])
+
+
+class MeetingReviewResponse(BaseModel):
+    meeting: MeetingListItem
+    provenance: MeetingProvenance
+    processing: ProcessingReviewState
+    transcript: TranscriptReviewState
+    speakers: SpeakerReviewState
+    notes: NotesReviewState
+    playback: PlaybackReviewState
+    governance: GovernanceActionSummary
+    assistant: SlotState
+    template: SlotState
