@@ -39,6 +39,14 @@ Out of scope for this feature:
 - native reimplementation of the web cabinet meeting list or transcript review;
 - broad account/admin/settings surfaces beyond a bounded desktop cabinet entry.
 
+## Clarifications
+
+### Session 2026-06-16
+
+- Q: Should this slice introduce broad desktop navigation or stay limited to the meeting review value loop? -> A: Limit to the meetings workspace, meeting detail, and upload-to-review entry points.
+- Q: Can embedded web content own capture, upload, deletion, sharing, or local diagnostics actions? -> A: No; embedded content is review-only for this slice and all risky/local actions stay native or future-gated.
+- Q: What authentication mode is acceptable for first validation before production desktop auth handoff is complete? -> A: Existing auth/session context or seeded development identity only; no hard-coded secrets, tokens, or private account identifiers.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Open Meetings In The Desktop Shell (Priority: P1)
