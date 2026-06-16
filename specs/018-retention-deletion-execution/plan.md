@@ -146,8 +146,10 @@ apps/server/
 
 apps/macos/RecApp/
 ├── Sources/Upload/DesktopUploadClient.swift          # add purge task API calls if needed
-├── Sources/Upload/DesktopUploadQueueService.swift    # coordinate local purge ack if needed
-└── Tests/RecAppTests/DesktopLocalPurgeTests.swift     # Swift tests only if client changes
+└── Sources/Upload/DesktopUploadQueueService.swift    # coordinate local purge ack if needed
+
+apps/macos/Shared/
+└── Tests/DesktopLocalPurgeTests.swift                # Swift tests only if client changes
 ```
 
 **Structure Decision**: Extend the existing FastAPI `cabinet` and add a focused
