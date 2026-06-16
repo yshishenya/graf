@@ -124,6 +124,9 @@ apps/server/src/twobrain_rec_server/
     ├── matrix.py
     └── report.py
 
+apps/server/scripts/
+└── generate_mvp_loop_readiness.py
+
 apps/server/tests/
 ├── contract/
 │   └── test_mvp_loop_readiness_contract.py
