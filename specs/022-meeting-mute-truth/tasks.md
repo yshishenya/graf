@@ -109,7 +109,7 @@
 ### Implementation for User Story 3
 
 - [ ] T034 [US3] Add mute-truth metadata to diagnostic bundle safe fields without content-bearing payloads in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
-- [ ] T035 [US3] Preserve dual-track upload completeness behavior while carrying manifest mute-truth metadata in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [ ] T035 [US3] Preserve existing upload queue dual-track completeness behavior and ensure mute-truth fields do not add or reinterpret upload decisions in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
 - [ ] T036 [US3] Ensure capture status text distinguishes paused, degraded, failed, and local recording outcomes in `apps/macos/RecApp/Sources/Shared/AdaptiveStatusText.swift`
 - [ ] T037 [US3] Re-run and update existing local recording contract validation coverage in `apps/macos/Shared/TestPlans/ContractValidationPlan.swift`
 
@@ -125,7 +125,7 @@
 
 ### Tests for User Story 4
 
-- [ ] T038 [P] [US4] Add fixture manifest JSON files for pause-validated, unsupported, deferred, and unsafe cases in `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/pause-validated.json`
+- [ ] T038 [P] [US4] Add fixture manifest JSON files for pause-validated, unsupported, deferred, and unsafe cases in `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/pause-validated.json`, `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/unsupported.json`, `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/deferred.json`, and `apps/macos/Shared/Tests/Fixtures/MeetingMuteTruth/unsafe.json`
 - [ ] T039 [P] [US4] Add failing validation script tests or fixture assertions in `apps/macos/Shared/Tests/MeetingMuteTruthValidationTests.swift`
 
 ### Implementation for User Story 4
