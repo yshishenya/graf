@@ -129,14 +129,14 @@
 
 **Purpose**: Prove the feature is safe to review, issue-sync, and continue toward MVP.
 
-- [ ] T036 [P] Run focused readiness tests and record results in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T037 [P] Run `infra/scripts/ci-local.sh` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T038 [P] Run macOS build/focused tests from quickstart and record results in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T039 Run forbidden-content scans over `specs/035-mvp-loop-live-evidence` and `docs/evidence/035-mvp-loop-live-evidence` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T040 Run `git diff --check` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T036 [P] Run focused readiness tests and record results in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T037 [P] Run `infra/scripts/ci-local.sh` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T038 [P] Run macOS build/focused tests from quickstart and record results in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T039 Run forbidden-content scans over `specs/035-mvp-loop-live-evidence` and `docs/evidence/035-mvp-loop-live-evidence` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T040 Run `git diff --check` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
 - [X] T041 Run `$speckit-taskstoissues`/GitHub issue sync and record issue links in `specs/035-mvp-loop-live-evidence/issues.md`
-- [ ] T042 Run `$speckit-analyze` after issue sync changes if tasks or scope changed and record final analysis in `specs/035-mvp-loop-live-evidence/analysis.md`
-- [ ] T043 Verify every task is complete, every checklist is complete, and no open `feature:035` GitHub issue lacks evidence in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T042 Run `$speckit-analyze` after issue sync changes if tasks or scope changed and record final analysis in `specs/035-mvp-loop-live-evidence/analysis.md`
+- [X] T043 Verify every task is complete, every checklist is complete, and no open `feature:035` GitHub issue lacks evidence in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
 
 ---
 
