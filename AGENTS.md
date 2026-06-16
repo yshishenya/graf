@@ -118,7 +118,7 @@ Planning must stop if constitution gates fail or important clarifications remain
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/017-access-sharing-downloads/plan.md
+at specs/018-retention-deletion-execution/plan.md
 <!-- SPECKIT END -->
 
 ### 4. Checklist
