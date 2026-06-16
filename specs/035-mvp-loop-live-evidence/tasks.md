@@ -43,19 +43,19 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add installed desktop evidence assertions in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
-- [ ] T011 [P] [US1] Add latest-artifact validation command expectation in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T010 [P] [US1] Add installed desktop evidence assertions in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
+- [X] T011 [P] [US1] Add latest-artifact validation command expectation in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Install the staged macOS app into `/Applications/2brain Rec.app` and record the command evidence in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T013 [US1] Capture installed desktop idle/ready screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
-- [ ] T014 [US1] Capture installed desktop active recording screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
-- [ ] T015 [US1] Capture installed desktop paused recording screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
-- [ ] T016 [US1] Capture installed desktop resumed recording screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
-- [ ] T017 [US1] Capture installed desktop stopped/list screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
-- [ ] T018 [US1] Run `apps/macos/Scripts/validate-meeting-mute-truth.sh --latest-artifact-directory` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T019 [US1] Summarize installed desktop artifact metadata and limitations in `docs/evidence/035-mvp-loop-live-evidence/README.md`
+- [X] T012 [US1] Install the staged macOS app into `/Applications/2brain Rec.app` and record the command evidence in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T013 [US1] Capture installed desktop idle/ready screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
+- [X] T014 [US1] Capture installed desktop active recording screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
+- [X] T015 [US1] Capture installed desktop paused recording screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
+- [X] T016 [US1] Capture installed desktop resumed recording screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
+- [X] T017 [US1] Capture installed desktop stopped/list screenshot in `docs/evidence/035-mvp-loop-live-evidence/screenshots/`
+- [X] T018 [US1] Run `apps/macos/Scripts/validate-meeting-mute-truth.sh --latest-artifact-directory` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T019 [US1] Summarize installed desktop artifact metadata and limitations in `docs/evidence/035-mvp-loop-live-evidence/README.md`
 
 **Checkpoint**: US1 is complete when installed desktop evidence is either accepted with latest-artifact validation or blocks the claim with a precise failing gate.
 

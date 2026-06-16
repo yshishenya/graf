@@ -70,6 +70,34 @@ def test_035_launch_gap_register_keeps_accepted_022_evidence_and_current_p1_gaps
     assert "production-user-rollout-evidence" in gap_ids
 
 
+def test_035_installed_desktop_evidence_files_are_present_and_metadata_safe() -> None:
+    evidence_dir = Path(__file__).resolve().parents[4] / "docs/evidence/035-mvp-loop-live-evidence"
+    screenshot_dir = evidence_dir / "screenshots"
+    expected_screenshots = {
+        "2026-06-16-desktop-idle-ready-applications.png",
+        "2026-06-16-desktop-active-recording-applications.png",
+        "2026-06-16-desktop-paused-recording-applications.png",
+        "2026-06-16-desktop-resumed-recording-applications.png",
+        "2026-06-16-desktop-stopped-list-applications.png",
+    }
+
+    for file_name in expected_screenshots:
+        screenshot = screenshot_dir / file_name
+        assert screenshot.exists(), file_name
+        assert screenshot.stat().st_size > 10_000, file_name
+
+    validation_log = (evidence_dir / "validation-log.md").read_text()
+    readme = (evidence_dir / "README.md").read_text()
+
+    assert "installed-app-proof" in validation_log
+    assert "/Applications/2brain Rec.app" in validation_log
+    assert "latest-artifact-validator" in validation_log
+    assert "20260616-163553-91CF43DD-71DA-45BA-9995-0C0788D49D7F" in readme
+    assert "meeting-app mute-respecting claim is allowed" in readme
+    assert "/Users/" not in validation_log
+    assert "/Users/" not in readme
+
+
 def test_035_clean_room_reference_assertions_stay_metadata_only() -> None:
     report = build_default_readiness_report(feature=FEATURE, generated_at="2026-06-16T00:00:00Z")
 
