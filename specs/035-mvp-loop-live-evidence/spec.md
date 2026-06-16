@@ -13,6 +13,16 @@ desktop app, web owner review, backend readiness artifacts, forbidden-content
 scans, and production user journey can support an MVP claim without expanding
 feature behavior."
 
+## Clarifications
+
+### Session 2026-06-16
+
+- Q: Are there any critical unresolved user choices before planning? → A: No;
+  the slice is validation-only, uses `/Applications/2brain Rec.app` for desktop
+  runtime evidence, permits safe fixture data when live private web evidence
+  cannot be committed, and forbids stronger MVP/pilot claims while any P0/P1
+  gap remains.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Prove Installed Desktop Capture Loop (Priority: P1)
