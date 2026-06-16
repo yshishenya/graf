@@ -50,3 +50,31 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Sort" in response.text
     assert "Проектный синк" in response.text
 
+
+def test_cabinet_list_api_exposes_governance_future_slots_and_artifact_truth(client) -> None:
+    seed_cabinet_meetings(client)
+
+    response = client.get("/api/v1/cabinet/meetings", headers=auth_headers())
+
+    assert response.status_code == 200
+    item = next(row for row in response.json()["items"] if row["title"] == "Проектный синк")
+    assert item["access"]["state"] == "owner"
+    assert item["governance"]["share"]["state"] == "available"
+    assert item["governance"]["delete"]["state"] == "planned"
+    assert {slot["label"] for slot in item["future_slots"]} >= {"Star", "Tag", "Access", "More"}
+    assert item["notes_available"] is False
+    assert "storage_object_key" not in response.text
+
+
+def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_controls(client) -> None:
+    seed_cabinet_meetings(client)
+
+    response = client.get("/desktop/meetings", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert "desktop-embedded" in response.text
+    assert "Meeting notes" in response.text
+    assert "Проектный синк" in response.text
+    assert "Upload file" not in response.text
+    assert "Record live" not in response.text
+    assert "Screen Recording" not in response.text

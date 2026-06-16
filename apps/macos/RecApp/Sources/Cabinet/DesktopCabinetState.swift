@@ -60,7 +60,7 @@ public struct NativeShellInvariant: Equatable, Sendable {
     }
 
     public func satisfiesActiveRecordingSafety(cabinetState _: DesktopCabinetState) -> Bool {
-        stopVisible && focusCanReachStop && uploadTruthVisible
+        recordVisible && stopVisible && focusCanReachStop && uploadTruthVisible
     }
 }
 

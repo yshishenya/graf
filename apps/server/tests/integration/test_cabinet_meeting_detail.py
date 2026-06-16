@@ -1,5 +1,6 @@
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import (
+    PRIVATE_EXTERNAL_JOB_ID,
     SAFE_SECOND_TRANSCRIPT_TEXT,
     SAFE_TRANSCRIPT_TEXT,
     seed_cabinet_meetings,
@@ -22,8 +23,10 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
         "incoming_system",
     ]
     assert payload["provenance"]["source_roles"] == ["local_microphone", "incoming_system"]
+    assert payload["provenance"]["processing_dependency"] == "mediascribe"
     assert payload["playback"]["available"] is True
     assert {speaker["label"] for speaker in payload["speakers"]["speakers"]} == {"Speaker 1", "Speaker 2"}
+    assert PRIVATE_EXTERNAL_JOB_ID not in response.text
 
 
 def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client) -> None:
@@ -65,9 +68,31 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Recording &amp; Transcript" in ready.text
     assert SAFE_TRANSCRIPT_TEXT in ready.text
     assert "Assign speakers" in ready.text
+    assert "Assistant" in ready.text
+    assert "Template" in ready.text
+    assert "AI notes are reserved for a later feature" in ready.text
+    assert "016" not in ready.text
     assert "Access" in ready.text
     assert "Team visibility" in ready.text
     assert "Artifacts" in ready.text
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
+
+
+def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_native_capture_copy(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    response = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert "desktop-embedded" in response.text
+    assert "Transcript" in response.text
+    assert "Recording &amp; Transcript" not in response.text
+    assert SAFE_TRANSCRIPT_TEXT in response.text
+    assert "Open in browser" in response.text
+    assert "Access" in response.text
+    assert "Share" in response.text
+    assert "Report" in response.text
+    assert "Record live" not in response.text
+    assert "Krisp Devices" not in response.text

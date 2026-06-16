@@ -144,10 +144,14 @@ public struct UploadReviewLink: Equatable, Sendable {
             self.destination = configuration.meetingDetailURL(meetingId: meetingId)
             self.availability = .available
             self.reason = "server_meeting_available"
-        } else if let meetingId {
+        } else if let meetingId, item.state.canAutomaticallyRetry || item.state == .uploading {
             self.destination = configuration.meetingDetailURL(meetingId: meetingId)
             self.availability = .processingOnly
             self.reason = "server_meeting_processing"
+        } else if meetingId != nil {
+            self.destination = nil
+            self.availability = .unavailable
+            self.reason = "server_meeting_terminal"
         } else {
             self.destination = nil
             self.availability = .unavailable

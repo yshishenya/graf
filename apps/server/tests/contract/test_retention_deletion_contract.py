@@ -60,6 +60,10 @@ def test_deletion_request_and_report_contract_exposes_no_private_content(client)
         "upload_temp",
         "diagnostics",
     }
+    assert all(row["artifact_class"] not in dependency_classes for row in report.json()["artifact_states"])
+    assert {row["control_scope"] for row in report.json()["dependencies"]} >= {"external", "controlled"}
+    assert report.json()["post_egress_limits"][0]["state"] == "outside_2brain_control"
+    assert report.json()["post_egress_limits"][0]["control_scope"] == "post_egress"
     assert report.json()["backup"]["safe_reason"] == "backup_expiry_days:30"
     activity = report.json()["activity"]
     assert [item["event_type"] for item in activity] == ["deletion_requested"]

@@ -771,7 +771,7 @@ async def _authorized_lifecycle_meeting(
 
 def _notes_copy(review: MeetingReviewResponse) -> str:
     if review.notes.unavailable_reason == "generation_future":
-        return "AI notes are reserved for a later feature. No summary in 016."
+        return "AI notes are reserved for a later feature. No generated summary is shown yet."
     if review.notes.unavailable_reason == "processing":
         return "Notes will stay unavailable until transcript processing finishes."
     return "Notes are not available for this meeting."
