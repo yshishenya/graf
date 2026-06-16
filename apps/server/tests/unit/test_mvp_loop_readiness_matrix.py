@@ -161,8 +161,10 @@ def test_policy_lifecycle_evidence_is_local_runtime_and_keeps_external_limits_vi
 
 def test_required_launch_blockers_have_severity_owner_and_next_actions() -> None:
     report = build_default_readiness_report()
+    evidence_ids = {item.id for item in report.evidence}
     gaps = {gap.id: gap for gap in report.launch_gaps}
 
+    assert "feature-022-meeting-mute-truth" in evidence_ids
     assert {
         "signed-installer-evidence",
         "browser-target-gaps",

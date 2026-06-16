@@ -17,6 +17,7 @@ from twobrain_rec_server.readiness.matrix import (
 
 def build_default_readiness_report(
     *,
+    feature: str = "034-mvp-loop-readiness",
     generated_at: str | None = None,
     deployed_commit: str = "unknown",
 ) -> ReadinessReport:
@@ -35,14 +36,15 @@ def build_default_readiness_report(
         p0_p1_blockers=p0_p1_count,
     )
     return ReadinessReport(
+        feature=feature,
         generated_at=generated_at,
         deployed_commit=deployed_commit,
         claim_summary=summary,
         stages=build_default_stages(),
-        evidence=build_default_evidence(generated_at, deployed_commit),
+        evidence=build_default_evidence(generated_at, deployed_commit, feature=feature),
         launch_gaps=launch_gaps,
         reference_comparisons=build_default_reference_comparisons(),
-        forbidden_content_scan=passed_forbidden_content_scan(),
+        forbidden_content_scan=passed_forbidden_content_scan(feature),
     )
 
 
@@ -229,7 +231,9 @@ def _launch_gap_table(report: ReadinessReport) -> str:
 
 def _next_slice_recommendation(report: ReadinessReport) -> str:
     p1_gaps = [gap for gap in report.launch_gaps if gap.severity == "P1"]
-    if any(gap.id in {"live-desktop-evidence", "production-user-rollout-evidence"} for gap in p1_gaps):
+    if report.feature == "034-mvp-loop-readiness" and any(
+        gap.id in {"live-desktop-evidence", "production-user-rollout-evidence"} for gap in p1_gaps
+    ):
         return (
             "Recommended next product slice: `035-mvp-loop-live-evidence`. "
             "Before any pilot claim, close metadata-safe live desktop/web evidence "

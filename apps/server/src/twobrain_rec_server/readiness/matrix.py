@@ -40,8 +40,12 @@ def p0_p1_blocker_count(gaps: list[LaunchGap]) -> int:
     return sum(1 for gap in gaps if gap.severity in {"P0", "P1"})
 
 
-def build_default_evidence(captured_at: str, deployed_commit: str) -> list[ReadinessEvidence]:
-    return [
+def build_default_evidence(
+    captured_at: str,
+    deployed_commit: str,
+    feature: str = "034-mvp-loop-readiness",
+) -> list[ReadinessEvidence]:
+    evidence = [
         ReadinessEvidence(
             id="spec-034",
             type="document",
@@ -290,6 +294,48 @@ def build_default_evidence(captured_at: str, deployed_commit: str) -> list[Readi
             forbidden_content_scan="pass",
         ),
     ]
+    if feature == "035-mvp-loop-live-evidence":
+        evidence.extend(
+            [
+                ReadinessEvidence(
+                    id="feature-035-live-evidence-pack",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/README.md",
+                    captured_at=captured_at,
+                    scope="Defines metadata-safe evidence boundaries and the strongest truthful 035 claim.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-035-validation-log",
+                    type="document",
+                    source="docs/evidence/035-mvp-loop-live-evidence/validation-log.md",
+                    captured_at=captured_at,
+                    scope="Records 035 command/manual validation evidence and blockers.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-035-clean-room-reference",
+                    type="reference_review",
+                    source="docs/evidence/035-mvp-loop-live-evidence/clean-room-reference.md",
+                    captured_at=captured_at,
+                    scope="Records allowed reference lessons and forbidden similarity checks for 035.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-035-github-issues",
+                    type="github",
+                    source="specs/035-mvp-loop-live-evidence/issues.md",
+                    captured_at=captured_at,
+                    scope="Maps all 035 Spec Kit tasks to GitHub issues #1064-#1106.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+            ]
+        )
+    return evidence
 
 
 def build_default_launch_gaps() -> list[LaunchGap]:
@@ -568,13 +614,14 @@ def build_default_reference_comparisons() -> list[ReferenceComparison]:
     ]
 
 
-def passed_forbidden_content_scan() -> ForbiddenContentScan:
+def passed_forbidden_content_scan(feature: str = "034-mvp-loop-readiness") -> ForbiddenContentScan:
+    evidence_dir = f"docs/evidence/{feature}"
     return ForbiddenContentScan(
         status="pass",
         commands=[
-            "rg -n -i real private-value patterns specs/034-mvp-loop-readiness docs/evidence/034-mvp-loop-readiness docs/current-product-status.md CHANGELOG.md",
-            "find docs/evidence/034-mvp-loop-readiness/screenshots -type f -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.webp'",
-            "rg -n -i evidence payload-id patterns docs/evidence/034-mvp-loop-readiness",
+            f"rg -n -i real private-value patterns specs/{feature} {evidence_dir} docs/current-product-status.md CHANGELOG.md",
+            f"find {evidence_dir}/screenshots -type f -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.webp'",
+            f"rg -n -i evidence payload-id patterns {evidence_dir}",
         ],
         matches=[],
     )

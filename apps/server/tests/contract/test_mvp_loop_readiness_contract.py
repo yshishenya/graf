@@ -29,6 +29,17 @@ def test_mvp_loop_readiness_json_contract_has_required_top_level_shape() -> None
     }
 
 
+def test_mvp_loop_readiness_json_contract_accepts_035_feature_id() -> None:
+    report = build_default_readiness_report(
+        feature="035-mvp-loop-live-evidence",
+        generated_at="2026-06-16T00:00:00Z",
+    )
+    payload = report.model_dump(mode="json")
+
+    assert payload["feature"] == "035-mvp-loop-live-evidence"
+    assert payload["claim_summary"]["outcome"] == "pilot_blocked"
+
+
 def test_mvp_loop_readiness_markdown_contract_sections_are_in_order() -> None:
     markdown = render_markdown_report(build_default_readiness_report())
     required_sections = [
@@ -81,4 +92,3 @@ def test_mvp_loop_ready_rejects_open_p0_p1_launch_gaps() -> None:
             claim_summary=ClaimSummary(outcome="mvp_loop_ready", p0_p1_blockers=1),
             launch_gaps=[gap],
         )
-

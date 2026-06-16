@@ -12,10 +12,10 @@
 
 **Purpose**: Create the feature evidence locations and baseline documentation.
 
-- [ ] T001 Create evidence scaffold in `docs/evidence/035-mvp-loop-live-evidence/README.md`
-- [ ] T002 [P] Create screenshot directory placeholder in `docs/evidence/035-mvp-loop-live-evidence/screenshots/.gitkeep`
-- [ ] T003 [P] Create initial validation log in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T004 [P] Create initial clean-room reference note in `docs/evidence/035-mvp-loop-live-evidence/clean-room-reference.md`
+- [X] T001 Create evidence scaffold in `docs/evidence/035-mvp-loop-live-evidence/README.md`
+- [X] T002 [P] Create screenshot directory placeholder in `docs/evidence/035-mvp-loop-live-evidence/screenshots/.gitkeep`
+- [X] T003 [P] Create initial validation log in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
+- [X] T004 [P] Create initial clean-room reference note in `docs/evidence/035-mvp-loop-live-evidence/clean-room-reference.md`
 
 ---
 
@@ -25,11 +25,11 @@
 
 **Critical**: No live-loop claim work can proceed until stale recommendation, forbidden-content, and P0/P1 claim gates are covered.
 
-- [ ] T005 [P] Add live evidence pack contract coverage in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
-- [ ] T006 [P] Add stale next-slice and P0/P1 claim coverage in `apps/server/tests/integration/test_mvp_loop_readiness_report.py`
-- [ ] T007 [P] Add launch-gap and accepted-022 evidence coverage in `apps/server/tests/unit/test_mvp_loop_readiness_matrix.py`
-- [ ] T008 Update readiness model/report generation for 035 evidence outputs in `apps/server/src/twobrain_rec_server/readiness/report.py`
-- [ ] T009 Update readiness matrix current gaps and claim rules after 022 in `apps/server/src/twobrain_rec_server/readiness/matrix.py`
+- [X] T005 [P] Add live evidence pack contract coverage in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
+- [X] T006 [P] Add stale next-slice and P0/P1 claim coverage in `apps/server/tests/integration/test_mvp_loop_readiness_report.py`
+- [X] T007 [P] Add launch-gap and accepted-022 evidence coverage in `apps/server/tests/unit/test_mvp_loop_readiness_matrix.py`
+- [X] T008 Update readiness model/report generation for 035 evidence outputs in `apps/server/src/twobrain_rec_server/readiness/report.py`
+- [X] T009 Update readiness matrix current gaps and claim rules after 022 in `apps/server/src/twobrain_rec_server/readiness/matrix.py`
 
 **Checkpoint**: Focused readiness tests prove the report cannot recommend a completed feature or claim MVP readiness with unresolved P0/P1 gaps.
 
@@ -134,7 +134,7 @@
 - [ ] T038 [P] Run macOS build/focused tests from quickstart and record results in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
 - [ ] T039 Run forbidden-content scans over `specs/035-mvp-loop-live-evidence` and `docs/evidence/035-mvp-loop-live-evidence` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
 - [ ] T040 Run `git diff --check` and record result in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
-- [ ] T041 Run `$speckit-taskstoissues`/GitHub issue sync and record issue links in `specs/035-mvp-loop-live-evidence/issues.md`
+- [X] T041 Run `$speckit-taskstoissues`/GitHub issue sync and record issue links in `specs/035-mvp-loop-live-evidence/issues.md`
 - [ ] T042 Run `$speckit-analyze` after issue sync changes if tasks or scope changed and record final analysis in `specs/035-mvp-loop-live-evidence/analysis.md`
 - [ ] T043 Verify every task is complete, every checklist is complete, and no open `feature:035` GitHub issue lacks evidence in `docs/evidence/035-mvp-loop-live-evidence/validation-log.md`
 

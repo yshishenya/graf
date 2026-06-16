@@ -54,3 +54,14 @@ def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() 
     assert "Recommended next feature: `022-meeting-mute-truth`" not in status_doc
     assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" in status_doc
     assert "034-mvp-loop-readiness" in status_doc
+
+
+def test_035_report_does_not_recommend_completed_035_as_next_slice() -> None:
+    report = build_default_readiness_report(
+        feature="035-mvp-loop-live-evidence",
+        generated_at="2026-06-16T00:00:00Z",
+    )
+    markdown = render_markdown_report(report)
+
+    assert "Recommended next product slice: `035-mvp-loop-live-evidence`" not in markdown
+    assert "Recommended next action: resolve `live-desktop-evidence` before pilot readiness." in markdown
