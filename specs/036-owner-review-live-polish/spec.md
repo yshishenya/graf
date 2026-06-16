@@ -8,6 +8,14 @@
 
 **Input**: User description: "Continue toward MVP through the full SDD/Spec Kit cycle, carefully verifying against the reference desktop application and web product. Close the next plan item after 035: prove the live owner review route, decide notes/action truth, and move the installed desktop/web review surfaces toward the accepted clean-room V8 baseline without copying Krisp."
 
+## Clarifications
+
+### Session 2026-06-16
+
+- Q: Does 036 require full generated notes/actions, or is truthful output status enough? → A: Truthful status is required; generated output improves readiness only when proven, while unavailable/deferred output keeps `mvp_loop_ready` excluded.
+- Q: What live owner review evidence may be committed? → A: Metadata-safe evidence only; private meeting text, account identifiers, cookies, tokens, signed URLs, private screenshots, and raw content remain forbidden.
+- Q: Does V8 polish require all 17 design frames in this slice? → A: No; this slice targets runtime-critical desktop/web owner review surfaces and records any remaining V8 gaps separately.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Prove Live Owner Review Access (Priority: P1)
