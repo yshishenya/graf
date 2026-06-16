@@ -3,8 +3,8 @@
 ## Claim Summary
 
 - Feature: `035-mvp-loop-live-evidence`
-- Generated at: `2026-06-16T17:13:41Z`
-- Deployed commit: `7cb5c9f9ed7aca679e782fd824a9bd6312ee7f4f`
+- Generated at: `2026-06-16T17:19:22Z`
+- Deployed commit: `f7cb040308aaffcb8af384b622a6f8c731d21c18`
 - Outcome: `pilot_blocked`
 - Bounded claims: `infra_smoke_ready`
 - Excluded claims: `mvp_loop_ready`, `internal_pilot_candidate`, `user_rollout_ready`, `production_ready`
@@ -75,7 +75,7 @@ Evidence records:
 
 - Surface: `desktop_home`
 - Result: `needs_polish`
-- Alignment: 033 establishes the desktop cabinet shell and 034 adds local regression evidence; live screenshots are still blocked.
+- Alignment: 035 proves the installed local capture loop, but the visible desktop surface is still an operational local-mode workspace that needs the accepted V8 meeting-workspace polish.
 - Allowed lessons: Meeting workspace first, Native capture authority remains local
 - Intentional differences: 2brain keeps Record/Stop as native trust controls.
 - Forbidden similarity checks: No committed private Krisp screenshots., No copied Krisp visual expression, brand assets, colors, or icons., No exact Krisp product copy beyond short category labels.
@@ -83,8 +83,8 @@ Evidence records:
 ### `web-list-workspace`
 
 - Surface: `web_list`
-- Result: `pass`
-- Alignment: 034 verifies the web list and desktop-embedded list with fixture-backed local tests.
+- Result: `needs_polish`
+- Alignment: 035 keeps the web list fixture-backed and records the production auth-context blocker before live owner screenshots can be committed.
 - Allowed lessons: Meeting list, filters, sort, upload slot, and future action slots are discoverable
 - Intentional differences: 2brain keeps capture creation out of embedded web content.
 - Forbidden similarity checks: No committed private Krisp screenshots., No copied Krisp visual expression, brand assets, colors, or icons., No exact Krisp product copy beyond short category labels.
@@ -92,8 +92,8 @@ Evidence records:
 ### `web-review-workspace`
 
 - Surface: `web_detail`
-- Result: `pass`
-- Alignment: 016/017/018 provide the server-owned review/governance surfaces; 034 verifies placeholders and embedded boundaries.
+- Result: `needs_polish`
+- Alignment: 016/017/018 provide the server-owned review/governance surfaces; 035 records fixture-backed detail evidence while live owner review and generated notes/actions remain blocked.
 - Allowed lessons: Transcript/playback/provenance are discoverable in one review workspace
 - Intentional differences: 2brain uses its own design language and truthful placeholder policy.
 - Forbidden similarity checks: No committed private Krisp screenshots., No copied Krisp visual expression, brand assets, colors, or icons., No exact Krisp product copy beyond short category labels.
@@ -102,7 +102,7 @@ Evidence records:
 
 - Surface: `governance`
 - Result: `pass`
-- Alignment: 017/018 cover policy-owned access, egress, retention, deletion, and purge truth.
+- Alignment: 017/018 cover policy-owned access, egress, retention, deletion, and purge truth; 035 keeps production destructive governance actions out of scope and documents fixture-backed governance evidence.
 - Allowed lessons: Share, export/download, deletion, and lifecycle truth must be visible by policy
 - Intentional differences: External public links remain out of scope.
 - Forbidden similarity checks: No committed private Krisp screenshots., No copied Krisp visual expression, brand assets, colors, or icons., No exact Krisp product copy beyond short category labels.

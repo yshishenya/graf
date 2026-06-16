@@ -9,7 +9,6 @@ from twobrain_rec_server.readiness import (
     write_readiness_outputs,
 )
 
-
 FEATURE = "035-mvp-loop-live-evidence"
 
 
@@ -170,6 +169,8 @@ def test_035_report_includes_web_auth_blocker_and_fixture_backed_evidence() -> N
 
 def test_035_clean_room_reference_assertions_stay_metadata_only() -> None:
     report = build_default_readiness_report(feature=FEATURE, generated_at="2026-06-16T00:00:00Z")
+    evidence_dir = Path(__file__).resolve().parents[4] / "docs/evidence/035-mvp-loop-live-evidence"
+    clean_room_note = (evidence_dir / "clean-room-reference.md").read_text()
 
     assert report.reference_comparisons
     assert all(comparison.result in {"pass", "needs_polish"} for comparison in report.reference_comparisons)
@@ -177,4 +178,13 @@ def test_035_clean_room_reference_assertions_stay_metadata_only() -> None:
         "No committed private Krisp screenshots." in comparison.forbidden_similarity_checks
         for comparison in report.reference_comparisons
     )
+    assert any(
+        "feature-035-clean-room-reference" in comparison.evidence_ids
+        for comparison in report.reference_comparisons
+    )
     assert all(item.safe_to_commit for item in report.evidence)
+    assert "Product Polish Gaps" in clean_room_note
+    assert "036-owner-review-live-polish" in clean_room_note
+    assert "No committed private Krisp screenshots." in clean_room_note
+    assert "layout-specific instructions" in clean_room_note
+    assert "/Users/" not in clean_room_note

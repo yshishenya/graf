@@ -26,5 +26,6 @@ Feature: `035-mvp-loop-live-evidence`
 | readiness-output-generation | readiness | `cd apps/server && PYTHONPATH=src uv run python scripts/generate_mvp_loop_readiness.py --feature 035-mvp-loop-live-evidence --output-dir ../../docs/evidence/035-mvp-loop-live-evidence` | pass | `readiness-report.json`, `readiness-report.md`, `launch-gap-register.md` | Output closes stale desktop gap and keeps web auth, notes/actions, and production user journey as blockers. |
 | current-status-update | docs | Update `docs/current-product-status.md` | pass | `docs/current-product-status.md#next-product-slice` | Next slice is now `036-owner-review-live-polish`; 035 is no longer recommended as next. |
 | changelog-update | docs | Update `CHANGELOG.md` | pass | `CHANGELOG.md#unreleased` | Records 035 validation-only evidence and metadata-safe web blocker. |
+| clean-room-reference-update | reference | Update `clean-room-reference.md` and regenerate readiness report | pass | `clean-room-reference.md`, `readiness-report.md` | Records allowed reference lessons, intentional 2brain differences, and V8 product polish gaps without private reference screenshots. |
 
 Further entries are added as tasks T011-T040 complete.

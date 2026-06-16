@@ -744,7 +744,8 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
     ]
 
 
-def build_default_reference_comparisons() -> list[ReferenceComparison]:
+def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness") -> list[ReferenceComparison]:
+    is_035 = feature == "035-mvp-loop-live-evidence"
     checks = [
         "No committed private Krisp screenshots.",
         "No copied Krisp visual expression, brand assets, colors, or icons.",
@@ -755,7 +756,15 @@ def build_default_reference_comparisons() -> list[ReferenceComparison]:
             id="desktop-first-viewport",
             surface="desktop_home",
             allowed_lessons=["Meeting workspace first", "Native capture authority remains local"],
-            implementation_alignment="033 establishes the desktop cabinet shell and 034 adds local regression evidence; live screenshots are still blocked.",
+            implementation_alignment=(
+                "033 establishes the desktop cabinet shell and 034 adds local regression evidence; live screenshots are still blocked."
+                if not is_035
+                else (
+                    "035 proves the installed local capture loop, but the visible desktop "
+                    "surface is still an operational local-mode workspace that needs the "
+                    "accepted V8 meeting-workspace polish."
+                )
+            ),
             intentional_differences=["2brain keeps Record/Stop as native trust controls."],
             forbidden_similarity_checks=checks,
             result="needs_polish",
@@ -765,39 +774,88 @@ def build_default_reference_comparisons() -> list[ReferenceComparison]:
                 "desktop-first-surface-blocker-note",
                 "reference-clean-room-contract",
                 "reference-comparison-note",
+                *(
+                    [
+                        "feature-035-live-evidence-pack",
+                        "feature-035-clean-room-reference",
+                    ]
+                    if is_035
+                    else []
+                ),
             ],
         ),
         ReferenceComparison(
             id="web-list-workspace",
             surface="web_list",
             allowed_lessons=["Meeting list, filters, sort, upload slot, and future action slots are discoverable"],
-            implementation_alignment="034 verifies the web list and desktop-embedded list with fixture-backed local tests.",
+            implementation_alignment=(
+                "034 verifies the web list and desktop-embedded list with fixture-backed local tests."
+                if not is_035
+                else (
+                    "035 keeps the web list fixture-backed and records the production "
+                    "auth-context blocker before live owner screenshots can be committed."
+                )
+            ),
             intentional_differences=["2brain keeps capture creation out of embedded web content."],
             forbidden_similarity_checks=checks,
-            result="pass",
-            evidence_ids=["web-cabinet-regression-tests", "web-meeting-list-blocker-note", "reference-comparison-note"],
+            result="needs_polish" if is_035 else "pass",
+            evidence_ids=[
+                "web-cabinet-regression-tests",
+                "web-meeting-list-blocker-note",
+                "reference-comparison-note",
+                *(
+                    [
+                        "feature-035-web-live-auth-blocker",
+                        "feature-035-web-list-evidence",
+                        "feature-035-clean-room-reference",
+                    ]
+                    if is_035
+                    else []
+                ),
+            ],
         ),
         ReferenceComparison(
             id="web-review-workspace",
             surface="web_detail",
             allowed_lessons=["Transcript/playback/provenance are discoverable in one review workspace"],
-            implementation_alignment="016/017/018 provide the server-owned review/governance surfaces; 034 verifies placeholders and embedded boundaries.",
+            implementation_alignment=(
+                "016/017/018 provide the server-owned review/governance surfaces; 034 verifies placeholders and embedded boundaries."
+                if not is_035
+                else (
+                    "016/017/018 provide the server-owned review/governance surfaces; "
+                    "035 records fixture-backed detail evidence while live owner review "
+                    "and generated notes/actions remain blocked."
+                )
+            ),
             intentional_differences=["2brain uses its own design language and truthful placeholder policy."],
             forbidden_similarity_checks=checks,
-            result="pass",
+            result="needs_polish" if is_035 else "pass",
             evidence_ids=[
                 "feature-016-web-review",
                 "feature-017-access-egress",
                 "web-cabinet-regression-tests",
                 "web-meeting-detail-blocker-note",
                 "reference-comparison-note",
+                *(
+                    ["feature-035-web-detail-evidence", "feature-035-clean-room-reference"]
+                    if is_035
+                    else []
+                ),
             ],
         ),
         ReferenceComparison(
             id="governance-actions",
             surface="governance",
             allowed_lessons=["Share, export/download, deletion, and lifecycle truth must be visible by policy"],
-            implementation_alignment="017/018 cover policy-owned access, egress, retention, deletion, and purge truth.",
+            implementation_alignment=(
+                "017/018 cover policy-owned access, egress, retention, deletion, and purge truth."
+                if not is_035
+                else (
+                    "017/018 cover policy-owned access, egress, retention, deletion, and "
+                    "purge truth; 035 keeps production destructive governance actions out "
+                    "of scope and documents fixture-backed governance evidence."
+                )
+            ),
             intentional_differences=["External public links remain out of scope."],
             forbidden_similarity_checks=checks,
             result="pass",
@@ -806,6 +864,11 @@ def build_default_reference_comparisons() -> list[ReferenceComparison]:
                 "feature-018-retention-deletion",
                 "policy-lifecycle-regression-tests",
                 "policy-lifecycle-evidence-note",
+                *(
+                    ["feature-035-web-governance-evidence", "feature-035-clean-room-reference"]
+                    if is_035
+                    else []
+                ),
             ],
         ),
     ]

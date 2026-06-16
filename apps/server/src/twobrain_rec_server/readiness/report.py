@@ -43,7 +43,7 @@ def build_default_readiness_report(
         stages=build_default_stages(feature=feature),
         evidence=build_default_evidence(generated_at, deployed_commit, feature=feature),
         launch_gaps=launch_gaps,
-        reference_comparisons=build_default_reference_comparisons(),
+        reference_comparisons=build_default_reference_comparisons(feature=feature),
         forbidden_content_scan=passed_forbidden_content_scan(feature),
     )
 

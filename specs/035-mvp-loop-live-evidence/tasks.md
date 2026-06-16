@@ -114,12 +114,12 @@
 
 ### Tests for User Story 4
 
-- [ ] T033 [P] [US4] Add clean-room reference assertions in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
+- [X] T033 [P] [US4] Add clean-room reference assertions in `apps/server/tests/integration/test_mvp_loop_live_evidence.py`
 
 ### Implementation for User Story 4
 
-- [ ] T034 [US4] Record allowed reference lessons and forbidden similarity checks in `docs/evidence/035-mvp-loop-live-evidence/clean-room-reference.md`
-- [ ] T035 [US4] Record reference-driven UI polish gaps or pass result in `docs/evidence/035-mvp-loop-live-evidence/readiness-report.md`
+- [X] T034 [US4] Record allowed reference lessons and forbidden similarity checks in `docs/evidence/035-mvp-loop-live-evidence/clean-room-reference.md`
+- [X] T035 [US4] Record reference-driven UI polish gaps or pass result in `docs/evidence/035-mvp-loop-live-evidence/readiness-report.md`
 
 **Checkpoint**: US4 is complete when reference comparison is useful for quality but contains no copied Krisp expression or private reference data.
 
