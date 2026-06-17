@@ -19,6 +19,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         _cabinetState = cabinetState
     }
 
+    public static func loadIdentity(for request: URLRequest) -> String {
+        let method = request.httpMethod ?? "GET"
+        let url = request.url?.absoluteString ?? ""
+        return "\(method) \(url)"
+    }
+
+    public static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
+        lastLoadedRequestIdentity != loadIdentity(for: request)
+    }
+
     public func makeNSView(context: Context) -> NSView {
         let configuration = WKWebViewConfiguration()
         configuration.allowsAirPlayForMediaPlayback = false
@@ -26,14 +36,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         let container = WebViewContainer(webView: webView)
+        container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
         webView.load(request)
         return container
     }
 
     public func updateNSView(_ container: NSView, context _: Context) {
-        guard let webView = (container as? WebViewContainer)?.webView else { return }
-        guard webView.url != request.url else { return }
-        webView.load(request)
+        guard let container = container as? WebViewContainer else { return }
+        guard Self.shouldLoad(request: request, lastLoadedRequestIdentity: container.lastLoadedRequestIdentity) else {
+            return
+        }
+        container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
+        container.webView.load(request)
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -122,6 +136,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
     public final class WebViewContainer: NSView {
         public let webView: WKWebView
+        public var lastLoadedRequestIdentity: String?
 
         public init(webView: WKWebView) {
             self.webView = webView
@@ -151,6 +166,16 @@ public struct EmbeddedCabinetWebView: View {
         cabinetState _: Binding<DesktopCabinetState>
     ) {
         message = DesktopCabinetState.notConfigured.userMessage
+    }
+
+    public static func loadIdentity(for request: URLRequest) -> String {
+        let method = request.httpMethod ?? "GET"
+        let url = request.url?.absoluteString ?? ""
+        return "\(method) \(url)"
+    }
+
+    public static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
+        lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 
     public var body: some View {

@@ -23,6 +23,25 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testEmbeddedWebViewDoesNotReloadInitialRouteAfterInPageNavigation() throws {
+        let initial = URLRequest(url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings")))
+        let detail = URLRequest(url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033")))
+        let lastLoadedInitialRoute = EmbeddedCabinetWebView.loadIdentity(for: initial)
+
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.shouldLoad(
+                request: initial,
+                lastLoadedRequestIdentity: lastLoadedInitialRoute
+            )
+        )
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.shouldLoad(
+                request: detail,
+                lastLoadedRequestIdentity: lastLoadedInitialRoute
+            )
+        )
+    }
+
     func testExpiredSessionRecoveryOpensBrowserLoginForDesktopMeetings() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",

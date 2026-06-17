@@ -20,6 +20,14 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(login.reason, .allowedAuthLogin)
         XCTAssertEqual(policy.decision(for: try url("/login/email/start")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/login/email/verify")).decision, .allow)
+
+        let signup = policy.decision(for: try url("/sign-up?next=/desktop/meetings"))
+        XCTAssertEqual(signup.decision, .allow)
+        XCTAssertEqual(signup.route.kind, .authSignup)
+        XCTAssertEqual(signup.reason, .allowedAuthSignup)
+        XCTAssertEqual(policy.decision(for: try url("/sign-up?next=/desktop/meetings&mode=email")).decision, .allow)
+        XCTAssertEqual(policy.decision(for: try url("/sign-up/email/start")).decision, .allow)
+        XCTAssertEqual(policy.decision(for: try url("/sign-up/email/verify")).decision, .allow)
     }
 
     func testBlocksFutureGovernanceAndNativeCaptureRoutes() throws {

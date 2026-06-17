@@ -4,6 +4,7 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingList
     case meetingDetail
     case authLogin
+    case authSignup
     case unsupported
     case external
     case forbiddenAction
@@ -31,6 +32,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingList = "allowed_meeting_list"
     case allowedMeetingDetail = "allowed_meeting_detail"
     case allowedAuthLogin = "allowed_auth_login"
+    case allowedAuthSignup = "allowed_auth_signup"
     case blockedFutureGovernance = "blocked_future_governance"
     case blockedNativeCaptureControl = "blocked_native_capture_control"
     case blockedLocalFileOrDiagnostic = "blocked_local_file_or_diagnostic"
@@ -81,6 +83,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedAuthLogin,
                 userMessage: "Login"
+            )
+        }
+        if isSignupRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .authSignup),
+                decision: .allow,
+                reason: .allowedAuthSignup,
+                userMessage: "Sign up"
             )
         }
         if components == ["desktop", "meetings"] {
@@ -163,6 +173,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
     private func isLoginRoute(_ components: [String]) -> Bool {
         components.first == "login"
+    }
+
+    private func isSignupRoute(_ components: [String]) -> Bool {
+        components.first == "sign-up"
     }
 
     private func defaultPort(for scheme: String?) -> Int? {
