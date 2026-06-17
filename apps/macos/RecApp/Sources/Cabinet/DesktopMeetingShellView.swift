@@ -3,19 +3,29 @@ import SwiftUI
 import TwoBrainRecShared
 
 public enum DesktopMeetingShellChrome {
-    public static let sidebarWidth: CGFloat = 152
+    public static let sidebarMinimumWidth: CGFloat = 152
+    public static let sidebarMaximumWidth: CGFloat = 208
+    public static let sidebarWidth = sidebarMinimumWidth
     public static let collapsedInspectorWidth: CGFloat = 56
     public static let expandedInspectorWidth: CGFloat = 300
     public static let shellBackgroundHex = "#191a1c"
     public static let shellSidebarHex = "#202224"
-    public static let shellRailHex = "#202224"
+    public static let shellRailHex = shellSidebarHex
     public static let shellSurfaceHex = "#242629"
+    public static let recordingStripHex = "#342087"
+    public static let shellAccentHex = "#8c73ff"
     public static let webEmbeddedBackgroundHex = shellBackgroundHex
     public static let shellBackgroundColor = Color(red: 0.098, green: 0.102, blue: 0.110)
     public static let shellSidebarColor = Color(red: 0.125, green: 0.133, blue: 0.141)
-    public static let shellRailColor = Color(red: 0.125, green: 0.133, blue: 0.141)
+    public static let shellRailColor = shellSidebarColor
     public static let shellSurfaceColor = Color(red: 0.141, green: 0.149, blue: 0.161)
     public static let shellStrokeColor = Color.white.opacity(0.08)
+    public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
+    public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
+    public static let recordingStripHeight: CGFloat = 36
+    public static let idleShowsNativeTopBar = false
+    public static let fontStackDescription = "SF Pro Text / system"
+    public static let compactRailLabels = ["Микр.", "Сист.", "Шум", "Оч."]
     public static let webEmbeddedBackgroundNSColor = NSColor(
         srgbRed: 0.098,
         green: 0.102,
@@ -28,6 +38,22 @@ public enum DesktopMeetingShellChrome {
     public static let inspectorToggleExpandedSymbol = "chevron.right.2"
     public static let inspectorToggleCollapsedLabel = "Показать панель управления"
     public static let inspectorToggleExpandedLabel = "Скрыть панель управления"
+    public static func sidebarWidth(pendingUploadCount: Int, availableWindowWidth: CGFloat) -> CGFloat {
+        let contentWidth = measuredSidebarWidth(pendingUploadCount: pendingUploadCount)
+        let clampedContentWidth = min(max(contentWidth, sidebarMinimumWidth), sidebarMaximumWidth)
+        let safeAvailableWidth = availableWindowWidth.isFinite && availableWindowWidth > 0
+            ? availableWindowWidth
+            : 1_200
+        let responsiveCap = min(
+            sidebarMaximumWidth,
+            max(sidebarMinimumWidth, floor(safeAvailableWidth * 0.20))
+        )
+        return min(clampedContentWidth, responsiveCap)
+    }
+
+    public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActiveRecording: Bool) -> Bool {
+        manualExpanded || hasActiveRecording
+    }
     public static let profileMenuLabels = [
         "Внешний вид",
         "Настройки",
@@ -39,6 +65,68 @@ public enum DesktopMeetingShellChrome {
         "Выйти",
         "Закрыть 2brain Rec полностью"
     ]
+
+    private static func measuredSidebarWidth(pendingUploadCount: Int) -> CGFloat {
+        let outerHorizontalPadding: CGFloat = 20
+        let rowHorizontalPadding: CGFloat = 16
+        let iconWidth: CGFloat = 17
+        let iconTextSpacing: CGFloat = 9
+        let spacerWidth: CGFloat = 6
+        let safetyPadding: CGFloat = 10
+
+        let navLabels = [
+            "Поиск",
+            "Мои встречи",
+            "Общие",
+            "Действия",
+            "Активность",
+            "Настройки"
+        ]
+        let navFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let navWidth = navLabels.map { label in
+            let badgeWidth = label == "Действия" && pendingUploadCount > 0
+                ? max(textWidth("\(pendingUploadCount)", font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)) + 12, 20)
+                : 0
+            return outerHorizontalPadding
+                + rowHorizontalPadding
+                + iconWidth
+                + iconTextSpacing
+                + textWidth(label, font: navFont)
+                + spacerWidth
+                + badgeWidth
+                + safetyPadding
+        }.max() ?? sidebarMinimumWidth
+
+        let headerWidth = outerHorizontalPadding
+            + 34
+            + 10
+            + max(
+                textWidth("2brain Rec", font: NSFont.systemFont(ofSize: 13, weight: .semibold)),
+                textWidth("Рабочее место", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
+                textWidth("Локальный режим", font: NSFont.systemFont(ofSize: 11, weight: .medium))
+            )
+            + safetyPadding
+
+        let profileWidth = outerHorizontalPadding
+            + 16
+            + 28
+            + 8
+            + max(
+                textWidth("2brain Rec", font: NSFont.systemFont(ofSize: 12, weight: .semibold)),
+                textWidth("Кабинет не подключен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
+                textWidth("Кабинет задан", font: NSFont.systemFont(ofSize: 10, weight: .medium))
+            )
+            + 2
+            + 12
+            + safetyPadding
+
+        return ceil(max(navWidth, headerWidth, profileWidth))
+    }
+
+    private static func textWidth(_ text: String, font: NSFont) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        return (text as NSString).size(withAttributes: attributes).width
+    }
 }
 
 public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View, DiagnosticsContent: View>: View {
@@ -85,17 +173,25 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: DesktopMeetingShellChrome.sidebarWidth)
-            Divider()
-            VStack(spacing: 0) {
-                topBar
+        GeometryReader { geometry in
+            let sidebarWidth = DesktopMeetingShellChrome.sidebarWidth(
+                pendingUploadCount: pendingUploadCount,
+                availableWindowWidth: geometry.size.width
+            )
+            HStack(spacing: 0) {
+                sidebar
+                    .frame(width: sidebarWidth)
                 Divider()
-                HStack(spacing: 0) {
-                    meetingsSurface
-                    Divider()
-                    inspectorContainer
+                VStack(spacing: 0) {
+                    if let recordingStripSession {
+                        recordingStrip(for: recordingStripSession)
+                        Divider()
+                    }
+                    HStack(spacing: 0) {
+                        meetingsSurface
+                        Divider()
+                        inspectorContainer
+                    }
                 }
             }
         }
@@ -109,17 +205,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 7)
-                        .fill(.purple.opacity(0.18))
+                        .fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.18))
                     Image(systemName: "waveform.badge.mic")
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
                 }
                 .frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("2brain Rec")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.system(size: 13, weight: .semibold))
                     Text(cabinetConfigured ? "Рабочее место" : "Локальный режим")
-                        .font(.caption2)
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -149,17 +244,18 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 .frame(width: 17)
             Text(title)
                 .lineLimit(1)
+                .minimumScaleFactor(0.86)
+                .layoutPriority(1)
             Spacer(minLength: 6)
             if badge > 0 {
                 Text("\(badge)")
                     .font(.caption2.monospacedDigit())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(.purple.opacity(0.22)))
+                    .background(Capsule().fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.22)))
             }
         }
-        .font(.caption)
-        .fontWeight(selected ? .semibold : .regular)
+        .font(.system(size: 12, weight: selected ? .semibold : .medium))
         .foregroundStyle(selected ? .primary : .secondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -198,21 +294,23 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     Circle()
                         .fill(Color.blue.opacity(0.84))
                     Text("2")
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .bold))
                         .fontWeight(.bold)
                         .foregroundStyle(.white)
                 }
                 .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("2brain Rec")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.86)
                     Text(cabinetConfigured ? "Кабинет задан" : "Кабинет не подключен")
-                        .font(.caption2)
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(cabinetConfigured ? Color.secondary : Color.orange)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                 }
+                .layoutPriority(1)
                 Spacer(minLength: 2)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
@@ -254,32 +352,33 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Встречи")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                Text(topBarSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private func recordingStrip(for session: CaptureSession) -> some View {
+        ZStack {
+            HStack(spacing: 10) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.green)
+                Text(recordingTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                Spacer()
+                Label(recordingStatusText(for: session), systemImage: recordingStatusIcon(for: session))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(recordingStatusColor(for: session))
                     .lineLimit(1)
             }
-            Spacer()
-            statusChip(title: captureStatusText, icon: captureStatusIcon, color: captureStatusColor)
-            if pendingUploadCount > 0 {
-                statusChip(title: "Загрузка \(pendingUploadCount)", icon: "tray.and.arrow.up", color: .orange)
+
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(recordingElapsedText(for: session, at: context.date))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.90))
             }
-            Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .accessibilityLabel("Обновить состояние")
-            .help("Обновить состояние")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .frame(height: DesktopMeetingShellChrome.recordingStripHeight)
+        .background(DesktopMeetingShellChrome.recordingStripColor)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Идет запись. \(recordingStatusText(for: session)).")
     }
 
     private var meetingsSurface: some View {
@@ -558,78 +657,97 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var compactInspector: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 11) {
             InspectorDisclosureButton(isExpanded: false) {
                 inspectorExpanded = true
             }
 
-            VStack(spacing: 7) {
+            VStack(spacing: 0) {
                 railIcon("list.bullet.rectangle", selected: false)
-                railIcon(captureStatusIcon, selected: true, color: captureStatusColor)
+                compactRailDivider
+                railIcon(captureStatusIcon, selected: true, color: DesktopMeetingShellChrome.shellAccentColor)
+                compactRailDivider
                 railIcon("video", selected: false)
                 Text("Off")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .frame(height: 24)
             }
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
+            .padding(.vertical, 5)
+            .frame(width: 34)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(0.05))
+                    .fill(DesktopMeetingShellChrome.shellSurfaceColor.opacity(0.62))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                    .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
             )
 
-            compactToggle(title: "Mic", isOn: session != nil, color: captureStatusColor)
-            compactToggle(title: "Noise", isOn: true, color: .purple)
+            VStack(spacing: 10) {
+                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[0], isOn: session != nil, color: DesktopMeetingShellChrome.shellAccentColor)
+                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[1], isOn: session != nil, color: DesktopMeetingShellChrome.shellAccentColor)
+                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[2], isOn: true, color: DesktopMeetingShellChrome.shellAccentColor)
+                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[3], isOn: pendingUploadCount > 0, color: .orange)
+            }
             if pendingUploadCount > 0 {
-                VStack(spacing: 3) {
-                    Image(systemName: "tray.and.arrow.up.fill")
-                        .foregroundStyle(.orange)
-                    Text("\(pendingUploadCount)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.orange)
-                }
-                .padding(.top, 2)
-                .help("Ожидают проверки или загрузки: \(pendingUploadCount)")
+                Text("\(pendingUploadCount)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.orange)
+                    .help("Ожидают проверки или загрузки: \(pendingUploadCount)")
             }
 
             Spacer()
 
-            railIcon("mic", selected: false)
-            railIcon("speaker.wave.2", selected: false)
-            Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
-                    .frame(width: 28, height: 28)
+            VStack(spacing: 8) {
+                railIcon("mic", selected: false)
+                railIcon("speaker.wave.2", selected: false)
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(DesktopMeetingShellChrome.shellSurfaceColor.opacity(0.62))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7)
+                                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help("Обновить состояние")
             }
-            .buttonStyle(.plain)
-            .help("Обновить состояние")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .background(DesktopMeetingShellChrome.shellRailColor)
     }
 
+    private var compactRailDivider: some View {
+        Rectangle()
+            .fill(DesktopMeetingShellChrome.shellStrokeColor)
+            .frame(height: 1)
+            .padding(.horizontal, 6)
+    }
+
     private func railIcon(_ icon: String, selected: Bool, color: Color = .secondary) -> some View {
         Image(systemName: icon)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(selected ? color : Color.secondary)
-            .frame(width: 28, height: 28)
+            .frame(width: 30, height: 30)
             .background(
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? color.opacity(0.18) : Color.primary.opacity(0.04))
+                    .fill(selected ? color.opacity(0.28) : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
-                    .stroke(selected ? color.opacity(0.44) : Color.secondary.opacity(0.14), lineWidth: 1)
+                    .stroke(selected ? color.opacity(0.54) : Color.clear, lineWidth: 1)
             )
     }
 
     private func compactToggle(title: String, isOn: Bool, color: Color) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 5) {
             Capsule()
                 .fill(isOn ? color.opacity(0.84) : Color.secondary.opacity(0.22))
                 .frame(width: 28, height: 14)
@@ -640,10 +758,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         .padding(.horizontal, 2)
                 }
             Text(title)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.62)
+                .frame(width: 44)
         }
     }
 
@@ -652,9 +771,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Управление")
-                        .font(.headline)
+                        .font(.system(size: 15, weight: .semibold))
                     Text("Локальное управление")
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -675,14 +794,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
             VStack(alignment: .leading, spacing: 8) {
                 Label("Доверие записи", systemImage: "lock.shield")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.system(size: 13, weight: .semibold))
                 Text(statusSummary)
-                    .font(.caption)
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(lastEventSummary)
-                    .font(.caption2)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -698,7 +816,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     .padding(.top, 8)
             } label: {
                 Label("Диагностика", systemImage: "stethoscope")
-                    .font(.subheadline)
+                    .font(.system(size: 13, weight: .semibold))
             }
             .padding(12)
             .background(
@@ -724,14 +842,67 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             )
     }
 
-    private var topBarSubtitle: String {
-        cabinetConfigured
-            ? "Сервер кабинета задан"
-            : "Локальные записи и загрузки"
+    private var expandedInspectorVisible: Bool {
+        DesktopMeetingShellChrome.shouldShowExpandedInspector(
+            manualExpanded: inspectorExpanded,
+            hasActiveRecording: recordingStripSession != nil
+        )
     }
 
-    private var expandedInspectorVisible: Bool {
-        inspectorExpanded || session != nil
+    private var recordingStripSession: CaptureSession? {
+        guard let session, CaptureStatusItem.showsStopButton(for: session) else {
+            return nil
+        }
+        return session
+    }
+
+    private var recordingTitle: String {
+        "Локальная запись"
+    }
+
+    private func recordingStatusText(for session: CaptureSession) -> String {
+        switch session.mode {
+        case .audioRecording:
+            return "Аудиозапись ..."
+        case .transcriptOnly:
+            return "Транскрипт ..."
+        }
+    }
+
+    private func recordingStatusIcon(for session: CaptureSession) -> String {
+        switch session.state {
+        case .paused:
+            return "pause.circle.fill"
+        case .degraded:
+            return "exclamationmark.triangle.fill"
+        default:
+            return "record.circle.fill"
+        }
+    }
+
+    private func recordingStatusColor(for session: CaptureSession) -> Color {
+        switch session.state {
+        case .paused:
+            return .orange
+        case .degraded:
+            return .red
+        default:
+            return .red
+        }
+    }
+
+    private func recordingElapsedText(for session: CaptureSession, at date: Date) -> String {
+        guard let startedAt = session.startedAt else {
+            return "0:00"
+        }
+        let elapsed = max(0, Int(date.timeIntervalSince(startedAt)))
+        let hours = elapsed / 3600
+        let minutes = (elapsed % 3600) / 60
+        let seconds = elapsed % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
     }
 
     private var captureStatusText: String {

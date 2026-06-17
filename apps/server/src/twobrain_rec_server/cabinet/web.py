@@ -114,15 +114,16 @@ CSS = """
 :root {
   color-scheme: dark;
   --bg: #191a1c;
+  --panel: #202224;
   --surface: #242629;
-  --surface-2: #282b2f;
-  --surface-3: #303338;
-  --line: #34363b;
+  --surface-2: #26282c;
+  --surface-3: #2f3237;
+  --line: #30343a;
   --line-soft: rgba(255,255,255,.07);
-  --text: #f1f2f4;
-  --muted: #a9adb5;
-  --subtle: #7d838d;
-  --accent: #7d6bff;
+  --text: #e8eaee;
+  --muted: #a8adb5;
+  --subtle: #7c828b;
+  --accent: #8c73ff;
   --blue: #2f91ff;
   --green: #2fc9a6;
   --amber: #f0a742;
@@ -132,7 +133,7 @@ CSS = """
 }
 * { box-sizing: border-box; }
 html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden; }
-body { font-size: 13px; line-height: 1.42; letter-spacing: 0; font-weight: 500; }
+body { font-size: 13px; line-height: 1.38; letter-spacing: 0; font-weight: 500; -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
 body.auth-leaving .auth-panel {
   opacity: 0;
   transform: translateY(-4px) scale(.992);
@@ -150,7 +151,7 @@ button, .button, input, select {
   background: var(--surface-2);
   color: var(--text);
   border-radius: 7px;
-  min-height: 34px;
+  min-height: 32px;
 }
 button, .button {
   min-width: 0;
@@ -170,7 +171,7 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); }
 .app-shell.desktop-embedded { grid-template-columns: minmax(0, 1fr); }
 .sidebar {
-  background: #202224;
+  background: var(--panel);
   border-right: 1px solid var(--line);
   padding: 12px 10px;
   display: flex;
@@ -201,7 +202,7 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
   padding: 0 9px;
   color: #d6dae1;
 }
-.nav a.active, .nav a:hover { background: #303338; }
+.nav a.active, .nav a:hover { background: var(--surface-3); }
 .nav-count { margin-left: auto; min-width: 20px; min-height: 20px; border-radius: 999px; background: #71347e; display: grid; place-items: center; font-size: 12px; }
 .sidebar-foot { margin-top: auto; display: grid; gap: 8px; }
 .trial { background: #3b3270; border-radius: 7px; padding: 9px 10px; font-weight: 700; }
@@ -209,8 +210,8 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .desktop-embedded .main { padding: 22px clamp(18px, 4vw, 64px) 28px; }
 .topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .page-title { display: grid; gap: 2px; min-width: 0; }
-h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weight: 760; }
-.page-subtitle { color: var(--muted); font-weight: 650; }
+h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weight: 700; }
+.page-subtitle { color: var(--muted); font-weight: 600; }
 .crumbs { display: flex; gap: 9px; align-items: center; min-width: 0; color: var(--muted); flex-wrap: wrap; }
 .crumbs strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(62vw, 760px); }
 .action-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
@@ -234,7 +235,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weig
   align-items: center;
   margin-bottom: 12px;
 }
-.section-title { margin: 22px 0 10px; color: #c7cbd2; font-size: 12px; font-weight: 760; }
+.section-title { margin: 22px 0 10px; color: #c6cad1; font-size: 12px; font-weight: 700; }
 .upcoming {
   background: var(--surface);
   border-radius: 8px;
@@ -259,7 +260,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weig
 .meeting-row:last-child { border-bottom: 0; }
 .meeting-row:hover { background: #282c31; }
 .row-icon { color: var(--muted); font-size: 16px; }
-.row-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.row-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .row-meta { color: var(--muted); font-size: 12px; display: flex; gap: 9px; flex-wrap: wrap; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .chip {
@@ -542,8 +543,8 @@ h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weig
   gap: 16px;
   margin-bottom: 14px;
 }
-.cabinet-titleline { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--muted); }
-.cabinet-titleline strong { color: var(--text); }
+.cabinet-titleline { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--muted); font-weight: 500; }
+.cabinet-titleline strong { color: var(--text); font-weight: 700; }
 .cabinet-card {
   background: var(--surface);
   border: 1px solid var(--line-soft);
@@ -564,7 +565,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .calendar-events { display: grid; gap: 8px; }
 .calendar-event { border-left: 3px solid #9cd9ff; padding-left: 10px; min-height: 28px; }
-.calendar-event strong, .meeting-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 720; }
+.calendar-event strong, .meeting-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .meeting-toolbar {
   display: flex;
   justify-content: space-between;
@@ -583,12 +584,22 @@ h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weig
   color: #b5bac3;
 }
 .icon-control:hover { background: #2d3034; }
-.new-button { min-height: 28px; background: #8c73ff; border-color: #8c73ff; color: #fff; font-weight: 800; }
+.new-button {
+  min-height: 28px;
+  min-width: 54px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
 .list-card.cabinet-card {
   max-width: none;
   min-height: 210px;
   background: #1d1f21;
-  border-color: #30343a;
+  border-color: var(--line);
 }
 .meeting-row {
   color: #dfe2e8;
@@ -628,8 +639,8 @@ h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weig
   bottom: 16px;
   width: min(430px, calc(100vw - 260px));
   min-height: 40px;
-  border: 1px solid #42474f;
-  background: #24272b;
+  border: 1px solid #42464e;
+  background: var(--surface);
   color: #aeb4be;
   border-radius: 999px;
   display: flex;

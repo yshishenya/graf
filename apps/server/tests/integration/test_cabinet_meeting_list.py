@@ -75,7 +75,10 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert "Записи встреч" in response.text
     assert "Проектный синк" in response.text
     assert "--bg: #191a1c" in response.text
+    assert "--panel: #202224" in response.text
     assert 'font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text"' in response.text
+    assert ".new-button {" in response.text
+    assert "font-weight: 700;" in response.text
     assert "max-width: min(820px, calc(100vw - 72px))" in response.text
     assert ".desktop-embedded .empty-state { min-height: 210px; }" in response.text
     assert "Upload file" not in response.text

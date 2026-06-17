@@ -95,6 +95,13 @@ Semantic Versioning 2.0.0.
   slimmer sidebar, embedded meetings surface without duplicate native cards,
   compact collapsible right rail, denser web meeting workspace, and a
   profile/settings menu with Russian clean-room copy (`feature:036`).
+- Native desktop shell and embedded web cabinet now share the same Krisp-like
+  warm dark palette and SF/system typography tokens: sidebar/right rail
+  `#202224`, native/WebView background `#191a1c`, cards `#242629`, and a
+  shared violet accent for compact rail states and web controls (`feature:036`).
+- Desktop sidebar width now adapts to its Russian labels and pending-action
+  badge with min/max bounds, so normal windows show the full menu text while
+  narrow resolutions fall back to the compact width (`feature:036`).
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
   были сквозными.
