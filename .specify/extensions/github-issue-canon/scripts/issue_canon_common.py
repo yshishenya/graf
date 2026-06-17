@@ -111,7 +111,7 @@ def ensure_agents_block(root: Path) -> bool:
             return True
         return False
     anchor = "Never create issues in a repository that does not match the configured git remote."
-    block = """
+    block = f"""
 
 All GitHub issues created for this repository, whether manually, through
 `$speckit-taskstoissues`, or through direct `gh issue create`, must follow the
