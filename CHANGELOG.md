@@ -85,6 +85,10 @@ Semantic Versioning 2.0.0.
 
 ### Fixed
 
+- Desktop embedded cabinet now allows production `/login` routes, ignores
+  WebKit `about:blank` navigation noise, and sends expired-session recovery to
+  `/login?next=/desktop/meetings`, so the installed `/Applications/2brain Rec.app`
+  renders browser-login instead of a false blocked-route state (`feature:036`).
 - В `.github` и процессе разработки зафиксирован порядок этапов и коммитов для
   Spec Kit.
 - MediaScribe client now follows the live production contract for polling and

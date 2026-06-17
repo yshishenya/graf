@@ -60,6 +60,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
+            if url.scheme?.lowercased() == "about" {
+                decisionHandler(.allow)
+                return
+            }
+            if navigationAction.targetFrame?.isMainFrame == false {
+                decisionHandler(.allow)
+                return
+            }
 
             let decision = routePolicy.decision(for: url)
             switch decision.decision {
@@ -75,7 +83,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
         }
 
-        public func webView(_: WKWebView, didFinish _: WKNavigation!) {
+        public func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
+            guard let url = webView.url,
+                  routePolicy.decision(for: url).decision == .allow
+            else {
+                return
+            }
             cabinetState = .ready
         }
 

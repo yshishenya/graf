@@ -3,6 +3,7 @@ import Foundation
 public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingList
     case meetingDetail
+    case authLogin
     case unsupported
     case external
     case forbiddenAction
@@ -29,6 +30,7 @@ public enum DesktopCabinetRouteAction: String, Equatable, Sendable {
 public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingList = "allowed_meeting_list"
     case allowedMeetingDetail = "allowed_meeting_detail"
+    case allowedAuthLogin = "allowed_auth_login"
     case blockedFutureGovernance = "blocked_future_governance"
     case blockedNativeCaptureControl = "blocked_native_capture_control"
     case blockedLocalFileOrDiagnostic = "blocked_local_file_or_diagnostic"
@@ -73,6 +75,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
         let path = normalizedPath(url.path)
         let components = path.split(separator: "/").map(String.init)
+        if isLoginRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .authLogin),
+                decision: .allow,
+                reason: .allowedAuthLogin,
+                userMessage: "Login"
+            )
+        }
         if components == ["desktop", "meetings"] {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .meetingList),
@@ -149,6 +159,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     private func containsAny(_ path: String, _ needles: [String]) -> Bool {
         let lowered = path.lowercased()
         return needles.contains { lowered.contains($0) }
+    }
+
+    private func isLoginRoute(_ components: [String]) -> Bool {
+        components.first == "login"
     }
 
     private func defaultPort(for scheme: String?) -> Int? {

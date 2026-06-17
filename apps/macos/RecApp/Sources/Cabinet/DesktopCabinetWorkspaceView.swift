@@ -129,7 +129,7 @@ public struct DesktopCabinetWorkspaceView: View {
         guard let configuration else { return nil }
         switch cabinetState {
         case .expiredSession:
-            return configuration.baseURL.appending(path: "meetings")
+            return DesktopCabinetWorkspace.loginRoute(configuration: configuration)
         case .offline, .timeout:
             return configuration.baseURL
         default:

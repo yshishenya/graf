@@ -102,17 +102,17 @@
 ### Tests for User Story 3
 
 - [ ] T038 [P] [US3] Add web list/detail IA and responsive copy tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
-- [ ] T039 [P] [US3] Add desktop workspace product-surface and persistent cabinet configuration tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift` and `apps/macos/Shared/Tests/DesktopCabinetConfigurationTests.swift`
+- [X] T039 [P] [US3] Add desktop workspace product-surface and persistent cabinet configuration tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift` and `apps/macos/Shared/Tests/DesktopCabinetConfigurationTests.swift`
 - [ ] T040 [P] [US3] Add capture control accessibility regression tests in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
-- [ ] T041 [P] [US3] Add desktop embedded route policy regression tests in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`
+- [X] T041 [P] [US3] Add desktop embedded route policy regression tests in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`
 
 ### Implementation for User Story 3
 
 - [ ] T042 [US3] Polish meeting list layout, action labels, empty states, and responsive constraints in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 - [ ] T043 [US3] Polish meeting detail notes/transcript/governance layout and playback/status panels in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 - [ ] T044 [US3] Polish installed desktop meeting workspace hierarchy and cabinet connection status in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T045 [US3] Add persistent or packaged installed-app cabinet configuration resolution and truthful unavailable states in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift` and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
-- [ ] T046 [US3] Preserve embedded route loading/failure behavior and native controls in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
+- [X] T045 [US3] Add persistent or packaged installed-app cabinet configuration resolution and truthful unavailable states in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift` and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
+- [X] T046 [US3] Preserve embedded route loading/failure behavior and native controls in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
 - [ ] T047 [US3] Capture installed app idle/active/paused/resumed/stopped and cabinet configured/missing-auth/local-only evidence from `/Applications/2brain Rec.app` into `docs/evidence/036-owner-review-live-polish/screenshots/`
 - [ ] T048 [US3] Record V8 clean-room comparison and remaining gaps in `docs/evidence/036-owner-review-live-polish/clean-room-reference.md`
 
@@ -139,7 +139,7 @@
 - [ ] T054 [US4] Generate 036 readiness JSON and Markdown in `docs/evidence/036-owner-review-live-polish/readiness-report.json` and `docs/evidence/036-owner-review-live-polish/readiness-report.md`
 - [ ] T055 [US4] Update final gap register in `docs/evidence/036-owner-review-live-polish/launch-gap-register.md`
 - [ ] T056 [US4] Update accepted status, remaining blockers, and next slice in `docs/current-product-status.md`
-- [ ] T057 [US4] Add 036 entry under `[Unreleased]` in `CHANGELOG.md`
+- [X] T057 [US4] Add 036 entry under `[Unreleased]` in `CHANGELOG.md`
 - [ ] T058 [US4] Reconcile 036 task completion evidence in `specs/036-owner-review-live-polish/tasks.md`
 
 **Checkpoint**: User Story 4 can be validated independently with readiness tests and doc consistency review.
@@ -151,13 +151,13 @@
 **Purpose**: Full validation, issue sync, cleanup, and launch-quality closeout.
 
 - [ ] T059 [P] Run focused server validation from `specs/036-owner-review-live-polish/quickstart.md` and record results in `docs/evidence/036-owner-review-live-polish/validation-log.md`
-- [ ] T060 [P] Run `swift build --package-path apps/macos` and focused Swift tests including cabinet configuration resolution, then record results in `docs/evidence/036-owner-review-live-polish/validation-log.md`
-- [ ] T061 Run `infra/scripts/ci-local.sh` and record the canonical local gate result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [X] T060 [P] Run `swift build --package-path apps/macos` and focused Swift tests including cabinet configuration resolution, then record results in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [X] T061 Run `infra/scripts/ci-local.sh` and record the canonical local gate result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [ ] T062 Run forbidden-content scans over `specs/036-owner-review-live-polish` and `docs/evidence/036-owner-review-live-polish`, then record policy-only matches in `docs/evidence/036-owner-review-live-polish/validation-log.md`
-- [ ] T063 Run `git diff --check` and record the result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [X] T063 Run `git diff --check` and record the result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [ ] T064 Re-run `$speckit-analyze` after implementation validation and update `specs/036-owner-review-live-polish/analysis.md`
 - [ ] T065 Sync and close mapped GitHub issues only after evidence is present in `specs/036-owner-review-live-polish/issues.md`
-- [ ] T066 Confirm installed launch from `/Applications/2brain Rec.app` after final build/install, including no-shell-env cabinet behavior, and record it in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [X] T066 Confirm installed launch from `/Applications/2brain Rec.app` after final build/install, including no-shell-env cabinet behavior, and record it in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 
 ---
 

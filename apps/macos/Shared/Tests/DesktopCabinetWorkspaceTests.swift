@@ -23,6 +23,23 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testExpiredSessionRecoveryOpensBrowserLoginForDesktopMeetings() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: ["X-Workspace-Id": "workspace-033"]
+        ))
+
+        let route = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        let components = try XCTUnwrap(URLComponents(url: route, resolvingAgainstBaseURL: false))
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        XCTAssertEqual(route.path, "/login")
+        XCTAssertEqual(query["next"], "/desktop/meetings")
+        XCTAssertEqual(query["workspace_id"], "workspace-033")
+    }
+
     func testShellInvariantKeepsStopReachableDuringActiveRecordingForEveryCabinetState() {
         for state in DesktopCabinetState.allCases {
             let invariant = NativeShellInvariant(

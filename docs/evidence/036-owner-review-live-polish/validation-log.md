@@ -20,6 +20,9 @@ Feature: `036-owner-review-live-polish`
 | installed-app-signature-and-diff | macOS | `codesign --verify --deep --strict '/Applications/2brain Rec.app'` and `rsync -naci --delete ... | wc -l` | pass | `codesign` exit 0; `rsync` dry-run count `0` | Installed app matches staged build and signature verifies. |
 | installed-app-runtime-path | macOS | `open '/Applications/2brain Rec.app'` then System Events process path lookup | pass | `/Applications/2brain Rec.app`; PID `99528` | App was fully quit before relaunch to avoid stale-process evidence after install. |
 | installed-app-missing-auth-recovery | macOS | AX tree dump and CGWindow screenshot capture for installed app window | pass | `screenshots/installed-app-missing-auth-recovery.png` | Runtime shows `Встречи -> Нужен вход`, `Нужен вход в кабинет`, and `Войти в кабинет`; local recording controls remain visible. |
+| installed-app-embedded-login | macOS | Rebuilt release app, installed to `/Applications/2brain Rec.app`, relaunched from `/Applications`, and captured the embedded production login surface | pass | `screenshots/installed-app-embedded-login.png`; PID `12780`; focused Swift cabinet tests `30 passed` | Runtime renders `https://rec.2brain.pro` browser-login inside the native shell with Email and Workspace ID fields; native `Запись` controls remain outside WebKit. |
+| git-diff-check | repo | `git diff --check` | pass | exit 0 | No whitespace errors in the deployable diff. |
+| canonical-local-ci | repo | `infra/scripts/ci-local.sh` | pass | `485 passed, 4 skipped, 6 warnings`; `ci_local_result=pass` | Warnings are Starlette TestClient cookie deprecations in tests only. Deployment evidence scan passed. |
 
 ## Pending Validation
 
@@ -27,4 +30,3 @@ Feature: `036-owner-review-live-polish`
 - Installed `/Applications/2brain Rec.app` active/paused/resumed/stopped capture walkthrough.
 - Readiness report regeneration.
 - Forbidden-content scan.
-- Canonical local CI.

@@ -172,6 +172,16 @@ public enum DesktopCabinetWorkspace {
         configuration.meetingsURL()
     }
 
+    public static func loginRoute(configuration: DesktopCabinetConfiguration, next: String = "/desktop/meetings") -> URL {
+        var components = URLComponents(url: configuration.baseURL.appending(path: "login"), resolvingAgainstBaseURL: false)
+        var queryItems = [URLQueryItem(name: "next", value: next)]
+        if let workspaceId = configuration.workspaceId {
+            queryItems.append(URLQueryItem(name: "workspace_id", value: workspaceId))
+        }
+        components?.queryItems = queryItems
+        return components?.url ?? configuration.baseURL.appending(path: "login")
+    }
+
     public static func detailRoute(meetingId: String, configuration: DesktopCabinetConfiguration) -> URL {
         configuration.meetingDetailURL(meetingId: meetingId)
     }
