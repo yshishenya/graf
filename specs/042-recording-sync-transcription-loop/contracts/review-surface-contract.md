@@ -79,6 +79,24 @@ Meeting detail MUST expose:
 - Review links from local queue items require a server meeting id.
 - Processing-only items may open status detail but must not claim transcript is
   ready.
+- The desktop shell may show a persistent native recording indicator while the
+  user browses list/detail review content. That indicator is not owned by the
+  embedded review route and must not be hidden by review navigation.
+
+## Reference-Informed Review Boundaries
+
+- Meeting list may expose type/status hints and safe filters such as
+  transcript/audio/video/notes availability, but `042` closure depends on
+  truthful upload, processing, ready, partial, blocked, failed, deleted, and
+  out-of-sync states rather than a full filter system.
+- Meeting detail may use separate Notes and Recording/Transcript regions when
+  existing cabinet behavior supports it, but the `042` requirement is
+  transcript/revision/provenance parity between browser and embedded desktop.
+- Speaker labels, timestamps, playback controls, timeline/speaker contribution
+  indicators, and transcript quality prompts are allowed only when backed by
+  existing authorized synthetic or product data. Transcript editing, speaker
+  editing, media trimming, summarization expansion, and richer sharing are not
+  introduced by `042`.
 
 ## Accessibility And Responsive Requirements
 

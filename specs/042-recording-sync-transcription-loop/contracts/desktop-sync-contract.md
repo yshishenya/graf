@@ -146,6 +146,20 @@ Response `410`:
   revision and creating/resuming a server-approved session.
 - Finalize MUST fail if required ranges or track descriptors do not match.
 
+## Upload UI Dismissal And Cancellation Rules
+
+- Closing an upload modal, navigating away from the embedded review, hiding the
+  app, losing network, or quitting the app MUST NOT discard a locally captured
+  package or remove a resumable queue item.
+- A user-visible cancel action may stop the current transfer attempt, but the
+  local package remains queued, retryable, or blocked until an explicit
+  retention/deletion decision terminalizes it.
+- Any destructive action that removes local media or server media truth MUST be
+  presented as deletion/purge lifecycle behavior, not as ordinary modal
+  dismissal.
+- Partial server acceptance remains reconciled from server truth after UI
+  dismissal, app restart, or reconnect.
+
 ## Desktop Review Link Rules
 
 - A review link is available only when server truth has `meetingId`.

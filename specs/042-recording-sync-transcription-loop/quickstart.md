@@ -111,6 +111,23 @@ Expected:
 - finalization creates/reuses one meeting and one initial media revision;
 - no duplicate upload session or processing job is created for retries.
 
+## Manual Scenario 2a: Upload UI Dismissal Does Not Lose Local Media
+
+1. Start upload with a local recording package selected or queued.
+2. Close the upload/progress surface, navigate away, or quit the app before the
+   upload completes.
+3. Reopen the app and upload queue.
+4. Reconnect network if it was unavailable.
+
+Expected:
+
+- local package remains present until explicit retention/deletion policy says
+  otherwise;
+- queue item keeps the same `directoryId`, `localMediaRevisionId`, server ids
+  already learned, and accepted-range truth;
+- upload resumes or shows a safe blocked/retry state;
+- ordinary modal dismissal never says or behaves as if the file was lost.
+
 ## Manual Scenario 3: Processing And Review
 
 1. Finalize an accepted upload.

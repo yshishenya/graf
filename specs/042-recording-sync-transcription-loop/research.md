@@ -99,6 +99,33 @@ uploaded transcript history.
 - Krisp recording FAQ:
   <https://help.krisp.ai/hc/en-us/articles/12216182124956-FAQ-about-Krisp-Recording-feature>
 
+**User-supplied Krisp appshot audit, metadata-safe summary**:
+
+- Krisp keeps a persistent active recording strip visible while the user
+  browses the meeting workspace. For 2brain Rec this reinforces the
+  constitution rule that capture state remains locally visible and outside the
+  embedded review content.
+- Krisp meeting list uses compact rows with type/status hints, sort, contains
+  filters, and a `New` menu that separates live recording from file upload.
+  `042` should prioritize truthful status, direct review entry, and upload
+  state; richer filters can remain a later web-cabinet improvement.
+- Krisp upload modal supports language selection, drag/drop or click upload,
+  file type/size/duration constraints, selected-file progress, and cancel. Its
+  close-confirmation warns that the current upload/file will be lost. 2brain
+  Rec intentionally improves this: closing a modal or losing network must not
+  discard a locally captured package or erase resumable upload state unless the
+  user explicitly chooses a deletion/purge action with lifecycle truth.
+- Krisp detail review separates generated notes from recording/transcript,
+  shows timestamped transcript segments, speaker labels, playback controls,
+  timeline/speaker contribution bars, transcript quality prompts, sharing, and
+  speaker-assignment/editing affordances. For `042`, display, provenance,
+  playback/status truth, and embedded desktop parity are MVP; transcript
+  editing, speaker editing, summarize actions, and richer sharing remain
+  gated by existing features or future slices.
+- The provided appshots contain real account, meeting, and transcript content.
+  Raw screenshots and copied transcript/account strings must not be committed
+  into this feature evidence. Only sanitized UI observations may be recorded.
+
 ## Decision: Key processing idempotency by accepted media revision
 
 **Decision**: Processing workflow identity should include the accepted
