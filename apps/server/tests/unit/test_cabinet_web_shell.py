@@ -263,11 +263,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
         )
     )
 
-    assert "My Meetings" in page
-    assert "Upcoming" in page
-    assert "Meeting notes" in page
-    assert "Upload file" in page
-    assert "Newest first" in page
+    assert "Мои встречи" in page
+    assert "Ближайшие" in page
+    assert "Записи встреч" in page
+    assert "Новая" in page
+    assert "Сначала новые" in page
     assert "updated_desc" not in page
     assert ":focus-visible" in page
     assert "hero" not in page.lower()

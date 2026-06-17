@@ -43,6 +43,9 @@ async def test_postal_email_login_client_sends_code_with_server_api_key() -> Non
     assert payload["from"] == "2brain Rec <no-reply@rec.2brain.pro>"
     assert payload["tag"] == "email-login-code"
     assert "123456" in payload["plain_body"]
+    assert "Подтвердите вход" in payload["plain_body"]
+    assert "Подтвердите вход" in payload["html_body"]
+    assert "background:#f0f0f2" in payload["html_body"]
 
 
 @pytest.mark.anyio

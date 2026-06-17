@@ -106,17 +106,48 @@ async def send_email_login_code(
 
 def _plain_login_code_body(*, code: str, ttl_minutes: int) -> str:
     return (
-        "Код входа в 2brain Rec:\n\n"
+        "Подтвердите вход в 2brain Rec\n\n"
+        "Ваш код подтверждения:\n\n"
         f"{code}\n\n"
-        f"Код действует {ttl_minutes} минут. Если вы не запрашивали вход, просто игнорируйте это письмо."
+        f"Код действует {ttl_minutes} минут. "
+        "Если вы не запрашивали вход или регистрацию, просто игнорируйте это письмо."
     )
 
 
 def _html_login_code_body(*, code: str, ttl_minutes: int) -> str:
     escaped_code = escape(code)
-    return (
-        "<p>Код входа в 2brain Rec:</p>"
-        f"<p style=\"font-size:24px;font-weight:700;letter-spacing:4px\">{escaped_code}</p>"
-        f"<p>Код действует {ttl_minutes} минут. "
-        "Если вы не запрашивали вход, просто игнорируйте это письмо.</p>"
-    )
+    return f"""
+    <!doctype html>
+    <html lang="ru">
+      <body style="margin:0;background:#f7f7f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#373941;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f7f8;padding:44px 16px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:0;padding:0;">
+                <tr>
+                  <td align="center" style="padding:36px 36px 16px;">
+                    <div style="width:38px;height:38px;border-radius:8px;background:#17143a;color:#ffffff;display:inline-block;line-height:38px;font-weight:800;font-size:22px;">2</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding:0 36px;">
+                    <h1 style="margin:0 0 22px;font-size:28px;line-height:1.2;font-weight:760;color:#42434a;">Подтвердите вход</h1>
+                    <p style="margin:0 0 18px;font-size:16px;line-height:1.5;color:#555862;">Ваш код подтверждения:</p>
+                    <div style="background:#f0f0f2;border-radius:4px;padding:18px 24px;margin:0 auto 24px;max-width:360px;font-size:28px;line-height:1;font-weight:780;letter-spacing:3px;color:#3a3c43;">{escaped_code}</div>
+                    <p style="margin:0 0 18px;font-size:16px;line-height:1.5;color:#555862;">Код действует {ttl_minutes} минут. Не пересылайте это письмо: оно открывает доступ к вашему кабинету 2brain Rec.</p>
+                    <p style="margin:0 0 28px;font-size:15px;line-height:1.5;color:#555862;">Если вы не запрашивали вход или регистрацию, просто проигнорируйте это письмо.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="border-top:1px solid #e5e5e7;padding:18px 36px 34px;color:#777b84;font-size:12px;line-height:1.5;">
+                    <div>Made by 2brain Rec</div>
+                    <div>Самостоятельный кабинет записи и расшифровки встреч</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """

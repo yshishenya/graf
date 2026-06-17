@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime
 from html import escape
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -73,11 +73,14 @@ CabinetLimitQuery = Query(default=50, ge=1, le=100)
 LoginWorkspaceQuery = Query(default=None)
 LoginNextQuery = Query(default="/meetings", alias="next", max_length=512)
 LoginErrorQuery = Query(default=None, max_length=120)
+SignupModeQuery = Query(default=None, max_length=32, alias="mode")
 LoginEmailForm = Form(..., max_length=240)
 LoginCodeForm = Form(..., max_length=32)
 LoginStateForm = Form(..., max_length=160)
 LoginWorkspaceForm = Form(default=None)
 LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
+EMAIL_LOGIN_PROVIDER = "email"
+EMAIL_SIGNUP_PROVIDER = "email_signup"
 
 
 async def get_web_request_db_session(
@@ -130,6 +133,12 @@ CSS = """
 * { box-sizing: border-box; }
 html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden; }
 body { font-size: 14px; line-height: 1.45; letter-spacing: 0; }
+body.auth-leaving .auth-panel {
+  opacity: 0;
+  transform: translateY(-4px) scale(.992);
+  filter: blur(1px);
+}
+body.auth-leaving .auth-page::before { opacity: .35; }
 a { color: inherit; text-decoration: none; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, .button:focus-visible {
   outline: 2px solid #b6aaff;
@@ -169,6 +178,7 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
   gap: 14px;
 }
 .brand { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; align-items: center; }
+.workspace { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: center; }
 .brand-mark, .avatar {
   width: 34px;
   height: 34px;
@@ -378,11 +388,22 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   box-shadow: 0 22px 52px rgba(0,0,0,.42);
   position: relative;
   z-index: 1;
+  animation: rec-panel-in .24s cubic-bezier(.2,.8,.2,1) both;
+  transition:
+    opacity .16s cubic-bezier(.2,.8,.2,1),
+    transform .16s cubic-bezier(.2,.8,.2,1),
+    filter .16s cubic-bezier(.2,.8,.2,1);
 }
 .auth-panel h1 { font-size: 20px; text-align: center; }
 .auth-brand-wordmark { text-align: center; font-size: 25px; line-height: 1; font-weight: 850; }
 .auth-subtitle { color: var(--muted); font-size: 12px; line-height: 1.35; text-align: center; }
 .auth-actions { display: grid; gap: 8px; }
+.auth-actions > *, .email-mode > *, .auth-form > * {
+  animation: rec-item-in .22s cubic-bezier(.2,.8,.2,1) both;
+}
+.auth-actions > *:nth-child(2), .email-mode > *:nth-child(2), .auth-form > *:nth-child(2) { animation-delay: .025s; }
+.auth-actions > *:nth-child(3), .email-mode > *:nth-child(3), .auth-form > *:nth-child(3) { animation-delay: .05s; }
+.auth-actions > *:nth-child(4), .email-mode > *:nth-child(4), .auth-form > *:nth-child(4) { animation-delay: .075s; }
 .auth-provider {
   min-height: 32px;
   border: 1px solid #4a4e57;
@@ -451,10 +472,215 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   line-height: 1.45;
 }
 .auth-alert { border: 1px solid rgba(255,107,107,.35); border-radius: 8px; padding: 10px 12px; background: rgba(255,107,107,.07); color: #ffd6d6; font-size: 12px; font-weight: 750; }
+.code-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 8px;
+}
+.code-slot {
+  height: 46px;
+  padding: 0;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  border-radius: 7px;
+  border-color: #3f444d;
+  background: #1d2024;
+  caret-color: #a89cff;
+}
+.code-slot:focus {
+  border-color: #765fff;
+  box-shadow: 0 0 0 1px #765fff;
+}
+.code-hint { text-align: center; color: var(--muted); font-size: 11px; font-weight: 650; }
+.auth-resend {
+  border: 0;
+  background: transparent;
+  color: #c5bbff;
+  justify-self: center;
+  min-height: 32px;
+  padding: 0;
+  font-weight: 800;
+}
+.auth-resend:hover { color: #ded8ff; }
+.email-mode {
+  display: grid;
+  gap: 14px;
+}
+.email-mode-trigger {
+  min-height: 34px;
+  border-radius: 7px;
+  border: 1px solid #4a4e57;
+  background: #24272b;
+  color: #eef0f4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 800;
+}
+.email-mode-trigger:hover { color: #fff; background: #2a2d33; border-color: #6860a8; }
+.signup-email-form { display: grid; gap: 12px; }
+.auth-help { text-align: center; color: #a9abb4; text-decoration: underline; text-underline-offset: 2px; }
+.cabinet-main {
+  min-height: 100vh;
+  background: #181a1d;
+  padding: 34px clamp(22px, 8vw, 154px) 92px;
+}
+.desktop-embedded .cabinet-main { padding: 24px clamp(18px, 5vw, 72px) 32px; }
+.cabinet-workspace { max-width: 820px; }
+.cabinet-topbar {
+  min-height: 34px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.cabinet-titleline { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--muted); }
+.cabinet-titleline strong { color: var(--text); }
+.cabinet-card {
+  background: #242629;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  animation: rec-item-in .22s cubic-bezier(.2,.8,.2,1) both;
+}
+.upcoming.cabinet-card {
+  max-width: none;
+  padding: 16px 18px;
+  gap: 13px;
+}
+.calendar-day {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.calendar-events { display: grid; gap: 12px; }
+.calendar-event { border-left: 3px solid #9cd9ff; padding-left: 11px; min-height: 32px; }
+.calendar-event strong, .meeting-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meeting-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin: 22px 0 9px;
+}
+.toolbar-icons { display: flex; align-items: center; gap: 8px; }
+.icon-control {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #b5bac3;
+}
+.icon-control:hover { background: #2a2e33; }
+.new-button { min-height: 28px; background: #8c73ff; border-color: #8c73ff; color: #fff; font-weight: 800; }
+.list-card.cabinet-card {
+  max-width: none;
+  background: #1c1e21;
+  border-color: #30343a;
+}
+.meeting-row {
+  color: #dfe2e8;
+}
+.meeting-row.cabinet-row {
+  grid-template-columns: 24px 20px minmax(0, 1fr) auto 64px;
+  min-height: 40px;
+  padding: 0 12px;
+  gap: 9px;
+}
+.meeting-row.cabinet-row:hover { background: #2b2f34; }
+.meeting-row.is-selected { background: #303438; }
+.meeting-row .row-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #686e78;
+  border-radius: 4px;
+}
+.row-icon { display: grid; place-items: center; color: #a7adb7; font-size: 13px; }
+.meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
+.future-actions {
+  display: flex;
+  gap: 4px;
+  opacity: .85;
+  justify-content: flex-end;
+}
+.future-actions .icon-button {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  border-color: transparent;
+  background: transparent;
+}
+.floating-search {
+  position: fixed;
+  left: max(204px, calc(50% - 250px));
+  bottom: 16px;
+  width: min(430px, calc(100vw - 260px));
+  min-height: 40px;
+  border: 1px solid #42474f;
+  background: #23262a;
+  color: #aeb4be;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  box-shadow: 0 12px 34px rgba(0,0,0,.26);
+  font-size: 13px;
+}
+.auth-provider, .email-mode-trigger, .code-slot, .meeting-row, .icon-control, .new-button {
+  transition:
+    background-color .16s cubic-bezier(.2,.8,.2,1),
+    border-color .16s cubic-bezier(.2,.8,.2,1),
+    color .16s cubic-bezier(.2,.8,.2,1),
+    transform .16s cubic-bezier(.2,.8,.2,1),
+    opacity .16s cubic-bezier(.2,.8,.2,1);
+}
+.auth-provider:active, .email-mode-trigger:active, .new-button:active { transform: translateY(1px) scale(.995); }
+.meeting-row:hover { transform: translateX(2px); }
+.code-slot { animation: rec-slot-in .18s cubic-bezier(.2,.8,.2,1) both; }
+.code-slot:nth-child(2) { animation-delay: .02s; }
+.code-slot:nth-child(3) { animation-delay: .04s; }
+.code-slot:nth-child(4) { animation-delay: .06s; }
+.code-slot:nth-child(5) { animation-delay: .08s; }
+.code-slot:nth-child(6) { animation-delay: .1s; }
+@keyframes rec-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes rec-item-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes rec-slot-in {
+  from { opacity: 0; transform: translateY(5px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes rec-fade-in {
+  from { opacity: 0; filter: blur(2px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@keyframes rec-fade-out {
+  from { opacity: 1; filter: blur(0); }
+  to { opacity: 0; filter: blur(1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .001ms !important;
+  }
+}
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .main { width: 100%; max-width: 100vw; overflow-x: hidden; padding: 18px; }
+  .cabinet-main { padding: 18px 14px 88px; }
+  .cabinet-workspace { max-width: none; }
   .topline { flex-direction: column; align-items: stretch; }
   .action-row { justify-content: flex-start; }
   .metric-grid { grid-template-columns: 1fr; }
@@ -463,11 +689,15 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   .detail-layout { grid-template-columns: 1fr; }
   .right-panel { position: static; }
   .meeting-row { grid-template-columns: 24px minmax(0, 1fr); padding: 12px; }
+  .meeting-row.cabinet-row { grid-template-columns: 20px minmax(0, 1fr) auto; min-height: 48px; }
+  .meeting-row.cabinet-row .row-check, .meeting-row.cabinet-row .future-actions { display: none; }
+  .meeting-row.cabinet-row .meeting-date { grid-column: 3; }
   .meeting-row > .state-list, .meeting-row > .row-actions { grid-column: 2; justify-self: start; }
   .segment { display: block; }
   .segment .speaker, .segment .text { margin-top: 6px; }
   .report-grid { grid-template-columns: 1fr; }
   .playback { position: static; left: 0; right: 0; margin-top: 16px; border-radius: 8px; border: 1px solid var(--line); }
+  .floating-search { left: 14px; right: 14px; width: auto; }
   .auth-legal { position: relative; inset: auto; margin-top: -8px; }
 }
 @media (max-width: 540px) {
@@ -502,6 +732,37 @@ async def browser_login_page(
             providers=providers,
             next_path=safe_next,
             error=load_error,
+        )
+    )
+
+
+@router.get("/sign-up", response_class=HTMLResponse, include_in_schema=False)
+async def browser_signup_page(
+    request: Request,
+    workspace_id: UUID | None = LoginWorkspaceQuery,
+    next_path: str = LoginNextQuery,
+    error: str | None = LoginErrorQuery,
+    mode: str | None = SignupModeQuery,
+    db: AsyncSession | None = LoginDbDependency,
+) -> HTMLResponse:
+    safe_next = _safe_browser_next_path(next_path)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    providers = []
+    load_error = error
+    if resolved_workspace_id is not None and db is not None:
+        try:
+            providers = await _load_browser_login_providers(db, resolved_workspace_id)
+        except ProblemDetail as exc:
+            load_error = exc.code
+    elif resolved_workspace_id is not None and db is None:
+        load_error = "auth_dependency_unavailable"
+    return HTMLResponse(
+        render_signup_page(
+            workspace_id=resolved_workspace_id,
+            providers=providers,
+            next_path=safe_next,
+            error=load_error,
+            mode=mode,
         )
     )
 
@@ -624,6 +885,115 @@ async def browser_email_login_start(
     )
 
 
+@router.post("/sign-up/email/start", response_class=HTMLResponse, include_in_schema=False)
+async def browser_email_signup_start(
+    request: Request,
+    email: str = LoginEmailForm,
+    workspace_id: UUID | None = LoginWorkspaceForm,
+    next_path: str = LoginNextForm,
+    db: AsyncSession | None = LoginDbDependency,
+) -> HTMLResponse:
+    safe_next = _safe_browser_next_path(next_path)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    if resolved_workspace_id is None:
+        return HTMLResponse(
+            render_signup_page(
+                workspace_id=None,
+                providers=[],
+                next_path=safe_next,
+                error="workspace_required",
+            ),
+            status_code=400,
+        )
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="Authentication DB dependency unavailable",
+        )
+    normalized_email = _normalize_email(email)
+    if normalized_email is None:
+        return HTMLResponse(
+            render_signup_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="email_invalid",
+            ),
+            status_code=400,
+        )
+    workspace = await _resolve_email_workspace(db, workspace_id=resolved_workspace_id)
+    if workspace is None:
+        return HTMLResponse(
+            render_signup_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="email_start_unavailable",
+            ),
+            status_code=400,
+        )
+    code = _issue_email_login_code()
+    ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
+    state = await _create_email_login_state(
+        db,
+        workspace_id=resolved_workspace_id,
+        next_path=safe_next,
+        code=code,
+        ttl_seconds=ttl_seconds,
+        provider=EMAIL_SIGNUP_PROVIDER,
+    )
+    dev_code = code if _should_echo_email_code(request) else None
+    if dev_code is None:
+        try:
+            await email_delivery.send_email_login_code(
+                settings=request.app.state.settings,
+                recipient_email=normalized_email,
+                code=code,
+                ttl_seconds=ttl_seconds,
+            )
+        except email_delivery.EmailLoginDeliveryError:
+            state.result = "failed"
+            state.used_at = datetime.now(UTC)
+            state.error_code = "email_delivery_unavailable"
+            await _record_email_login_audit(
+                db,
+                request=request,
+                workspace_id=resolved_workspace_id,
+                outcome="failure",
+                error_code="email_delivery_unavailable",
+                metadata={"flow": "registration"},
+            )
+            await db.commit()
+            return HTMLResponse(
+                render_signup_page(
+                    workspace_id=resolved_workspace_id,
+                    providers=[],
+                    next_path=safe_next,
+                    error="email_delivery_unavailable",
+                ),
+                status_code=503,
+            )
+    await _record_email_login_audit(
+        db,
+        request=request,
+        workspace_id=resolved_workspace_id,
+        outcome="success",
+        metadata={"flow": "registration"},
+    )
+    await db.commit()
+    return HTMLResponse(
+        render_email_code_page(
+            email=normalized_email,
+            workspace_id=resolved_workspace_id,
+            state_nonce=state.state_nonce,
+            next_path=safe_next,
+            dev_code=dev_code,
+            flow="signup",
+        )
+    )
+
+
 @router.post("/login/email/verify", include_in_schema=False, response_model=None)
 async def browser_email_login_verify(
     request: Request,
@@ -662,6 +1032,55 @@ async def browser_email_login_verify(
         code=code,
         state_nonce=state,
         next_path=safe_next,
+    )
+    if isinstance(result, HTMLResponse):
+        return result
+    redirect = RedirectResponse(safe_next, status_code=303)
+    _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
+    return redirect
+
+
+@router.post("/sign-up/email/verify", include_in_schema=False, response_model=None)
+async def browser_email_signup_verify(
+    request: Request,
+    email: str = LoginEmailForm,
+    code: str = LoginCodeForm,
+    state: str = LoginStateForm,
+    workspace_id: UUID | None = LoginWorkspaceForm,
+    next_path: str = LoginNextForm,
+    db: AsyncSession | None = LoginDbDependency,
+):
+    safe_next = _safe_browser_next_path(next_path)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    normalized_email = _normalize_email(email)
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="Authentication DB dependency unavailable",
+        )
+    if resolved_workspace_id is None or normalized_email is None:
+        return HTMLResponse(
+            render_email_code_page(
+                email=normalized_email or "",
+                workspace_id=resolved_workspace_id,
+                state_nonce=state,
+                next_path=safe_next,
+                error="email_code_invalid",
+                flow="signup",
+            ),
+            status_code=400,
+        )
+    result = await _consume_email_login_code(
+        db,
+        request=request,
+        workspace_id=resolved_workspace_id,
+        email=normalized_email,
+        code=code,
+        state_nonce=state,
+        next_path=safe_next,
+        provider=EMAIL_SIGNUP_PROVIDER,
+        allow_registration=True,
     )
     if isinstance(result, HTMLResponse):
         return result
@@ -854,26 +1273,13 @@ def _render_login_provider_actions(providers: list, *, next_path: str) -> str:
         provider_id = str(getattr(provider, "provider", "") or "").strip()
         label = _login_provider_label(provider_id, str(getattr(provider, "label", "") or provider_id))
         mark = _login_provider_mark(provider_id, label)
-        enabled = bool(getattr(provider, "enabled", False))
-        if not enabled:
-            actions.append(
-                f"""
-                <span class="auth-provider" aria-disabled="true">
-                  <span class="provider-mark">{escape(mark)}</span>
-                  <span>{escape(label)}</span>
-                  <span class="provider-pill">скоро</span>
-                </span>
-                """
-            )
-            continue
-        href = f"/login/{quote(provider_id, safe='')}/start?{urlencode({'next': next_path})}"
         actions.append(
             f"""
-            <a class="auth-provider" href="{escape(href)}">
+            <span class="auth-provider" aria-disabled="true">
               <span class="provider-mark">{escape(mark)}</span>
               <span>{escape(label)}</span>
               <span class="provider-pill">скоро</span>
-            </a>
+            </span>
             """
         )
     return "\n".join(actions)
@@ -936,13 +1342,71 @@ def render_login_page(
           </form>
           <div class="auth-secondary">
             <a class="mini-link" href="/login/sso/start?{urlencode({"next": safe_next})}" aria-disabled="true">Войти через SSO</a>
-            <div class="auth-signup">Нет аккаунта? <a href="/sign-up" aria-disabled="true">Зарегистрироваться</a></div>
+            <div class="auth-signup">Нет аккаунта? <a href="/sign-up?{urlencode({"next": safe_next})}">Зарегистрироваться</a></div>
           </div>
         </section>
         <p class="auth-legal">Продолжая, вы соглашаетесь с <a href="#" aria-disabled="true">Условиями использования</a> и <a href="#" aria-disabled="true">Политикой конфиденциальности</a>. Аудио и транскрипты не показываются до успешного входа.</p>
       </main>
     """
     return _standalone_page("Вход", content)
+
+
+def render_signup_page(
+    *,
+    workspace_id: UUID | None,
+    providers: list,
+    next_path: str = "/meetings",
+    error: str | None = None,
+    mode: str | None = None,
+) -> str:
+    safe_next = _safe_browser_next_path(next_path)
+    email_mode = str(mode or "").lower() == "email"
+    error_html = _render_login_error(error)
+    if workspace_id is None:
+        provider_html = """
+          <div class="truth-copy">Кабинет регистрации не настроен. Проверьте серверные настройки.</div>
+        """
+    else:
+        provider_html = _render_login_provider_actions(providers, next_path=safe_next)
+    if email_mode:
+        registration_body = f"""
+          <a class="email-mode-trigger" href="/sign-up?{urlencode({"next": safe_next})}">Продолжить другим способом</a>
+          <div class="auth-divider">или</div>
+          <form class="auth-form signup-email-form" action="/sign-up/email/start" method="post">
+            <label>
+              Рабочая почта
+              <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
+            </label>
+            <input type="hidden" name="next" value="{escape(safe_next)}">
+            <button class="primary" type="submit">Зарегистрироваться</button>
+          </form>
+        """
+    else:
+        registration_body = f"""
+          <div class="auth-actions">{provider_html}</div>
+          <a class="mini-link auth-help" href="#" aria-disabled="true">Зачем 2brain Rec доступ к календарю?</a>
+          <div class="auth-divider">или</div>
+          <a class="email-mode-trigger" href="/sign-up?{urlencode({"next": safe_next, "mode": "email"})}">
+            <span class="provider-mark">@</span><span>Продолжить с email</span>
+          </a>
+        """
+    content = f"""
+      <main class="auth-page">
+        <section class="auth-panel" aria-label="Регистрация">
+          <div class="auth-brand-wordmark">2brain Rec</div>
+          <div>
+            <h1>Зарегистрируйтесь бесплатно</h1>
+          </div>
+          {error_html}
+          <div class="email-mode">{registration_body}</div>
+          <div class="auth-secondary">
+            <div class="auth-signup">Уже есть аккаунт? <a href="/login?{urlencode({"next": safe_next})}">Войти</a></div>
+          </div>
+        </section>
+        <p class="auth-legal">Продолжая, вы соглашаетесь с <a href="#" aria-disabled="true">Условиями использования</a> и <a href="#" aria-disabled="true">Политикой конфиденциальности</a>. Код подтверждения отправляется только на указанную почту.</p>
+      </main>
+    """
+    return _standalone_page("Регистрация", content)
 
 
 def render_email_code_page(
@@ -953,8 +1417,18 @@ def render_email_code_page(
     next_path: str,
     dev_code: str | None = None,
     error: str | None = None,
+    flow: str = "login",
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
+    verify_path = "/sign-up/email/verify" if flow == "signup" else "/login/email/verify"
+    resend_path = "/sign-up/email/start" if flow == "signup" else "/login/email/start"
+    back_path = "/sign-up" if flow == "signup" else "/login"
+    page_title = "Подтвердите почту" if flow == "signup" else "Подтвердите вход"
+    subtitle = (
+        f"Проверьте {escape(email)}: мы отправили 6-значный код для создания аккаунта."
+        if flow == "signup"
+        else f"Проверьте {escape(email)}: мы отправили 6-значный код для входа."
+    )
     dev_code_html = ""
     if dev_code is not None:
         dev_code_html = f"""
@@ -968,66 +1442,157 @@ def render_email_code_page(
         <section class="auth-panel" aria-label="Код входа">
           <div class="auth-brand-wordmark">2brain Rec</div>
           <div>
-            <h1>Проверьте почту</h1>
-            <div class="auth-subtitle">Введите одноразовый код, который мы отправили на {escape(email)}.</div>
+            <h1>{page_title}</h1>
+            <div class="auth-subtitle">{subtitle}</div>
           </div>
+          <div class="code-hint">Проверьте почту и введите код ниже.</div>
           {_render_login_error(error)}
           {dev_code_html}
-          <form class="auth-form" action="/login/email/verify" method="post">
-            <label>
-              Код входа
-              <input name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required>
-            </label>
+          <form class="auth-form" action="{verify_path}" method="post" data-code-form>
+            <div class="code-grid" role="group" aria-label="6-значный код">
+              {_render_code_slots()}
+            </div>
+            <input data-code-hidden name="code" type="hidden" autocomplete="one-time-code">
             <input type="hidden" name="email" value="{escape(email)}">
             <input type="hidden" name="state" value="{escape(state_nonce)}">
             <input type="hidden" name="next" value="{escape(safe_next)}">
-            <button class="primary" type="submit">Войти</button>
+            <button class="primary" type="submit">Продолжить</button>
+          </form>
+          <form class="auth-form" action="{resend_path}" method="post">
+            <input type="hidden" name="email" value="{escape(email)}">
+            <input type="hidden" name="next" value="{escape(safe_next)}">
+            <button class="auth-resend" type="submit">Отправить код еще раз</button>
           </form>
           <div class="auth-secondary">
-            <a class="mini-link" href="/login?{urlencode({"next": safe_next})}">Запросить новый код</a>
+            <a class="mini-link" href="{back_path}?{urlencode({"next": safe_next})}">Изменить почту</a>
           </div>
         </section>
         <p class="auth-legal">Код действует ограниченное время. Не пересылайте его другим людям.</p>
+        {_render_code_entry_script()}
       </main>
     """
     return _standalone_page("Код входа", content)
 
 
+def _render_code_slots() -> str:
+    return "\n".join(
+        f'<input class="code-slot" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Цифра {index}" data-code-slot>'
+        for index in range(1, 7)
+    )
+
+
+def _render_code_entry_script() -> str:
+    return """
+        <script>
+        (() => {
+          const form = document.querySelector("[data-code-form]");
+          if (!form) return;
+          const slots = Array.from(form.querySelectorAll("[data-code-slot]"));
+          const hidden = form.querySelector("[data-code-hidden]");
+          const sync = () => { hidden.value = slots.map((slot) => slot.value).join(""); };
+          slots.forEach((slot, index) => {
+            slot.addEventListener("input", () => {
+              slot.value = slot.value.replace(/\\D/g, "").slice(0, 1);
+              sync();
+              if (slot.value && slots[index + 1]) slots[index + 1].focus();
+            });
+            slot.addEventListener("keydown", (event) => {
+              if (event.key === "Backspace" && !slot.value && slots[index - 1]) {
+                slots[index - 1].focus();
+              }
+            });
+            slot.addEventListener("paste", (event) => {
+              const text = (event.clipboardData || window.clipboardData).getData("text").replace(/\\D/g, "").slice(0, 6);
+              if (!text) return;
+              event.preventDefault();
+              slots.forEach((target, offset) => { target.value = text[offset] || ""; });
+              sync();
+              const next = slots[Math.min(text.length, slots.length) - 1];
+              if (next) next.focus();
+            });
+          });
+          form.addEventListener("submit", sync);
+          slots[0]?.focus();
+        })();
+        </script>
+    """
+
+
+def _render_auth_transition_script() -> str:
+    return """
+        <script>
+        (() => {
+          const page = document.querySelector(".auth-page");
+          if (!page || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+          page.addEventListener("click", (event) => {
+            const link = event.target.closest("a[href]");
+            if (!link) return;
+            if (link.getAttribute("aria-disabled") === "true") return;
+            if (link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            const url = new URL(link.href, window.location.href);
+            if (url.origin !== window.location.origin) return;
+            event.preventDefault();
+            document.body.classList.add("auth-leaving");
+            window.setTimeout(() => { window.location.href = url.href; }, 130);
+          });
+        })();
+        </script>
+    """
+
+
 def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = False) -> str:
-    rows = "\n".join(_render_meeting_row(item, embedded=embedded) for item in response.items)
+    rows = "\n".join(
+        _render_meeting_row(item, embedded=embedded, selected=index == 0)
+        for index, item in enumerate(response.items)
+    )
     if not rows:
         rows = '<div class="empty-state">Нет встреч для выбранного фильтра.</div>'
-    new_control = "" if embedded else """
-        <div class="action-row">
-          <button class="button" type="button" aria-disabled="true">Filters</button>
-          <button class="button" type="button" aria-disabled="true">Sort</button>
-          <button class="button primary" type="button" aria-disabled="true">New</button>
-          <span class="chip">Upload file</span>
-        </div>
-    """
+    new_control = "" if embedded else '<button class="new-button" type="button" aria-disabled="true">Новая</button>'
     content = f"""
-      <main class="main">
-        <div class="topline">
-          <div class="crumbs"><strong>My Meetings</strong><span>{escape(_sort_label(response.filters.sort))}</span></div>
-          {new_control}
+      <main class="cabinet-main">
+        <div class="cabinet-workspace">
+          <div class="cabinet-topbar">
+            <div class="cabinet-titleline"><strong>Мои встречи</strong><span>{escape(_sort_label(response.filters.sort))}</span></div>
+            <div class="toolbar-icons">
+              <button class="icon-control" type="button" aria-label="Сохраненные" aria-disabled="true">□</button>
+              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">≡</button>
+              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">↕</button>
+              {new_control}
+            </div>
+          </div>
+          <section class="upcoming cabinet-card" aria-label="Ближайшие встречи">
+            <div class="section-title">Ближайшие</div>
+            <div class="calendar-day">
+              <div class="date-badge">Сегодня<br>17</div>
+              <div class="calendar-events">
+                <div class="calendar-event"><strong>Командный синк</strong><div class="muted">11:30 - 13:00</div></div>
+                <div class="calendar-event"><strong>Ревью релиза</strong><div class="muted">12:00 - 13:00</div></div>
+              </div>
+            </div>
+            <div class="calendar-day">
+              <div class="date-badge">19<br>июн</div>
+              <div class="calendar-events">
+                <div class="calendar-event"><strong>Планирование запуска</strong><div class="muted">15:00 - 16:00</div></div>
+              </div>
+            </div>
+          </section>
+          <div class="meeting-toolbar">
+            <div class="section-title">Записи встреч</div>
+            <div class="toolbar-icons">
+              <button class="icon-control" type="button" aria-label="Сохранить" aria-disabled="true">□</button>
+              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">≡</button>
+              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">↕</button>
+              {'' if embedded else '<button class="new-button" type="button" aria-disabled="true">Новая</button>'}
+            </div>
+          </div>
+          <section class="list-card cabinet-card" aria-label="Записи встреч">
+            {rows}
+          </section>
         </div>
-        <section class="upcoming" aria-label="Upcoming">
-          <div class="section-title">Upcoming</div>
-          <div class="calendar-row"><div class="date-badge">Today<br>16</div><div><strong>Командный синк</strong><div class="muted">11:30 - 1:00PM</div></div></div>
-          <div class="calendar-row"><div class="date-badge">Jun<br>19</div><div><strong>Ревью релиза</strong><div class="muted">12:00 - 1:00PM</div></div></div>
-        </section>
-        <div class="section-title">Meeting notes</div>
-        <div class="list-toolbar">
-          <div class="filterbar"><span class="chip">Search</span><span class="chip">Filters</span><span class="chip">Sort</span></div>
-          {'' if embedded else '<span class="chip">New</span>'}
-        </div>
-        <section class="list-card" aria-label="Meeting notes">
-          {rows}
-        </section>
-        <div class="floating-search">Ask anything...</div>
+        <div class="floating-search">Спросите что-нибудь...</div>
       </main>
     """
-    return _page_shell("My Meetings", content, embedded=embedded)
+    return _page_shell("Мои встречи", content, embedded=embedded)
 
 
 def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool = False) -> str:
@@ -1046,7 +1611,7 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
     content = f"""
       <main class="main">
         <div class="topline">
-          <div class="crumbs"><a href="{_base_path(embedded)}">My Meetings</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(review.meeting.status_label)}</span>{_render_access_chip(review.meeting.access)}</div>
+          <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(review.meeting.status_label)}</span>{_render_access_chip(review.meeting.access)}</div>
           <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
         </div>
         <div class="tabs">
@@ -1095,7 +1660,7 @@ def render_deletion_report_page(
     content = f"""
       <main class="main">
         <div class="topline">
-          <div class="crumbs"><a href="{_base_path(embedded)}">My Meetings</a><span>/</span><strong>{escape(meeting_title)}</strong><span>Deletion report</span></div>
+          <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(meeting_title)}</strong><span>Отчет удаления</span></div>
           <div class="action-row"><a class="button" href="{_base_path(embedded)}">Back</a></div>
         </div>
         <section class="report-layout" aria-label="Deletion report">
@@ -1154,6 +1719,7 @@ def _standalone_page(title: str, content: str) -> str:
 </head>
 <body>
   {content}
+  {_render_auth_transition_script()}
 </body>
 </html>"""
 
@@ -1161,7 +1727,7 @@ def _standalone_page(title: str, content: str) -> str:
 async def _load_browser_login_providers(db: AsyncSession, workspace_id: UUID) -> list:
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
     snapshot = await read_auth_providers(db, workspace_id, adapters=build_provider_registry())
-    return [provider for provider in snapshot.providers if provider.enabled]
+    return list(snapshot.providers)
 
 
 async def _record_email_login_audit(
@@ -1172,10 +1738,13 @@ async def _record_email_login_audit(
     outcome: str = "success",
     user_id: UUID | None = None,
     error_code: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> None:
-    metadata = {"flow": "email_login"}
+    audit_metadata = {"flow": "email_login"}
+    if metadata:
+        audit_metadata.update(metadata)
     if error_code is not None:
-        metadata["error_code"] = error_code
+        audit_metadata["error_code"] = error_code
     await write_auth_audit_event(
         db,
         workspace_id=workspace_id,
@@ -1186,7 +1755,7 @@ async def _record_email_login_audit(
         request_id=getattr(request.state, "request_id", None),
         user_id=user_id,
         actor_user_id=user_id,
-        metadata=metadata,
+        metadata=audit_metadata,
     )
 
 
@@ -1197,10 +1766,11 @@ async def _create_email_login_state(
     next_path: str,
     code: str,
     ttl_seconds: int,
+    provider: str = EMAIL_LOGIN_PROVIDER,
 ) -> AuthCallbackState:
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
     state = AuthCallbackState(
-        provider="email",
+        provider=provider,
         state_nonce=secrets.token_urlsafe(24),
         workspace_id=workspace_id,
         requested_redirect=_safe_browser_next_path(next_path),
@@ -1223,15 +1793,18 @@ async def _consume_email_login_code(
     code: str,
     state_nonce: str,
     next_path: str,
+    provider: str = EMAIL_LOGIN_PROVIDER,
+    allow_registration: bool = False,
 ):
     now = datetime.now(UTC)
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
     state = await db.scalar(
         select(AuthCallbackState).where(
-            AuthCallbackState.provider == "email",
+            AuthCallbackState.provider == provider,
             AuthCallbackState.state_nonce == state_nonce,
         )
     )
+    flow = "signup" if allow_registration else "login"
     if state is None:
         return _email_code_error_response(
             email=email,
@@ -1239,6 +1812,7 @@ async def _consume_email_login_code(
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
+            flow=flow,
         )
     if workspace_id is not None and state.workspace_id != workspace_id:
         return _email_code_error_response(
@@ -1247,6 +1821,7 @@ async def _consume_email_login_code(
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
+            flow=flow,
         )
     workspace_id = state.workspace_id
     if state.result != "pending":
@@ -1256,6 +1831,7 @@ async def _consume_email_login_code(
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
+            flow=flow,
         )
     expires_at = state.expires_at
     if expires_at.tzinfo is None:
@@ -1278,6 +1854,7 @@ async def _consume_email_login_code(
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_expired",
+            flow=flow,
         )
     if state.expected_state != hash_token(_normalize_email_code(code)):
         state.error_code = "email_code_invalid"
@@ -1295,8 +1872,16 @@ async def _consume_email_login_code(
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
+            flow=flow,
         )
     workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
+    if workspace is not None and user is None and allow_registration:
+        user = await _ensure_email_registration_user(
+            db,
+            workspace=workspace,
+            email=email,
+            now=now,
+        )
     if workspace is None or user is None:
         state.result = "failed"
         state.used_at = now
@@ -1315,6 +1900,7 @@ async def _consume_email_login_code(
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
+            flow=flow,
         )
     device = await _resolve_email_browser_device(db, workspace=workspace, user=user, now=now)
     issued = await issue_auth_session(
@@ -1343,6 +1929,7 @@ async def _consume_email_login_code(
         workspace_id=workspace.id,
         outcome="success",
         user_id=user.id,
+        metadata={"flow": "registration"} if allow_registration else None,
     )
     await db.commit()
     return issued
@@ -1400,6 +1987,116 @@ async def _resolve_email_login_user(
     return workspace, None
 
 
+async def _resolve_email_workspace(db: AsyncSession, *, workspace_id: UUID) -> Workspace | None:
+    await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
+    return await db.get(Workspace, workspace_id)
+
+
+async def _ensure_email_registration_user(
+    db: AsyncSession,
+    *,
+    workspace: Workspace,
+    email: str,
+    now: datetime,
+) -> UserIdentity:
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=workspace.id,
+            organization_id=workspace.organization_id,
+            context_kind="auth_bootstrap",
+        ),
+    )
+    existing = (
+        await db.execute(
+            select(ExternalIdentity, UserIdentity)
+            .join(UserIdentity, UserIdentity.id == ExternalIdentity.user_id)
+            .where(
+                UserIdentity.organization_id == workspace.organization_id,
+                UserIdentity.status == "active",
+                func.lower(ExternalIdentity.email) == email,
+            )
+            .order_by(ExternalIdentity.created_at.asc())
+        )
+    ).first()
+    if existing is not None:
+        identity, user = existing
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=workspace.id,
+                organization_id=workspace.organization_id,
+                user_id=user.id,
+                context_kind="auth_bootstrap",
+            ),
+        )
+        membership = await db.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace.id,
+                WorkspaceMembership.user_id == identity.user_id,
+            )
+        )
+        if membership is None:
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=workspace.id,
+                    user_id=user.id,
+                    role="member",
+                    status="active",
+                )
+            )
+            await db.flush()
+        else:
+            membership.status = "active"
+        identity.is_verified = True
+        identity.last_seen_at = now
+        return user
+
+    display_name = email.partition("@")[0].replace(".", " ").replace("_", " ").title() or email
+    user = UserIdentity(
+        organization_id=workspace.organization_id,
+        external_subject=f"email:{email}",
+        display_name=display_name,
+        status="active",
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=workspace.id,
+            organization_id=workspace.organization_id,
+            user_id=user.id,
+            context_kind="auth_bootstrap",
+        ),
+    )
+    db.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role="member",
+            status="active",
+        )
+    )
+    db.add(
+        ExternalIdentity(
+            user_id=user.id,
+            provider=EMAIL_LOGIN_PROVIDER,
+            provider_subject=email,
+            provider_username=email,
+            email=email,
+            display_name=display_name,
+            is_verified=True,
+            subject_issued_at=now,
+            last_seen_at=now,
+            meta={"flow": "browser_registration"},
+        )
+    )
+    await db.flush()
+    return user
+
+
 async def _resolve_email_browser_device(
     db: AsyncSession,
     *,
@@ -1454,6 +2151,7 @@ def _email_code_error_response(
     state_nonce: str,
     next_path: str,
     error: str,
+    flow: str = "login",
 ) -> HTMLResponse:
     return HTMLResponse(
         render_email_code_page(
@@ -1462,6 +2160,7 @@ def _email_code_error_response(
             state_nonce=state_nonce,
             next_path=next_path,
             error=error,
+            flow=flow,
         ),
         status_code=400,
     )
@@ -1550,34 +2249,39 @@ def _render_login_error(error: str | None) -> str:
 def _sidebar() -> str:
     return """
     <aside class="sidebar">
-      <div class="workspace"><div class="avatar">2</div><div><div class="workspace-title">Personal</div><div class="workspace-subtitle">Free plan</div></div></div>
-      <button class="primary" type="button" disabled>Invite teammates</button>
-      <nav class="nav" aria-label="Cabinet">
-        <a href="/meetings" class="active">My Meetings</a>
-        <a href="#" aria-disabled="true">Shared with me</a>
-        <a href="#" aria-disabled="true">Action Items</a>
-        <a href="#" aria-disabled="true">Activity</a>
-        <a href="#" aria-disabled="true">Contacts</a>
-        <a href="#" aria-disabled="true">Settings</a>
+      <div class="workspace"><div class="avatar">2</div><div><div class="workspace-title">Личный</div><div class="workspace-subtitle">Бесплатный план</div></div></div>
+      <button class="primary" type="button" disabled>Пригласить</button>
+      <nav class="nav" aria-label="Кабинет">
+        <a href="#" aria-disabled="true">⌕ Поиск</a>
+        <a href="/meetings" class="active">▤ Мои встречи</a>
+        <a href="#" aria-disabled="true">♢ Общие</a>
+        <a href="#" aria-disabled="true">○ Действия <span class="nav-count">6</span></a>
+        <a href="#" aria-disabled="true">⌁ Активность</a>
+        <a href="#" aria-disabled="true">⚙ Настройки</a>
       </nav>
-      <div class="sidebar-foot"><div class="trial">TRIAL 7 days left</div><div class="muted">2brain Rec</div></div>
+      <div class="sidebar-foot"><div class="trial">TRIAL 7 дней</div><div class="muted">2brain Rec</div></div>
     </aside>
     """
 
 
-def _render_meeting_row(item: MeetingListItem, *, embedded: bool) -> str:
+def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool = False) -> str:
     href = f"{_base_path(embedded)}/{item.meeting_id}"
-    future = "".join(f'<button class="icon-button" type="button" disabled>{escape(slot.label[:1])}</button>' for slot in item.future_slots)
-    access_chip = _render_access_chip(item.access)
+    future = "".join(
+        f'<button class="icon-button" type="button" disabled aria-label="{escape(slot.label)}">{escape(slot.label[:1])}</button>'
+        for slot in item.future_slots[:4]
+    )
+    selected_class = " is-selected" if selected else ""
+    source_icon = "▣" if item.source == "screen_recording" else "◁"
     return f"""
-      <a class="meeting-row" href="{href}">
-        <span class="row-icon">◌</span>
-        <span>
-          <span class="row-title">{escape(item.title)}</span>
-          <span class="row-meta"><span>{_duration(item.duration_seconds)}</span><span>{_date_label(item)}</span></span>
+      <a class="meeting-row cabinet-row{selected_class}" href="{href}">
+        <span class="row-check" aria-hidden="true"></span>
+        <span class="row-icon">{source_icon}</span>
+        <span class="meeting-title">
+          <span class="row-title">{escape(item.title)} <span class="muted">{_duration(item.duration_seconds)}</span></span>
+          <span class="row-meta"><span>{escape(item.status_label)}</span></span>
         </span>
-        <span class="state-list"><span class="chip {escape(item.status)}">{escape(item.status_label)}</span>{access_chip}</span>
         <span class="future-actions">{future}</span>
+        <span class="meeting-date">{_date_label(item)}</span>
       </a>
     """
 
@@ -1888,17 +2592,21 @@ def _duration(seconds: int) -> str:
 
 def _date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
-        return "No date"
-    return item.started_at.strftime("%b %-d")
+        return "Без даты"
+    months = {
+        1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+        7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек",
+    }
+    return f"{item.started_at.day} {months[item.started_at.month]}"
 
 
 def _sort_label(sort: str) -> str:
     return {
-        "updated_desc": "Newest first",
-        "updated_asc": "Oldest first",
-        "duration_desc": "Longest first",
-        "duration_asc": "Shortest first",
-    }.get(sort, "Newest first")
+        "updated_desc": "Сначала новые",
+        "updated_asc": "Сначала старые",
+        "duration_desc": "Сначала длинные",
+        "duration_asc": "Сначала короткие",
+    }.get(sort, "Сначала новые")
 
 
 def _base_path(embedded: bool) -> str:

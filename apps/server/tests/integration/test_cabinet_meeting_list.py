@@ -41,13 +41,12 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     response = client.get("/meetings", headers=auth_headers())
 
     assert response.status_code == 200
-    assert "My Meetings" in response.text
-    assert "Upcoming" in response.text
-    assert "Meeting notes" in response.text
-    assert "New" in response.text
-    assert "Upload file" in response.text
-    assert "Filters" in response.text
-    assert "Sort" in response.text
+    assert "Мои встречи" in response.text
+    assert "Ближайшие" in response.text
+    assert "Записи встреч" in response.text
+    assert "Новая" in response.text
+    assert "Фильтры" in response.text
+    assert "Сортировка" in response.text
     assert "Проектный синк" in response.text
 
 
@@ -73,7 +72,7 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
-    assert "Meeting notes" in response.text
+    assert "Записи встреч" in response.text
     assert "Проектный синк" in response.text
     assert "Upload file" not in response.text
     assert "Record live" not in response.text

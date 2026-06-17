@@ -16,6 +16,11 @@ Semantic Versioning 2.0.0.
   `/login/email/start`, `/login/email/verify`, HttpOnly/Secure owner-session
   cookie, browser-device binding, redirect protected web routes to login, and
   visible OAuth/provider stubs for later implementation (`feature:036`).
+- Добавлена browser-регистрация по email-коду без видимого Workspace ID:
+  `/sign-up`, `/sign-up/email/start`, `/sign-up/email/verify`, автоматическое
+  создание пользователя и membership в серверно заданном workspace, русская
+  страница ввода 6-значного кода и Krisp-like HTML-письмо через Postal
+  (`feature:036`).
 - Добавлен product-owned слой meeting-app mute truth для macOS: `Pause`/`Resume`
   рядом с постоянным `Stop`, подавление локального микрофона во время паузы,
   metadata-only `privacySegments`, target capability matrix, fail-closed
@@ -81,6 +86,11 @@ Semantic Versioning 2.0.0.
   stale installed-desktop evidence gap, keep production owner review blocked on
   `401 missing_auth_context`, and recommend `036-owner-review-live-polish` as
   the next launch slice (`feature:035`, `T026-T032`).
+- Web cabinet and auth pages now follow the Krisp reference more closely while
+  staying clean-room: Russian copy, centered dark auth cards, email/signup mode
+  transitions, six-slot verification input, denser meetings list, upcoming
+  events card, floating assistant input, and future-control slots for provider,
+  sharing, filters, sorting and upload (`feature:036`).
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
   были сквозными.
