@@ -100,7 +100,12 @@ specs/042-recording-sync-transcription-loop/
 │   ├── media-revision-contract.md
 │   └── review-surface-contract.md
 ├── checklists/
-│   └── requirements.md
+│   ├── audio-capture.md
+│   ├── infra.md
+│   ├── requirements.md
+│   ├── security.md
+│   ├── sync-api.md
+│   └── ux.md
 └── tasks.md
 ```
 
