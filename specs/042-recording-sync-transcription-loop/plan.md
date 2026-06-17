@@ -201,6 +201,8 @@ Design artifacts:
      track artifacts, processing workflows, MediaScribe jobs, processing
      results, and lifecycle accounting to the initial accepted revision.
    - Backfill existing rows as revision `1` where migration data exists.
+   - Add tenant isolation/RLS classification and tests for every new
+     media-revision-owned table before implementation closure.
    - Preserve one logical `meetings` row for the real meeting.
 
 4. **Processing and transcript**
@@ -214,12 +216,19 @@ Design artifacts:
    - Ensure `/meetings` and `/desktop/meetings` list/detail show upload,
      processing, ready, blocked, failed, and conflict states consistently.
    - Native desktop controls remain outside embedded web content.
+   - Add accessibility, localization-safe Russian copy, and compact-width
+     requirements for queue rows, retry controls, review links, processing
+     states, transcript sections, and conflict notices.
 
 6. **Privacy, lifecycle, and evidence**
    - Add tests and quickstart evidence that prove no raw content or secrets are
      emitted to diagnostics/logs/spec evidence.
    - Include local buffer, server artifact, MediaScribe, Temporal, transcript,
      diagnostics, and future deletion participation in lifecycle truth.
+   - Cover local disk-full writes, object-store write failures, DB transaction
+     failures, workflow start failures, MediaScribe failures, cabinet timeouts,
+     temporary upload cleanup, and aborted/expired upload sessions as explicit
+     states.
 
 ## Post-Design Constitution Check
 

@@ -44,6 +44,9 @@ Migration:
   `localMediaRevisionId = "<directoryId>--initial"`.
 - Missing `mediaRevisionId` remains null until server reconciliation or upload
   finalization.
+- Malformed or partially written queue documents MUST be preserved for manual
+  recovery/quarantine. The app MUST show a metadata-safe blocked state and MUST
+  NOT silently delete queued recording references.
 
 ## Server Reconciliation Endpoint
 
@@ -112,10 +115,23 @@ Response `403`:
 - Means access is denied or revoked.
 - Desktop MUST NOT re-upload automatically.
 
+Response `401`:
+
+- Means auth is missing or expired.
+- Desktop MUST preserve local queue state and request re-authentication.
+- Desktop MUST NOT create a new meeting or upload session until auth is valid.
+
 Response `409`:
 
 - Means server metadata conflicts with local immutable revision truth.
 - Desktop MUST enter a visible manual-only conflict state.
+
+Response `410`:
+
+- Means the server meeting or media revision was deleted under 2brain Rec
+  lifecycle policy.
+- Desktop MUST show deleted/blocked truth and follow local purge/deletion tasks
+  instead of re-uploading automatically.
 
 ## Upload Resume Rules
 
@@ -126,6 +142,8 @@ Response `409`:
 - Each part MUST include byte offset and checksum.
 - Repeated part with same offset/checksum is idempotent.
 - Repeated part with same part number but different offset/checksum is conflict.
+- Expired upload session is recoverable only by reconciling the same media
+  revision and creating/resuming a server-approved session.
 - Finalize MUST fail if required ranges or track descriptors do not match.
 
 ## Desktop Review Link Rules

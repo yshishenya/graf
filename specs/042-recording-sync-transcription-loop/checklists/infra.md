@@ -11,57 +11,57 @@ consistent, and measurable. It does not test implementation behavior.
 
 ## Requirement Completeness
 
-- [ ] CHK001 Are schema requirements complete for `media_revisions`,
+- [x] CHK001 Are schema requirements complete for `media_revisions`,
   revision-linked upload sessions, track artifacts, manifest snapshots,
   workflows, jobs, results, and lifecycle/deletion records?
   [Completeness, Data Model]
-- [ ] CHK002 Are migration/backfill requirements defined for existing meeting,
+- [x] CHK002 Are migration/backfill requirements defined for existing meeting,
   upload, artifact, and processing rows that predate media revisions?
   [Gap, Plan Implementation Approach]
-- [ ] CHK003 Are RLS/tenant isolation requirements defined for new
+- [x] CHK003 Are RLS/tenant isolation requirements defined for new
   `media_revisions` and revision-linked tables? [Gap, Constitution quality
   gates, Plan Source Code]
-- [ ] CHK004 Are dependency-unavailable states defined separately for Postgres,
+- [x] CHK004 Are dependency-unavailable states defined separately for Postgres,
   MinIO, Temporal, MediaScribe, and web cabinet availability?
   [Completeness, Spec US5/US6]
 
 ## Requirement Clarity
 
-- [ ] CHK005 Is the processing workflow identity rule
+- [x] CHK005 Is the processing workflow identity rule
   `processing/<media_revision_id>` specified clearly enough to avoid duplicate
   MediaScribe submissions? [Clarity, Research, Contract
   `media-revision-contract.md`]
-- [ ] CHK006 Are retryable and terminal processing failures distinguished with
+- [x] CHK006 Are retryable and terminal processing failures distinguished with
   safe reason codes and user-visible status implications? [Clarity, Spec US4/US5]
-- [ ] CHK007 Are artifact storage ownership and object-key visibility
+- [x] CHK007 Are artifact storage ownership and object-key visibility
   requirements clear enough to prevent signed URL leakage? [Clarity, Security
   Checklist, Data Model "Track Artifact"]
 
 ## Requirement Consistency
 
-- [ ] CHK008 Do workflow/job/result uniqueness requirements align with the new
+- [x] CHK008 Do workflow/job/result uniqueness requirements align with the new
   media revision model rather than preserving meeting-only uniqueness where it
   blocks future revisions? [Consistency, Data Model, Research]
-- [ ] CHK009 Do cabinet query requirements select the correct current/accepted
+- [x] CHK009 Do cabinet query requirements select the correct current/accepted
   media revision and its latest result consistently? [Consistency, Contract
   `review-surface-contract.md`]
-- [ ] CHK010 Do local buffer retention requirements align with server lifecycle
+- [x] CHK010 Do local buffer retention requirements align with server lifecycle
   and deletion accounting after upload finalization? [Consistency, Spec US6,
   Data Model "Lifecycle Accounting"]
 
 ## Acceptance Criteria Quality
 
-- [ ] CHK011 Are infrastructure success criteria measurable without requiring
+- [x] CHK011 Are infrastructure success criteria measurable without requiring
   real MediaScribe credentials in committed tests? [Measurability, Quickstart]
-- [ ] CHK012 Are quickstart commands scoped enough to prove the path without
+- [x] CHK012 Are quickstart commands scoped enough to prove the path without
   overclaiming production readiness? [Measurability, Quickstart]
-- [ ] CHK013 Are production claims limited to evidence boundaries such as
+- [x] CHK013 Are production claims limited to evidence boundaries such as
   local gate, infra smoke, or live dependency smoke? [Clarity, Current Status]
 
 ## Edge Case Coverage
 
-- [ ] CHK014 Are disk-full, object-store write failure, DB transaction failure,
+- [x] CHK014 Are disk-full, object-store write failure, DB transaction failure,
   workflow-start failure, and MediaScribe import failure covered as requirement
   states? [Coverage, Spec US5/US6]
-- [ ] CHK015 Are cleanup requirements defined for temporary upload objects and
+- [x] CHK015 Are cleanup requirements defined for temporary upload objects and
   failed/aborted upload sessions? [Coverage, Data Model]

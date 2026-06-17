@@ -265,14 +265,23 @@ controlled stores.
 - Local package, queue item, upload session, server meeting, and processing
   result disagree about checksums or revision identity.
 - Auth/session expires after some parts are accepted.
+- Desktop device identity is stale, revoked, or belongs to a different
+  workspace after some parts are accepted.
+- Local queue file is malformed, stale, partially written, or from
+  `desktop-upload-queue.v1`.
 - Server reports accepted bytes or track roles that do not match the local
   media revision.
 - Server finalization succeeds but processing pickup is delayed or unavailable.
+- Server upload session expires after some parts are accepted.
+- Postgres, MinIO, Temporal, MediaScribe, or web cabinet dependency is
+  temporarily unavailable.
 - Processing succeeds for transcript but diarization is partial or missing.
 - User opens web or desktop review while offline, unauthenticated, access
   denied, deleted, or processing.
 - Local retention deadline arrives before upload can complete.
 - Server deletion or access revocation happens while local buffers still exist.
+- Local disk is full or temporary upload cleanup fails before lifecycle truth is
+  recorded.
 - Evidence/screenshots accidentally contain private transcript text, account
   identifiers, local paths, tokens, signed URLs, raw audio names, or private
   reference-app material.
@@ -338,6 +347,30 @@ controlled stores.
 - **FR-020**: Product copy MUST be clean-room, Russian-ready, and must not copy
   Krisp visuals, proprietary copy, private screenshots, assets, or brand
   expression.
+- **FR-021**: The desktop queue MUST migrate prior `desktop-upload-queue.v1`
+  items to the `042` revision-ready queue schema without losing queued,
+  retrying, blocked, or uploaded recordings. Malformed or partially written
+  queue documents MUST enter a metadata-safe blocked/recovery state rather than
+  being discarded silently.
+- **FR-022**: Desktop sync MUST distinguish missing network, expired auth,
+  revoked access, stale device identity, deleted server meeting, expired upload
+  session, local checksum drift, and server metadata mismatch as separate
+  visible states with safe next actions.
+- **FR-023**: New server media-revision tables and all revision-linked upload,
+  artifact, processing, transcript, lifecycle, and audit rows MUST follow the
+  tenant isolation/RLS classification used for existing tenant-owned tables.
+- **FR-024**: Web and embedded desktop review surfaces MUST define
+  accessibility and localization-safe requirements for queue rows, retry
+  controls, review links, processing states, transcript sections, conflict
+  notices, Russian MVP labels, and future English/admin copy.
+- **FR-025**: Review surfaces MUST define responsive behavior for desktop,
+  embedded desktop, and compact browser widths so upload/review status,
+  transcript content, and next actions remain legible without exposing private
+  filenames or local paths.
+- **FR-026**: Infrastructure failure requirements MUST cover disk-full local
+  writes, object-store write failure, DB transaction failure, workflow start
+  failure, MediaScribe submit/poll/import failure, cabinet timeout, temporary
+  upload cleanup, and aborted/expired upload sessions.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -363,6 +396,9 @@ controlled stores.
   result with provenance and lifecycle truth.
 - **Sync Conflict State**: Explicit state for mismatched local/server/revision
   truth that prevents silent overwrite, duplicate processing, or false success.
+- **Tenant Isolation Classification**: RLS and request-context rules for
+  media-revision-owned tables, matching ADR `003` classification for future
+  tenant-owned product data.
 
 ## Out Of Scope
 

@@ -96,6 +96,10 @@ Validation:
 - Server truth may fill `meetingId`, `uploadSessionId`, `mediaRevisionId`,
   accepted bytes, processing state, and deletion/access state.
 - Local retry never changes `localMediaRevisionId`.
+- Existing v1 items migrate by assigning
+  `localMediaRevisionId = "<directoryId>--initial"`. Malformed, partially
+  written, or stale queue documents are preserved for manual recovery instead
+  of silently deleting queued recording references.
 
 ## Entity: Server Meeting
 
@@ -166,6 +170,9 @@ Validation:
 - Expected track sizes and roles must match the media revision identity.
 - Finalization only succeeds when required ranges are complete and checksums
   match expected descriptors.
+- Expired sessions are reconciled from server truth; desktop creates a new
+  session only when the same media revision remains eligible and no policy,
+  access, deletion, or checksum conflict exists.
 
 ## Entity: Track Artifact
 
@@ -232,20 +239,46 @@ Values:
 - `none`.
 - `local_files_missing`.
 - `local_checksum_changed`.
+- `queue_document_malformed`.
+- `queue_schema_migration_blocked`.
 - `server_meeting_deleted`.
 - `access_revoked`.
+- `auth_required`.
+- `stale_device_identity`.
 - `server_expected_metadata_mismatch`.
 - `server_ranges_inconsistent`.
+- `upload_session_expired`.
 - `processing_failed`.
 - `processing_blocked`.
-- `auth_required`.
 - `retention_expired`.
+- `dependency_unavailable`.
 
 Rules:
 
 - Conflict state must include a metadata-safe reason and next action.
 - Conflicts block unsafe finalize/reprocess attempts.
 - User-visible copy must not expose private local paths or secret values.
+
+## Entity: Tenant Isolation Classification
+
+Represents RLS and request-context rules for each new media-revision-owned
+table.
+
+Fields:
+
+- `tableName`.
+- `tenantKey`: normally `workspace_id`.
+- `ownerKeys`: `meeting_id`, `media_revision_id`, `device_id`, or
+  `created_by_user_id` as applicable.
+- `requestContexts`: allowed request, worker, and maintenance contexts.
+- `rlsRequired`: true for tenant-owned product data.
+
+Validation:
+
+- `media_revisions`, revision-linked upload/artifact/processing/result rows,
+  and revision-linked lifecycle/audit rows must be classified before merge.
+- RLS tests must cover same-tenant access, cross-tenant denial, worker context,
+  and allowlisted maintenance context where applicable.
 
 ## Entity: Lifecycle Accounting
 

@@ -45,11 +45,21 @@ PYTHONPATH=src uv run --extra dev pytest -q \
   tests/integration/test_cabinet_meeting_detail.py
 ```
 
+Run tenant-isolation focused tests when media-revision tables are added:
+
+```sh
+cd apps/server
+PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/integration/test_rls_meeting_content_policies.py \
+  tests/integration/test_rls_worker_context.py
+```
+
 Expected:
 
 - upload resume tests prove server-authoritative accepted ranges;
 - processing pickup tests prove duplicate workflow reuse;
 - cabinet tests prove transcript/review status is content-safe and authorized.
+- RLS tests prove new revision-owned tables follow tenant isolation rules.
 
 ## Full Local Gate
 
@@ -124,6 +134,11 @@ Simulate one conflict at a time:
 - remove/revoke server meeting access;
 - return server expected metadata mismatch;
 - force processing failure.
+- expire auth/session after partial upload;
+- return stale/revoked device identity;
+- expire upload session after partial ranges are accepted;
+- trigger dependency-unavailable responses for MinIO, Temporal, MediaScribe, or
+  cabinet timeout.
 
 Expected:
 

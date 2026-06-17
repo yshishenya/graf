@@ -80,6 +80,20 @@ Meeting detail MUST expose:
 - Processing-only items may open status detail but must not claim transcript is
   ready.
 
+## Accessibility And Responsive Requirements
+
+- Queue rows, retry controls, review links, processing states, transcript
+  sections, speaker sections, and conflict notices must have stable accessible
+  names and role/state semantics.
+- Russian MVP copy must be mapped from stable reason/status codes rather than
+  ad hoc strings in multiple surfaces.
+- Future English/admin copy must be able to use the same reason/status codes.
+- Browser review and embedded desktop review must define compact-width behavior
+  for meeting list, detail header/actions, transcript segments, right-side
+  governance/status panels, and playback/status areas.
+- Large upload progress must use safe labels, byte counts, and status copy
+  without private filenames or local absolute paths.
+
 ## Forbidden Content
 
 Tests and evidence MUST prove these are absent from logs, diagnostics,
