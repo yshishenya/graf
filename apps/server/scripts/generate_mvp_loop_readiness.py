@@ -8,7 +8,12 @@ from twobrain_rec_server.readiness import build_default_readiness_report, write_
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate 034 MVP loop readiness evidence.")
+    parser = argparse.ArgumentParser(description="Generate MVP loop readiness evidence.")
+    parser.add_argument(
+        "--feature",
+        default="034-mvp-loop-readiness",
+        help="Feature id to write into readiness-report.json.",
+    )
     parser.add_argument(
         "--output-dir",
         default="../../docs/evidence/034-mvp-loop-readiness",
@@ -23,7 +28,7 @@ def main() -> None:
 
     deployed_commit = args.deployed_commit or _git_head()
     output_dir = Path(args.output_dir).resolve()
-    report = build_default_readiness_report(deployed_commit=deployed_commit)
+    report = build_default_readiness_report(feature=args.feature, deployed_commit=deployed_commit)
     write_readiness_outputs(report, output_dir)
     print(f"readiness_report={output_dir / 'readiness-report.json'}")
     print(f"readiness_markdown={output_dir / 'readiness-report.md'}")
@@ -39,4 +44,3 @@ def _git_head() -> str:
 
 if __name__ == "__main__":
     main()
-

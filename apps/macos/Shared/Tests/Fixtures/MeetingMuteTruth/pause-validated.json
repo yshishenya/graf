@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "meeting-mute-truth.fixture.v1",
+  "fixtureId": "pause-validated",
+  "expectedValidation": "accepted_metadata_only",
+  "privacySegments": [
+    {
+      "segmentId": "fixture-session-privacy-1",
+      "sessionId": "fixture-session",
+      "control": "pause",
+      "startedAt": "2026-06-16T09:00:01Z",
+      "endedAt": "2026-06-16T09:00:04Z",
+      "startMonotonicMs": 1000,
+      "endMonotonicMs": 4000,
+      "durationMs": 3000,
+      "localMicTreatment": "silenced",
+      "diagnosticSafe": true
+    }
+  ],
+  "targetMuteCapability": {
+    "targetId": "chrome_telemost",
+    "targetDisplayName": "Chrome + Telemost",
+    "targetFamily": "browser_meeting",
+    "productPauseSupported": true,
+    "meetingAppMuteAdapterSupported": false,
+    "firstMatrixStatus": "pause_validated",
+    "releaseClaim": "2brain Pause/Stop keeps local speech out; Telemost/browser mute is unproven"
+  },
+  "meetingMuteTruthEvidence": [
+    {
+      "evidenceId": "fixture-session-chrome-telemost",
+      "sessionId": "fixture-session",
+      "targetId": "chrome_telemost",
+      "source": "product_pause",
+      "status": "meeting_mute_unproven",
+      "freshness": "unavailable",
+      "limitationCopyShown": true,
+      "diagnosticSafe": true
+    }
+  ],
+  "meetingMuteTruth": {
+    "sessionId": "fixture-session",
+    "decision": "meeting_mute_unproven",
+    "reason": "product_pause_segments_present",
+    "privacySegmentIds": ["fixture-session-privacy-1"],
+    "targetEvidenceIds": ["fixture-session-chrome-telemost"],
+    "safeForDiagnostics": true
+  }
+}

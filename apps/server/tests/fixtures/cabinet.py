@@ -88,6 +88,23 @@ def _create_ready_meeting(client: TestClient, local_recording_id: str, title: st
     return meeting_id
 
 
+def create_summary_reported_meeting(client: TestClient) -> UUID:
+    finalized = create_finalized_meeting(client, "cabinet-summary-reported")
+    meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))
+    asyncio.run(
+        _seed_processed_rows(
+            client,
+            meeting_id=meeting_id,
+            title="Summary reported without stored output",
+            transcript_available=True,
+            diarization_available=True,
+            processing_status=ProcessingStatus.PROCESSED,
+            summary_status=SummaryStatus.AVAILABLE,
+        )
+    )
+    return meeting_id
+
+
 def _create_partial_meeting(client: TestClient, local_recording_id: str, title: str) -> UUID:
     finalized = create_finalized_meeting(client, local_recording_id)
     meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))
@@ -173,6 +190,7 @@ async def _seed_processed_rows(
     transcript_available: bool,
     diarization_available: bool,
     processing_status: ProcessingStatus,
+    summary_status: SummaryStatus = SummaryStatus.NOT_REQUESTED,
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
         meeting = await db.get(Meeting, meeting_id)
@@ -235,7 +253,7 @@ async def _seed_processed_rows(
                 if diarization_available
                 else ProcessingAvailabilityStatus.UNAVAILABLE.value
             ),
-            summary_status=SummaryStatus.NOT_REQUESTED.value,
+            summary_status=summary_status.value,
             language="ru",
             segment_count=2 if transcript_available else 0,
             diarization_segment_count=2 if diarization_available else 0,

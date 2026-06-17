@@ -8,13 +8,17 @@ public struct CaptureControlView: View {
     private let blockedReason: String?
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
+    private let muteTruthWarning: String?
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let cabinetConfiguration: DesktopCabinetConfiguration?
     private let routeSignalLevels: LiveRouteSignalLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
+    private let pauseDisabled: Bool
     private let onRecord: () -> Void
     private let onStop: () -> Void
+    private let onPause: () -> Void
+    private let onResume: () -> Void
     private let onUploadRetry: (String) -> Void
     private let onUploadStopRetry: (String) -> Void
     private let onUploadReview: (URL) -> Void
@@ -24,13 +28,17 @@ public struct CaptureControlView: View {
         blockedReason: String? = nil,
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
+        muteTruthWarning: String? = nil,
         uploadQueueItems: [DesktopUploadQueueItem] = [],
         cabinetConfiguration: DesktopCabinetConfiguration? = nil,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
+        pauseDisabled: Bool = false,
         onRecord: @escaping () -> Void,
         onStop: @escaping () -> Void,
+        onPause: @escaping () -> Void = {},
+        onResume: @escaping () -> Void = {},
         onUploadRetry: @escaping (String) -> Void = { _ in },
         onUploadStopRetry: @escaping (String) -> Void = { _ in },
         onUploadReview: @escaping (URL) -> Void = { _ in }
@@ -39,13 +47,17 @@ public struct CaptureControlView: View {
         self.blockedReason = blockedReason
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
+        self.muteTruthWarning = muteTruthWarning
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfiguration = cabinetConfiguration
         self.routeSignalLevels = routeSignalLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
+        self.pauseDisabled = pauseDisabled
         self.onRecord = onRecord
         self.onStop = onStop
+        self.onPause = onPause
+        self.onResume = onResume
         self.onUploadRetry = onUploadRetry
         self.onUploadStopRetry = onUploadStopRetry
         self.onUploadReview = onUploadReview
@@ -55,7 +67,14 @@ public struct CaptureControlView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 12) {
                 if let session {
-                    CaptureStatusItem(session: session, stopDisabled: stopDisabled, onStop: onStop)
+                    CaptureStatusItem(
+                        session: session,
+                        stopDisabled: stopDisabled,
+                        pauseDisabled: pauseDisabled,
+                        onStop: onStop,
+                        onPause: onPause,
+                        onResume: onResume
+                    )
                 } else {
                     Label(SystemAudioStatusLabels.recordingIdle, systemImage: "record.circle")
                         .font(.caption)
@@ -68,7 +87,7 @@ public struct CaptureControlView: View {
 
                 if Self.shouldShowRecordButton(for: session) {
                     Button(action: onRecord) {
-                        Label(SystemAudioStatusLabels.recordButtonTitle, systemImage: "record.circle")
+                        Label("Начать", systemImage: "record.circle")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!Self.shouldEnableRecordButton(for: session, recordDisabled: recordDisabled))
@@ -90,22 +109,32 @@ public struct CaptureControlView: View {
             }
 
             if let localRecordingStatus, !localRecordingStatus.isEmpty {
-                Label(localRecordingStatus, systemImage: localRecordingStatusIcon)
-                    .font(.caption)
-                    .foregroundStyle(localRecordingStatusStyle)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                StatusNoteView(
+                    icon: localRecordingStatusIcon,
+                    title: localRecordingStatusTitle,
+                    detail: localRecordingStatusDetail,
+                    iconColor: localRecordingStatusStyle
+                )
                     .accessibilityLabel(localRecordingStatus)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingStatus)
             }
 
+            if let muteTruthWarning, !muteTruthWarning.isEmpty {
+                StatusNoteView(
+                    icon: "shield.lefthalf.filled.badge.checkmark",
+                    title: "Mute встречи не подтвержден",
+                    detail: muteTruthWarning,
+                    iconColor: .secondary
+                )
+                    .accessibilityLabel(muteTruthWarning)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.muteTruthWarning)
+            }
+
             if let localRecordingLocation, !localRecordingLocation.isEmpty {
-                Text(localRecordingLocation)
-                    .font(.caption2.monospaced())
+                Text("Локальная копия сохранена")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+                    .lineLimit(1)
                     .accessibilityLabel(SystemAudioStatusLabels.localRecordingLocationAccessibilityLabel(localRecordingLocation))
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingLocation)
             }
@@ -160,10 +189,13 @@ public struct CaptureControlView: View {
     private var localRecordingStatusIcon: String {
         guard let localRecordingStatus else { return "waveform.path.badge.plus" }
         if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("permission") {
+            localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("не сохран") {
             return "lock.trianglebadge.exclamationmark"
         }
-        if localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
+        if localRecordingStatus.localizedCaseInsensitiveContains("degraded") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("огранич") {
             return "exclamationmark.triangle.fill"
         }
         return "waveform.path.badge.plus"
@@ -173,10 +205,72 @@ public struct CaptureControlView: View {
         guard let localRecordingStatus else { return .secondary }
         if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
             localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
+            localRecordingStatus.localizedCaseInsensitiveContains("degraded") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("не сохран") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("огранич") {
             return .orange
         }
         return .secondary
+    }
+
+    private var localRecordingStatusTitle: String {
+        guard let localRecordingStatus else { return "Локальная запись" }
+        if localRecordingStatus.localizedCaseInsensitiveContains("огранич") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
+            return "Локальная копия сохранена"
+        }
+        if localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("blocked") {
+            return "Запись требует внимания"
+        }
+        if localRecordingStatus.localizedCaseInsensitiveContains("не сохран") {
+            return "Локальная копия не сохранена"
+        }
+        return localRecordingStatus
+    }
+
+    private var localRecordingStatusDetail: String? {
+        guard let localRecordingStatus else { return nil }
+        if localRecordingStatus.localizedCaseInsensitiveContains("огранич") ||
+            localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
+            return "Есть ограничения проверки"
+        }
+        if localRecordingStatus == localRecordingStatusTitle {
+            return nil
+        }
+        return localRecordingStatus
+    }
+}
+
+private struct StatusNoteView: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let iconColor: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(iconColor)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }
 
@@ -190,12 +284,16 @@ private struct UploadQueueStatusView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Label(summary.title, systemImage: iconName)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(statusColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                HStack(spacing: 6) {
+                    Image(systemName: iconName)
+                        .foregroundStyle(statusColor)
+                    Text(summary.title)
+                        .foregroundStyle(.primary)
+                }
+                .font(.caption)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
                 Spacer()
                 Text("\(Int((summary.primaryItem.progressFraction * 100).rounded()))%")
                     .font(.caption.monospacedDigit())
@@ -239,12 +337,16 @@ private struct UploadQueueStatusView: View {
             }
         }
         .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(statusColor.opacity(0.3), lineWidth: 1)
+                .stroke(statusColor.opacity(0.18), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Upload queue \(summary.title), \(summary.detail)")
+        .accessibilityLabel("Очередь загрузки: \(summary.title), \(summary.detail)")
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.uploadTruthRegion)
     }
 
@@ -279,7 +381,10 @@ private struct UploadQueueStatusView: View {
     }
 
     private func actionIcon(for label: String) -> String {
-        label.localizedCaseInsensitiveContains("stop") ? "pause.circle" : "arrow.clockwise"
+        label.localizedCaseInsensitiveContains("stop") ||
+            label.localizedCaseInsensitiveContains("останов")
+            ? "pause.circle"
+            : "arrow.clockwise"
     }
 }
 

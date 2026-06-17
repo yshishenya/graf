@@ -4,16 +4,25 @@ import TwoBrainRecShared
 public struct CaptureStatusItem: View {
     private let session: CaptureSession?
     private let stopDisabled: Bool
+    private let pauseDisabled: Bool
     private let onStop: () -> Void
+    private let onPause: () -> Void
+    private let onResume: () -> Void
 
     public init(
         session: CaptureSession?,
         stopDisabled: Bool = false,
-        onStop: @escaping () -> Void
+        pauseDisabled: Bool = false,
+        onStop: @escaping () -> Void,
+        onPause: @escaping () -> Void = {},
+        onResume: @escaping () -> Void = {}
     ) {
         self.session = session
         self.stopDisabled = stopDisabled
+        self.pauseDisabled = pauseDisabled
         self.onStop = onStop
+        self.onPause = onPause
+        self.onResume = onResume
     }
 
     public var body: some View {
@@ -41,6 +50,30 @@ public struct CaptureStatusItem: View {
 
             if isActive {
                 Spacer()
+
+                if Self.showsPauseButton(for: session) {
+                    Button(action: onPause) {
+                        Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!Self.shouldEnablePauseButton(for: session, pauseDisabled: pauseDisabled))
+                    .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.pauseButton)
+                    .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
+                }
+
+                if Self.showsResumeButton(for: session) {
+                    Button(action: onResume) {
+                        Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!Self.shouldEnableResumeButton(for: session, pauseDisabled: pauseDisabled))
+                    .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.resumeButton)
+                    .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
+                }
 
                 Button(action: onStop) {
                     Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
@@ -100,27 +133,27 @@ public struct CaptureStatusItem: View {
     public static func statusLabel(for session: CaptureSession) -> String {
         switch session.state {
         case .idle:
-            return "Recording idle"
+            return "Запись не идет"
         case .detecting:
-            return "Checking recording readiness"
+            return "Проверяем готовность"
         case .ready:
-            return "Ready to record"
+            return "Готово к записи"
         case .starting:
-            return "Recording starting"
+            return "Запись запускается"
         case .active:
-            return "Recording active"
+            return "Идет запись"
         case .paused:
-            return "Recording paused"
+            return "Запись на паузе"
         case .degraded:
-            return "Recording degraded"
+            return "Запись с ограничением"
         case .stopping:
-            return "Recording stopping"
+            return "Останавливаем запись"
         case .stopped:
-            return "Recording stopped"
+            return "Запись остановлена"
         case .failed:
-            return "Recording failed"
+            return "Запись не началась"
         case .finalized:
-            return "Recording finalized"
+            return "Запись сохранена"
         }
     }
 
@@ -139,13 +172,35 @@ public struct CaptureStatusItem: View {
         showsStopButton(for: session) && session.stopActionAvailable && !stopDisabled
     }
 
+    public static func showsPauseButton(for session: CaptureSession) -> Bool {
+        session.state == .active
+    }
+
+    public static func showsResumeButton(for session: CaptureSession) -> Bool {
+        session.state == .paused
+    }
+
+    public static func shouldEnablePauseButton(
+        for session: CaptureSession,
+        pauseDisabled: Bool
+    ) -> Bool {
+        showsPauseButton(for: session) && session.stopActionAvailable && !pauseDisabled
+    }
+
+    public static func shouldEnableResumeButton(
+        for session: CaptureSession,
+        pauseDisabled: Bool
+    ) -> Bool {
+        showsResumeButton(for: session) && session.stopActionAvailable && !pauseDisabled
+    }
+
     public static func accessibilityLabel(for session: CaptureSession) -> String {
         let prefix = statusLabel(for: session)
         if session.stopActionAvailable {
-            return "\(prefix). Stop recording is available."
+            return "\(prefix). Кнопка остановки доступна."
         }
         if session.state == .idle || session.state == .detecting || session.state == .ready {
-            return "\(prefix). Recording is not active."
+            return "\(prefix). Активной записи нет."
         }
         return prefix
     }

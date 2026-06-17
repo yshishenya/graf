@@ -15,6 +15,14 @@ signed URLs, private emails, live local paths, or private Krisp screenshots.
 - `validation-log.md`: command evidence collected during implementation.
 - `screenshots/`: metadata-safe screenshots or blocker notes only.
 
+## Post-022 Live Desktop Reference
+
+- `screenshots/2026-06-16-desktop-meeting-shell-user-applications-v7.png`:
+  permissioned `/Applications/2brain Rec.app` first-surface reference after the
+  022 closeout. This screenshot proves the latest local desktop shell can be
+  inspected from the stable installed bundle path, but it does not by itself
+  close the 034/035 live desktop-web journey gate.
+
 ## Evidence Boundary
 
 The current generated report may prove partial readiness and

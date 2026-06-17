@@ -144,6 +144,20 @@ def test_web_cabinet_evidence_is_local_runtime_but_notes_output_stays_blocked() 
     assert "notes-action-output" in stages["notes-action-output"].launch_gap_ids
 
 
+def test_035_closes_stale_live_desktop_gap_and_adds_web_auth_gap() -> None:
+    report = build_default_readiness_report(feature="035-mvp-loop-live-evidence")
+    stages = {stage.id: stage for stage in report.stages}
+    evidence_ids = {item.id for item in report.evidence}
+    gaps = {gap.id: gap for gap in report.launch_gaps}
+
+    assert "live-desktop-evidence" not in gaps
+    assert "web-owner-live-auth-context" in gaps
+    assert "feature-035-live-evidence-pack" in stages["local-recording-visible-stop"].evidence_ids
+    assert "feature-035-web-live-auth-blocker" in evidence_ids
+    assert stages["meeting-list"].status == "degraded"
+    assert "web-owner-live-auth-context" in stages["meeting-list"].launch_gap_ids
+
+
 def test_policy_lifecycle_evidence_is_local_runtime_and_keeps_external_limits_visible() -> None:
     report = build_default_readiness_report()
     stages = {stage.id: stage for stage in report.stages}
@@ -161,16 +175,18 @@ def test_policy_lifecycle_evidence_is_local_runtime_and_keeps_external_limits_vi
 
 def test_required_launch_blockers_have_severity_owner_and_next_actions() -> None:
     report = build_default_readiness_report()
+    evidence_ids = {item.id for item in report.evidence}
     gaps = {gap.id: gap for gap in report.launch_gaps}
 
+    assert "feature-022-meeting-mute-truth" in evidence_ids
     assert {
-        "meeting-app-mute-truth",
         "signed-installer-evidence",
         "browser-target-gaps",
         "live-desktop-evidence",
         "notes-action-output",
         "production-user-rollout-evidence",
     } <= set(gaps)
+    assert "meeting-app-mute-truth" not in gaps
     assert "product-status-next-slice-drift" not in gaps
     for gap in gaps.values():
         assert gap.recommended_next_action

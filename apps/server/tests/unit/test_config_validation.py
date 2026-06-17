@@ -116,6 +116,79 @@ def test_production_missing_secret_error_names_field(tmp_path) -> None:
         _production_settings(smoke_credential_file=missing)
 
 
+def test_production_email_login_delivery_requires_postal_settings(tmp_path) -> None:
+    key_file = tmp_path / "postal-key"
+    key_file.write_text("postal-api-key")
+
+    with pytest.raises(ValidationError, match="postal_api_url"):
+        _production_settings(
+            email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+            email_login_from_address="no-reply@rec.2brain.pro",
+            postal_api_key_file=key_file,
+        )
+    with pytest.raises(ValidationError, match="email_login_from_address"):
+        _production_settings(
+            email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+            postal_api_url="http://postal-web:5000",
+            postal_api_key_file=key_file,
+        )
+
+
+def test_production_email_login_delivery_requires_default_browser_workspace(tmp_path) -> None:
+    key_file = tmp_path / "postal-key"
+    key_file.write_text("postal-api-key")
+
+    with pytest.raises(ValidationError, match="web_login_workspace_id"):
+        _production_settings(
+            email_login_delivery_enabled=True,
+            email_login_from_address="no-reply@rec.2brain.pro",
+            postal_api_url="http://postal-web:5000",
+            postal_api_key_file=key_file,
+        )
+
+
+def test_empty_web_login_workspace_id_is_unset_when_email_delivery_is_disabled() -> None:
+    settings = _production_settings(
+        web_login_workspace_id="",
+        postal_host_header="",
+        email_login_delivery_enabled=False,
+    )
+
+    assert settings.web_login_workspace_id is None
+    assert settings.postal_host_header is None
+
+
+def test_production_email_login_delivery_reads_non_empty_postal_secret(tmp_path) -> None:
+    key_file = tmp_path / "postal-key"
+    key_file.write_text("postal-api-key")
+
+    settings = _production_settings(
+        email_login_delivery_enabled=True,
+        web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+        email_login_from_address="no-reply@rec.2brain.pro",
+        postal_api_url="http://postal-web:5000",
+        postal_api_key_file=key_file,
+    )
+
+    assert settings.postal_api_key_file == key_file
+
+
+def test_production_email_login_delivery_rejects_empty_postal_secret(tmp_path) -> None:
+    key_file = tmp_path / "postal-key"
+    key_file.write_text("")
+
+    with pytest.raises(ValidationError, match="Postal API key file"):
+        _production_settings(
+            email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+            email_login_from_address="no-reply@rec.2brain.pro",
+            postal_api_url="http://postal-web:5000",
+            postal_api_key_file=key_file,
+        )
+
+
 def test_production_rejects_non_internal_smoke_identity_class() -> None:
     with pytest.raises(ValidationError, match="internal_smoke"):
         _production_settings(smoke_identity_class="local_dev")

@@ -66,6 +66,31 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(stopped.stopActionAvailable)
     }
 
+    func testPauseAndResumeKeepStopAvailable() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 22) },
+            idFactory: { "capture-pause-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        _ = try controller.markCapturing()
+        let paused = try controller.pause()
+        let resumed = try controller.resume()
+
+        XCTAssertEqual(paused.state, .paused)
+        XCTAssertEqual(paused.visibleIndicatorState, .paused)
+        XCTAssertTrue(paused.stopActionAvailable)
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: paused))
+        XCTAssertFalse(CaptureStatusItem.showsPauseButton(for: paused))
+        XCTAssertTrue(CaptureStatusItem.showsResumeButton(for: paused))
+        XCTAssertTrue(CaptureStatusItem.shouldEnableResumeButton(for: paused, pauseDisabled: false))
+        XCTAssertEqual(resumed.state, .active)
+        XCTAssertTrue(CaptureStatusItem.showsPauseButton(for: resumed))
+    }
+
     func testStopFailureMovesSessionOutOfStoppingState() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 21) },
@@ -135,10 +160,30 @@ final class CaptureControlTests: XCTestCase {
 
         let detecting = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
 
-        XCTAssertEqual(CaptureStatusItem.statusLabel(for: detecting), "Checking recording readiness")
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: detecting), "Проверяем готовность")
         XCTAssertFalse(CaptureStatusItem.showsStopButton(for: detecting))
         XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: detecting))
         XCTAssertFalse(CaptureControlView.shouldEnableRecordButton(for: detecting, recordDisabled: true))
+    }
+
+    func testCaptureControlsCanShowMuteTruthWarningWithoutBlockingStop() {
+        let session = CaptureSession(
+            id: "warning-session",
+            mode: .audioRecording,
+            state: .active,
+            sourceAppEligibility: .eligible,
+            policySnapshotRef: "policy",
+            triggerEvidence: [:],
+            visibleIndicatorState: .active,
+            stopActionAvailable: true,
+            bufferSummaryId: nil,
+            startedAt: nil,
+            stoppedAt: nil
+        )
+
+        XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
+        XCTAssertTrue(CaptureStatusItem.shouldEnablePauseButton(for: session, pauseDisabled: false))
+        XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.isEmpty)
     }
 
     func testTrackEvidenceUsesCurrentSession() throws {
@@ -164,7 +209,7 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertEqual(summary?.primaryItem.id, "retrying")
         XCTAssertEqual(summary?.pendingCount, 2)
-        XCTAssertEqual(summary?.title, "Retrying + 1 more")
+        XCTAssertEqual(summary?.title, "Повторяем загрузку + ещё 1")
     }
 
     func testUploadReviewActionIsAvailableOnlyForUploadedServerIdentifiedItem() throws {

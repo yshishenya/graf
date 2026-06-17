@@ -162,6 +162,109 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertNil(stoppedDirectory)
     }
 
+    func testPrivacySuppressingSampleSourceZerosPausedMicSamples() {
+        let source = BufferedLocalRecordingSampleSource(capacity: 16, channelCount: 1)
+        let suppressing = PrivacySuppressingSampleSource(base: source)
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 4)
+        defer { scratch.deallocate() }
+
+        source.append([0.4, -0.4, 0.2, -0.2])
+        suppressing.update(state: .paused)
+        let read = suppressing.readSamples(into: scratch, capacity: 4)
+
+        XCTAssertEqual(read, 4)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [0, 0, 0, 0])
+        XCTAssertEqual(suppressing.suppressedSampleCount, 4)
+    }
+
+    func testWriterPersistsPrivacySegmentWhenPausedAndResumed() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-writer-privacy-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let micSource = BufferedLocalRecordingSampleSource(capacity: 16, channelCount: 1)
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            sharedMemoryFactory: { nil },
+            microphoneSampleSourceFactory: { micSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-privacy",
+            startedAt: Date(timeIntervalSince1970: 10),
+            targetMuteCapability: .chromeTelemost,
+            meetingMuteTruthEvidence: [
+                MeetingMuteTruthEvidence(
+                    evidenceId: "evidence-1",
+                    sessionId: "session-privacy",
+                    targetId: "chrome_telemost",
+                    targetDisplayName: "Chrome + Telemost",
+                    source: .productPause,
+                    status: .meetingMuteUnproven,
+                    freshness: .unavailable,
+                    limitationCopyShown: true,
+                    recordedAt: Date(timeIntervalSince1970: 10)
+                )
+            ],
+            limitationCopyShownAt: Date(timeIntervalSince1970: 10)
+        )
+        try writer.pausePrivacy(startedAt: Date(timeIntervalSince1970: 12))
+        try writer.resumePrivacy(endedAt: Date(timeIntervalSince1970: 15))
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 20))
+
+        XCTAssertEqual(manifest.privacySegments?.count, 1)
+        XCTAssertEqual(manifest.privacySegments?.first?.durationMs, 3_000)
+        XCTAssertEqual(manifest.privacySegments?.first?.localMicTreatment, .silenced)
+        XCTAssertEqual(manifest.meetingMuteTruth?.decision, .meetingMuteUnproven)
+        XCTAssertEqual(manifest.meetingMuteTruthEvidence?.first?.evidenceId, "evidence-1")
+    }
+
+    func testWriterPersistsRedactedPrivacySegmentWithoutSuppressingMicSource() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-writer-redacted-privacy-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            sharedMemoryFactory: { nil },
+            recordMicrophone: false
+        )
+
+        _ = try writer.start(
+            sessionId: "session-redacted-privacy",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        try writer.pausePrivacy(startedAt: Date(timeIntervalSince1970: 12))
+        try writer.resumePrivacy(endedAt: Date(timeIntervalSince1970: 15))
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 20))
+
+        XCTAssertEqual(manifest.privacySegments?.count, 1)
+        XCTAssertEqual(manifest.privacySegments?.first?.localMicTreatment, .redacted)
+    }
+
+    func testWriterFinalizesActivePauseWithPrivacyTreatmentOnStop() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-writer-pause-stop-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let micSource = BufferedLocalRecordingSampleSource(capacity: 16, channelCount: 1)
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            sharedMemoryFactory: { nil },
+            microphoneSampleSourceFactory: { micSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-pause-stop",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        try writer.pausePrivacy(startedAt: Date(timeIntervalSince1970: 12))
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 20))
+
+        XCTAssertEqual(manifest.privacySegments?.count, 1)
+        XCTAssertEqual(manifest.privacySegments?.first?.durationMs, 8_000)
+        XCTAssertEqual(manifest.privacySegments?.first?.localMicTreatment, .silenced)
+    }
+
     func testDownsamplerAveragesWindowBeforeReducingSystemAudioTo16k() {
         let samples: [Float] = [
             0.0, 0.0,

@@ -20,6 +20,29 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(changed.retryMode, .terminal)
     }
 
+    func testUploadQueueDisplayCopyIsProductFacing() {
+        XCTAssertEqual(UploadItemState.blocked.displayName, "Нужна проверка")
+        XCTAssertEqual(UploadRetryMode.manualOnly.displayName, "Ручная проверка")
+
+        let manual = makeQueueItem(state: .blocked, retryMode: .manualOnly)
+        let automatic = makeQueueItem(state: .retrying, retryMode: .automatic)
+
+        XCTAssertEqual(manual.nextActionLabel, "Повторить")
+        XCTAssertEqual(automatic.nextActionLabel, "Остановить повтор")
+
+        let manualSummary = DesktopUploadQueueSummary(
+            primaryItem: makeQueueItem(
+                state: .blocked,
+                retryMode: .manualOnly,
+                failureReason: "local_recording_package_not_uploadable"
+            ),
+            pendingCount: 6,
+            totalCount: 6
+        )
+        XCTAssertEqual(manualSummary.title, "Нужна проверка + ещё 5")
+        XCTAssertEqual(manualSummary.detail, "нужна ручная проверка локальной записи")
+    }
+
     func testScanEnqueuesCompletedRecordingOnce() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -42,6 +65,31 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(secondScan.first?.sessionId, "session-1")
         XCTAssertEqual(secondScan.first?.state, .queued)
         XCTAssertTrue(secondScan.first?.artifactProfile.isUploadable == true)
+    }
+
+    func testMuteTruthMetadataDoesNotChangeUploadCompletenessDecision() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "package-mute-truth",
+            sessionId: "session-mute-truth",
+            includeMuteTruth: true
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(item.state, .queued)
+        XCTAssertTrue(item.artifactProfile.isUploadable)
+        XCTAssertTrue(item.artifactProfile.trackCompleteness.contains { $0.transportRole == .microphone })
+        XCTAssertTrue(item.artifactProfile.trackCompleteness.contains { $0.transportRole == .system })
+        XCTAssertTrue(item.artifactProfile.trackCompleteness.contains { $0.transportRole == .manifest })
     }
 
     func testIncompletePackageBecomesBlockedAndManualOnly() throws {
@@ -106,7 +154,8 @@ final class DesktopUploadQueueTests: XCTestCase {
 
     private func makeQueueItem(
         state: UploadItemState = .queued,
-        retryMode: UploadRetryMode = .automatic
+        retryMode: UploadRetryMode = .automatic,
+        failureReason: String? = nil
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
@@ -132,6 +181,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             microphonePath: "/tmp/directory/mic.wav",
             systemAudioPath: "/tmp/directory/incoming.wav",
             state: state,
+            failureReason: failureReason,
             retryMode: retryMode,
             retentionDeadline: Date(timeIntervalSince1970: 1_000),
             createdAt: Date(timeIntervalSince1970: 1),
@@ -156,7 +206,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         root: URL,
         directoryId: String,
         sessionId: String,
-        includeIncoming: Bool = true
+        includeIncoming: Bool = true,
+        includeMuteTruth: Bool = false
     ) throws -> TestRecordingPackage {
         let directoryURL = root.appendingPathComponent(directoryId, isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -170,12 +221,20 @@ final class DesktopUploadQueueTests: XCTestCase {
         if includeIncoming {
             try Data(repeating: 2, count: 128).write(to: package.remoteSpeakerURL)
         }
-        let manifest = makeManifest(directoryId: directoryId, sessionId: sessionId)
+        let manifest = makeManifest(
+            directoryId: directoryId,
+            sessionId: sessionId,
+            includeMuteTruth: includeMuteTruth
+        )
         try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
         return package
     }
 
-    private func makeManifest(directoryId: String, sessionId: String) -> LocalRecordingManifest {
+    private func makeManifest(
+        directoryId: String,
+        sessionId: String,
+        includeMuteTruth: Bool = false
+    ) -> LocalRecordingManifest {
         let startedAt = Date(timeIntervalSince1970: 10)
         let stoppedAt = Date(timeIntervalSince1970: 20)
         let tracks = [
@@ -232,7 +291,41 @@ final class DesktopUploadQueueTests: XCTestCase {
                 microphone: .granted,
                 systemAudio: .granted,
                 evaluatedAt: startedAt
-            )
+            ),
+            privacySegments: includeMuteTruth ? [
+                ProductPrivacySegment(
+                    segmentId: "\(sessionId)-privacy-1",
+                    sessionId: sessionId,
+                    control: .pause,
+                    startedAt: Date(timeIntervalSince1970: 12),
+                    endedAt: Date(timeIntervalSince1970: 13),
+                    startMonotonicMs: 2_000,
+                    endMonotonicMs: 3_000
+                )
+            ] : nil,
+            meetingMuteTruth: includeMuteTruth ? MuteTruthDecision(
+                sessionId: sessionId,
+                decision: .meetingMuteUnproven,
+                reason: .productPauseSegmentsPresent,
+                privacySegmentIds: ["\(sessionId)-privacy-1"],
+                targetEvidenceIds: ["\(sessionId)-evidence-1"],
+                decidedAt: stoppedAt
+            ) : nil,
+            meetingMuteTruthEvidence: includeMuteTruth ? [
+                MeetingMuteTruthEvidence(
+                    evidenceId: "\(sessionId)-evidence-1",
+                    sessionId: sessionId,
+                    targetId: "chrome_telemost",
+                    targetDisplayName: "Chrome + Telemost",
+                    source: .productPause,
+                    status: .meetingMuteUnproven,
+                    freshness: .unavailable,
+                    limitationCopyShown: true,
+                    recordedAt: startedAt
+                )
+            ] : nil,
+            targetMuteCapability: includeMuteTruth ? .chromeTelemost : nil,
+            limitationCopyShownAt: includeMuteTruth ? startedAt : nil
         )
     }
 

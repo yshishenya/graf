@@ -3,8 +3,9 @@
 Date: 2026-06-16
 
 This document is the short status source after the `034-mvp-loop-readiness`
-readiness pass. The PRD remains the product baseline; feature specs and
-metadata-only evidence artifacts remain the detailed implementation record.
+readiness pass and the `022-meeting-mute-truth` closeout. The PRD remains the
+product baseline; feature specs and metadata-only evidence artifacts remain the
+detailed implementation record.
 
 ## Accepted Now
 
@@ -34,13 +35,16 @@ metadata-only evidence artifacts remain the detailed implementation record.
 - One-minute manual recording smoke is accepted for Yandex Telemost, Chrome,
   Opera, and Zoom for features `007` and `008`: visible manual recording,
   one-action stop, and saved local recording artifacts.
-- The meeting-app mute issue discovered during validation is preserved as
-  `022-meeting-mute-truth`, a backlog privacy slice that supersedes the old
-  `009-respect-meeting-mute` draft branch. It is not part of the current
-  mainline sequence and authorizes no implementation until clarification and
-  planning resolve canonical mute truth, unsupported-target behavior, muted
-  interval artifact truth, user-facing limitation copy, and the QA target
-  matrix.
+- Feature `022-meeting-mute-truth` is implemented as the product-owned mute
+  truth layer for local macOS recording. The desktop app exposes `Pause` and
+  `Resume` beside always-available `Stop`; product Pause suppresses local
+  microphone capture and records metadata-only privacy segments in
+  `manifest.json`; unsupported/deferred meeting targets fail closed as
+  `meeting_mute_unproven`, `unsupported`, `degraded`, or `failed`, never as a
+  meeting-app-mute-respecting claim. Target-specific QA fixtures, validation
+  script coverage, diagnostics redaction, and upload-queue regressions are
+  included. This slice does not implement third-party Zoom/Telemost mute
+  adapters or claim that meeting-app mute itself is respected.
 - MediaScribe dual-track API contract is recorded in
   `docs/integrations/mediascribe-dual-track-api.md` for future backend
   transcription work. The real API key is intentionally not committed.
@@ -139,6 +143,30 @@ metadata-only evidence artifacts remain the detailed implementation record.
   claim remains `infra_smoke_ready`, while `mvp_loop_ready`,
   `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
   excluded until P1 launch blockers are closed.
+- Feature `035-mvp-loop-live-evidence` is implemented as the current
+  validation-only evidence pack after `022`. It proves the installed
+  `/Applications/2brain Rec.app` desktop loop with Record, Pause, Resume, Stop,
+  metadata-safe screenshots, and latest local artifact validation. It also
+  checks the production web owner route on `rec.2brain.pro`: `/meetings` exists
+  but live owner review remains blocked by `401 missing_auth_context`, while
+  list/detail/governance behavior is covered by safe fixture-backed evidence.
+  The strongest truthful claim remains `pilot_blocked` with bounded
+  `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
+  `user_rollout_ready`, and `production_ready` remain excluded.
+- Feature `036-owner-review-live-polish` is implemented as the current owner
+  review visual/auth baseline. It adds browser email login/signup flows, Postal
+  delivery configuration, session-protected web cabinet routes, installed
+  desktop login recovery, denser clean-room meeting list/detail surfaces, and
+  native/embedded shell polish. Evidence remains metadata-safe and keeps the
+  production claim bounded unless a separate rollout gate proves stronger live
+  owner-review behavior.
+- Feature `043-app-zoom-shortcuts` is implemented on top of the `036` owner
+  review shell baseline as a local macOS readability feature. Standard macOS
+  shortcuts adjust only the embedded meeting workspace zoom, persist the local
+  supported zoom value, recover invalid saved values to 100%, and leave native
+  Record/Stop/upload truth/local readiness outside the scaled WebKit surface.
+  This slice does not change capture, upload, backend meeting data, retention,
+  deletion, auth, or production rollout state.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -207,9 +235,10 @@ metadata-only evidence artifacts remain the detailed implementation record.
 
 - Yandex Browser is intentionally skipped/not accepted in the current
   browser/meeting smoke cycle.
-- Feature `022-meeting-mute-truth` must resolve meeting-app mute truth before
-  local recording can be accepted as privacy-correct when a user mutes inside
-  Zoom/browser targets.
+- Third-party meeting-app mute adapters are not accepted yet. Local privacy
+  truth is product-owned through 2brain `Pause`/`Resume`/`Stop`; Zoom/browser
+  mute state remains unverified unless a future adapter provides fresh
+  target-specific evidence.
 - Built-in speakerphone clean dual-track acceptance remains constrained by
   `020` evidence: packages can be captured, but transcription readiness must
   stay blocked when persisted package evidence is contaminated, unproven, or
@@ -248,19 +277,26 @@ metadata-only evidence artifacts remain the detailed implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `022-meeting-mute-truth`.
-Feature `034-mvp-loop-readiness` shows that the product now has accepted
-foundations for local recording, server ingest, MediaScribe import, web review,
-desktop embedding, access/egress, and deletion truth, but it still cannot claim
-`mvp_loop_ready` or pilot readiness. The next product slice should close the P1
-privacy blocker around meeting-app mute behavior before broader recording
-acceptance.
+Recommended next feature: `036-owner-review-live-polish`.
+Feature `035-mvp-loop-live-evidence` closes the stale installed-desktop proof
+gap: the permissioned `/Applications/2brain Rec.app` can run the visible local
+recording loop and produce a validated metadata-only local artifact. The
+remaining launch blockers are now more specific:
 
-Before any pilot claim, close the validation-only gates recorded by 034:
-metadata-safe live desktop/web loop evidence, forbidden-content scans over
-readiness artifacts, and production user-journey proof. Parallel or follow-up
-product work should address notes/action output if the MVP promise requires
-generated notes rather than a truthful planned placeholder.
+- production owner review on `rec.2brain.pro` is not yet proven because the
+  protected `/meetings` route returned `401 missing_auth_context` without a
+  commit-safe authenticated owner session;
+- list/detail/governance UI is fixture-backed, not live-owner proven;
+- notes/action output is still a truthful placeholder, not a launchable
+  generated-output capability;
+- production evidence remains `infra_smoke_ready`, not a user rollout journey;
+- the installed desktop surface is operational and safe, but still needs the
+  accepted clean-room V8 product polish before a broad launch claim.
+
+Before any pilot claim, implement or validate the owner auth/session path for
+`rec.2brain.pro`, capture metadata-safe live owner review evidence, decide
+whether notes/actions are implemented or explicitly deferred for MVP, and carry
+the desktop/web product surface toward the accepted V8 baseline.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey
@@ -284,9 +320,10 @@ Keep separate unless the next spec explicitly changes scope:
 Use this register as the anti-drift memory for work intentionally left out of
 the current accepted implementation or `012` ingest slice.
 
-- `022-meeting-mute-truth`: resolve meeting-app mute truth before broader
-  local recording acceptance. This supersedes the old
-  `009-respect-meeting-mute` draft branch as the canonical backlog record.
+- Target-specific meeting-app mute adapters: future work only after separate
+  privacy, platform, and QA evidence. Accepted feature `022` covers
+  product-owned Pause/Resume truth and keeps unsupported meeting targets
+  fail-closed; it does not claim third-party Zoom/Telemost mute interception.
 - `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
   naming, and any future auto-start behavior from the accepted requirements.
 - Public-link and external-recipient sharing policy: add optional public links,

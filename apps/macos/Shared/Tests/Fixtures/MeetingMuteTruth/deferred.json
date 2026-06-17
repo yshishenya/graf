@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "meeting-mute-truth.fixture.v1",
+  "fixtureId": "deferred",
+  "expectedValidation": "accepted_metadata_only",
+  "privacySegments": [],
+  "targetMuteCapability": {
+    "targetId": "yandex_telemost",
+    "targetDisplayName": "Yandex Browser + Telemost",
+    "targetFamily": "browser_meeting",
+    "productPauseSupported": false,
+    "meetingAppMuteAdapterSupported": false,
+    "firstMatrixStatus": "deferred",
+    "releaseClaim": "No meeting-app mute-respecting claim"
+  },
+  "meetingMuteTruthEvidence": [
+    {
+      "evidenceId": "fixture-session-yandex-telemost",
+      "sessionId": "fixture-session",
+      "targetId": "yandex_telemost",
+      "source": "unknown",
+      "status": "deferred",
+      "freshness": "unavailable",
+      "limitationCopyShown": true,
+      "diagnosticSafe": true
+    }
+  ],
+  "meetingMuteTruth": {
+    "sessionId": "fixture-session",
+    "decision": "meeting_mute_unproven",
+    "reason": "adapter_missing",
+    "privacySegmentIds": [],
+    "targetEvidenceIds": ["fixture-session-yandex-telemost"],
+    "safeForDiagnostics": true
+  }
+}

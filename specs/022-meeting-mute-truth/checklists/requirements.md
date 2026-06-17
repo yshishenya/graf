@@ -14,8 +14,8 @@ to clarification and planning
 
 ## Requirement Completeness
 
-- [x] No inline `[NEEDS CLARIFICATION]` markers remain
-- [ ] Requirements are fully unambiguous
+- [x] No inline clarification markers remain
+- [x] Requirements are fully unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic
 - [x] All acceptance scenarios are defined
@@ -27,13 +27,13 @@ to clarification and planning
 
 - [x] Functional requirements have clear acceptance criteria
 - [x] User scenarios cover primary flows
-- [ ] Feature is ready for planning
+- [x] Feature is ready for planning
 - [x] No implementation details leak into specification
 
 ## Notes
 
-- This is intentionally a backlog draft. It is not ready for planning until
-  `$speckit-clarify 022` resolves the canonical mute-truth source,
+- `$speckit-clarify 022` resolved the canonical mute-truth source,
   unsupported-target policy, muted interval artifact truth, user-facing
-  limitation copy, and QA target matrix.
-- Do not implement this slice from the backlog draft alone.
+  limitation copy, and QA target matrix on 2026-06-16.
+- The feature is ready for `$speckit-plan`; implementation must still wait for
+  plan, checklist, tasks, analyze, and issue sync gates.

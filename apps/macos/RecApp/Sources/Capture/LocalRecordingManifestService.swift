@@ -32,7 +32,11 @@ public struct LocalRecordingManifestService: Sendable {
         routeInterruptionCategory: RouteInterruptionCategory = .none,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
-        captureHealth: CaptureHealthSnapshot? = nil
+        captureHealth: CaptureHealthSnapshot? = nil,
+        privacySegments: [ProductPrivacySegment] = [],
+        targetMuteCapability: TargetMuteCapability? = nil,
+        meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
+        limitationCopyShownAt: Date? = nil
     ) -> LocalRecordingManifest {
         let hasExactlyOneRequiredTrackPerRole =
             tracks.count == 2 &&
@@ -86,9 +90,18 @@ public struct LocalRecordingManifestService: Sendable {
             .degraded
         }
 
+        let createdAt = clock()
+        let muteTruthDecision = MuteTruthDecision.mvpDecision(
+            sessionId: sessionId,
+            privacySegments: privacySegments,
+            targetEvidence: meetingMuteTruthEvidence,
+            targetCapability: targetMuteCapability,
+            decidedAt: createdAt
+        )
+
         return LocalRecordingManifest(
             sessionId: sessionId,
-            createdAt: clock(),
+            createdAt: createdAt,
             startedAt: startedAt,
             stoppedAt: stoppedAt,
             status: status,
@@ -108,7 +121,12 @@ public struct LocalRecordingManifestService: Sendable {
             ),
             scopeApproval: scopeApproval,
             permissions: permissions,
-            captureHealth: captureHealth
+            captureHealth: captureHealth,
+            privacySegments: privacySegments,
+            meetingMuteTruth: muteTruthDecision,
+            meetingMuteTruthEvidence: meetingMuteTruthEvidence,
+            targetMuteCapability: targetMuteCapability,
+            limitationCopyShownAt: limitationCopyShownAt
         )
     }
 

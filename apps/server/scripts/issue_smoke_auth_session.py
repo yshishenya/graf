@@ -69,9 +69,11 @@ async def _invoke_issue_auth_session(
     *,
     run_id: str,
     ttl_seconds: int,
+    purpose: str,
 ) -> Any:
     seed = build_smoke_identity_seed(run_id)
     expires_at = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+    scopes = ["owner_review:read"] if purpose == "owner_review" else ["upload:write"]
     base_kwargs: dict[str, Any] = {
         "db": db,
         "session": db,
@@ -87,7 +89,7 @@ async def _invoke_issue_auth_session(
         "provider_subject": str(seed.user_id),
         "subject": str(seed.user_id),
         "claims": {
-            "purpose": "production_smoke",
+            "purpose": purpose,
             "run_id": run_id,
             "device_id": str(seed.device_id),
         },
@@ -96,7 +98,7 @@ async def _invoke_issue_auth_session(
         "ttl": ttl_seconds,
         "expires_at": expires_at,
         "auth_method": "internal_smoke",
-        "scopes": ["upload:write"],
+        "scopes": scopes,
     }
 
     try:
@@ -227,6 +229,7 @@ async def issue_smoke_auth_session(
     run_id: str,
     token_file: Path,
     ttl_seconds: int,
+    purpose: str,
     execute: bool,
 ) -> dict[str, Any]:
     identity_result = await seed_identity(settings, run_id, execute=execute)
@@ -234,6 +237,7 @@ async def issue_smoke_auth_session(
         return {
             **identity_result,
             "auth_session_result": "dry_run",
+            "auth_session_purpose": purpose,
             "auth_session_id": None,
             "token_file": str(token_file),
             "token_written": False,
@@ -248,6 +252,7 @@ async def issue_smoke_auth_session(
             db,
             run_id=run_id,
             ttl_seconds=ttl_seconds,
+            purpose=purpose,
         )
         auth_session_id, raw_token, expires_at = _extract_issued_session(issued)
         db.add(
@@ -270,6 +275,7 @@ async def issue_smoke_auth_session(
     return {
         **identity_result,
         "auth_session_result": "pass",
+        "auth_session_purpose": purpose,
         "auth_session_id": str(auth_session_id),
         "token_file": str(token_file),
         "token_written": True,
@@ -288,6 +294,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("/tmp/twobrain-rec-smoke-auth-token"),
     )
     parser.add_argument("--ttl-seconds", type=int, default=3600)
+    parser.add_argument(
+        "--purpose",
+        choices=["production_smoke", "owner_review"],
+        default="production_smoke",
+    )
     parser.add_argument("--execute", action="store_true")
     return parser.parse_args()
 
@@ -300,6 +311,7 @@ def main() -> None:
             run_id=args.run_id,
             token_file=args.token_file,
             ttl_seconds=args.ttl_seconds,
+            purpose=args.purpose,
             execute=args.execute,
         )
     )

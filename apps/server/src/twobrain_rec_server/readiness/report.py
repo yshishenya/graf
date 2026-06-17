@@ -17,11 +17,12 @@ from twobrain_rec_server.readiness.matrix import (
 
 def build_default_readiness_report(
     *,
+    feature: str = "034-mvp-loop-readiness",
     generated_at: str | None = None,
     deployed_commit: str = "unknown",
 ) -> ReadinessReport:
     generated_at = generated_at or utc_now_iso()
-    launch_gaps = build_default_launch_gaps()
+    launch_gaps = build_default_launch_gaps(feature=feature)
     p0_p1_count = p0_p1_blocker_count(launch_gaps)
     summary = ClaimSummary(
         outcome="pilot_blocked" if p0_p1_count else "internal_pilot_candidate",
@@ -35,14 +36,15 @@ def build_default_readiness_report(
         p0_p1_blockers=p0_p1_count,
     )
     return ReadinessReport(
+        feature=feature,
         generated_at=generated_at,
         deployed_commit=deployed_commit,
         claim_summary=summary,
-        stages=build_default_stages(),
-        evidence=build_default_evidence(generated_at, deployed_commit),
+        stages=build_default_stages(feature=feature),
+        evidence=build_default_evidence(generated_at, deployed_commit, feature=feature),
         launch_gaps=launch_gaps,
-        reference_comparisons=build_default_reference_comparisons(),
-        forbidden_content_scan=passed_forbidden_content_scan(),
+        reference_comparisons=build_default_reference_comparisons(feature=feature),
+        forbidden_content_scan=passed_forbidden_content_scan(feature),
     )
 
 
@@ -109,6 +111,10 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "web-cabinet-regression-tests",
                     "web-meeting-list-blocker-note",
                     "web-meeting-detail-blocker-note",
+                    "feature-035-web-live-auth-blocker",
+                    "feature-035-web-list-evidence",
+                    "feature-035-web-detail-evidence",
+                    "feature-035-web-governance-evidence",
                     "reference-comparison-note",
                 ],
             ),
@@ -172,10 +178,13 @@ def _evidence_details(report: ReadinessReport, evidence_ids: list[str]) -> str:
     evidence = {item.id: item for item in report.evidence}
     lines = ["Evidence records:"]
     for evidence_id in evidence_ids:
+        if evidence_id not in evidence:
+            continue
         item = evidence[evidence_id]
         limitations = "; ".join(item.limitations) or "none"
         lines.append(
             f"- `{item.id}`: `{item.strength}` from `{item.source}`. "
+            f"Scope: {item.scope} "
             f"Scan: `{item.forbidden_content_scan}`. Limitations: {limitations}"
         )
     return "\n".join(lines)
@@ -229,11 +238,20 @@ def _launch_gap_table(report: ReadinessReport) -> str:
 
 def _next_slice_recommendation(report: ReadinessReport) -> str:
     p1_gaps = [gap for gap in report.launch_gaps if gap.severity == "P1"]
-    if any(gap.id == "meeting-app-mute-truth" for gap in p1_gaps):
+    if report.feature == "034-mvp-loop-readiness" and any(
+        gap.id in {"live-desktop-evidence", "production-user-rollout-evidence"} for gap in p1_gaps
+    ):
         return (
-            "Recommended next product slice: `022-meeting-mute-truth`. "
-            "Before any pilot claim, also close validation gates for live desktop/web evidence "
-            "and production user-journey proof."
+            "Recommended next product slice: `035-mvp-loop-live-evidence`. "
+            "Before any pilot claim, close metadata-safe live desktop/web evidence "
+            "and production user-journey proof, while keeping notes/action output "
+            "truthful if it remains deferred."
+        )
+    if report.feature == "035-mvp-loop-live-evidence" and p1_gaps:
+        return (
+            "Recommended next product slice: `036-owner-review-live-polish`. "
+            "Close `web-owner-live-auth-context`, decide `notes-action-output`, "
+            "and keep production rollout capped until a commit-safe owner journey passes."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."

@@ -1211,6 +1211,11 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var scopeApproval: CaptureScopeApproval?
     public var permissions: SystemAudioPermissionSnapshot?
     public var captureHealth: CaptureHealthSnapshot?
+    public var privacySegments: [ProductPrivacySegment]?
+    public var meetingMuteTruth: MuteTruthDecision?
+    public var meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]?
+    public var targetMuteCapability: TargetMuteCapability?
+    public var limitationCopyShownAt: Date?
 
     public init(
         schemaVersion: String = Self.schemaVersion,
@@ -1235,7 +1240,12 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         recordingTimelineEvidence: RecordingTimelineIntegrityEvidence? = nil,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
-        captureHealth: CaptureHealthSnapshot? = nil
+        captureHealth: CaptureHealthSnapshot? = nil,
+        privacySegments: [ProductPrivacySegment]? = nil,
+        meetingMuteTruth: MuteTruthDecision? = nil,
+        meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]? = nil,
+        targetMuteCapability: TargetMuteCapability? = nil,
+        limitationCopyShownAt: Date? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.sessionId = sessionId
@@ -1260,6 +1270,11 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.scopeApproval = scopeApproval
         self.permissions = permissions
         self.captureHealth = captureHealth
+        self.privacySegments = privacySegments
+        self.meetingMuteTruth = meetingMuteTruth
+        self.meetingMuteTruthEvidence = meetingMuteTruthEvidence
+        self.targetMuteCapability = targetMuteCapability
+        self.limitationCopyShownAt = limitationCopyShownAt
     }
 
     public var isComplete: Bool {
@@ -1399,21 +1414,21 @@ public enum UploadItemState: String, Codable, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .queued:
-            return "Queued"
+            return "Ожидает загрузки"
         case .uploading:
-            return "Uploading"
+            return "Загружается"
         case .retrying:
-            return "Retrying"
+            return "Повторяем загрузку"
         case .uploaded:
-            return "Uploaded"
+            return "Загружено"
         case .degraded:
-            return "Upload degraded"
+            return "Загрузка с ограничениями"
         case .failed:
-            return "Upload failed"
+            return "Загрузка не удалась"
         case .blocked:
-            return "Upload blocked"
+            return "Нужна проверка"
         case .terminalDeleted:
-            return "Upload closed"
+            return "Закрыто"
         }
     }
 
@@ -1466,11 +1481,11 @@ public enum UploadRetryMode: String, Codable, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .automatic:
-            return "Automatic retry"
+            return "Автоповтор"
         case .manualOnly:
-            return "Manual recovery"
+            return "Ручная проверка"
         case .terminal:
-            return "Terminal"
+            return "Завершено"
         }
     }
 }
@@ -1740,9 +1755,9 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var nextActionLabel: String? {
         switch retryMode {
         case .automatic:
-            return state == .retrying ? "Stop retry" : nil
+            return state == .retrying ? "Остановить повтор" : nil
         case .manualOnly:
-            return "Retry"
+            return "Повторить"
         case .terminal:
             return nil
         }

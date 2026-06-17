@@ -8,10 +8,40 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлены macOS shortcuts масштаба embedded meeting workspace:
+  `Command-Plus` / `Command-Equals` увеличивают масштаб, `Command-Minus`
+  уменьшает, `Command-0` сбрасывает к 100%; настройка хранится локально,
+  применяется к `WKWebView.pageZoom` без route reload и оставляет native
+  Record/Stop/upload truth/local readiness вне масштабируемой поверхности
+  (`feature:043`, `T001-T017`).
+- Добавлена production-доставка browser-login email-кодов через server-side
+  Postal API: отдельные `.env` настройки для Rec, Docker secret для API key,
+  fail-closed состояние при недоступной почтовой доставке и подключение
+  `rec-api` к внешней сети Postal (`feature:036`).
+- Добавлен browser-login по email-коду для web cabinet: `/login`,
+  `/login/email/start`, `/login/email/verify`, HttpOnly/Secure owner-session
+  cookie, browser-device binding, redirect protected web routes to login, and
+  visible OAuth/provider stubs for later implementation (`feature:036`).
+- Добавлена browser-регистрация по email-коду без видимого Workspace ID:
+  `/sign-up`, `/sign-up/email/start`, `/sign-up/email/verify`, автоматическое
+  создание пользователя и membership в серверно заданном workspace, русская
+  страница ввода 6-значного кода и Krisp-like HTML-письмо через Postal
+  (`feature:036`).
+- Добавлен product-owned слой meeting-app mute truth для macOS: `Pause`/`Resume`
+  рядом с постоянным `Stop`, подавление локального микрофона во время паузы,
+  metadata-only `privacySegments`, target capability matrix, fail-closed
+  `meetingMuteTruth` decisions, fixture validator и QA evidence templates без
+  claims о third-party meeting-app mute support (`feature:022`, `T001-T048`).
 - Добавлен launch-readiness gate `034-mvp-loop-readiness`: metadata-only
   readiness JSON/Markdown report, launch gap register, clean-room reference
   comparison, desktop/web/policy lifecycle evidence notes, bounded claim rules,
   and evidence-backed next-slice recommendation (`feature:034`, `T001-T059`).
+- Добавлен validation-only evidence pack `035-mvp-loop-live-evidence`: proof
+  установленного `/Applications/2brain Rec.app` Record/Pause/Resume/Stop loop,
+  metadata-safe desktop screenshots, latest local artifact validation,
+  production route check for `rec.2brain.pro/meetings`, fixture-backed web
+  list/detail/governance evidence, and generated readiness/gap outputs
+  (`feature:035`, `T001-T032`).
 - Добавлен server-owned слой retention/deletion execution: whole-meeting
   deletion requests, immediate access blocking for deleting/deleted meetings,
   metadata-only verification reports, retention policy snapshots and scans,
@@ -52,11 +82,32 @@ Semantic Versioning 2.0.0.
 
 ### Changed
 
-- `docs/current-product-status.md` now records `034` as the current readiness
-  outcome, removes stale `018` next-slice guidance, and recommends
-  `022-meeting-mute-truth` as the next product slice while keeping live evidence
-  and production user-journey proof as validation gates (`feature:034`,
+- `docs/current-product-status.md` and the MVP readiness report now record
+  `022-meeting-mute-truth` as closed, remove stale `018`/`022` next-slice
+  guidance, and recommend validation-only `035-mvp-loop-live-evidence` while
+  keeping live desktop/web evidence, notes/action truth, and production
+  user-journey proof as launch gates (`feature:022`, `feature:034`,
   `T045-T051`).
+- `docs/current-product-status.md` and the 035 readiness report now close the
+  stale installed-desktop evidence gap, keep production owner review blocked on
+  `401 missing_auth_context`, and recommend `036-owner-review-live-polish` as
+  the next launch slice (`feature:035`, `T026-T032`).
+- Web cabinet and auth pages now follow the Krisp reference more closely while
+  staying clean-room: Russian copy, centered dark auth cards, email/signup mode
+  transitions, six-slot verification input, denser meetings list, upcoming
+  events card, floating assistant input, and future-control slots for provider,
+  sharing, filters, sorting and upload (`feature:036`).
+- Desktop owner-review shell now follows the reference layout more closely:
+  slimmer sidebar, embedded meetings surface without duplicate native cards,
+  compact collapsible right rail, denser web meeting workspace, and a
+  profile/settings menu with Russian clean-room copy (`feature:036`).
+- Native desktop shell and embedded web cabinet now share the same Krisp-like
+  warm dark palette and SF/system typography tokens: sidebar/right rail
+  `#202224`, native/WebView background `#191a1c`, cards `#242629`, and a
+  shared violet accent for compact rail states and web controls (`feature:036`).
+- Desktop sidebar width now adapts to its Russian labels and pending-action
+  badge with min/max bounds, so normal windows show the full menu text while
+  narrow resolutions fall back to the compact width (`feature:036`).
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
   были сквозными.
@@ -65,6 +116,16 @@ Semantic Versioning 2.0.0.
 
 ### Fixed
 
+- Dev MinIO policy now includes bucket metadata and multipart permissions
+  required by local readiness/upload checks, so `docker-compose.dev.yml`
+  can reach `ready` after the local stack is rebuilt (`feature:043`).
+- Desktop app now installs standard macOS `Edit`/`Window` menus, so embedded
+  cabinet fields receive `Cmd+V`, `Cmd+A`, copy, cut, paste and related
+  responder-chain commands in `/Applications/2brain Rec.app` (`feature:036`).
+- Desktop embedded cabinet now allows production `/login` routes, ignores
+  WebKit `about:blank` navigation noise, and sends expired-session recovery to
+  `/login?next=/desktop/meetings`, so the installed `/Applications/2brain Rec.app`
+  renders browser-login instead of a false blocked-route state (`feature:036`).
 - В `.github` и процессе разработки зафиксирован порядок этапов и коммитов для
   Spec Kit.
 - MediaScribe client now follows the live production contract for polling and
@@ -89,11 +150,28 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Postal API key for browser-login delivery is mounted only as a Docker secret;
+  deploy/runtime scans now reject accidental `TWOBRAIN_POSTAL_API_KEY`
+  environment exposure, and desktop clients never receive Postal settings
+  (`feature:036`).
+- Browser cabinet content stays behind an email-issued owner session: protected
+  web routes redirect HTML requests to login, email-code failures do not reveal
+  whether an address exists, and browser OAuth provider routes are explicit
+  future stubs instead of partially enabled auth paths (`feature:036`).
+- Meeting-app mute truth remains fail-closed: diagnostics/redaction allow only
+  metadata fields, fixture validation rejects raw audio/transcripts/meeting
+  content/credentials/signed URLs, unsupported targets never become
+  `mute_respecting`, and upload queue completeness is not reinterpreted by
+  mute-truth metadata (`feature:022`, `T006-T011`, `T022-T042`).
 - Readiness evidence for `034` is metadata-only by contract: unsafe screenshots
   are rejected, reference-comparison evidence IDs are validated, committed
   evidence cannot include private Krisp screenshots or private meeting content,
   and production claims stay bounded to `infra_smoke_ready` until stronger
   evidence exists (`feature:034`, `T005-T014`, `T028`, `T055`).
+- Readiness evidence for `035` keeps live web owner review metadata-only:
+  private Chrome session data, account identifiers, screenshots, cookies,
+  tokens, transcript text, audio, and production destructive governance actions
+  are not committed (`feature:035`, `T020-T025`, `T039`).
 - Retention/deletion reports and lifecycle activity are metadata-only by
   default: they do not expose raw audio, transcript text, summaries, local
   paths, object-store keys, signed URLs, provider payloads, dependency job IDs,
@@ -148,6 +226,10 @@ Semantic Versioning 2.0.0.
 
 ### Docs
 
+- Added feature `022` evidence scaffold, target matrix, manual validation
+  template, and current-product-status update for the boundary between
+  product-owned Pause truth and future meeting-app mute adapters (`feature:022`,
+  `T041-T044`).
 - Reorganized Codex/Spec Kit operating guidance: root `AGENTS.md` now acts as
   a concise router, detailed rules live under `docs/agent-guidance/`, GitHub
   issue canon moved to `docs/agent-guidance/github-issue-canon.md`, and active
