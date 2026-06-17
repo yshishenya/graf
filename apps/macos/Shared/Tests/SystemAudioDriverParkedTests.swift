@@ -13,7 +13,7 @@ final class SystemAudioDriverParkedTests: XCTestCase {
         )
 
         XCTAssertTrue(readiness.mvpRecordingIgnoresDriverDiagnostics)
-        XCTAssertTrue(readiness.summary.contains("Record"))
+        XCTAssertTrue(readiness.summary.contains("записи"))
         XCTAssertFalse(readiness.summary.localizedCaseInsensitiveContains("install"))
         XCTAssertFalse(readiness.summary.localizedCaseInsensitiveContains("repair"))
         XCTAssertFalse(readiness.summary.localizedCaseInsensitiveContains("restart"))
@@ -33,9 +33,9 @@ final class SystemAudioDriverParkedTests: XCTestCase {
             routeVerificationReady: false
         )
 
-        XCTAssertTrue(absent.driverDiagnosticSummary.contains("can still use macOS capture permissions"))
-        XCTAssertTrue(maintenance.driverDiagnosticSummary.contains("parked"))
-        XCTAssertTrue(absent.virtualDeviceDiagnosticSummary.contains("not an MVP recording prerequisite"))
+        XCTAssertTrue(absent.driverDiagnosticSummary.contains("права macOS"))
+        XCTAssertTrue(maintenance.driverDiagnosticSummary.contains("отложено"))
+        XCTAssertTrue(absent.virtualDeviceDiagnosticSummary.contains("не обязательны"))
     }
 }
 #endif

@@ -2,7 +2,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,7 @@ from twobrain_rec_server.auth.callbacks import (
     resolve_callback_to_user,
 )
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
-from twobrain_rec_server.auth.dependencies import PrincipalDependency
+from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME, PrincipalDependency
 from twobrain_rec_server.auth.links import LinkError, LinkResult, link_provider_identity
 from twobrain_rec_server.auth.policy import (
     AuthPolicySnapshot,
@@ -286,6 +287,33 @@ def _request_client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
+def _safe_browser_return_path(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped or not stripped.startswith("/") or stripped.startswith("//"):
+        return None
+    if any(char in stripped for char in "\r\n"):
+        return None
+    return stripped
+
+
+def _set_auth_cookie(response: Response, *, token: str, expires_at: datetime) -> None:
+    token_expires_at = expires_at
+    if token_expires_at.tzinfo is None:
+        token_expires_at = token_expires_at.replace(tzinfo=UTC)
+    max_age = max(0, int((token_expires_at - datetime.now(UTC)).total_seconds()))
+    response.set_cookie(
+        key=AUTH_SESSION_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+
+
 async def _record_auth_audit(
     db: AsyncSession | None,
     *,
@@ -526,6 +554,7 @@ async def start_provider_flow(
 @router.get("/callback/{provider}", name="auth_callback", response_model=AuthCallbackResponse)
 async def callback(
     request: Request,
+    response: Response,
     provider: str,
     state: str | None = Query(default=None, description="Callback state"),
     db: AsyncSession | None = AuthDbDependency,
@@ -579,7 +608,7 @@ async def callback(
             title="Callback state is invalid",
         ) from exc
     await db.commit()
-    return AuthCallbackResponse(
+    payload = AuthCallbackResponse(
         user_id=profile.user_id,
         workspace_id=profile.workspace_id,
         active_session_id=profile.auth_session_id,
@@ -589,6 +618,13 @@ async def callback(
         provider_subject=profile.provider_subject,
         external_identity_id=profile.external_identity_id,
     )
+    redirect_path = _safe_browser_return_path(profile.requested_redirect)
+    if redirect_path is not None:
+        redirect = RedirectResponse(redirect_path, status_code=303)
+        _set_auth_cookie(redirect, token=profile.token, expires_at=profile.token_expires_at)
+        return redirect
+    _set_auth_cookie(response, token=profile.token, expires_at=profile.token_expires_at)
+    return payload
 
 
 @router.post("/link", response_model=AuthLinkResponse)

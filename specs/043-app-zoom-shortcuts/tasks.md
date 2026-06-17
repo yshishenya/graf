@@ -12,8 +12,8 @@
 
 **Purpose**: Confirm the existing macOS target and validation surface before writing feature tests.
 
-- [ ] T001 Review current macOS package target membership and existing cabinet test layout in `apps/macos/Package.swift`
-- [ ] T002 Review existing desktop app lifecycle, cabinet workspace, and embedded web view entrypoints in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T001 Review current macOS package target membership and existing cabinet test layout in `apps/macos/Package.swift`
+- [X] T002 Review existing desktop app lifecycle, cabinet workspace, and embedded web view entrypoints in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
 
 ---
 
@@ -21,8 +21,8 @@
 
 **Purpose**: Add the shared zoom model needed by every user story.
 
-- [ ] T003 [P] Add failing zoom command, step, clamp, and reset tests in `apps/macos/Shared/Tests/WorkspaceZoomTests.swift`
-- [ ] T004 Implement `WorkspaceZoomPreference`, `WorkspaceZoomCommand`, and app-local menu metadata in `apps/macos/RecApp/Sources/Cabinet/WorkspaceZoom.swift`
+- [X] T003 [P] Add failing zoom command, step, clamp, and reset tests in `apps/macos/Shared/Tests/WorkspaceZoomTests.swift`
+- [X] T004 Implement `WorkspaceZoomPreference`, `WorkspaceZoomCommand`, and app-local menu metadata in `apps/macos/RecApp/Sources/Cabinet/WorkspaceZoom.swift`
 
 **Checkpoint**: Zoom values and command semantics are modeled and testable.
 
@@ -36,15 +36,15 @@
 
 ### Tests for User Story 1
 
-- [ ] T005 [P] [US1] Add failing WebKit zoom bridge tests in `apps/macos/Shared/Tests/EmbeddedCabinetWebViewZoomTests.swift`
-- [ ] T006 [P] [US1] Add failing menu command metadata tests in `apps/macos/Shared/Tests/WorkspaceZoomTests.swift`
+- [X] T005 [P] [US1] Add failing WebKit zoom bridge tests in `apps/macos/Shared/Tests/EmbeddedCabinetWebViewZoomTests.swift`
+- [X] T006 [P] [US1] Add failing menu command metadata tests in `apps/macos/Shared/Tests/WorkspaceZoomTests.swift`
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Wire app menu items, key equivalents, and target actions in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T008 [US1] Pass workspace zoom state through `ContentView`, `AppContentRoot`, and `DesktopCabinetWorkspaceView` in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T009 [US1] Apply zoom updates to the embedded WebKit surface without route reloads in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
-- [ ] T010 [US1] Accept and forward workspace zoom into the embedded surface in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
+- [X] T007 [US1] Wire app menu items, key equivalents, and target actions in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T008 [US1] Pass workspace zoom state through `ContentView`, `AppContentRoot`, and `DesktopCabinetWorkspaceView` in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T009 [US1] Apply zoom updates to the embedded WebKit surface without route reloads in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
+- [X] T010 [US1] Accept and forward workspace zoom into the embedded surface in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
 
 **Checkpoint**: User Story 1 is independently testable with focused Swift tests.
 
@@ -58,12 +58,12 @@
 
 ### Tests for User Story 2
 
-- [ ] T011 [P] [US2] Add failing persistence and invalid-value fallback tests in `apps/macos/Shared/Tests/WorkspaceZoomTests.swift`
+- [X] T011 [P] [US2] Add failing persistence and invalid-value fallback tests in `apps/macos/Shared/Tests/WorkspaceZoomTests.swift`
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] Persist supported zoom changes and load saved values through an injectable defaults store in `apps/macos/RecApp/Sources/Cabinet/WorkspaceZoom.swift`
-- [ ] T013 [US2] Initialize and inject the workspace zoom store from the app root in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T012 [US2] Persist supported zoom changes and load saved values through an injectable defaults store in `apps/macos/RecApp/Sources/Cabinet/WorkspaceZoom.swift`
+- [X] T013 [US2] Initialize and inject the workspace zoom store from the app root in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
 
 **Checkpoint**: User Story 2 restores supported values and falls back safely for invalid values.
 
@@ -77,11 +77,11 @@
 
 ### Tests for User Story 3
 
-- [ ] T014 [P] [US3] Add failing native shell zoom boundary tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
+- [X] T014 [P] [US3] Add failing native shell zoom boundary tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T015 [US3] Extend native shell boundary invariants for workspace zoom in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`
+- [X] T015 [US3] Extend native shell boundary invariants for workspace zoom in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`
 
 **Checkpoint**: User Story 3 proves Record/Stop/upload truth/local readiness remain outside workspace zoom.
 
@@ -91,8 +91,8 @@
 
 **Purpose**: Validate the feature and record release-facing change notes.
 
-- [ ] T016 Add `feature:043` changelog entry for app zoom shortcuts in `CHANGELOG.md`
-- [ ] T017 Run quickstart validation commands from `specs/043-app-zoom-shortcuts/quickstart.md`
+- [X] T016 Add `feature:043` changelog entry for app zoom shortcuts in `CHANGELOG.md`
+- [X] T017 Run quickstart validation commands from `specs/043-app-zoom-shortcuts/quickstart.md`
 
 ---
 

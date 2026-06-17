@@ -55,8 +55,8 @@ final class SystemAudioPermissionGateTests: XCTestCase {
 
         XCTAssertEqual(microphoneStale.presentation?.recoveryAction, .retryPermissionCheck)
         XCTAssertEqual(systemAudioStale.presentation?.recoveryAction, .retryPermissionCheck)
-        XCTAssertEqual(microphoneStale.presentation?.title, "Recording blocked: permission check stale")
-        XCTAssertEqual(systemAudioStale.presentation?.title, "Recording blocked: permission check stale")
+        XCTAssertEqual(microphoneStale.presentation?.title, "Права нужно проверить заново")
+        XCTAssertEqual(systemAudioStale.presentation?.title, "Права нужно проверить заново")
     }
 
     func testExplicitDegradedAttemptIsLabelledBeforeStart() {

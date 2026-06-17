@@ -9,7 +9,7 @@ final class SystemAudioResponsiveStateTests: XCTestCase {
 
         let label = SystemAudioStatusLabels.localRecordingLocationAccessibilityLabel(path)
 
-        XCTAssertTrue(label.hasPrefix("Local recording location:"))
+        XCTAssertTrue(label.hasPrefix("Путь локальной записи:"))
         XCTAssertTrue(label.contains("a-very-long-meeting-session-directory-name"))
         XCTAssertTrue(label.contains("manifest.json"))
     }
@@ -32,8 +32,8 @@ final class SystemAudioResponsiveStateTests: XCTestCase {
     }
 
     func testPendingRecordingStatusCopyPointsToRecordInsteadOfRunCheck() {
-        XCTAssertEqual(SystemAudioStatusLabels.microphonePendingStatus, "Permission checked when recording starts")
-        XCTAssertEqual(SystemAudioStatusLabels.speakerPendingStatus, "Checked when recording starts")
+        XCTAssertEqual(SystemAudioStatusLabels.microphonePendingStatus, "Проверим доступ при старте записи")
+        XCTAssertEqual(SystemAudioStatusLabels.speakerPendingStatus, "Проверим звук при старте записи")
         XCTAssertFalse(SystemAudioStatusLabels.microphonePendingStatus.localizedCaseInsensitiveContains("not checked"))
         XCTAssertFalse(SystemAudioStatusLabels.speakerPendingStatus.localizedCaseInsensitiveContains("not checked"))
         XCTAssertFalse(SystemAudioStatusLabels.speakerPendingStatus.localizedCaseInsensitiveContains("driver"))

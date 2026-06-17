@@ -10,6 +10,8 @@ class AuthenticatedPrincipal:
     subject: str
     session_id: UUID | None = None
     auth_via_session: bool = False
+    session_workspace_id: UUID | None = None
+    session_device_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

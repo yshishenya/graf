@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "meeting-mute-truth.fixture.v1",
+  "fixtureId": "unsupported",
+  "expectedValidation": "accepted_metadata_only",
+  "privacySegments": [],
+  "targetMuteCapability": {
+    "targetId": "unknown",
+    "targetDisplayName": "Generic or unknown meeting target",
+    "targetFamily": "unknown",
+    "productPauseSupported": false,
+    "meetingAppMuteAdapterSupported": false,
+    "firstMatrixStatus": "unsupported",
+    "releaseClaim": "No meeting-app mute-respecting claim"
+  },
+  "meetingMuteTruthEvidence": [
+    {
+      "evidenceId": "fixture-session-unsupported",
+      "sessionId": "fixture-session",
+      "targetId": "unknown",
+      "source": "unsupported",
+      "status": "unsupported",
+      "freshness": "unavailable",
+      "limitationCopyShown": true,
+      "diagnosticSafe": true
+    }
+  ],
+  "meetingMuteTruth": {
+    "sessionId": "fixture-session",
+    "decision": "unsupported",
+    "reason": "unsupported_target",
+    "privacySegmentIds": [],
+    "targetEvidenceIds": ["fixture-session-unsupported"],
+    "safeForDiagnostics": true
+  }
+}

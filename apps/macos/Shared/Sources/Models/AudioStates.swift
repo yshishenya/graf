@@ -301,6 +301,15 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case unknown
 }
 
+public enum MuteTruthArtifactState: String, Codable, CaseIterable, Sendable {
+    case muteRespecting = "mute_respecting"
+    case meetingMuteUnproven = "meeting_mute_unproven"
+    case unsupported
+    case deferred
+    case degraded
+    case failed
+}
+
 public enum TranscriptionReadinessState: String, Codable, Sendable {
     case ready
     case degraded

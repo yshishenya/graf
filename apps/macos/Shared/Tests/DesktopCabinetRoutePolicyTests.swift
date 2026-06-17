@@ -5,7 +5,7 @@ import TwoBrainRecAppCore
 import XCTest
 
 final class DesktopCabinetRoutePolicyTests: XCTestCase {
-    func testAllowsOnlyMeetingListAndDetailRoutes() throws {
+    func testAllowsMeetingListDetailAndLoginRoutes() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
 
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings")).decision, .allow)
@@ -13,6 +13,21 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(detail.decision, .allow)
         XCTAssertEqual(detail.route.kind, .meetingDetail)
         XCTAssertEqual(detail.route.meetingId, "meeting-033")
+
+        let login = policy.decision(for: try url("/login?next=/desktop/meetings"))
+        XCTAssertEqual(login.decision, .allow)
+        XCTAssertEqual(login.route.kind, .authLogin)
+        XCTAssertEqual(login.reason, .allowedAuthLogin)
+        XCTAssertEqual(policy.decision(for: try url("/login/email/start")).decision, .allow)
+        XCTAssertEqual(policy.decision(for: try url("/login/email/verify")).decision, .allow)
+
+        let signup = policy.decision(for: try url("/sign-up?next=/desktop/meetings"))
+        XCTAssertEqual(signup.decision, .allow)
+        XCTAssertEqual(signup.route.kind, .authSignup)
+        XCTAssertEqual(signup.reason, .allowedAuthSignup)
+        XCTAssertEqual(policy.decision(for: try url("/sign-up?next=/desktop/meetings&mode=email")).decision, .allow)
+        XCTAssertEqual(policy.decision(for: try url("/sign-up/email/start")).decision, .allow)
+        XCTAssertEqual(policy.decision(for: try url("/sign-up/email/verify")).decision, .allow)
     }
 
     func testBlocksFutureGovernanceAndNativeCaptureRoutes() throws {

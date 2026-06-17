@@ -310,6 +310,11 @@ public struct DiagnosticBundleService: Sendable {
             bundleManifest["alignmentStatus"] = .string(leakageFinalization.alignmentStatus.rawValue)
             bundleManifest["transcriptionGate"] = .string(leakageFinalization.transcriptionGate.rawValue)
         }
+        bundleManifest["privacySegments"] = .array((manifest.privacySegments ?? []).map(Self.diagnosticValue))
+        bundleManifest["meetingMuteTruth"] = manifest.meetingMuteTruth.map(Self.diagnosticValue) ?? .null
+        bundleManifest["meetingMuteTruthEvidence"] = .array((manifest.meetingMuteTruthEvidence ?? []).map(Self.diagnosticValue))
+        bundleManifest["targetMuteCapability"] = manifest.targetMuteCapability.map(Self.diagnosticValue) ?? .null
+        bundleManifest["limitationCopyShownAt"] = .string(manifest.limitationCopyShownAt.map(Self.formatDate) ?? "none")
         bundleManifest["sessionId"] = .string(manifest.sessionId)
         bundleManifest["trackCount"] = .int(manifest.tracks.count)
         bundleManifest["trackRoles"] = .array(manifest.tracks.map { .string($0.role.rawValue) })
@@ -640,7 +645,68 @@ public struct DiagnosticBundleService: Sendable {
             "diagnosticSafe": .bool(manifest.diagnosticSafe),
             "localDeletionRegistered": .bool(manifest.localDeletionRegistered),
             "leakageFinalization": manifest.leakageFinalization.map(Self.diagnosticValue) ?? .null,
-            "failureReason": .string(manifest.failureReason.rawValue)
+            "failureReason": .string(manifest.failureReason.rawValue),
+            "privacySegments": .array((manifest.privacySegments ?? []).map(Self.diagnosticValue)),
+            "meetingMuteTruth": manifest.meetingMuteTruth.map(Self.diagnosticValue) ?? .null,
+            "meetingMuteTruthEvidence": .array((manifest.meetingMuteTruthEvidence ?? []).map(Self.diagnosticValue)),
+            "targetMuteCapability": manifest.targetMuteCapability.map(Self.diagnosticValue) ?? .null,
+            "limitationCopyShownAt": .string(manifest.limitationCopyShownAt.map(Self.formatDate) ?? "none")
+        ])
+    }
+
+    private static func diagnosticValue(_ segment: ProductPrivacySegment) -> DiagnosticFieldValue {
+        .object([
+            "segmentId": .string(segment.segmentId),
+            "sessionId": .string(segment.sessionId),
+            "control": .string(segment.control.rawValue),
+            "startedAt": .string(Self.formatDate(segment.startedAt)),
+            "endedAt": .string(segment.endedAt.map(Self.formatDate) ?? "none"),
+            "startMonotonicMs": .int(segment.startMonotonicMs),
+            "endMonotonicMs": .int(segment.endMonotonicMs ?? -1),
+            "durationMs": .int(segment.durationMs),
+            "localMicTreatment": .string(segment.localMicTreatment.rawValue),
+            "initiator": .string(segment.initiator.rawValue),
+            "diagnosticSafe": .bool(segment.diagnosticSafe)
+        ])
+    }
+
+    private static func diagnosticValue(_ decision: MuteTruthDecision) -> DiagnosticFieldValue {
+        .object([
+            "sessionId": .string(decision.sessionId),
+            "decision": .string(decision.decision.rawValue),
+            "reason": .string(decision.reason.rawValue),
+            "privacySegmentIds": .array(decision.privacySegmentIds.map { .string($0) }),
+            "targetEvidenceIds": .array(decision.targetEvidenceIds.map { .string($0) }),
+            "safeForDiagnostics": .bool(decision.safeForDiagnostics),
+            "decidedAt": .string(Self.formatDate(decision.decidedAt))
+        ])
+    }
+
+    private static func diagnosticValue(_ capability: TargetMuteCapability) -> DiagnosticFieldValue {
+        .object([
+            "targetId": .string(capability.targetId),
+            "targetDisplayName": .string(capability.targetDisplayName),
+            "targetFamily": .string(capability.targetFamily.rawValue),
+            "productPauseSupported": .bool(capability.productPauseSupported),
+            "meetingAppMuteAdapterSupported": .bool(capability.meetingAppMuteAdapterSupported),
+            "firstMatrixStatus": .string(capability.firstMatrixStatus.rawValue),
+            "releaseClaim": .string(capability.releaseClaim)
+        ])
+    }
+
+    private static func diagnosticValue(_ evidence: MeetingMuteTruthEvidence) -> DiagnosticFieldValue {
+        .object([
+            "evidenceId": .string(evidence.evidenceId),
+            "sessionId": .string(evidence.sessionId),
+            "targetId": .string(evidence.targetId),
+            "targetDisplayName": .string(evidence.targetDisplayName),
+            "source": .string(evidence.source.rawValue),
+            "status": .string(evidence.status.rawValue),
+            "freshness": .string(evidence.freshness.rawValue),
+            "limitationCopyShown": .bool(evidence.limitationCopyShown),
+            "recordedAt": .string(Self.formatDate(evidence.recordedAt)),
+            "adapterId": .string(evidence.adapterId ?? "none"),
+            "diagnosticSafe": .bool(evidence.diagnosticSafe)
         ])
     }
 

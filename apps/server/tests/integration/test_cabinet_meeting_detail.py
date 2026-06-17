@@ -3,6 +3,7 @@ from tests.fixtures.cabinet import (
     PRIVATE_EXTERNAL_JOB_ID,
     SAFE_SECOND_TRANSCRIPT_TEXT,
     SAFE_TRANSCRIPT_TEXT,
+    create_summary_reported_meeting,
     seed_cabinet_meetings,
 )
 
@@ -39,12 +40,31 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
     assert processing["processing"]["state"] == "processing"
     assert processing["processing"]["next_action"] == "wait"
     assert processing["transcript"]["available"] is False
+    assert processing["notes_action_truth"]["summary"]["state"] == "processing"
+    assert processing["notes_action_truth"]["action_items"]["state"] == "processing"
     assert failed["processing"]["state"] == "failed"
     assert failed["processing"]["reason_code"] == "mediascribe_validation_failed"
     assert failed["processing"]["next_action"] == "contact_operator"
+    assert failed["notes_action_truth"]["summary"]["state"] == "blocked"
+    assert failed["notes_action_truth"]["decisions"]["state"] == "blocked"
     assert partial["processing"]["state"] == "partial"
     assert partial["transcript"]["available"] is True
     assert partial["speakers"]["available"] is False
+    assert partial["notes_action_truth"]["summary"]["state"] == "deferred"
+    assert partial["notes_action_truth"]["followups"]["state"] == "deferred"
+
+
+def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> None:
+    meeting_id = create_summary_reported_meeting(client)
+
+    response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    truth = response.json()["notes_action_truth"]
+    assert truth["summary"]["state"] == "blocked"
+    assert truth["summary"]["copy_key"] == "notes.summary.blocked_missing_stored_output"
+    assert truth["decisions"]["state"] == "deferred"
+    assert truth["action_items"]["state"] == "deferred"
 
 
 def test_cabinet_detail_denies_foreign_meeting_without_existence_proof(client) -> None:
@@ -70,13 +90,17 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Assign speakers" in ready.text
     assert "Assistant" in ready.text
     assert "Template" in ready.text
-    assert "AI notes are reserved for a later feature" in ready.text
+    assert "Summary" in ready.text
+    assert "Action Items" in ready.text
+    assert "Outcomes deferred" in ready.text
+    assert "AI notes are reserved for a later feature" not in ready.text
     assert "016" not in ready.text
     assert "Access" in ready.text
     assert "Team visibility" in ready.text
     assert "Artifacts" in ready.text
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
+    assert "Outcomes processing" in processing.text
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
 
 

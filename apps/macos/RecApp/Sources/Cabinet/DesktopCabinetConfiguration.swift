@@ -4,6 +4,10 @@ import TwoBrainRecShared
 public struct DesktopCabinetConfiguration: Equatable, Sendable {
     public static let baseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
     public static let fallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let baseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let fallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
+    public static let defaultLoadTimeoutSeconds: TimeInterval = 15
 
     public let baseURL: URL
     public let headers: [String: String]
@@ -17,7 +21,7 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
     public init?(
         rawBaseURL: String,
         headers: [String: String],
-        loadTimeoutSeconds: TimeInterval = 3,
+        loadTimeoutSeconds: TimeInterval = defaultLoadTimeoutSeconds,
         source: String = "provided"
     ) {
         guard let url = URL(string: rawBaseURL),
@@ -34,7 +38,7 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
     public init(
         baseURL: URL,
         headers: [String: String] = [:],
-        loadTimeoutSeconds: TimeInterval = 3,
+        loadTimeoutSeconds: TimeInterval = defaultLoadTimeoutSeconds,
         source: String = "provided"
     ) {
         self.baseURL = Self.normalizedHTTPOrigin(baseURL) ?? baseURL
@@ -43,13 +47,22 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         self.source = source
     }
 
-    public static func configured(from environment: [String: String]) -> DesktopCabinetConfiguration? {
-        let rawURL = environment[baseURLEnvironmentKey] ?? environment[fallbackBaseURLEnvironmentKey]
-        guard let rawURL else { return nil }
+    public static func configured(
+        from environment: [String: String],
+        defaults: UserDefaults = .standard,
+        includePackagedDefault: Bool = true
+    ) -> DesktopCabinetConfiguration? {
+        guard let candidate = configuredBaseURLCandidate(
+            from: environment,
+            defaults: defaults,
+            includePackagedDefault: includePackagedDefault
+        ) else {
+            return nil
+        }
         return DesktopCabinetConfiguration(
-            rawBaseURL: rawURL,
+            rawBaseURL: candidate.rawURL,
             headers: configuredHeaders(from: environment),
-            source: environment[baseURLEnvironmentKey] == nil ? fallbackBaseURLEnvironmentKey : baseURLEnvironmentKey
+            source: candidate.source
         )
     }
 
@@ -118,6 +131,27 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
             lowered.contains("token") ||
             lowered.contains("cookie") ||
             lowered.contains("secret")
+    }
+
+    private static func configuredBaseURLCandidate(
+        from environment: [String: String],
+        defaults: UserDefaults,
+        includePackagedDefault: Bool
+    ) -> (rawURL: String, source: String)? {
+        let candidates: [(String?, String)] = [
+            (environment[baseURLEnvironmentKey], baseURLEnvironmentKey),
+            (environment[fallbackBaseURLEnvironmentKey], fallbackBaseURLEnvironmentKey),
+            (defaults.string(forKey: baseURLUserDefaultsKey), baseURLUserDefaultsKey),
+            (defaults.string(forKey: fallbackBaseURLUserDefaultsKey), fallbackBaseURLUserDefaultsKey),
+            (includePackagedDefault ? packagedDefaultBaseURL : nil, "packaged_default")
+        ]
+        for (rawURL, source) in candidates {
+            let trimmed = rawURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return (trimmed, source)
+            }
+        }
+        return nil
     }
 }
 

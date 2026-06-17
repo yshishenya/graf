@@ -11,11 +11,11 @@ final class CaptureIndicatorTests: XCTestCase {
 
         XCTAssertEqual(
             CaptureStatusItem.statusLabel(for: session),
-            "Recording active"
+            "Идет запись"
         )
         XCTAssertEqual(
             CaptureStatusItem.accessibilityLabel(for: session),
-            "Recording active. Stop recording is available."
+            "Идет запись. Кнопка остановки доступна."
         )
     }
 
@@ -24,11 +24,11 @@ final class CaptureIndicatorTests: XCTestCase {
 
         XCTAssertEqual(
             CaptureStatusItem.statusLabel(for: session),
-            "Ready to record"
+            "Готово к записи"
         )
         XCTAssertEqual(
             CaptureStatusItem.accessibilityLabel(for: session),
-            "Ready to record. Recording is not active."
+            "Готово к записи. Активной записи нет."
         )
     }
 
@@ -44,6 +44,17 @@ final class CaptureIndicatorTests: XCTestCase {
 
         XCTAssertTrue(CaptureStatusItem.showsStopButton(for: session))
         XCTAssertFalse(CaptureControlView.shouldShowRecordButton(for: session))
+    }
+
+    func testPausedRecordingKeepsVisibleIndicatorAndStopAvailable() {
+        let session = makeSession(state: .paused, indicator: .paused, stopAvailable: true)
+
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Запись на паузе")
+        XCTAssertEqual(session.visibleIndicatorState, .paused)
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: session))
+        XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
+        XCTAssertTrue(CaptureStatusItem.showsResumeButton(for: session))
+        XCTAssertFalse(CaptureStatusItem.showsPauseButton(for: session))
     }
 
     func testRecordButtonCanBeDisabledWhileStartIsInFlight() {

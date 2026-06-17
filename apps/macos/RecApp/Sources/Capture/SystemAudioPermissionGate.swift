@@ -45,8 +45,8 @@ public struct SystemAudioPermissionGate: Sendable {
     ) -> SystemAudioPermissionPresentation {
         if microphone == .stale || systemAudio == .stale {
             return SystemAudioPermissionPresentation(
-                title: "Recording blocked: permission check stale",
-                message: "Run the permission check again before recording.",
+                title: "Права нужно проверить заново",
+                message: "Повторите проверку прав перед записью.",
                 recoveryAction: .retryPermissionCheck
             )
         }
@@ -56,28 +56,28 @@ public struct SystemAudioPermissionGate: Sendable {
 
         if micMissing && systemMissing {
             return SystemAudioPermissionPresentation(
-                title: "Recording blocked: permissions required",
-                message: "Grant Microphone and Screen/System Audio access in System Settings, then retry recording.",
+                title: "Нужны права на запись",
+                message: "Разрешите доступ к микрофону и записи системного звука в настройках macOS, затем повторите запись.",
                 recoveryAction: .grantBoth
             )
         }
         if micMissing {
             return SystemAudioPermissionPresentation(
-                title: "Recording blocked: microphone access required",
-                message: "Grant Microphone access in System Settings, then retry recording.",
+                title: "Нужен доступ к микрофону",
+                message: "Разрешите доступ к микрофону в настройках macOS, затем повторите запись.",
                 recoveryAction: .grantMicrophone
             )
         }
         if systemMissing {
             return SystemAudioPermissionPresentation(
-                title: "Recording blocked: Screen/System Audio access required",
-                message: "Grant Screen/System Audio access in System Settings, then retry recording.",
+                title: "Нужна запись системного звука",
+                message: "Разрешите запись системного звука в настройках macOS, затем повторите запись.",
                 recoveryAction: .grantSystemAudio
             )
         }
         return SystemAudioPermissionPresentation(
-            title: "Recording blocked: permission check stale",
-            message: "Run the permission check again before recording.",
+            title: "Права нужно проверить заново",
+            message: "Повторите проверку прав перед записью.",
             recoveryAction: .retryPermissionCheck
         )
     }

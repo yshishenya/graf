@@ -187,6 +187,25 @@ public extension AdaptiveStatusText {
         "Meeting: \(safeLabel(title, fallback: "—"))"
     }
 
+    static func muteTruthDecisionLabel(_ decision: MuteTruthDecision?) -> String {
+        guard let decision else {
+            return "Meeting-app mute not verified"
+        }
+
+        switch decision.decision {
+        case .muteRespecting:
+            return "Meeting mute verified"
+        case .meetingMuteUnproven:
+            return "2brain Pause recorded; meeting mute not verified"
+        case .unsupported:
+            return "Meeting-app mute not supported for this target"
+        case .degraded:
+            return "Meeting-app mute evidence degraded"
+        case .failed:
+            return "Meeting-app mute evidence failed redaction"
+        }
+    }
+
     static func recoveryActionLabel(_ action: String?) -> String {
         guard let action else {
             return "Review diagnostics"

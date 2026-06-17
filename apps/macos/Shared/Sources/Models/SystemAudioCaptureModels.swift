@@ -602,52 +602,60 @@ public struct SystemAudioDriverParkedReadiness: Codable, Equatable, Sendable {
 
     public var summary: String {
         if routeVerificationReady {
-            return "System audio recording uses macOS permissions; driver diagnostics are parked for MVP"
+            return "Запись системного звука готова через права macOS"
         }
-        return "System audio recording is checked from Record; driver diagnostics are parked for MVP"
+        return "Готовность записи проверяется при старте"
     }
 
     public var driverDiagnosticSummary: String {
         switch driverState {
         case .installed:
-            return "Driver installed; not required for system-audio MVP recording"
+            return "Драйвер установлен; для записи системного звука он не обязателен"
         case .requiresRestart:
-            return "Driver restart pending; not required for system-audio MVP recording"
+            return "Перезапуск драйвера ожидает; запись системного звука доступна без него"
         case .needsRepair, .needsUpdate, .incompatible:
-            return "Driver maintenance is parked for future routing work"
+            return "Обслуживание драйвера отложено для будущей маршрутизации"
         case .notInstalled, .uninstalled:
-            return "Driver absent; system-audio MVP recording can still use macOS capture permissions"
+            return "Драйвер отсутствует; запись использует права macOS"
         case .uninstalling:
-            return "Driver removal in progress; system-audio MVP recording remains permission-gated"
+            return "Удаление драйвера выполняется; запись по-прежнему управляется правами macOS"
         }
     }
 
     public var virtualDeviceDiagnosticSummary: String {
         if microphoneState == .available && speakerState == .available {
-            return "Virtual devices visible for legacy passthrough diagnostics only"
+            return "Виртуальные устройства видны только для диагностики"
         }
-        return "Virtual devices are not an MVP recording prerequisite"
+        return "Виртуальные устройства не обязательны для записи"
     }
 }
 
 public enum SystemAudioStatusLabels {
-    public static let captureRegion = "System audio recording controls"
-    public static let recordingIdle = "Recording idle"
-    public static let recordButtonTitle = "Record System Audio"
-    public static let recordButtonAccessibilityLabel = "Start system audio recording"
-    public static let stopButtonTitle = "Stop"
-    public static let stopButtonAccessibilityLabel = "Stop recording"
-    public static let captureAudioTitle = "Recorder Input Meters"
-    public static let microphoneTitle = "Microphone"
-    public static let incomingTitle = "Incoming"
-    public static let microphonePendingStatus = "Permission checked when recording starts"
-    public static let speakerPendingStatus = "Checked when recording starts"
-    public static let activeState = "Active"
-    public static let silentState = "Silent"
-    public static let metersWaiting = "Meters show audio only while recording"
-    public static let waitingForRecordingAudio = "Waiting for recording audio"
+    public static let captureRegion = "Управление записью"
+    public static let recordingIdle = "Запись не идет"
+    public static let recordButtonTitle = "Начать запись"
+    public static let recordButtonAccessibilityLabel = "Начать запись системного звука"
+    public static let stopButtonTitle = "Остановить"
+    public static let stopButtonAccessibilityLabel = "Остановить запись"
+    public static let pauseButtonTitle = "Пауза"
+    public static let pauseButtonAccessibilityLabel = "Поставить локальный микрофон на паузу"
+    public static let resumeButtonTitle = "Продолжить"
+    public static let resumeButtonAccessibilityLabel = "Продолжить запись локального микрофона"
+    public static let localRecordingPausedStatus =
+        "Запись на паузе. Остановить можно в любой момент."
+    public static let meetingMuteTruthLimitationCopy =
+        "2brain не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в 2brain."
+    public static let captureAudioTitle = "Уровни записи"
+    public static let microphoneTitle = "Микрофон"
+    public static let incomingTitle = "Встреча"
+    public static let microphonePendingStatus = "Проверим доступ при старте записи"
+    public static let speakerPendingStatus = "Проверим звук при старте записи"
+    public static let activeState = "Есть звук"
+    public static let silentState = "Тихо"
+    public static let metersWaiting = "Уровни появятся во время записи"
+    public static let waitingForRecordingAudio = "Ожидаем старт записи"
     public static let localAudioRouteActiveNotRecording =
-        "Local audio route is active; recording still starts only from Record"
+        "Локальный аудиомаршрут активен; запись начинается только вручную"
     public static let recordingMeterFreshnessWindowSeconds: TimeInterval = 1.5
 
     public static func liveSummary(
@@ -659,29 +667,29 @@ public enum SystemAudioStatusLabels {
             return metersWaiting
         }
         if microphoneIsLive && incomingIsLive {
-            return "Microphone and system audio are active"
+            return "Микрофон и звук встречи записываются"
         }
         if microphoneIsLive {
-            return "Microphone active, system audio silent"
+            return "Микрофон есть, звук встречи тихий"
         }
         if incomingIsLive {
-            return "System audio active, microphone silent"
+            return "Звук встречи есть, микрофон тихий"
         }
-        return "No capture audio observed"
+        return "Звук пока не обнаружен"
     }
 
     public static func microphoneDetail(routeIsActive: Bool, microphoneIsLive: Bool) -> String {
         guard routeIsActive else { return waitingForRecordingAudio }
         return microphoneIsLive
-            ? "Microphone audio is reaching the recorder."
-            : "No microphone audio is reaching the recorder."
+            ? "Микрофон поступает в запись."
+            : "Микрофон пока не слышен."
     }
 
     public static func incomingDetail(routeIsActive: Bool, incomingIsLive: Bool) -> String {
         guard routeIsActive else { return waitingForRecordingAudio }
         return incomingIsLive
-            ? "System audio is reaching the recorder."
-            : "No system audio is reaching the recorder."
+            ? "Звук встречи поступает в запись."
+            : "Звук встречи пока не слышен."
     }
 
     public static func meterState(isLive: Bool) -> String {
@@ -693,17 +701,20 @@ public enum SystemAudioStatusLabels {
     }
 
     public static func localRecordingLocationAccessibilityLabel(_ path: String) -> String {
-        "Local recording location: \(path)"
+        "Путь локальной записи: \(path)"
     }
 }
 
 public enum SystemAudioAccessibilityIdentifier {
     public static let captureControls = "systemAudio.capture.controls"
     public static let recordButton = "systemAudio.record.button"
+    public static let pauseButton = "systemAudio.pause.button"
+    public static let resumeButton = "systemAudio.resume.button"
     public static let stopButton = "systemAudio.stop.button"
     public static let statusSurface = "systemAudio.status.surface"
     public static let blockerBanner = "systemAudio.blocker.banner"
     public static let localRecordingStatus = "systemAudio.localRecording.status"
+    public static let muteTruthWarning = "systemAudio.muteTruth.warning"
     public static let localRecordingLocation = "systemAudio.localRecording.location"
     public static let meters = "systemAudio.meters"
     public static let microphoneMeter = "systemAudio.meter.microphone"

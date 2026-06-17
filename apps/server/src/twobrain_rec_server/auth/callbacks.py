@@ -24,13 +24,19 @@ from twobrain_rec_server.auth.providers.base import (
 from twobrain_rec_server.auth.sessions import consume_callback_state, issue_auth_session
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
+    AuthSessionDeviceBinding,
     ExternalIdentity,
+    RegisteredDevice,
     UserIdentity,
     Workspace,
     WorkspaceAuthPolicy,
     WorkspaceMembership,
 )
-from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    WorkspaceAuthContext,
+    apply_tenant_context,
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +48,7 @@ class CallbackProfile:
     external_identity_id: UUID
     token: str
     token_expires_at: datetime
+    requested_redirect: str | None = None
 
 
 class CallbackFlowError(ValueError):
@@ -229,6 +236,61 @@ async def _create_scoped_user(
         )
     )
     return user
+
+
+async def _resolve_browser_login_device(
+    db: AsyncSession,
+    *,
+    workspace: Workspace,
+    user: UserIdentity,
+    now: datetime,
+) -> RegisteredDevice:
+    await apply_tenant_context(
+        db,
+        TenantDatabaseContext(
+            organization_id=workspace.organization_id,
+            workspace_id=workspace.id,
+            user_id=user.id,
+            context_kind="request",
+        ),
+    )
+    device_public_id = f"browser-login:{user.id}"
+    device = await db.scalar(
+        select(RegisteredDevice).where(
+            RegisteredDevice.workspace_id == workspace.id,
+            RegisteredDevice.user_id == user.id,
+            RegisteredDevice.device_public_id == device_public_id,
+        )
+    )
+    if device is None:
+        device = RegisteredDevice(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            device_public_id=device_public_id,
+            platform="web",
+            client_version="browser-login",
+            status="active",
+            registration_state="approved",
+            trusted_by=user.id,
+            last_seen_at=now,
+        )
+        db.add(device)
+        await db.flush()
+        await db.refresh(device)
+        return device
+    device.platform = "web"
+    device.client_version = "browser-login"
+    device.status = "active"
+    device.registration_state = "approved"
+    device.last_seen_at = now
+    return device
+
+
+def _is_browser_requested_redirect(value: str | None) -> bool:
+    if value is None:
+        return False
+    stripped = value.strip()
+    return bool(stripped and stripped.startswith("/") and not stripped.startswith("//") and "\r" not in stripped and "\n" not in stripped)
 
 
 async def _get_or_create_user_from_provider_claims(
@@ -531,10 +593,19 @@ async def resolve_callback_to_user(
                 status="active",
             )
         )
+    browser_device = None
+    if _is_browser_requested_redirect(state.requested_redirect):
+        browser_device = await _resolve_browser_login_device(
+            db,
+            workspace=workspace,
+            user=user,
+            now=now,
+        )
     issued = await issue_auth_session(
         db,
         user_id=user.id,
         workspace_id=workspace.id,
+        device_id=browser_device.id if browser_device is not None else None,
         provider=identity.provider,
         ttl_seconds=session_ttl_seconds,
         claims_fingerprint=_fingerprint_identity(
@@ -543,6 +614,15 @@ async def resolve_callback_to_user(
             workspace.id,
         ),
     )
+    if browser_device is not None:
+        db.add(
+            AuthSessionDeviceBinding(
+                auth_session_id=issued.id,
+                registered_device_id=browser_device.id,
+                device_state="trusted",
+                last_heartbeat_at=now,
+            )
+        )
     ext = await db.scalar(
         select(ExternalIdentity).where(
             and_(
@@ -593,4 +673,5 @@ async def resolve_callback_to_user(
         external_identity_id=ext.id,
         token=issued.token,
         token_expires_at=issued.expires_at,
+        requested_redirect=state.requested_redirect,
     )

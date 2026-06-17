@@ -10,6 +10,7 @@ from sqlalchemy import select
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fakes.auth_providers import fake_provider_map
 from twobrain_rec_server.auth.audit import write_auth_audit_event
+from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     ExternalIdentity,
@@ -261,6 +262,12 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
     assert callback_payload["provider"] == "yandex"
     assert callback_payload["provider_subject"] == "test-ya-user"
     assert callback_payload["session_token"]
+    set_cookie = callback.headers["set-cookie"]
+    assert f"{AUTH_SESSION_COOKIE_NAME}=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+    assert "SameSite=lax" in set_cookie
+    assert "Domain=" not in set_cookie
 
     events = _load_auth_audit_events(client)
     assert [event.event_type for event in events] == [

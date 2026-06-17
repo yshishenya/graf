@@ -36,6 +36,100 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
             return "Это действие остается за пределами встроенного кабинета встреч."
         }
     }
+
+    public var unavailableTitle: String {
+        switch self {
+        case .expiredSession:
+            return "Нужен вход в кабинет"
+        case .accessDenied:
+            return "Нет доступа к кабинету"
+        case .notFound:
+            return "Обзор не найден"
+        case .offline, .timeout:
+            return "Кабинет временно недоступен"
+        case .notConfigured:
+            return "Кабинет не настроен"
+        case .blockedRoute:
+            return "Действие ограничено"
+        case .malformedResponse:
+            return "Нужна проверка кабинета"
+        case .loading, .ready:
+            return "Кабинет встреч"
+        }
+    }
+
+    public var unavailableSystemImage: String {
+        switch self {
+        case .expiredSession:
+            return "person.crop.circle.badge.exclamationmark"
+        case .accessDenied:
+            return "lock.trianglebadge.exclamationmark"
+        case .notFound:
+            return "questionmark.folder"
+        case .offline, .timeout, .notConfigured:
+            return "wifi.slash"
+        case .blockedRoute:
+            return "hand.raised"
+        case .malformedResponse:
+            return "exclamationmark.triangle"
+        case .loading, .ready:
+            return "rectangle.stack.fill"
+        }
+    }
+
+    public var recoveryActionTitle: String? {
+        switch self {
+        case .expiredSession:
+            return "Войти в кабинет"
+        case .offline, .timeout:
+            return "Открыть кабинет"
+        default:
+            return nil
+        }
+    }
+
+    public var shouldShowEmbeddedSurface: Bool {
+        switch self {
+        case .loading, .ready:
+            return true
+        case .notConfigured, .offline, .timeout, .expiredSession, .accessDenied, .notFound, .malformedResponse, .blockedRoute:
+            return false
+        }
+    }
+
+    public static func state(forHTTPStatus statusCode: Int) -> DesktopCabinetState? {
+        switch statusCode {
+        case 200..<400:
+            return nil
+        case 401:
+            return .expiredSession
+        case 403:
+            return .accessDenied
+        case 404:
+            return .notFound
+        case 408, 504:
+            return .timeout
+        case 500..<600:
+            return .offline
+        default:
+            return .malformedResponse
+        }
+    }
+
+    public static func state(forNavigationError error: Error, currentState: DesktopCabinetState) -> DesktopCabinetState {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorCancelled:
+                return currentState
+            case NSURLErrorTimedOut:
+                return .timeout
+            default:
+                return .offline
+            }
+        }
+        return .offline
+    }
 }
 
 public struct NativeShellInvariant: Equatable, Sendable {
@@ -44,23 +138,29 @@ public struct NativeShellInvariant: Equatable, Sendable {
     public let uploadTruthVisible: Bool
     public let focusCanReachStop: Bool
     public let embeddedSurfaceLoaded: Bool
+    public let workspaceZoomApplied: WorkspaceZoomPreference
+    public let nativeShellScaledByWorkspaceZoom: Bool
 
     public init(
         recordVisible: Bool,
         stopVisible: Bool,
         uploadTruthVisible: Bool,
         focusCanReachStop: Bool,
-        embeddedSurfaceLoaded: Bool
+        embeddedSurfaceLoaded: Bool,
+        workspaceZoomApplied: WorkspaceZoomPreference = .default,
+        nativeShellScaledByWorkspaceZoom: Bool = false
     ) {
         self.recordVisible = recordVisible
         self.stopVisible = stopVisible
         self.uploadTruthVisible = uploadTruthVisible
         self.focusCanReachStop = focusCanReachStop
         self.embeddedSurfaceLoaded = embeddedSurfaceLoaded
+        self.workspaceZoomApplied = workspaceZoomApplied
+        self.nativeShellScaledByWorkspaceZoom = nativeShellScaledByWorkspaceZoom
     }
 
     public func satisfiesActiveRecordingSafety(cabinetState _: DesktopCabinetState) -> Bool {
-        recordVisible && stopVisible && focusCanReachStop && uploadTruthVisible
+        recordVisible && stopVisible && focusCanReachStop && uploadTruthVisible && !nativeShellScaledByWorkspaceZoom
     }
 }
 
@@ -78,6 +178,16 @@ public enum DesktopCabinetWorkspace {
         configuration.meetingsURL()
     }
 
+    public static func loginRoute(configuration: DesktopCabinetConfiguration, next: String = "/desktop/meetings") -> URL {
+        var components = URLComponents(url: configuration.baseURL.appending(path: "login"), resolvingAgainstBaseURL: false)
+        var queryItems = [URLQueryItem(name: "next", value: next)]
+        if let workspaceId = configuration.workspaceId {
+            queryItems.append(URLQueryItem(name: "workspace_id", value: workspaceId))
+        }
+        components?.queryItems = queryItems
+        return components?.url ?? configuration.baseURL.appending(path: "login")
+    }
+
     public static func detailRoute(meetingId: String, configuration: DesktopCabinetConfiguration) -> URL {
         configuration.meetingDetailURL(meetingId: meetingId)
     }
@@ -91,8 +201,8 @@ public enum DesktopCabinetLayoutSection: String, Equatable, Sendable {
 
 public enum DesktopCabinetLayoutPolicy {
     public static let defaultSectionOrder: [DesktopCabinetLayoutSection] = [
-        .capture,
         .meetings,
+        .capture,
         .localAudioReadiness
     ]
 }

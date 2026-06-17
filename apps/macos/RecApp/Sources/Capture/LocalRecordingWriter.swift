@@ -248,14 +248,20 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         sessionId: String,
         startedAt: Date,
         scopeApproval: CaptureScopeApproval? = nil,
-        permissions: SystemAudioPermissionSnapshot? = nil
+        permissions: SystemAudioPermissionSnapshot? = nil,
+        targetMuteCapability: TargetMuteCapability? = nil,
+        meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
+        limitationCopyShownAt: Date? = nil
     ) throws -> LocalRecordingDirectory {
         try queue.sync {
             try startOnQueue(
                 sessionId: sessionId,
                 startedAt: startedAt,
                 scopeApproval: scopeApproval,
-                permissions: permissions
+                permissions: permissions,
+                targetMuteCapability: targetMuteCapability,
+                meetingMuteTruthEvidence: meetingMuteTruthEvidence,
+                limitationCopyShownAt: limitationCopyShownAt
             )
         }
     }
@@ -264,7 +270,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         sessionId: String,
         startedAt: Date,
         scopeApproval: CaptureScopeApproval? = nil,
-        permissions: SystemAudioPermissionSnapshot? = nil
+        permissions: SystemAudioPermissionSnapshot? = nil,
+        targetMuteCapability: TargetMuteCapability? = nil,
+        meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
+        limitationCopyShownAt: Date? = nil
     ) async throws -> LocalRecordingDirectory {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -273,7 +282,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                         sessionId: sessionId,
                         startedAt: startedAt,
                         scopeApproval: scopeApproval,
-                        permissions: permissions
+                        permissions: permissions,
+                        targetMuteCapability: targetMuteCapability,
+                        meetingMuteTruthEvidence: meetingMuteTruthEvidence,
+                        limitationCopyShownAt: limitationCopyShownAt
                     )
                     continuation.resume(returning: directory)
                 } catch {
@@ -287,7 +299,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         sessionId: String,
         startedAt: Date,
         scopeApproval: CaptureScopeApproval?,
-        permissions: SystemAudioPermissionSnapshot?
+        permissions: SystemAudioPermissionSnapshot?,
+        targetMuteCapability: TargetMuteCapability?,
+        meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
+        limitationCopyShownAt: Date?
     ) throws -> LocalRecordingDirectory {
         guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
         let directory: LocalRecordingDirectory
@@ -312,7 +327,11 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             }
         }
 
-        let microphoneSampleSource = microphoneSampleSourceFactory()
+        let rawMicrophoneSampleSource = microphoneSampleSourceFactory()
+        let privacySuppressingSource = rawMicrophoneSampleSource.map {
+            PrivacySuppressingSampleSource(base: $0)
+        }
+        let microphoneSampleSource: LocalRecordingSampleSource? = privacySuppressingSource ?? rawMicrophoneSampleSource
         let microphoneWriter: PCM16MonoWAVFileWriter?
         let microphone: AVAudioRecorder?
         if let microphoneSampleSource {
@@ -386,12 +405,81 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             scratch: scratch,
             scratchCapacity: 8192,
             scopeApproval: scopeApproval,
-            permissions: permissions
+            permissions: permissions,
+            privacySuppressingSource: privacySuppressingSource,
+            targetMuteCapability: targetMuteCapability,
+            meetingMuteTruthEvidence: meetingMuteTruthEvidence,
+            limitationCopyShownAt: limitationCopyShownAt
         )
         active = activeRecording
         startSucceeded = true
         timer.resume()
         return directory
+    }
+
+    public func pausePrivacy(startedAt: Date = Date()) throws {
+        try queue.sync {
+            try pausePrivacyOnQueue(startedAt: startedAt)
+        }
+    }
+
+    public func pausePrivacyAsync(startedAt: Date = Date()) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    try self.pausePrivacyOnQueue(startedAt: startedAt)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func resumePrivacy(endedAt: Date = Date()) throws {
+        try queue.sync {
+            try resumePrivacyOnQueue(endedAt: endedAt)
+        }
+    }
+
+    public func resumePrivacyAsync(endedAt: Date = Date()) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    try self.resumePrivacyOnQueue(endedAt: endedAt)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func pausePrivacyOnQueue(startedAt: Date) throws {
+        guard let active else { throw LocalRecordingWriterError.notRecording }
+        guard active.activePrivacySegment == nil else { return }
+        active.privacySuppressingSource?.update(state: .paused)
+        active.microphoneRecorder?.pause()
+        let treatment = localMicTreatment(for: active)
+        active.activePrivacySegment = ProductPrivacySegment(
+            segmentId: "\(active.sessionId)-privacy-\(active.privacySegments.count + 1)",
+            sessionId: active.sessionId,
+            control: .pause,
+            startedAt: startedAt,
+            startMonotonicMs: monotonicMs(for: startedAt, relativeTo: active.startedAt),
+            localMicTreatment: treatment,
+            initiator: .user,
+            diagnosticSafe: true
+        )
+    }
+
+    private func resumePrivacyOnQueue(endedAt: Date) throws {
+        guard let active else { throw LocalRecordingWriterError.notRecording }
+        active.privacySuppressingSource?.update(state: .capturing)
+        if recordMicrophone {
+            active.microphoneRecorder?.record()
+        }
+        finalizeActivePrivacySegment(for: active, endedAt: endedAt, treatment: localMicTreatment(for: active))
     }
 
     public func stop(
@@ -428,6 +516,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         failureReason: LocalRecordingFailureReason
     ) throws -> LocalRecordingManifest {
         guard let active else { throw LocalRecordingWriterError.notRecording }
+        active.privacySuppressingSource?.update(state: .stopping)
+        finalizeActivePrivacySegment(for: active, endedAt: stoppedAt, treatment: localMicTreatment(for: active))
         active.timer.cancel()
         defer {
             active.microphoneRecorder?.stop()
@@ -503,10 +593,38 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             failureReason: failureReason,
             scopeApproval: active.scopeApproval,
             permissions: active.permissions,
-            captureHealth: captureHealth
+            captureHealth: captureHealth,
+            privacySegments: active.privacySegments,
+            targetMuteCapability: active.targetMuteCapability,
+            meetingMuteTruthEvidence: active.meetingMuteTruthEvidence,
+            limitationCopyShownAt: active.limitationCopyShownAt
         )
         try manifestService.write(manifest, to: active.directory.manifestURL)
         return manifest
+    }
+
+    private func finalizeActivePrivacySegment(
+        for active: ActiveRecording,
+        endedAt: Date,
+        treatment: ProductPrivacyLocalMicTreatment
+    ) {
+        guard let segment = active.activePrivacySegment else { return }
+        active.privacySegments.append(
+            segment.finalized(
+                endedAt: endedAt,
+                endMonotonicMs: monotonicMs(for: endedAt, relativeTo: active.startedAt),
+                treatment: treatment
+            )
+        )
+        active.activePrivacySegment = nil
+    }
+
+    private func monotonicMs(for date: Date, relativeTo startedAt: Date) -> Int {
+        Int(max(0, date.timeIntervalSince(startedAt) * 1000))
+    }
+
+    private func localMicTreatment(for active: ActiveRecording) -> ProductPrivacyLocalMicTreatment {
+        active.privacySuppressingSource == nil ? .redacted : .silenced
     }
 
     private func padTimelineSilence(for active: ActiveRecording, targetFrameCount: Int) throws -> PaddingResult {
@@ -730,12 +848,18 @@ private final class ActiveRecording {
     let scratchCapacity: Int
     let scopeApproval: CaptureScopeApproval?
     let permissions: SystemAudioPermissionSnapshot?
+    let privacySuppressingSource: PrivacySuppressingSampleSource?
+    let targetMuteCapability: TargetMuteCapability?
+    let meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]
+    let limitationCopyShownAt: Date?
     var lastMicrophoneLevel: Double
     var lastIncomingLevel: Double
     var lastMicrophoneFrameAt: Date?
     var lastIncomingFrameAt: Date?
     var microphoneWriteFailed: Bool
     var incomingWriteFailed: Bool
+    var privacySegments: [ProductPrivacySegment]
+    var activePrivacySegment: ProductPrivacySegment?
 
     init(
         sessionId: String,
@@ -750,7 +874,11 @@ private final class ActiveRecording {
         scratch: UnsafeMutablePointer<Float>,
         scratchCapacity: Int,
         scopeApproval: CaptureScopeApproval?,
-        permissions: SystemAudioPermissionSnapshot?
+        permissions: SystemAudioPermissionSnapshot?,
+        privacySuppressingSource: PrivacySuppressingSampleSource?,
+        targetMuteCapability: TargetMuteCapability?,
+        meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
+        limitationCopyShownAt: Date?
     ) {
         self.sessionId = sessionId
         self.startedAt = startedAt
@@ -765,12 +893,18 @@ private final class ActiveRecording {
         self.scratchCapacity = scratchCapacity
         self.scopeApproval = scopeApproval
         self.permissions = permissions
+        self.privacySuppressingSource = privacySuppressingSource
+        self.targetMuteCapability = targetMuteCapability
+        self.meetingMuteTruthEvidence = meetingMuteTruthEvidence
+        self.limitationCopyShownAt = limitationCopyShownAt
         self.lastMicrophoneLevel = 0
         self.lastIncomingLevel = 0
         self.lastMicrophoneFrameAt = nil
         self.lastIncomingFrameAt = nil
         self.microphoneWriteFailed = false
         self.incomingWriteFailed = false
+        self.privacySegments = []
+        self.activePrivacySegment = nil
     }
 }
 

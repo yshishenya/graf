@@ -28,6 +28,7 @@ def test_settings(tmp_path) -> Settings:
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
+        web_login_workspace_id=WORKSPACE_ID,
     )
 
 

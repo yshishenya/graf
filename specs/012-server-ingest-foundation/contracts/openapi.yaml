@@ -4197,6 +4197,8 @@ components:
           type: boolean
           title: Notes Available
           default: false
+        notes_action_truth:
+          $ref: '#/components/schemas/NotesActionTruthState'
         updated_at:
           anyOf:
           - type: string
@@ -4327,6 +4329,8 @@ components:
           $ref: '#/components/schemas/SpeakerReviewState'
         notes:
           $ref: '#/components/schemas/NotesReviewState'
+        notes_action_truth:
+          $ref: '#/components/schemas/NotesActionTruthState'
         playback:
           $ref: '#/components/schemas/PlaybackReviewState'
         governance:
@@ -4416,6 +4420,68 @@ components:
       - session_id
       - missing_ranges_by_track
       title: MissingRangesResponse
+    NotesActionCategoryState:
+      properties:
+        state:
+          type: string
+          enum:
+          - available
+          - processing
+          - blocked
+          - unavailable
+          - deferred
+          title: State
+        label:
+          type: string
+          title: Label
+        reason:
+          type: string
+          title: Reason
+        readiness_impact:
+          type: string
+          enum:
+          - closes_gap
+          - keeps_gap_open
+          - non_blocking
+          title: Readiness Impact
+        copy_key:
+          type: string
+          title: Copy Key
+      type: object
+      required:
+      - state
+      - label
+      - reason
+      - readiness_impact
+      - copy_key
+      title: NotesActionCategoryState
+    NotesActionTruthState:
+      properties:
+        summary:
+          $ref: '#/components/schemas/NotesActionCategoryState'
+        decisions:
+          $ref: '#/components/schemas/NotesActionCategoryState'
+        action_items:
+          $ref: '#/components/schemas/NotesActionCategoryState'
+        followups:
+          $ref: '#/components/schemas/NotesActionCategoryState'
+        source_basis:
+          type: string
+          enum:
+          - stored_output
+          - processing_status
+          - transcript_only
+          - policy_deferral
+          - not_supported
+          title: Source Basis
+      type: object
+      required:
+      - summary
+      - decisions
+      - action_items
+      - followups
+      - source_basis
+      title: NotesActionTruthState
     NotesReviewState:
       properties:
         available:
