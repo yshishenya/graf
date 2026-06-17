@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-06-04T00:00:00Z",
+  "updated_at": "2026-06-18T00:00:00Z",
   "extensions": {
     "github-issue-canon": {
       "name": "GitHub Issue Canon",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Installs and enforces a Spec Kit-traceable GitHub issue canon around task-to-issue sync",
       "author": "yshishenya",
       "repository": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon",

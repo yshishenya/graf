@@ -1,3 +1,5 @@
+<!-- managed-by: github-issue-canon -->
+
 # GitHub Issue Canon
 
 This repository uses GitHub Issues as the execution backlog that mirrors Spec

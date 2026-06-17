@@ -147,6 +147,7 @@ canonical rule in project-owned files: `AGENTS.md`,
         text = text.replace(anchor, anchor + block, 1)
     else:
         text += "\n" + block.strip() + "\n"
+    text = text.rstrip() + "\n"
     path.write_text(text, encoding="utf-8")
     return True
 
