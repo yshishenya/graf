@@ -78,6 +78,21 @@ The spec must describe what and why, not implementation details. It should inclu
 
 Spec files live under `specs/<number>-<short-name>/spec.md`. The active feature path is stored locally in `.specify/feature.json`; this file is intentionally ignored because it is per-worktree state.
 
+#### Feature Number Registry
+
+Use `docs/feature-registry.md` as the single project-owned registry for feature
+numbers, reserved backlog ranges, and active number decisions. Before starting
+`$speckit-specify` for a new feature, check that registry and verify the number
+against current `specs/`, local branches, remote branches after
+`git fetch --all --prune`, committed backlog/status docs, and historical spec
+paths in `git log --all --name-only -- specs`.
+
+Do not allocate a number only because it is missing from the current `specs/`
+directory. A number may already be reserved by another worktree, branch, or
+backlog document. If the intended number is not represented in
+`docs/feature-registry.md`, update the registry first or explicitly record why
+the number is free.
+
 ### 2. Clarify
 
 Use `$speckit-clarify` before planning unless the feature is trivial and already unambiguous.
