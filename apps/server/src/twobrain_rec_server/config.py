@@ -3,7 +3,7 @@ from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID
 
-from pydantic import AnyUrl, Field, PositiveInt, model_validator
+from pydantic import AnyUrl, Field, PositiveInt, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
@@ -111,6 +111,13 @@ class Settings(BaseSettings):
         "set-cookie",
         "x-content-sha256",
     )
+
+    @field_validator("web_login_workspace_id", mode="before")
+    @classmethod
+    def empty_web_login_workspace_id_is_unset(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
