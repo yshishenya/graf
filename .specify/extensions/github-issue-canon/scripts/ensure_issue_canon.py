@@ -12,6 +12,18 @@ from issue_canon_common import (
 )
 
 
+def remove_legacy_canon(root):
+    legacy = root / "docs" / "github-issue-canon.md"
+    current = root / "docs" / "agent-guidance" / "github-issue-canon.md"
+    if not legacy.exists() or not current.exists() or legacy.is_symlink():
+        return False
+    text = legacy.read_text(encoding="utf-8", errors="ignore")
+    if "# GitHub Issue Canon" not in text or "$speckit-taskstoissues" not in text:
+        return False
+    legacy.unlink()
+    return True
+
+
 def main() -> int:
     root = repo_root()
     ext = extension_root(root)
@@ -19,8 +31,15 @@ def main() -> int:
     feature = current_feature(root)
 
     changed = []
-    if copy_template(ext, "docs/github-issue-canon.md", root, "docs/github-issue-canon.md"):
-        changed.append("docs/github-issue-canon.md")
+    if copy_template(
+        ext,
+        "docs/agent-guidance/github-issue-canon.md",
+        root,
+        "docs/agent-guidance/github-issue-canon.md",
+    ):
+        changed.append("docs/agent-guidance/github-issue-canon.md")
+    if remove_legacy_canon(root):
+        changed.append("removed docs/github-issue-canon.md")
     if copy_template(ext, "github/ISSUE_TEMPLATE/config.yml", root, ".github/ISSUE_TEMPLATE/config.yml"):
         changed.append(".github/ISSUE_TEMPLATE/config.yml")
     if copy_template(ext, "github/ISSUE_TEMPLATE/spec-kit-work-item.yml", root, ".github/ISSUE_TEMPLATE/spec-kit-work-item.yml"):

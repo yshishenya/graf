@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: github-issue-canon
   name: "GitHub Issue Canon"
-  version: "0.1.0"
+  version: "0.1.1"
   description: "Installs and enforces a Spec Kit-traceable GitHub issue canon around task-to-issue sync"
   author: yshishenya
   repository: https://github.com/yshishenya/spec-kit-ext-github-issue-canon

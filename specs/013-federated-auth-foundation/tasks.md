@@ -189,7 +189,7 @@
 - [X] T071 [P] Run `bash .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` and record output in `specs/013-federated-auth-foundation/quickstart.md`
 - [X] T072 [P] Run `$speckit-analyze` and address any P1/P2 blocking findings before implementation work begins
 - [X] T073 Run quick backend contract and focused smoke commands in `specs/013-federated-auth-foundation/quickstart.md`
-- [X] T074 [P] Update `docs/github-issue-canon.md` links or references if any new issue labels/areas are introduced
+- [X] T074 [P] Update `docs/agent-guidance/github-issue-canon.md` links or references if any new issue labels/areas are introduced
 
 ---
 

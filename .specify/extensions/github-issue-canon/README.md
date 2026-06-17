@@ -15,7 +15,7 @@ It is designed to be upstream-clean:
 
 Project files:
 
-- `docs/github-issue-canon.md`
+- `docs/agent-guidance/github-issue-canon.md`
 - `.github/ISSUE_TEMPLATE/config.yml`
 - `.github/ISSUE_TEMPLATE/spec-kit-work-item.yml`
 - an `AGENTS.md` rule block when `AGENTS.md` exists

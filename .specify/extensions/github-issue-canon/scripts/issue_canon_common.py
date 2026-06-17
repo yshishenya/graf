@@ -102,14 +102,20 @@ def ensure_agents_block(root: Path) -> bool:
         return False
     marker = "All GitHub issues created for this repository"
     text = path.read_text(encoding="utf-8")
+    legacy_path = "docs/github-issue-canon.md"
+    canon_path = "docs/agent-guidance/github-issue-canon.md"
     if marker in text:
+        updated = text.replace(legacy_path, canon_path)
+        if updated != text:
+            path.write_text(updated, encoding="utf-8")
+            return True
         return False
     anchor = "Never create issues in a repository that does not match the configured git remote."
     block = """
 
 All GitHub issues created for this repository, whether manually, through
 `$speckit-taskstoissues`, or through direct `gh issue create`, must follow the
-project issue canon in `docs/github-issue-canon.md`.
+project issue canon in `{canon_path}`.
 
 Required issue title format:
 
@@ -135,7 +141,7 @@ validation evidence, and closure criteria. Use labels as structured metadata:
 `gate:<name>`, and `type:<name>`. Do not patch globally installed Spec Kit
 skills to enforce this; they may be overwritten by Spec Kit updates. Keep the
 canonical rule in project-owned files: `AGENTS.md`,
-`docs/github-issue-canon.md`, and `.github/ISSUE_TEMPLATE/`.
+`{canon_path}`, and `.github/ISSUE_TEMPLATE/`.
 """
     if anchor in text:
         text = text.replace(anchor, anchor + block, 1)

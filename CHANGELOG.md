@@ -148,6 +148,10 @@ Semantic Versioning 2.0.0.
 
 ### Docs
 
+- Reorganized Codex/Spec Kit operating guidance: root `AGENTS.md` now acts as
+  a concise router, detailed rules live under `docs/agent-guidance/`, GitHub
+  issue canon moved to `docs/agent-guidance/github-issue-canon.md`, and active
+  guidance now treats Linear as retired workflow residue.
 - Added sanitized feature `017` evidence index and refreshed current product
   status so access, login-required sharing, server-mediated downloads, and safe
   exports are no longer listed as deferred launch gaps (`feature:017`,
