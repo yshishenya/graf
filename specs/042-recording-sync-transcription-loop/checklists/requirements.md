@@ -31,4 +31,4 @@
 
 ## Notes
 
-- Ready for `$speckit-clarify`. High-risk clarification is still expected because this feature touches offline buffers, upload/retry, local editing, server processing, transcript content, privacy, and desktop/web UX.
+- Ready for `$speckit-clarify` continuation. 2026-06-18 clarification moved editing/trimming and full video review out of `042` MVP scope while preserving revision-ready identity requirements for future features.

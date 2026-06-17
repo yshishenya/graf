@@ -1,6 +1,6 @@
 # Feature Number Registry
 
-Date: 2026-06-17
+Date: 2026-06-18
 
 This file is the single project-owned place for feature number reservations,
 prepared backlog ranges, and active Spec Kit number decisions. Update it before
@@ -37,6 +37,11 @@ user explicitly retires or renumbers that reservation.
 | `040` | Reserved backlog | `speakerphone-recording-fallback-decision`: truthful fallback decision if clean built-in speakerphone capture is not proven. |
 | `041` | Reserved backlog | `recording-permission-readiness-onboarding`: Mic and Screen/System Audio readiness before recording. |
 | `042` | Claimed branch | `042-recording-sync-transcription-loop`: recording upload, offline sync, transcription, and transcript display loop. |
+| `043` | Active / existing spec branch | `043-app-zoom-shortcuts`: present in git history/branch after `git fetch --all --prune`; do not reuse. |
+| `044` | Reserved backlog | `local-media-trim-revisions`: post-MVP local audio/video trim/edit revisions; see `docs/post-mvp-editing-media-backlog.md`. |
+| `045` | Reserved backlog | `online-transcript-edit-sync`: post-MVP online transcript/speaker edit sync and conflict handling; see `docs/post-mvp-editing-media-backlog.md`. |
+| `046` | Reserved backlog | `video-capture-package-foundation`: post-MVP video-capable capture package foundation; see `docs/post-mvp-editing-media-backlog.md`. |
+| `047` | Reserved backlog | `media-reprocess-replace-flow`: post-MVP replace/reprocess/restore flows; see `docs/post-mvp-editing-media-backlog.md`. |
 
 ## Useful Checks
 

@@ -28,9 +28,13 @@
   list/detail, processing states, transcript rendering, notes/action truth, and
   governance placeholders.
 - The missing product slice is one proven, user-facing, consistency-preserving
-  loop across those surfaces, including offline recording, local edit/trim
-  before upload, server acceptance, processing, and transcript availability in
-  both browser and installed desktop app.
+  loop across those surfaces, including offline recording, delayed upload,
+  server acceptance, processing, and transcript availability in both browser and
+  installed desktop app.
+- Local media editing, trimming, online transcript editing, replace/reprocess
+  flows, and full video review are intentionally post-MVP product-improvement
+  work. This feature must still preserve revision-ready meeting/media identity
+  so those future slices do not require duplicate meeting entities.
 
 ### External Reference Findings
 
@@ -51,17 +55,26 @@
   result checks so retries after network, server, or worker failures do not
   create duplicate processing jobs or duplicate external submissions.
 
+## Clarifications
+
+### Session 2026-06-18
+
+- Q: Is local media or transcript editing/trimming included in feature `042`
+  MVP scope? -> A: No. Editing, trimming, online co-editing, replace/reprocess,
+  and full video review move to future product-improvement features; `042` must
+  keep revision-ready identities and contracts without implementing those flows.
+
 ## Actors And User Goals
 
 - **MacOS Meeting Owner**: records meetings even when the network is unavailable,
-  edits/trims locally, and later sees the transcript without manual operator
-  work.
+  uploads them when connectivity returns, and later sees the transcript without
+  manual operator work.
 - **Workspace Owner**: trusts that local package state, server meeting state,
   processing state, and review state describe the same meeting and never drift
   silently.
 - **Privacy/Security Owner**: needs offline buffers, upload retry, transcript
-  storage, local edits, deletion truth, and evidence artifacts to remain
-  bounded, auditable, and secret-free.
+  storage, future revision boundaries, deletion truth, and evidence artifacts to
+  remain bounded, auditable, and secret-free.
 - **Operator/Support Reviewer**: needs enough metadata-safe evidence to diagnose
   why a meeting is local-only, uploading, processing, ready, blocked, failed, or
   out of sync.
@@ -95,33 +108,36 @@ non-terminal, and uploadable once network returns.
 
 ---
 
-### User Story 2 - Edit Or Trim Locally Before Upload (Priority: P1)
+### User Story 2 - Keep One Meeting With Revision-Ready Media Truth (Priority: P1)
 
-As a meeting owner, I want to remove unwanted beginning/end segments or local
-file mistakes on my device before the recording leaves the Mac, so that the
-server receives only the intended accepted package.
+As a workspace owner, I want each recorded meeting to remain one logical meeting
+while the product tracks the accepted media revision explicitly, so future media
+editing, video capture, and transcript revision features can be added without
+duplicating meetings or mutating accepted content silently.
 
-**Why this priority**: The user explicitly requires editing and trimming to stay
-local. This also protects privacy and prevents server-side transcript drift from
-pre-upload edits.
+**Why this priority**: Consistency breaks if the product treats every upload,
+retry, future trim, or future video package as a new meeting. The MVP only
+uploads the initial accepted revision, but it must establish the identity model
+that later editing features will extend.
 
-**Independent Test**: Create a recording, trim or edit it locally before upload,
-then upload it after reconnect. Confirm the server transcript and web/desktop
-review surfaces reflect the edited package identity and do not process the
-superseded local draft as a separate meeting.
+**Independent Test**: Create a recording, upload it after reconnect, then
+inspect local queue state, server meeting state, processing state, and review
+state. Confirm there is exactly one meeting identity, exactly one accepted media
+revision identity for this MVP flow, and no duplicate meeting/session/processing
+records for retries.
 
 **Acceptance Scenarios**:
 
-1. **Given** a recording is still local-only or queued, **When** the user trims
-   or edits the package locally, **Then** the app creates a new accepted local
-   package revision and marks the superseded revision as not uploadable.
-2. **Given** upload has not started, **When** the user completes local editing,
-   **Then** the next upload uses the edited package revision and preserves
-   original local evidence according to retention/deletion truth.
-3. **Given** upload or server processing already started, **When** the user
-   wants to edit or trim, **Then** the product shows whether editing is blocked,
-   creates a new revision, or requires an explicit replace/reprocess decision
-   without silently mutating the server result.
+1. **Given** a recording is local-only or queued, **When** the queue stores it,
+   **Then** the item has a stable meeting/package identity and an initial media
+   revision identity that survive restart.
+2. **Given** retry or reconnect creates or resumes server state, **When** the
+   server already knows the same local recording identity, **Then** the existing
+   meeting is reused rather than creating a duplicate.
+3. **Given** a future editing feature later creates a trimmed audio or video
+   revision, **When** it is designed, **Then** `042` has already reserved the
+   concept that accepted media is immutable and future edits become new
+   revisions rather than in-place mutation.
 
 ---
 
@@ -137,7 +153,7 @@ automatic, and consistent across client and server.
 **Independent Test**: Interrupt upload at several points, corrupt or repeat one
 part in a controlled test, reconnect, and confirm the client reconciles against
 server-accepted ranges, repairs missing parts, and finalizes exactly one server
-meeting for the accepted package revision.
+meeting for the accepted media revision.
 
 **Acceptance Scenarios**:
 
@@ -174,7 +190,7 @@ notes/action truth are consistent.
    meeting and the desktop queue records the server meeting identity.
 2. **Given** transcription imports successfully, **When** the owner opens web
    review, **Then** transcript and speaker/provenance states match the uploaded
-   package revision.
+   media revision.
 3. **Given** the installed desktop app opens the embedded review route, **When**
    the same meeting is selected from upload or meeting list context, **Then** it
    shows the same transcript/review truth while native recording controls remain
@@ -230,7 +246,7 @@ controlled stores.
 **Acceptance Scenarios**:
 
 1. **Given** a recording is uploaded and processed, **When** lifecycle accounting
-   is inspected, **Then** local package revisions, server artifacts,
+   is inspected, **Then** the local media revision, server artifacts,
    MediaScribe dependency state, transcript result, and future deletion
    participation are visible as metadata.
 2. **Given** diagnostics or readiness evidence are generated, **When** they are
@@ -244,13 +260,13 @@ controlled stores.
 - No network before, during, or after recording.
 - App quits, OS sleeps, or device restarts while upload is queued, uploading, or
   processing.
-- User trims/edits while upload is waiting, actively uploading, finalized, or
-  already processed.
-- Local original package, edited package, queue item, upload session, server
-  meeting, and processing result disagree about checksums or revision identity.
+- User expects media trimming, transcript editing, or speaker-label editing in
+  this MVP; product must avoid promising those future flows as available.
+- Local package, queue item, upload session, server meeting, and processing
+  result disagree about checksums or revision identity.
 - Auth/session expires after some parts are accepted.
 - Server reports accepted bytes or track roles that do not match the local
-  package revision.
+  media revision.
 - Server finalization succeeds but processing pickup is delayed or unavailable.
 - Processing succeeds for transcript but diarization is partial or missing.
 - User opens web or desktop review while offline, unauthenticated, access
@@ -267,30 +283,33 @@ controlled stores.
 
 - **FR-001**: The product MUST allow recording to complete and remain visible
   when no network is available.
-- **FR-002**: Every finalized local recording package MUST have a stable package
-  identity and package revision identity that survive app restart and are used
-  consistently through queue, server upload, processing, and review.
+- **FR-002**: Every finalized local recording package MUST have a stable
+  logical meeting/package identity and initial media revision identity that
+  survive app restart and are used consistently through queue, server upload,
+  processing, and review.
 - **FR-003**: The desktop app MUST retain required local files while upload,
   reconciliation, or processing truth is non-terminal, unless an explicit
   deletion/retention policy terminalizes them.
-- **FR-004**: Local edit/trim MUST happen on the local device before upload or
-  as an explicit new package revision; the server MUST NOT silently mutate an
-  already accepted package in place.
-- **FR-005**: Superseded local package revisions MUST be marked not uploadable
-  unless the user explicitly chooses a policy-supported reprocess/replace flow.
+- **FR-004**: Feature `042` MUST NOT implement user-facing audio/video trimming,
+  local media editing, online transcript editing, speaker-label editing,
+  collaborative editing, replace, restore, or reprocess flows.
+- **FR-005**: Accepted media revision content MUST be treated as immutable for
+  this MVP. Future trim, replace, video, or reprocess features MUST create
+  explicit new media revisions rather than silently mutating the accepted
+  revision in place.
 - **FR-006**: Upload reconciliation MUST use server truth for accepted bytes,
   accepted roles, checksums, finalization state, meeting identity, and
   processing state before retrying or finalizing after reconnect.
 - **FR-007**: Upload retry MUST be idempotent for meeting creation, upload
   session creation, part acceptance, finalization, and processing pickup.
 - **FR-008**: The product MUST never mark a queue item as uploaded until the
-  server has accepted the required tracks and manifest for the same package
+  server has accepted the required tracks and manifest for the same media
   revision.
-- **FR-009**: The server MUST reject or block finalization when the local package
+- **FR-009**: The server MUST reject or block finalization when the local media
   revision, track roles, byte counts, checksums, or manifest truth do not match
   server-accepted parts.
 - **FR-010**: Server-side processing MUST start exactly once per accepted server
-  meeting/revision and MUST reuse existing workflow/job truth on retries.
+  meeting/media revision and MUST reuse existing workflow/job truth on retries.
 - **FR-011**: Desktop clients MUST NOT call MediaScribe, receive MediaScribe
   credentials, receive object-storage credentials, or upload directly to a
   third-party STT provider.
@@ -306,11 +325,12 @@ controlled stores.
 - **FR-016**: Transcript content MUST be visible only in authorized review
   surfaces and controlled content stores; logs, diagnostics, status responses,
   analytics, and Spec Kit evidence MUST stay content-safe.
-- **FR-017**: Lifecycle accounting MUST include local original/edited package
-  revisions, queue state, server artifacts, MediaScribe dependency state,
-  processing result, transcript state, and future deletion participation.
+- **FR-017**: Lifecycle accounting MUST include the local original media
+  revision, queue state, server artifacts, MediaScribe dependency state,
+  processing result, transcript state, and future deletion/revision
+  participation.
 - **FR-018**: The feature MUST include metadata-safe validation evidence for
-  offline recording, delayed upload, resume, local edit/trim before upload,
+  offline recording, delayed upload, resume, revision identity continuity,
   processing, web transcript display, and desktop embedded transcript display.
 - **FR-019**: The feature MUST NOT broaden assisted auto-start, public links,
   external-recipient sharing, signed installer readiness, direct object upload,
@@ -321,20 +341,24 @@ controlled stores.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Local Recording Package**: Local `mic.wav`, `incoming.wav`, manifest, and
-  metadata truth created after Record/Stop.
-- **Package Revision**: A specific accepted version of a local package after
-  editing, trimming, privacy pause handling, and final validation.
-- **Local Edit Decision**: Metadata-only record that a package was trimmed,
-  superseded, blocked, or prepared for upload on the local device.
-- **Upload Queue Item**: Durable local state that links package revision,
+- **Capture Package**: Local `mic.wav`, `incoming.wav`, manifest, and metadata
+  truth created after Record/Stop in the audio-first MVP.
+- **Media Revision**: A specific accepted version of a capture package. Feature
+  `042` creates only the initial accepted media revision, but the entity name
+  intentionally leaves room for future local trim, replace, reprocess, and video
+  revisions.
+- **Media Track**: A track that belongs to a media revision. MVP tracks are
+  microphone audio, system audio, and manifest truth. Future tracks may include
+  screen video, camera video, thumbnails, or proxy playback artifacts only after
+  separate feature approval.
+- **Upload Queue Item**: Durable local state that links media revision,
   upload state, retry state, server truth, and review link availability.
 - **Server Meeting**: Tenant-scoped server record representing the accepted
-  package revision and lifecycle status.
+  logical meeting, current accepted media revision, and lifecycle status.
 - **Upload Session**: Server-side transfer state, accepted ranges, accepted
   roles, checksum truth, expiry, and finalization state.
 - **Processing Job**: Durable server-side transcription workflow state tied to
-  one server meeting/revision.
+  one server meeting/media revision.
 - **Transcript Result**: Authorized content-bearing transcript/diarization
   result with provenance and lifecycle truth.
 - **Sync Conflict State**: Explicit state for mismatched local/server/revision
@@ -352,8 +376,15 @@ controlled stores.
 - Signed/notarized installer evidence for broad distribution.
 - Generated notes/action creation beyond truthful display of current
   availability, deferred, processing, blocked, or unavailable states.
-- Server-side destructive editing of already accepted audio without explicit
-  package revision/reprocess policy.
+- User-facing local audio/video trimming, waveform editing, transcript text
+  editing, speaker assignment editing, online collaborative editing, replace,
+  restore, and reprocess flows.
+- Full screen/video capture, full video playback, video timeline review,
+  video-native annotations, and video collaboration. `042` may preserve
+  media-revision compatibility for those future features but must not claim
+  video runtime behavior.
+- Server-side destructive editing of already accepted audio/video content
+  without explicit media revision/reprocess policy.
 
 ## Dependencies
 
@@ -374,9 +405,9 @@ controlled stores.
 
 - **SC-001**: 100% of valid offline recordings used in validation remain visible
   locally after app restart and before network recovery.
-- **SC-002**: 100% of edited/trimmed validation recordings upload only the
-  accepted package revision, with superseded revisions blocked or retained
-  according to lifecycle truth.
+- **SC-002**: 100% of validation recordings keep one logical meeting identity
+  and one accepted initial media revision identity across local queue, upload,
+  processing, web review, and desktop embedded review.
 - **SC-003**: 100% of interrupted uploads in validation resume from server truth
   and complete without duplicate server meetings, duplicate upload sessions,
   duplicate processing workflows, or duplicate MediaScribe submissions.
@@ -404,13 +435,16 @@ controlled stores.
 - Offline recording means capture and local persistence work without network;
   transcription still requires server processing unless a later spec adds local
   transcription.
-- Local editing/trimming before upload is required for `042`; richer transcript
-  text editing and generated-note editing may remain governed by existing review
-  surfaces unless this spec is clarified otherwise.
+- Local media editing/trimming, transcript text editing, speaker-label editing,
+  replace/reprocess, and online collaborative editing are future
+  product-improvement features, not `042` MVP scope.
+- Feature `042` remains audio-first at runtime. Future screen/video recording
+  and full video review must be separate features, but `042` should avoid data
+  and identity choices that would force duplicate meetings when video arrives.
 - The product may use existing upload and processing foundations but must prove
   the full user-facing chain as one accepted loop before claiming it works.
-- Existing 2brain Rec retention/deletion truth applies to local originals,
-  edited revisions, uploaded server artifacts, processing outputs, diagnostics,
+- Existing 2brain Rec retention/deletion truth applies to the local original
+  media revision, uploaded server artifacts, processing outputs, diagnostics,
   and future purge tasks.
 - External reference products are used only for information architecture and
   workflow lessons; 2brain Rec remains original and owner-controlled.

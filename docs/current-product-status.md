@@ -299,6 +299,10 @@ Keep separate unless the next spec explicitly changes scope:
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates
   after `020`. They are not runtime behavior in the finalization-only slice.
+- Post-MVP editing and media revision work is tracked in
+  `docs/post-mvp-editing-media-backlog.md`: local media trim/edit revisions,
+  online transcript/speaker edit sync, video capture package foundation, and
+  explicit replace/reprocess flows remain outside `042` MVP.
 
 ## Deferred Work Register
 
@@ -325,6 +329,11 @@ the current accepted implementation or `012` ingest slice.
   and product surfaces must follow ADR `003-tenant-isolation-rls`; destructive
   RLS probes stay on disposable/test databases, and production truth must be
   proven with read-only catalog metadata.
+- Post-MVP editing/media backlog: features `044`-`047` are reserved for local
+  media trim revisions, online transcript edit sync, video capture package
+  foundation, and explicit media replace/reprocess flows. They are not part of
+  `042` MVP, but `042` must avoid data/identity choices that would force
+  duplicate meetings later.
 - `direct-object-upload`: future upload optimization only after a separate
   security and lifecycle review; `012` remains `server_mediated`.
 - Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
