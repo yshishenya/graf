@@ -8,9 +8,9 @@ offline-safe upload, server transcription, and transcript display first. Editing
 reprocessing, and full video review should build on that loop later without
 creating duplicate meeting entities.
 
-Number allocation lives in `docs/feature-registry.md`. At the time this backlog
-was written, `043-app-zoom-shortcuts` already existed in git history, so the
-first free reserved product-improvement number here is `044`.
+Number allocation lives in `docs/audio-capture-backlog.md`. This file is the
+detailed context for reserved post-MVP product-improvement features `044`-`047`;
+it must not become a second numbering source of truth.
 
 ## Design Rule For Future Work
 

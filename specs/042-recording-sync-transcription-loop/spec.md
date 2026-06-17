@@ -396,8 +396,9 @@ controlled stores.
   and web/embedded review.
 - Owner-controlled storage, MediaScribe, Temporal, MinIO, Postgres, and
   metadata-only Langfuse boundaries from the constitution and accepted plans.
-- `docs/feature-registry.md` confirms `042` is the current claimed feature
-  number after reserved `037`-`041` backlog slices.
+- `docs/audio-capture-backlog.md` confirms `042` is the current claimed feature
+  number after reserved `037`-`041` backlog slices and before reserved
+  post-MVP editing/media features `044`-`047`.
 
 ## Success Criteria *(mandatory)*
 

@@ -299,6 +299,8 @@ Keep separate unless the next spec explicitly changes scope:
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates
   after `020`. They are not runtime behavior in the finalization-only slice.
+  Detailed prepared backlog context is recorded in
+  `docs/audio-capture-backlog.md`.
 - Post-MVP editing and media revision work is tracked in
   `docs/post-mvp-editing-media-backlog.md`: local media trim/edit revisions,
   online transcript/speaker edit sync, video capture package foundation, and
@@ -325,6 +327,20 @@ the current accepted implementation or `012` ingest slice.
   require unavailable hardware before claiming broad hardware speakerphone
   acceptance. Current automated acceptance covers persisted-package
   finalization behavior, not every physical device route.
+- `037-microphone-sample-graph-foundation`: introduce an app-owned microphone
+  sample graph before any live cleanup claim, while preserving the current
+  `mic.wav`/`incoming.wav`/`manifest.json` package truth.
+- `038-apple-voice-processing-spike`: evaluate Apple `AVAudioEngine` voice
+  processing, `VoiceProcessingIO`, and Mic Mode/Voice Isolation as bounded
+  spike candidates for reducing built-in speaker-to-mic leakage.
+- `039-webrtc-aec3-speakerphone-spike`: evaluate WebRTC AEC3 with system audio
+  as the render/far-end reference and microphone frames as capture input only
+  after the app-owned microphone graph is available.
+- `040-speakerphone-recording-fallback-decision`: decide headset-first,
+  derived-cleaned, mixed-audio, pilot-only, or unsupported-route semantics if
+  clean built-in speakerphone dual-track capture cannot be proven.
+- `041-recording-permission-readiness-onboarding`: make microphone and
+  Screen/System Audio readiness visible before the user starts recording.
 - `031-rls-hardening` / `032-rls-live-enforcement`: future tenant-owned tables
   and product surfaces must follow ADR `003-tenant-isolation-rls`; destructive
   RLS probes stay on disposable/test databases, and production truth must be

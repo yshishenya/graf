@@ -80,8 +80,9 @@ Spec files live under `specs/<number>-<short-name>/spec.md`. The active feature 
 
 #### Feature Number Registry
 
-Use `docs/feature-registry.md` as the single project-owned registry for feature
-numbers, reserved backlog ranges, and active number decisions. Before starting
+Use `docs/audio-capture-backlog.md` as the single project-owned registry for
+capture, recording, upload, transcription, and media-revision feature numbers,
+reserved backlog ranges, and active number decisions. Before starting
 `$speckit-specify` for a new feature, check that registry and verify the number
 against current `specs/`, local branches, remote branches after
 `git fetch --all --prune`, committed backlog/status docs, and historical spec
@@ -90,8 +91,8 @@ paths in `git log --all --name-only -- specs`.
 Do not allocate a number only because it is missing from the current `specs/`
 directory. A number may already be reserved by another worktree, branch, or
 backlog document. If the intended number is not represented in
-`docs/feature-registry.md`, update the registry first or explicitly record why
-the number is free.
+`docs/audio-capture-backlog.md`, update the registry first or explicitly record
+why the number is free.
 
 ### 2. Clarify
 
@@ -412,29 +413,3 @@ specify extension list
 - Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй короткий комментарий с результатом проверки.
 - Если GitHub issue закрыт, но `tasks.md` еще открыт, сначала проверь реализацию и evidence, а не отмечай задачу выполненной молча.
 <!-- SPECKIT GITHUB ISSUE END -->
-
-<!-- SPECKIT LINEAR START -->
-## Linear Workflow Status
-
-Linear is excluded from the required Spec Kit workflow for this repository.
-
-Rules:
-
-- Do not treat missing Linear issues, Linear project sync, Linear comments, or
-  Linear usage-limit failures as implementation blockers.
-- Do not run Linear sync automatically during normal feature closure.
-- `tasks.md` remains the source of truth for implementation state.
-- GitHub issues created through `$speckit-taskstoissues` remain the required
-  external tracker for task traceability.
-- If old Linear links exist from earlier workflow runs, treat them as legacy
-  references only. Do not create duplicate Linear issues to fill historical
-  gaps unless the user explicitly re-enables Linear for a specific feature.
-
-Language rules for GitHub issues and comments:
-
-- All GitHub issues and issue comments should be written in Russian by default.
-- Use short, clear sentences with concrete acceptance criteria and validation
-  evidence.
-- Explain blockers as simple facts: what is blocked, why it is blocked, and
-  what exact action unblocks it.
-<!-- SPECKIT LINEAR END -->

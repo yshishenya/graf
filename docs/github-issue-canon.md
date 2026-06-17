@@ -5,6 +5,10 @@ Kit tasks. Every issue created manually, by an agent, or through
 `$speckit-taskstoissues` must follow this canon unless the user explicitly asks
 for a one-off scratch issue.
 
+All issue titles, issue bodies, status comments, closure comments, and sync
+notes must be written in Russian by default. Use simple, clear language that is
+understandable to non-technical teammates, not only engineers.
+
 ## Title Format
 
 Use this exact format:
