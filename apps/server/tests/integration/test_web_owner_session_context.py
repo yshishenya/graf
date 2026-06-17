@@ -112,21 +112,26 @@ def test_web_meetings_browser_request_redirects_to_login_without_leaking_content
 
 
 def test_browser_login_page_lists_workspace_providers(client) -> None:
-    response = client.get(f"/login?workspace_id={WORKSPACE_ID}&next=/meetings")
+    response = client.get("/login?next=/meetings")
 
     assert response.status_code == 200
     assert "Войти в кабинет" in response.text
     assert 'action="/login/email/start"' in response.text
     assert 'type="email"' in response.text
-    assert "Получить код" in response.text
+    assert "Продолжить" in response.text
     assert "Другие способы входа" in response.text
-    assert "позже" in response.text
-    assert str(WORKSPACE_ID) in response.text
+    assert "Продолжить через Яндекс ID" in response.text
+    assert "Продолжить через VK ID" in response.text
+    assert "Продолжить через Telegram" in response.text
+    assert "скоро" in response.text
+    assert "Workspace ID" not in response.text
+    assert 'name="workspace_id"' not in response.text
+    assert str(WORKSPACE_ID) not in response.text
 
 
 def test_browser_provider_login_routes_are_explicit_stubs(client) -> None:
     response = client.get(
-        f"/login/yandex/start?workspace_id={WORKSPACE_ID}&next=/meetings",
+        "/login/yandex/start?next=/meetings",
         follow_redirects=False,
     )
 
@@ -149,7 +154,7 @@ def test_browser_email_login_start_rejects_unknown_workspace_without_code(client
 def test_browser_email_login_start_rejects_unknown_email_without_code(client) -> None:
     response = client.post(
         "/login/email/start",
-        data={"email": "missing-owner@example.test", "workspace_id": str(WORKSPACE_ID), "next": "/meetings"},
+        data={"email": "missing-owner@example.test", "next": "/meetings"},
     )
 
     assert response.status_code == 400
@@ -163,13 +168,15 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
 
     start = client.post(
         "/login/email/start",
-        data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(WORKSPACE_ID), "next": "/meetings"},
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
     )
     assert start.status_code == 200
     state_match = re.search(r'name="state" value="([^"]+)"', start.text)
     code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state_match is not None
     assert code_match is not None
+    assert 'name="workspace_id"' not in start.text
+    assert str(WORKSPACE_ID) not in start.text
 
     callback = client.post(
         "/login/email/verify",
@@ -177,7 +184,6 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
             "email": BROWSER_OWNER_EMAIL,
             "code": code_match.group(1),
             "state": state_match.group(1),
-            "workspace_id": str(WORKSPACE_ID),
             "next": "/meetings",
         },
         follow_redirects=False,
@@ -206,7 +212,7 @@ def test_browser_email_login_production_delivery_hides_code(monkeypatch, client)
 
     start = client.post(
         "/login/email/start",
-        data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(WORKSPACE_ID), "next": "/meetings"},
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
     )
 
     assert start.status_code == 200
@@ -228,7 +234,7 @@ def test_browser_email_login_production_delivery_failure_fails_closed(monkeypatc
 
     response = client.post(
         "/login/email/start",
-        data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(WORKSPACE_ID), "next": "/meetings"},
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
     )
 
     assert response.status_code == 503

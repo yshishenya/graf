@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime
 from html import escape
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -346,19 +346,111 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   color: var(--muted);
 }
 .desktop-embedded .playback { position: static; left: 0; right: 0; margin-top: 16px; border-radius: 8px; border: 1px solid var(--line); }
-.auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 76% 4%, rgba(105,78,255,.27), transparent 27%),
+    linear-gradient(120deg, #181a1d 0%, #17191c 46%, #211d38 100%);
+}
+.auth-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(112deg, rgba(255,255,255,.035) 0 1px, transparent 1px 45%),
+    linear-gradient(292deg, rgba(255,255,255,.025) 0 1px, transparent 1px 45%);
+  opacity: .55;
+  pointer-events: none;
+}
 .auth-panel {
-  width: min(560px, 100%);
+  width: min(376px, 100%);
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface);
-  padding: 22px;
+  background: rgba(35,37,40,.96);
+  padding: 24px;
   display: grid;
-  gap: 14px;
-  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+  gap: 18px;
+  box-shadow: 0 22px 52px rgba(0,0,0,.42);
+  position: relative;
+  z-index: 1;
 }
-.auth-panel h1 { font-size: 24px; }
-.auth-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.auth-panel h1 { font-size: 20px; text-align: center; }
+.auth-brand-wordmark { text-align: center; font-size: 25px; line-height: 1; font-weight: 850; }
+.auth-subtitle { color: var(--muted); font-size: 12px; line-height: 1.35; text-align: center; }
+.auth-actions { display: grid; gap: 8px; }
+.auth-provider {
+  min-height: 32px;
+  border: 1px solid #4a4e57;
+  border-radius: 7px;
+  background: #24272b;
+  color: #eef0f4;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-weight: 750;
+  font-size: 13px;
+}
+.auth-provider:hover { border-color: #6860a8; background: #2a2d33; }
+.auth-provider[aria-disabled="true"] { color: var(--muted); pointer-events: none; }
+.provider-mark { color: #f7f8fb; font-weight: 850; text-align: center; }
+.provider-pill {
+  min-height: 18px;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: #745df3;
+  color: #f7f5ff;
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 800;
+}
+.auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 11px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.auth-divider::before, .auth-divider::after { content: ""; height: 1px; background: var(--line); }
+.auth-form { display: grid; gap: 10px; }
+.auth-form label { display: grid; gap: 7px; color: #c5c9d0; font-size: 12px; font-weight: 750; }
+.auth-form input { min-height: 34px; border-color: #555a64; background: #26292e; }
+.auth-form .primary {
+  min-height: 34px;
+  background: #7057ff;
+  border-color: #7057ff;
+}
+.auth-form .primary:hover { background: #7c66ff; border-color: #7c66ff; }
+.auth-secondary {
+  text-align: center;
+  display: grid;
+  gap: 18px;
+  color: #d7d9df;
+}
+.auth-signup { color: #d7d9df; font-size: 13px; }
+.auth-signup a, .auth-legal a { color: #c9c1ff; font-weight: 750; }
+.auth-legal {
+  position: absolute;
+  z-index: 1;
+  left: 24px;
+  right: 24px;
+  bottom: 24px;
+  max-width: 540px;
+  margin: 0 auto;
+  text-align: center;
+  color: #a4a9b2;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.auth-alert { border: 1px solid rgba(255,107,107,.35); border-radius: 8px; padding: 10px 12px; background: rgba(255,107,107,.07); color: #ffd6d6; font-size: 12px; font-weight: 750; }
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
@@ -376,6 +468,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   .segment .speaker, .segment .text { margin-top: 6px; }
   .report-grid { grid-template-columns: 1fr; }
   .playback { position: static; left: 0; right: 0; margin-top: 16px; border-radius: 8px; border: 1px solid var(--line); }
+  .auth-legal { position: relative; inset: auto; margin-top: -8px; }
 }
 @media (max-width: 540px) {
   .toolbar { grid-template-columns: 1fr; }
@@ -753,6 +846,57 @@ async def embedded_meeting_deletion_report_page(
     return HTMLResponse(render_deletion_report_page(meeting.title or "Deleted meeting", report, embedded=True))
 
 
+def _render_login_provider_actions(providers: list, *, next_path: str) -> str:
+    if not providers:
+        return '<span class="chip disabled">OAuth позже</span>'
+    actions: list[str] = []
+    for provider in providers:
+        provider_id = str(getattr(provider, "provider", "") or "").strip()
+        label = _login_provider_label(provider_id, str(getattr(provider, "label", "") or provider_id))
+        mark = _login_provider_mark(provider_id, label)
+        enabled = bool(getattr(provider, "enabled", False))
+        if not enabled:
+            actions.append(
+                f"""
+                <span class="auth-provider" aria-disabled="true">
+                  <span class="provider-mark">{escape(mark)}</span>
+                  <span>{escape(label)}</span>
+                  <span class="provider-pill">скоро</span>
+                </span>
+                """
+            )
+            continue
+        href = f"/login/{quote(provider_id, safe='')}/start?{urlencode({'next': next_path})}"
+        actions.append(
+            f"""
+            <a class="auth-provider" href="{escape(href)}">
+              <span class="provider-mark">{escape(mark)}</span>
+              <span>{escape(label)}</span>
+              <span class="provider-pill">скоро</span>
+            </a>
+            """
+        )
+    return "\n".join(actions)
+
+
+def _login_provider_label(provider_id: str, fallback: str) -> str:
+    labels = {
+        "yandex": "Продолжить через Яндекс ID",
+        "vk": "Продолжить через VK ID",
+        "telegram": "Продолжить через Telegram",
+    }
+    return labels.get(provider_id, f"Продолжить через {fallback}")
+
+
+def _login_provider_mark(provider_id: str, label: str) -> str:
+    marks = {
+        "yandex": "Я",
+        "vk": "VK",
+        "telegram": "TG",
+    }
+    return marks.get(provider_id, label[:2].upper())
+
+
 def render_login_page(
     *,
     workspace_id: UUID | None,
@@ -764,51 +908,38 @@ def render_login_page(
     error_html = _render_login_error(error)
     if workspace_id is None:
         provider_html = """
-          <div class="truth-copy">Укажите workspace id, чтобы продолжить вход по почте.</div>
+          <div class="truth-copy">Кабинет входа не настроен. Проверьте серверные настройки.</div>
         """
     else:
-        provider_html = "\n".join(
-            f"""
-            <button class="button" type="button" disabled>{escape(provider.label)} позже</button>
-            """
-            for provider in providers
-        )
-        if not provider_html:
-            provider_html = '<span class="chip disabled">OAuth позже</span>'
-    workspace_value = "" if workspace_id is None else str(workspace_id)
+        provider_html = _render_login_provider_actions(providers, next_path=safe_next)
     content = f"""
       <main class="auth-page">
         <section class="auth-panel" aria-label="Вход в кабинет">
-          <div class="brand">
-            <div class="brand-mark">2</div>
-            <div>
-              <div class="workspace-title">2brain Rec</div>
-              <div class="workspace-subtitle">Кабинет встреч</div>
-            </div>
-          </div>
+          <div class="auth-brand-wordmark">2brain Rec</div>
           <div>
             <h1>Войти в кабинет</h1>
-            <div class="page-subtitle">Введите рабочую почту. Если адрес есть в кабинете, мы подготовим одноразовый код входа.</div>
+            <div class="auth-subtitle">Используйте корпоративный способ входа или получите одноразовый код на рабочую почту.</div>
           </div>
           {error_html}
-          <form class="state-list" action="/login/email/start" method="post">
-            <label class="state-list">
-              <span class="muted">Email</span>
-              <input name="email" type="email" placeholder="you@company.ru" autocomplete="email" required>
-            </label>
-            <label class="state-list">
-              <span class="muted">Workspace ID</span>
-              <input name="workspace_id" value="{escape(workspace_value)}" placeholder="workspace UUID" autocomplete="off">
-            </label>
-            <input type="hidden" name="next" value="{escape(safe_next)}">
-            <button class="button primary" type="submit">Получить код</button>
-          </form>
           <div class="state-list">
             <div class="muted">Другие способы входа</div>
             <div class="auth-actions">{provider_html}</div>
           </div>
-          <div class="truth-copy">Аудио и транскрипты не показываются до успешного входа. Cookie хранится как HttpOnly/Secure.</div>
+          <div class="auth-divider">или</div>
+          <form class="auth-form" action="/login/email/start" method="post">
+            <label>
+              Рабочая почта
+              <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
+            </label>
+            <input type="hidden" name="next" value="{escape(safe_next)}">
+            <button class="primary" type="submit">Продолжить</button>
+          </form>
+          <div class="auth-secondary">
+            <a class="mini-link" href="/login/sso/start?{urlencode({"next": safe_next})}" aria-disabled="true">Войти через SSO</a>
+            <div class="auth-signup">Нет аккаунта? <a href="/sign-up" aria-disabled="true">Зарегистрироваться</a></div>
+          </div>
         </section>
+        <p class="auth-legal">Продолжая, вы соглашаетесь с <a href="#" aria-disabled="true">Условиями использования</a> и <a href="#" aria-disabled="true">Политикой конфиденциальности</a>. Аудио и транскрипты не показываются до успешного входа.</p>
       </main>
     """
     return _standalone_page("Вход", content)
@@ -824,7 +955,6 @@ def render_email_code_page(
     error: str | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
-    workspace_value = "" if workspace_id is None else str(workspace_id)
     dev_code_html = ""
     if dev_code is not None:
         dev_code_html = f"""
@@ -836,32 +966,28 @@ def render_email_code_page(
     content = f"""
       <main class="auth-page">
         <section class="auth-panel" aria-label="Код входа">
-          <div class="brand">
-            <div class="brand-mark">2</div>
-            <div>
-              <div class="workspace-title">2brain Rec</div>
-              <div class="workspace-subtitle">Вход по почте</div>
-            </div>
-          </div>
+          <div class="auth-brand-wordmark">2brain Rec</div>
           <div>
             <h1>Проверьте почту</h1>
-            <div class="page-subtitle">Введите одноразовый код для {escape(email)}.</div>
+            <div class="auth-subtitle">Введите одноразовый код, который мы отправили на {escape(email)}.</div>
           </div>
           {_render_login_error(error)}
           {dev_code_html}
-          <form class="state-list" action="/login/email/verify" method="post">
-            <label class="state-list">
-              <span class="muted">Код</span>
+          <form class="auth-form" action="/login/email/verify" method="post">
+            <label>
+              Код входа
               <input name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required>
             </label>
             <input type="hidden" name="email" value="{escape(email)}">
-            <input type="hidden" name="workspace_id" value="{escape(workspace_value)}">
             <input type="hidden" name="state" value="{escape(state_nonce)}">
             <input type="hidden" name="next" value="{escape(safe_next)}">
-            <button class="button primary" type="submit">Войти</button>
+            <button class="primary" type="submit">Войти</button>
           </form>
-          <a class="mini-link" href="/login?{urlencode({"workspace_id": workspace_value, "next": safe_next})}">Запросить новый код</a>
+          <div class="auth-secondary">
+            <a class="mini-link" href="/login?{urlencode({"next": safe_next})}">Запросить новый код</a>
+          </div>
         </section>
+        <p class="auth-legal">Код действует ограниченное время. Не пересылайте его другим людям.</p>
       </main>
     """
     return _standalone_page("Код входа", content)
@@ -1092,7 +1218,7 @@ async def _consume_email_login_code(
     db: AsyncSession,
     *,
     request: Request,
-    workspace_id: UUID,
+    workspace_id: UUID | None,
     email: str,
     code: str,
     state_nonce: str,
@@ -1106,7 +1232,7 @@ async def _consume_email_login_code(
             AuthCallbackState.state_nonce == state_nonce,
         )
     )
-    if state is None or state.workspace_id != workspace_id:
+    if state is None:
         return _email_code_error_response(
             email=email,
             workspace_id=workspace_id,
@@ -1114,6 +1240,15 @@ async def _consume_email_login_code(
             next_path=next_path,
             error="email_code_invalid",
         )
+    if workspace_id is not None and state.workspace_id != workspace_id:
+        return _email_code_error_response(
+            email=email,
+            workspace_id=workspace_id,
+            state_nonce=state_nonce,
+            next_path=next_path,
+            error="email_code_invalid",
+        )
+    workspace_id = state.workspace_id
     if state.result != "pending":
         return _email_code_error_response(
             email=email,
@@ -1315,7 +1450,7 @@ async def _resolve_email_browser_device(
 def _email_code_error_response(
     *,
     email: str,
-    workspace_id: UUID,
+    workspace_id: UUID | None,
     state_nonce: str,
     next_path: str,
     error: str,
