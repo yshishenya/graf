@@ -134,6 +134,28 @@ def test_browser_provider_login_routes_are_explicit_stubs(client) -> None:
     assert "location" not in response.headers
 
 
+def test_browser_email_login_start_rejects_unknown_workspace_without_code(client) -> None:
+    response = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(uuid4()), "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Не удалось отправить код для этого кабинета" in response.text
+    assert "Код для локальной проверки" not in response.text
+
+
+def test_browser_email_login_start_rejects_unknown_email_without_code(client) -> None:
+    response = client.post(
+        "/login/email/start",
+        data={"email": "missing-owner@example.test", "workspace_id": str(WORKSPACE_ID), "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Не удалось отправить код для этого кабинета" in response.text
+    assert "Код для локальной проверки" not in response.text
+
+
 def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(client) -> None:
     seed_cabinet_meetings(client)
     client.portal.call(_link_owner_email_identity, client)

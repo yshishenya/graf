@@ -449,6 +449,30 @@ async def browser_email_login_start(
             ),
             status_code=400,
         )
+    workspace, user = await _resolve_email_login_user(
+        db,
+        workspace_id=resolved_workspace_id,
+        email=normalized_email,
+    )
+    if workspace is None or user is None:
+        if workspace is not None:
+            await _record_email_login_audit(
+                db,
+                request=request,
+                workspace_id=workspace.id,
+                outcome="failure",
+                error_code="email_identity_not_found",
+            )
+            await db.commit()
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="email_start_unavailable",
+            ),
+            status_code=400,
+        )
     code = _issue_email_login_code()
     state = await _create_email_login_state(
         db,
@@ -1350,6 +1374,7 @@ def _render_login_error(error: str | None) -> str:
         "provider_future": "Этот способ входа появится позже. Сейчас используйте вход по email.",
         "auth_dependency_unavailable": "Сервис входа временно недоступен.",
         "email_invalid": "Введите корректный email.",
+        "email_start_unavailable": "Не удалось отправить код для этого кабинета. Проверьте workspace id и email.",
         "email_code_invalid": "Код не подошел. Проверьте письмо и попробуйте еще раз.",
         "email_code_expired": "Код истек. Запросите новый код.",
     }
