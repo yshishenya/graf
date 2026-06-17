@@ -1,6 +1,7 @@
 import TwoBrainRecAppCore
 
 #if canImport(XCTest)
+import Foundation
 import XCTest
 
 @MainActor
@@ -74,6 +75,40 @@ final class AppControlAccessibilityTests: XCTestCase {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("@"))
             XCTAssertFalse(text.localizedCaseInsensitiveContains("/Users/"))
         }
+    }
+
+    func testDesktopAppInstallsStandardEditMenuCommandsForEmbeddedCabinetFields() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        for command in [
+            "#selector(NSText.cut(_:))",
+            "#selector(NSText.copy(_:))",
+            "#selector(NSText.paste(_:))",
+            "#selector(NSText.selectAll(_:))"
+        ] {
+            XCTAssertTrue(source.contains(command), "Missing edit command \(command)")
+        }
+        XCTAssertTrue(source.contains("installMainMenu(on: app)"))
+    }
+
+    private static func repositoryRoot() throws -> URL {
+        var candidate = URL(fileURLWithPath: #filePath)
+        while candidate.path != "/" {
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            if FileManager.default.fileExists(atPath: appSourceURL.path) {
+                return candidate
+            }
+            candidate.deleteLastPathComponent()
+        }
+        throw NSError(
+            domain: "AppControlAccessibilityTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
+        )
     }
 }
 #endif

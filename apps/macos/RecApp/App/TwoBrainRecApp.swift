@@ -9,11 +9,93 @@ private enum TwoBrainRecAppMain {
     @MainActor
     static func main() {
         let app = NSApplication.shared
+        installMainMenu(on: app)
         let appDelegate = AppLifecycleDelegate()
         app.delegate = appDelegate
         withExtendedLifetime(appDelegate) {
             app.run()
         }
+    }
+
+    @MainActor
+    private static func installMainMenu(on app: NSApplication) {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu(title: "2brain Rec")
+        appMenuItem.submenu = appMenu
+        appMenu.addItem(
+            withTitle: "About 2brain Rec",
+            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+            keyEquivalent: ""
+        )
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(
+            withTitle: "Hide 2brain Rec",
+            action: #selector(NSApplication.hide(_:)),
+            keyEquivalent: "h"
+        )
+        let hideOthersItem = appMenu.addItem(
+            withTitle: "Hide Others",
+            action: #selector(NSApplication.hideOtherApplications(_:)),
+            keyEquivalent: "h"
+        )
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(
+            withTitle: "Show All",
+            action: #selector(NSApplication.unhideAllApplications(_:)),
+            keyEquivalent: ""
+        )
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(
+            withTitle: "Quit 2brain Rec",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(editMenuItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenuItem.submenu = editMenu
+        editMenu.addItem(withTitle: "Undo", action: NSSelectorFromString("undo:"), keyEquivalent: "z")
+        let redoItem = editMenu.addItem(
+            withTitle: "Redo",
+            action: NSSelectorFromString("redo:"),
+            keyEquivalent: "z"
+        )
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let pasteAndMatchItem = editMenu.addItem(
+            withTitle: "Paste and Match Style",
+            action: #selector(NSTextView.pasteAsPlainText(_:)),
+            keyEquivalent: "v"
+        )
+        pasteAndMatchItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        editMenu.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        let windowMenuItem = NSMenuItem()
+        mainMenu.addItem(windowMenuItem)
+        let windowMenu = NSMenu(title: "Window")
+        windowMenuItem.submenu = windowMenu
+        windowMenu.addItem(
+            withTitle: "Minimize",
+            action: #selector(NSWindow.miniaturize(_:)),
+            keyEquivalent: "m"
+        )
+        windowMenu.addItem(
+            withTitle: "Zoom",
+            action: #selector(NSWindow.zoom(_:)),
+            keyEquivalent: ""
+        )
+
+        app.windowsMenu = windowMenu
+        app.mainMenu = mainMenu
     }
 }
 

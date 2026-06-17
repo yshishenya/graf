@@ -99,6 +99,9 @@ Semantic Versioning 2.0.0.
 
 ### Fixed
 
+- Desktop app now installs standard macOS `Edit`/`Window` menus, so embedded
+  cabinet fields receive `Cmd+V`, `Cmd+A`, copy, cut, paste and related
+  responder-chain commands in `/Applications/2brain Rec.app` (`feature:036`).
 - Desktop embedded cabinet now allows production `/login` routes, ignores
   WebKit `about:blank` navigation noise, and sends expired-session recovery to
   `/login?next=/desktop/meetings`, so the installed `/Applications/2brain Rec.app`
