@@ -143,6 +143,8 @@ class Settings(BaseSettings):
             if not self.temporal_address:
                 raise ValueError("production processing requires temporal_address")
         if self.email_login_delivery_enabled:
+            if self.web_login_workspace_id is None:
+                raise ValueError("production email login delivery requires web_login_workspace_id")
             if self.postal_api_url is None:
                 raise ValueError("production email login delivery requires postal_api_url")
             if self.postal_api_key_file is None:

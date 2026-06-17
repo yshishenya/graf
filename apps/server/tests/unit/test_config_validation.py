@@ -123,12 +123,27 @@ def test_production_email_login_delivery_requires_postal_settings(tmp_path) -> N
     with pytest.raises(ValidationError, match="postal_api_url"):
         _production_settings(
             email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
             email_login_from_address="no-reply@rec.2brain.pro",
             postal_api_key_file=key_file,
         )
     with pytest.raises(ValidationError, match="email_login_from_address"):
         _production_settings(
             email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+            postal_api_url="http://postal-web:5000",
+            postal_api_key_file=key_file,
+        )
+
+
+def test_production_email_login_delivery_requires_default_browser_workspace(tmp_path) -> None:
+    key_file = tmp_path / "postal-key"
+    key_file.write_text("postal-api-key")
+
+    with pytest.raises(ValidationError, match="web_login_workspace_id"):
+        _production_settings(
+            email_login_delivery_enabled=True,
+            email_login_from_address="no-reply@rec.2brain.pro",
             postal_api_url="http://postal-web:5000",
             postal_api_key_file=key_file,
         )
@@ -140,6 +155,7 @@ def test_production_email_login_delivery_reads_non_empty_postal_secret(tmp_path)
 
     settings = _production_settings(
         email_login_delivery_enabled=True,
+        web_login_workspace_id="20000000-0000-0000-0000-000000000010",
         email_login_from_address="no-reply@rec.2brain.pro",
         postal_api_url="http://postal-web:5000",
         postal_api_key_file=key_file,
@@ -155,6 +171,7 @@ def test_production_email_login_delivery_rejects_empty_postal_secret(tmp_path) -
     with pytest.raises(ValidationError, match="Postal API key file"):
         _production_settings(
             email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
             email_login_from_address="no-reply@rec.2brain.pro",
             postal_api_url="http://postal-web:5000",
             postal_api_key_file=key_file,
