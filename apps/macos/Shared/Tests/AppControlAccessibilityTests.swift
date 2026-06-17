@@ -56,6 +56,39 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedSurfaceHeight, 420)
         XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
+        XCTAssertEqual(DesktopMeetingShellChrome.sidebarWidth, 152)
+        XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 56)
+        XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 300)
+        XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#191a1c")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellSidebarHex, "#202224")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#202224")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#242629")
+        XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
+        XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 820)
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 44)
+        XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCornerRadius, 10)
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCollapsedSymbol, "chevron.left.2")
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleExpandedSymbol, "chevron.right.2")
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCollapsedLabel, "Показать панель управления")
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleExpandedLabel, "Скрыть панель управления")
+    }
+
+    func testDesktopProfileMenuKeepsExpectedKrispLikeActionsInRussian() {
+        let labels = DesktopMeetingShellChrome.profileMenuLabels
+        for expected in [
+            "Внешний вид",
+            "Настройки",
+            "Диагностика",
+            "Ресурсы",
+            "Связаться с поддержкой",
+            "Оставить отзыв",
+            "Сообщество Slack",
+            "Выйти",
+            "Закрыть 2brain Rec полностью"
+        ] {
+            XCTAssertTrue(labels.contains(expected), "Missing profile menu label \(expected)")
+        }
     }
 
     func testDesktopCabinetCopyStaysCleanRoomAndProductFacing() {

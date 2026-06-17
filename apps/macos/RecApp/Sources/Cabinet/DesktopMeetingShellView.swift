@@ -1,5 +1,45 @@
+import AppKit
 import SwiftUI
 import TwoBrainRecShared
+
+public enum DesktopMeetingShellChrome {
+    public static let sidebarWidth: CGFloat = 152
+    public static let collapsedInspectorWidth: CGFloat = 56
+    public static let expandedInspectorWidth: CGFloat = 300
+    public static let shellBackgroundHex = "#191a1c"
+    public static let shellSidebarHex = "#202224"
+    public static let shellRailHex = "#202224"
+    public static let shellSurfaceHex = "#242629"
+    public static let webEmbeddedBackgroundHex = shellBackgroundHex
+    public static let shellBackgroundColor = Color(red: 0.098, green: 0.102, blue: 0.110)
+    public static let shellSidebarColor = Color(red: 0.125, green: 0.133, blue: 0.141)
+    public static let shellRailColor = Color(red: 0.125, green: 0.133, blue: 0.141)
+    public static let shellSurfaceColor = Color(red: 0.141, green: 0.149, blue: 0.161)
+    public static let shellStrokeColor = Color.white.opacity(0.08)
+    public static let webEmbeddedBackgroundNSColor = NSColor(
+        srgbRed: 0.098,
+        green: 0.102,
+        blue: 0.110,
+        alpha: 1
+    )
+    public static let inspectorToggleHitSize: CGFloat = 44
+    public static let inspectorToggleCornerRadius: CGFloat = 10
+    public static let inspectorToggleCollapsedSymbol = "chevron.left.2"
+    public static let inspectorToggleExpandedSymbol = "chevron.right.2"
+    public static let inspectorToggleCollapsedLabel = "Показать панель управления"
+    public static let inspectorToggleExpandedLabel = "Скрыть панель управления"
+    public static let profileMenuLabels = [
+        "Внешний вид",
+        "Настройки",
+        "Диагностика",
+        "Ресурсы",
+        "Связаться с поддержкой",
+        "Оставить отзыв",
+        "Сообщество Slack",
+        "Выйти",
+        "Закрыть 2brain Rec полностью"
+    ]
+}
 
 public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View, DiagnosticsContent: View>: View {
     private let session: CaptureSession?
@@ -14,6 +54,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     private let diagnosticsContent: DiagnosticsContent
+    @State private var inspectorExpanded = false
 
     public init(
         session: CaptureSession?,
@@ -46,7 +87,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     public var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 188)
+                .frame(width: DesktopMeetingShellChrome.sidebarWidth)
             Divider()
             VStack(spacing: 0) {
                 topBar
@@ -54,17 +95,17 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 HStack(spacing: 0) {
                     meetingsSurface
                     Divider()
-                    inspector
-                        .frame(width: 338)
+                    inspectorContainer
                 }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(DesktopMeetingShellChrome.shellBackgroundColor)
+        .animation(.easeInOut(duration: 0.18), value: expandedInspectorVisible)
         .accessibilityIdentifier("desktop-meeting-shell")
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 7)
@@ -75,13 +116,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 .frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("2brain Rec")
-                        .font(.headline)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                     Text(cabinetConfigured ? "Рабочее место" : "Локальный режим")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, 6)
 
             VStack(alignment: .leading, spacing: 4) {
                 navRow("Поиск", "magnifyingglass", selected: false)
@@ -94,14 +136,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
             Spacer()
 
-            VStack(alignment: .leading, spacing: 6) {
-                Label(cabinetConfigured ? "Кабинет задан" : "Кабинет не подключен", systemImage: cabinetConfigured ? "link" : "wifi.slash")
-                    .font(.caption)
-                    .foregroundStyle(cabinetConfigured ? Color.secondary : Color.orange)
-            }
+            profileMenu
         }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(DesktopMeetingShellChrome.shellSidebarColor)
     }
 
     private func navRow(_ title: String, _ icon: String, selected: Bool, badge: Int = 0) -> some View {
@@ -119,21 +158,107 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     .background(Capsule().fill(.purple.opacity(0.22)))
             }
         }
-        .font(.subheadline)
+        .font(.caption)
+        .fontWeight(selected ? .semibold : .regular)
         .foregroundStyle(selected ? .primary : .secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 7)
                 .fill(selected ? Color.primary.opacity(0.08) : Color.clear)
         )
     }
 
+    private var profileMenu: some View {
+        Menu {
+            Button("2brain Rec") {}
+                .disabled(true)
+            Button(cabinetConfigured ? "Кабинет задан" : "Локальный режим") {}
+                .disabled(true)
+            Divider()
+            ForEach(DesktopMeetingShellChrome.profileMenuLabels, id: \.self) { label in
+                if label == "Закрыть 2brain Rec полностью" {
+                    Button(role: .destructive) {
+                        NSApplication.shared.terminate(nil)
+                    } label: {
+                        Label(label, systemImage: "power")
+                    }
+                } else {
+                    Button {} label: {
+                        Label(label, systemImage: profileMenuIcon(for: label))
+                    }
+                }
+                if label == "Сообщество Slack" || label == "Оставить отзыв" {
+                    Divider()
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.84))
+                    Text("2")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 28, height: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("2brain Rec")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                    Text(cabinetConfigured ? "Кабинет задан" : "Кабинет не подключен")
+                        .font(.caption2)
+                        .foregroundStyle(cabinetConfigured ? Color.secondary : Color.orange)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 2)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(0.06))
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .help("Профиль и настройки")
+        .accessibilityLabel("Профиль и настройки")
+    }
+
+    private func profileMenuIcon(for label: String) -> String {
+        switch label {
+        case "Внешний вид":
+            return "display"
+        case "Настройки":
+            return "gearshape"
+        case "Диагностика":
+            return "stethoscope"
+        case "Ресурсы":
+            return "book"
+        case "Связаться с поддержкой":
+            return "bubble.left.and.bubble.right"
+        case "Оставить отзыв":
+            return "square.and.pencil"
+        case "Сообщество Slack":
+            return "number"
+        case "Выйти":
+            return "rectangle.portrait.and.arrow.right"
+        default:
+            return "circle"
+        }
+    }
+
     private var topBar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Встречи")
-                    .font(.title2)
+                    .font(.headline)
                     .fontWeight(.semibold)
                 Text(topBarSubtitle)
                     .font(.caption)
@@ -142,7 +267,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             }
             Spacer()
             statusChip(title: captureStatusText, icon: captureStatusIcon, color: captureStatusColor)
-            statusChip(title: pendingUploadCount > 0 ? "Загрузка \(pendingUploadCount)" : "Загрузок нет", icon: "tray.and.arrow.up", color: pendingUploadCount > 0 ? .orange : .secondary)
+            if pendingUploadCount > 0 {
+                statusChip(title: "Загрузка \(pendingUploadCount)", icon: "tray.and.arrow.up", color: .orange)
+            }
             Button(action: onRefresh) {
                 Image(systemName: "arrow.clockwise")
             }
@@ -151,31 +278,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .accessibilityLabel("Обновить состояние")
             .help("Обновить состояние")
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private var meetingsSurface: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Мои встречи")
-                        .font(.headline)
-                    Text(cabinetConfigured ? "Сегодня и последние записи" : "Локальные записи")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    onRunCheck()
-                } label: {
-                    Label(isChecking ? "Проверяем" : "Проверить звук", systemImage: "waveform")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isChecking)
-            }
-
+        VStack(alignment: .leading, spacing: 0) {
             if cabinetConfigured {
                 meetingsWorkspace
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -184,7 +292,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .padding(20)
+        .padding(cabinetConfigured ? 0 : 18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -221,11 +329,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     }
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+                            .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
                     )
                 }
             }
@@ -285,11 +393,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
         )
     }
 
@@ -307,11 +415,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
         )
     }
 
@@ -438,29 +546,131 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
     }
 
+    @ViewBuilder
+    private var inspectorContainer: some View {
+        if expandedInspectorVisible {
+            inspector
+                .frame(width: DesktopMeetingShellChrome.expandedInspectorWidth)
+        } else {
+            compactInspector
+                .frame(width: DesktopMeetingShellChrome.collapsedInspectorWidth)
+        }
+    }
+
+    private var compactInspector: some View {
+        VStack(spacing: 12) {
+            InspectorDisclosureButton(isExpanded: false) {
+                inspectorExpanded = true
+            }
+
+            VStack(spacing: 7) {
+                railIcon("list.bullet.rectangle", selected: false)
+                railIcon(captureStatusIcon, selected: true, color: captureStatusColor)
+                railIcon("video", selected: false)
+                Text("Off")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+            )
+
+            compactToggle(title: "Mic", isOn: session != nil, color: captureStatusColor)
+            compactToggle(title: "Noise", isOn: true, color: .purple)
+            if pendingUploadCount > 0 {
+                VStack(spacing: 3) {
+                    Image(systemName: "tray.and.arrow.up.fill")
+                        .foregroundStyle(.orange)
+                    Text("\(pendingUploadCount)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.orange)
+                }
+                .padding(.top, 2)
+                .help("Ожидают проверки или загрузки: \(pendingUploadCount)")
+            }
+
+            Spacer()
+
+            railIcon("mic", selected: false)
+            railIcon("speaker.wave.2", selected: false)
+            Button(action: onRefresh) {
+                Image(systemName: "arrow.clockwise")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .help("Обновить состояние")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .background(DesktopMeetingShellChrome.shellRailColor)
+    }
+
+    private func railIcon(_ icon: String, selected: Bool, color: Color = .secondary) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(selected ? color : Color.secondary)
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(selected ? color.opacity(0.18) : Color.primary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(selected ? color.opacity(0.44) : Color.secondary.opacity(0.14), lineWidth: 1)
+            )
+    }
+
+    private func compactToggle(title: String, isOn: Bool, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Capsule()
+                .fill(isOn ? color.opacity(0.84) : Color.secondary.opacity(0.22))
+                .frame(width: 28, height: 14)
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(Color.white.opacity(0.92))
+                        .frame(width: 10, height: 10)
+                        .padding(.horizontal, 2)
+                }
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+
     private var inspector: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Запись")
+                    Text("Управление")
                         .font(.headline)
                     Text("Локальное управление")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Image(systemName: captureStatusIcon)
-                    .foregroundStyle(captureStatusColor)
+                InspectorDisclosureButton(isExpanded: true) {
+                    inspectorExpanded = false
+                }
             }
 
             captureControls
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+                        .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
                 )
 
             VStack(alignment: .leading, spacing: 8) {
@@ -480,7 +690,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
             )
 
             DisclosureGroup {
@@ -493,13 +703,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
             )
 
             Spacer()
         }
-        .padding(18)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .padding(14)
+        .background(DesktopMeetingShellChrome.shellRailColor)
     }
 
     private func statusChip(title: String, icon: String, color: Color) -> some View {
@@ -518,6 +728,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         cabinetConfigured
             ? "Сервер кабинета задан"
             : "Локальные записи и загрузки"
+    }
+
+    private var expandedInspectorVisible: Bool {
+        inspectorExpanded || session != nil
     }
 
     private var captureStatusText: String {
@@ -553,4 +767,57 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
     }
 
+}
+
+private struct InspectorDisclosureButton: View {
+    let isExpanded: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbolName)
+                .font(.system(size: 18, weight: .bold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.primary.opacity(0.86))
+                .frame(
+                    width: DesktopMeetingShellChrome.inspectorToggleHitSize,
+                    height: DesktopMeetingShellChrome.inspectorToggleHitSize
+                )
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: DesktopMeetingShellChrome.inspectorToggleCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(isHovering ? Color.primary.opacity(0.10) : Color.clear)
+                )
+                .contentShape(
+                    RoundedRectangle(
+                        cornerRadius: DesktopMeetingShellChrome.inspectorToggleCornerRadius,
+                        style: .continuous
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovering = hovering
+            }
+        }
+        .help(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(isExpanded ? "Сворачивает правую панель" : "Раскрывает правую панель")
+    }
+
+    private var symbolName: String {
+        isExpanded
+            ? DesktopMeetingShellChrome.inspectorToggleExpandedSymbol
+            : DesktopMeetingShellChrome.inspectorToggleCollapsedSymbol
+    }
+
+    private var accessibilityLabel: String {
+        isExpanded
+            ? DesktopMeetingShellChrome.inspectorToggleExpandedLabel
+            : DesktopMeetingShellChrome.inspectorToggleCollapsedLabel
+    }
 }

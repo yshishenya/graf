@@ -1076,6 +1076,8 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         )
         if visibleWindowCount == 0 {
             presentMainWindow(reason: "visibility_recovery")
+        } else if mainWindow?.isKeyWindow != true || !NSApp.isActive {
+            presentMainWindow(reason: "activation_recovery")
         }
     }
 }

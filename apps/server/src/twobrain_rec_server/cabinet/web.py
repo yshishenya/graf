@@ -113,26 +113,26 @@ LoginDbDependency = Depends(get_web_login_db_session)
 CSS = """
 :root {
   color-scheme: dark;
-  --bg: #161719;
-  --surface: #1d1f22;
-  --surface-2: #24272b;
-  --surface-3: #2b2f34;
-  --line: #343840;
+  --bg: #191a1c;
+  --surface: #242629;
+  --surface-2: #282b2f;
+  --surface-3: #303338;
+  --line: #34363b;
   --line-soft: rgba(255,255,255,.07);
-  --text: #f4f5f7;
-  --muted: #a6abb4;
-  --subtle: #777e8a;
+  --text: #f1f2f4;
+  --muted: #a9adb5;
+  --subtle: #7d838d;
   --accent: #7d6bff;
   --blue: #2f91ff;
   --green: #2fc9a6;
   --amber: #f0a742;
   --red: #ff6b6b;
   --pink: #d96aa6;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, ui-sans-serif, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden; }
-body { font-size: 14px; line-height: 1.45; letter-spacing: 0; }
+body { font-size: 13px; line-height: 1.42; letter-spacing: 0; font-weight: 500; }
 body.auth-leaving .auth-panel {
   opacity: 0;
   transform: translateY(-4px) scale(.992);
@@ -147,7 +147,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 button, .button, input, select {
   font: inherit;
   border: 1px solid var(--line);
-  background: #25282d;
+  background: var(--surface-2);
   color: var(--text);
   border-radius: 7px;
   min-height: 34px;
@@ -170,7 +170,7 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); }
 .app-shell.desktop-embedded { grid-template-columns: minmax(0, 1fr); }
 .sidebar {
-  background: #202225;
+  background: #202224;
   border-right: 1px solid var(--line);
   padding: 12px 10px;
   display: flex;
@@ -201,7 +201,7 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
   padding: 0 9px;
   color: #d6dae1;
 }
-.nav a.active, .nav a:hover { background: #303339; }
+.nav a.active, .nav a:hover { background: #303338; }
 .nav-count { margin-left: auto; min-width: 20px; min-height: 20px; border-radius: 999px; background: #71347e; display: grid; place-items: center; font-size: 12px; }
 .sidebar-foot { margin-top: auto; display: grid; gap: 8px; }
 .trial { background: #3b3270; border-radius: 7px; padding: 9px 10px; font-weight: 700; }
@@ -209,7 +209,7 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .desktop-embedded .main { padding: 22px clamp(18px, 4vw, 64px) 28px; }
 .topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .page-title { display: grid; gap: 2px; min-width: 0; }
-h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
+h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: 0; font-weight: 760; }
 .page-subtitle { color: var(--muted); font-weight: 650; }
 .crumbs { display: flex; gap: 9px; align-items: center; min-width: 0; color: var(--muted); flex-wrap: wrap; }
 .crumbs strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(62vw, 760px); }
@@ -234,7 +234,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   align-items: center;
   margin-bottom: 12px;
 }
-.section-title { margin: 22px 0 10px; color: #c7cbd2; font-size: 13px; font-weight: 750; }
+.section-title { margin: 22px 0 10px; color: #c7cbd2; font-size: 12px; font-weight: 760; }
 .upcoming {
   background: var(--surface);
   border-radius: 8px;
@@ -246,7 +246,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
 }
 .calendar-row { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; align-items: center; }
 .date-badge { width: 36px; min-height: 38px; border: 1px solid var(--line); border-radius: 7px; display: grid; place-items: center; font-size: 11px; color: #dfe3ea; }
-.list-card { max-width: 980px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #1c1e21; }
+.list-card { max-width: 980px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #1d1f21; }
 .meeting-row {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) minmax(128px, auto) minmax(112px, auto);
@@ -259,7 +259,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
 .meeting-row:last-child { border-bottom: 0; }
 .meeting-row:hover { background: #282c31; }
 .row-icon { color: var(--muted); font-size: 16px; }
-.row-title { font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.row-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .row-meta { color: var(--muted); font-size: 12px; display: flex; gap: 9px; flex-wrap: wrap; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .chip {
@@ -525,48 +525,54 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
 .auth-help { text-align: center; color: #a9abb4; text-decoration: underline; text-underline-offset: 2px; }
 .cabinet-main {
   min-height: 100vh;
-  background: #181a1d;
-  padding: 34px clamp(22px, 8vw, 154px) 92px;
+  background: var(--bg);
+  padding: 34px clamp(28px, 8vw, 154px) 92px;
 }
-.desktop-embedded .cabinet-main { padding: 24px clamp(18px, 5vw, 72px) 32px; }
-.cabinet-workspace { max-width: 820px; }
+.desktop-embedded .cabinet-main {
+  min-height: 100vh;
+  padding: 24px clamp(24px, 7vw, 112px) 80px;
+}
+.cabinet-workspace { max-width: 860px; }
+.desktop-embedded .cabinet-workspace { max-width: min(820px, calc(100vw - 72px)); margin: 0 auto; }
 .cabinet-topbar {
-  min-height: 34px;
+  min-height: 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 .cabinet-titleline { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--muted); }
 .cabinet-titleline strong { color: var(--text); }
 .cabinet-card {
-  background: #242629;
+  background: var(--surface);
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   animation: rec-item-in .22s cubic-bezier(.2,.8,.2,1) both;
 }
 .upcoming.cabinet-card {
   max-width: none;
-  padding: 16px 18px;
-  gap: 13px;
+  padding: 12px 14px;
+  gap: 9px;
 }
+.cabinet-card .section-title { margin: 0 0 4px; }
 .calendar-day {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 11px;
   align-items: start;
 }
-.calendar-events { display: grid; gap: 12px; }
-.calendar-event { border-left: 3px solid #9cd9ff; padding-left: 11px; min-height: 32px; }
-.calendar-event strong, .meeting-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-events { display: grid; gap: 8px; }
+.calendar-event { border-left: 3px solid #9cd9ff; padding-left: 10px; min-height: 28px; }
+.calendar-event strong, .meeting-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 720; }
 .meeting-toolbar {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   align-items: center;
-  margin: 22px 0 9px;
+  margin: 18px 0 8px;
 }
+.meeting-toolbar .section-title { margin: 0; }
 .toolbar-icons { display: flex; align-items: center; gap: 8px; }
 .icon-control {
   width: 28px;
@@ -576,11 +582,12 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   background: transparent;
   color: #b5bac3;
 }
-.icon-control:hover { background: #2a2e33; }
+.icon-control:hover { background: #2d3034; }
 .new-button { min-height: 28px; background: #8c73ff; border-color: #8c73ff; color: #fff; font-weight: 800; }
 .list-card.cabinet-card {
   max-width: none;
-  background: #1c1e21;
+  min-height: 210px;
+  background: #1d1f21;
   border-color: #30343a;
 }
 .meeting-row {
@@ -588,12 +595,12 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
 }
 .meeting-row.cabinet-row {
   grid-template-columns: 24px 20px minmax(0, 1fr) auto 64px;
-  min-height: 40px;
+  min-height: 38px;
   padding: 0 12px;
   gap: 9px;
 }
-.meeting-row.cabinet-row:hover { background: #2b2f34; }
-.meeting-row.is-selected { background: #303438; }
+.meeting-row.cabinet-row:hover { background: #2c2f33; }
+.meeting-row.is-selected { background: #303337; }
 .meeting-row .row-check {
   width: 14px;
   height: 14px;
@@ -622,7 +629,7 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   width: min(430px, calc(100vw - 260px));
   min-height: 40px;
   border: 1px solid #42474f;
-  background: #23262a;
+  background: #24272b;
   color: #aeb4be;
   border-radius: 999px;
   display: flex;
@@ -631,6 +638,15 @@ h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: 0; }
   box-shadow: 0 12px 34px rgba(0,0,0,.26);
   font-size: 13px;
 }
+.desktop-embedded .floating-search {
+  left: 50%;
+  right: auto;
+  bottom: 16px;
+  width: min(366px, calc(100vw - 72px));
+  transform: translateX(-50%);
+}
+.desktop-embedded .empty-state { min-height: 210px; }
+.desktop-embedded .meeting-row:hover { transform: none; }
 .auth-provider, .email-mode-trigger, .code-slot, .meeting-row, .icon-control, .new-button {
   transition:
     background-color .16s cubic-bezier(.2,.8,.2,1),
@@ -1547,7 +1563,7 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
     )
     if not rows:
         rows = '<div class="empty-state">Нет встреч для выбранного фильтра.</div>'
-    new_control = "" if embedded else '<button class="new-button" type="button" aria-disabled="true">Новая</button>'
+    new_control = '<button class="new-button" type="button" aria-disabled="true">Новая</button>'
     content = f"""
       <main class="cabinet-main">
         <div class="cabinet-workspace">
@@ -1582,7 +1598,7 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
               <button class="icon-control" type="button" aria-label="Сохранить" aria-disabled="true">□</button>
               <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">≡</button>
               <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">↕</button>
-              {'' if embedded else '<button class="new-button" type="button" aria-disabled="true">Новая</button>'}
+              <button class="new-button" type="button" aria-disabled="true">Новая</button>
             </div>
           </div>
           <section class="list-card cabinet-card" aria-label="Записи встреч">

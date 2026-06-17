@@ -91,6 +91,10 @@ Semantic Versioning 2.0.0.
   transitions, six-slot verification input, denser meetings list, upcoming
   events card, floating assistant input, and future-control slots for provider,
   sharing, filters, sorting and upload (`feature:036`).
+- Desktop owner-review shell now follows the reference layout more closely:
+  slimmer sidebar, embedded meetings surface without duplicate native cards,
+  compact collapsible right rail, denser web meeting workspace, and a
+  profile/settings menu with Russian clean-room copy (`feature:036`).
 - Синхронизирован Speckit workflow с обязательными этапами `clarify`,
   `checklist`, `analyze`, `taskstoissues`, чтобы требования и контроль качества
   были сквозными.

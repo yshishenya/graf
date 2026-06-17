@@ -6,6 +6,7 @@ public struct DesktopCabinetWorkspaceView: View {
     public static let unavailableTitle = "Кабинет встреч"
     public static let embeddedSurfaceHeight: CGFloat = 420
     public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
+    public static let embeddedWorkspaceMaxWidth: CGFloat = 820
 
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?
@@ -25,28 +26,31 @@ public struct DesktopCabinetWorkspaceView: View {
     }
 
     public var body: some View {
-        let stack = VStack(alignment: .leading, spacing: 12) {
-            header
-            content
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Self.workspaceAccessibilityLabel)
-        .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
-
         switch presentation {
         case .card:
+            let stack = VStack(alignment: .leading, spacing: 12) {
+                header
+                content
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Self.workspaceAccessibilityLabel)
+            .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
+
             stack
                 .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                        .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
                 )
         case .shell:
-            stack
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Self.workspaceAccessibilityLabel)
+                .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }

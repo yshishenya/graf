@@ -33,6 +33,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.allowsAirPlayForMediaPlayback = false
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         let container = WebViewContainer(webView: webView)
@@ -142,6 +144,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.webView = webView
             super.init(frame: .zero)
             wantsLayer = true
+            layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
             addSubview(webView)
         }
 
