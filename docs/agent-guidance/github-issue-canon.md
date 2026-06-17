@@ -13,9 +13,9 @@ Project path:
 docs/agent-guidance/github-issue-canon.md
 ```
 
-Language rule for this repository: write GitHub issue titles, issue bodies,
-status comments, closure comments, and sync notes in Russian by default, using
-simple language understandable to non-technical teammates.
+All issue titles, issue bodies, status comments, closure comments, and sync
+notes must be written in Russian by default. Use simple, clear language that is
+understandable to non-technical teammates, not only engineers.
 
 ## Title Format
 
