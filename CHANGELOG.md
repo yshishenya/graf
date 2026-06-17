@@ -8,6 +8,10 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлена production-доставка browser-login email-кодов через server-side
+  Postal API: отдельные `.env` настройки для Rec, Docker secret для API key,
+  fail-closed состояние при недоступной почтовой доставке и подключение
+  `rec-api` к внешней сети Postal (`feature:036`).
 - Добавлен browser-login по email-коду для web cabinet: `/login`,
   `/login/email/start`, `/login/email/verify`, HttpOnly/Secure owner-session
   cookie, browser-device binding, redirect protected web routes to login, and
@@ -113,6 +117,10 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Postal API key for browser-login delivery is mounted only as a Docker secret;
+  deploy/runtime scans now reject accidental `TWOBRAIN_POSTAL_API_KEY`
+  environment exposure, and desktop clients never receive Postal settings
+  (`feature:036`).
 - Browser cabinet content stays behind an email-issued owner session: protected
   web routes redirect HTML requests to login, email-code failures do not reveal
   whether an address exists, and browser OAuth provider routes are explicit

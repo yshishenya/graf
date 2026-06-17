@@ -25,6 +25,7 @@ from twobrain_rec_server.api.schemas import (
     NotesActionCategoryState,
     TranscriptSegmentView,
 )
+from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
@@ -474,13 +475,44 @@ async def browser_email_login_start(
             status_code=400,
         )
     code = _issue_email_login_code()
+    ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = await _create_email_login_state(
         db,
         workspace_id=resolved_workspace_id,
         next_path=safe_next,
         code=code,
-        ttl_seconds=request.app.state.settings.auth_callback_state_ttl_seconds,
+        ttl_seconds=ttl_seconds,
     )
+    dev_code = code if _should_echo_email_code(request) else None
+    if dev_code is None:
+        try:
+            await email_delivery.send_email_login_code(
+                settings=request.app.state.settings,
+                recipient_email=normalized_email,
+                code=code,
+                ttl_seconds=ttl_seconds,
+            )
+        except email_delivery.EmailLoginDeliveryError:
+            state.result = "failed"
+            state.used_at = datetime.now(UTC)
+            state.error_code = "email_delivery_unavailable"
+            await _record_email_login_audit(
+                db,
+                request=request,
+                workspace_id=resolved_workspace_id,
+                outcome="failure",
+                error_code="email_delivery_unavailable",
+            )
+            await db.commit()
+            return HTMLResponse(
+                render_login_page(
+                    workspace_id=resolved_workspace_id,
+                    providers=[],
+                    next_path=safe_next,
+                    error="email_delivery_unavailable",
+                ),
+                status_code=503,
+            )
     await _record_email_login_audit(
         db,
         request=request,
@@ -488,7 +520,6 @@ async def browser_email_login_start(
         outcome="success",
     )
     await db.commit()
-    dev_code = code if _should_echo_email_code(request) else None
     return HTMLResponse(
         render_email_code_page(
             email=normalized_email,
@@ -1375,6 +1406,7 @@ def _render_login_error(error: str | None) -> str:
         "auth_dependency_unavailable": "Сервис входа временно недоступен.",
         "email_invalid": "Введите корректный email.",
         "email_start_unavailable": "Не удалось отправить код для этого кабинета. Проверьте workspace id и email.",
+        "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
         "email_code_invalid": "Код не подошел. Проверьте письмо и попробуйте еще раз.",
         "email_code_expired": "Код истек. Запросите новый код.",
     }

@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     smoke_user_id: UUID | None = None
     smoke_device_id: UUID | None = None
     web_login_workspace_id: UUID | None = None
+    email_login_delivery_enabled: bool = False
+    email_login_from_address: str | None = None
+    email_login_from_name: str = "2brain Rec"
+    postal_api_url: AnyUrl | None = None
+    postal_api_key_file: Path | None = None
+    postal_request_timeout_seconds: PositiveInt = Field(default=10)
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None
@@ -136,6 +142,17 @@ class Settings(BaseSettings):
                 raise ValueError("production MediaScribe API key file must be non-empty")
             if not self.temporal_address:
                 raise ValueError("production processing requires temporal_address")
+        if self.email_login_delivery_enabled:
+            if self.postal_api_url is None:
+                raise ValueError("production email login delivery requires postal_api_url")
+            if self.postal_api_key_file is None:
+                raise ValueError("production email login delivery requires postal_api_key_file")
+            if self.email_login_from_address is None or not _is_valid_email_address(self.email_login_from_address):
+                raise ValueError("production email login delivery requires a valid email_login_from_address")
+            if not self.postal_api_key_file.is_file():
+                raise ValueError("production Docker secret file is missing or unreadable: postal_api_key_file")
+            if self.postal_api_key_file.read_text(encoding="utf-8").strip() == "":
+                raise ValueError("production Postal API key file must be non-empty")
         if self.postgres_password_file is not None:
             postgres_password = self.postgres_password_file.read_text(encoding="utf-8").strip()
             self.database_url = self.database_url.replace("__POSTGRES_PASSWORD__", quote(postgres_password, safe=""))
@@ -184,6 +201,19 @@ class Settings(BaseSettings):
         if any(identifier in LOCAL_DEV_SMOKE_IDS for identifier in smoke_ids if identifier is not None):
             raise ValueError("production smoke identity/device must not reuse local development seed identifiers")
         return self
+
+
+def _is_valid_email_address(value: str) -> bool:
+    stripped = value.strip()
+    if not stripped or "@" not in stripped or len(stripped) > 240:
+        return False
+    local, _, domain = stripped.partition("@")
+    if not local or not domain or "." not in domain:
+        return False
+    if domain.startswith(".") or domain.endswith("."):
+        return False
+    unsafe_domains = {"localhost", "local", "example.com", "example.test"}
+    return domain.lower() not in unsafe_domains
 
 
 @lru_cache

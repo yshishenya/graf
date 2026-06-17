@@ -18,6 +18,12 @@ services:
       TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_api_access_key
       TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
       TWOBRAIN_SMOKE_CREDENTIAL_FILE: /run/secrets/twobrain_smoke_credential
+      TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED: ${TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED:-false}
+      TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS: ${TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS:-}
+      TWOBRAIN_EMAIL_LOGIN_FROM_NAME: ${TWOBRAIN_EMAIL_LOGIN_FROM_NAME:-2brain Rec}
+      TWOBRAIN_POSTAL_API_URL: ${TWOBRAIN_POSTAL_API_URL:-}
+      TWOBRAIN_POSTAL_API_KEY_FILE: ${TWOBRAIN_POSTAL_API_KEY_FILE:-/run/secrets/twobrain_postal_api_key}
+      TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
     secrets:
@@ -29,6 +35,8 @@ services:
         target: twobrain_minio_api_secret_key
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
+      - source: twobrain_postal_api_key
+        target: twobrain_postal_api_key
     ports:
       - "127.0.0.1:18081:8080"
     healthcheck:
@@ -59,6 +67,7 @@ services:
         condition: service_completed_successfully
     networks:
       - rec-private
+      - postal-network
 
   rec-processing-worker:
     build:
@@ -307,6 +316,9 @@ services:
 networks:
   rec-private:
     name: twobrain-rec-private
+  postal-network:
+    external: true
+    name: ${TWOBRAIN_POSTAL_DOCKER_NETWORK:-postal_postal-network}
 
 volumes:
   rec-postgres-data:
@@ -329,3 +341,5 @@ secrets:
     file: ${TWOBRAIN_SMOKE_CREDENTIAL_FILE:-./secrets/twobrain_smoke_credential}
   twobrain_mediascribe_api_key:
     file: ${TWOBRAIN_MEDIASCRIBE_API_KEY_FILE:-./secrets/twobrain_mediascribe_api_key}
+  twobrain_postal_api_key:
+    file: ${TWOBRAIN_POSTAL_API_SECRET_FILE:-./secrets/twobrain_postal_api_key}

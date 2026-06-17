@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.db.models import AuthSession, AuthSessionDeviceBinding, ExternalIdentity
@@ -191,6 +192,48 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert meetings.status_code == 200
     assert "Проектный синк" in meetings.text
     assert "missing_auth_context" not in meetings.text
+
+
+def test_browser_email_login_production_delivery_hides_code(monkeypatch, client) -> None:
+    client.app.state.settings.env = "production"
+    client.portal.call(_link_owner_email_identity, client)
+    deliveries: list[dict[str, object]] = []
+
+    async def fake_send_email_login_code(**kwargs):
+        deliveries.append(kwargs)
+
+    monkeypatch.setattr(email_delivery, "send_email_login_code", fake_send_email_login_code)
+
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(WORKSPACE_ID), "next": "/meetings"},
+    )
+
+    assert start.status_code == 200
+    assert "Проверьте почту" in start.text
+    assert "Код для локальной проверки" not in start.text
+    assert len(deliveries) == 1
+    assert deliveries[0]["recipient_email"] == BROWSER_OWNER_EMAIL
+    assert re.fullmatch(r"\d{6}", deliveries[0]["code"])
+
+
+def test_browser_email_login_production_delivery_failure_fails_closed(monkeypatch, client) -> None:
+    client.app.state.settings.env = "production"
+    client.portal.call(_link_owner_email_identity, client)
+
+    async def fail_send_email_login_code(**_kwargs):
+        raise email_delivery.EmailLoginDeliveryError("postal_request_failed")
+
+    monkeypatch.setattr(email_delivery, "send_email_login_code", fail_send_email_login_code)
+
+    response = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(WORKSPACE_ID), "next": "/meetings"},
+    )
+
+    assert response.status_code == 503
+    assert "Почтовая доставка временно недоступна" in response.text
+    assert "Код для локальной проверки" not in response.text
 
 
 def test_meetings_page_rejects_missing_web_session_without_legacy_headers(client) -> None:
