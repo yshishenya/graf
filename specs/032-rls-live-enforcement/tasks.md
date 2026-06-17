@@ -192,7 +192,7 @@ merge.
 
 ## GitHub Issue Sync
 
-Issues must use `docs/github-issue-canon.md`, Russian issue text, and labels:
+Issues must use `docs/agent-guidance/github-issue-canon.md`, Russian issue text, and labels:
 `feature:032`, `type:hardening`, `area:security` or `area:infra`, and the
 appropriate priority/gate labels.
 

@@ -1,9 +1,17 @@
+<!-- managed-by: github-issue-canon -->
+
 # GitHub Issue Canon
 
 This repository uses GitHub Issues as the execution backlog that mirrors Spec
 Kit tasks. Every issue created manually, by an agent, or through
 `$speckit-taskstoissues` must follow this canon unless the user explicitly asks
 for a one-off scratch issue.
+
+Project path:
+
+```text
+docs/agent-guidance/github-issue-canon.md
+```
 
 All issue titles, issue bodies, status comments, closure comments, and sync
 notes must be written in Russian by default. Use simple, clear language that is
@@ -120,7 +128,7 @@ Required label families for Spec Kit issues:
 ## Automation And Spec Kit
 
 - `$speckit-taskstoissues` must create issues using this canon.
-- The `github-issue-canon` Spec Kit extension installs this file, issue forms,
-  labels, and validation hooks.
+- The `github-issue-canon` Spec Kit extension installs this file under
+  `docs/agent-guidance/`, issue forms, labels, and validation hooks.
 - Do not patch globally installed Spec Kit skills to enforce this rule; they may
   be overwritten by Spec Kit updates.
