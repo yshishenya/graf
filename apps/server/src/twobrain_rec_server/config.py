@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     email_login_from_name: str = "2brain Rec"
     postal_api_url: AnyUrl | None = None
     postal_api_key_file: Path | None = None
+    postal_host_header: str | None = None
     postal_request_timeout_seconds: PositiveInt = Field(default=10)
 
     mediascribe_base_url: AnyUrl | None = None
@@ -112,9 +113,9 @@ class Settings(BaseSettings):
         "x-content-sha256",
     )
 
-    @field_validator("web_login_workspace_id", mode="before")
+    @field_validator("web_login_workspace_id", "postal_host_header", mode="before")
     @classmethod
-    def empty_web_login_workspace_id_is_unset(cls, value: object) -> object:
+    def empty_optional_string_is_unset(cls, value: object) -> object:
         if isinstance(value, str) and value.strip() == "":
             return None
         return value

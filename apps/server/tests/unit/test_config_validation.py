@@ -150,9 +150,14 @@ def test_production_email_login_delivery_requires_default_browser_workspace(tmp_
 
 
 def test_empty_web_login_workspace_id_is_unset_when_email_delivery_is_disabled() -> None:
-    settings = _production_settings(web_login_workspace_id="", email_login_delivery_enabled=False)
+    settings = _production_settings(
+        web_login_workspace_id="",
+        postal_host_header="",
+        email_login_delivery_enabled=False,
+    )
 
     assert settings.web_login_workspace_id is None
+    assert settings.postal_host_header is None
 
 
 def test_production_email_login_delivery_reads_non_empty_postal_secret(tmp_path) -> None:

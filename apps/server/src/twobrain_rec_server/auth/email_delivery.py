@@ -24,6 +24,7 @@ class PostalEmailLoginClient:
     api_key: str
     from_address: str
     from_name: str = "2brain Rec"
+    host_header: str | None = None
     timeout_seconds: int = 10
     transport: httpx.AsyncBaseTransport | None = None
 
@@ -46,6 +47,7 @@ class PostalEmailLoginClient:
             api_key=api_key,
             from_address=settings.email_login_from_address.strip(),
             from_name=settings.email_login_from_name.strip() or "2brain Rec",
+            host_header=settings.postal_host_header.strip() if settings.postal_host_header else None,
             timeout_seconds=settings.postal_request_timeout_seconds,
         )
 
@@ -65,6 +67,8 @@ class PostalEmailLoginClient:
     async def _post_message(self, payload: dict[str, Any]) -> None:
         timeout = httpx.Timeout(self.timeout_seconds)
         headers = {"X-Server-API-Key": self.api_key, "Content-Type": "application/json"}
+        if self.host_header:
+            headers["Host"] = self.host_header
         try:
             async with httpx.AsyncClient(
                 base_url=self.api_url,

@@ -20,6 +20,7 @@ async def test_postal_email_login_client_sends_code_with_server_api_key() -> Non
     async def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
         seen["api_key"] = request.headers.get("x-server-api-key")
+        seen["host"] = request.headers.get("host")
         seen["payload"] = json.loads(request.content)
         return httpx.Response(200, json={"status": "success", "data": {"message_id": "msg_1"}})
 
@@ -27,6 +28,7 @@ async def test_postal_email_login_client_sends_code_with_server_api_key() -> Non
         api_url="http://postal-web:5000",
         api_key="postal-test-key",
         from_address="no-reply@rec.2brain.pro",
+        host_header="postal.2brain.pro",
         transport=httpx.MockTransport(handler),
     )
 
@@ -34,6 +36,7 @@ async def test_postal_email_login_client_sends_code_with_server_api_key() -> Non
 
     assert seen["path"] == "/api/v1/send/message"
     assert seen["api_key"] == "postal-test-key"
+    assert seen["host"] == "postal.2brain.pro"
     payload = seen["payload"]
     assert isinstance(payload, dict)
     assert payload["to"] == ["owner@example.test"]
