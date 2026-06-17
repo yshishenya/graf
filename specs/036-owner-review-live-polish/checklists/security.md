@@ -36,3 +36,4 @@
 - [x] CHK016 Are recovery requirements documented for cleanup failure or unremoved temporary sessions? [Coverage, Data Model §OwnerReviewProof]
 - [x] CHK017 Are private-content live screenshots intentionally excluded unless sanitized or synthetic? [Coverage, Spec §Clarifications]
 - [x] CHK018 Are destructive governance actions excluded from proof unless separately authorized? [Coverage, Spec §FR-016]
+- [x] CHK019 Are desktop cabinet connection requirements explicit about not hard-coding or shipping secret-bearing owner tokens? [Consistency, Research §installed desktop cabinet connectivity]

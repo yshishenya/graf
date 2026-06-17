@@ -10,10 +10,10 @@ Created: 2026-06-16
 
 | Task | Issue | Status | Notes |
 |------|-------|--------|-------|
-| T001 | #1107 | open | Setup/evidence scaffold |
-| T002 | #1108 | open | Initial 036 launch gap register |
-| T003 | #1109 | open | 036 forbidden-content scan note |
-| T004 | #1110 | open | Current Chrome/live blocker observation |
+| T001 | #1107 | closed | Setup/evidence scaffold |
+| T002 | #1108 | closed | Initial 036 launch gap register |
+| T003 | #1109 | closed | 036 forbidden-content scan note |
+| T004 | #1110 | closed | Current Chrome/live blocker observation |
 | T005 | #1111 | open | Owner-review live proof contract tests |
 | T006 | #1112 | open | Notes/action truth schema contract tests |
 | T007 | #1113 | open | Readiness claim regression tests |

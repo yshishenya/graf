@@ -95,9 +95,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             Spacer()
 
             VStack(alignment: .leading, spacing: 6) {
-                Label(cabinetConfigured ? "Кабинет подключен" : "Кабинет не подключен", systemImage: cabinetConfigured ? "checkmark.seal" : "wifi.slash")
+                Label(cabinetConfigured ? "Кабинет задан" : "Кабинет не подключен", systemImage: cabinetConfigured ? "link" : "wifi.slash")
                     .font(.caption)
-                    .foregroundStyle(cabinetConfigured ? .green : .orange)
+                    .foregroundStyle(cabinetConfigured ? Color.secondary : Color.orange)
             }
         }
         .padding(14)
@@ -245,8 +245,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 )
                 localTodayTile(
                     date: "Кабинет",
-                    title: cabinetConfigured ? "Подключен" : "Локальный режим",
-                    detail: cabinetConfigured ? "Синхронизация" : "Сохраняются здесь"
+                    title: cabinetConfigured ? "Сервер задан" : "Локальный режим",
+                    detail: cabinetConfigured ? "Вход проверяется здесь" : "Сохраняются здесь"
                 )
             }
         }
@@ -516,7 +516,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var topBarSubtitle: String {
         cabinetConfigured
-            ? "Кабинет встреч подключен"
+            ? "Сервер кабинета задан"
             : "Локальные записи и загрузки"
     }
 

@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from twobrain_rec_server.observability.redaction import redact_mapping
 
@@ -34,7 +35,28 @@ def problem_response(problem: ProblemDetail, request: Request | None = None) -> 
     )
 
 
-async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSONResponse:
+def _is_browser_cabinet_path(path: str) -> bool:
+    return (
+        path == "/meetings"
+        or path.startswith("/meetings/")
+        or path == "/desktop/meetings"
+        or path.startswith("/desktop/meetings/")
+    )
+
+
+def _wants_html(request: Request) -> bool:
+    return "text/html" in request.headers.get("accept", "").lower()
+
+
+async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSONResponse | RedirectResponse:
+    if exc.status in {401, 403} and _is_browser_cabinet_path(request.url.path) and _wants_html(request):
+        next_path = request.url.path
+        if request.url.query:
+            next_path = f"{next_path}?{request.url.query}"
+        return RedirectResponse(
+            "/login?" + urlencode({"next": next_path, "error": exc.code}),
+            status_code=303,
+        )
     return problem_response(exc, request)
 
 

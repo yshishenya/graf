@@ -16,6 +16,10 @@
 - Q: What live owner review evidence may be committed? → A: Metadata-safe evidence only; private meeting text, account identifiers, cookies, tokens, signed URLs, private screenshots, and raw content remain forbidden.
 - Q: Does V8 polish require all 17 design frames in this slice? → A: No; this slice targets runtime-critical desktop/web owner review surfaces and records any remaining V8 gaps separately.
 
+### Session 2026-06-17
+
+- Q: Can the installed desktop MVP rely only on process environment variables for cabinet connectivity? → A: No; installed `/Applications/2brain Rec.app` must have a persistent or packaged internal-pilot cabinet connection path, with a truthful recovery state when server/auth configuration is missing.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Prove Live Owner Review Access (Priority: P1)
@@ -63,6 +67,7 @@ As a user, I want the installed desktop app and web review workspace to feel lik
 1. **Given** the installed desktop app is launched from `/Applications/2brain Rec.app`, **When** the user lands in the main workspace, **Then** meetings, review status, and capture readiness are visible before low-level diagnostics.
 2. **Given** recording is active, paused, resumed, or stopped, **When** the desktop workspace is visible, **Then** native Record/Pause/Resume/Stop authority remains persistent and cannot be obscured by embedded review content.
 3. **Given** the web review workspace is open, **When** the owner uses list, detail, filter, upload, share/export/delete entry points, or responsive layouts, **Then** controls fit, labels are product-facing, and unavailable policy states are explicit.
+4. **Given** the app is launched normally from Finder or `/Applications` with no developer shell environment, **When** the desktop workspace evaluates cabinet connectivity, **Then** it uses persisted or packaged MVP cabinet configuration before falling back to local-only mode, and the fallback explains the exact missing connection/auth state.
 
 ---
 
@@ -88,6 +93,7 @@ As the product owner, I need a single updated launch-readiness decision after th
 - Summary is available while action items are unavailable, or transcript is available while summary is not.
 - A shared or unauthorized viewer opens a protected owner route.
 - Desktop embedded review fails to load while local capture controls must remain usable.
+- Installed desktop app has no process environment variables because it was launched from Finder, Dock, login items, or `/Applications`.
 - V8 visual baseline conflicts with constitution requirements, data-boundary rules, or live runtime constraints.
 - Reference comparison reveals useful IA lessons but would require copying Krisp expression to match exactly.
 
@@ -111,6 +117,8 @@ As the product owner, I need a single updated launch-readiness decision after th
 - **FR-014**: The final readiness report MUST update closed/remaining gaps, strongest truthful claim, next recommended product slice, and validation evidence.
 - **FR-015**: The feature MUST update product status and changelog entries so completed 036 work is not listed as future work.
 - **FR-016**: The feature MUST not broaden public-link, external-recipient, assisted auto-start, signed installer, or broad production rollout claims unless separate evidence exists.
+- **FR-017**: The installed desktop cabinet configuration MUST NOT depend only on process environment variables; it MUST support a persistent or packaged internal-pilot base URL path and a truthful missing-auth/missing-server recovery state.
+- **FR-018**: Desktop upload review links and embedded cabinet routes MUST share the same resolved cabinet base URL and safe owner/session context so an uploaded meeting can lead to a review surface without manual developer headers.
 
 ### Key Entities
 
@@ -118,6 +126,7 @@ As the product owner, I need a single updated launch-readiness decision after th
 - **Review Surface State**: The user-visible list/detail/governance state for a meeting, including ready, partial, processing, failed, deleted, access-limited, empty, or blocked.
 - **Notes Action Truth**: The availability and launch impact of summary, decisions, action items, and follow-ups for each meeting review state.
 - **Clean-Room UI Delta**: A documented change or validation result comparing current desktop/web surfaces to the accepted V8 baseline without copying reference expression.
+- **Desktop Cabinet Connection**: The resolved installed-app configuration that decides whether the desktop shell opens server-owned meeting review or a truthful local-only recovery state.
 - **Launch Claim Update**: The final bounded readiness decision and gap register after 036 validation.
 
 ## Success Criteria *(mandatory)*
@@ -131,6 +140,7 @@ As the product owner, I need a single updated launch-readiness decision after th
 - **SC-005**: Clean-room reference validation records zero committed private Krisp screenshots, zero copied brand assets, zero copied icons, and zero exact copied non-generic product copy.
 - **SC-006**: Final forbidden-content scans find no private payload values, raw audio, private transcript text, credentials, tokens, signed URLs, cookies, or live local private paths in committed 036 evidence.
 - **SC-007**: Readiness, current status, changelog, and issue/task closeout agree on the same final claim and remaining gaps.
+- **SC-008**: Installed-app evidence distinguishes configured cabinet, missing-auth, missing-server, and local-only states without requiring shell-only environment variables.
 
 ## Assumptions
 

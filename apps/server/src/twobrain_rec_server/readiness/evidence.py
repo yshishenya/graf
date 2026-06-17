@@ -36,6 +36,25 @@ ClaimStatus = Literal["proven", "partial", "blocked"]
 ReferenceResult = Literal["pass", "needs_polish", "blocked"]
 Severity = Literal["P0", "P1", "P2", "P3"]
 
+FEATURE_036_ID = "036-owner-review-live-polish"
+FEATURE_036_OWNER_REVIEW_PROOF_ID = "feature-036-owner-review-live"
+FEATURE_036_REQUIRED_EVIDENCE_IDS = frozenset(
+    {
+        "feature-036-owner-review-live",
+        "feature-036-validation-log",
+        "feature-036-notes-action-truth",
+        "feature-036-clean-room-reference",
+        "feature-036-github-issues",
+    }
+)
+FEATURE_036_BLOCKING_GAP_IDS = frozenset(
+    {
+        "web-owner-live-auth-context",
+        "notes-action-output",
+        "production-user-rollout-evidence",
+    }
+)
+
 
 class ReadinessEvidence(BaseModel):
     id: str

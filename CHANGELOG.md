@@ -8,6 +8,10 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен browser-login по email-коду для web cabinet: `/login`,
+  `/login/email/start`, `/login/email/verify`, HttpOnly/Secure owner-session
+  cookie, browser-device binding, redirect protected web routes to login, and
+  visible OAuth/provider stubs for later implementation (`feature:036`).
 - Добавлен product-owned слой meeting-app mute truth для macOS: `Pause`/`Resume`
   рядом с постоянным `Stop`, подавление локального микрофона во время паузы,
   metadata-only `privacySegments`, target capability matrix, fail-closed
@@ -105,6 +109,10 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Browser cabinet content stays behind an email-issued owner session: protected
+  web routes redirect HTML requests to login, email-code failures do not reveal
+  whether an address exists, and browser OAuth provider routes are explicit
+  future stubs instead of partially enabled auth paths (`feature:036`).
 - Meeting-app mute truth remains fail-closed: diagnostics/redaction allow only
   metadata fields, fixture validation rejects raw audio/transcripts/meeting
   content/credentials/signed URLs, unsupported targets never become

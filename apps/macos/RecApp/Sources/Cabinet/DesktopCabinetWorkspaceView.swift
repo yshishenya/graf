@@ -3,7 +3,7 @@ import SwiftUI
 public struct DesktopCabinetWorkspaceView: View {
     public static let workspaceTitle = "Встречи"
     public static let workspaceAccessibilityLabel = "Встречи и обзор записей"
-    public static let unavailableTitle = "Кабинет встреч недоступен"
+    public static let unavailableTitle = "Кабинет встреч"
     public static let embeddedSurfaceHeight: CGFloat = 420
     public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
 
@@ -68,7 +68,7 @@ public struct DesktopCabinetWorkspaceView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let configuration {
+        if let configuration, cabinetState.shouldShowEmbeddedSurface {
             let webView = EmbeddedCabinetWebView(
                 request: configuration.urlRequest(for: initialRoute ?? configuration.meetingsURL()),
                 routePolicy: DesktopCabinetRoutePolicy(baseURL: configuration.baseURL),
@@ -99,13 +99,23 @@ public struct DesktopCabinetWorkspaceView: View {
 
     private var unavailableState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(Self.unavailableTitle, systemImage: "wifi.slash")
+            Label(cabinetState.unavailableTitle, systemImage: cabinetState.unavailableSystemImage)
                 .font(.subheadline)
                 .fontWeight(.semibold)
             Text(cabinetState.userMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let recoveryActionTitle = cabinetState.recoveryActionTitle,
+               let recoveryURL {
+                Link(destination: recoveryURL) {
+                    Label(recoveryActionTitle, systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.top, 4)
+                .help(recoveryActionTitle)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: presentation == .shell ? 360 : 160, alignment: .leading)
         .padding(14)
@@ -113,6 +123,18 @@ public struct DesktopCabinetWorkspaceView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.unavailableState)
+    }
+
+    private var recoveryURL: URL? {
+        guard let configuration else { return nil }
+        switch cabinetState {
+        case .expiredSession:
+            return configuration.baseURL.appending(path: "meetings")
+        case .offline, .timeout:
+            return configuration.baseURL
+        default:
+            return nil
+        }
     }
 
     private var statusText: String {
@@ -123,6 +145,14 @@ public struct DesktopCabinetWorkspaceView: View {
             return "Загрузка"
         case .notConfigured:
             return "Не подключено"
+        case .expiredSession:
+            return "Нужен вход"
+        case .accessDenied:
+            return "Нет доступа"
+        case .notFound:
+            return "Не найдено"
+        case .offline, .timeout:
+            return "Нет связи"
         case .blockedRoute:
             return "Ограничено"
         default:

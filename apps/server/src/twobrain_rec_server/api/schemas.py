@@ -406,6 +406,50 @@ class MeetingFilterState(BaseModel):
     sort: str = "updated_desc"
 
 
+NotesActionAvailabilityState = Literal["available", "processing", "blocked", "unavailable", "deferred"]
+NotesActionSourceBasis = Literal[
+    "stored_output",
+    "processing_status",
+    "transcript_only",
+    "policy_deferral",
+    "not_supported",
+]
+NotesActionReadinessImpact = Literal["closes_gap", "keeps_gap_open", "non_blocking"]
+
+
+class NotesActionCategoryState(BaseModel):
+    state: NotesActionAvailabilityState
+    label: str
+    reason: str
+    readiness_impact: NotesActionReadinessImpact
+    copy_key: str
+
+
+class NotesActionTruthState(BaseModel):
+    summary: NotesActionCategoryState
+    decisions: NotesActionCategoryState
+    action_items: NotesActionCategoryState
+    followups: NotesActionCategoryState
+    source_basis: NotesActionSourceBasis
+
+
+def default_notes_action_truth() -> NotesActionTruthState:
+    category = NotesActionCategoryState(
+        state="deferred",
+        label="Outcomes deferred",
+        reason="Generated meeting outcomes are deferred until stored output is available.",
+        readiness_impact="keeps_gap_open",
+        copy_key="notes.outcomes.deferred",
+    )
+    return NotesActionTruthState(
+        summary=category,
+        decisions=category,
+        action_items=category,
+        followups=category,
+        source_basis="policy_deferral",
+    )
+
+
 class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
@@ -420,6 +464,7 @@ class MeetingListItem(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     notes_available: bool = False
+    notes_action_truth: NotesActionTruthState = Field(default_factory=default_notes_action_truth)
     updated_at: datetime | None = None
     access: MeetingAccessState | None = None
     artifacts: list[ArtifactEgressState] = Field(default_factory=list)
@@ -519,6 +564,7 @@ class MeetingReviewResponse(BaseModel):
     transcript: TranscriptReviewState
     speakers: SpeakerReviewState
     notes: NotesReviewState
+    notes_action_truth: NotesActionTruthState = Field(default_factory=default_notes_action_truth)
     playback: PlaybackReviewState
     governance: GovernanceActionSummary
     access: MeetingAccessState | None = None

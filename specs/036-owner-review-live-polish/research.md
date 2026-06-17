@@ -102,3 +102,23 @@ and tests still run from the repository.
   permissions and app identity can differ from the installed app.
 - Move the app to `~/Applications`: rejected for now because the accepted 035
   evidence and user instruction converged on `/Applications/2brain Rec.app`.
+
+## Decision: Installed desktop cabinet connectivity cannot be env-only
+
+**Rationale**: A normal Finder/Dock launch of `/Applications/2brain Rec.app`
+does not inherit the developer shell environment. Evidence from 2026-06-16
+showed the installed app in `Локальный режим` with `Кабинет не подключен`
+because no `TWO_BRAIN_REC_CABINET_BASE_URL` or upload base URL was present.
+For the MVP owner loop, the desktop shell must resolve cabinet connectivity
+from persistent app configuration or a packaged internal-pilot default, then
+show a truthful missing-auth, missing-server, or local-only recovery state if
+the server cannot be used.
+
+**Alternatives considered**:
+
+- Keep requiring launch-time environment variables: rejected because it only
+  works for developer launches and cannot prove the installed MVP product loop.
+- Hard-code secret-bearing owner tokens in the app: rejected because desktop
+  clients must not ship credentials or leak owner sessions.
+- Hide the cabinet until configuration exists: rejected because it preserves a
+  diagnostic/local-mode first impression and obscures the actual launch blocker.

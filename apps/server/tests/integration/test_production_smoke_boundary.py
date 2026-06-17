@@ -81,6 +81,35 @@ def test_issue_smoke_auth_session_dry_run_never_writes_raw_token(tmp_path: Path)
     assert "bearer" not in result.stdout.lower()
 
 
+def test_issue_smoke_auth_session_owner_review_purpose_is_metadata_only(tmp_path: Path) -> None:
+    token_file = tmp_path / "owner-review-token"
+    script = REPO_ROOT / "apps/server/scripts/issue_smoke_auth_session.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--run-id",
+            "feature-036-owner-review",
+            "--purpose",
+            "owner_review",
+            "--token-file",
+            str(token_file),
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["auth_session_result"] == "dry_run"
+    assert payload["auth_session_purpose"] == "owner_review"
+    assert payload["token_written"] is False
+    assert not token_file.exists()
+    forbidden = ["bearer ", "authorization:", "x-auth-session", "session_token", "cookie", "set-cookie"]
+    assert all(marker not in result.stdout.lower() for marker in forbidden)
+
+
 def test_smoke_upload_wrapper_dry_run_uses_internal_smoke_identity(tmp_path: Path) -> None:
     artifact = tmp_path / "artifact"
     artifact.mkdir()

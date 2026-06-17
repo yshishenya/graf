@@ -16,6 +16,8 @@ from twobrain_rec_server.api.schemas import (
     MeetingListResponse,
     MeetingProvenance,
     MeetingReviewResponse,
+    NotesActionCategoryState,
+    NotesActionTruthState,
     NotesReviewState,
     PlaybackReviewState,
     ProcessingReviewState,
@@ -79,6 +81,23 @@ def _artifacts() -> list[ArtifactEgressState]:
     ]
 
 
+def _notes_truth() -> NotesActionTruthState:
+    category = NotesActionCategoryState(
+        state="processing",
+        label="Outcomes processing",
+        reason="Transcript and generated outcomes may still be processing.",
+        readiness_impact="keeps_gap_open",
+        copy_key="notes.outcomes.processing",
+    )
+    return NotesActionTruthState(
+        summary=category,
+        decisions=category,
+        action_items=category,
+        followups=category,
+        source_basis="processing_status",
+    )
+
+
 def _item() -> MeetingListItem:
     return MeetingListItem(
         meeting_id=uuid4(),
@@ -140,6 +159,7 @@ def _review() -> MeetingReviewResponse:
         ),
         artifacts=_artifacts(),
         activity=MeetingActivityResponse(meeting_id=item.meeting_id, items=[]),
+        notes_action_truth=_notes_truth(),
         deletion_truth_copy="Files already downloaded or exported are outside 2brain Rec deletion control.",
         assistant=SlotState(state="planned", label="Assistant", reason="future"),
         template=SlotState(state="planned", label="Template", reason="future"),
@@ -272,8 +292,13 @@ def test_detail_shell_reserves_notes_assistant_template_without_internal_feature
 
     page = render_meeting_detail_page(review)
 
-    assert "AI notes are reserved for a later feature" in page
-    assert "No generated summary is shown yet" in page
+    assert "Summary" in page
+    assert "Decisions" in page
+    assert "Action Items" in page
+    assert "Follow-ups" in page
+    assert "Outcomes processing" in page
+    assert "AI notes are reserved for a later feature" not in page
+    assert "No generated summary is shown yet" not in page
     assert "<h3>Assistant</h3>" in page
     assert "<button type=\"button\" disabled>Assistant</button>" in page
     assert "<h3>Template</h3>" in page

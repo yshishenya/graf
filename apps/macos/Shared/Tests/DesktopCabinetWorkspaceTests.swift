@@ -76,10 +76,25 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         let states: [DesktopCabinetState] = [.notConfigured, .offline, .timeout, .expiredSession, .accessDenied, .notFound, .malformedResponse, .blockedRoute]
 
         for state in states {
+            XCTAssertFalse(state.unavailableTitle.isEmpty, "\(state)")
+            XCTAssertFalse(state.unavailableSystemImage.isEmpty, "\(state)")
             XCTAssertFalse(state.userMessage.isEmpty, "\(state)")
             XCTAssertLessThanOrEqual(state.userMessage.count, 180, "\(state)")
             XCTAssertFalse(state.userMessage.contains("/Users/"), "\(state)")
         }
+    }
+
+    func testMissingOwnerSessionHasLoginRecoveryAction() {
+        XCTAssertEqual(DesktopCabinetState.expiredSession.unavailableTitle, "Нужен вход в кабинет")
+        XCTAssertEqual(DesktopCabinetState.expiredSession.recoveryActionTitle, "Войти в кабинет")
+        XCTAssertTrue(DesktopCabinetState.expiredSession.unavailableSystemImage.contains("person"))
+        XCTAssertFalse(DesktopCabinetState.expiredSession.shouldShowEmbeddedSurface)
+    }
+
+    func testDeniedStateDoesNotOfferLoginAsAccessProof() {
+        XCTAssertEqual(DesktopCabinetState.accessDenied.unavailableTitle, "Нет доступа к кабинету")
+        XCTAssertNil(DesktopCabinetState.accessDenied.recoveryActionTitle)
+        XCTAssertFalse(DesktopCabinetState.accessDenied.shouldShowEmbeddedSurface)
     }
 
     func testDeniedAndNotFoundStatesDoNotConfirmMeetingExistence() {
@@ -88,6 +103,26 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             XCTAssertFalse(state.userMessage.localizedCaseInsensitiveContains("meeting exists"), "\(state)")
             XCTAssertTrue(state.userMessage.localizedCaseInsensitiveContains("не удалось подтвердить"), "\(state)")
         }
+    }
+
+    func testProductWorkspaceLayoutKeepsMeetingsBeforeDiagnostics() {
+        let order = DesktopCabinetLayoutPolicy.defaultSectionOrder
+
+        XCTAssertEqual(order.first, .meetings)
+        XCTAssertTrue(order.contains(.capture))
+        XCTAssertTrue(order.contains(.localAudioReadiness))
+        XCTAssertLessThan(
+            try XCTUnwrap(order.firstIndex(of: .meetings)),
+            try XCTUnwrap(order.firstIndex(of: .localAudioReadiness))
+        )
+    }
+
+    func testInstalledRuntimeEvidenceUsesApplicationsBundlePath() {
+        let acceptedRuntimePath = "/Applications/2brain Rec.app"
+
+        XCTAssertEqual(acceptedRuntimePath, "/Applications/2brain Rec.app")
+        XCTAssertFalse(acceptedRuntimePath.hasPrefix("/Users/"))
+        XCTAssertTrue(acceptedRuntimePath.hasSuffix("2brain Rec.app"))
     }
 }
 #endif

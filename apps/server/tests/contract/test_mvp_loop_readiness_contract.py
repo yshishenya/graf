@@ -3,7 +3,15 @@ from __future__ import annotations
 import pytest
 
 from twobrain_rec_server.readiness import build_default_readiness_report, render_markdown_report
-from twobrain_rec_server.readiness.evidence import ClaimSummary, LaunchGap, ReadinessReport
+from twobrain_rec_server.readiness.evidence import (
+    FEATURE_036_BLOCKING_GAP_IDS,
+    FEATURE_036_ID,
+    FEATURE_036_OWNER_REVIEW_PROOF_ID,
+    FEATURE_036_REQUIRED_EVIDENCE_IDS,
+    ClaimSummary,
+    LaunchGap,
+    ReadinessReport,
+)
 
 
 def test_mvp_loop_readiness_json_contract_has_required_top_level_shape() -> None:
@@ -38,6 +46,12 @@ def test_mvp_loop_readiness_json_contract_accepts_035_feature_id() -> None:
 
     assert payload["feature"] == "035-mvp-loop-live-evidence"
     assert payload["claim_summary"]["outcome"] == "pilot_blocked"
+
+
+def test_mvp_loop_readiness_contract_declares_036_evidence_ids() -> None:
+    assert FEATURE_036_ID == "036-owner-review-live-polish"
+    assert FEATURE_036_OWNER_REVIEW_PROOF_ID in FEATURE_036_REQUIRED_EVIDENCE_IDS
+    assert {"web-owner-live-auth-context", "notes-action-output"} <= FEATURE_036_BLOCKING_GAP_IDS
 
 
 def test_mvp_loop_readiness_markdown_contract_sections_are_in_order() -> None:

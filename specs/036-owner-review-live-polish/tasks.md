@@ -12,10 +12,10 @@
 
 **Purpose**: Create the feature evidence scaffold and baseline metadata before code changes.
 
-- [ ] T001 Create 036 evidence scaffold files in `docs/evidence/036-owner-review-live-polish/README.md`, `docs/evidence/036-owner-review-live-polish/validation-log.md`, `docs/evidence/036-owner-review-live-polish/clean-room-reference.md`, and `docs/evidence/036-owner-review-live-polish/screenshots/.gitkeep`
-- [ ] T002 [P] Add initial 036 launch gap register copied forward from 035 in `docs/evidence/036-owner-review-live-polish/launch-gap-register.md`
-- [ ] T003 [P] Add a 036 forbidden-content scan note to `docs/evidence/036-owner-review-live-polish/README.md`
-- [ ] T004 Record the current Chrome/live blocker observation for `https://rec.2brain.pro/meetings` in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [X] T001 Create 036 evidence scaffold files in `docs/evidence/036-owner-review-live-polish/README.md`, `docs/evidence/036-owner-review-live-polish/validation-log.md`, `docs/evidence/036-owner-review-live-polish/clean-room-reference.md`, and `docs/evidence/036-owner-review-live-polish/screenshots/.gitkeep`
+- [X] T002 [P] Add initial 036 launch gap register copied forward from 035 in `docs/evidence/036-owner-review-live-polish/launch-gap-register.md`
+- [X] T003 [P] Add a 036 forbidden-content scan note to `docs/evidence/036-owner-review-live-polish/README.md`
+- [X] T004 Record the current Chrome/live blocker observation for `https://rec.2brain.pro/meetings` in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 
 ---
 
@@ -23,14 +23,14 @@
 
 **Purpose**: Shared models, test scaffolds, and evidence contracts that block story implementation.
 
-- [ ] T005 [P] Add owner-review live proof contract tests in `apps/server/tests/contract/test_owner_review_live_proof_contract.py`
-- [ ] T006 [P] Add notes/action truth schema contract tests in `apps/server/tests/contract/test_notes_action_truth_contract.py`
-- [ ] T007 [P] Add readiness claim regression tests for feature 036 in `apps/server/tests/contract/test_mvp_loop_readiness_contract.py`
-- [ ] T008 [P] Add web owner session integration test scaffolding in `apps/server/tests/integration/test_web_owner_session_context.py`
-- [ ] T009 [P] Add notes/action view-model unit test scaffolding in `apps/server/tests/unit/test_notes_action_truth_view_models.py`
-- [ ] T010 [P] Add desktop polish/accessibility test scaffolding in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
-- [ ] T011 Add shared safe evidence helpers for feature 036 in `apps/server/tests/integration/test_owner_review_live_evidence.py`
-- [ ] T012 Add feature 036 constants and evidence ids in `apps/server/src/twobrain_rec_server/readiness/evidence.py`
+- [X] T005 [P] Add owner-review live proof contract tests in `apps/server/tests/contract/test_owner_review_live_proof_contract.py`
+- [X] T006 [P] Add notes/action truth schema contract tests in `apps/server/tests/contract/test_notes_action_truth_contract.py`
+- [X] T007 [P] Add readiness claim regression tests for feature 036 in `apps/server/tests/contract/test_mvp_loop_readiness_contract.py`
+- [X] T008 [P] Add web owner session integration test scaffolding in `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T009 [P] Add notes/action view-model unit test scaffolding in `apps/server/tests/unit/test_notes_action_truth_view_models.py`
+- [X] T010 [P] Add desktop polish/accessibility test scaffolding in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
+- [X] T011 Add shared safe evidence helpers for feature 036 in `apps/server/tests/integration/test_owner_review_live_evidence.py`
+- [X] T012 Add feature 036 constants and evidence ids in `apps/server/src/twobrain_rec_server/readiness/evidence.py`
 
 **Checkpoint**: Foundation ready - user story work can begin.
 
@@ -102,7 +102,7 @@
 ### Tests for User Story 3
 
 - [ ] T038 [P] [US3] Add web list/detail IA and responsive copy tests in `apps/server/tests/unit/test_cabinet_web_shell.py`
-- [ ] T039 [P] [US3] Add desktop workspace product-surface tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`
+- [ ] T039 [P] [US3] Add desktop workspace product-surface and persistent cabinet configuration tests in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift` and `apps/macos/Shared/Tests/DesktopCabinetConfigurationTests.swift`
 - [ ] T040 [P] [US3] Add capture control accessibility regression tests in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
 - [ ] T041 [P] [US3] Add desktop embedded route policy regression tests in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`
 
@@ -110,10 +110,10 @@
 
 - [ ] T042 [US3] Polish meeting list layout, action labels, empty states, and responsive constraints in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 - [ ] T043 [US3] Polish meeting detail notes/transcript/governance layout and playback/status panels in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T044 [US3] Polish installed desktop meeting workspace hierarchy in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T045 [US3] Polish desktop cabinet embedded review framing and unavailable states in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
+- [ ] T044 [US3] Polish installed desktop meeting workspace hierarchy and cabinet connection status in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [ ] T045 [US3] Add persistent or packaged installed-app cabinet configuration resolution and truthful unavailable states in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift` and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
 - [ ] T046 [US3] Preserve embedded route loading/failure behavior and native controls in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
-- [ ] T047 [US3] Capture installed app idle/active/paused/resumed/stopped evidence from `/Applications/2brain Rec.app` into `docs/evidence/036-owner-review-live-polish/screenshots/`
+- [ ] T047 [US3] Capture installed app idle/active/paused/resumed/stopped and cabinet configured/missing-auth/local-only evidence from `/Applications/2brain Rec.app` into `docs/evidence/036-owner-review-live-polish/screenshots/`
 - [ ] T048 [US3] Record V8 clean-room comparison and remaining gaps in `docs/evidence/036-owner-review-live-polish/clean-room-reference.md`
 
 **Checkpoint**: User Story 3 can be validated independently with server web tests, Swift build/tests, and installed-app screenshots.
@@ -151,13 +151,13 @@
 **Purpose**: Full validation, issue sync, cleanup, and launch-quality closeout.
 
 - [ ] T059 [P] Run focused server validation from `specs/036-owner-review-live-polish/quickstart.md` and record results in `docs/evidence/036-owner-review-live-polish/validation-log.md`
-- [ ] T060 [P] Run `swift build --package-path apps/macos` and focused Swift tests, then record results in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [ ] T060 [P] Run `swift build --package-path apps/macos` and focused Swift tests including cabinet configuration resolution, then record results in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [ ] T061 Run `infra/scripts/ci-local.sh` and record the canonical local gate result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [ ] T062 Run forbidden-content scans over `specs/036-owner-review-live-polish` and `docs/evidence/036-owner-review-live-polish`, then record policy-only matches in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [ ] T063 Run `git diff --check` and record the result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [ ] T064 Re-run `$speckit-analyze` after implementation validation and update `specs/036-owner-review-live-polish/analysis.md`
 - [ ] T065 Sync and close mapped GitHub issues only after evidence is present in `specs/036-owner-review-live-polish/issues.md`
-- [ ] T066 Confirm installed launch from `/Applications/2brain Rec.app` after final build/install and record it in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [ ] T066 Confirm installed launch from `/Applications/2brain Rec.app` after final build/install, including no-shell-env cabinet behavior, and record it in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 
 ---
 

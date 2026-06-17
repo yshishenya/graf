@@ -36,6 +36,100 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
             return "Это действие остается за пределами встроенного кабинета встреч."
         }
     }
+
+    public var unavailableTitle: String {
+        switch self {
+        case .expiredSession:
+            return "Нужен вход в кабинет"
+        case .accessDenied:
+            return "Нет доступа к кабинету"
+        case .notFound:
+            return "Обзор не найден"
+        case .offline, .timeout:
+            return "Кабинет временно недоступен"
+        case .notConfigured:
+            return "Кабинет не настроен"
+        case .blockedRoute:
+            return "Действие ограничено"
+        case .malformedResponse:
+            return "Нужна проверка кабинета"
+        case .loading, .ready:
+            return "Кабинет встреч"
+        }
+    }
+
+    public var unavailableSystemImage: String {
+        switch self {
+        case .expiredSession:
+            return "person.crop.circle.badge.exclamationmark"
+        case .accessDenied:
+            return "lock.trianglebadge.exclamationmark"
+        case .notFound:
+            return "questionmark.folder"
+        case .offline, .timeout, .notConfigured:
+            return "wifi.slash"
+        case .blockedRoute:
+            return "hand.raised"
+        case .malformedResponse:
+            return "exclamationmark.triangle"
+        case .loading, .ready:
+            return "rectangle.stack.fill"
+        }
+    }
+
+    public var recoveryActionTitle: String? {
+        switch self {
+        case .expiredSession:
+            return "Войти в кабинет"
+        case .offline, .timeout:
+            return "Открыть кабинет"
+        default:
+            return nil
+        }
+    }
+
+    public var shouldShowEmbeddedSurface: Bool {
+        switch self {
+        case .loading, .ready:
+            return true
+        case .notConfigured, .offline, .timeout, .expiredSession, .accessDenied, .notFound, .malformedResponse, .blockedRoute:
+            return false
+        }
+    }
+
+    public static func state(forHTTPStatus statusCode: Int) -> DesktopCabinetState? {
+        switch statusCode {
+        case 200..<400:
+            return nil
+        case 401:
+            return .expiredSession
+        case 403:
+            return .accessDenied
+        case 404:
+            return .notFound
+        case 408, 504:
+            return .timeout
+        case 500..<600:
+            return .offline
+        default:
+            return .malformedResponse
+        }
+    }
+
+    public static func state(forNavigationError error: Error, currentState: DesktopCabinetState) -> DesktopCabinetState {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorCancelled:
+                return currentState
+            case NSURLErrorTimedOut:
+                return .timeout
+            default:
+                return .offline
+            }
+        }
+        return .offline
+    }
 }
 
 public struct NativeShellInvariant: Equatable, Sendable {

@@ -38,3 +38,4 @@
 - [x] CHK018 Are compact/responsive layouts included in the UX requirement scope? [Coverage, Contract runtime-polish-cleanroom]
 - [x] CHK019 Are diagnostic surfaces permitted only as failure/diagnostic states rather than main default? [Clarity, Contract runtime-polish-cleanroom]
 - [x] CHK020 Are accessibility expectations implied by focus/text-fit/native control persistence sufficiently represented for implementation tasks? [Coverage, Plan §Testing]
+- [x] CHK021 Are installed-app cabinet configured, missing-auth, missing-server, and local-only states required to be distinguishable without relying on developer shell environment? [Coverage, Spec §FR-017/SC-008]

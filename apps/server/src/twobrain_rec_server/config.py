@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     smoke_workspace_id: UUID | None = None
     smoke_user_id: UUID | None = None
     smoke_device_id: UUID | None = None
+    web_login_workspace_id: UUID | None = None
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None

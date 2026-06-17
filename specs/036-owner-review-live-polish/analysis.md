@@ -13,6 +13,7 @@ Scope: `spec.md`, `plan.md`, `tasks.md`,
 |----|----------|----------|-------------|---------|----------------|
 | A1 | Auth Boundary | LOW | `research.md`, `tasks.md` T018-T023 | The implementation will add browser-safe owner review session handling, which is the highest-risk part of the slice, but tasks correctly bind it to existing `AuthSession`, device, workspace, and cleanup rules. | Proceed, but keep T013-T017 red-first and do not implement any unauthenticated debug/backdoor route. |
 | A2 | Readiness Claim | LOW | `spec.md` FR-009, `tasks.md` T052-T058 | Notes/action output may remain unavailable or deferred, and the artifacts consistently require `mvp_loop_ready` to stay excluded if that happens. | Proceed; implementation must not close `notes-action-output` unless stored output or accepted deferral evidence exists. |
+| A3 | Desktop Configuration | LOW | `spec.md` FR-017/FR-018, `tasks.md` T039/T044/T045/T047/T060/T066 | The installed app can no longer be treated as MVP-ready if cabinet connectivity depends only on developer shell environment variables. The updated tasks now bind desktop proof to persistent or packaged cabinet configuration and truthful recovery states. | Proceed; implementation must prove normal `/Applications` launch behavior and must not ship secret-bearing owner tokens. |
 
 No critical, high, or medium consistency issues were found.
 
@@ -36,6 +37,8 @@ No critical, high, or medium consistency issues were found.
 | FR-014 readiness report/gap update | Yes | T049-T058 | Covered by readiness and doc tasks. |
 | FR-015 product status/changelog update | Yes | T056-T057 | Covered directly. |
 | FR-016 do not broaden out-of-scope claims | Yes | T049-T058, T062 | Covered by readiness claim and scan tasks. |
+| FR-017 persistent/packaged desktop cabinet configuration | Yes | T039, T044-T047, T060, T066 | Covers normal installed launch without shell-only environment variables. |
+| FR-018 shared cabinet base URL/session context for upload review links | Yes | T039, T045, T047, T060, T066 | Covered through desktop configuration tests, implementation, and installed-app proof. |
 | SC-001 committed live evidence pack | Yes | T024-T026, T054-T055 | Covered by owner proof and readiness artifacts. |
 | SC-002 notes/action truth coverage | Yes | T027-T037 | Covered by schema, view model, web, fixtures, and evidence. |
 | SC-003 quick recognition of review states | Yes | T038, T042-T043 | Covered by web IA tests and polish. |
@@ -43,6 +46,7 @@ No critical, high, or medium consistency issues were found.
 | SC-005 clean-room zero-copy validation | Yes | T048, T062 | Covered by clean-room evidence and scan. |
 | SC-006 forbidden-content scans | Yes | T062 | Covered directly. |
 | SC-007 docs/status/tracker agreement | Yes | T054-T058, T064-T065 | Covered by readiness/docs/analyze/issues tasks. |
+| SC-008 installed-app cabinet state distinction | Yes | T039, T044-T047, T060, T066 | Covers configured, missing-auth, missing-server, and local-only states. |
 
 ## Constitution Alignment Issues
 
@@ -65,9 +69,9 @@ validation, or tracker closeout rather than a single FR, which is expected.
 
 ## Metrics
 
-- Total buildable requirements reviewed: 23
+- Total buildable requirements reviewed: 26
 - Total tasks reviewed: 66
-- Requirements with task coverage: 23
+- Requirements with task coverage: 26
 - Coverage: 100%
 - Ambiguity count: 0 blocking, 1 low-risk implementation attention area
 - Duplication count: 0

@@ -34,3 +34,4 @@
 
 - [x] CHK015 Are browser extension/ad-block/navigation failures allowed as blocker evidence without being mistaken for product readiness? [Edge Case, Spec §Edge Cases]
 - [x] CHK016 Are remote production constraints kept separate from local fixture-backed tests and desktop runtime proof? [Coverage, Plan §Target Platform]
+- [x] CHK017 Is the installed-app cabinet connection requirement specified as persistent or packaged configuration rather than process environment only? [Completeness, Spec §FR-017, Research §installed desktop cabinet connectivity]

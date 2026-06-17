@@ -16,7 +16,9 @@ The implementation approach is to keep owner review server-owned, reuse the
 existing provider/session auth and temporary smoke-session helpers, add only a
 safe browser/session path if needed, keep native macOS capture controls outside
 embedded web content, represent notes/actions as structured truth states rather
-than fabricated output, and commit metadata-safe evidence only.
+than fabricated output, make installed-app cabinet connectivity persistent or
+packaged for the internal MVP instead of shell-env-only, and commit
+metadata-safe evidence only.
 
 ## Technical Context
 
@@ -37,9 +39,10 @@ non-secret metadata state.
 **Testing**: pytest contract/integration/unit tests for cabinet, auth,
 readiness, and forbidden-content boundaries; Ruff and Python compile checks;
 Swift build and focused macOS tests for desktop shell/capture control
-visibility; metadata-safe live `curl`/Chrome checks against `rec.2brain.pro`;
-installed-app launch proof from `/Applications/2brain Rec.app`; canonical
-`infra/scripts/ci-local.sh`.
+visibility and cabinet configuration resolution; metadata-safe live
+`curl`/Chrome checks against `rec.2brain.pro`; installed-app launch proof from
+`/Applications/2brain Rec.app` without relying on shell-only environment
+variables; canonical `infra/scripts/ci-local.sh`.
 
 **Target Platform**: Production Rec web service at `https://rec.2brain.pro`;
 local macOS desktop app installed at `/Applications/2brain Rec.app`; backend
@@ -61,11 +64,11 @@ desktop-held MediaScribe credentials. No public-link/external-recipient,
 assisted auto-start, signed-installer, broad rollout, or generated-notes claim
 without separate evidence.
 
-**Scale/Scope**: One owner-review live proof path, one set of notes/action
-truth states, runtime-critical V8-aligned desktop/web review surfaces, and one
-036 readiness closeout pack. This does not implement all 17 V8 frames, broad
-production rollout, or full AI-generated meeting outcomes unless existing
-stored data can be proven safely.
+**Scale/Scope**: One owner-review live proof path, one installed-app cabinet
+connection path, one set of notes/action truth states, runtime-critical
+V8-aligned desktop/web review surfaces, and one 036 readiness closeout pack.
+This does not implement all 17 V8 frames, broad production rollout, or full
+AI-generated meeting outcomes unless existing stored data can be proven safely.
 
 ## Constitution Check
 
@@ -151,8 +154,9 @@ apps/macos/Shared/Tests/
 
 **Structure Decision**: Keep server-owned review UI and API behavior in
 `apps/server/src/twobrain_rec_server/cabinet` and auth/session behavior in
-`apps/server/src/twobrain_rec_server/auth`. Keep desktop product polish in the
-existing macOS Cabinet views while preserving capture control source of truth in
+`apps/server/src/twobrain_rec_server/auth`. Keep desktop product polish and
+installed-app cabinet connection resolution in the existing macOS Cabinet views
+and configuration path while preserving capture control source of truth in
 native SwiftUI. Keep production and local evidence under
 `docs/evidence/036-owner-review-live-polish`.
 
@@ -167,6 +171,7 @@ All planning unknowns are resolved there before implementation:
 
 - owner review auth proof on `rec.2brain.pro`;
 - browser/session versus header-only smoke access;
+- installed-app cabinet configuration versus shell-only environment variables;
 - notes/action output truth versus generated-output implementation;
 - V8 runtime-critical polish scope;
 - metadata-safe evidence boundaries;

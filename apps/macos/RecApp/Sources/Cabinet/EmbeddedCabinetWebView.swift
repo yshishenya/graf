@@ -79,12 +79,31 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             cabinetState = .ready
         }
 
-        public func webView(_: WKWebView, didFail _: WKNavigation!, withError _: Error) {
-            cabinetState = .offline
+        @MainActor
+        public func webView(
+            _: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+        ) {
+            guard let httpResponse = navigationResponse.response as? HTTPURLResponse else {
+                cabinetState = .malformedResponse
+                decisionHandler(.cancel)
+                return
+            }
+            if let state = DesktopCabinetState.state(forHTTPStatus: httpResponse.statusCode) {
+                cabinetState = state
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
         }
 
-        public func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError _: Error) {
-            cabinetState = .offline
+        public func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
+            cabinetState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
+        }
+
+        public func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
+            cabinetState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
         }
     }
 

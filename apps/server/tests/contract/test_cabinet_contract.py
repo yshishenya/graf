@@ -57,6 +57,7 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
         "transcript",
         "speakers",
         "notes",
+        "notes_action_truth",
         "playback",
         "governance",
         "access",

@@ -48,6 +48,48 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         )
     }
 
+    func testConfiguredFallsBackToPackagedProductionCabinetWithoutShellEnvironment() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DesktopCabinetConfigurationTests.packaged-default"))
+        defaults.removePersistentDomain(forName: "DesktopCabinetConfigurationTests.packaged-default")
+
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(from: [:], defaults: defaults))
+
+        XCTAssertEqual(configuration.baseURL.absoluteString, "https://rec.2brain.pro")
+        XCTAssertEqual(configuration.source, "packaged_default")
+        XCTAssertEqual(configuration.meetingsURL().absoluteString, "https://rec.2brain.pro/desktop/meetings")
+        XCTAssertGreaterThanOrEqual(configuration.loadTimeoutSeconds, 10)
+        XCTAssertEqual(configuration.headers["X-Client-Version"], "local-macos")
+        XCTAssertNil(configuration.headers["Authorization"])
+        XCTAssertNil(configuration.headers["X-User-Id"])
+    }
+
+    func testConfiguredPrefersPersistedCabinetOriginBeforePackagedDefault() throws {
+        let suiteName = "DesktopCabinetConfigurationTests.persisted-origin"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set("https://pilot.rec.example/workspace/path", forKey: DesktopCabinetConfiguration.baseURLUserDefaultsKey)
+
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(from: [:], defaults: defaults))
+
+        XCTAssertEqual(configuration.baseURL.absoluteString, "https://pilot.rec.example")
+        XCTAssertEqual(configuration.source, DesktopCabinetConfiguration.baseURLUserDefaultsKey)
+    }
+
+    func testConfiguredEnvironmentOriginOverridesPersistedOrigin() throws {
+        let suiteName = "DesktopCabinetConfigurationTests.env-overrides-persisted"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set("https://persisted.rec.example", forKey: DesktopCabinetConfiguration.baseURLUserDefaultsKey)
+
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(
+            from: [DesktopCabinetConfiguration.baseURLEnvironmentKey: "https://env.rec.example"],
+            defaults: defaults
+        ))
+
+        XCTAssertEqual(configuration.baseURL.absoluteString, "https://env.rec.example")
+        XCTAssertEqual(configuration.source, DesktopCabinetConfiguration.baseURLEnvironmentKey)
+    }
+
     func testUnavailableMessagesDoNotExposeSecretsOrLivePaths() {
         let message = DesktopCabinetState.expiredSession.userMessage
 
@@ -78,6 +120,47 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
                     "\(state) leaked \(fragment)"
                 )
             }
+        }
+    }
+
+    func testHTTPStatusMappingKeepsAuthenticationFailuresTruthful() {
+        XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 200))
+        XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 302))
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 401), .expiredSession)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 403), .accessDenied)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 404), .notFound)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 502), .offline)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 418), .malformedResponse)
+    }
+
+    func testNavigationCancellationDoesNotOverwriteHTTPFailureState() {
+        let cancelled = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+
+        XCTAssertEqual(
+            DesktopCabinetState.state(forNavigationError: cancelled, currentState: .expiredSession),
+            .expiredSession
+        )
+        XCTAssertEqual(
+            DesktopCabinetState.state(forNavigationError: cancelled, currentState: .blockedRoute),
+            .blockedRoute
+        )
+    }
+
+    func testNavigationTimeoutStillMapsToTimeout() {
+        let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+
+        XCTAssertEqual(
+            DesktopCabinetState.state(forNavigationError: timeout, currentState: .loading),
+            .timeout
+        )
+    }
+
+    func testWorkspaceShowsEmbeddedSurfaceOnlyForLoadingAndReadyStates() {
+        XCTAssertTrue(DesktopCabinetState.loading.shouldShowEmbeddedSurface)
+        XCTAssertTrue(DesktopCabinetState.ready.shouldShowEmbeddedSurface)
+
+        for state in DesktopCabinetState.allCases where state != .loading && state != .ready {
+            XCTAssertFalse(state.shouldShowEmbeddedSurface, "\(state)")
         }
     }
 }

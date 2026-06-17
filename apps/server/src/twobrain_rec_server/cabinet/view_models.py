@@ -15,6 +15,8 @@ from twobrain_rec_server.api.schemas import (
     MeetingProvenance,
     MeetingReviewResponse,
     MeetingReviewStatus,
+    NotesActionCategoryState,
+    NotesActionTruthState,
     NotesReviewState,
     PlaybackReviewState,
     ProcessingReviewState,
@@ -228,6 +230,7 @@ def build_list_item(
     status = review_status(meeting, result=result, workflow=workflow)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
+    notes_truth = notes_action_truth_state(status=status, result=result)
     return MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting),
@@ -241,7 +244,8 @@ def build_list_item(
         primary_action=primary_action_for_status(status),
         transcript_available=transcript_available(result),
         diarization_available=diarization_available(result),
-        notes_available=False,
+        notes_available=notes_truth.summary.state == "available",
+        notes_action_truth=notes_truth,
         updated_at=meeting.updated_at,
         access=access_state,
         artifacts=artifact_states,
@@ -419,6 +423,114 @@ def notes_state(status: MeetingReviewStatus) -> NotesReviewState:
     return NotesReviewState(available=False, sections=[], unavailable_reason="not_requested")
 
 
+def _notes_action_category(
+    *,
+    state: str,
+    label: str,
+    reason: str,
+    readiness_impact: str,
+    copy_key: str,
+) -> NotesActionCategoryState:
+    return NotesActionCategoryState(
+        state=state,
+        label=label,
+        reason=reason,
+        readiness_impact=readiness_impact,
+        copy_key=copy_key,
+    )
+
+
+def notes_action_truth_state(
+    *,
+    status: MeetingReviewStatus,
+    result: ProcessingResult | None,
+) -> NotesActionTruthState:
+    if status in {"processing", "submitted", "uploading"}:
+        category = _notes_action_category(
+            state="processing",
+            label="Outcomes processing",
+            reason="Transcript and generated outcomes may still be processing.",
+            readiness_impact="keeps_gap_open",
+            copy_key="notes.outcomes.processing",
+        )
+        return NotesActionTruthState(
+            summary=category,
+            decisions=category,
+            action_items=category,
+            followups=category,
+            source_basis="processing_status",
+        )
+
+    if status in {"blocked", "failed"}:
+        category = _notes_action_category(
+            state="blocked",
+            label="Outcomes blocked",
+            reason="Meeting processing needs operator review before outcomes can be trusted.",
+            readiness_impact="keeps_gap_open",
+            copy_key="notes.outcomes.blocked",
+        )
+        return NotesActionTruthState(
+            summary=category,
+            decisions=category,
+            action_items=category,
+            followups=category,
+            source_basis="processing_status",
+        )
+
+    if status in {"ready", "partial"}:
+        if result is not None and result.summary_status == SummaryStatus.AVAILABLE.value:
+            summary = _notes_action_category(
+                state="blocked",
+                label="Summary unavailable",
+                reason="Summary availability was reported, but no stored launch-safe summary content is available.",
+                readiness_impact="keeps_gap_open",
+                copy_key="notes.summary.blocked_missing_stored_output",
+            )
+            deferred = _notes_action_category(
+                state="deferred",
+                label="Outcome deferred",
+                reason="This outcome is deferred until generated content is stored and reviewable.",
+                readiness_impact="keeps_gap_open",
+                copy_key="notes.outcomes.deferred",
+            )
+            return NotesActionTruthState(
+                summary=summary,
+                decisions=deferred,
+                action_items=deferred,
+                followups=deferred,
+                source_basis="processing_status",
+            )
+        category = _notes_action_category(
+            state="deferred",
+            label="Outcomes deferred",
+            reason="Transcript review is available, but generated meeting outcomes are not part of this stored result.",
+            readiness_impact="keeps_gap_open",
+            copy_key="notes.outcomes.deferred",
+        )
+        return NotesActionTruthState(
+            summary=category,
+            decisions=category,
+            action_items=category,
+            followups=category,
+            source_basis="policy_deferral",
+        )
+
+    category = _notes_action_category(
+        state="unavailable",
+        label="Outcomes unavailable",
+        reason="No reviewable transcript or generated outcome source is available for this meeting.",
+        readiness_impact="keeps_gap_open",
+        copy_key="notes.outcomes.unavailable",
+    )
+    return NotesActionTruthState(
+        summary=category,
+        decisions=category,
+        action_items=category,
+        followups=category,
+        source_basis="not_supported",
+    )
+
+
 def playback_state(meeting: Meeting, status: MeetingReviewStatus) -> PlaybackReviewState:
     return PlaybackReviewState(
         available=status in {"ready", "partial"},
@@ -466,6 +578,7 @@ def build_review_response(
         artifacts=artifact_states,
     )
     status = cast(MeetingReviewStatus, item.status)
+    notes_truth = notes_action_truth_state(status=status, result=result)
     return MeetingReviewResponse(
         meeting=item,
         provenance=provenance_state(
@@ -482,6 +595,7 @@ def build_review_response(
         ),
         speakers=speaker_state(diarization_segments),
         notes=notes_state(status),
+        notes_action_truth=notes_truth,
         playback=playback_state(meeting, status),
         governance=governance_summary(access=access_state, artifacts=artifact_states),
         access=access_state,
