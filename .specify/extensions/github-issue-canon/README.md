@@ -82,3 +82,17 @@ been installed under `.specify/extensions/github-issue-canon`.
 The canonical project-facing issue and PR text is Russian-only. Validation
 requires the current Russian issue sections; normalize older issues before
 claiming the issue canon is clean.
+
+## Release And Versioning Guidance
+
+Projects refreshed by this extension should keep release metadata readable for
+people and stable for tools:
+
+- product apps, deployed services, and release-train bundles should use CalVer
+  tags: `vYYYY.MM.DD.N`;
+- libraries, CLI tools, reusable Spec Kit extensions, bootstrap wrappers, and
+  dependency-like packages should use SemVer tags: `vMAJOR.MINOR.PATCH`;
+- descriptive postfixes belong in the GitHub Release title, not in the stable
+  tag, for example `v2026.06.18.1 - release-rules`;
+- every release should have Russian release notes with validation evidence,
+  migration/compatibility impact, known limitations, and PR/issue links.
