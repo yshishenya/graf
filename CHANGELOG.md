@@ -119,6 +119,10 @@ Semantic Versioning 2.0.0.
 
 ### Fixed
 
+- Desktop embedded cabinet now preserves desktop auth headers across WebKit
+  link navigations to `/desktop/meetings` and meeting detail routes, so clicking
+  a recording row no longer falls back to a false login/unavailable state
+  (`feature:042`).
 - Desktop embedded cabinet now ignores non-main-frame WebKit response failures,
   so favicon/apple-touch icon probes cannot replace a valid login/meetings
   surface with a false unavailable state; production web cabinet also answers

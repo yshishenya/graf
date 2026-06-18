@@ -53,21 +53,34 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     }
 
     public func makeCoordinator() -> Coordinator {
-        Coordinator(routePolicy: routePolicy, cabinetState: $cabinetState)
+        Coordinator(
+            routePolicy: routePolicy,
+            desktopHeaders: request.allHTTPHeaderFields ?? [:],
+            cabinetState: $cabinetState
+        )
     }
 
     public final class Coordinator: NSObject, WKNavigationDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
+        private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         @Binding private var cabinetState: DesktopCabinetState
 
-        init(routePolicy: DesktopCabinetRoutePolicy, cabinetState: Binding<DesktopCabinetState>) {
+        init(
+            routePolicy: DesktopCabinetRoutePolicy,
+            desktopHeaders: [String: String],
+            cabinetState: Binding<DesktopCabinetState>
+        ) {
             self.routePolicy = routePolicy
+            navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
+                routePolicy: routePolicy,
+                desktopHeaders: desktopHeaders
+            )
             _cabinetState = cabinetState
         }
 
         @MainActor
         public func webView(
-            _: WKWebView,
+            _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
@@ -88,6 +101,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let decision = routePolicy.decision(for: url)
             switch decision.decision {
             case .allow:
+                switch navigationRequestPolicy.decision(
+                    forNavigationRequest: navigationAction.request,
+                    isForMainFrame: navigationAction.targetFrame?.isMainFrame != false
+                ) {
+                case .allow:
+                    break
+                case let .reload(reloadedRequest):
+                    cabinetState = .loading
+                    webView.load(reloadedRequest)
+                    decisionHandler(.cancel)
+                    return
+                }
                 cabinetState = .loading
                 decisionHandler(.allow)
             case .openExternally:
