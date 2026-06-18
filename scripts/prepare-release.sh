@@ -60,7 +60,7 @@ if [[ -z "${unreleased_content}" ]]; then
   exit 1
 fi
 
-real_entries="$(printf '%s\n' "$unreleased_content" | awk '/^[[:space:]]*-[[:space:]]*/ {if ($0 !~ /No entries yet/) count++} END {if (count > 0) print count else print 0}')"
+real_entries="$(printf '%s\n' "$unreleased_content" | awk '/^[[:space:]]*-[[:space:]]*/ {if ($0 !~ /No entries yet/) count++} END {if (count > 0) {print count} else {print 0}}')"
 if [[ "$real_entries" -eq 0 ]]; then
   echo "error: unreleased block has no concrete entries"
   echo "add real bullets to CHANGELOG.md first"
