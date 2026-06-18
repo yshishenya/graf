@@ -23,10 +23,15 @@ else
   latest_version="${latest_tag#v}"
 fi
 
-if [[ "$bump_input" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ "$bump_input" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]]; then
   next_version="$bump_input"
 else
-  IFS='.' read -r major minor patch <<< "$latest_version"
+  IFS='.' read -r major minor patch extra <<< "$latest_version"
+  if [[ -n "${extra:-}" ]]; then
+    echo "error: latest tag v$latest_version uses CalVer"
+    echo "pass an explicit version such as YYYY.MM.DD.N"
+    exit 1
+  fi
   case "$bump_input" in
     patch)
       patch=$((patch + 1))
@@ -74,7 +79,7 @@ tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
 
 {
-  printf '%s\n' "$head_part"
+  printf '%s\n\n' "$head_part"
   cat <<'EOF'
 ## [Unreleased]
 

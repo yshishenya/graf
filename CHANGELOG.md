@@ -2,7 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
-Semantic Versioning 2.0.0.
+uses Calendar Versioning for product releases (`vYYYY.MM.DD.N`). Reusable
+tooling in this repository may use Semantic Versioning where documented.
+
 ## [Unreleased]
 
 ### Added
@@ -19,6 +21,30 @@ Semantic Versioning 2.0.0.
 
 ### Docs
 - _No entries yet._
+
+### Ops
+- _No entries yet._
+
+## [2026.06.18.1] - 2026-06-18
+
+
+### Added
+- _No entries yet._
+
+### Changed
+- _No entries yet._
+
+### Fixed
+- _No entries yet._
+
+### Security
+- _No entries yet._
+
+### Docs
+- Добавлены правила release/versioning: CalVer `vYYYY.MM.DD.N` для
+  продуктовых apps/services, SemVer `vMAJOR.MINOR.PATCH` для tooling,
+  extensions и bootstrap, а человекочитаемый postfix теперь должен жить в
+  GitHub Release title, не в stable tag.
 
 ### Ops
 - _No entries yet._

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+## [0.2.1] - 2026-06-18
+
+### Added
+
+- Added release/versioning guidance to the reusable PR template and extension
+  README: product apps and services should use CalVer `vYYYY.MM.DD.N`, reusable
+  tooling should use SemVer `vMAJOR.MINOR.PATCH`, and human-readable release
+  postfixes should live in GitHub Release titles rather than stable tags.
+
 ## [0.2.0] - 2026-06-18
 
 ### Changed

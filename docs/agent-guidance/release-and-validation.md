@@ -57,24 +57,62 @@ Keep entries grouped by:
 
 Include feature, issue, or task references when available.
 
-## Semantic Versioning
+## Versioning
 
-This repo uses Semantic Versioning:
+Every release must have a version tag, a GitHub Release, and a human-written
+Russian changelog entry. Do not ship a release from a floating branch name or
+from a tag that has no release notes.
 
-- `MAJOR` for breaking behavioral or API compatibility changes.
-- `MINOR` for new user-visible capabilities or reversible architecture
-  additions with backward compatibility.
-- `PATCH` for bug fixes, reliability work, documentation, and operational
-  quality improvements.
+Use this versioning policy:
 
-Release command:
+- Product apps, deployed services, and release-train bundles use Calendar
+  Versioning: `vYYYY.MM.DD.N`, where `N` starts at `1` and increments for
+  multiple releases on the same day. Example: `v2026.06.18.1`.
+- Libraries, CLI tools, reusable Spec Kit extensions, bootstrap wrappers, and
+  anything consumed as a dependency use Semantic Versioning:
+  `vMAJOR.MINOR.PATCH`.
+- Use SemVer `MAJOR` for breaking API/CLI/workflow compatibility changes,
+  `MINOR` for backward-compatible features or new capabilities, and `PATCH` for
+  fixes, docs, reliability, or operational quality improvements.
+- Do not put a descriptive slug in the stable tag. A tag such as
+  `v2026.06.18.1-release-rules` is harder to sort and may be interpreted like a
+  prerelease by tooling. Put the readable postfix in the GitHub Release title
+  instead, for example `v2026.06.18.1 - release-rules`.
+- Use prerelease suffixes only for real prereleases: `-alpha.N`, `-beta.N`, or
+  `-rc.N`.
+- If a repository already has a published versioning scheme, do not switch it
+  silently. Document the migration in `CHANGELOG.md`, explain why the old scheme
+  no longer fits, and make the next release notes explicit.
+
+Product release command:
 
 ```sh
-./scripts/prepare-release.sh patch|minor|major
+./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 
-Then review `CHANGELOG.md`, commit release prep, create tag `vX.Y.Z`, and push
-the branch and tags only when the user approves the release action.
+For example:
+
+```sh
+./scripts/prepare-release.sh 2026.06.18.1
+```
+
+Use `patch`, `minor`, or `major` only in repositories that are intentionally
+still using SemVer. In a CalVer product release train, pass the full version
+explicitly so the date and same-day release counter are deliberate.
+
+Then review `CHANGELOG.md`, commit release prep, create the matching tag, and
+push the branch and tags only when the user approves the release action.
+
+## Release Notes
+
+Every GitHub Release must be written in Russian and include:
+
+- what changed, in plain language;
+- compatibility or migration impact;
+- validation evidence;
+- links to PRs and issues when available;
+- rollout, deployment, or rollback notes when relevant;
+- explicit limitations and follow-up work.
 
 ## Git Safety
 

@@ -189,6 +189,17 @@ Never reset or discard user changes.
 Maintain `CHANGELOG.md` for feature slices that change behavior, architecture,
 UX, QA expectations, operations, or release readiness.
 
+<!-- SPECKIT RELEASE VERSIONING START -->
+## Правила релизов и версий
+
+- Каждый релиз должен иметь tag, GitHub Release и понятный русский changelog/release notes.
+- Product apps, deployed services и release-train bundles версионируй через CalVer: `vYYYY.MM.DD.N`.
+- Libraries, CLI tools, reusable Spec Kit extensions и bootstrap wrappers версионируй через SemVer: `vMAJOR.MINOR.PATCH`.
+- Человекочитаемый postfix релиза пиши в GitHub Release title, не в stable tag: например `v2026.06.18.1 - release-rules`.
+- Prerelease suffix используй только для настоящих prerelease: `-alpha.N`, `-beta.N`, `-rc.N`.
+- Release notes должны быть на русском и содержать: что изменилось, validation evidence, compatibility/migration impact, known limitations и ссылки на PR/issues.
+<!-- SPECKIT RELEASE VERSIONING END -->
+
 ## Repository Hygiene
 
 Do not commit secrets. Never write real credentials, API keys, tokens, signed
@@ -218,7 +229,7 @@ specify integration list
 specify extension list
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 infra/scripts/ci-local.sh
-./scripts/prepare-release.sh patch
+./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 
 <!-- SPECKIT GITHUB ISSUE START -->
