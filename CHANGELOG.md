@@ -207,6 +207,13 @@ tooling in this repository may use Semantic Versioning where documented.
 - Dev MinIO policy now includes bucket metadata and multipart permissions
   required by local readiness/upload checks, so `docker-compose.dev.yml`
   can reach `ready` after the local stack is rebuilt (`feature:043`).
+- Desktop sidebar navigation now uses native clickable rows, tracks embedded
+  WebKit route changes, and lets `Мои встречи` return from a meeting detail
+  route back to the recordings list inside the app (`feature:042`).
+- Desktop meetings shell now keeps local-only queued/blocked recordings visible
+  above the embedded server cabinet until a server meeting identity exists, so
+  a saved recording no longer disappears from the app when upload is blocked by
+  local quality/privacy truth (`feature:042`).
 - Desktop recording upload now uses the packaged production origin when no
   shell environment is present, reuses the embedded web owner session cookie for
   native upload requests, refreshes stale local queue eligibility, and uploads

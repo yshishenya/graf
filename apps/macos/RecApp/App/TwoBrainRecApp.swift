@@ -170,7 +170,12 @@ private struct ContentView: View {
             lastEventSummary: snapshot.lastEventSummary,
             isChecking: isChecking,
             onRefresh: refresh,
-            onRunCheck: runCheck
+            onRunCheck: runCheck,
+            onOpenMeetingsList: {
+                selectedCabinetRoute = desktopCabinetConfiguration.map {
+                    DesktopCabinetWorkspace.defaultRoute(configuration: $0)
+                }
+            }
         ) {
             CaptureControlView(
                 session: captureSession,
@@ -211,6 +216,7 @@ private struct ContentView: View {
             DesktopCabinetWorkspaceView(
                 configuration: desktopCabinetConfiguration,
                 initialRoute: selectedCabinetRoute,
+                currentRoute: $selectedCabinetRoute,
                 presentation: .shell,
                 workspaceZoom: workspaceZoom
             )

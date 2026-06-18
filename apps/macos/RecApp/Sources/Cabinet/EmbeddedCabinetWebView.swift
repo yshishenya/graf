@@ -9,17 +9,20 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let routePolicy: DesktopCabinetRoutePolicy
     private let workspaceZoom: WorkspaceZoomPreference
     @Binding private var cabinetState: DesktopCabinetState
+    @Binding private var currentRoute: URL?
 
     public init(
         request: URLRequest,
         routePolicy: DesktopCabinetRoutePolicy,
         cabinetState: Binding<DesktopCabinetState>,
-        workspaceZoom: WorkspaceZoomPreference = .default
+        workspaceZoom: WorkspaceZoomPreference = .default,
+        currentRoute: Binding<URL?> = .constant(nil)
     ) {
         self.request = request
         self.routePolicy = routePolicy
         self.workspaceZoom = workspaceZoom
         _cabinetState = cabinetState
+        _currentRoute = currentRoute
     }
 
     public nonisolated static func loadIdentity(for request: URLRequest) -> String {
@@ -28,8 +31,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         return "\(method) \(url)"
     }
 
+    public nonisolated static func loadIdentity(method: String = "GET", url: URL) -> String {
+        "\(method) \(url.absoluteString)"
+    }
+
     public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
         lastLoadedRequestIdentity != loadIdentity(for: request)
+    }
+
+    public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
+        loaded
     }
 
     public func makeNSView(context: Context) -> NSView {
@@ -61,7 +72,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         Coordinator(
             routePolicy: routePolicy,
             desktopHeaders: request.allHTTPHeaderFields ?? [:],
-            cabinetState: $cabinetState
+            cabinetState: $cabinetState,
+            currentRoute: $currentRoute
         )
     }
 
@@ -69,11 +81,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         @Binding private var cabinetState: DesktopCabinetState
+        @Binding private var currentRoute: URL?
 
         init(
             routePolicy: DesktopCabinetRoutePolicy,
             desktopHeaders: [String: String],
-            cabinetState: Binding<DesktopCabinetState>
+            cabinetState: Binding<DesktopCabinetState>,
+            currentRoute: Binding<URL?>
         ) {
             self.routePolicy = routePolicy
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
@@ -81,6 +95,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 desktopHeaders: desktopHeaders
             )
             _cabinetState = cabinetState
+            _currentRoute = currentRoute
         }
 
         @MainActor
@@ -137,6 +152,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 return
             }
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
+            if let container = webView.superview as? WebViewContainer {
+                container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
+            }
+            currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             cabinetState = .ready
         }
 
@@ -205,7 +224,8 @@ public struct EmbeddedCabinetWebView: View {
         request _: URLRequest,
         routePolicy _: DesktopCabinetRoutePolicy,
         cabinetState _: Binding<DesktopCabinetState>,
-        workspaceZoom _: WorkspaceZoomPreference = .default
+        workspaceZoom _: WorkspaceZoomPreference = .default,
+        currentRoute _: Binding<URL?> = .constant(nil)
     ) {
         message = DesktopCabinetState.notConfigured.userMessage
     }
@@ -218,6 +238,10 @@ public struct EmbeddedCabinetWebView: View {
 
     public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
         lastLoadedRequestIdentity != loadIdentity(for: request)
+    }
+
+    public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
+        loaded
     }
 
     public var body: some View {

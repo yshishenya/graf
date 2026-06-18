@@ -129,6 +129,111 @@ public enum DesktopMeetingShellChrome {
     }
 }
 
+public enum DesktopMeetingShellSidebarItem: String, CaseIterable, Identifiable, Sendable {
+    case search
+    case meetings
+    case shared
+    case actions
+    case activity
+    case settings
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .search:
+            return "Поиск"
+        case .meetings:
+            return "Мои встречи"
+        case .shared:
+            return "Общие"
+        case .actions:
+            return "Действия"
+        case .activity:
+            return "Активность"
+        case .settings:
+            return "Настройки"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .search:
+            return "magnifyingglass"
+        case .meetings:
+            return "rectangle.stack"
+        case .shared:
+            return "person.2"
+        case .actions:
+            return "checkmark.circle"
+        case .activity:
+            return "waveform.path.ecg"
+        case .settings:
+            return "gearshape"
+        }
+    }
+
+    public var accessibilityLabel: String {
+        switch self {
+        case .meetings:
+            return "Открыть список встреч"
+        default:
+            return "Открыть раздел \(title)"
+        }
+    }
+
+    public func destinationRoute(configuration: DesktopCabinetConfiguration) -> URL? {
+        switch self {
+        case .meetings:
+            return DesktopCabinetWorkspace.defaultRoute(configuration: configuration)
+        default:
+            return nil
+        }
+    }
+}
+
+public enum DesktopMeetingShellLocalQueuePolicy {
+    public static func rowsNeedingNativeVisibility(
+        _ items: [DesktopUploadQueueItem],
+        limit: Int = 12
+    ) -> [DesktopUploadQueueItem] {
+        Array(
+            items
+                .filter { item in
+                    item.state != .terminalDeleted &&
+                        item.meetingId == nil &&
+                        item.serverTruth.meetingId == nil
+                }
+                .sortedForNativeLocalDisplay()
+                .prefix(limit)
+        )
+    }
+
+    public static func allRowsForLocalMode(
+        _ items: [DesktopUploadQueueItem],
+        limit: Int = 12
+    ) -> [DesktopUploadQueueItem] {
+        Array(items.sortedForNativeLocalDisplay().prefix(limit))
+    }
+}
+
+private extension Array where Element == DesktopUploadQueueItem {
+    func sortedForNativeLocalDisplay() -> [DesktopUploadQueueItem] {
+        sorted {
+            if $0.createdAt != $1.createdAt {
+                return $0.createdAt > $1.createdAt
+            }
+            if $0.updatedAt != $1.updatedAt {
+                return $0.updatedAt > $1.updatedAt
+            }
+            if $0.state.sortPriority != $1.state.sortPriority {
+                return $0.state.sortPriority < $1.state.sortPriority
+            }
+            return $0.id < $1.id
+        }
+    }
+}
+
 public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View, DiagnosticsContent: View>: View {
     private let session: CaptureSession?
     private let uploadQueueItems: [DesktopUploadQueueItem]
@@ -139,10 +244,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let isChecking: Bool
     private let onRefresh: () -> Void
     private let onRunCheck: () -> Void
+    private let onOpenMeetingsList: () -> Void
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     private let diagnosticsContent: DiagnosticsContent
     @State private var inspectorExpanded = false
+    @State private var selectedSidebarItem = DesktopMeetingShellSidebarItem.meetings
 
     public init(
         session: CaptureSession?,
@@ -154,6 +261,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         isChecking: Bool,
         onRefresh: @escaping () -> Void,
         onRunCheck: @escaping () -> Void,
+        onOpenMeetingsList: @escaping () -> Void = {},
         @ViewBuilder captureControls: () -> CaptureControls,
         @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace,
         @ViewBuilder diagnosticsContent: () -> DiagnosticsContent
@@ -167,6 +275,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.isChecking = isChecking
         self.onRefresh = onRefresh
         self.onRunCheck = onRunCheck
+        self.onOpenMeetingsList = onOpenMeetingsList
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
         self.diagnosticsContent = diagnosticsContent()
@@ -221,12 +330,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .padding(.top, 6)
 
             VStack(alignment: .leading, spacing: 4) {
-                navRow("Поиск", "magnifyingglass", selected: false)
-                navRow("Мои встречи", "rectangle.stack", selected: true)
-                navRow("Общие", "person.2", selected: false)
-                navRow("Действия", "checkmark.circle", selected: false, badge: pendingUploadCount)
-                navRow("Активность", "waveform.path.ecg", selected: false)
-                navRow("Настройки", "gearshape", selected: false)
+                ForEach(DesktopMeetingShellSidebarItem.allCases) { item in
+                    navRow(
+                        item,
+                        selected: selectedSidebarItem == item,
+                        badge: item == .actions ? pendingUploadCount : 0
+                    )
+                }
             }
 
             Spacer()
@@ -238,31 +348,43 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .background(DesktopMeetingShellChrome.shellSidebarColor)
     }
 
-    private func navRow(_ title: String, _ icon: String, selected: Bool, badge: Int = 0) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: icon)
-                .frame(width: 17)
-            Text(title)
-                .lineLimit(1)
-                .minimumScaleFactor(0.86)
-                .layoutPriority(1)
-            Spacer(minLength: 6)
-            if badge > 0 {
-                Text("\(badge)")
-                    .font(.caption2.monospacedDigit())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.22)))
+    private func navRow(_ item: DesktopMeetingShellSidebarItem, selected: Bool, badge: Int = 0) -> some View {
+        Button {
+            selectedSidebarItem = item
+            if item == .meetings {
+                onOpenMeetingsList()
             }
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: item.systemImage)
+                    .frame(width: 17)
+                Text(item.title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.86)
+                    .layoutPriority(1)
+                Spacer(minLength: 6)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(.caption2.monospacedDigit())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.22)))
+                }
+            }
+            .font(.system(size: 12, weight: selected ? .semibold : .medium))
+            .foregroundStyle(selected ? .primary : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(selected ? Color.primary.opacity(0.08) : Color.clear)
+            )
         }
-        .font(.system(size: 12, weight: selected ? .semibold : .medium))
-        .foregroundStyle(selected ? .primary : .secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(selected ? Color.primary.opacity(0.08) : Color.clear)
-        )
+        .buttonStyle(.plain)
+        .help(item.accessibilityLabel)
+        .accessibilityLabel(item.accessibilityLabel)
     }
 
     private var profileMenu: some View {
@@ -383,16 +505,65 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var meetingsSurface: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if cabinetConfigured {
-                meetingsWorkspace
+            switch selectedSidebarItem {
+            case .meetings:
+                if cabinetConfigured {
+                    cabinetMeetingsWorkspace
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    localMeetingsWorkspace
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } else {
-                localMeetingsWorkspace
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+            default:
+                sidebarPlaceholder(for: selectedSidebarItem)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .padding(cabinetConfigured ? 0 : 18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var cabinetMeetingsWorkspace: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !localQueueRows.isEmpty {
+                localQueueCompactPanel
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
+            }
+            meetingsWorkspace
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func sidebarPlaceholder(for item: DesktopMeetingShellSidebarItem) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(item.title, systemImage: item.systemImage)
+                .font(.title3)
+                .fontWeight(.semibold)
+            Text("Раздел появится в следующих версиях. Сейчас рабочий экран записи и транскриптов находится в моих встречах.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                selectedSidebarItem = .meetings
+                onOpenMeetingsList()
+            } label: {
+                Label("Мои встречи", systemImage: DesktopMeetingShellSidebarItem.meetings.systemImage)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(22)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+        )
+        .padding(18)
     }
 
     private var localMeetingsWorkspace: some View {
@@ -523,18 +694,45 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var localQueueRows: [DesktopUploadQueueItem] {
-        uploadQueueItems
-            .sorted {
-                if $0.state.sortPriority != $1.state.sortPriority {
-                    return $0.state.sortPriority < $1.state.sortPriority
-                }
-                if $0.updatedAt != $1.updatedAt {
-                    return $0.updatedAt > $1.updatedAt
-                }
-                return $0.id < $1.id
+        if cabinetConfigured {
+            return DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility(uploadQueueItems)
+        }
+        return DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode(uploadQueueItems)
+    }
+
+    private var localQueueCompactPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label("Локально на этом Mac", systemImage: "internaldrive")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text("\(localQueueRows.count)")
+                    .font(.caption2.monospacedDigit())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.22)))
             }
-            .prefix(12)
-            .map { $0 }
+            VStack(spacing: 0) {
+                ForEach(localQueueRows.prefix(3)) { item in
+                    localRecordingRow(item)
+                    if item.id != localQueueRows.prefix(3).last?.id {
+                        Divider()
+                            .padding(.leading, 42)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+        )
     }
 
     private func localRecordingRow(_ item: DesktopUploadQueueItem) -> some View {
@@ -559,11 +757,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Text(localRecordingDateText(for: item.updatedAt))
+                Text(localRecordingDateText(for: item.createdAt))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(localRecordingTimeText(for: item.updatedAt))
+                Text(localRecordingTimeText(for: item.createdAt))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -580,7 +778,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         if item.meetingId != nil {
             return "Встреча"
         }
-        return "Запись \(localRecordingTimeText(for: item.updatedAt))"
+        return "Запись \(localRecordingTimeText(for: item.createdAt))"
     }
 
     private func localRecordingDetail(for item: DesktopUploadQueueItem) -> String {

@@ -43,6 +43,54 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(manualSummary.detail, "нужна ручная проверка локальной записи")
     }
 
+    func testNativeMeetingListKeepsBlockedLocalRecordingsVisibleUntilServerSeesThem() {
+        let visibleBlocked = makeQueueItem(
+            id: "blocked-local",
+            state: .blocked,
+            retryMode: .manualOnly,
+            failureReason: "local_recording_package_not_uploadable",
+            updatedAt: Date(timeIntervalSince1970: 40)
+        )
+        let uploadedServerVisible = makeQueueItem(
+            id: "uploaded-server",
+            state: .uploaded,
+            retryMode: .terminal,
+            meetingId: "meeting-042",
+            updatedAt: Date(timeIntervalSince1970: 50)
+        )
+
+        let rows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
+            uploadedServerVisible,
+            visibleBlocked
+        ])
+
+        XCTAssertEqual(rows.map(\.id), ["blocked-local"])
+    }
+
+    func testNativeMeetingListPrioritizesNewestLocalOnlyRecording() {
+        let olderQueued = makeQueueItem(
+            id: "older-queued",
+            state: .queued,
+            retryMode: .automatic,
+            createdAt: Date(timeIntervalSince1970: 30),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let newestBlocked = makeQueueItem(
+            id: "newest-blocked",
+            state: .blocked,
+            retryMode: .manualOnly,
+            createdAt: Date(timeIntervalSince1970: 60),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let rows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
+            olderQueued,
+            newestBlocked
+        ])
+
+        XCTAssertEqual(rows.first?.id, "newest-blocked")
+    }
+
     func testScanEnqueuesCompletedRecordingOnce() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -500,10 +548,14 @@ final class DesktopUploadQueueTests: XCTestCase {
     }
 
     private func makeQueueItem(
+        id: String = "queue-id",
         state: UploadItemState = .queued,
         retryMode: UploadRetryMode = .automatic,
         failureReason: String? = nil,
-        syncConflictState: DesktopSyncConflictState = .none
+        syncConflictState: DesktopSyncConflictState = .none,
+        meetingId: String? = nil,
+        createdAt: Date = Date(timeIntervalSince1970: 1),
+        updatedAt: Date = Date(timeIntervalSince1970: 1)
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
@@ -521,7 +573,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             isUploadable: true
         )
         return DesktopUploadQueueItem(
-            id: "queue-id",
+            id: id,
             sessionId: "session",
             directoryId: "directory",
             directoryPath: "/tmp/directory",
@@ -532,8 +584,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             failureReason: failureReason,
             retryMode: retryMode,
             retentionDeadline: Date(timeIntervalSince1970: 1_000),
-            createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 1),
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            meetingId: meetingId,
             syncConflictState: syncConflictState,
             artifactProfile: profile,
             retentionDecision: RetentionDecision(
