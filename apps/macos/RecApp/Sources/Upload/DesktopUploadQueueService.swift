@@ -585,6 +585,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.serverTruth = existing.serverTruth
         merged.retryRecords = existing.retryRecords
         merged.createdAt = existing.createdAt
+        if refreshed.artifactProfile.isUploadable && existing.syncConflictState == .localFilesMissing {
+            merged.syncConflictState = .none
+        }
         if !refreshed.artifactProfile.isUploadable && existing.state == .blocked {
             merged.state = existing.state
             merged.failureCategory = existing.failureCategory

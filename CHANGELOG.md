@@ -21,6 +21,10 @@ tooling in this repository may use Semantic Versioning where documented.
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Desktop upload rescan now clears a stale `local_files_missing` conflict when
+  a previously in-flight local recording is proven uploadable after restart, so
+  the queue can resume creating the server meeting instead of leaving the item
+  invisible in web and desktop review (`feature:042`).
 - Upload resume status now omits fully covered tracks from
   `missing_ranges_by_track`, so desktop recordings that uploaded all parts are
   finalized instead of being marked `server_still_missing_ranges`
