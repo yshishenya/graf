@@ -190,22 +190,22 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord) -> No
     meeting.local_media_revision_id = local_media_revision_id
     meeting.media_revision_id = media_revision_id
     if existing is None:
-        db.add(
-            Meeting(
-                id=meeting.id,
-                workspace_id=meeting.workspace_id,
-                created_by_user_id=meeting.created_by_user_id,
-                device_id=meeting.device_id,
-                local_recording_id=meeting.local_recording_id,
-                title=meeting.title,
-                started_at=meeting.started_at,
-                ended_at=meeting.ended_at,
-                duration_seconds=meeting.duration_seconds,
-                status=meeting.status.value,
-                processing_status=meeting.processing_status.value,
-                created_at=meeting.created_at,
-            )
+        meeting_model = Meeting(
+            id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            created_by_user_id=meeting.created_by_user_id,
+            device_id=meeting.device_id,
+            local_recording_id=meeting.local_recording_id,
+            title=meeting.title,
+            started_at=meeting.started_at,
+            ended_at=meeting.ended_at,
+            duration_seconds=meeting.duration_seconds,
+            status=meeting.status.value,
+            processing_status=meeting.processing_status.value,
+            created_at=meeting.created_at,
         )
+        db.add(meeting_model)
+        await db.flush()
         db.add(
             MediaRevision(
                 id=media_revision_id,
