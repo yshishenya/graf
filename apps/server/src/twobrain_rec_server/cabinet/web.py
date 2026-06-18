@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,6 +81,13 @@ LoginWorkspaceForm = Form(default=None)
 LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
 EMAIL_LOGIN_PROVIDER = "email"
 EMAIL_SIGNUP_PROVIDER = "email_signup"
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+@router.get("/apple-touch-icon.png", include_in_schema=False)
+@router.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+async def browser_icon_probe() -> Response:
+    return Response(status_code=204)
 
 
 async def get_web_request_db_session(

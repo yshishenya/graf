@@ -19,13 +19,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         _cabinetState = cabinetState
     }
 
-    public static func loadIdentity(for request: URLRequest) -> String {
+    public nonisolated static func loadIdentity(for request: URLRequest) -> String {
         let method = request.httpMethod ?? "GET"
         let url = request.url?.absoluteString ?? ""
         return "\(method) \(url)"
     }
 
-    public static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
+    public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
         lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 
@@ -114,17 +114,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
         ) {
-            guard let httpResponse = navigationResponse.response as? HTTPURLResponse else {
-                cabinetState = .malformedResponse
-                decisionHandler(.cancel)
-                return
-            }
-            if let state = DesktopCabinetState.state(forHTTPStatus: httpResponse.statusCode) {
+            switch DesktopCabinetNavigationResponsePolicy().decision(
+                forNavigationResponse: navigationResponse.response,
+                isForMainFrame: navigationResponse.isForMainFrame
+            ) {
+            case .allow:
+                decisionHandler(.allow)
+            case let .cancel(state):
                 cabinetState = state
                 decisionHandler(.cancel)
-                return
             }
-            decisionHandler(.allow)
         }
 
         public func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
@@ -171,13 +170,13 @@ public struct EmbeddedCabinetWebView: View {
         message = DesktopCabinetState.notConfigured.userMessage
     }
 
-    public static func loadIdentity(for request: URLRequest) -> String {
+    public nonisolated static func loadIdentity(for request: URLRequest) -> String {
         let method = request.httpMethod ?? "GET"
         let url = request.url?.absoluteString ?? ""
         return "\(method) \(url)"
     }
 
-    public static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
+    public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
         lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 

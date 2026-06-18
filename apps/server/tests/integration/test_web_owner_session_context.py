@@ -77,6 +77,14 @@ def test_web_owner_session_scaffold_defines_cookie_name_contract() -> None:
     assert AUTH_SESSION_COOKIE_NAME == "__Host-twobrain_rec_owner_session"
 
 
+def test_browser_icon_probe_routes_do_not_pollute_cabinet_with_404(client) -> None:
+    for path in ("/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"):
+        response = client.get(path)
+
+        assert response.status_code == 204
+        assert response.content == b""
+
+
 def test_meetings_page_accepts_owner_session_cookie_without_legacy_headers(client) -> None:
     seed_cabinet_meetings(client)
     client.portal.call(_seed_owner_review_session, client)

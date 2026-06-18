@@ -126,11 +126,59 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
     func testHTTPStatusMappingKeepsAuthenticationFailuresTruthful() {
         XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 200))
         XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 302))
+        XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 303))
+        XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 304))
+        XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 307))
+        XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 308))
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 401), .expiredSession)
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 403), .accessDenied)
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 404), .notFound)
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 502), .offline)
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 418), .malformedResponse)
+    }
+
+    func testNonMainFrameCabinetResponsesDoNotChangeWorkspaceState() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy()
+        let iconResponse = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/favicon.ico")),
+            statusCode: 404,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        let opaqueResponse = URLResponse(
+            url: try XCTUnwrap(URL(string: "data:text/plain,ok")),
+            mimeType: "text/plain",
+            expectedContentLength: 2,
+            textEncodingName: nil
+        )
+
+        XCTAssertEqual(policy.decision(forNavigationResponse: iconResponse, isForMainFrame: false), .allow)
+        XCTAssertEqual(policy.decision(forNavigationResponse: opaqueResponse, isForMainFrame: false), .allow)
+    }
+
+    func testMainFrameCabinetResponsesStillDriveUnavailableState() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy()
+        let expiredSession = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings")),
+            statusCode: 401,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        let opaqueResponse = URLResponse(
+            url: try XCTUnwrap(URL(string: "data:text/plain,ok")),
+            mimeType: "text/plain",
+            expectedContentLength: 2,
+            textEncodingName: nil
+        )
+
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: expiredSession, isForMainFrame: true),
+            .cancel(.expiredSession)
+        )
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: opaqueResponse, isForMainFrame: true),
+            .cancel(.malformedResponse)
+        )
     }
 
     func testNavigationCancellationDoesNotOverwriteHTTPFailureState() {
