@@ -21,6 +21,10 @@ tooling in this repository may use Semantic Versioning where documented.
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Upload resume status now omits fully covered tracks from
+  `missing_ranges_by_track`, so desktop recordings that uploaded all parts are
+  finalized instead of being marked `server_still_missing_ranges`
+  (`feature:042`).
 - Desktop recording upload now uses the packaged production origin when no
   shell environment is present, reuses the embedded web owner session cookie for
   native upload requests, refreshes stale local queue eligibility, and uploads

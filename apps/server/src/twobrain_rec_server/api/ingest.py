@@ -276,6 +276,7 @@ async def get_missing_ranges(
         missing_ranges_by_track={
             role: [MissingRange(start=start, end=end) for start, end in role_ranges]
             for role, role_ranges in ranges.items()
+            if role_ranges
         },
     )
 
