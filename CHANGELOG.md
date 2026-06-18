@@ -3,8 +3,28 @@
 All notable changes to this project will be documented in this file.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 Semantic Versioning 2.0.0.
-
 ## [Unreleased]
+
+### Added
+- _No entries yet._
+
+### Changed
+- _No entries yet._
+
+### Fixed
+- _No entries yet._
+
+### Security
+- _No entries yet._
+
+### Docs
+- _No entries yet._
+
+### Ops
+- _No entries yet._
+
+## [0.1.0] - 2026-06-18
+
 
 ### Added
 
