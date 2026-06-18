@@ -95,7 +95,7 @@ def upgrade() -> None:
         sa.Column("manifest_sha256", sa.String(length=64)),
         sa.Column("track_sha256_by_role", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
         sa.Column("duration_seconds", sa.Integer()),
-        sa.Column("immutable", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("immutable", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("accepted_at", sa.DateTime(timezone=True)),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),

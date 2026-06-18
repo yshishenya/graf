@@ -37,3 +37,5 @@ def test_recording_sync_migration_declares_media_revision_boundaries() -> None:
         '"processing_results"',
     ]:
         assert needle in migration
+    assert 'sa.Column("immutable", sa.Boolean(), nullable=False, server_default=sa.text("true"))' in migration
+    assert 'sa.Column("immutable", sa.Boolean(), nullable=False, server_default=sa.text("1"))' not in migration
