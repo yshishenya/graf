@@ -9,27 +9,38 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let routePolicy: DesktopCabinetRoutePolicy
     private let workspaceZoom: WorkspaceZoomPreference
     @Binding private var cabinetState: DesktopCabinetState
+    @Binding private var currentRoute: URL?
 
     public init(
         request: URLRequest,
         routePolicy: DesktopCabinetRoutePolicy,
         cabinetState: Binding<DesktopCabinetState>,
-        workspaceZoom: WorkspaceZoomPreference = .default
+        workspaceZoom: WorkspaceZoomPreference = .default,
+        currentRoute: Binding<URL?> = .constant(nil)
     ) {
         self.request = request
         self.routePolicy = routePolicy
         self.workspaceZoom = workspaceZoom
         _cabinetState = cabinetState
+        _currentRoute = currentRoute
     }
 
-    public static func loadIdentity(for request: URLRequest) -> String {
+    public nonisolated static func loadIdentity(for request: URLRequest) -> String {
         let method = request.httpMethod ?? "GET"
         let url = request.url?.absoluteString ?? ""
         return "\(method) \(url)"
     }
 
-    public static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
+    public nonisolated static func loadIdentity(method: String = "GET", url: URL) -> String {
+        "\(method) \(url.absoluteString)"
+    }
+
+    public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
         lastLoadedRequestIdentity != loadIdentity(for: request)
+    }
+
+    public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
+        loaded
     }
 
     public func makeNSView(context: Context) -> NSView {
@@ -58,21 +69,38 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     }
 
     public func makeCoordinator() -> Coordinator {
-        Coordinator(routePolicy: routePolicy, cabinetState: $cabinetState)
+        Coordinator(
+            routePolicy: routePolicy,
+            desktopHeaders: request.allHTTPHeaderFields ?? [:],
+            cabinetState: $cabinetState,
+            currentRoute: $currentRoute
+        )
     }
 
     public final class Coordinator: NSObject, WKNavigationDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
+        private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         @Binding private var cabinetState: DesktopCabinetState
+        @Binding private var currentRoute: URL?
 
-        init(routePolicy: DesktopCabinetRoutePolicy, cabinetState: Binding<DesktopCabinetState>) {
+        init(
+            routePolicy: DesktopCabinetRoutePolicy,
+            desktopHeaders: [String: String],
+            cabinetState: Binding<DesktopCabinetState>,
+            currentRoute: Binding<URL?>
+        ) {
             self.routePolicy = routePolicy
+            navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
+                routePolicy: routePolicy,
+                desktopHeaders: desktopHeaders
+            )
             _cabinetState = cabinetState
+            _currentRoute = currentRoute
         }
 
         @MainActor
         public func webView(
-            _: WKWebView,
+            _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
@@ -93,6 +121,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let decision = routePolicy.decision(for: url)
             switch decision.decision {
             case .allow:
+                switch navigationRequestPolicy.decision(
+                    forNavigationRequest: navigationAction.request,
+                    isForMainFrame: navigationAction.targetFrame?.isMainFrame != false
+                ) {
+                case .allow:
+                    break
+                case let .reload(reloadedRequest):
+                    cabinetState = .loading
+                    webView.load(reloadedRequest)
+                    decisionHandler(.cancel)
+                    return
+                }
                 cabinetState = .loading
                 decisionHandler(.allow)
             case .openExternally:
@@ -104,12 +144,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
         }
 
+        @MainActor
         public func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
             guard let url = webView.url,
                   routePolicy.decision(for: url).decision == .allow
             else {
                 return
             }
+            DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
+            if let container = webView.superview as? WebViewContainer {
+                container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
+            }
+            currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             cabinetState = .ready
         }
 
@@ -119,17 +165,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
         ) {
-            guard let httpResponse = navigationResponse.response as? HTTPURLResponse else {
-                cabinetState = .malformedResponse
-                decisionHandler(.cancel)
-                return
-            }
-            if let state = DesktopCabinetState.state(forHTTPStatus: httpResponse.statusCode) {
+            switch DesktopCabinetNavigationResponsePolicy().decision(
+                forNavigationResponse: navigationResponse.response,
+                isForMainFrame: navigationResponse.isForMainFrame
+            ) {
+            case .allow:
+                decisionHandler(.allow)
+            case let .cancel(state):
                 cabinetState = state
                 decisionHandler(.cancel)
-                return
             }
-            decisionHandler(.allow)
         }
 
         public func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
@@ -179,19 +224,24 @@ public struct EmbeddedCabinetWebView: View {
         request _: URLRequest,
         routePolicy _: DesktopCabinetRoutePolicy,
         cabinetState _: Binding<DesktopCabinetState>,
-        workspaceZoom _: WorkspaceZoomPreference = .default
+        workspaceZoom _: WorkspaceZoomPreference = .default,
+        currentRoute _: Binding<URL?> = .constant(nil)
     ) {
         message = DesktopCabinetState.notConfigured.userMessage
     }
 
-    public static func loadIdentity(for request: URLRequest) -> String {
+    public nonisolated static func loadIdentity(for request: URLRequest) -> String {
         let method = request.httpMethod ?? "GET"
         let url = request.url?.absoluteString ?? ""
         return "\(method) \(url)"
     }
 
-    public static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
+    public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
         lastLoadedRequestIdentity != loadIdentity(for: request)
+    }
+
+    public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
+        loaded
     }
 
     public var body: some View {

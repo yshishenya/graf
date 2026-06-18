@@ -11,8 +11,10 @@ from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fakes.auth_providers import fake_provider_map
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
+    AuthSessionDeviceBinding,
     ExternalIdentity,
     Organization,
     RegisteredDevice,
@@ -314,6 +316,44 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
     assert failures[0].metadata_json["error_code"] == "callback_state_reused"
     assert "state_nonce" not in failures[0].metadata_json
     assert len(failures[0].metadata_json["state_nonce_sha256"]) == 64
+
+
+def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_headers(
+    client: TestClient,
+) -> None:
+    async def issue_bound_cookie() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            issued = await issue_auth_session(
+                db,
+                user_id=USER_ID,
+                workspace_id=WORKSPACE_ID,
+                device_id=DEVICE_ID,
+                provider="email",
+                now=datetime.now(UTC),
+            )
+            db.add(
+                AuthSessionDeviceBinding(
+                    auth_session_id=issued.id,
+                    registered_device_id=DEVICE_ID,
+                    device_state="trusted",
+                    last_heartbeat_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            return issued.token
+
+    session_cookie = client.portal.call(issue_bound_cookie)
+
+    created = client.post(
+        "/api/v1/meetings",
+        cookies={AUTH_SESSION_COOKIE_NAME: session_cookie},
+        json={"local_recording_id": "cookie-auth-desktop-recording", "duration_seconds": 60},
+    )
+
+    assert created.status_code == 200, created.json()
+    payload = created.json()
+    assert payload["local_recording_id"] == "cookie-auth-desktop-recording"
+    assert payload["status"] == "draft"
 
 
 def test_builtin_provider_callback_fails_closed_without_verified_exchange(client: TestClient) -> None:

@@ -33,6 +33,7 @@ from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    MediaRevision,
     Meeting,
     ProcessingDependencyState,
     ProcessingResult,
@@ -540,6 +541,7 @@ def playback_state(meeting: Meeting, status: MeetingReviewStatus) -> PlaybackRev
 
 def provenance_state(
     *,
+    media_revision: MediaRevision | None,
     transcript_segments: Iterable[TranscriptSegment],
     diarization_segments: Iterable[DiarizationSegment],
     dependency: ProcessingDependencyState | None,
@@ -549,6 +551,8 @@ def provenance_state(
         + [source_role_label(row.source_role) for row in diarization_segments]
     )
     return MeetingProvenance(
+        media_revision_id=media_revision.id if media_revision is not None else None,
+        local_media_revision_id=media_revision.local_media_revision_id if media_revision is not None else None,
         source_roles=roles,
         processing_dependency=dependency.dependency if dependency is not None else None,
         content_policy="authorized_detail_only",
@@ -558,6 +562,7 @@ def provenance_state(
 def build_review_response(
     meeting: Meeting,
     *,
+    media_revision: MediaRevision | None = None,
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
     transcript_segments: list[TranscriptSegment],
@@ -582,6 +587,7 @@ def build_review_response(
     return MeetingReviewResponse(
         meeting=item,
         provenance=provenance_state(
+            media_revision=media_revision,
             transcript_segments=transcript_segments,
             diarization_segments=diarization_segments,
             dependency=dependency,

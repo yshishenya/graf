@@ -23,6 +23,43 @@ class UploadSessionStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class MediaRevisionStatus(StrEnum):
+    PENDING_UPLOAD = "pending_upload"
+    UPLOADING = "uploading"
+    ACCEPTED = "accepted"
+    BLOCKED = "blocked"
+    SUPERSEDED = "superseded"
+    DELETED = "deleted"
+
+
+class MediaRevisionSourceKind(StrEnum):
+    INITIAL_RECORDING = "initial_recording"
+    LOCAL_TRIM = "local_trim"
+    VIDEO_CAPTURE = "video_capture"
+    REPLACE = "replace"
+    RESTORE = "restore"
+    REPROCESS = "reprocess"
+
+
+class SyncConflictState(StrEnum):
+    NONE = "none"
+    LOCAL_FILES_MISSING = "local_files_missing"
+    LOCAL_CHECKSUM_CHANGED = "local_checksum_changed"
+    QUEUE_DOCUMENT_MALFORMED = "queue_document_malformed"
+    QUEUE_SCHEMA_MIGRATION_BLOCKED = "queue_schema_migration_blocked"
+    SERVER_MEETING_DELETED = "server_meeting_deleted"
+    ACCESS_REVOKED = "access_revoked"
+    AUTH_REQUIRED = "auth_required"
+    STALE_DEVICE_IDENTITY = "stale_device_identity"
+    SERVER_EXPECTED_METADATA_MISMATCH = "server_expected_metadata_mismatch"
+    SERVER_RANGES_INCONSISTENT = "server_ranges_inconsistent"
+    UPLOAD_SESSION_EXPIRED = "upload_session_expired"
+    PROCESSING_FAILED = "processing_failed"
+    PROCESSING_BLOCKED = "processing_blocked"
+    RETENTION_EXPIRED = "retention_expired"
+    DEPENDENCY_UNAVAILABLE = "dependency_unavailable"
+
+
 class ProcessingStatus(StrEnum):
     NOT_SUBMITTED = "not_submitted"
     PENDING_PROCESSING = "pending_processing"
@@ -134,6 +171,7 @@ class DeletionReasonCode(StrEnum):
 
 class DeletionArtifactClass(StrEnum):
     MEETING_ROW = "meeting_row"
+    MEDIA_REVISION = "media_revision"
     AUDIO_OBJECT = "audio_object"
     TRANSCRIPT = "transcript"
     DIARIZATION = "diarization"

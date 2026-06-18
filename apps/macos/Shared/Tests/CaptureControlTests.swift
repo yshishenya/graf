@@ -212,20 +212,77 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertEqual(summary?.title, "Повторяем загрузку + ещё 1")
     }
 
+    func testQueuedLocalOnlyUploadCopyDoesNotClaimServerReviewExists() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let queued = uploadItem(id: "queued-local", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
+
+        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [queued]))
+
+        XCTAssertEqual(summary.title, "Ожидает загрузки")
+        XCTAssertEqual(summary.detail, "локальная копия сохранена, отправим при сети")
+        XCTAssertNil(CaptureControlView.uploadReviewLink(for: queued, configuration: configuration))
+    }
+
+    func testBlockedLocalUploadCopyRequestsManualPackageReview() throws {
+        let blocked = uploadItem(
+            id: "blocked-local",
+            state: .blocked,
+            updatedAt: Date(timeIntervalSince1970: 20),
+            failureReason: "local_recording_package_not_uploadable",
+            retryMode: .manualOnly
+        )
+
+        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
+
+        XCTAssertEqual(summary.title, "Нужна проверка")
+        XCTAssertEqual(summary.detail, "нужна ручная проверка локальной записи")
+        XCTAssertEqual(summary.primaryItem.nextActionLabel, "Повторить")
+    }
+
+    func testConflictStateCopyIsSafeAndActionable() throws {
+        let deleted = uploadItem(
+            id: "deleted-conflict",
+            state: .blocked,
+            updatedAt: Date(timeIntervalSince1970: 20),
+            failureReason: "/Users/test/private/package/mic.wav",
+            retryMode: .manualOnly,
+            syncConflictState: .serverMeetingDeleted
+        )
+        let auth = uploadItem(
+            id: "auth-conflict",
+            state: .blocked,
+            updatedAt: Date(timeIntervalSince1970: 21),
+            failureReason: "auth_required",
+            retryMode: .manualOnly,
+            syncConflictState: .authRequired
+        )
+
+        let deletedSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [deleted]))
+        let authSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [auth]))
+
+        XCTAssertEqual(deletedSummary.detail, "запись удалена на сервере, нужна проверка")
+        XCTAssertFalse(deletedSummary.detail.contains("/Users/test"))
+        XCTAssertEqual(deletedSummary.primaryItem.nextActionLabel, "Повторить")
+        XCTAssertEqual(authSummary.detail, "нужно заново войти или проверить доступ")
+        XCTAssertEqual(authSummary.primaryItem.nextActionLabel, "Повторить")
+    }
+
     func testUploadReviewActionIsAvailableOnlyForUploadedServerIdentifiedItem() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let uploaded = uploadItem(
             id: "uploaded",
             state: .uploaded,
             updatedAt: Date(timeIntervalSince1970: 30),
-            serverTruth: ServerTruthFingerprint(meetingId: "server-meeting-033")
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-033",
+                mediaRevisionId: "server-media-revision-033"
+            )
         )
         let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
 
-        XCTAssertEqual(
-            CaptureControlView.uploadReviewLink(for: uploaded, configuration: configuration)?.availability,
-            .available
-        )
+        let link = CaptureControlView.uploadReviewLink(for: uploaded, configuration: configuration)
+        XCTAssertEqual(link?.availability, .available)
+        XCTAssertEqual(link?.mediaRevisionId, "server-media-revision-033")
         XCTAssertNil(CaptureControlView.uploadReviewLink(for: queued, configuration: configuration))
         XCTAssertNil(CaptureControlView.uploadReviewLink(for: uploaded, configuration: nil))
     }
@@ -234,7 +291,10 @@ final class CaptureControlTests: XCTestCase {
         id: String,
         state: UploadItemState,
         updatedAt: Date,
-        serverTruth: ServerTruthFingerprint = ServerTruthFingerprint()
+        failureReason: String? = nil,
+        retryMode: UploadRetryMode = .automatic,
+        serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
+        syncConflictState: DesktopSyncConflictState = .none
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
@@ -260,10 +320,12 @@ final class CaptureControlTests: XCTestCase {
             microphonePath: "/tmp/\(id)/mic.wav",
             systemAudioPath: "/tmp/\(id)/incoming.wav",
             state: state,
-            retryMode: .automatic,
+            failureReason: failureReason,
+            retryMode: retryMode,
             retentionDeadline: Date(timeIntervalSince1970: 100),
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: updatedAt,
+            syncConflictState: syncConflictState,
             artifactProfile: profile,
             serverTruth: serverTruth,
             retentionDecision: RetentionDecision(

@@ -13,6 +13,7 @@ def test_submit_persists_external_job_id_before_retry_continues(client) -> None:
     client.app.state.temporal_client = FakeTemporalClient()
     finalized = create_finalized_meeting(client, "mediascribe-submit")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     fake_client = FakeMediaScribeClient(external_job_id="job_submit")
 
     async def submit_twice() -> tuple[str | None, int, bool]:
@@ -21,7 +22,8 @@ def test_submit_persists_external_job_id_before_retry_continues(client) -> None:
                 db,
                 workspace_id=UUID(finalized["meeting"]["workspace_id"]),
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
             first = await submit_to_mediascribe(

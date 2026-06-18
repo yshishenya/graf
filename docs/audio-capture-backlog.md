@@ -1,34 +1,67 @@
 # Audio Capture Backlog
 
-Date: 2026-06-17
+Date: 2026-06-18
 
 This backlog expands the deferred live speakerphone cleanup work left by
 `020-speaker-to-mic-leakage` and `025-system-audio-capture-pivot`. It is not a
 Spec Kit feature spec yet. Use it as prepared context when creating future
 `$speckit-specify` slices.
 
-## Numbering
+## Numbering And Feature Registry
 
-Existing feature directories currently run through `034-mvp-loop-readiness`,
-but local and remote branch checks show `035` and `036` are already reserved.
-Local branch `035-mvp-loop-live-evidence` exists, and
-`036-owner-review-live-polish` exists locally and on `origin`.
+This document is the project-owned registry for capture, recording, upload,
+transcription, and media-revision feature numbers. Update it before starting a
+new Spec Kit feature when the intended number is not already represented here.
 
-The next capture backlog slice should therefore start at:
+Before creating a new feature spec or branch, verify the next number against:
 
-- `037-microphone-sample-graph-foundation`
+- current `specs/` directories;
+- local branches;
+- remote branches after `git fetch --all --prune`;
+- feature numbers mentioned in committed docs and backlog files;
+- historical spec paths in `git log --all --name-only -- specs`.
 
-The proposed follow-up order is:
+Do not rely only on the highest visible directory in `specs/`. A number may be
+reserved by a branch, backlog, historical draft, or another worktree even when
+the spec directory is not present in the current checkout.
 
-1. `037-microphone-sample-graph-foundation`
-2. `038-apple-voice-processing-spike`
-3. `039-webrtc-aec3-speakerphone-spike`
-4. `040-speakerphone-recording-fallback-decision`
-5. `041-recording-permission-readiness-onboarding`
+If a number is reserved here but not yet implemented, do not reuse it unless the
+user explicitly retires or renumbers that reservation.
 
-Do not create these as active specs until the user explicitly starts that Spec
-Kit feature. When one is started, re-check `specs/` first in case another slice
-has claimed a number.
+### Current Allocation
+
+| Number(s) | Status | Source / Notes |
+|---|---|---|
+| `001`-`008`, `010`-`022`, `025`-`036` | Active or accepted specs | Present in the current Spec Kit line or preserved as accepted/historical feature work. |
+| `009` | Superseded / do not reuse casually | Old meeting-mute draft superseded by `022-meeting-mute-truth`. |
+| `023`-`024` | Historical draft numbers | Historical spec paths exist in git history. Reuse only after explicit owner decision and registry update. |
+| `037` | Reserved backlog | `microphone-sample-graph-foundation`: app-owned mic sample graph before cleanup/AEC work. |
+| `038` | Reserved backlog | `apple-voice-processing-spike`: Apple Voice Processing / VoiceProcessingIO evaluation. |
+| `039` | Reserved backlog | `webrtc-aec3-speakerphone-spike`: WebRTC AEC3 speakerphone cleanup spike. |
+| `040` | Reserved backlog | `speakerphone-recording-fallback-decision`: truthful fallback decision if clean built-in speakerphone capture is not proven. |
+| `041` | Reserved backlog | `recording-permission-readiness-onboarding`: Mic and Screen/System Audio readiness before recording. |
+| `042` | Claimed branch | `recording-sync-transcription-loop`: offline-safe recording upload, server transcription, and transcript display loop. |
+| `043` | Active / existing spec branch | `app-zoom-shortcuts`: present in git history/branch after `git fetch --all --prune`; do not reuse. |
+| `044` | Reserved backlog | `local-media-trim-revisions`: post-MVP local audio/video trim/edit revisions; see `docs/post-mvp-editing-media-backlog.md`. |
+| `045` | Reserved backlog | `online-transcript-edit-sync`: post-MVP online transcript/speaker edit sync and conflict handling; see `docs/post-mvp-editing-media-backlog.md`. |
+| `046` | Reserved backlog | `video-capture-package-foundation`: post-MVP video-capable capture package foundation; see `docs/post-mvp-editing-media-backlog.md`. |
+| `047` | Reserved backlog | `media-reprocess-replace-flow`: post-MVP replace/reprocess/restore flows; see `docs/post-mvp-editing-media-backlog.md`. |
+
+As of 2026-06-18, the next unreserved candidate after documented reservations
+is `048`. Re-check all sources above before creating it.
+
+### Useful Checks
+
+```sh
+git fetch --all --prune
+find specs -maxdepth 1 -mindepth 1 -type d -print | sort
+git branch -a --format='%(refname:short)' | sort
+git log --all --name-only --pretty=format: -- specs | rg '^specs/[0-9]{3}-' | sort -u
+rg -n '0[0-9]{2}-|feature [0-9]{3}|Feature [0-9]{3}' docs specs AGENTS.md
+```
+
+When these checks disagree, stop and reconcile this registry before creating
+the new feature.
 
 ## Current Problem In Plain Language
 

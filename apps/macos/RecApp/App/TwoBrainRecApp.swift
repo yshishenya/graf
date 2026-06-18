@@ -170,7 +170,12 @@ private struct ContentView: View {
             lastEventSummary: snapshot.lastEventSummary,
             isChecking: isChecking,
             onRefresh: refresh,
-            onRunCheck: runCheck
+            onRunCheck: runCheck,
+            onOpenMeetingsList: {
+                selectedCabinetRoute = desktopCabinetConfiguration.map {
+                    DesktopCabinetWorkspace.defaultRoute(configuration: $0)
+                }
+            }
         ) {
             CaptureControlView(
                 session: captureSession,
@@ -211,6 +216,7 @@ private struct ContentView: View {
             DesktopCabinetWorkspaceView(
                 configuration: desktopCabinetConfiguration,
                 initialRoute: selectedCabinetRoute,
+                currentRoute: $selectedCabinetRoute,
                 presentation: .shell,
                 workspaceZoom: workspaceZoom
             )
@@ -302,6 +308,9 @@ private struct ContentView: View {
                     NotificationCenter.default.post(name: .twoBrainRecApplicationTerminationCleanupFinished, object: nil)
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
         }
         .onDisappear {
             guard !terminationCleanupInProgress else { return }

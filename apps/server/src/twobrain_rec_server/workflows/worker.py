@@ -23,10 +23,13 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
     from temporalio import activity
 
     meeting_ref = payload.get("meeting_id", "unknown")
+    media_revision_id: UUID | None = None
     activity.heartbeat({"state": "starting", "meeting_id": meeting_ref})
     try:
         tenant_scope = tenant_scope_from_processing_payload(payload)
         meeting_id = UUID(payload["meeting_id"])
+        if payload.get("media_revision_id"):
+            media_revision_id = UUID(payload["media_revision_id"])
         workspace_id = UUID(payload["workspace_id"])
     except (KeyError, ValueError):
         return {
@@ -46,13 +49,15 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
             )
             if workflow is None:
                 workflow = await store.upsert_processing_workflow(
                     db,
                     workspace_id=workspace_id,
                     meeting_id=meeting_id,
-                    workflow_id=f"processing/{payload['meeting_id']}",
+                    media_revision_id=media_revision_id,
+                    workflow_id=f"processing/{payload.get('media_revision_id') or payload['meeting_id']}",
                     status=ProcessingStatus.WORKFLOW_STARTED,
                 )
             submit_result = await submit_to_mediascribe(
@@ -90,6 +95,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
             sessionmaker,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
             tenant_scope=tenant_scope,
             status=status,
             reason_code=exc.reason_code,
@@ -135,6 +141,7 @@ async def _persist_activity_client_error(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
     tenant_scope: TenantScope | None = None,
     status: ProcessingStatus,
     reason_code: str,
@@ -146,13 +153,15 @@ async def _persist_activity_client_error(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
         )
         if workflow is None:
             workflow = await store.upsert_processing_workflow(
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id or meeting_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
         terminal = status in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}

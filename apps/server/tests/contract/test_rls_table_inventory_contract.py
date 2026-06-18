@@ -20,6 +20,10 @@ RETENTION_DELETION_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0007_retention_deletion_execution.py"
 )
+RECORDING_SYNC_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0008_recording_sync_transcription_loop.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -47,6 +51,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         RETENTION_DELETION_MIGRATION,
         "retention_deletion_execution_migration",
     )
+    recording_sync_migration = _load_migration_module(
+        RECORDING_SYNC_MIGRATION,
+        "recording_sync_transcription_loop_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -55,6 +63,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(migration.INHERITED_POLICIES)
         | set(access_migration.CONTENT_WORKSPACE_POLICIES)
         | set(retention_deletion_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(recording_sync_migration.CONTENT_WORKSPACE_POLICIES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

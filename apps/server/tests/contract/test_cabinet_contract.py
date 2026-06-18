@@ -2,6 +2,7 @@ import json
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from tests.fixtures.processing import create_finalized_meeting
 
 
 def test_cabinet_openapi_exposes_list_and_detail_contracts(client) -> None:
@@ -86,6 +87,18 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
     assert payload["activity"]["redaction_state"] == "metadata_only"
 
 
+def test_cabinet_detail_includes_media_revision_provenance(client) -> None:
+    finalized = create_finalized_meeting(client, "cabinet-media-revision-042")
+    meeting = finalized["meeting"]
+
+    response = client.get(f"/api/v1/cabinet/meetings/{meeting['meeting_id']}", headers=auth_headers())
+
+    assert response.status_code == 200
+    provenance = response.json()["provenance"]
+    assert provenance["media_revision_id"] == meeting["media_revision"]["media_revision_id"]
+    assert provenance["local_media_revision_id"] == meeting["local_media_revision_id"]
+
+
 def test_cabinet_embedded_routes_are_contractually_bounded(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
@@ -108,6 +121,26 @@ def test_cabinet_embedded_routes_are_contractually_bounded(client) -> None:
     ]:
         assert forbidden not in html
     assert "desktop-embedded" in html
+    assert 'aria-label="Статус медиа-ревизии"' in html
+    assert "data-media-revision-id=" in html
+
+
+def test_cabinet_review_html_has_localized_accessible_compact_revision_status(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    response = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    html = response.text
+    assert '<html lang="ru">' in html
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in html
+    assert 'class="app-shell desktop-embedded"' in html
+    assert 'aria-label="Статус медиа-ревизии"' in html
+    assert 'data-media-revision-id="' in html
+    assert 'data-local-media-revision-id="' in html
+    assert "Медиа-ревизия" in html
+    assert "detail-layout" in html
+    assert "detail-playback" in html
 
 
 def test_cabinet_denied_detail_is_privacy_preserving(client) -> None:

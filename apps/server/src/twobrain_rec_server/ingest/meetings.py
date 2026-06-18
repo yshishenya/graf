@@ -22,6 +22,7 @@ async def create_or_get_meeting(
     tenant_scope: TenantScope,
     db: AsyncSession | None = None,
     local_recording_id: str,
+    local_media_revision_id: str | None = None,
     duration_seconds: int,
     title: str | None,
     started_at: datetime | None = None,
@@ -36,6 +37,8 @@ async def create_or_get_meeting(
     if persisted is not None:
         if persisted.duration_seconds != duration_seconds or persisted.title != title:
             raise ProblemDetail(status=409, code="idempotency_conflict", title="Meeting create conflicts with existing recording")
+        if local_media_revision_id is not None and persisted.local_media_revision_id != local_media_revision_id:
+            raise ProblemDetail(status=409, code="media_revision_conflict", title="Media revision conflicts with existing recording")
         return persisted
     meeting = store_module.store.create_or_get_meeting(
         settings=settings,
@@ -44,6 +47,7 @@ async def create_or_get_meeting(
         user_id=tenant_scope.user_id,
         device_id=tenant_scope.device_id,
         local_recording_id=local_recording_id,
+        local_media_revision_id=local_media_revision_id,
         duration_seconds=duration_seconds,
         title=title,
     )

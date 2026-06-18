@@ -43,6 +43,25 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testMeetingsSidebarItemTargetsEmbeddedMeetingList() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+
+        XCTAssertEqual(
+            DesktopMeetingShellSidebarItem.meetings.destinationRoute(configuration: configuration)?.absoluteString,
+            "https://rec.2brain.dev/desktop/meetings"
+        )
+        XCTAssertEqual(DesktopMeetingShellSidebarItem.meetings.accessibilityLabel, "Открыть список встреч")
+    }
+
+    func testEmbeddedWebViewTracksMainFrameRouteChangesForNativeNavigation() throws {
+        let list = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
+        let detail = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033"))
+
+        XCTAssertEqual(EmbeddedCabinetWebView.trackedRoute(current: nil, loaded: list), list)
+        XCTAssertEqual(EmbeddedCabinetWebView.trackedRoute(current: list, loaded: detail), detail)
+        XCTAssertEqual(EmbeddedCabinetWebView.trackedRoute(current: detail, loaded: detail), detail)
+    }
+
     func testExpiredSessionRecoveryOpensBrowserLoginForDesktopMeetings() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",

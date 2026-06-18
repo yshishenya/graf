@@ -3,6 +3,7 @@ import Foundation
 import TwoBrainRecShared
 
 public protocol DesktopUploadClientProtocol: Sendable {
+    func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
     func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult
     func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask]
     func acknowledgeLocalPurgeTask(
@@ -11,6 +12,36 @@ public protocol DesktopUploadClientProtocol: Sendable {
         reasonCode: String,
         completedAt: Date?
     ) async throws -> DesktopLocalPurgeTask
+}
+
+public extension DesktopUploadClientProtocol {
+    func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
+        nil
+    }
+}
+
+public struct DesktopUploadReconciliation: Equatable, Sendable {
+    public let serverTruth: ServerTruthFingerprint
+    public let conflictState: DesktopSyncConflictState
+    public let conflictReason: String?
+    public let nextAction: String?
+
+    public init(
+        serverTruth: ServerTruthFingerprint,
+        conflictState: DesktopSyncConflictState = .none,
+        conflictReason: String? = nil,
+        nextAction: String? = nil
+    ) {
+        self.serverTruth = serverTruth
+        self.conflictState = conflictState
+        self.conflictReason = conflictReason
+        self.nextAction = nextAction
+    }
+
+    public var canContinueUpload: Bool {
+        conflictState == .none ||
+            (conflictState == .uploadSessionExpired && nextAction == "create_upload_session")
+    }
 }
 
 public struct DesktopUploadResult: Sendable {
@@ -135,6 +166,11 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
 
 public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let defaultPartSizeBytes = 5 * 1024 * 1024
+    public static let baseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let fallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let baseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let fallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let uploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
 
     private let baseURL: URL
@@ -159,11 +195,32 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         self.decoder = decoder
     }
 
+    public var baseOrigin: URL {
+        baseURL
+    }
+
+    public var sanitizedHeaderPreview: [String: String] {
+        headers.reduce(into: [:]) { result, pair in
+            result[pair.key] = Self.shouldRedactHeader(named: pair.key) ? "<redacted>" : pair.value
+        }
+    }
+
     public static func configuredFromEnvironment() -> DesktopUploadClient? {
-        let environment = ProcessInfo.processInfo.environment
-        let rawURL = environment["TWO_BRAIN_REC_UPLOAD_BASE_URL"] ??
-            UserDefaults.standard.string(forKey: "TWO_BRAIN_REC_UPLOAD_BASE_URL")
-        guard let rawURL, let url = URL(string: rawURL), url.scheme?.hasPrefix("http") == true else {
+        configured(from: ProcessInfo.processInfo.environment)
+    }
+
+    public static func configured(
+        from environment: [String: String],
+        defaults: UserDefaults = .standard,
+        includePackagedDefault: Bool = true
+    ) -> DesktopUploadClient? {
+        guard let rawURL = configuredBaseURLCandidate(
+            from: environment,
+            defaults: defaults,
+            includePackagedDefault: includePackagedDefault
+        ),
+            let url = normalizedHTTPOrigin(rawURL)
+        else {
             return nil
         }
 
@@ -204,6 +261,46 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return "Bearer \(trimmed)"
     }
 
+    private static func configuredBaseURLCandidate(
+        from environment: [String: String],
+        defaults: UserDefaults,
+        includePackagedDefault: Bool
+    ) -> String? {
+        let candidates = [
+            environment[baseURLEnvironmentKey],
+            environment[fallbackBaseURLEnvironmentKey],
+            defaults.string(forKey: baseURLUserDefaultsKey),
+            defaults.string(forKey: fallbackBaseURLUserDefaultsKey),
+            includePackagedDefault ? packagedDefaultBaseURL : nil
+        ]
+        return candidates.lazy
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
+    private static func normalizedHTTPOrigin(_ rawURL: String) -> URL? {
+        guard let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false
+        else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = url.host
+        components.port = url.port
+        return components.url
+    }
+
+    private static func shouldRedactHeader(named name: String) -> Bool {
+        let lowered = name.lowercased()
+        return lowered.contains("authorization") ||
+            lowered.contains("token") ||
+            lowered.contains("cookie") ||
+            lowered.contains("secret")
+    }
+
     public func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
         try ensureLocalFilesExist(item)
 
@@ -211,6 +308,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             MeetingResponse(
                 meeting_id: meetingId,
                 local_recording_id: item.directoryId,
+                local_media_revision_id: item.localMediaRevisionId,
+                media_revision: item.mediaRevisionId.map {
+                    MediaRevisionSummary(media_revision_id: $0, local_media_revision_id: item.localMediaRevisionId)
+                },
                 status: "uploading",
                 processing_status: "not_submitted"
             )
@@ -261,8 +362,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             meetingId: meeting.meeting_id
         )
         let finalSession = finalize.upload_session
+        let finalMediaRevisionId = finalSession.media_revision_id ??
+            finalize.meeting.media_revision?.media_revision_id ??
+            meeting.media_revision?.media_revision_id ??
+            item.mediaRevisionId
         let serverTruth = ServerTruthFingerprint(
             meetingId: finalSession.meeting_id,
+            mediaRevisionId: finalMediaRevisionId,
             uploadSessionId: finalSession.session_id,
             serverStatus: finalSession.status,
             processingStatus: finalSession.processing_status,
@@ -274,6 +380,36 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             desktopTruthRule: finalSession.desktop_truth_rule
         )
         return DesktopUploadResult(state: .uploaded, serverTruth: serverTruth)
+    }
+
+    public func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
+        let request = try request(
+            path: "/api/v1/desktop/recordings/\(item.directoryId)/sync-state",
+            method: "GET",
+            queryItems: [URLQueryItem(name: "local_media_revision_id", value: item.localMediaRevisionId)]
+        )
+        do {
+            let response: DesktopRecordingSyncStateResponse = try await perform(request)
+            let conflictState = DesktopSyncConflictState(rawValue: response.conflict.state) ?? .dependencyUnavailable
+            let serverTruth = ServerTruthFingerprint(
+                meetingId: response.meeting.meeting_id,
+                mediaRevisionId: response.media_revision.media_revision_id,
+                uploadSessionId: response.upload_session.session_id,
+                serverStatus: response.meeting.status,
+                processingStatus: response.processing.status,
+                acceptedBytesByTrack: response.upload_session.accepted_bytes_by_track,
+                requiredTrackSha256: response.media_revision.track_sha256_by_role,
+                desktopTruthRule: response.upload_session.desktop_truth_rule
+            )
+            return DesktopUploadReconciliation(
+                serverTruth: serverTruth,
+                conflictState: conflictState,
+                conflictReason: response.conflict.reason,
+                nextAction: response.conflict.next_action
+            )
+        } catch DesktopUploadClientError.httpStatus(404, _) {
+            return nil
+        }
     }
 
     public func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
@@ -360,6 +496,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             method: "POST",
             body: CreateMeetingRequest(
                 local_recording_id: item.directoryId,
+                local_media_revision_id: item.localMediaRevisionId,
                 title: nil,
                 started_at: nil,
                 ended_at: nil,
@@ -510,13 +647,20 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return request
     }
 
-    private func request(path: String, method: String) throws -> URLRequest {
+    private func request(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem] = []
+    ) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw DesktopUploadClientError.invalidBaseURL
         }
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let requestPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = "/" + [basePath, requestPath].filter { !$0.isEmpty }.joined(separator: "/")
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
         guard let url = components.url else {
             throw DesktopUploadClientError.invalidBaseURL
         }
@@ -568,15 +712,23 @@ public struct DesktopUploadFileDescriptor: Equatable, Sendable {
 
 private struct CreateMeetingRequest: Encodable {
     let local_recording_id: String
+    let local_media_revision_id: String
     let title: String?
     let started_at: Date?
     let ended_at: Date?
     let duration_seconds: Int
 }
 
+private struct MediaRevisionSummary: Decodable {
+    let media_revision_id: String?
+    let local_media_revision_id: String?
+}
+
 private struct MeetingResponse: Decodable {
     let meeting_id: String
     let local_recording_id: String
+    let local_media_revision_id: String?
+    let media_revision: MediaRevisionSummary?
     let status: String
     let processing_status: String
 }
@@ -590,11 +742,51 @@ private struct CreateUploadSessionRequest: Encodable {
 private struct UploadSessionResponse: Decodable {
     let session_id: String
     let meeting_id: String
+    let media_revision_id: String?
     let status: String
     let expires_at: Date?
     let accepted_bytes_by_track: [String: Int64]?
     let processing_status: String?
     let desktop_truth_rule: String?
+}
+
+private struct DesktopRecordingSyncStateResponse: Decodable {
+    let local_recording_id: String
+    let local_media_revision_id: String
+    let meeting: DesktopSyncMeetingState
+    let media_revision: DesktopSyncMediaRevisionState
+    let upload_session: DesktopSyncUploadSessionState
+    let processing: DesktopSyncProcessingState
+    let conflict: DesktopSyncConflict
+}
+
+private struct DesktopSyncMeetingState: Decodable {
+    let meeting_id: String
+    let status: String
+}
+
+private struct DesktopSyncMediaRevisionState: Decodable {
+    let media_revision_id: String?
+    let local_media_revision_id: String?
+    let track_sha256_by_role: [String: String]
+}
+
+private struct DesktopSyncUploadSessionState: Decodable {
+    let session_id: String?
+    let status: String?
+    let accepted_bytes_by_track: [String: Int64]
+    let missing_ranges_by_track: [String: [MissingRange]]
+    let desktop_truth_rule: String?
+}
+
+private struct DesktopSyncProcessingState: Decodable {
+    let status: String
+}
+
+private struct DesktopSyncConflict: Decodable {
+    let state: String
+    let reason: String?
+    let next_action: String?
 }
 
 private struct MissingRange: Decodable {
@@ -623,6 +815,7 @@ private struct FinalizeUploadRequest: Encodable {
 }
 
 private struct FinalizeUploadResponse: Decodable {
+    let meeting: MeetingResponse
     let upload_session: UploadSessionResponse
     let object_count: Int
 }

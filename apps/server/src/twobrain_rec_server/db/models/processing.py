@@ -27,6 +27,7 @@ class ProcessingWorkflow(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     workflow_id: Mapped[str] = mapped_column(String(240), nullable=False)
     workflow_run_id: Mapped[str | None] = mapped_column(String(240))
@@ -52,6 +53,7 @@ class MediaScribeJob(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     processing_workflow_id: Mapped[UUID] = mapped_column(ForeignKey("processing_workflows.id"), nullable=False)
     external_job_id: Mapped[str | None] = mapped_column(String(240))
@@ -83,6 +85,7 @@ class ProcessingResult(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     mediascribe_job_id: Mapped[UUID] = mapped_column(ForeignKey("mediascribe_jobs.id"), nullable=False)
     result_version: Mapped[int] = mapped_column(Integer, default=1)
@@ -157,6 +160,7 @@ class ProcessingDependencyState(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     dependency: Mapped[str] = mapped_column(String(64), nullable=False)
     state: Mapped[str] = mapped_column(String(64), default="not_contacted")

@@ -80,6 +80,7 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         "delete from processing_results where meeting_id=:meeting_id",
         "delete from mediascribe_jobs where meeting_id=:meeting_id",
         "delete from processing_workflows where meeting_id=:meeting_id",
+        "delete from media_revisions where meeting_id=:meeting_id",
         "delete from meetings where id=:meeting_id",
     ]
 

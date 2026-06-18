@@ -11,13 +11,17 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
         let item = uploadItem(
             state: .uploaded,
             meetingId: nil,
-            serverTruth: ServerTruthFingerprint(meetingId: "server-meeting-033")
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-033",
+                mediaRevisionId: "server-media-revision-033"
+            )
         )
 
         let link = configuration.reviewLink(for: item)
 
         XCTAssertEqual(link.availability, .available)
         XCTAssertEqual(link.reason, "server_meeting_available")
+        XCTAssertEqual(link.mediaRevisionId, "server-media-revision-033")
         XCTAssertEqual(link.destination?.absoluteString, "https://rec.2brain.dev/desktop/meetings/server-meeting-033")
     }
 

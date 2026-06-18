@@ -11,6 +11,7 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "auth_audit_events",
     "workspace_consent_copy",
     "meetings",
+    "media_revisions",
     "upload_sessions",
     "temporary_upload_objects",
     "track_artifacts",

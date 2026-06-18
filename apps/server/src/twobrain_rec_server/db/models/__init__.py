@@ -26,6 +26,7 @@ from twobrain_rec_server.db.models.identity import (
 from twobrain_rec_server.db.models.ingest import (
     IngestAuditEvent,
     ManifestSnapshot,
+    MediaRevision,
     TemporaryUploadObject,
     TrackArtifact,
     UploadPart,
@@ -55,6 +56,7 @@ __all__ = [
     "LocalPurgeTask",
     "ManifestSnapshot",
     "MediaScribeJob",
+    "MediaRevision",
     "Meeting",
     "MeetingDeletionArtifactState",
     "MeetingDeletionReport",

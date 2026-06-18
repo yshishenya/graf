@@ -40,3 +40,17 @@ def test_conflicting_retry_is_rejected(client) -> None:
     conflict = client.put(path, headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": other_digest}, content=other)
     assert conflict.status_code == 409
     assert conflict.json()["code"] == "checksum_conflict"
+
+
+def test_body_checksum_mismatch_is_rejected_without_accepted_bytes(client) -> None:
+    session = create_session(client)
+    data = deterministic_wav_bytes(64)
+    wrong_digest = sha256(b"not-this-body").hexdigest()
+    path = f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0"
+
+    mismatch = client.put(path, headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": wrong_digest}, content=data)
+    status = client.get(f"/api/v1/upload-sessions/{session['session_id']}", headers=auth_headers())
+
+    assert mismatch.status_code == 400
+    assert mismatch.json()["code"] == "checksum_mismatch"
+    assert status.json()["accepted_bytes_by_track"] == {}

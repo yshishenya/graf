@@ -17,13 +17,13 @@ class ProcessingWorkflowStart:
     reused: bool = False
 
 
-def processing_workflow_id(meeting_id: UUID) -> str:
-    return f"processing/{meeting_id}"
+def processing_workflow_id(media_revision_id: UUID) -> str:
+    return f"processing/{media_revision_id}"
 
 
 def validate_processing_workflow_id(workflow_id: str) -> None:
     if not WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
-        raise ValueError("processing workflow id must contain only the fixed prefix and meeting UUID")
+        raise ValueError("processing workflow id must contain only the fixed prefix and media revision UUID")
 
 
 async def connect_temporal_client(settings: Settings) -> object:
@@ -39,13 +39,15 @@ async def start_processing_workflow(
     temporal_client: object,
     settings: Settings,
     meeting_id: UUID,
+    media_revision_id: UUID,
     workspace_id: UUID,
     tenant_scope: TenantScope | None = None,
 ) -> ProcessingWorkflowStart:
-    workflow_id = processing_workflow_id(meeting_id)
+    workflow_id = processing_workflow_id(media_revision_id)
     validate_processing_workflow_id(workflow_id)
     payload = {
         "meeting_id": str(meeting_id),
+        "media_revision_id": str(media_revision_id),
         "workspace_id": str(workspace_id),
         "requested_by": "processing-pickup",
         "source": "ingested_pending_processing",

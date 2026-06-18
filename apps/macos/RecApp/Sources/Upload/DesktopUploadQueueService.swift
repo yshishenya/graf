@@ -16,6 +16,59 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
     }
 }
 
+private extension LocalRecordingManifest {
+    var isServerUploadEligible: Bool {
+        let uploadableStatus = status == .saved || status == .degraded
+        let uploadableReadiness = transcriptionReadiness == .ready || transcriptionReadiness == .degraded
+        return uploadableStatus &&
+            uploadableReadiness &&
+            !externalEgressStarted &&
+            !transcriptionStarted &&
+            scopeApproval?.isAcceptedForMeetingRecording == true &&
+            permissions?.allowsAcceptedRecording == true &&
+            durationDifferenceSeconds <= 3 &&
+            Self.isUploadSafeFailure(failureReason) &&
+            tracks.allSatisfy(\.isServerUploadEligible)
+    }
+
+    private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
+        switch reason {
+        case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .silentInput, .noFrames, .stoppedBeforeFrames:
+            return true
+        case .directoryUnavailable, .writeFailed, .finalizationFailed,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
+             .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
+             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .appClosed, .unknown:
+            return false
+        }
+    }
+}
+
+private extension LocalRecordingTrack {
+    var isServerUploadEligible: Bool {
+        let uploadableStatus = status == .saved || status == .degraded
+        return uploadableStatus && Self.isUploadSafeFailure(failureReason)
+    }
+
+    private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
+        switch reason {
+        case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .silentInput, .noFrames, .stoppedBeforeFrames:
+            return true
+        case .directoryUnavailable, .writeFailed, .finalizationFailed,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
+             .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
+             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .appClosed, .unknown:
+            return false
+        }
+    }
+}
+
 public final class DesktopUploadQueueService: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
 
@@ -82,7 +135,20 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     directoryURL: directory,
                     now: clock()
                 )
-                guard !document.items.contains(where: { $0.id == item.id }) else {
+                if let existingIndex = document.items.firstIndex(where: { $0.id == item.id }) {
+                    guard !document.items[existingIndex].state.isTerminal else {
+                        continue
+                    }
+                    let existing = document.items[existingIndex]
+                    let merged = mergeRefreshedLocalItem(
+                        existing: existing,
+                        refreshed: item,
+                        now: clock()
+                    )
+                    if merged != existing {
+                        document.items[existingIndex] = merged
+                        changed = true
+                    }
                     continue
                 }
                 document.items.append(item)
@@ -113,6 +179,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 now: now,
                 reason: reason
             )
+            var savedItem = item
 
             if let index = document.items.firstIndex(where: { $0.id == item.id }) {
                 let existing = document.items[index]
@@ -122,11 +189,17 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 var merged = item
                 merged.attemptCount = existing.attemptCount
                 merged.meetingId = existing.meetingId
+                merged.localMediaRevisionId = existing.localMediaRevisionId
+                merged.mediaRevisionId = existing.mediaRevisionId
                 merged.uploadSessionId = existing.uploadSessionId
+                merged.syncGeneration = existing.syncGeneration
+                merged.lastReconciledAt = existing.lastReconciledAt
+                merged.syncConflictState = existing.syncConflictState
                 merged.serverTruth = existing.serverTruth
                 merged.retryRecords = existing.retryRecords
                 merged.createdAt = existing.createdAt
                 document.items[index] = merged
+                savedItem = merged
             } else {
                 document.items.append(item)
             }
@@ -134,7 +207,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
-            return item
+            return savedItem
         }
     }
 
@@ -148,6 +221,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 failureReason: item.artifactProfile.isUploadable ? nil : "local_artifacts_not_uploadable",
                 retryMode: item.artifactProfile.isUploadable ? .automatic : .manualOnly,
                 nextRetryAt: item.artifactProfile.isUploadable ? now : nil,
+                syncConflictState: item.artifactProfile.isUploadable ? DesktopSyncConflictState.none : .localFilesMissing,
                 retentionDecision: RetentionDecision(
                     decision: item.artifactProfile.isUploadable ? .retain : .manualOnly,
                     decidedAt: now,
@@ -201,6 +275,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     failureReason: "automatic_retry_window_expired",
                     retryMode: .manualOnly,
                     nextRetryAt: nil,
+                    syncConflictState: .retentionExpired,
                     retentionDecision: RetentionDecision(
                         decision: .manualOnly,
                         decidedAt: now,
@@ -296,7 +371,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
 
         do {
-            let result = try await client.upload(started)
+            let reconciled = try await reconcileBeforeUpload(started, client: client)
+            guard reconciled.syncConflictState == .none else {
+                return
+            }
+            let result = try await client.upload(reconciled)
             _ = try updateItem(itemId: started.id) { current, now in
                 var next = current.withTransition(
                     to: result.state,
@@ -317,7 +396,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 next.retryRecords.append(
                     RetryRecord(
                         attemptNumber: next.attemptCount,
-                        startedAt: started.updatedAt,
+                        startedAt: reconciled.updatedAt,
                         finishedAt: now,
                         stateBefore: .uploading,
                         stateAfter: result.state,
@@ -369,6 +448,46 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
                 return next
             }
+        }
+    }
+
+    private func reconcileBeforeUpload(
+        _ item: DesktopUploadQueueItem,
+        client: DesktopUploadClientProtocol
+    ) async throws -> DesktopUploadQueueItem {
+        guard let reconciliation = try await client.reconcile(item) else {
+            return item
+        }
+        return try updateItem(itemId: item.id) { current, now in
+            var next = current
+            next.serverTruth = reconciliation.serverTruth
+            next.meetingId = reconciliation.serverTruth.meetingId ?? next.meetingId
+            next.mediaRevisionId = reconciliation.serverTruth.mediaRevisionId ?? next.mediaRevisionId
+            next.uploadSessionId = reconciliation.serverTruth.uploadSessionId ?? next.uploadSessionId
+            if reconciliation.conflictState == .uploadSessionExpired && reconciliation.nextAction == "create_upload_session" {
+                next.uploadSessionId = nil
+                next.serverTruth.uploadSessionId = nil
+            }
+            next.lastReconciledAt = now
+            next.syncGeneration += 1
+            if reconciliation.canContinueUpload {
+                next.syncConflictState = .none
+                return next
+            }
+            next.state = .blocked
+            next.failureCategory = .serverValidation
+            next.failureReason = reconciliation.conflictReason ?? reconciliation.conflictState.rawValue
+            next.retryMode = .manualOnly
+            next.nextRetryAt = nil
+            next.syncConflictState = reconciliation.conflictState
+            next.retentionDecision = RetentionDecision(
+                decision: .manualOnly,
+                decidedAt: now,
+                reason: next.failureReason ?? "server_reconciliation_conflict",
+                localArtifactsRetained: true,
+                policyReference: "server_truth.reconciliation"
+            )
+            return next
         }
     }
 
@@ -425,6 +544,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             ),
             sessionId: manifest.sessionId,
             directoryId: manifest.directoryId,
+            localMediaRevisionId: DesktopUploadQueueItem.initialMediaRevisionId(directoryId: manifest.directoryId),
             directoryPath: directoryURL.path,
             manifestPath: manifestURL.path,
             microphonePath: microphoneURL.path,
@@ -446,6 +566,50 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
             )
         )
+    }
+
+    private func mergeRefreshedLocalItem(
+        existing: DesktopUploadQueueItem,
+        refreshed: DesktopUploadQueueItem,
+        now: Date
+    ) -> DesktopUploadQueueItem {
+        var merged = refreshed
+        merged.attemptCount = existing.attemptCount
+        merged.meetingId = existing.meetingId
+        merged.localMediaRevisionId = existing.localMediaRevisionId
+        merged.mediaRevisionId = existing.mediaRevisionId
+        merged.uploadSessionId = existing.uploadSessionId
+        merged.syncGeneration = existing.syncGeneration
+        merged.lastReconciledAt = existing.lastReconciledAt
+        merged.syncConflictState = existing.syncConflictState
+        merged.serverTruth = existing.serverTruth
+        merged.retryRecords = existing.retryRecords
+        merged.createdAt = existing.createdAt
+        if refreshed.artifactProfile.isUploadable && existing.syncConflictState == .localFilesMissing {
+            merged.syncConflictState = .none
+        }
+        if !refreshed.artifactProfile.isUploadable && existing.state == .blocked {
+            merged.state = existing.state
+            merged.failureCategory = existing.failureCategory
+            merged.failureReason = existing.failureReason
+            merged.retryMode = existing.retryMode
+            merged.nextRetryAt = existing.nextRetryAt
+            merged.retentionDecision = existing.retentionDecision
+        } else if refreshed.artifactProfile.isUploadable && existing.state == .blocked {
+            merged.state = .queued
+            merged.failureCategory = .none
+            merged.failureReason = nil
+            merged.retryMode = .automatic
+            merged.nextRetryAt = now
+            merged.retentionDecision = RetentionDecision(
+                decision: .retain,
+                decidedAt: now,
+                reason: "local_artifact_profile_refreshed",
+                localArtifactsRetained: true,
+                policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
+            )
+        }
+        return merged
     }
 
     public static func artifactProfile(
@@ -485,8 +649,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let tracks = [microphoneTrack, systemTrack, manifestTrack]
         let manifestRoles = Set(manifest.tracks.compactMap { DesktopUploadTransportRole.role(forLocalTrackRole: $0.role) })
         let hasRequiredManifestRoles = manifestRoles.isSuperset(of: [.microphone, .system])
-        let uploadable = manifest.status == .saved &&
-            manifest.isComplete &&
+        let uploadable = manifest.isServerUploadEligible &&
             hasRequiredManifestRoles &&
             tracks.allSatisfy(\.uploadable)
         return ArtifactCompletenessProfile(
@@ -517,7 +680,15 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         let data = try Data(contentsOf: queueURL)
         var loaded = try JSONDecoder.uploadQueueDecoder.decode(DesktopUploadQueueDocument.self, from: data)
+        let needsSchemaMigration = loaded.schemaVersion != DesktopUploadQueueDocument.schemaVersion
+        if needsSchemaMigration {
+            loaded.schemaVersion = DesktopUploadQueueDocument.schemaVersion
+        }
         loaded.items = loaded.items.sortedForDisplay()
+        if needsSchemaMigration {
+            loaded.updatedAt = clock()
+            try saveDocumentOnQueue(loaded)
+        }
         document = loaded
         return loaded
     }
@@ -578,6 +749,21 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
     }
 
     public var detail: String {
+        if let conflictDetail = primaryItem.syncConflictState.safeDetail {
+            return conflictDetail
+        }
+        if primaryItem.state == .queued && primaryItem.serverTruth.meetingId == nil {
+            return "локальная копия сохранена, отправим при сети"
+        }
+        if primaryItem.state == .retrying && primaryItem.serverTruth.meetingId == nil {
+            return "локальная копия сохранена, повторим отправку"
+        }
+        if primaryItem.state == .uploading {
+            return "отправляем локальную копию на сервер"
+        }
+        if primaryItem.state == .uploaded && primaryItem.serverTruth.meetingId == nil {
+            return "серверный обзор пока не подтвержден"
+        }
         if let reason = primaryItem.failureReason, !reason.isEmpty {
             return Self.failureReasonText(reason)
         }

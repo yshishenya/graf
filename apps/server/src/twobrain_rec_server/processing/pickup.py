@@ -67,10 +67,17 @@ async def pick_up_processing(
         temporal_client = await connect_temporal_client(settings)
 
     for meeting in meetings:
+        media_revision = await store.latest_media_revision_for_meeting(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+        )
+        media_revision_id = media_revision.id if media_revision is not None else None
         workflow = await store.get_processing_workflow(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting.id,
+            media_revision_id=media_revision_id,
         )
         if workflow is not None and workflow.status in OPEN_WORKFLOW_STATUSES:
             result.reused_count += 1
@@ -85,20 +92,45 @@ async def pick_up_processing(
             )
             continue
         if meeting.status != MeetingStatus.INGESTED_PENDING_PROCESSING.value:
-            await _block_meeting(db, meeting, reason_code=reasons.BLOCKED_INVALID_MEETING_STATE)
+            await _block_meeting(
+                db,
+                meeting,
+                media_revision_id=media_revision_id,
+                reason_code=reasons.BLOCKED_INVALID_MEETING_STATE,
+            )
             result.blocked_count += 1
             continue
-        mic, incoming = await store.load_track_pair(db, workspace_id=workspace_id, meeting_id=meeting.id)
+        if media_revision_id is None:
+            await _block_meeting(
+                db,
+                meeting,
+                media_revision_id=None,
+                reason_code=reasons.BLOCKED_MISSING_ARTIFACTS,
+            )
+            result.blocked_count += 1
+            continue
+        mic, incoming = await store.load_track_pair(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=media_revision_id,
+        )
         if mic is None or incoming is None:
-            await _block_meeting(db, meeting, reason_code=reasons.BLOCKED_MISSING_ARTIFACTS)
+            await _block_meeting(
+                db,
+                meeting,
+                media_revision_id=media_revision_id,
+                reason_code=reasons.BLOCKED_MISSING_ARTIFACTS,
+            )
             result.blocked_count += 1
             continue
 
-        workflow_id = processing_workflow_id(meeting.id)
+        workflow_id = processing_workflow_id(media_revision_id)
         workflow = await store.upsert_processing_workflow(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting.id,
+            media_revision_id=media_revision_id,
             workflow_id=workflow_id,
             status=ProcessingStatus.STARTING,
         )
@@ -106,6 +138,7 @@ async def pick_up_processing(
             temporal_client=temporal_client,
             settings=settings,
             meeting_id=meeting.id,
+            media_revision_id=media_revision_id,
             workspace_id=workspace_id,
             tenant_scope=tenant_scope,
         )
@@ -113,6 +146,7 @@ async def pick_up_processing(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting.id,
+            media_revision_id=media_revision_id,
             workflow_id=started.workflow_id,
             workflow_run_id=started.run_id,
             status=ProcessingStatus.WORKFLOW_STARTED,
@@ -149,12 +183,20 @@ async def _candidate_meetings(
     return list(await db.scalars(query))
 
 
-async def _block_meeting(db: AsyncSession, meeting: Meeting, *, reason_code: str) -> None:
+async def _block_meeting(
+    db: AsyncSession,
+    meeting: Meeting,
+    *,
+    media_revision_id: UUID | None = None,
+    reason_code: str,
+) -> None:
+    workflow_ref = media_revision_id or meeting.id
     workflow = await store.upsert_processing_workflow(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
-        workflow_id=processing_workflow_id(meeting.id),
+        media_revision_id=media_revision_id,
+        workflow_id=processing_workflow_id(workflow_ref),
         status=ProcessingStatus.BLOCKED,
         reason_code=reason_code,
     )

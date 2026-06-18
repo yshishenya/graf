@@ -377,5 +377,56 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("uploadQueueItems[0].signedUrl"))
         XCTAssertTrue(result.removedFields.contains("serverTruth.mediaScribeCredentials"))
     }
+
+    func testRecordingSyncDiagnosticsKeepRevisionMetadataAndRemoveSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "localMediaRevisionId": .string("recording-sync-001--initial"),
+            "mediaRevisionId": .string("019f-revision"),
+            "syncGeneration": .int(2),
+            "lastReconciledAt": .string("2026-06-18T01:00:00Z"),
+            "syncConflictState": .string("server_ranges_inconsistent"),
+            "mediaRevision": .object([
+                "revisionNumber": .int(1),
+                "sourceKind": .string("initial_recording"),
+                "status": .string("accepted"),
+                "manifestSha256": .string(String(repeating: "a", count: 64)),
+                "storageObjectKey": .string("workspace/private/object-key"),
+                "signedUrl": .string("https://example.presigned/download"),
+                "rawTranscript": .string("forbidden transcript")
+            ]),
+            "recordingSyncState": .object([
+                "meetingStatus": .string("uploading"),
+                "acceptedBytesByTrack": .object([
+                    "microphone": .int(128),
+                    "system": .int(128),
+                    "manifest": .int(64)
+                ]),
+                "temporaryUploadUrl": .string("https://example.presigned/upload")
+            ]),
+            "serverTruth": .object([
+                "mediaRevisionId": .string("019f-revision"),
+                "mediaScribeJobId": .string("private-job-id"),
+                "objectStorageKey": .string("private/object")
+            ]),
+            "rawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertEqual(result.manifest["localMediaRevisionId"], .string("recording-sync-001--initial"))
+        XCTAssertEqual(result.manifest["mediaRevisionId"], .string("019f-revision"))
+        XCTAssertEqual(result.manifest["syncGeneration"], .int(2))
+        XCTAssertEqual(result.manifest["syncConflictState"], .string("server_ranges_inconsistent"))
+        XCTAssertNotNil(result.manifest["mediaRevision"])
+        XCTAssertNotNil(result.manifest["recordingSyncState"])
+        XCTAssertNotNil(result.manifest["serverTruth"])
+        XCTAssertNil(result.manifest["rawAudio"])
+        XCTAssertTrue(result.removedFields.contains("mediaRevision.storageObjectKey"))
+        XCTAssertTrue(result.removedFields.contains("mediaRevision.signedUrl"))
+        XCTAssertTrue(result.removedFields.contains("mediaRevision.rawTranscript"))
+        XCTAssertTrue(result.removedFields.contains("recordingSyncState.temporaryUploadUrl"))
+        XCTAssertTrue(result.removedFields.contains("serverTruth.mediaScribeJobId"))
+        XCTAssertTrue(result.removedFields.contains("serverTruth.objectStorageKey"))
+    }
 }
 #endif

@@ -164,6 +164,7 @@ public enum UploadReviewAvailability: String, Equatable, Sendable {
 public struct UploadReviewLink: Equatable, Sendable {
     public let itemId: String
     public let meetingId: String?
+    public let mediaRevisionId: String?
     public let state: UploadItemState
     public let destination: URL?
     public let availability: UploadReviewAvailability
@@ -171,6 +172,7 @@ public struct UploadReviewLink: Equatable, Sendable {
 
     public init(item: DesktopUploadQueueItem, configuration: DesktopCabinetConfiguration) {
         let meetingId = item.serverTruth.meetingId
+        self.mediaRevisionId = item.serverTruth.mediaRevisionId ?? item.mediaRevisionId
         self.itemId = item.id
         self.meetingId = meetingId
         self.state = item.state

@@ -1605,6 +1605,7 @@ public struct RetryRecord: Codable, Equatable, Sendable {
 
 public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
     public var meetingId: String?
+    public var mediaRevisionId: String?
     public var uploadSessionId: String?
     public var serverStatus: String?
     public var processingStatus: String?
@@ -1615,6 +1616,7 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
 
     public init(
         meetingId: String? = nil,
+        mediaRevisionId: String? = nil,
         uploadSessionId: String? = nil,
         serverStatus: String? = nil,
         processingStatus: String? = nil,
@@ -1624,6 +1626,7 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         desktopTruthRule: String? = nil
     ) {
         self.meetingId = meetingId
+        self.mediaRevisionId = mediaRevisionId
         self.uploadSessionId = uploadSessionId
         self.serverStatus = serverStatus
         self.processingStatus = processingStatus
@@ -1640,6 +1643,50 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
             }
         }
         return true
+    }
+}
+
+public enum DesktopSyncConflictState: String, Codable, CaseIterable, Sendable {
+    case none
+    case localFilesMissing = "local_files_missing"
+    case localChecksumChanged = "local_checksum_changed"
+    case queueDocumentMalformed = "queue_document_malformed"
+    case queueSchemaMigrationBlocked = "queue_schema_migration_blocked"
+    case serverMeetingDeleted = "server_meeting_deleted"
+    case accessRevoked = "access_revoked"
+    case authRequired = "auth_required"
+    case staleDeviceIdentity = "stale_device_identity"
+    case serverExpectedMetadataMismatch = "server_expected_metadata_mismatch"
+    case serverRangesInconsistent = "server_ranges_inconsistent"
+    case uploadSessionExpired = "upload_session_expired"
+    case processingFailed = "processing_failed"
+    case processingBlocked = "processing_blocked"
+    case retentionExpired = "retention_expired"
+    case dependencyUnavailable = "dependency_unavailable"
+
+    public var safeDetail: String? {
+        switch self {
+        case .none:
+            return nil
+        case .localFilesMissing, .localChecksumChanged:
+            return "локальные файлы изменились, нужна проверка"
+        case .queueDocumentMalformed, .queueSchemaMigrationBlocked:
+            return "очередь загрузки требует проверки"
+        case .serverMeetingDeleted:
+            return "запись удалена на сервере, нужна проверка"
+        case .accessRevoked, .authRequired, .staleDeviceIdentity:
+            return "нужно заново войти или проверить доступ"
+        case .serverExpectedMetadataMismatch, .serverRangesInconsistent:
+            return "данные на устройстве и сервере не совпадают"
+        case .uploadSessionExpired:
+            return "сеанс загрузки устарел, создадим новый"
+        case .processingFailed, .processingBlocked:
+            return "обработка на сервере остановлена"
+        case .retentionExpired:
+            return "истек срок автоматической отправки"
+        case .dependencyUnavailable:
+            return "сервер временно недоступен, повторим позже"
+        }
     }
 }
 
@@ -1677,6 +1724,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var id: String
     public var sessionId: String
     public var directoryId: String
+    public var localMediaRevisionId: String
     public var directoryPath: String
     public var manifestPath: String
     public var microphonePath: String
@@ -1691,7 +1739,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var createdAt: Date
     public var updatedAt: Date
     public var meetingId: String?
+    public var mediaRevisionId: String?
     public var uploadSessionId: String?
+    public var syncGeneration: Int
+    public var lastReconciledAt: Date?
+    public var syncConflictState: DesktopSyncConflictState
     public var artifactProfile: ArtifactCompletenessProfile
     public var serverTruth: ServerTruthFingerprint
     public var retryRecords: [RetryRecord]
@@ -1701,6 +1753,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         id: String,
         sessionId: String,
         directoryId: String,
+        localMediaRevisionId: String? = nil,
         directoryPath: String,
         manifestPath: String,
         microphonePath: String,
@@ -1715,7 +1768,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         createdAt: Date,
         updatedAt: Date,
         meetingId: String? = nil,
+        mediaRevisionId: String? = nil,
         uploadSessionId: String? = nil,
+        syncGeneration: Int = 0,
+        lastReconciledAt: Date? = nil,
+        syncConflictState: DesktopSyncConflictState = .none,
         artifactProfile: ArtifactCompletenessProfile,
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         retryRecords: [RetryRecord] = [],
@@ -1724,6 +1781,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.id = id
         self.sessionId = sessionId
         self.directoryId = directoryId
+        self.localMediaRevisionId = localMediaRevisionId ?? Self.initialMediaRevisionId(directoryId: directoryId)
         self.directoryPath = directoryPath
         self.manifestPath = manifestPath
         self.microphonePath = microphonePath
@@ -1738,7 +1796,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.meetingId = meetingId
+        self.mediaRevisionId = mediaRevisionId ?? serverTruth.mediaRevisionId
         self.uploadSessionId = uploadSessionId
+        self.syncGeneration = max(0, syncGeneration)
+        self.lastReconciledAt = lastReconciledAt
+        self.syncConflictState = syncConflictState
         self.artifactProfile = artifactProfile
         self.serverTruth = serverTruth
         self.retryRecords = retryRecords
@@ -1770,6 +1832,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         failureReason: String? = nil,
         retryMode: UploadRetryMode? = nil,
         nextRetryAt: Date? = nil,
+        syncConflictState: DesktopSyncConflictState? = nil,
         serverTruth: ServerTruthFingerprint? = nil,
         retentionDecision: RetentionDecision? = nil
     ) -> DesktopUploadQueueItem {
@@ -1790,10 +1853,16 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             copy.retryMode = retryMode
         }
         copy.nextRetryAt = nextRetryAt
+        if let syncConflictState {
+            copy.syncConflictState = syncConflictState
+        }
         if let serverTruth {
             copy.serverTruth = serverTruth
             copy.meetingId = serverTruth.meetingId ?? copy.meetingId
+            copy.mediaRevisionId = serverTruth.mediaRevisionId ?? copy.mediaRevisionId
             copy.uploadSessionId = serverTruth.uploadSessionId ?? copy.uploadSessionId
+            copy.lastReconciledAt = now
+            copy.syncGeneration += 1
         }
         if let retentionDecision {
             copy.retentionDecision = retentionDecision
@@ -1804,10 +1873,79 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public static func deterministicId(directoryId: String, sessionId: String) -> String {
         "\(directoryId)--\(sessionId)"
     }
+
+    public static func initialMediaRevisionId(directoryId: String) -> String {
+        "\(directoryId)--initial"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId
+        case directoryId
+        case localMediaRevisionId
+        case directoryPath
+        case manifestPath
+        case microphonePath
+        case systemAudioPath
+        case state
+        case failureCategory
+        case failureReason
+        case retryMode
+        case attemptCount
+        case nextRetryAt
+        case retentionDeadline
+        case createdAt
+        case updatedAt
+        case meetingId
+        case mediaRevisionId
+        case uploadSessionId
+        case syncGeneration
+        case lastReconciledAt
+        case syncConflictState
+        case artifactProfile
+        case serverTruth
+        case retryRecords
+        case retentionDecision
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let directoryId = try container.decode(String.self, forKey: .directoryId)
+        let serverTruth = try container.decodeIfPresent(ServerTruthFingerprint.self, forKey: .serverTruth) ?? ServerTruthFingerprint()
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            sessionId: try container.decode(String.self, forKey: .sessionId),
+            directoryId: directoryId,
+            localMediaRevisionId: try container.decodeIfPresent(String.self, forKey: .localMediaRevisionId),
+            directoryPath: try container.decode(String.self, forKey: .directoryPath),
+            manifestPath: try container.decode(String.self, forKey: .manifestPath),
+            microphonePath: try container.decode(String.self, forKey: .microphonePath),
+            systemAudioPath: try container.decode(String.self, forKey: .systemAudioPath),
+            state: try container.decode(UploadItemState.self, forKey: .state),
+            failureCategory: try container.decodeIfPresent(UploadFailureCategory.self, forKey: .failureCategory) ?? .none,
+            failureReason: try container.decodeIfPresent(String.self, forKey: .failureReason),
+            retryMode: try container.decode(UploadRetryMode.self, forKey: .retryMode),
+            attemptCount: try container.decodeIfPresent(Int.self, forKey: .attemptCount) ?? 0,
+            nextRetryAt: try container.decodeIfPresent(Date.self, forKey: .nextRetryAt),
+            retentionDeadline: try container.decode(Date.self, forKey: .retentionDeadline),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            updatedAt: try container.decode(Date.self, forKey: .updatedAt),
+            meetingId: try container.decodeIfPresent(String.self, forKey: .meetingId),
+            mediaRevisionId: try container.decodeIfPresent(String.self, forKey: .mediaRevisionId),
+            uploadSessionId: try container.decodeIfPresent(String.self, forKey: .uploadSessionId),
+            syncGeneration: try container.decodeIfPresent(Int.self, forKey: .syncGeneration) ?? 0,
+            lastReconciledAt: try container.decodeIfPresent(Date.self, forKey: .lastReconciledAt),
+            syncConflictState: try container.decodeIfPresent(DesktopSyncConflictState.self, forKey: .syncConflictState) ?? .none,
+            artifactProfile: try container.decode(ArtifactCompletenessProfile.self, forKey: .artifactProfile),
+            serverTruth: serverTruth,
+            retryRecords: try container.decodeIfPresent([RetryRecord].self, forKey: .retryRecords) ?? [],
+            retentionDecision: try container.decode(RetentionDecision.self, forKey: .retentionDecision)
+        )
+    }
 }
 
 public struct DesktopUploadQueueDocument: Codable, Equatable, Sendable {
-    public static let schemaVersion = "desktop-upload-queue.v1"
+    public static let schemaVersion = "desktop-upload-queue.v2"
 
     public var schemaVersion: String
     public var updatedAt: Date

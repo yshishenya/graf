@@ -13,6 +13,7 @@ from tests.fakes.auth_contexts import WORKSPACE_ID
 from tests.fixtures.processing import create_finalized_meeting
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    MediaRevision,
     MediaScribeJob,
     Meeting,
     Organization,
@@ -168,10 +169,18 @@ async def _seed_workflow_only(
         meeting.duration_seconds = 1800
         meeting.status = MeetingStatus.INGESTED_PENDING_PROCESSING.value
         meeting.processing_status = status.value
+        media_revision = await db.scalar(
+            select(MediaRevision).where(
+                MediaRevision.workspace_id == WORKSPACE_ID,
+                MediaRevision.meeting_id == meeting_id,
+            )
+        )
+        assert media_revision is not None
         workflow = ProcessingWorkflow(
             workspace_id=WORKSPACE_ID,
             meeting_id=meeting_id,
-            workflow_id=f"cabinet/{meeting_id}",
+            media_revision_id=media_revision.id,
+            workflow_id=f"processing/{media_revision.id}",
             status=status.value,
             attempt_count=2,
             last_reason_code=reason_code,
@@ -211,10 +220,18 @@ async def _seed_processed_rows(
         ).all()
         mic = next(artifact for artifact in artifacts if artifact.track_role == TrackRole.MICROPHONE.value)
         system = next(artifact for artifact in artifacts if artifact.track_role == TrackRole.SYSTEM.value)
+        media_revision = await db.scalar(
+            select(MediaRevision).where(
+                MediaRevision.workspace_id == WORKSPACE_ID,
+                MediaRevision.meeting_id == meeting_id,
+            )
+        )
+        assert media_revision is not None
         workflow = ProcessingWorkflow(
             workspace_id=WORKSPACE_ID,
             meeting_id=meeting_id,
-            workflow_id=f"cabinet/{meeting_id}",
+            media_revision_id=media_revision.id,
+            workflow_id=f"processing/{media_revision.id}",
             workflow_run_id="private-run-id",
             status=processing_status.value,
             attempt_count=1,
@@ -227,6 +244,7 @@ async def _seed_processed_rows(
         job = MediaScribeJob(
             workspace_id=WORKSPACE_ID,
             meeting_id=meeting_id,
+            media_revision_id=media_revision.id,
             processing_workflow_id=workflow.id,
             external_job_id=external_job_id,
             status=MediaScribeJobStatus.READY.value,
@@ -240,6 +258,7 @@ async def _seed_processed_rows(
         result = ProcessingResult(
             workspace_id=WORKSPACE_ID,
             meeting_id=meeting_id,
+            media_revision_id=media_revision.id,
             mediascribe_job_id=job.id,
             result_version=1,
             status=ProcessingResultStatus.IMPORTED.value,
@@ -320,6 +339,7 @@ async def _seed_processed_rows(
             ProcessingDependencyState(
                 workspace_id=WORKSPACE_ID,
                 meeting_id=meeting_id,
+                media_revision_id=media_revision.id,
                 dependency=ProcessingDependencyName.MEDIASCRIBE.value,
                 state=ProcessingDependencyStateValue.IMPORTED.value,
                 external_reference=external_job_id,

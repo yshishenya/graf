@@ -44,6 +44,7 @@ async def submit_to_mediascribe(
         db,
         workspace_id=workflow.workspace_id,
         meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
     )
     if existing_job is not None and existing_job.external_job_id:
         return SubmitProcessingResult(job=existing_job, submitted=False)
@@ -52,6 +53,7 @@ async def submit_to_mediascribe(
         db,
         workspace_id=workflow.workspace_id,
         meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
     )
     if mic is None or incoming is None:
         await store.set_workflow_status(

@@ -12,6 +12,8 @@ TERMINAL_PROCESSING_STATUSES = {
     ProcessingStatus.CANCELED,
 }
 
+MEDIA_REVISION_DELETION_SAFE_REASON = "Media revision identity retained as lifecycle metadata"
+
 ALLOWED_PROCESSING_TRANSITIONS = {
     ProcessingStatus.NOT_SUBMITTED: {ProcessingStatus.STARTING, ProcessingStatus.BLOCKED},
     ProcessingStatus.STARTING: {ProcessingStatus.WORKFLOW_STARTED, ProcessingStatus.BLOCKED},

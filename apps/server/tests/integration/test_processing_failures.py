@@ -49,6 +49,7 @@ def test_processing_failure_matrix_marks_auth_terminal_and_timeout_retryable(cli
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:
     finalized = create_finalized_meeting(client, "failure-worker-config")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     monkeypatch.setattr(worker, "get_settings", lambda: client.app.state.settings)
     monkeypatch.setattr(activity, "heartbeat", lambda *_args, **_kwargs: None)
@@ -59,7 +60,8 @@ def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigure
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
         scope = tenant_scope()
@@ -70,6 +72,7 @@ def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigure
                 "organization_id": str(scope.organization_id),
                 "user_id": str(scope.user_id),
                 "device_id": str(scope.device_id),
+                "media_revision_id": str(media_revision_id),
             }
         )
         async with client.app_state["sessionmaker"]() as db:
@@ -87,6 +90,7 @@ def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigure
 def test_result_import_validation_error_is_persisted_as_retryable_safe_reason(client) -> None:
     finalized = create_finalized_meeting(client, "failure-malformed-result")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
 
     async def run() -> tuple[ProcessingStatus, str, str | None]:
@@ -95,7 +99,8 @@ def test_result_import_validation_error_is_persisted_as_retryable_safe_reason(cl
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.SUBMITTED,
             )
             job = await store.upsert_mediascribe_job(
@@ -129,6 +134,7 @@ def test_result_import_validation_error_is_persisted_as_retryable_safe_reason(cl
 def _run_submit_failure(client, local_recording_id: str, reason_code: str, *, retryable: bool) -> tuple[str, str | None]:
     finalized = create_finalized_meeting(client, local_recording_id)
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
 
     async def run() -> tuple[str, str | None]:
@@ -137,7 +143,8 @@ def _run_submit_failure(client, local_recording_id: str, reason_code: str, *, re
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
             with suppress(MediaScribeClientError):

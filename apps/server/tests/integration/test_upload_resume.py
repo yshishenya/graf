@@ -59,6 +59,37 @@ def test_missing_ranges_uses_expected_track_sizes_from_session(client) -> None:
     }
 
 
+def test_missing_ranges_omits_tracks_that_are_fully_uploaded(client) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "resume-no-missing-ranges", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"microphone": 4, "system": 4, "manifest": 4}},
+    ).json()
+
+    for role in ("microphone", "system", "manifest"):
+        data = deterministic_wav_bytes(4)
+        digest = sha256(data).hexdigest()
+        response = client.put(
+            f"/api/v1/upload-sessions/{session['session_id']}/tracks/{role}/parts/0",
+            headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+            content=data,
+        )
+        assert response.status_code == 200
+
+    missing = client.get(
+        f"/api/v1/upload-sessions/{session['session_id']}/missing-ranges",
+        headers=auth_headers(),
+    )
+
+    assert missing.status_code == 200
+    assert missing.json()["missing_ranges_by_track"] == {}
+
+
 def test_missing_ranges_use_byte_intervals_for_gaps_and_out_of_order_parts(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",

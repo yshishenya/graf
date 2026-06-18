@@ -302,7 +302,9 @@ def test_detail_shell_reserves_notes_assistant_template_without_internal_feature
     assert "<h3>Assistant</h3>" in page
     assert "<button type=\"button\" disabled>Assistant</button>" in page
     assert "<h3>Template</h3>" in page
-    assert "016" not in page
+    assert "feature 016" not in page.lower()
+    assert "feature:016" not in page.lower()
+    assert "016-meeting-detail" not in page
 
 
 def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
