@@ -875,6 +875,122 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/recordings/{local_recording_id}/sync-state:
+    get:
+      tags:
+      - ingest
+      summary: Get Recording Sync State
+      operationId: get_recording_sync_state_api_v1_desktop_recordings__local_recording_id__sync_state_get
+      parameters:
+      - name: local_recording_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Local Recording Id
+      - name: local_media_revision_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Local Media Revision Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DesktopRecordingSyncStateResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/meetings/{meeting_id}/upload-sessions:
     post:
       tags:
@@ -3364,6 +3480,14 @@ components:
           minLength: 1
           pattern: ^[^\x00-\x1f\x7f]+$
           title: Local Recording Id
+        local_media_revision_id:
+          anyOf:
+          - type: string
+            maxLength: 300
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Local Media Revision Id
         title:
           anyOf:
           - type: string
@@ -3581,6 +3705,140 @@ components:
       - bounded_copy
       - backup
       title: DeletionVerificationReport
+    DesktopRecordingSyncStateResponse:
+      properties:
+        local_recording_id:
+          type: string
+          title: Local Recording Id
+        local_media_revision_id:
+          type: string
+          title: Local Media Revision Id
+        meeting:
+          $ref: '#/components/schemas/DesktopSyncMeetingState'
+        media_revision:
+          $ref: '#/components/schemas/MediaRevisionSummary'
+        upload_session:
+          $ref: '#/components/schemas/DesktopSyncUploadSessionState'
+        processing:
+          $ref: '#/components/schemas/DesktopSyncProcessingState'
+        review:
+          $ref: '#/components/schemas/DesktopSyncReviewState'
+        conflict:
+          $ref: '#/components/schemas/DesktopSyncConflict'
+      type: object
+      required:
+      - local_recording_id
+      - local_media_revision_id
+      - meeting
+      - media_revision
+      - upload_session
+      - processing
+      - review
+      title: DesktopRecordingSyncStateResponse
+    DesktopSyncConflict:
+      properties:
+        state:
+          $ref: '#/components/schemas/SyncConflictState'
+          default: none
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        next_action:
+          type: string
+          title: Next Action
+          default: continue_upload
+      type: object
+      title: DesktopSyncConflict
+    DesktopSyncMeetingState:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        status:
+          $ref: '#/components/schemas/MeetingStatus'
+        processing_status:
+          $ref: '#/components/schemas/ProcessingStatus'
+        deletion_state:
+          $ref: '#/components/schemas/DeletionState'
+          default: none
+        access_state:
+          type: string
+          title: Access State
+          default: owner
+      type: object
+      required:
+      - meeting_id
+      - status
+      - processing_status
+      title: DesktopSyncMeetingState
+    DesktopSyncProcessingState:
+      properties:
+        status:
+          $ref: '#/components/schemas/ProcessingStatus'
+          default: not_submitted
+        workflow_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workflow Id
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+      type: object
+      title: DesktopSyncProcessingState
+    DesktopSyncReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+          default: false
+        web_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Web Url
+        desktop_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Desktop Url
+      type: object
+      title: DesktopSyncReviewState
+    DesktopSyncUploadSessionState:
+      properties:
+        session_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Session Id
+        status:
+          anyOf:
+          - $ref: '#/components/schemas/UploadSessionStatus'
+          - type: 'null'
+        accepted_bytes_by_track:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Accepted Bytes By Track
+        missing_ranges_by_track:
+          additionalProperties:
+            items:
+              $ref: '#/components/schemas/MissingRange'
+            type: array
+          type: object
+          title: Missing Ranges By Track
+        desktop_truth_rule:
+          type: string
+          title: Desktop Truth Rule
+          default: server_ranges_authoritative
+      type: object
+      title: DesktopSyncUploadSessionState
     ExportPackageExclusion:
       properties:
         artifact_class:
@@ -3941,6 +4199,62 @@ components:
       - policy
       - registered_devices
       title: MeResponse
+    MediaRevisionSourceKind:
+      type: string
+      enum:
+      - initial_recording
+      - local_trim
+      - video_capture
+      - replace
+      - restore
+      - reprocess
+      title: MediaRevisionSourceKind
+    MediaRevisionStatus:
+      type: string
+      enum:
+      - pending_upload
+      - uploading
+      - accepted
+      - blocked
+      - superseded
+      - deleted
+      title: MediaRevisionStatus
+    MediaRevisionSummary:
+      properties:
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        local_media_revision_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Local Media Revision Id
+        revision_number:
+          type: integer
+          title: Revision Number
+          default: 1
+        source_kind:
+          $ref: '#/components/schemas/MediaRevisionSourceKind'
+          default: initial_recording
+        status:
+          $ref: '#/components/schemas/MediaRevisionStatus'
+          default: pending_upload
+        manifest_sha256:
+          anyOf:
+          - type: string
+            pattern: ^[a-f0-9]{64}$
+          - type: 'null'
+          title: Manifest Sha256
+        track_sha256_by_role:
+          additionalProperties:
+            type: string
+          type: object
+          title: Track Sha256 By Role
+      type: object
+      title: MediaRevisionSummary
     MeetingAccessResponse:
       properties:
         meeting_id:
@@ -4252,6 +4566,17 @@ components:
       title: MeetingListResponse
     MeetingProvenance:
       properties:
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        local_media_revision_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Local Media Revision Id
         source_roles:
           items:
             type: string
@@ -4285,6 +4610,15 @@ components:
         local_recording_id:
           type: string
           title: Local Recording Id
+        local_media_revision_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Local Media Revision Id
+        media_revision:
+          anyOf:
+          - $ref: '#/components/schemas/MediaRevisionSummary'
+          - type: 'null'
         status:
           $ref: '#/components/schemas/MeetingStatus'
         processing_status:
@@ -4693,6 +5027,12 @@ components:
           type: string
           format: uuid
           title: Meeting Id
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
         workspace_id:
           type: string
           format: uuid
@@ -4994,6 +5334,26 @@ components:
       - available
       - assignment_state
       title: SpeakerReviewState
+    SyncConflictState:
+      type: string
+      enum:
+      - none
+      - local_files_missing
+      - local_checksum_changed
+      - queue_document_malformed
+      - queue_schema_migration_blocked
+      - server_meeting_deleted
+      - access_revoked
+      - auth_required
+      - stale_device_identity
+      - server_expected_metadata_mismatch
+      - server_ranges_inconsistent
+      - upload_session_expired
+      - processing_failed
+      - processing_blocked
+      - retention_expired
+      - dependency_unavailable
+      title: SyncConflictState
     TrackDescriptor:
       properties:
         track_role:
@@ -5159,6 +5519,12 @@ components:
           type: string
           format: uuid
           title: Meeting Id
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
         status:
           $ref: '#/components/schemas/UploadSessionStatus'
         upload_strategy:

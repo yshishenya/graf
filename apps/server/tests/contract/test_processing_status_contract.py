@@ -29,6 +29,7 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     client.app.state.temporal_client = FakeTemporalClient()
     finalized = create_finalized_meeting(client, "processing-status-contract")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     pickup = client.post(
         "/api/v1/internal/processing/pickup",
         headers=auth_headers(),
@@ -38,7 +39,7 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     status = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
     assert status.status_code == 200
     payload = status.json()
-    assert payload["workflow_id"] == f"processing/{meeting_id}"
+    assert payload["workflow_id"] == f"processing/{media_revision_id}"
     assert payload["mediascribe_job_id_present"] is False
     forbidden = {"transcript_text", "audio_download_url", "mediascribe_job_id", "api_key", "signed_url"}
     assert forbidden.isdisjoint(payload)

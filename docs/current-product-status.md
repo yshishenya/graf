@@ -1,11 +1,11 @@
 # Current Product Status
 
-Date: 2026-06-16
+Date: 2026-06-18
 
-This document is the short status source after the `034-mvp-loop-readiness`
-readiness pass and the `022-meeting-mute-truth` closeout. The PRD remains the
-product baseline; feature specs and metadata-only evidence artifacts remain the
-detailed implementation record.
+This document is the short status source after the
+`042-recording-sync-transcription-loop` local implementation pass. The PRD
+remains the product baseline; feature specs and metadata-only evidence
+artifacts remain the detailed implementation record.
 
 ## Accepted Now
 
@@ -153,6 +153,19 @@ detailed implementation record.
   The strongest truthful claim remains `pilot_blocked` with bounded
   `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
   `user_rollout_ready`, and `production_ready` remain excluded.
+- Feature `042-recording-sync-transcription-loop` is implemented and
+  local-gate validated in the current feature branch. It adds an offline-safe
+  desktop upload queue v2, deterministic local media revision identity, server
+  `MediaRevision`, resumable sync-state reconciliation, one logical meeting
+  with one accepted initial revision, revision-keyed processing workflow
+  identity, MediaScribe provenance, web and embedded desktop transcript review
+  parity, visible conflict/recovery states, metadata-only diagnostics, deletion
+  lifecycle accounting, and RLS coverage for the new media revision table.
+  Focused validation passed macOS queue/review/diagnostic tests, server
+  ingest/sync/processing/cabinet/RLS tests, and the final
+  `infra/scripts/ci-local.sh` gate. This is local implementation readiness
+  only: the branch is not merged, not PR-reviewed, not deployed, and has no
+  production upload-to-transcript e2e evidence yet.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -235,9 +248,10 @@ detailed implementation record.
 - Public meeting links, external-recipient invitations, partial deletion,
   legal-hold management, admin retention editing UI, billing, and desktop-owned
   deletion policy remain later slices.
-- The `012` backend foundation exists as a repository implementation with
-  `021` remote-first infrastructure smoke readiness scaffolding; real user
-  rollout and desktop uploader slices are still not accepted.
+- Feature `042` production behavior is not accepted yet. The local
+  implementation passed `ci-local`, but merge, PR review, deployment,
+  production smoke, and production upload-to-transcript evidence still need a
+  separate approval and closeout.
 - Production RLS coverage is accepted only for the `031` covered table
   inventory. Future tenant-owned tables and product surfaces still need their
   own ADR `003` classification, tests, and metadata-only evidence before merge.
@@ -263,26 +277,32 @@ detailed implementation record.
 
 ## Next Product Slice
 
-Recommended next feature: `036-owner-review-live-polish`.
-Feature `035-mvp-loop-live-evidence` closes the stale installed-desktop proof
-gap: the permissioned `/Applications/2brain Rec.app` can run the visible local
-recording loop and produce a validated metadata-only local artifact. The
-remaining launch blockers are now more specific:
+Recommended next action before starting another feature: close out
+`042-recording-sync-transcription-loop` with reviewed branch state, then only
+after approval proceed to PR, merge, deploy, and production smoke/e2e evidence.
+The local implementation now proves the offline-safe upload, sync,
+transcription, and review loop in tests; product rollout is still blocked until
+that implementation is reviewed and proven in the target environment.
+
+Remaining launch blockers are now more specific:
 
 - production owner review on `rec.2brain.pro` is not yet proven because the
   protected `/meetings` route returned `401 missing_auth_context` without a
   commit-safe authenticated owner session;
 - list/detail/governance UI is fixture-backed, not live-owner proven;
+- `042` production upload-to-transcript-to-review path is not yet deployed or
+  proven with metadata-safe production evidence;
 - notes/action output is still a truthful placeholder, not a launchable
   generated-output capability;
 - production evidence remains `infra_smoke_ready`, not a user rollout journey;
 - the installed desktop surface is operational and safe, but still needs the
   accepted clean-room V8 product polish before a broad launch claim.
 
-Before any pilot claim, implement or validate the owner auth/session path for
-`rec.2brain.pro`, capture metadata-safe live owner review evidence, decide
-whether notes/actions are implemented or explicitly deferred for MVP, and carry
-the desktop/web product surface toward the accepted V8 baseline.
+Before any pilot claim, finish 042 review/deploy/proof, validate the owner
+auth/session path for `rec.2brain.pro`, capture metadata-safe live owner review
+evidence, decide whether notes/actions are implemented or explicitly deferred
+for MVP, and carry the desktop/web product surface toward the accepted V8
+baseline.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey

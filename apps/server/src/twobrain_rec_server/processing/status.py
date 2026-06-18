@@ -18,9 +18,26 @@ async def get_content_safe_processing_status(
     meeting = await store.load_meeting_for_workspace(db, workspace_id=workspace_id, meeting_id=meeting_id)
     if meeting is None:
         return None
-    workflow = await store.get_processing_workflow(db, workspace_id=workspace_id, meeting_id=meeting_id)
-    job = await store.get_mediascribe_job(db, workspace_id=workspace_id, meeting_id=meeting_id)
-    result = await store.latest_processing_result(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    media_revision = await store.latest_media_revision_for_meeting(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    media_revision_id = media_revision.id if media_revision is not None else None
+    workflow = await store.get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    job = await store.get_mediascribe_job(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    result = await store.latest_processing_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
     state = ProcessingStatus(workflow.status) if workflow is not None else ProcessingStatus(meeting.processing_status)
     transcript_available = (
         result is not None and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
@@ -35,6 +52,13 @@ async def get_content_safe_processing_status(
         updated_at = result.updated_at
     return ProcessingStatusResponse(
         meeting_id=meeting.id,
+        media_revision_id=result.media_revision_id
+        if result is not None and result.media_revision_id is not None
+        else job.media_revision_id
+        if job is not None and job.media_revision_id is not None
+        else workflow.media_revision_id
+        if workflow is not None and workflow.media_revision_id is not None
+        else media_revision_id,
         workspace_id=meeting.workspace_id,
         state=state,
         reason_code=workflow.last_reason_code if workflow is not None else None,

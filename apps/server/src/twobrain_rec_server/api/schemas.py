@@ -11,8 +11,11 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     LocalPurgeTaskState,
     LocalPurgeTaskType,
+    MediaRevisionSourceKind,
+    MediaRevisionStatus,
     MeetingStatus,
     ProcessingStatus,
+    SyncConflictState,
     TrackRole,
     UploadSessionStatus,
     UploadStrategy,
@@ -51,11 +54,22 @@ class TrackDescriptor(BaseModel):
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class MediaRevisionSummary(BaseModel):
+    media_revision_id: UUID | None = None
+    local_media_revision_id: str | None = None
+    revision_number: int = 1
+    source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING
+    status: MediaRevisionStatus = MediaRevisionStatus.PENDING_UPLOAD
+    manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    track_sha256_by_role: dict[str, str] = Field(default_factory=dict)
+
+
 SafeClientText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")]
 
 
 class CreateMeetingRequest(BaseModel):
     local_recording_id: Annotated[SafeClientText, Field(min_length=1, max_length=240)]
+    local_media_revision_id: Annotated[SafeClientText, Field(min_length=1, max_length=300)] | None = None
     title: Annotated[SafeClientText, Field(max_length=500)] | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
@@ -66,6 +80,8 @@ class MeetingResponse(BaseModel):
     meeting_id: UUID
     workspace_id: UUID
     local_recording_id: str
+    local_media_revision_id: str | None = None
+    media_revision: MediaRevisionSummary | None = None
     status: MeetingStatus
     processing_status: ProcessingStatus
     started_at: datetime | None = None
@@ -82,6 +98,7 @@ class CreateUploadSessionRequest(BaseModel):
 class UploadSessionResponse(BaseModel):
     session_id: UUID
     meeting_id: UUID
+    media_revision_id: UUID | None = None
     status: UploadSessionStatus
     upload_strategy: UploadStrategy = UploadStrategy.SERVER_MEDIATED
     expires_at: datetime
@@ -93,6 +110,56 @@ class UploadSessionResponse(BaseModel):
     desktop_truth_rule: str | None = None
 
 
+class DesktopSyncMeetingState(BaseModel):
+    meeting_id: UUID
+    status: MeetingStatus
+    processing_status: ProcessingStatus
+    deletion_state: DeletionState = DeletionState.NONE
+    access_state: str = "owner"
+
+
+class MissingRange(BaseModel):
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+
+
+class DesktopSyncUploadSessionState(BaseModel):
+    session_id: UUID | None = None
+    status: UploadSessionStatus | None = None
+    accepted_bytes_by_track: dict[str, int] = Field(default_factory=dict)
+    missing_ranges_by_track: dict[str, list[MissingRange]] = Field(default_factory=dict)
+    desktop_truth_rule: str = "server_ranges_authoritative"
+
+
+class DesktopSyncProcessingState(BaseModel):
+    status: ProcessingStatus = ProcessingStatus.NOT_SUBMITTED
+    workflow_id: str | None = None
+    reason_code: str | None = None
+
+
+class DesktopSyncReviewState(BaseModel):
+    available: bool = False
+    web_url: str | None = None
+    desktop_url: str | None = None
+
+
+class DesktopSyncConflict(BaseModel):
+    state: SyncConflictState = SyncConflictState.NONE
+    reason: str | None = None
+    next_action: str = "continue_upload"
+
+
+class DesktopRecordingSyncStateResponse(BaseModel):
+    local_recording_id: str
+    local_media_revision_id: str
+    meeting: DesktopSyncMeetingState
+    media_revision: MediaRevisionSummary
+    upload_session: DesktopSyncUploadSessionState
+    processing: DesktopSyncProcessingState
+    review: DesktopSyncReviewState
+    conflict: DesktopSyncConflict = Field(default_factory=DesktopSyncConflict)
+
+
 class UploadPartResponse(BaseModel):
     session_id: UUID
     track_role: TrackRole
@@ -101,11 +168,6 @@ class UploadPartResponse(BaseModel):
     byte_length: int = Field(ge=0)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     status: str = "accepted"
-
-
-class MissingRange(BaseModel):
-    start: int = Field(ge=0)
-    end: int = Field(ge=0)
 
 
 class MissingRangesResponse(BaseModel):
@@ -145,6 +207,7 @@ class ProcessingPickupResponse(BaseModel):
 
 class ProcessingStatusResponse(BaseModel):
     meeting_id: UUID
+    media_revision_id: UUID | None = None
     workspace_id: UUID
     state: ProcessingStatus
     reason_code: str | None = None
@@ -479,6 +542,8 @@ class MeetingListResponse(BaseModel):
 
 
 class MeetingProvenance(BaseModel):
+    media_revision_id: UUID | None = None
+    local_media_revision_id: str | None = None
     source_roles: list[SourceRoleView] = Field(default_factory=list)
     processing_dependency: str | None = None
     content_policy: str = "authorized_detail_only"

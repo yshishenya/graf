@@ -12,6 +12,7 @@ from twobrain_rec_server.processing import store
 def test_processing_audit_persists_metadata_only(client) -> None:
     finalized = create_finalized_meeting(client, "processing-audit")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
 
     async def record() -> dict:
@@ -20,7 +21,8 @@ def test_processing_audit_persists_metadata_only(client) -> None:
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
             await store.record_processing_audit_event(

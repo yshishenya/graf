@@ -1,11 +1,52 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from twobrain_rec_server.db.base import Base
+
+
+class MediaRevision(Base):
+    __tablename__ = "media_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "meeting_id",
+            "revision_number",
+            name="uq_media_revisions_workspace_meeting_revision",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "local_media_revision_id",
+            name="uq_media_revisions_workspace_local_revision",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    local_media_revision_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source_kind: Mapped[str] = mapped_column(String(64), nullable=False, default="initial_recording")
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="pending_upload")
+    manifest_sha256: Mapped[str | None] = mapped_column(String(64))
+    track_sha256_by_role: Mapped[dict] = mapped_column(JSON, default=dict)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    immutable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class UploadSession(Base):
@@ -13,6 +54,7 @@ class UploadSession(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
     created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
@@ -51,6 +93,7 @@ class TemporaryUploadObject(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     upload_session_id: Mapped[UUID] = mapped_column(ForeignKey("upload_sessions.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     storage_object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
     byte_length: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -67,6 +110,7 @@ class TrackArtifact(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     track_role: Mapped[str] = mapped_column(String(64), nullable=False)
     codec: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -86,6 +130,7 @@ class ManifestSnapshot(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     manifest_json: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -98,6 +143,7 @@ class IngestAuditEvent(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID | None] = mapped_column(ForeignKey("meetings.id"))
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     upload_session_id: Mapped[UUID | None] = mapped_column(ForeignKey("upload_sessions.id"))
     actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
     device_id: Mapped[UUID | None] = mapped_column(ForeignKey("registered_devices.id"))

@@ -13,6 +13,7 @@ def test_processing_pickup_starts_workflow_and_reuses_duplicate(client) -> None:
     client.app.state.temporal_client = FakeTemporalClient()
     finalized = create_finalized_meeting(client, "pickup-start")
     meeting_id = finalized["meeting"]["meeting_id"]
+    media_revision_id = finalized["meeting"]["media_revision"]["media_revision_id"]
 
     first = client.post(
         "/api/v1/internal/processing/pickup",
@@ -39,7 +40,7 @@ def test_processing_pickup_starts_workflow_and_reuses_duplicate(client) -> None:
 
     count, workflow_id = asyncio.run(workflow_count())
     assert count == 1
-    assert workflow_id == f"processing/{meeting_id}"
+    assert workflow_id == f"processing/{media_revision_id}"
 
 
 def test_processing_pickup_without_temporal_blocks_safely(client) -> None:

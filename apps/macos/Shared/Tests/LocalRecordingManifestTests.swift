@@ -322,6 +322,79 @@ final class LocalRecordingManifestTests: XCTestCase {
             .legacyNotReady
         )
     }
+
+    func testBlockedOrDegradedRecordingPackagesAreNotUploadEligible() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-eligibility-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let manifestURL = root.appendingPathComponent("manifest.json")
+        let microphoneURL = root.appendingPathComponent("mic.wav")
+        let systemAudioURL = root.appendingPathComponent("incoming.wav")
+        try Data(repeating: 1, count: 128).write(to: microphoneURL)
+        try Data(repeating: 2, count: 128).write(to: systemAudioURL)
+
+        let degraded = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "degraded-session",
+                directoryId: "degraded-dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)]
+            )
+        try LocalRecordingManifestService().write(degraded, to: manifestURL)
+        let degradedProfile = DesktopUploadQueueService.artifactProfile(
+            manifest: degraded,
+            manifestURL: manifestURL,
+            microphoneURL: microphoneURL,
+            systemAudioURL: systemAudioURL
+        )
+
+        let blocked = LocalRecordingManifest(
+            sessionId: "blocked-session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .blocked,
+            directoryId: "blocked-dir",
+            transcriptionReadiness: .failed,
+            tracks: [
+                LocalRecordingTrack(
+                    trackId: "mic",
+                    role: .localMic,
+                    status: .blocked,
+                    fileName: "mic.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 0,
+                    byteCount: 44,
+                    frameCount: 0,
+                    timelineAligned: false,
+                    failureReason: .protectedAudioBlocked
+                ),
+                completeTrack(role: .remoteSpeaker)
+            ],
+            failureReason: .protectedAudioBlocked,
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+        try LocalRecordingManifestService().write(blocked, to: manifestURL)
+        let blockedProfile = DesktopUploadQueueService.artifactProfile(
+            manifest: blocked,
+            manifestURL: manifestURL,
+            microphoneURL: microphoneURL,
+            systemAudioURL: systemAudioURL
+        )
+
+        XCTAssertEqual(degraded.status, .degraded)
+        XCTAssertTrue(degradedProfile.microphonePresent)
+        XCTAssertTrue(degradedProfile.systemAudioPresent)
+        XCTAssertFalse(degradedProfile.isUploadable)
+        XCTAssertEqual(blocked.status, .blocked)
+        XCTAssertFalse(blockedProfile.isUploadable)
+    }
 }
 
 private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {

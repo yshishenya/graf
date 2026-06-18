@@ -8,6 +8,7 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import TrackDescriptor
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.domain.statuses import (
+    MediaRevisionStatus,
     MeetingStatus,
     ProcessingStatus,
     TrackRole,
@@ -17,6 +18,10 @@ from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.lifecycle_guards import ensure_upload_session_mutable
 from twobrain_rec_server.ingest.manifest import ManifestValidationError, validate_required_tracks
+from twobrain_rec_server.ingest.media_revisions import (
+    MediaRevisionFingerprintConflict,
+    mark_media_revision_accepted,
+)
 from twobrain_rec_server.ingest.parts import get_session_for_tenant
 from twobrain_rec_server.ingest.store import (
     MeetingRecord,
@@ -197,6 +202,7 @@ async def finalize_upload(
 
     meeting.status = MeetingStatus.INGESTED_PENDING_PROCESSING
     meeting.processing_status = ProcessingStatus.NOT_SUBMITTED
+    meeting.media_revision_status = MediaRevisionStatus.ACCEPTED
     session.status = UploadSessionStatus.FINALIZED
     session.processing_status = ProcessingStatus.NOT_SUBMITTED
     session.finalized_at = datetime.now(UTC)
@@ -212,5 +218,23 @@ async def finalize_upload(
     await persist_meeting(db, meeting)
     await persist_upload_session(db, session)
     await persist_finalized_tracks(db, meeting, session, tracks, manifest_sha256)
+    try:
+        await mark_media_revision_accepted(
+            db,
+            media_revision_id=session.media_revision_id or meeting.media_revision_id,
+            manifest_sha256=manifest_sha256,
+            tracks=tracks,
+        )
+    except MediaRevisionFingerprintConflict as exc:
+        await _raise_degraded_finalize_problem(
+            db=db,
+            tenant_scope=tenant_scope,
+            meeting=meeting,
+            session=session,
+            status=409,
+            code="media_revision_fingerprint_conflict",
+            title="Accepted media revision fingerprint cannot be changed",
+            cause=exc,
+        )
     await persist_audit_event(db, event)
     return meeting, session

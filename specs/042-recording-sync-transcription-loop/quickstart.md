@@ -28,7 +28,7 @@ Run macOS focused tests:
 
 ```sh
 swift test --package-path apps/macos --disable-swift-testing \
-  --filter 'DesktopUploadQueueTests|CaptureControlTests|LocalRecordingManifestTests'
+  --filter 'DesktopUploadQueueTests|CaptureControlTests|LocalRecordingManifestTests|DesktopCabinetUploadLinkTests|DiagnosticRedactionTests'
 ```
 
 Run server focused tests:
@@ -36,13 +36,24 @@ Run server focused tests:
 ```sh
 cd apps/server
 PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/contract/test_recording_sync_contract.py \
+  tests/contract/test_recording_sync_no_secret_egress.py \
   tests/contract/test_ingest_openapi_contract.py \
   tests/contract/test_processing_status_contract.py \
   tests/contract/test_cabinet_contract.py \
+  tests/integration/test_media_revision_migrations.py \
+  tests/integration/test_media_revision_identity.py \
+  tests/integration/test_recording_sync_upload_resume.py \
+  tests/integration/test_recording_sync_processing.py \
+  tests/integration/test_recording_sync_conflicts.py \
+  tests/integration/test_recording_sync_lifecycle.py \
   tests/integration/test_upload_resume.py \
   tests/integration/test_processing_pickup.py \
   tests/integration/test_processing_result_idempotency.py \
-  tests/integration/test_cabinet_meeting_detail.py
+  tests/integration/test_cabinet_meeting_detail.py \
+  tests/unit/test_media_revision_state_machine.py \
+  tests/unit/test_processing_workflow_identity.py \
+  tests/unit/test_upload_idempotency.py
 ```
 
 Run tenant-isolation focused tests when media-revision tables are added:
@@ -50,6 +61,7 @@ Run tenant-isolation focused tests when media-revision tables are added:
 ```sh
 cd apps/server
 PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/integration/test_rls_media_revision_policies.py \
   tests/integration/test_rls_meeting_content_policies.py \
   tests/integration/test_rls_worker_context.py
 ```

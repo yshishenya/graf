@@ -8,6 +8,11 @@ Semantic Versioning 2.0.0.
 
 ### Added
 
+- Добавлен revision-aware loop записи, синхронизации, загрузки, обработки и
+  review: offline-first desktop queue v2, `MediaRevision`, resumable upload
+  reconciliation, revision-keyed processing workflow, MediaScribe provenance,
+  and browser/embedded desktop transcript review parity (`feature:042`,
+  `T001-T088`).
 - Добавлена production-доставка browser-login email-кодов через server-side
   Postal API: отдельные `.env` настройки для Rec, Docker secret для API key,
   fail-closed состояние при недоступной почтовой доставке и подключение
@@ -76,6 +81,10 @@ Semantic Versioning 2.0.0.
 
 ### Changed
 
+- Desktop upload truth now separates local-only, uploading, uploaded,
+  conflict, failed processing, and review-available states, so reconnect/retry
+  flows do not duplicate meetings or claim transcript/review readiness before
+  server truth exists (`feature:042`, `T020-T078`).
 - `docs/current-product-status.md` and the MVP readiness report now record
   `022-meeting-mute-truth` as closed, remove stale `018`/`022` next-slice
   guidance, and recommend validation-only `035-mvp-loop-live-evidence` while
@@ -141,6 +150,11 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
+- Recording sync diagnostics, API responses, deletion reports, lifecycle audit,
+  and validation evidence remain metadata-only: no raw audio, transcript text,
+  signed URLs, object storage keys, provider job ids, bearer tokens, credentials,
+  or private local paths are exposed, and media revision RLS/deletion accounting
+  is covered by focused tests (`feature:042`, `T079-T088`).
 - Postal API key for browser-login delivery is mounted only as a Docker secret;
   deploy/runtime scans now reject accidental `TWOBRAIN_POSTAL_API_KEY`
   environment exposure, and desktop clients never receive Postal settings

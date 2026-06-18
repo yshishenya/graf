@@ -11,6 +11,7 @@ from twobrain_rec_server.processing.submit import submit_to_mediascribe
 def test_worker_restart_resumes_from_persisted_mediascribe_job_without_resubmit(client) -> None:
     finalized = create_finalized_meeting(client, "worker-restart")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     first_client = FakeMediaScribeClient(external_job_id="job_restart")
     second_client = FakeMediaScribeClient(external_job_id="job_should_not_submit")
@@ -21,7 +22,8 @@ def test_worker_restart_resumes_from_persisted_mediascribe_job_without_resubmit(
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
             await submit_to_mediascribe(

@@ -16,11 +16,11 @@ lifecycle truth. Write failing tests before implementation tasks in each phase.
 
 **Purpose**: Prepare feature evidence and shared test scaffolding.
 
-- [ ] T001 Create implementation evidence log in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
-- [ ] T002 [P] Create synthetic fixture README for offline/upload/review evidence in `specs/042-recording-sync-transcription-loop/validation/README.md`
-- [ ] T003 [P] Add server fixture helpers for revision-aware recordings in `apps/server/tests/fixtures/recording_sync.py`
-- [ ] T004 [P] Add macOS fixture helpers for queue v2 items in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
-- [ ] T005 Record checklist closure notes for `042` in `specs/042-recording-sync-transcription-loop/checklists/requirements.md`
+- [X] T001 Create implementation evidence log in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T002 [P] Create synthetic fixture README for offline/upload/review evidence in `specs/042-recording-sync-transcription-loop/validation/README.md`
+- [X] T003 [P] Add server fixture helpers for revision-aware recordings in `apps/server/tests/fixtures/recording_sync.py`
+- [X] T004 [P] Add macOS fixture helpers for queue v2 items in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T005 Record checklist closure notes for `042` in `specs/042-recording-sync-transcription-loop/checklists/requirements.md`
 
 ---
 
@@ -33,23 +33,23 @@ all user stories.
 
 ### Tests
 
-- [ ] T006 [P] Add failing migration/model tests for media revisions in `apps/server/tests/integration/test_media_revision_migrations.py`
-- [ ] T007 [P] Add failing RLS tests for media revision tenant isolation in `apps/server/tests/integration/test_rls_media_revision_policies.py`
-- [ ] T008 [P] Add failing OpenAPI contract tests for revision-aware ingest/sync fields in `apps/server/tests/contract/test_recording_sync_contract.py`
-- [ ] T009 [P] Add failing desktop queue schema migration tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T006 [P] Add failing migration/model tests for media revisions in `apps/server/tests/integration/test_media_revision_migrations.py`
+- [X] T007 [P] Add failing RLS tests for media revision tenant isolation in `apps/server/tests/integration/test_rls_media_revision_policies.py`
+- [X] T008 [P] Add failing OpenAPI contract tests for revision-aware ingest/sync fields in `apps/server/tests/contract/test_recording_sync_contract.py`
+- [X] T009 [P] Add failing desktop queue schema migration tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
 
 ### Implementation
 
-- [ ] T010 Add media revision statuses/source kinds to `apps/server/src/twobrain_rec_server/domain/statuses.py`
-- [ ] T011 Add `MediaRevision` model and revision links in `apps/server/src/twobrain_rec_server/db/models/ingest.py`
-- [ ] T012 Update model exports for media revision entities in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
-- [ ] T013 Add Alembic migration `0008_recording_sync_transcription_loop.py` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0008_recording_sync_transcription_loop.py`
-- [ ] T014 Add revision-aware Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T015 Add revision service helpers in `apps/server/src/twobrain_rec_server/ingest/media_revisions.py`
-- [ ] T016 Add desktop queue v2 fields and conflict enum in `apps/macos/Shared/Sources/Models/AudioModels.swift`
-- [ ] T017 Add queue v1-to-v2 migration behavior in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T018 Add diagnostic redaction coverage for revision/sync fields in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
-- [ ] T019 Update committed API contract reference for revision-aware ingest in `specs/012-server-ingest-foundation/contracts/openapi.yaml`
+- [X] T010 Add media revision statuses/source kinds to `apps/server/src/twobrain_rec_server/domain/statuses.py`
+- [X] T011 Add `MediaRevision` model and revision links in `apps/server/src/twobrain_rec_server/db/models/ingest.py`
+- [X] T012 Update model exports for media revision entities in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
+- [X] T013 Add Alembic migration `0008_recording_sync_transcription_loop.py` in `apps/server/src/twobrain_rec_server/db/migrations/versions/0008_recording_sync_transcription_loop.py`
+- [X] T014 Add revision-aware Pydantic schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T015 Add revision service helpers in `apps/server/src/twobrain_rec_server/ingest/media_revisions.py`
+- [X] T016 Add desktop queue v2 fields and conflict enum in `apps/macos/Shared/Sources/Models/AudioModels.swift`
+- [X] T017 Add queue v1-to-v2 migration behavior in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T018 Add diagnostic redaction coverage for revision/sync fields in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
+- [X] T019 Update committed API contract reference for revision-aware ingest in `specs/012-server-ingest-foundation/contracts/openapi.yaml`
 
 **Checkpoint**: Media revision identity, queue v2 shape, and server contract
 surface are available for story work.
@@ -67,17 +67,17 @@ package, restart queue service, and verify package identity, initial
 
 ### Tests
 
-- [ ] T020 [P] [US1] Add offline enqueue/restart tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
-- [ ] T021 [P] [US1] Add local package eligibility tests for blocked/degraded recordings in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
-- [ ] T022 [P] [US1] Add desktop capture/upload copy tests for local-only states in `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T020 [P] [US1] Add offline enqueue/restart tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T021 [P] [US1] Add local package eligibility tests for blocked/degraded recordings in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
+- [X] T022 [P] [US1] Add desktop capture/upload copy tests for local-only states in `apps/macos/Shared/Tests/CaptureControlTests.swift`
 
 ### Implementation
 
-- [ ] T023 [US1] Generate deterministic `localMediaRevisionId` during queue item creation in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T024 [US1] Preserve non-terminal local artifacts and queue state across service reload in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T025 [US1] Add local-only and blocked upload labels in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T026 [US1] Surface local queue rows without server success claims in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T027 [US1] Record US1 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T023 [US1] Generate deterministic `localMediaRevisionId` during queue item creation in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T024 [US1] Preserve non-terminal local artifacts and queue state across service reload in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T025 [US1] Add local-only and blocked upload labels in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T026 [US1] Surface local queue rows without server success claims in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [X] T027 [US1] Record US1 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
 
 **Checkpoint**: US1 can be validated without server availability.
 
@@ -94,19 +94,19 @@ fingerprints, and no duplicate upload/processing records.
 
 ### Tests
 
-- [ ] T028 [P] [US2] Add server tests for idempotent meeting and media revision creation in `apps/server/tests/integration/test_media_revision_identity.py`
-- [ ] T029 [P] [US2] Add server tests for immutable accepted revision fingerprints in `apps/server/tests/unit/test_media_revision_state_machine.py`
-- [ ] T030 [P] [US2] Add desktop tests preserving meeting/revision ids across re-enqueue in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T028 [P] [US2] Add server tests for idempotent meeting and media revision creation in `apps/server/tests/integration/test_media_revision_identity.py`
+- [X] T029 [P] [US2] Add server tests for immutable accepted revision fingerprints in `apps/server/tests/unit/test_media_revision_state_machine.py`
+- [X] T030 [P] [US2] Add desktop tests preserving meeting/revision ids across re-enqueue in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
 
 ### Implementation
 
-- [ ] T031 [US2] Create or reuse initial media revision during meeting creation in `apps/server/src/twobrain_rec_server/ingest/meetings.py`
-- [ ] T032 [US2] Implement media revision creation/reuse rules in `apps/server/src/twobrain_rec_server/ingest/media_revisions.py`
-- [ ] T033 [US2] Include media revision identity in meeting responses in `apps/server/src/twobrain_rec_server/api/ingest.py`
-- [ ] T034 [US2] Bind upload sessions to media revisions in `apps/server/src/twobrain_rec_server/ingest/sessions.py`
-- [ ] T035 [US2] Bind track artifacts and manifest snapshots to media revisions in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
-- [ ] T036 [US2] Persist server `mediaRevisionId` into desktop queue truth in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
-- [ ] T037 [US2] Record US2 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T031 [US2] Create or reuse initial media revision during meeting creation in `apps/server/src/twobrain_rec_server/ingest/meetings.py`
+- [X] T032 [US2] Implement media revision creation/reuse rules in `apps/server/src/twobrain_rec_server/ingest/media_revisions.py`
+- [X] T033 [US2] Include media revision identity in meeting responses in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T034 [US2] Bind upload sessions to media revisions in `apps/server/src/twobrain_rec_server/ingest/sessions.py`
+- [X] T035 [US2] Bind track artifacts and manifest snapshots to media revisions in `apps/server/src/twobrain_rec_server/ingest/finalize.py`
+- [X] T036 [US2] Persist server `mediaRevisionId` into desktop queue truth in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
+- [X] T037 [US2] Record US2 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
 
 **Checkpoint**: US2 proves revision-ready identity without edit/trim runtime.
 
@@ -123,20 +123,20 @@ idempotent part acceptance, and safe blocking on mismatch.
 
 ### Tests
 
-- [ ] T038 [P] [US3] Add server sync-state contract tests in `apps/server/tests/contract/test_recording_sync_contract.py`
-- [ ] T039 [P] [US3] Add upload resume and expired-session integration tests in `apps/server/tests/integration/test_recording_sync_upload_resume.py`
-- [ ] T040 [P] [US3] Add desktop client reconciliation tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
-- [ ] T041 [P] [US3] Add checksum mismatch tests in `apps/server/tests/unit/test_upload_idempotency.py`
+- [X] T038 [P] [US3] Add server sync-state contract tests in `apps/server/tests/contract/test_recording_sync_contract.py`
+- [X] T039 [P] [US3] Add upload resume and expired-session integration tests in `apps/server/tests/integration/test_recording_sync_upload_resume.py`
+- [X] T040 [P] [US3] Add desktop client reconciliation tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T041 [P] [US3] Add checksum mismatch tests in `apps/server/tests/unit/test_upload_idempotency.py`
 
 ### Implementation
 
-- [ ] T042 [US3] Add desktop sync-state service in `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
-- [ ] T043 [US3] Expose `GET /api/v1/desktop/recordings/{local_recording_id}/sync-state` in `apps/server/src/twobrain_rec_server/api/ingest.py`
-- [ ] T044 [US3] Return revision-aware accepted bytes and conflict states in `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
-- [ ] T045 [US3] Reconcile before upload attempts in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
-- [ ] T046 [US3] Persist reconciliation truth and conflict states in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T047 [US3] Handle expired sessions and missing ranges without duplicate meetings in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
-- [ ] T048 [US3] Record US3 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T042 [US3] Add desktop sync-state service in `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
+- [X] T043 [US3] Expose `GET /api/v1/desktop/recordings/{local_recording_id}/sync-state` in `apps/server/src/twobrain_rec_server/api/ingest.py`
+- [X] T044 [US3] Return revision-aware accepted bytes and conflict states in `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
+- [X] T045 [US3] Reconcile before upload attempts in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
+- [X] T046 [US3] Persist reconciliation truth and conflict states in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T047 [US3] Handle expired sessions and missing ranges without duplicate meetings in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
+- [X] T048 [US3] Record US3 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
 
 **Checkpoint**: US3 proves reconnect/resume consistency.
 
@@ -153,25 +153,25 @@ and verify matching meeting/revision/transcript/provenance truth.
 
 ### Tests
 
-- [ ] T049 [P] [US4] Add revision-keyed processing workflow tests in `apps/server/tests/unit/test_processing_workflow_identity.py`
-- [ ] T050 [P] [US4] Add processing pickup integration tests for media revisions in `apps/server/tests/integration/test_recording_sync_processing.py`
-- [ ] T051 [P] [US4] Add cabinet API contract tests for media revision provenance in `apps/server/tests/contract/test_cabinet_contract.py`
-- [ ] T052 [P] [US4] Add desktop embedded review link tests for revision-aware queue items in `apps/macos/Shared/Tests/CaptureControlTests.swift`
-- [ ] T053 [P] [US4] Add review accessibility, localization, and compact-width contract tests in `apps/server/tests/contract/test_cabinet_contract.py`
-- [ ] T054 [P] [US4] Add embedded desktop review accessibility and status-link tests in `apps/macos/Shared/Tests/DesktopCabinetUploadLinkTests.swift`
+- [X] T049 [P] [US4] Add revision-keyed processing workflow tests in `apps/server/tests/unit/test_processing_workflow_identity.py`
+- [X] T050 [P] [US4] Add processing pickup integration tests for media revisions in `apps/server/tests/integration/test_recording_sync_processing.py`
+- [X] T051 [P] [US4] Add cabinet API contract tests for media revision provenance in `apps/server/tests/contract/test_cabinet_contract.py`
+- [X] T052 [P] [US4] Add desktop embedded review link tests for revision-aware queue items in `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T053 [P] [US4] Add review accessibility, localization, and compact-width contract tests in `apps/server/tests/contract/test_cabinet_contract.py`
+- [X] T054 [P] [US4] Add embedded desktop review accessibility and status-link tests in `apps/macos/Shared/Tests/DesktopCabinetUploadLinkTests.swift`
 
 ### Implementation
 
-- [ ] T055 [US4] Key processing workflow identity by `media_revision_id` in `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`
-- [ ] T056 [US4] Bind processing workflows and jobs to media revisions in `apps/server/src/twobrain_rec_server/processing/pickup.py`
-- [ ] T057 [US4] Bind MediaScribe job submit/import records to media revisions in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [ ] T058 [US4] Include media revision provenance in processing status responses in `apps/server/src/twobrain_rec_server/processing/status.py`
-- [ ] T059 [US4] Include media revision provenance in cabinet queries and view models in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
-- [ ] T060 [US4] Render revision-aware status in cabinet web templates in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T061 [US4] Open revision-aware uploaded queue items in embedded review in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
-- [ ] T062 [US4] Apply localization-safe accessible status labels and compact-width review behavior in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T063 [US4] Apply embedded desktop review accessibility and status-link behavior in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T064 [US4] Record US4 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T055 [US4] Key processing workflow identity by `media_revision_id` in `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`
+- [X] T056 [US4] Bind processing workflows and jobs to media revisions in `apps/server/src/twobrain_rec_server/processing/pickup.py`
+- [X] T057 [US4] Bind MediaScribe job submit/import records to media revisions in `apps/server/src/twobrain_rec_server/processing/store.py`
+- [X] T058 [US4] Include media revision provenance in processing status responses in `apps/server/src/twobrain_rec_server/processing/status.py`
+- [X] T059 [US4] Include media revision provenance in cabinet queries and view models in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T060 [US4] Render revision-aware status in cabinet web templates in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T061 [US4] Open revision-aware uploaded queue items in embedded review in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift`
+- [X] T062 [US4] Apply localization-safe accessible status labels and compact-width review behavior in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T063 [US4] Apply embedded desktop review accessibility and status-link behavior in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [X] T064 [US4] Record US4 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
 
 **Checkpoint**: US4 proves upload-to-transcript-to-review value loop.
 
@@ -188,23 +188,23 @@ upload session, and processing failure; verify safe labels and next actions.
 
 ### Tests
 
-- [ ] T065 [P] [US5] Add desktop conflict-state tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
-- [ ] T066 [P] [US5] Add server sync conflict integration tests in `apps/server/tests/integration/test_recording_sync_conflicts.py`
-- [ ] T067 [P] [US5] Add cabinet blocked/failed state tests in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
-- [ ] T068 [P] [US5] Add desktop UX copy tests for conflict states in `apps/macos/Shared/Tests/CaptureControlTests.swift`
-- [ ] T069 [P] [US5] Add infrastructure dependency failure tests for object-store writes, DB transactions, workflow start, MediaScribe, cabinet timeout, and expired upload sessions in `apps/server/tests/integration/test_recording_sync_conflicts.py`
-- [ ] T070 [P] [US5] Add local disk-full and temporary upload cleanup tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T065 [P] [US5] Add desktop conflict-state tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
+- [X] T066 [P] [US5] Add server sync conflict integration tests in `apps/server/tests/integration/test_recording_sync_conflicts.py`
+- [X] T067 [P] [US5] Add cabinet blocked/failed state tests in `apps/server/tests/integration/test_cabinet_meeting_detail.py`
+- [X] T068 [P] [US5] Add desktop UX copy tests for conflict states in `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T069 [P] [US5] Add infrastructure dependency failure tests for object-store writes, DB transactions, workflow start, MediaScribe, cabinet timeout, and expired upload sessions in `apps/server/tests/integration/test_recording_sync_conflicts.py`
+- [X] T070 [P] [US5] Add local disk-full and temporary upload cleanup tests in `apps/macos/Shared/Tests/DesktopUploadQueueTests.swift`
 
 ### Implementation
 
-- [ ] T071 [US5] Map server sync conflicts to safe desktop states in `apps/macos/Shared/Sources/Models/AudioModels.swift`
-- [ ] T072 [US5] Apply conflict transitions in queue update paths in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T073 [US5] Return auth/access/deletion/session conflict states from `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
-- [ ] T074 [US5] Show conflict-safe queue copy and next actions in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T075 [US5] Show blocked/failed review status without fake transcript in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T076 [US5] Map dependency-unavailable infrastructure failures to safe sync-state responses in `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
-- [ ] T077 [US5] Show disk-full, temporary cleanup, and dependency-failure next actions without private paths in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T078 [US5] Record US5 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T071 [US5] Map server sync conflicts to safe desktop states in `apps/macos/Shared/Sources/Models/AudioModels.swift`
+- [X] T072 [US5] Apply conflict transitions in queue update paths in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T073 [US5] Return auth/access/deletion/session conflict states from `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
+- [X] T074 [US5] Show conflict-safe queue copy and next actions in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T075 [US5] Show blocked/failed review status without fake transcript in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T076 [US5] Map dependency-unavailable infrastructure failures to safe sync-state responses in `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
+- [X] T077 [US5] Show disk-full, temporary cleanup, and dependency-failure next actions without private paths in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T078 [US5] Record US5 validation evidence in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
 
 **Checkpoint**: US5 proves mismatch recovery and no silent drift.
 
@@ -221,19 +221,19 @@ flows; verify no forbidden content leaks and lifecycle state is complete.
 
 ### Tests
 
-- [ ] T079 [P] [US6] Add no-secret/no-content contract tests for recording sync in `apps/server/tests/contract/test_recording_sync_no_secret_egress.py`
-- [ ] T080 [P] [US6] Add diagnostic redaction tests for queue/revision fields in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
-- [ ] T081 [P] [US6] Add lifecycle/deletion accounting tests for media revisions in `apps/server/tests/integration/test_recording_sync_lifecycle.py`
-- [ ] T082 [P] [US6] Add RLS enforcement tests for media revisions in `apps/server/tests/integration/test_rls_media_revision_policies.py`
+- [X] T079 [P] [US6] Add no-secret/no-content contract tests for recording sync in `apps/server/tests/contract/test_recording_sync_no_secret_egress.py`
+- [X] T080 [P] [US6] Add diagnostic redaction tests for queue/revision fields in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
+- [X] T081 [P] [US6] Add lifecycle/deletion accounting tests for media revisions in `apps/server/tests/integration/test_recording_sync_lifecycle.py`
+- [X] T082 [P] [US6] Add RLS enforcement tests for media revisions in `apps/server/tests/integration/test_rls_media_revision_policies.py`
 
 ### Implementation
 
-- [ ] T083 [US6] Add media revision lifecycle state updates in `apps/server/src/twobrain_rec_server/ingest/lifecycle.py`
-- [ ] T084 [US6] Include media revision artifacts in deletion dependency reporting in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`
-- [ ] T085 [US6] Redact queue/revision diagnostics on desktop in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
-- [ ] T086 [US6] Add RLS policy declarations for media revision tables in `apps/server/src/twobrain_rec_server/db/migrations/versions/0008_recording_sync_transcription_loop.py`
-- [ ] T087 [US6] Add metadata-only evidence scan notes in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
-- [ ] T088 [US6] Update release notes for `042` in `CHANGELOG.md`
+- [X] T083 [US6] Add media revision lifecycle state updates in `apps/server/src/twobrain_rec_server/ingest/lifecycle.py`
+- [X] T084 [US6] Include media revision artifacts in deletion dependency reporting in `apps/server/src/twobrain_rec_server/processing/lifecycle.py`
+- [X] T085 [US6] Redact queue/revision diagnostics on desktop in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
+- [X] T086 [US6] Add RLS policy declarations for media revision tables in `apps/server/src/twobrain_rec_server/db/migrations/versions/0008_recording_sync_transcription_loop.py`
+- [X] T087 [US6] Add metadata-only evidence scan notes in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T088 [US6] Update release notes for `042` in `CHANGELOG.md`
 
 **Checkpoint**: US6 proves privacy/lifecycle boundaries for the complete loop.
 
@@ -243,14 +243,14 @@ flows; verify no forbidden content leaks and lifecycle state is complete.
 
 **Purpose**: Run cross-story validation and prepare implementation closure.
 
-- [ ] T089 Run focused macOS validation from `specs/042-recording-sync-transcription-loop/quickstart.md`
-- [ ] T090 Run focused server validation from `specs/042-recording-sync-transcription-loop/quickstart.md`
-- [ ] T091 Run `infra/scripts/ci-local.sh` and record result in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
-- [ ] T092 Review `specs/042-recording-sync-transcription-loop/contracts/desktop-sync-contract.md` against implemented desktop/server behavior
-- [ ] T093 Review `specs/042-recording-sync-transcription-loop/contracts/media-revision-contract.md` against implemented schema and processing behavior
-- [ ] T094 Review `specs/042-recording-sync-transcription-loop/contracts/review-surface-contract.md` against web and embedded desktop behavior
-- [ ] T095 Update `docs/current-product-status.md` with accepted `042` implementation status and remaining gaps
-- [ ] T096 Scan `specs/042-recording-sync-transcription-loop/validation` for forbidden private content before commit
+- [X] T089 Run focused macOS validation from `specs/042-recording-sync-transcription-loop/quickstart.md`
+- [X] T090 Run focused server validation from `specs/042-recording-sync-transcription-loop/quickstart.md`
+- [X] T091 Run `infra/scripts/ci-local.sh` and record result in `specs/042-recording-sync-transcription-loop/validation/implementation-evidence.md`
+- [X] T092 Review `specs/042-recording-sync-transcription-loop/contracts/desktop-sync-contract.md` against implemented desktop/server behavior
+- [X] T093 Review `specs/042-recording-sync-transcription-loop/contracts/media-revision-contract.md` against implemented schema and processing behavior
+- [X] T094 Review `specs/042-recording-sync-transcription-loop/contracts/review-surface-contract.md` against web and embedded desktop behavior
+- [X] T095 Update `docs/current-product-status.md` with accepted `042` implementation status and remaining gaps
+- [X] T096 Scan `specs/042-recording-sync-transcription-loop/validation` for forbidden private content before commit
 
 ---
 

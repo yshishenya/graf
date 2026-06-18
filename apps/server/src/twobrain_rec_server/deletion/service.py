@@ -44,6 +44,7 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     LifecycleAuditOutcome,
 )
+from twobrain_rec_server.processing.lifecycle import MEDIA_REVISION_DELETION_SAFE_REASON
 
 TERMINAL_REQUEST_STATES = {
     DeletionState.COMPLETE.value,
@@ -289,6 +290,7 @@ def _initial_artifact_states(
     )
     rows = [
         (DeletionArtifactClass.MEETING_ROW, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, "Meeting row retained as deletion report metadata"),
+        (DeletionArtifactClass.MEDIA_REVISION, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, MEDIA_REVISION_DELETION_SAFE_REASON),
         (DeletionArtifactClass.AUDIO_OBJECT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Server audio purge requested"),
         (DeletionArtifactClass.TRANSCRIPT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Transcript purge requested"),
         (DeletionArtifactClass.DIARIZATION, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Diarization purge requested"),

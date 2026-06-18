@@ -572,6 +572,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(localRecordingAccessibilityLabel(for: item))
     }
 
     private func localRecordingTitle(for item: DesktopUploadQueueItem) -> String {
@@ -583,9 +585,25 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private func localRecordingDetail(for item: DesktopUploadQueueItem) -> String {
         if item.state == .uploaded {
-            return "Готова к обзору"
+            return item.serverTruth.meetingId == nil
+                ? "Локальная копия сохранена, сервер не подтвержден"
+                : "Готова к обзору"
+        }
+        if item.state == .queued && item.serverTruth.meetingId == nil {
+            return "Сохранена локально, ждет отправки"
+        }
+        if item.state == .retrying && item.serverTruth.meetingId == nil {
+            return "Сохранена локально, повторим отправку"
+        }
+        if item.state == .blocked {
+            return "Нужна проверка локальной записи"
         }
         return item.state.displayName
+    }
+
+    private func localRecordingAccessibilityLabel(for item: DesktopUploadQueueItem) -> String {
+        let reviewState = item.serverTruth.mediaRevisionId == nil ? "" : ". Серверная медиа-ревизия подтверждена"
+        return "\(localRecordingTitle(for: item)), \(localRecordingDetail(for: item)), \(localRecordingDuration(for: item))\(reviewState)"
     }
 
     private func localRecordingDuration(for item: DesktopUploadQueueItem) -> String {

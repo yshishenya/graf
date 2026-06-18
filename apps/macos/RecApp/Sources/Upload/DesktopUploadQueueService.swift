@@ -113,6 +113,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 now: now,
                 reason: reason
             )
+            var savedItem = item
 
             if let index = document.items.firstIndex(where: { $0.id == item.id }) {
                 let existing = document.items[index]
@@ -122,11 +123,17 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 var merged = item
                 merged.attemptCount = existing.attemptCount
                 merged.meetingId = existing.meetingId
+                merged.localMediaRevisionId = existing.localMediaRevisionId
+                merged.mediaRevisionId = existing.mediaRevisionId
                 merged.uploadSessionId = existing.uploadSessionId
+                merged.syncGeneration = existing.syncGeneration
+                merged.lastReconciledAt = existing.lastReconciledAt
+                merged.syncConflictState = existing.syncConflictState
                 merged.serverTruth = existing.serverTruth
                 merged.retryRecords = existing.retryRecords
                 merged.createdAt = existing.createdAt
                 document.items[index] = merged
+                savedItem = merged
             } else {
                 document.items.append(item)
             }
@@ -134,7 +141,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
-            return item
+            return savedItem
         }
     }
 
@@ -148,6 +155,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 failureReason: item.artifactProfile.isUploadable ? nil : "local_artifacts_not_uploadable",
                 retryMode: item.artifactProfile.isUploadable ? .automatic : .manualOnly,
                 nextRetryAt: item.artifactProfile.isUploadable ? now : nil,
+                syncConflictState: item.artifactProfile.isUploadable ? DesktopSyncConflictState.none : .localFilesMissing,
                 retentionDecision: RetentionDecision(
                     decision: item.artifactProfile.isUploadable ? .retain : .manualOnly,
                     decidedAt: now,
@@ -201,6 +209,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     failureReason: "automatic_retry_window_expired",
                     retryMode: .manualOnly,
                     nextRetryAt: nil,
+                    syncConflictState: .retentionExpired,
                     retentionDecision: RetentionDecision(
                         decision: .manualOnly,
                         decidedAt: now,
@@ -296,7 +305,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
 
         do {
-            let result = try await client.upload(started)
+            let reconciled = try await reconcileBeforeUpload(started, client: client)
+            guard reconciled.syncConflictState == .none else {
+                return
+            }
+            let result = try await client.upload(reconciled)
             _ = try updateItem(itemId: started.id) { current, now in
                 var next = current.withTransition(
                     to: result.state,
@@ -317,7 +330,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 next.retryRecords.append(
                     RetryRecord(
                         attemptNumber: next.attemptCount,
-                        startedAt: started.updatedAt,
+                        startedAt: reconciled.updatedAt,
                         finishedAt: now,
                         stateBefore: .uploading,
                         stateAfter: result.state,
@@ -369,6 +382,46 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
                 return next
             }
+        }
+    }
+
+    private func reconcileBeforeUpload(
+        _ item: DesktopUploadQueueItem,
+        client: DesktopUploadClientProtocol
+    ) async throws -> DesktopUploadQueueItem {
+        guard let reconciliation = try await client.reconcile(item) else {
+            return item
+        }
+        return try updateItem(itemId: item.id) { current, now in
+            var next = current
+            next.serverTruth = reconciliation.serverTruth
+            next.meetingId = reconciliation.serverTruth.meetingId ?? next.meetingId
+            next.mediaRevisionId = reconciliation.serverTruth.mediaRevisionId ?? next.mediaRevisionId
+            next.uploadSessionId = reconciliation.serverTruth.uploadSessionId ?? next.uploadSessionId
+            if reconciliation.conflictState == .uploadSessionExpired && reconciliation.nextAction == "create_upload_session" {
+                next.uploadSessionId = nil
+                next.serverTruth.uploadSessionId = nil
+            }
+            next.lastReconciledAt = now
+            next.syncGeneration += 1
+            if reconciliation.canContinueUpload {
+                next.syncConflictState = .none
+                return next
+            }
+            next.state = .blocked
+            next.failureCategory = .serverValidation
+            next.failureReason = reconciliation.conflictReason ?? reconciliation.conflictState.rawValue
+            next.retryMode = .manualOnly
+            next.nextRetryAt = nil
+            next.syncConflictState = reconciliation.conflictState
+            next.retentionDecision = RetentionDecision(
+                decision: .manualOnly,
+                decidedAt: now,
+                reason: next.failureReason ?? "server_reconciliation_conflict",
+                localArtifactsRetained: true,
+                policyReference: "server_truth.reconciliation"
+            )
+            return next
         }
     }
 
@@ -425,6 +478,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             ),
             sessionId: manifest.sessionId,
             directoryId: manifest.directoryId,
+            localMediaRevisionId: DesktopUploadQueueItem.initialMediaRevisionId(directoryId: manifest.directoryId),
             directoryPath: directoryURL.path,
             manifestPath: manifestURL.path,
             microphonePath: microphoneURL.path,
@@ -517,7 +571,15 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         let data = try Data(contentsOf: queueURL)
         var loaded = try JSONDecoder.uploadQueueDecoder.decode(DesktopUploadQueueDocument.self, from: data)
+        let needsSchemaMigration = loaded.schemaVersion != DesktopUploadQueueDocument.schemaVersion
+        if needsSchemaMigration {
+            loaded.schemaVersion = DesktopUploadQueueDocument.schemaVersion
+        }
         loaded.items = loaded.items.sortedForDisplay()
+        if needsSchemaMigration {
+            loaded.updatedAt = clock()
+            try saveDocumentOnQueue(loaded)
+        }
         document = loaded
         return loaded
     }
@@ -578,6 +640,21 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
     }
 
     public var detail: String {
+        if let conflictDetail = primaryItem.syncConflictState.safeDetail {
+            return conflictDetail
+        }
+        if primaryItem.state == .queued && primaryItem.serverTruth.meetingId == nil {
+            return "локальная копия сохранена, отправим при сети"
+        }
+        if primaryItem.state == .retrying && primaryItem.serverTruth.meetingId == nil {
+            return "локальная копия сохранена, повторим отправку"
+        }
+        if primaryItem.state == .uploading {
+            return "отправляем локальную копию на сервер"
+        }
+        if primaryItem.state == .uploaded && primaryItem.serverTruth.meetingId == nil {
+            return "серверный обзор пока не подтвержден"
+        }
         if let reason = primaryItem.failureReason, !reason.isEmpty {
             return Self.failureReasonText(reason)
         }

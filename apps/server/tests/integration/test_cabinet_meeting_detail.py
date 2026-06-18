@@ -45,6 +45,9 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
     assert failed["processing"]["state"] == "failed"
     assert failed["processing"]["reason_code"] == "mediascribe_validation_failed"
     assert failed["processing"]["next_action"] == "contact_operator"
+    assert failed["transcript"]["available"] is False
+    assert failed["transcript"]["segments"] == []
+    assert SAFE_TRANSCRIPT_TEXT not in str(failed)
     assert failed["notes_action_truth"]["summary"]["state"] == "blocked"
     assert failed["notes_action_truth"]["decisions"]["state"] == "blocked"
     assert partial["processing"]["state"] == "partial"

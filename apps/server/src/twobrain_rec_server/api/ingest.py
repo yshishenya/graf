@@ -1,14 +1,17 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AbortUploadRequest,
     CreateMeetingRequest,
     CreateUploadSessionRequest,
+    DesktopRecordingSyncStateResponse,
     FinalizeUploadRequest,
     FinalizeUploadResponse,
+    MediaRevisionSummary,
     MeetingResponse,
     MissingRange,
     MissingRangesResponse,
@@ -26,6 +29,7 @@ from twobrain_rec_server.auth.dependencies import (
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import TrackRole
 from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
+from twobrain_rec_server.ingest.desktop_sync import get_desktop_recording_sync_state
 from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.lifecycle import abort_upload_session
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
@@ -81,10 +85,19 @@ StorageDependency = Depends(get_request_storage)
 
 
 def meeting_response(meeting: object) -> MeetingResponse:
+    media_revision = MediaRevisionSummary(
+        media_revision_id=meeting.media_revision_id,
+        local_media_revision_id=meeting.local_media_revision_id,
+        revision_number=1,
+        source_kind=meeting.media_revision_source_kind,
+        status=meeting.media_revision_status,
+    )
     return MeetingResponse(
         meeting_id=meeting.id,
         workspace_id=meeting.workspace_id,
         local_recording_id=meeting.local_recording_id,
+        local_media_revision_id=meeting.local_media_revision_id,
+        media_revision=media_revision,
         status=meeting.status,
         processing_status=meeting.processing_status,
         started_at=meeting.started_at,
@@ -101,6 +114,7 @@ def session_response(session: object) -> UploadSessionResponse:
     return UploadSessionResponse(
         session_id=session.id,
         meeting_id=session.meeting_id,
+        media_revision_id=session.media_revision_id,
         status=session.status,
         upload_strategy=session.upload_strategy,
         expires_at=session.expires_at,
@@ -124,14 +138,13 @@ async def create_meeting(
             tenant_scope=tenant_scope,
             db=db,
             local_recording_id=payload.local_recording_id,
+            local_media_revision_id=payload.local_media_revision_id,
             duration_seconds=payload.duration_seconds,
             title=payload.title,
             started_at=payload.started_at,
             ended_at=payload.ended_at,
         )
     except IngestLimitViolation as exc:
-        from twobrain_rec_server.api.problems import ProblemDetail
-
         raise ProblemDetail(
             status=400,
             code=exc.code,
@@ -139,6 +152,25 @@ async def create_meeting(
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
     return meeting_response(meeting)
+
+
+@router.get(
+    "/desktop/recordings/{local_recording_id}/sync-state",
+    response_model=DesktopRecordingSyncStateResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_recording_sync_state(
+    local_recording_id: str,
+    local_media_revision_id: str | None = Query(default=None),
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> DesktopRecordingSyncStateResponse:
+    return await get_desktop_recording_sync_state(
+        tenant_scope=tenant_scope,
+        db=db,
+        local_recording_id=local_recording_id,
+        local_media_revision_id=local_media_revision_id,
+    )
 
 
 @router.post(

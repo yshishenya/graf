@@ -18,6 +18,7 @@ from twobrain_rec_server.cabinet.egress import activity_response, artifact_egres
 from twobrain_rec_server.cabinet.view_models import build_list_item, build_review_response
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    MediaRevision,
     Meeting,
     ProcessingDependencyState,
     ProcessingResult,
@@ -60,8 +61,20 @@ async def list_cabinet_meetings(
             continue
         if access is not None and decision.state != access:
             continue
-        workflow = await _latest_workflow(db, workspace_id=workspace_id, meeting_id=meeting.id)
-        result = await _latest_result(db, workspace_id=workspace_id, meeting_id=meeting.id)
+        media_revision = await _latest_media_revision(db, workspace_id=workspace_id, meeting_id=meeting.id)
+        media_revision_id = media_revision.id if media_revision is not None else None
+        workflow = await _latest_workflow(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=media_revision_id,
+        )
+        result = await _latest_result(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=media_revision_id,
+        )
         artifacts = await artifact_egress_states(db, meeting=meeting, access=decision, result=result)
         item = build_list_item(
             meeting,
@@ -105,8 +118,20 @@ async def get_cabinet_meeting_review(
     )
     if not decision.can_view:
         return None
-    workflow = await _latest_workflow(db, workspace_id=workspace_id, meeting_id=meeting_id)
-    result = await _latest_result(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    media_revision = await _latest_media_revision(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    media_revision_id = media_revision.id if media_revision is not None else None
+    workflow = await _latest_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    result = await _latest_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
     transcript_segments: list[TranscriptSegment] = []
     diarization_segments: list[DiarizationSegment] = []
     if result is not None:
@@ -142,6 +167,7 @@ async def get_cabinet_meeting_review(
     )
     return build_review_response(
         meeting,
+        media_revision=media_revision,
         result=result,
         workflow=workflow,
         transcript_segments=transcript_segments,
@@ -176,15 +202,15 @@ async def _latest_workflow(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
 ) -> ProcessingWorkflow | None:
-    return await db.scalar(
-        select(ProcessingWorkflow)
-        .where(
+    query = select(ProcessingWorkflow).where(
             ProcessingWorkflow.workspace_id == workspace_id,
             ProcessingWorkflow.meeting_id == meeting_id,
-        )
-        .order_by(ProcessingWorkflow.updated_at.desc())
     )
+    if media_revision_id is not None:
+        query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
+    return await db.scalar(query.order_by(ProcessingWorkflow.updated_at.desc()))
 
 
 async def _latest_result(
@@ -192,14 +218,30 @@ async def _latest_result(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
-    return await db.scalar(
-        select(ProcessingResult)
-        .where(
+    query = select(ProcessingResult).where(
             ProcessingResult.workspace_id == workspace_id,
             ProcessingResult.meeting_id == meeting_id,
+    )
+    if media_revision_id is not None:
+        query = query.where(ProcessingResult.media_revision_id == media_revision_id)
+    return await db.scalar(query.order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc()))
+
+
+async def _latest_media_revision(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> MediaRevision | None:
+    return await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
         )
-        .order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc())
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
 
 
@@ -209,4 +251,10 @@ async def latest_processing_result(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> ProcessingResult | None:
-    return await _latest_result(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    media_revision = await _latest_media_revision(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    return await _latest_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision.id if media_revision is not None else None,
+    )

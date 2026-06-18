@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    MediaRevision,
     MediaScribeJob,
     Meeting,
     ProcessingAuditEvent,
@@ -47,19 +48,37 @@ async def load_meeting_for_workspace(
     )
 
 
+async def latest_media_revision_for_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> MediaRevision | None:
+    return await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+        )
+        .order_by(desc(MediaRevision.revision_number), desc(MediaRevision.updated_at))
+    )
+
+
 async def load_track_pair(
     db: AsyncSession,
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
 ) -> tuple[TrackArtifact | None, TrackArtifact | None]:
-    artifacts = await db.scalars(
-        select(TrackArtifact).where(
+    query = select(TrackArtifact).where(
             TrackArtifact.workspace_id == workspace_id,
             TrackArtifact.meeting_id == meeting_id,
             TrackArtifact.status == "stored",
-        )
     )
+    if media_revision_id is not None:
+        query = query.where(TrackArtifact.media_revision_id == media_revision_id)
+    artifacts = await db.scalars(query)
     mic: TrackArtifact | None = None
     incoming: TrackArtifact | None = None
     for artifact in artifacts:
@@ -75,13 +94,15 @@ async def get_processing_workflow(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
 ) -> ProcessingWorkflow | None:
-    return await db.scalar(
-        select(ProcessingWorkflow).where(
+    query = select(ProcessingWorkflow).where(
             ProcessingWorkflow.workspace_id == workspace_id,
             ProcessingWorkflow.meeting_id == meeting_id,
-        )
     )
+    if media_revision_id is not None:
+        query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
+    return await db.scalar(query)
 
 
 async def upsert_processing_workflow(
@@ -89,17 +110,26 @@ async def upsert_processing_workflow(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
     workflow_id: str,
     status: ProcessingStatus,
     workflow_run_id: str | None = None,
     reason_code: str | None = None,
 ) -> ProcessingWorkflow:
     now = datetime.now(UTC)
-    workflow = await get_processing_workflow(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    workflow = await get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    if workflow is None and media_revision_id is not None:
+        workflow = await get_processing_workflow(db, workspace_id=workspace_id, meeting_id=meeting_id)
     if workflow is None:
         workflow = ProcessingWorkflow(
             workspace_id=workspace_id,
             meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
             status=status.value,
@@ -110,6 +140,8 @@ async def upsert_processing_workflow(
         db.add(workflow)
     else:
         workflow.workflow_id = workflow_id
+        if media_revision_id is not None:
+            workflow.media_revision_id = media_revision_id
         if workflow_run_id is not None:
             workflow.workflow_run_id = workflow_run_id
         workflow.status = status.value
@@ -170,13 +202,15 @@ async def get_mediascribe_job(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
 ) -> MediaScribeJob | None:
-    return await db.scalar(
-        select(MediaScribeJob).where(
+    query = select(MediaScribeJob).where(
             MediaScribeJob.workspace_id == workspace_id,
             MediaScribeJob.meeting_id == meeting_id,
-        )
     )
+    if media_revision_id is not None:
+        query = query.where(MediaScribeJob.media_revision_id == media_revision_id)
+    return await db.scalar(query)
 
 
 async def upsert_mediascribe_job(
@@ -190,11 +224,19 @@ async def upsert_mediascribe_job(
         db,
         workspace_id=workflow.workspace_id,
         meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
     )
+    if job is None and workflow.media_revision_id is not None:
+        job = await get_mediascribe_job(
+            db,
+            workspace_id=workflow.workspace_id,
+            meeting_id=workflow.meeting_id,
+        )
     if job is None:
         job = MediaScribeJob(
             workspace_id=workflow.workspace_id,
             meeting_id=workflow.meeting_id,
+            media_revision_id=workflow.media_revision_id,
             processing_workflow_id=workflow.id,
             mic_track_artifact_id=mic_artifact.id,
             incoming_track_artifact_id=incoming_artifact.id,
@@ -204,6 +246,9 @@ async def upsert_mediascribe_job(
             summarize=False,
         )
         db.add(job)
+        await db.commit()
+    elif workflow.media_revision_id is not None and job.media_revision_id is None:
+        job.media_revision_id = workflow.media_revision_id
         await db.commit()
     return job
 
@@ -261,11 +306,14 @@ async def persist_processing_result(
         existing = ProcessingResult(
             workspace_id=job.workspace_id,
             meeting_id=job.meeting_id,
+            media_revision_id=job.media_revision_id,
             mediascribe_job_id=job.id,
             result_version=result.result_version,
         )
         db.add(existing)
         await db.flush()
+    elif job.media_revision_id is not None and existing.media_revision_id is None:
+        existing.media_revision_id = job.media_revision_id
     elif existing.source_result_hash == source_result_hash and existing.status == ProcessingResultStatus.IMPORTED.value:
         return existing
     else:
@@ -318,6 +366,7 @@ async def persist_processing_result(
         db,
         workspace_id=job.workspace_id,
         meeting_id=job.meeting_id,
+        media_revision_id=job.media_revision_id,
         dependency=ProcessingDependencyName.MEDIASCRIBE,
         state=ProcessingDependencyStateValue.IMPORTED,
         external_reference=job.external_job_id,
@@ -331,15 +380,15 @@ async def latest_processing_result(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
-    return await db.scalar(
-        select(ProcessingResult)
-        .where(
+    query = select(ProcessingResult).where(
             ProcessingResult.workspace_id == workspace_id,
             ProcessingResult.meeting_id == meeting_id,
-        )
-        .order_by(ProcessingResult.imported_at.desc())
     )
+    if media_revision_id is not None:
+        query = query.where(ProcessingResult.media_revision_id == media_revision_id)
+    return await db.scalar(query.order_by(ProcessingResult.imported_at.desc()))
 
 
 async def record_processing_audit_event(
@@ -372,6 +421,7 @@ async def set_dependency_state(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    media_revision_id: UUID | None = None,
     dependency: ProcessingDependencyName,
     state: ProcessingDependencyStateValue,
     external_reference: str | None = None,
@@ -388,9 +438,12 @@ async def set_dependency_state(
         existing = ProcessingDependencyState(
             workspace_id=workspace_id,
             meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
             dependency=dependency.value,
         )
         db.add(existing)
+    elif media_revision_id is not None:
+        existing.media_revision_id = media_revision_id
     existing.state = state.value
     existing.external_reference = external_reference
     existing.notes = notes

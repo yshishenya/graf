@@ -35,6 +35,7 @@ from twobrain_rec_server.processing.submit import (
 def test_processing_happy_path_imports_transcript_and_diarization(client) -> None:
     finalized = create_finalized_meeting(client, "processing-happy-path")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     fake_client = FakeMediaScribeClient(
         external_job_id="job_happy",
@@ -61,7 +62,8 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                workflow_id=f"processing/{meeting_id}",
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
             submitted = await submit_to_mediascribe(

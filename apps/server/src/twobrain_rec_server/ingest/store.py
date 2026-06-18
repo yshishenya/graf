@@ -10,6 +10,7 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
     ManifestSnapshot,
+    MediaRevision,
     Meeting,
     ProcessingPlaceholder,
     TemporaryUploadObject,
@@ -19,11 +20,19 @@ from twobrain_rec_server.db.models import (
     Workspace,
 )
 from twobrain_rec_server.domain.statuses import (
+    MediaRevisionSourceKind,
+    MediaRevisionStatus,
     MeetingStatus,
     ProcessingStatus,
     TrackRole,
     UploadSessionStatus,
     UploadStrategy,
+)
+from twobrain_rec_server.ingest.media_revisions import (
+    initial_media_revision_id,
+    initial_media_revision_source_kind,
+    initial_media_revision_status,
+    normalize_initial_local_media_revision_id,
 )
 
 
@@ -37,6 +46,10 @@ class MeetingRecord:
     local_recording_id: str
     duration_seconds: int
     title: str | None
+    local_media_revision_id: str | None = None
+    media_revision_id: UUID | None = None
+    media_revision_status: MediaRevisionStatus = field(default_factory=initial_media_revision_status)
+    media_revision_source_kind: MediaRevisionSourceKind = field(default_factory=initial_media_revision_source_kind)
     started_at: datetime | None = None
     ended_at: datetime | None = None
     status: MeetingStatus = MeetingStatus.DRAFT
@@ -65,6 +78,7 @@ class UploadSessionRecord:
     created_by_user_id: UUID
     status: UploadSessionStatus
     expires_at: datetime
+    media_revision_id: UUID | None = None
     upload_strategy: UploadStrategy = UploadStrategy.SERVER_MEDIATED
     processing_status: ProcessingStatus = ProcessingStatus.NOT_SUBMITTED
     expected_track_roles: list[TrackRole] = field(
@@ -83,6 +97,7 @@ class AuditEvent:
     meeting_id: UUID | None
     upload_session_id: UUID | None
     metadata: dict[str, object]
+    media_revision_id: UUID | None = None
     actor_user_id: UUID | None = None
     device_id: UUID | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -104,6 +119,7 @@ class InMemoryIngestStore:
         user_id: UUID,
         device_id: UUID,
         local_recording_id: str,
+        local_media_revision_id: str | None = None,
         duration_seconds: int,
         title: str | None,
     ) -> MeetingRecord:
@@ -121,6 +137,11 @@ class InMemoryIngestStore:
             local_recording_id=local_recording_id,
             duration_seconds=duration_seconds,
             title=title,
+            local_media_revision_id=normalize_initial_local_media_revision_id(
+                local_recording_id,
+                local_media_revision_id,
+            ),
+            media_revision_id=initial_media_revision_id(),
         )
         self.meetings[meeting.id] = meeting
         self.meetings_by_local_id[key] = meeting.id
@@ -142,6 +163,7 @@ class InMemoryIngestStore:
             organization_id=meeting.organization_id,
             device_id=meeting.device_id,
             created_by_user_id=meeting.created_by_user_id,
+            media_revision_id=meeting.media_revision_id,
             status=UploadSessionStatus.PENDING,
             expires_at=datetime.now(UTC) + timedelta(seconds=settings.upload_session_ttl_seconds),
             expected_track_roles=expected_track_roles or [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM],
@@ -160,6 +182,13 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord) -> No
     if db is None:
         return
     existing = await db.get(Meeting, meeting.id)
+    local_media_revision_id = normalize_initial_local_media_revision_id(
+        meeting.local_recording_id,
+        meeting.local_media_revision_id,
+    )
+    media_revision_id = initial_media_revision_id(meeting.media_revision_id)
+    meeting.local_media_revision_id = local_media_revision_id
+    meeting.media_revision_id = media_revision_id
     if existing is None:
         db.add(
             Meeting(
@@ -178,6 +207,19 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord) -> No
             )
         )
         db.add(
+            MediaRevision(
+                id=media_revision_id,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                local_media_revision_id=local_media_revision_id,
+                revision_number=1,
+                source_kind=meeting.media_revision_source_kind.value,
+                status=meeting.media_revision_status.value,
+                duration_seconds=meeting.duration_seconds,
+                immutable=True,
+            )
+        )
+        db.add(
             ProcessingPlaceholder(
                 meeting_id=meeting.id,
                 workspace_id=meeting.workspace_id,
@@ -186,6 +228,30 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord) -> No
             )
         )
     else:
+        media_revision = await db.scalar(
+            select(MediaRevision).where(
+                MediaRevision.workspace_id == meeting.workspace_id,
+                MediaRevision.meeting_id == meeting.id,
+                MediaRevision.revision_number == 1,
+            )
+        )
+        if media_revision is None:
+            db.add(
+                MediaRevision(
+                    id=media_revision_id,
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    local_media_revision_id=local_media_revision_id,
+                    revision_number=1,
+                    source_kind=meeting.media_revision_source_kind.value,
+                    status=meeting.media_revision_status.value,
+                    duration_seconds=meeting.duration_seconds,
+                    immutable=True,
+                )
+            )
+        else:
+            meeting.media_revision_id = media_revision.id
+            meeting.local_media_revision_id = media_revision.local_media_revision_id
         existing.status = meeting.status.value
         existing.processing_status = meeting.processing_status.value
         existing.started_at = meeting.started_at
@@ -222,6 +288,11 @@ async def load_meeting_record(
     workspace = await db.get(Workspace, model.workspace_id)
     if workspace is None:
         return None
+    media_revision = await db.scalar(
+        select(MediaRevision)
+        .where(MediaRevision.workspace_id == model.workspace_id, MediaRevision.meeting_id == model.id)
+        .order_by(MediaRevision.revision_number.asc())
+    )
     record = MeetingRecord(
         id=model.id,
         workspace_id=model.workspace_id,
@@ -231,6 +302,22 @@ async def load_meeting_record(
         local_recording_id=model.local_recording_id,
         duration_seconds=model.duration_seconds,
         title=model.title,
+        local_media_revision_id=(
+            media_revision.local_media_revision_id
+            if media_revision is not None
+            else normalize_initial_local_media_revision_id(model.local_recording_id, None)
+        ),
+        media_revision_id=media_revision.id if media_revision is not None else None,
+        media_revision_status=(
+            MediaRevisionStatus(media_revision.status)
+            if media_revision is not None
+            else initial_media_revision_status()
+        ),
+        media_revision_source_kind=(
+            MediaRevisionSourceKind(media_revision.source_kind)
+            if media_revision is not None
+            else initial_media_revision_source_kind()
+        ),
         started_at=model.started_at,
         ended_at=model.ended_at,
         status=MeetingStatus(model.status),
@@ -259,6 +346,7 @@ async def persist_upload_session(
             UploadSession(
                 id=session.id,
                 meeting_id=session.meeting_id,
+                media_revision_id=session.media_revision_id,
                 workspace_id=session.workspace_id,
                 device_id=session.device_id,
                 created_by_user_id=session.created_by_user_id,
@@ -306,6 +394,7 @@ async def load_upload_session_record(
         organization_id=meeting.organization_id,
         device_id=model.device_id,
         created_by_user_id=model.created_by_user_id,
+        media_revision_id=model.media_revision_id or meeting.media_revision_id,
         status=UploadSessionStatus(model.status),
         expires_at=model.expires_at,
         upload_strategy=UploadStrategy(model.upload_strategy),
@@ -404,6 +493,7 @@ async def persist_temporary_upload_object(
         db.add(
             TemporaryUploadObject(
                 upload_session_id=session.id,
+                media_revision_id=session.media_revision_id,
                 workspace_id=session.workspace_id,
                 storage_object_key=part.object_key,
                 byte_length=part.byte_length,
@@ -451,6 +541,7 @@ async def persist_audit_event(db: AsyncSession | None, event: AuditEvent) -> Non
         IngestAuditEvent(
             workspace_id=event.workspace_id,
             meeting_id=event.meeting_id,
+            media_revision_id=event.media_revision_id,
             upload_session_id=event.upload_session_id,
             actor_user_id=event.actor_user_id,
             device_id=event.device_id,
@@ -489,6 +580,7 @@ async def persist_finalized_tracks(
             db.add(
                 TrackArtifact(
                     meeting_id=meeting.id,
+                    media_revision_id=session.media_revision_id or meeting.media_revision_id,
                     workspace_id=meeting.workspace_id,
                     track_role=track.track_role.value,
                     codec=track.codec,
@@ -506,6 +598,7 @@ async def persist_finalized_tracks(
         db.add(
             ManifestSnapshot(
                 meeting_id=meeting.id,
+                media_revision_id=session.media_revision_id or meeting.media_revision_id,
                 workspace_id=meeting.workspace_id,
                 manifest_sha256=manifest_sha256,
                 manifest_json={

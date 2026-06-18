@@ -296,6 +296,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .panel h2, .panel h3, .right-panel h3 { margin: 0; font-size: 15px; letter-spacing: 0; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.revision-status { display: grid; gap: 6px; border-bottom: 1px solid var(--line-soft); padding-bottom: 12px; }
+.revision-status .row-meta { gap: 6px; }
 .notes-outcomes { display: grid; gap: 8px; }
 .notes-outcome-row { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .notes-outcome-row:last-child { border-bottom: 0; }
@@ -1635,8 +1637,10 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
         """
     recording_tab = "Transcript" if embedded else "Recording &amp; Transcript"
     speaker_lanes = _render_speaker_lanes(review)
+    media_revision_id = escape(str(review.provenance.media_revision_id or ""))
+    local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
     content = f"""
-      <main class="main">
+      <main class="main" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
         <div class="topline">
           <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(review.meeting.status_label)}</span>{_render_access_chip(review.meeting.access)}</div>
           <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
@@ -1651,6 +1655,7 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
             <div class="transcript">{transcript}</div>
           </section>
           <aside class="right-panel">
+            {_render_revision_status(review)}
             <h3>Access</h3>
             {_render_access_summary(review)}
             <h3>Share</h3>
@@ -2338,6 +2343,19 @@ def _render_speaker_lanes(review: MeetingReviewResponse) -> str:
         """
         for speaker in review.speakers.speakers
     )
+
+
+def _render_revision_status(review: MeetingReviewResponse) -> str:
+    media_revision_id = escape(str(review.provenance.media_revision_id or ""))
+    local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
+    label = escape(review.meeting.status_label)
+    reason = escape(review.processing.reason_label or review.processing.reason_code or "Текущая медиа-ревизия")
+    return f"""
+      <section class="revision-status" aria-label="Статус медиа-ревизии" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
+        <span class="chip {escape(review.meeting.status)}">{label}</span>
+        <span class="row-meta"><span>Медиа-ревизия</span><span>{reason}</span></span>
+      </section>
+    """
 
 
 def _render_access_chip(access) -> str:
