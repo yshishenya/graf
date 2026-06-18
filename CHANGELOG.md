@@ -123,6 +123,9 @@ Semantic Versioning 2.0.0.
   so favicon/apple-touch icon probes cannot replace a valid login/meetings
   surface with a false unavailable state; production web cabinet also answers
   standard icon probes without `404` noise (`feature:042`).
+- Local macOS install now force-registers the copied `2brain Rec.app` bundle with
+  LaunchServices, reducing stale Dock/Spotlight launches after rebuilding the
+  desktop app (`feature:042`).
 - Desktop app now installs standard macOS `Edit`/`Window` menus, so embedded
   cabinet fields receive `Cmd+V`, `Cmd+A`, copy, cut, paste and related
   responder-chain commands in `/Applications/2brain Rec.app` (`feature:036`).
