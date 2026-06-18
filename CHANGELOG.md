@@ -207,6 +207,22 @@ tooling in this repository may use Semantic Versioning where documented.
 - Dev MinIO policy now includes bucket metadata and multipart permissions
   required by local readiness/upload checks, so `docker-compose.dev.yml`
   can reach `ready` after the local stack is rebuilt (`feature:043`).
+- Desktop recording upload now uses the packaged production origin when no
+  shell environment is present, reuses the embedded web owner session cookie for
+  native upload requests, refreshes stale local queue eligibility, and uploads
+  safe degraded recording packages so saved recordings can appear in web and
+  desktop review instead of remaining local-only blocked items (`feature:042`).
+- Desktop embedded cabinet now preserves desktop auth headers across WebKit
+  link navigations to `/desktop/meetings` and meeting detail routes, so clicking
+  a recording row no longer falls back to a false login/unavailable state
+  (`feature:042`).
+- Desktop embedded cabinet now ignores non-main-frame WebKit response failures,
+  so favicon/apple-touch icon probes cannot replace a valid login/meetings
+  surface with a false unavailable state; production web cabinet also answers
+  standard icon probes without `404` noise (`feature:042`).
+- Local macOS install now force-registers the copied `2brain Rec.app` bundle with
+  LaunchServices, reducing stale Dock/Spotlight launches after rebuilding the
+  desktop app (`feature:042`).
 - Desktop app now installs standard macOS `Edit`/`Window` menus, so embedded
   cabinet fields receive `Cmd+V`, `Cmd+A`, copy, cut, paste and related
   responder-chain commands in `/Applications/2brain Rec.app` (`feature:036`).
