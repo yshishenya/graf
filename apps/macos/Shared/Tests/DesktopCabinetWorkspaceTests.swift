@@ -23,6 +23,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testEmbeddedWebViewDoesNotReloadInitialRouteAfterInPageNavigation() throws {
         let initial = URLRequest(url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings")))
         let detail = URLRequest(url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033")))
@@ -106,6 +107,30 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.uploadTruthRegion, "desktop-native-upload-truth-region")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.nativeShellRegion, "desktop-native-shell-region")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.embeddedSurface, "desktop-cabinet-embedded-surface")
+    }
+
+    func testWorkspaceZoomDoesNotScaleNativeShellControls() {
+        let safe = NativeShellInvariant(
+            recordVisible: true,
+            stopVisible: true,
+            uploadTruthVisible: true,
+            focusCanReachStop: true,
+            embeddedSurfaceLoaded: true,
+            workspaceZoomApplied: WorkspaceZoomPreference(value: 1.3),
+            nativeShellScaledByWorkspaceZoom: false
+        )
+        let unsafe = NativeShellInvariant(
+            recordVisible: true,
+            stopVisible: true,
+            uploadTruthVisible: true,
+            focusCanReachStop: true,
+            embeddedSurfaceLoaded: true,
+            workspaceZoomApplied: WorkspaceZoomPreference(value: 1.3),
+            nativeShellScaledByWorkspaceZoom: true
+        )
+
+        XCTAssertTrue(safe.satisfiesActiveRecordingSafety(cabinetState: .ready))
+        XCTAssertFalse(unsafe.satisfiesActiveRecordingSafety(cabinetState: .ready))
     }
 
     func testUnavailableStatesHaveBoundedMessages() {

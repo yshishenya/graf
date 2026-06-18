@@ -166,6 +166,20 @@ artifacts remain the detailed implementation record.
   `infra/scripts/ci-local.sh` gate. This is local implementation readiness
   only: the branch is not merged, not PR-reviewed, not deployed, and has no
   production upload-to-transcript e2e evidence yet.
+- Feature `036-owner-review-live-polish` is implemented as the current owner
+  review visual/auth baseline. It adds browser email login/signup flows, Postal
+  delivery configuration, session-protected web cabinet routes, installed
+  desktop login recovery, denser clean-room meeting list/detail surfaces, and
+  native/embedded shell polish. Evidence remains metadata-safe and keeps the
+  production claim bounded unless a separate rollout gate proves stronger live
+  owner-review behavior.
+- Feature `043-app-zoom-shortcuts` is implemented on top of the `036` owner
+  review shell baseline as a local macOS readability feature. Standard macOS
+  shortcuts adjust only the embedded meeting workspace zoom, persist the local
+  supported zoom value, recover invalid saved values to 100%, and leave native
+  Record/Stop/upload truth/local readiness outside the scaled WebKit surface.
+  This slice does not change capture, upload, backend meeting data, retention,
+  deletion, auth, or production rollout state.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded

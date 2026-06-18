@@ -138,23 +138,29 @@ public struct NativeShellInvariant: Equatable, Sendable {
     public let uploadTruthVisible: Bool
     public let focusCanReachStop: Bool
     public let embeddedSurfaceLoaded: Bool
+    public let workspaceZoomApplied: WorkspaceZoomPreference
+    public let nativeShellScaledByWorkspaceZoom: Bool
 
     public init(
         recordVisible: Bool,
         stopVisible: Bool,
         uploadTruthVisible: Bool,
         focusCanReachStop: Bool,
-        embeddedSurfaceLoaded: Bool
+        embeddedSurfaceLoaded: Bool,
+        workspaceZoomApplied: WorkspaceZoomPreference = .default,
+        nativeShellScaledByWorkspaceZoom: Bool = false
     ) {
         self.recordVisible = recordVisible
         self.stopVisible = stopVisible
         self.uploadTruthVisible = uploadTruthVisible
         self.focusCanReachStop = focusCanReachStop
         self.embeddedSurfaceLoaded = embeddedSurfaceLoaded
+        self.workspaceZoomApplied = workspaceZoomApplied
+        self.nativeShellScaledByWorkspaceZoom = nativeShellScaledByWorkspaceZoom
     }
 
     public func satisfiesActiveRecordingSafety(cabinetState _: DesktopCabinetState) -> Bool {
-        recordVisible && stopVisible && focusCanReachStop && uploadTruthVisible
+        recordVisible && stopVisible && focusCanReachStop && uploadTruthVisible && !nativeShellScaledByWorkspaceZoom
     }
 }
 

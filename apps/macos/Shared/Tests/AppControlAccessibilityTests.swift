@@ -166,7 +166,11 @@ final class AppControlAccessibilityTests: XCTestCase {
         ] {
             XCTAssertTrue(source.contains(command), "Missing edit command \(command)")
         }
-        XCTAssertTrue(source.contains("installMainMenu(on: app)"))
+        XCTAssertTrue(source.contains("installMainMenu(on: app, zoomTarget: appDelegate)"))
+        XCTAssertTrue(source.contains("WorkspaceZoomMenu.items"))
+        XCTAssertTrue(source.contains("increaseWorkspaceZoom"))
+        XCTAssertTrue(source.contains("decreaseWorkspaceZoom"))
+        XCTAssertTrue(source.contains("resetWorkspaceZoom"))
     }
 
     private static func repositoryRoot() throws -> URL {

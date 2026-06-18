@@ -2,17 +2,85 @@
 
 All notable changes to this project will be documented in this file.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
-Semantic Versioning 2.0.0.
+uses Calendar Versioning for product releases (`vYYYY.MM.DD.N`). Reusable
+tooling in this repository may use Semantic Versioning where documented.
 
 ## [Unreleased]
 
 ### Added
-
 - Добавлен revision-aware loop записи, синхронизации, загрузки, обработки и
   review: offline-first desktop queue v2, `MediaRevision`, resumable upload
   reconciliation, revision-keyed processing workflow, MediaScribe provenance,
   and browser/embedded desktop transcript review parity (`feature:042`,
   `T001-T088`).
+
+### Changed
+- Desktop upload truth now separates local-only, uploading, uploaded,
+  conflict, failed processing, and review-available states, so reconnect/retry
+  flows do not duplicate meetings or claim transcript/review readiness before
+  server truth exists (`feature:042`, `T020-T078`).
+
+### Fixed
+- Desktop embedded cabinet now preserves desktop auth headers across WebKit
+  link navigations to `/desktop/meetings` and meeting detail routes, so clicking
+  a recording row no longer falls back to a false login/unavailable state
+  (`feature:042`).
+- Desktop embedded cabinet now ignores non-main-frame WebKit response failures,
+  so favicon/apple-touch icon probes cannot replace a valid login/meetings
+  surface with a false unavailable state; production web cabinet also answers
+  standard icon probes without `404` noise (`feature:042`).
+- Local macOS install now force-registers the copied `2brain Rec.app` bundle with
+  LaunchServices, reducing stale Dock/Spotlight launches after rebuilding the
+  desktop app (`feature:042`).
+
+### Security
+- Recording sync diagnostics, API responses, deletion reports, lifecycle audit,
+  and validation evidence remain metadata-only: no raw audio, transcript text,
+  signed URLs, object storage keys, provider job ids, bearer tokens, credentials,
+  or private local paths are exposed, and media revision RLS/deletion accounting
+  is covered by focused tests (`feature:042`, `T079-T088`).
+
+### Docs
+- _No entries yet._
+
+### Ops
+- _No entries yet._
+
+## [2026.06.18.1] - 2026-06-18
+
+
+### Added
+- _No entries yet._
+
+### Changed
+- _No entries yet._
+
+### Fixed
+- _No entries yet._
+
+### Security
+- _No entries yet._
+
+### Docs
+- Добавлены правила release/versioning: CalVer `vYYYY.MM.DD.N` для
+  продуктовых apps/services, SemVer `vMAJOR.MINOR.PATCH` для tooling,
+  extensions и bootstrap, а человекочитаемый postfix теперь должен жить в
+  GitHub Release title, не в stable tag.
+
+### Ops
+- _No entries yet._
+
+## [0.1.0] - 2026-06-18
+
+
+### Added
+
+- Добавлены macOS shortcuts масштаба embedded meeting workspace:
+  `Command-Plus` / `Command-Equals` увеличивают масштаб, `Command-Minus`
+  уменьшает, `Command-0` сбрасывает к 100%; настройка хранится локально,
+  применяется к `WKWebView.pageZoom` без route reload и оставляет native
+  Record/Stop/upload truth/local readiness вне масштабируемой поверхности
+  (`feature:043`, `T001-T017`).
 - Добавлена production-доставка browser-login email-кодов через server-side
   Postal API: отдельные `.env` настройки для Rec, Docker secret для API key,
   fail-closed состояние при недоступной почтовой доставке и подключение
@@ -81,10 +149,14 @@ Semantic Versioning 2.0.0.
 
 ### Changed
 
-- Desktop upload truth now separates local-only, uploading, uploaded,
-  conflict, failed processing, and review-available states, so reconnect/retry
-  flows do not duplicate meetings or claim transcript/review readiness before
-  server truth exists (`feature:042`, `T020-T078`).
+- GitHub issue and pull request workflow now follows the Russian-only issue
+  canon: issue forms use Russian sections, PR descriptions must be written in
+  Russian, `Fixes`/`Closes`/`Resolves` are reserved for issues fully closed by
+  a PR, partial work must use `Refs`/`Part of`, and every closed issue requires
+  a detailed Russian closure comment that explains what changed, why it
+  matters, how it was checked, what is out of scope, and which PR/Spec Kit task
+  it closes. The project also now ships a PR template and a synced
+  `github-issue-canon` extension `v0.2.0` copy for future task-to-issue syncs.
 - `docs/current-product-status.md` and the MVP readiness report now record
   `022-meeting-mute-truth` as closed, remove stale `018`/`022` next-slice
   guidance, and recommend validation-only `035-mvp-loop-live-evidence` while
@@ -119,17 +191,9 @@ Semantic Versioning 2.0.0.
 
 ### Fixed
 
-- Desktop embedded cabinet now preserves desktop auth headers across WebKit
-  link navigations to `/desktop/meetings` and meeting detail routes, so clicking
-  a recording row no longer falls back to a false login/unavailable state
-  (`feature:042`).
-- Desktop embedded cabinet now ignores non-main-frame WebKit response failures,
-  so favicon/apple-touch icon probes cannot replace a valid login/meetings
-  surface with a false unavailable state; production web cabinet also answers
-  standard icon probes without `404` noise (`feature:042`).
-- Local macOS install now force-registers the copied `2brain Rec.app` bundle with
-  LaunchServices, reducing stale Dock/Spotlight launches after rebuilding the
-  desktop app (`feature:042`).
+- Dev MinIO policy now includes bucket metadata and multipart permissions
+  required by local readiness/upload checks, so `docker-compose.dev.yml`
+  can reach `ready` after the local stack is rebuilt (`feature:043`).
 - Desktop app now installs standard macOS `Edit`/`Window` menus, so embedded
   cabinet fields receive `Cmd+V`, `Cmd+A`, copy, cut, paste and related
   responder-chain commands in `/Applications/2brain Rec.app` (`feature:036`).
@@ -161,11 +225,6 @@ Semantic Versioning 2.0.0.
 
 ### Security
 
-- Recording sync diagnostics, API responses, deletion reports, lifecycle audit,
-  and validation evidence remain metadata-only: no raw audio, transcript text,
-  signed URLs, object storage keys, provider job ids, bearer tokens, credentials,
-  or private local paths are exposed, and media revision RLS/deletion accounting
-  is covered by focused tests (`feature:042`, `T079-T088`).
 - Postal API key for browser-login delivery is mounted only as a Docker secret;
   deploy/runtime scans now reject accidental `TWOBRAIN_POSTAL_API_KEY`
   environment exposure, and desktop clients never receive Postal settings
@@ -246,6 +305,10 @@ Semantic Versioning 2.0.0.
   template, and current-product-status update for the boundary between
   product-owned Pause truth and future meeting-app mute adapters (`feature:022`,
   `T041-T044`).
+- Reorganized Codex/Spec Kit operating guidance: root `AGENTS.md` now acts as
+  a concise router, detailed rules live under `docs/agent-guidance/`, GitHub
+  issue canon moved to `docs/agent-guidance/github-issue-canon.md`, and active
+  guidance now treats Linear as retired workflow residue.
 - Added sanitized feature `017` evidence index and refreshed current product
   status so access, login-required sharing, server-mediated downloads, and safe
   exports are no longer listed as deferred launch gaps (`feature:017`,

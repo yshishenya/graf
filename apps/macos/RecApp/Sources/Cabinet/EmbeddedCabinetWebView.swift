@@ -7,15 +7,18 @@ import WebKit
 public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
+    private let workspaceZoom: WorkspaceZoomPreference
     @Binding private var cabinetState: DesktopCabinetState
 
     public init(
         request: URLRequest,
         routePolicy: DesktopCabinetRoutePolicy,
-        cabinetState: Binding<DesktopCabinetState>
+        cabinetState: Binding<DesktopCabinetState>,
+        workspaceZoom: WorkspaceZoomPreference = .default
     ) {
         self.request = request
         self.routePolicy = routePolicy
+        self.workspaceZoom = workspaceZoom
         _cabinetState = cabinetState
     }
 
@@ -37,6 +40,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         webView.layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
+        EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: webView)
         let container = WebViewContainer(webView: webView)
         container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
         webView.load(request)
@@ -45,6 +49,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
     public func updateNSView(_ container: NSView, context _: Context) {
         guard let container = container as? WebViewContainer else { return }
+        EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: container.webView)
         guard Self.shouldLoad(request: request, lastLoadedRequestIdentity: container.lastLoadedRequestIdentity) else {
             return
         }
@@ -182,6 +187,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             webView.frame = bounds
         }
     }
+
+    public enum EmbeddedCabinetZoomBridge {
+        @MainActor
+        public static func apply(_ preference: WorkspaceZoomPreference, to webView: WKWebView) {
+            webView.pageZoom = CGFloat(preference.value)
+        }
+    }
 }
 #else
 public struct EmbeddedCabinetWebView: View {
@@ -190,7 +202,8 @@ public struct EmbeddedCabinetWebView: View {
     public init(
         request _: URLRequest,
         routePolicy _: DesktopCabinetRoutePolicy,
-        cabinetState _: Binding<DesktopCabinetState>
+        cabinetState _: Binding<DesktopCabinetState>,
+        workspaceZoom _: WorkspaceZoomPreference = .default
     ) {
         message = DesktopCabinetState.notConfigured.userMessage
     }

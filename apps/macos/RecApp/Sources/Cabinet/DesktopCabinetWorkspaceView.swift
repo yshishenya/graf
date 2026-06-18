@@ -11,17 +11,20 @@ public struct DesktopCabinetWorkspaceView: View {
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?
     private let presentation: DesktopCabinetWorkspacePresentation
+    private let workspaceZoom: WorkspaceZoomPreference
     @State private var cabinetState: DesktopCabinetState
 
     public init(
         configuration: DesktopCabinetConfiguration? = DesktopCabinetConfiguration.configuredFromEnvironment(),
         initialRoute: URL? = nil,
         presentation: DesktopCabinetWorkspacePresentation = .card,
+        workspaceZoom: WorkspaceZoomPreference = .default,
         initialState: DesktopCabinetState? = nil
     ) {
         self.configuration = configuration
         self.initialRoute = initialRoute
         self.presentation = presentation
+        self.workspaceZoom = workspaceZoom
         _cabinetState = State(initialValue: initialState ?? (configuration == nil ? .notConfigured : .loading))
     }
 
@@ -76,7 +79,8 @@ public struct DesktopCabinetWorkspaceView: View {
             let webView = EmbeddedCabinetWebView(
                 request: configuration.urlRequest(for: initialRoute ?? configuration.meetingsURL()),
                 routePolicy: DesktopCabinetRoutePolicy(baseURL: configuration.baseURL),
-                cabinetState: $cabinetState
+                cabinetState: $cabinetState,
+                workspaceZoom: workspaceZoom
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.embeddedSurface)
 

@@ -9,8 +9,8 @@ private enum TwoBrainRecAppMain {
     @MainActor
     static func main() {
         let app = NSApplication.shared
-        installMainMenu(on: app)
         let appDelegate = AppLifecycleDelegate()
+        installMainMenu(on: app, zoomTarget: appDelegate)
         app.delegate = appDelegate
         withExtendedLifetime(appDelegate) {
             app.run()
@@ -18,7 +18,7 @@ private enum TwoBrainRecAppMain {
     }
 
     @MainActor
-    private static func installMainMenu(on app: NSApplication) {
+    private static func installMainMenu(on app: NSApplication, zoomTarget: AnyObject) {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
@@ -79,6 +79,20 @@ private enum TwoBrainRecAppMain {
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
+        let viewMenuItem = NSMenuItem()
+        mainMenu.addItem(viewMenuItem)
+        let viewMenu = NSMenu(title: "View")
+        viewMenuItem.submenu = viewMenu
+        for item in WorkspaceZoomMenu.items {
+            let menuItem = NSMenuItem(
+                title: item.title,
+                action: selector(for: item.command),
+                keyEquivalent: item.keyEquivalent
+            )
+            menuItem.target = zoomTarget
+            viewMenu.addItem(menuItem)
+        }
+
         let windowMenuItem = NSMenuItem()
         mainMenu.addItem(windowMenuItem)
         let windowMenu = NSMenu(title: "Window")
@@ -96,6 +110,17 @@ private enum TwoBrainRecAppMain {
 
         app.windowsMenu = windowMenu
         app.mainMenu = mainMenu
+    }
+
+    private static func selector(for command: WorkspaceZoomCommand) -> Selector {
+        switch command {
+        case .increase:
+            return #selector(AppLifecycleDelegate.increaseWorkspaceZoom(_:))
+        case .decrease:
+            return #selector(AppLifecycleDelegate.decreaseWorkspaceZoom(_:))
+        case .reset:
+            return #selector(AppLifecycleDelegate.resetWorkspaceZoom(_:))
+        }
     }
 }
 
@@ -130,6 +155,7 @@ private struct ContentView: View {
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
+    let workspaceZoom: WorkspaceZoomPreference
     let onAutoStarted: (LocalAudioSnapshot) -> Void
     let refresh: () -> Void
     let runCheck: () -> Void
@@ -185,7 +211,8 @@ private struct ContentView: View {
             DesktopCabinetWorkspaceView(
                 configuration: desktopCabinetConfiguration,
                 initialRoute: selectedCabinetRoute,
-                presentation: .shell
+                presentation: .shell,
+                workspaceZoom: workspaceZoom
             )
         } diagnosticsContent: {
             VStack(alignment: .leading, spacing: 12) {
@@ -914,6 +941,7 @@ private struct ContentView: View {
 @MainActor
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
+    private let workspaceZoomStore = WorkspaceZoomStore()
     private var terminationReplyPending = false
 
     override init() {
@@ -1044,7 +1072,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         window.identifier = NSUserInterfaceItemIdentifier("2brain-rec-main-window")
         configureMainWindowCollectionBehavior(window)
         window.contentViewController = NSHostingController(
-            rootView: AppContentRoot()
+            rootView: AppContentRoot(workspaceZoomStore: workspaceZoomStore)
         )
         window.center()
         mainWindow = window
@@ -1080,6 +1108,18 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             presentMainWindow(reason: "activation_recovery")
         }
     }
+
+    @objc func increaseWorkspaceZoom(_: Any?) {
+        workspaceZoomStore.apply(.increase)
+    }
+
+    @objc func decreaseWorkspaceZoom(_: Any?) {
+        workspaceZoomStore.apply(.decrease)
+    }
+
+    @objc func resetWorkspaceZoom(_: Any?) {
+        workspaceZoomStore.apply(.reset)
+    }
 }
 
 private extension Notification.Name {
@@ -1088,13 +1128,19 @@ private extension Notification.Name {
 }
 
 private struct AppContentRoot: View {
+    @ObservedObject private var workspaceZoomStore: WorkspaceZoomStore
     @State private var snapshot = LocalAudioSnapshot.placeholder()
     @State private var isChecking = false
+
+    init(workspaceZoomStore: WorkspaceZoomStore) {
+        self.workspaceZoomStore = workspaceZoomStore
+    }
 
     var body: some View {
         ContentView(
             snapshot: snapshot,
             isChecking: isChecking,
+            workspaceZoom: workspaceZoomStore.preference,
             onAutoStarted: { updated in
                 snapshot = updated
             },

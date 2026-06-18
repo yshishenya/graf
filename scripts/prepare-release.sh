@@ -23,10 +23,15 @@ else
   latest_version="${latest_tag#v}"
 fi
 
-if [[ "$bump_input" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ "$bump_input" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]]; then
   next_version="$bump_input"
 else
-  IFS='.' read -r major minor patch <<< "$latest_version"
+  IFS='.' read -r major minor patch extra <<< "$latest_version"
+  if [[ -n "${extra:-}" ]]; then
+    echo "error: latest tag v$latest_version uses CalVer"
+    echo "pass an explicit version such as YYYY.MM.DD.N"
+    exit 1
+  fi
   case "$bump_input" in
     patch)
       patch=$((patch + 1))
@@ -60,7 +65,7 @@ if [[ -z "${unreleased_content}" ]]; then
   exit 1
 fi
 
-real_entries="$(printf '%s\n' "$unreleased_content" | awk '/^[[:space:]]*-[[:space:]]*/ {if ($0 !~ /No entries yet/) count++} END {if (count > 0) print count else print 0}')"
+real_entries="$(printf '%s\n' "$unreleased_content" | awk '/^[[:space:]]*-[[:space:]]*/ {if ($0 !~ /No entries yet/) count++} END {if (count > 0) {print count} else {print 0}}')"
 if [[ "$real_entries" -eq 0 ]]; then
   echo "error: unreleased block has no concrete entries"
   echo "add real bullets to CHANGELOG.md first"
@@ -74,7 +79,7 @@ tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
 
 {
-  printf '%s\n' "$head_part"
+  printf '%s\n\n' "$head_part"
   cat <<'EOF'
 ## [Unreleased]
 

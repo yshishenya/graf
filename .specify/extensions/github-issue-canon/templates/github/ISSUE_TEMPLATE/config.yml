@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Spec Kit issue canon
-    url: docs/github-issue-canon.md
+    url: docs/agent-guidance/github-issue-canon.md
     about: Read the required issue format before creating a free-form issue.
