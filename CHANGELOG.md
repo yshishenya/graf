@@ -69,10 +69,10 @@ tooling in this repository may use Semantic Versioning where documented.
 - _No entries yet._
 
 ### Ops
-- Production compose now enables processing for `rec-api`, wires the Temporal
-  address for finalize-time workflow starts, keeps MediaScribe credentials on
-  the processing worker boundary, and makes the API wait for Temporal service
-  startup (`feature:042`).
+- Production compose now enables finalize-time processing auto-start for
+  `rec-api`, wires the Temporal address for workflow starts, keeps MediaScribe
+  credentials on the processing worker boundary, and makes the API wait for
+  Temporal service startup (`feature:042`).
 
 ## [2026.06.18.1] - 2026-06-18
 

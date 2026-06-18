@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     langfuse_credential_file: Path | None = None
 
     processing_enabled: bool = False
+    processing_auto_start_enabled: bool = False
     processing_poll_interval_seconds: PositiveInt = Field(default=5)
     processing_max_poll_attempts: PositiveInt = Field(default=120)
     temporal_address: str | None = None
@@ -150,6 +151,8 @@ class Settings(BaseSettings):
                 raise ValueError("production MediaScribe API key file must be non-empty")
             if not self.temporal_address:
                 raise ValueError("production processing requires temporal_address")
+        if self.processing_auto_start_enabled and not self.temporal_address:
+            raise ValueError("production processing auto-start requires temporal_address")
         if self.email_login_delivery_enabled:
             if self.web_login_workspace_id is None:
                 raise ValueError("production email login delivery requires web_login_workspace_id")

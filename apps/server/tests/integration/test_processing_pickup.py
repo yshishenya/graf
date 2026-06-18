@@ -65,8 +65,8 @@ def test_processing_pickup_without_temporal_blocks_safely(client) -> None:
     assert asyncio.run(reason_code()) == "blocked_temporal_unavailable"
 
 
-def test_finalize_auto_starts_processing_when_pipeline_enabled(client) -> None:
-    client.app.state.settings.processing_enabled = True
+def test_finalize_auto_starts_processing_when_auto_start_enabled(client) -> None:
+    client.app.state.settings.processing_auto_start_enabled = True
     client.app.state.settings.temporal_address = "fake-temporal:7233"
     client.app.state.temporal_client = FakeTemporalClient()
 

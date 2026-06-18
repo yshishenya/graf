@@ -25,3 +25,21 @@ def test_production_processing_enabled_requires_temporal_and_mediascribe_secret(
         mediascribe_api_key_file=api_key_file,
     )
     assert settings.processing_enabled is True
+
+
+def test_production_processing_auto_start_does_not_require_mediascribe_secret() -> None:
+    settings = Settings(
+        env="production",
+        database_url="postgresql+asyncpg://twobrain_rec:prod-pass@rec-postgres:5432/twobrain_rec",
+        minio_endpoint="rec-minio:9000",
+        minio_access_key="twobrain_rec_api",
+        minio_secret_key="prod-minio-secret",
+        smoke_identity_class="internal_smoke",
+        auth_ru_local_storage_attested=True,
+        processing_auto_start_enabled=True,
+        temporal_address="rec-temporal:7233",
+        mediascribe_base_url="https://mediascribe.2brain.pro",
+    )
+
+    assert settings.processing_auto_start_enabled is True
+    assert settings.processing_enabled is False

@@ -28,7 +28,7 @@ services:
       TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
-      TWOBRAIN_PROCESSING_ENABLED: "true"
+      TWOBRAIN_PROCESSING_AUTO_START_ENABLED: "true"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
     secrets:
       - source: twobrain_postgres_password

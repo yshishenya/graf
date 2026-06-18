@@ -319,7 +319,7 @@ async def finalize_session(
         tracks=payload.tracks,
     )
     pickup_started = False
-    if request.app.state.settings.processing_enabled and db is not None:
+    if request.app.state.settings.processing_auto_start_enabled and db is not None:
         pickup = await pick_up_processing(
             db=db,
             settings=request.app.state.settings,
