@@ -279,11 +279,12 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Notes" in page
     assert "Recording &amp; Transcript" in page
     assert "Транскрипт готовится" in page
-    assert "Team visibility" in page
-    assert "Public links" in page
-    assert "Files already downloaded" in page
-    assert "Delete this meeting everywhere 2brain Rec controls" in page
-    assert "Request deletion" in page
+    assert "Спикеры" in page
+    assert "Team visibility" not in page
+    assert "Public links" not in page
+    assert "Files already downloaded" not in page
+    assert "Delete this meeting everywhere 2brain Rec controls" not in page
+    assert "Request deletion" not in page
 
 
 def test_detail_shell_reserves_notes_assistant_template_without_internal_feature_labels() -> None:
@@ -297,11 +298,12 @@ def test_detail_shell_reserves_notes_assistant_template_without_internal_feature
     assert "Action Items" in page
     assert "Follow-ups" in page
     assert "Outcomes processing" in page
+    assert "Outcome source" not in page
     assert "AI notes are reserved for a later feature" not in page
     assert "No generated summary is shown yet" not in page
-    assert "<h3>Assistant</h3>" in page
-    assert "<button type=\"button\" disabled>Assistant</button>" in page
-    assert "<h3>Template</h3>" in page
+    assert "<h3>Assistant</h3>" not in page
+    assert "<button type=\"button\" disabled>Assistant</button>" not in page
+    assert "<h3>Template</h3>" not in page
     assert "feature 016" not in page.lower()
     assert "feature:016" not in page.lower()
     assert "016-meeting-detail" not in page

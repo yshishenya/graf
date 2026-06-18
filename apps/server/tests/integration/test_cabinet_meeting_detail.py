@@ -90,17 +90,17 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Notes" in ready.text
     assert "Recording &amp; Transcript" in ready.text
     assert SAFE_TRANSCRIPT_TEXT in ready.text
-    assert "Assign speakers" in ready.text
-    assert "Assistant" in ready.text
-    assert "Template" in ready.text
+    assert "Спикеры" in ready.text
     assert "Summary" in ready.text
     assert "Action Items" in ready.text
     assert "Outcomes deferred" in ready.text
     assert "AI notes are reserved for a later feature" not in ready.text
     assert "016" not in ready.text
-    assert "Access" in ready.text
-    assert "Team visibility" in ready.text
-    assert "Artifacts" in ready.text
+    assert "<h3>Access</h3>" not in ready.text
+    assert "<h3>Artifacts</h3>" not in ready.text
+    assert "<h3>Assistant</h3>" not in ready.text
+    assert "<h3>Template</h3>" not in ready.text
+    assert "Outcome source" not in ready.text
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
     assert "Outcomes processing" in processing.text

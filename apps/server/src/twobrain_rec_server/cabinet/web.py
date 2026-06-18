@@ -1643,14 +1643,14 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
           </div>
         """
     recording_tab = "Transcript" if embedded else "Recording &amp; Transcript"
-    right_panel = _render_embedded_detail_panel(review) if embedded else _render_full_detail_panel(review, embedded=embedded)
+    right_panel = _render_user_detail_panel(review)
     media_revision_id = escape(str(review.provenance.media_revision_id or ""))
     local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
     content = f"""
       <main class="main" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
         <div class="topline">
           <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(review.meeting.status_label)}</span>{_render_access_chip(review.meeting.access)}</div>
-          <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
+          <div class="action-row">{_render_top_actions(review, embedded=True)}</div>
         </div>
         <div class="tabs">
           <span class="tab">Notes</span>
@@ -1658,7 +1658,7 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
         </div>
         <div class="detail-layout">
           <section class="detail-main">
-            {_render_notes_outcomes(review, embedded=embedded)}
+            {_render_notes_outcomes(review, embedded=True)}
             <div class="transcript">{transcript}</div>
           </section>
           {right_panel}
@@ -2550,7 +2550,7 @@ def _render_full_detail_panel(review: MeetingReviewResponse, *, embedded: bool) 
     """
 
 
-def _render_embedded_detail_panel(review: MeetingReviewResponse) -> str:
+def _render_user_detail_panel(review: MeetingReviewResponse) -> str:
     return f"""
       <aside class="right-panel">
         {_render_user_processing_status(review)}
