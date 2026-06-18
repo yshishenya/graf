@@ -187,6 +187,20 @@ Implementation rules:
 - run validation from `quickstart.md` and any tests introduced by the plan;
 - do not silently broaden scope beyond the active spec.
 
+Implementation closeout rules:
+
+- reconcile every completed `tasks.md` item with its GitHub issue before
+  calling the slice done;
+- ensure the PR body uses `Fixes`, `Closes`, or `Resolves` only for issues fully
+  satisfied by the PR;
+- use `Refs` or `Part of` for partial or related work;
+- add a detailed Russian closure comment to every fully closed issue before
+  closing it, or immediately after merge when GitHub auto-close already closed
+  it;
+- leave issues open when acceptance criteria, validation evidence, or scope
+  remain incomplete, and add a Russian status comment explaining what is still
+  missing.
+
 ## Commit Checkpoints
 
 Spec Kit documentation stages may use user-approved auto-commit hooks:

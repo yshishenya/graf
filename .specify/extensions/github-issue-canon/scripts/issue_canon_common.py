@@ -11,16 +11,17 @@ from pathlib import Path
 
 
 REQUIRED_SECTIONS = [
-    "## Summary",
-    "## Context",
-    "## Problem",
-    "## Confirmed Findings",
-    "## Scope",
-    "## Acceptance Criteria",
-    "## Validation Required",
-    "## Implementation Notes",
-    "## Links",
+    "## Кратко",
+    "## Контекст",
+    "## Проблема",
+    "## Проверенные факты",
+    "## Границы задачи",
+    "## Критерии приемки",
+    "## Что проверить перед закрытием",
+    "## Заметки по реализации",
+    "## Ссылки",
 ]
+
 
 DEFAULT_LABELS = {
     "needs-triage": ("ededed", "Needs initial classification against the issue canon"),
@@ -51,7 +52,7 @@ DEFAULT_AREAS = {
     "ux": ("d4c5f9", "User experience, interaction, copy, accessibility"),
 }
 
-TITLE_RE = re.compile(r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] .+")
+TITLE_RE = re.compile(r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] (?P<outcome>.+)")
 
 
 def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -100,11 +101,12 @@ def ensure_agents_block(root: Path) -> bool:
     path = root / "AGENTS.md"
     if not path.exists():
         return False
-    marker = "All GitHub issues created for this repository"
+    marker = "Все GitHub issues в этом репозитории"
+    existing_marker = "All GitHub issues created for this repository"
     text = path.read_text(encoding="utf-8")
     legacy_path = "docs/github-issue-canon.md"
     canon_path = "docs/agent-guidance/github-issue-canon.md"
-    if marker in text:
+    if marker in text or existing_marker in text:
         updated = text.replace(legacy_path, canon_path)
         if updated != text:
             path.write_text(updated, encoding="utf-8")
@@ -113,35 +115,41 @@ def ensure_agents_block(root: Path) -> bool:
     anchor = "Never create issues in a repository that does not match the configured git remote."
     block = f"""
 
-All GitHub issues created for this repository, whether manually, through
-`$speckit-taskstoissues`, or through direct `gh issue create`, must follow the
-project issue canon in `{canon_path}`.
+Все GitHub issues в этом репозитории, созданные вручную, через
+`$speckit-taskstoissues` или через прямой `gh issue create`, должны следовать
+project issue canon в `{canon_path}`.
 
-Required issue title format:
+Обязательный формат title:
 
 ```text
-[<feature>][<priority>][<area>] <imperative outcome>
+[<feature>][<priority>][<area>] <результат простыми словами>
 ```
 
-Required issue body sections, in order:
+Обязательные секции issue body, в таком порядке:
 
-- `Summary`
-- `Context`
-- `Problem`
-- `Confirmed Findings`
-- `Scope`
-- `Acceptance Criteria`
-- `Validation Required`
-- `Implementation Notes`
-- `Links`
+- `Кратко`
+- `Контекст`
+- `Проблема`
+- `Проверенные факты`
+- `Границы задачи`
+- `Критерии приемки`
+- `Что проверить перед закрытием`
+- `Заметки по реализации`
+- `Ссылки`
 
-Spec Kit issue sync must preserve traceability to feature number, task IDs,
-validation evidence, and closure criteria. Use labels as structured metadata:
-`feature:<number>`, `priority:P0`-`priority:P3`, `area:<name>`,
-`gate:<name>`, and `type:<name>`. Do not patch globally installed Spec Kit
-skills to enforce this; they may be overwritten by Spec Kit updates. Keep the
-canonical rule in project-owned files: `AGENTS.md`,
-`{canon_path}`, and `.github/ISSUE_TEMPLATE/`.
+Spec Kit issue sync должен сохранять связь с номером фичи, task ID,
+validation evidence, PR и closure criteria. Используй labels как structured
+metadata: `feature:<number>`, `priority:P0`-`priority:P3`, `area:<name>`,
+`gate:<name>` и `type:<name>`.
+
+PR description, issue comments, closure comments и sync notes пиши на русском
+простым языком. `Fixes #...`, `Closes #...` и `Resolves #...` используй
+только когда PR полностью закрывает issue; для частичной связи используй
+`Refs #...` или `Part of #...`.
+
+Перед закрытием issue добавь подробный русский closure comment: что закрыто,
+почему это важно, как проверено, что не входит, какой PR и какой Spec Kit task
+закрыты.
 """
     if anchor in text:
         text = text.replace(anchor, anchor + block, 1)
@@ -234,7 +242,7 @@ def validate_issue(issue: dict) -> list[str]:
     labels = label_names(issue)
     match = TITLE_RE.match(title)
     if not match:
-        errors.append("title does not match [<feature>][<priority>][<area>] <imperative outcome>")
+        errors.append("title does not match [<feature>][<priority>][<area>] <результат простыми словами>")
     else:
         feature = match.group("feature")
         priority = match.group("priority")

@@ -1,50 +1,52 @@
-name: Spec Kit Work Item
-description: Create a Spec Kit-traceable implementation, review, hardening, or documentation issue.
-title: "[012][P0][area] Imperative outcome"
+name: Spec Kit задача
+description: Создать issue, связанный со Spec Kit задачей, review, hardening или документацией.
+title: "[012][P0][area] Коротко опиши результат по-русски"
 labels:
   - needs-triage
 body:
   - type: markdown
     attributes:
       value: |
-        Use the canonical title format: `[<feature>][<priority>][<area>] <imperative outcome>`.
-        Example: `[012][P0][ingest/finalize] Reject mismatched artifact manifests before finalize`
+        Используй canonical title format: `[<feature>][<priority>][<area>] <результат простыми словами>`.
+        Пример: `[012][P0][ingest/finalize] Отклонять несовпадающие manifest до finalize`
 
   - type: input
     id: summary
     attributes:
-      label: Summary
-      description: One or two sentences describing what must become true.
+      label: Кратко
+      description: Одно-два предложения: что должно стать правдой.
     validations:
       required: true
 
   - type: textarea
     id: context
     attributes:
-      label: Context
-      description: Keep the bullet names and fill each value.
+      label: Контекст
+      description: Оставь названия пунктов и заполни значения.
       value: |
-        - Feature: `012-server-ingest-foundation`
+        - Фича: `012-server-ingest-foundation`
+        - Приоритет: `P1`
+        - Область: `ingest`
         - Spec tasks: T000
-        - Source: review / analyze / implementation / user report / production incident
-        - Gate: blocks PR / blocks deployment / follow-up / nice-to-have
-        - Related issues:
+        - Источник: review / analyze / implementation / user report / production incident
+        - Гейт: blocks PR / blocks deployment / follow-up / nice-to-have
+        - Связанные issues:
     validations:
       required: true
 
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: Concrete current behavior, gap, or risk. Explain why it matters.
+      label: Проблема
+      description: Что сейчас не так, какой риск есть, и почему это важно.
     validations:
       required: true
 
   - type: textarea
     id: confirmed-findings
     attributes:
-      label: Confirmed Findings
-      description: Use facts, missing proof, or verified review findings. Do not speculate.
+      label: Проверенные факты
+      description: Пиши факты, недостающий proof или проверенные review findings. Не додумывай.
       value: |
         - 
         - 
@@ -55,13 +57,13 @@ body:
   - type: textarea
     id: scope
     attributes:
-      label: Scope
-      description: Explicitly define in-scope and out-of-scope boundaries.
+      label: Границы задачи
+      description: Явно раздели, что входит и что не входит.
       value: |
-        In scope:
+        Входит:
         - 
 
-        Out of scope:
+        Не входит:
         - 
     validations:
       required: true
@@ -69,8 +71,8 @@ body:
   - type: textarea
     id: acceptance-criteria
     attributes:
-      label: Acceptance Criteria
-      description: Use checkboxes. Prefer Given/When/Then wording for behavior.
+      label: Критерии приемки
+      description: Используй чекбоксы. Для поведения лучше Given/When/Then.
       value: |
         - [ ] Given ..., when ..., then ...
         - [ ] 
@@ -81,8 +83,8 @@ body:
   - type: textarea
     id: validation-required
     attributes:
-      label: Validation Required
-      description: List evidence needed before closure.
+      label: Что проверить перед закрытием
+      description: Перечисли evidence, без которого issue нельзя закрывать.
       value: |
         - [ ] Test file or command:
         - [ ] Contract/checklist/compose/manual smoke evidence:
@@ -93,30 +95,30 @@ body:
   - type: textarea
     id: implementation-notes
     attributes:
-      label: Implementation Notes
-      description: Constraints, important paths, sequencing, or known traps. Keep practical.
+      label: Заметки по реализации
+      description: Ограничения, важные пути, порядок работ или известные ловушки. Пиши практично.
     validations:
       required: false
 
   - type: textarea
     id: links
     attributes:
-      label: Links
-      description: Link Spec Kit artifacts and related issues.
+      label: Ссылки
+      description: Дай ссылки на Spec Kit artifacts, PR и связанные issues.
       value: |
         - Spec:
         - Plan:
         - Tasks:
-        - Related:
+        - Связано:
     validations:
       required: true
 
   - type: checkboxes
     id: canon-confirmation
     attributes:
-      label: Canon Confirmation
+      label: Подтверждение canon
       options:
-        - label: The title follows `[<feature>][<priority>][<area>] <imperative outcome>`.
+        - label: Title следует формату `[<feature>][<priority>][<area>] <результат простыми словами>`.
           required: true
-        - label: Acceptance criteria and validation evidence are concrete enough to determine closure.
+        - label: Критерии приемки и validation evidence достаточно конкретны, чтобы понять, когда issue можно закрывать.
           required: true

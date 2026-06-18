@@ -85,6 +85,8 @@ def main() -> int:
         changed.append(".github/ISSUE_TEMPLATE/config.yml")
     if copy_template(ext, "github/ISSUE_TEMPLATE/spec-kit-work-item.yml", root, ".github/ISSUE_TEMPLATE/spec-kit-work-item.yml"):
         changed.append(".github/ISSUE_TEMPLATE/spec-kit-work-item.yml")
+    if copy_template(ext, "github/pull_request_template.md", root, ".github/pull_request_template.md"):
+        changed.append(".github/pull_request_template.md")
     if ensure_agents_block(root):
         changed.append("AGENTS.md")
 
