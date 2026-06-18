@@ -4,7 +4,7 @@ import SwiftUI
 import AppKit
 import WebKit
 
-public struct EmbeddedCabinetWebView: NSViewRepresentable {
+public struct EmbeddedCabinetWebView: NSViewControllerRepresentable {
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
     private let workspaceZoom: WorkspaceZoomPreference
@@ -32,29 +32,26 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 
-    public func makeNSView(context: Context) -> NSView {
+    public func makeNSViewController(context: Context) -> WebViewController {
         let configuration = WKWebViewConfiguration()
         configuration.allowsAirPlayForMediaPlayback = false
         let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.wantsLayer = true
-        webView.layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: webView)
-        let container = WebViewContainer(webView: webView)
-        container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
+        let controller = WebViewController(webView: webView)
+        controller.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
         webView.load(request)
-        return container
+        return controller
     }
 
-    public func updateNSView(_ container: NSView, context _: Context) {
-        guard let container = container as? WebViewContainer else { return }
-        EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: container.webView)
-        guard Self.shouldLoad(request: request, lastLoadedRequestIdentity: container.lastLoadedRequestIdentity) else {
+    public func updateNSViewController(_ controller: WebViewController, context _: Context) {
+        EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: controller.webView)
+        guard Self.shouldLoad(request: request, lastLoadedRequestIdentity: controller.lastLoadedRequestIdentity) else {
             return
         }
-        container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
-        container.webView.load(request)
+        controller.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
+        controller.webView.load(request)
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -167,16 +164,36 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
     }
 
-    public final class WebViewContainer: NSView {
+    public final class WebViewController: NSViewController {
         public let webView: WKWebView
         public var lastLoadedRequestIdentity: String?
 
         public init(webView: WKWebView) {
             self.webView = webView
+            super.init(nibName: nil, bundle: nil)
+            view = WebViewContainer(webView: webView)
+        }
+
+        @available(*, unavailable)
+        required init?(coder _: NSCoder) {
+            nil
+        }
+    }
+
+    public final class WebViewContainer: NSView {
+        public let webView: WKWebView
+
+        public init(webView: WKWebView) {
+            self.webView = webView
             super.init(frame: .zero)
-            wantsLayer = true
-            layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
+            webView.translatesAutoresizingMaskIntoConstraints = false
             addSubview(webView)
+            NSLayoutConstraint.activate([
+                webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                webView.topAnchor.constraint(equalTo: topAnchor),
+                webView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
         }
 
         @available(*, unavailable)

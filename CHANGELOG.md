@@ -45,6 +45,18 @@ tooling in this repository may use Semantic Versioning where documented.
 - Local macOS install now force-registers the copied `2brain Rec.app` bundle with
   LaunchServices, reducing stale Dock/Spotlight launches after rebuilding the
   desktop app (`feature:042`).
+- Desktop meeting shell now renders the server meeting list with a native
+  SwiftUI API-backed surface and decodes the real cabinet `primary_action`
+  contract, so uploaded recordings remain visible in the installed app even
+  when the embedded WebKit surface fails to composite list rows (`feature:042`).
+- Upload finalization now starts the server processing workflow when the
+  processing pipeline is enabled, so newly uploaded recordings move from
+  submitted to transcription processing without a manual pickup call
+  (`feature:042`).
+- Desktop meeting rows now open meeting detail routes inside the app shell
+  instead of launching the system browser, and the embedded detail view hides
+  governance/operator panels so users see the recording/transcript state first
+  (`feature:042`).
 
 ### Security
 - Recording sync diagnostics, API responses, deletion reports, lifecycle audit,
@@ -57,7 +69,10 @@ tooling in this repository may use Semantic Versioning where documented.
 - _No entries yet._
 
 ### Ops
-- _No entries yet._
+- Production compose now enables processing for `rec-api`, wires the Temporal
+  address for finalize-time workflow starts, keeps MediaScribe credentials on
+  the processing worker boundary, and makes the API wait for Temporal service
+  startup (`feature:042`).
 
 ## [2026.06.18.1] - 2026-06-18
 

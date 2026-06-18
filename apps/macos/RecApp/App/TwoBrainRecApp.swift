@@ -212,7 +212,10 @@ private struct ContentView: View {
                 configuration: desktopCabinetConfiguration,
                 initialRoute: selectedCabinetRoute,
                 presentation: .shell,
-                workspaceZoom: workspaceZoom
+                workspaceZoom: workspaceZoom,
+                onOpenMeeting: { route in
+                    selectedCabinetRoute = route
+                }
             )
         } diagnosticsContent: {
             VStack(alignment: .leading, spacing: 12) {

@@ -107,7 +107,7 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
 
 
-def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_native_capture_copy(client) -> None:
+def test_cabinet_embedded_ready_detail_keeps_user_recording_view_and_hides_governance(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
     response = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
@@ -117,9 +117,14 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert "Transcript" in response.text
     assert "Recording &amp; Transcript" not in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text
-    assert "Open in browser" in response.text
-    assert "Access" in response.text
-    assert "Share" in response.text
-    assert "Report" in response.text
+    assert "Open in browser" not in response.text
+    assert "<h3>Access</h3>" not in response.text
+    assert "<h3>Share</h3>" not in response.text
+    assert "<h3>Artifacts</h3>" not in response.text
+    assert "<h3>Delete</h3>" not in response.text
+    assert "<h3>Governance</h3>" not in response.text
+    assert "<h3>Activity</h3>" not in response.text
+    assert "Outcome source" not in response.text
+    assert "Медиа-ревизия" not in response.text
     assert "Record live" not in response.text
     assert "Krisp Devices" not in response.text

@@ -7,11 +7,13 @@ public struct DesktopCabinetWorkspaceView: View {
     public static let embeddedSurfaceHeight: CGFloat = 420
     public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
     public static let embeddedWorkspaceMaxWidth: CGFloat = 820
+    public static let embeddedSurfaceZIndex: Double = 1
 
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?
     private let presentation: DesktopCabinetWorkspacePresentation
     private let workspaceZoom: WorkspaceZoomPreference
+    private let onOpenMeeting: (URL) -> Void
     @State private var cabinetState: DesktopCabinetState
 
     public init(
@@ -19,13 +21,23 @@ public struct DesktopCabinetWorkspaceView: View {
         initialRoute: URL? = nil,
         presentation: DesktopCabinetWorkspacePresentation = .card,
         workspaceZoom: WorkspaceZoomPreference = .default,
-        initialState: DesktopCabinetState? = nil
+        initialState: DesktopCabinetState? = nil,
+        onOpenMeeting: @escaping (URL) -> Void = { _ in }
     ) {
         self.configuration = configuration
         self.initialRoute = initialRoute
         self.presentation = presentation
         self.workspaceZoom = workspaceZoom
+        self.onOpenMeeting = onOpenMeeting
         _cabinetState = State(initialValue: initialState ?? (configuration == nil ? .notConfigured : .loading))
+    }
+
+    nonisolated public static func usesNativeMeetingList(
+        for route: URL?,
+        configuration: DesktopCabinetConfiguration
+    ) -> Bool {
+        guard let route else { return true }
+        return normalizedPath(route.path) == normalizedPath(configuration.meetingsURL().path)
     }
 
     public var body: some View {
@@ -92,13 +104,40 @@ public struct DesktopCabinetWorkspaceView: View {
                         minHeight: Self.embeddedSurfaceHeight,
                         maxHeight: Self.embeddedSurfaceHeight
                     )
+                    .zIndex(Self.embeddedSurfaceZIndex)
             case .shell:
-                webView
+                if Self.usesNativeMeetingList(for: initialRoute, configuration: configuration) {
+                    NativeCabinetMeetingListView(
+                        configuration: configuration,
+                        onOpenMeeting: onOpenMeeting
+                    )
                     .frame(
                         maxWidth: .infinity,
                         minHeight: Self.shellEmbeddedSurfaceMinHeight,
                         maxHeight: .infinity
                     )
+                    .zIndex(Self.embeddedSurfaceZIndex)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button {
+                            onOpenMeeting(configuration.meetingsURL())
+                        } label: {
+                            Label("Назад к встречам", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Вернуться к списку встреч")
+
+                        webView
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: Self.shellEmbeddedSurfaceMinHeight,
+                                maxHeight: .infinity
+                            )
+                    }
+                    .padding(18)
+                    .zIndex(Self.embeddedSurfaceZIndex)
+                }
             }
         } else {
             unavailableState
@@ -179,6 +218,11 @@ public struct DesktopCabinetWorkspaceView: View {
         default:
             return .orange
         }
+    }
+
+    nonisolated private static func normalizedPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return "/\(trimmed)"
     }
 }
 

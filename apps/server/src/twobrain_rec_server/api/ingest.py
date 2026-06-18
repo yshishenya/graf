@@ -38,6 +38,8 @@ from twobrain_rec_server.ingest.policy import IngestLimitViolation
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
 from twobrain_rec_server.ingest.sessions import create_upload_session
 from twobrain_rec_server.ingest.status import get_upload_session_status
+from twobrain_rec_server.ingest.store import load_meeting_record, load_upload_session_record
+from twobrain_rec_server.processing.pickup import pick_up_processing
 from twobrain_rec_server.storage.minio_client import get_storage
 
 PROBLEM_RESPONSES = {
@@ -305,6 +307,7 @@ async def abort_session(
 async def finalize_session(
     session_id: UUID,
     payload: FinalizeUploadRequest,
+    request: Request,
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> FinalizeUploadResponse:
@@ -315,8 +318,27 @@ async def finalize_session(
         manifest_sha256=payload.manifest_sha256,
         tracks=payload.tracks,
     )
+    pickup_started = False
+    if request.app.state.settings.processing_enabled and db is not None:
+        pickup = await pick_up_processing(
+            db=db,
+            settings=request.app.state.settings,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting.id,
+            limit=1,
+            temporal_client=getattr(request.app.state, "temporal_client", None),
+            tenant_scope=tenant_scope,
+        )
+        pickup_started = (pickup.started_count + pickup.reused_count) > 0
+        refreshed_meeting = await load_meeting_record(db, meeting_id=meeting.id)
+        refreshed_session = await load_upload_session_record(db, session.id)
+        if refreshed_meeting is not None:
+            meeting = refreshed_meeting
+        if refreshed_session is not None:
+            session = refreshed_session
     return FinalizeUploadResponse(
         meeting=meeting_response(meeting),
         upload_session=session_response(session),
         object_count=len(session.parts),
+        workflow_started=pickup_started,
     )

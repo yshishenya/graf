@@ -1643,7 +1643,7 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
           </div>
         """
     recording_tab = "Transcript" if embedded else "Recording &amp; Transcript"
-    speaker_lanes = _render_speaker_lanes(review)
+    right_panel = _render_embedded_detail_panel(review) if embedded else _render_full_detail_panel(review, embedded=embedded)
     media_revision_id = escape(str(review.provenance.media_revision_id or ""))
     local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
     content = f"""
@@ -1658,31 +1658,10 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
         </div>
         <div class="detail-layout">
           <section class="detail-main">
-            {_render_notes_outcomes(review)}
+            {_render_notes_outcomes(review, embedded=embedded)}
             <div class="transcript">{transcript}</div>
           </section>
-          <aside class="right-panel">
-            {_render_revision_status(review)}
-            <h3>Access</h3>
-            {_render_access_summary(review)}
-            <h3>Share</h3>
-            {_render_share_panel(review)}
-            <h3>Artifacts</h3>
-            {_render_artifacts(review)}
-            <div class="truth-copy">{escape(review.deletion_truth_copy or "")}</div>
-            <h3>Delete</h3>
-            {_render_delete_confirmation(review, embedded=embedded)}
-            <h3>Assign speakers</h3>
-            {speaker_lanes}
-            <h3>Governance</h3>
-            <div class="governance">{_render_governance(review)}</div>
-            <h3>Activity</h3>
-            {_render_activity(review)}
-            <h3>Assistant</h3>
-            <button type="button" disabled>{escape(review.assistant.label)}</button>
-            <h3>Template</h3>
-            <button type="button" disabled>{escape(review.template.label)}</button>
-          </aside>
+          {right_panel}
         </div>
         <div class="playback detail-playback"><span>{escape(review.meeting.status_label)}</span><span>1x</span><span>{_duration(review.playback.duration_seconds)}</span></div>
       </main>
@@ -2543,7 +2522,71 @@ def _render_governance(review: MeetingReviewResponse) -> str:
     )
 
 
-def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
+def _render_full_detail_panel(review: MeetingReviewResponse, *, embedded: bool) -> str:
+    speaker_lanes = _render_speaker_lanes(review)
+    return f"""
+      <aside class="right-panel">
+        {_render_revision_status(review)}
+        <h3>Access</h3>
+        {_render_access_summary(review)}
+        <h3>Share</h3>
+        {_render_share_panel(review)}
+        <h3>Artifacts</h3>
+        {_render_artifacts(review)}
+        <div class="truth-copy">{escape(review.deletion_truth_copy or "")}</div>
+        <h3>Delete</h3>
+        {_render_delete_confirmation(review, embedded=embedded)}
+        <h3>Assign speakers</h3>
+        {speaker_lanes}
+        <h3>Governance</h3>
+        <div class="governance">{_render_governance(review)}</div>
+        <h3>Activity</h3>
+        {_render_activity(review)}
+        <h3>Assistant</h3>
+        <button type="button" disabled>{escape(review.assistant.label)}</button>
+        <h3>Template</h3>
+        <button type="button" disabled>{escape(review.template.label)}</button>
+      </aside>
+    """
+
+
+def _render_embedded_detail_panel(review: MeetingReviewResponse) -> str:
+    return f"""
+      <aside class="right-panel">
+        {_render_user_processing_status(review)}
+        <h3>Спикеры</h3>
+        {_render_speaker_lanes(review)}
+      </aside>
+    """
+
+
+def _render_user_processing_status(review: MeetingReviewResponse) -> str:
+    status_label = escape(review.meeting.status_label)
+    state_class = escape(review.meeting.status)
+    if review.transcript.available:
+        title = "Транскрипт готов"
+        body = "Запись и текст доступны для просмотра."
+    elif review.processing.state in {"processing", "submitted", "uploading"}:
+        title = "Транскрипт готовится"
+        body = "Запись уже на сервере. Текст появится здесь после обработки."
+    elif review.processing.state == "failed":
+        title = "Обработка остановилась"
+        body = "Мы сохранили запись, но транскрибацию нужно проверить повторно."
+    elif review.processing.state == "blocked":
+        title = "Нужна проверка обработки"
+        body = "Мы сохранили запись, но обработка требует проверки."
+    else:
+        title = "Транскрипт недоступен"
+        body = "Проверьте статус позже."
+    return f"""
+      <section class="revision-status" aria-label="Статус обработки">
+        <span class="chip {state_class}">{status_label}</span>
+        <span class="row-meta"><span>{escape(title)}</span><span>{escape(body)}</span></span>
+      </section>
+    """
+
+
+def _render_notes_outcomes(review: MeetingReviewResponse, *, embedded: bool = False) -> str:
     outcomes = [
         ("Summary", review.notes_action_truth.summary),
         ("Decisions", review.notes_action_truth.decisions),
@@ -2552,13 +2595,14 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     ]
     rows = "".join(_render_notes_outcome_row(title, state) for title, state in outcomes)
     source = escape(review.notes_action_truth.source_basis.replace("_", " "))
+    source_copy = "" if embedded else f'<div class="muted">Outcome source: {source}</div>'
     return f"""
       <div class="notes">
         <h3>Notes</h3>
         <div class="state-list notes-outcomes">
           {rows}
         </div>
-        <div class="muted">Outcome source: {source}</div>
+        {source_copy}
       </div>
     """
 
@@ -2575,7 +2619,7 @@ def _render_notes_outcome_row(title: str, state: NotesActionCategoryState) -> st
 
 def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str:
     if embedded:
-        return '<button type="button" disabled>Open in browser</button>'
+        return ""
     export_disabled = "disabled" if review.governance.export.state != "available" else ""
     share_disabled = "disabled" if review.governance.share.state != "available" else ""
     return f"""

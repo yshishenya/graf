@@ -321,6 +321,20 @@ def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
 
     assert "desktop-embedded" in html
     assert "Recording &amp; Transcript" not in html
+    assert "Open in browser" not in detail_page
+    assert "Outcome source" not in detail_page
+    assert "Медиа-ревизия" not in detail_page
+    for hidden_panel in [
+        "<h3>Access</h3>",
+        "<h3>Share</h3>",
+        "<h3>Artifacts</h3>",
+        "<h3>Delete</h3>",
+        "<h3>Governance</h3>",
+        "<h3>Activity</h3>",
+        "<h3>Assistant</h3>",
+        "<h3>Template</h3>",
+    ]:
+        assert hidden_panel not in detail_page
     for forbidden in ["Record live", "Stop", "Screen Recording", "Noise", "Accent", "Krisp Devices"]:
         assert forbidden not in html
 

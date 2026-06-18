@@ -28,6 +28,8 @@ services:
       TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_PROCESSING_ENABLED: "true"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
     secrets:
       - source: twobrain_postgres_password
         target: twobrain_postgres_password
@@ -61,6 +63,8 @@ services:
     depends_on:
       rec-migrate:
         condition: service_completed_successfully
+      rec-temporal:
+        condition: service_started
       rec-postgres:
         condition: service_healthy
       rec-minio:

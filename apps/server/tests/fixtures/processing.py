@@ -38,4 +38,4 @@ def create_finalized_meeting(client: TestClient, local_recording_id: str = "proc
         json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks},
     )
     assert finalize.status_code == 200
-    return {"meeting": finalize.json()["meeting"], "session": session, "tracks": tracks}
+    return {"meeting": finalize.json()["meeting"], "session": session, "tracks": tracks, "finalize": finalize.json()}

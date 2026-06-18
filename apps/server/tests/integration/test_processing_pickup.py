@@ -63,3 +63,20 @@ def test_processing_pickup_without_temporal_blocks_safely(client) -> None:
             return workflow.last_reason_code
 
     assert asyncio.run(reason_code()) == "blocked_temporal_unavailable"
+
+
+def test_finalize_auto_starts_processing_when_pipeline_enabled(client) -> None:
+    client.app.state.settings.processing_enabled = True
+    client.app.state.settings.temporal_address = "fake-temporal:7233"
+    client.app.state.temporal_client = FakeTemporalClient()
+
+    finalized = create_finalized_meeting(client, "finalize-auto-start")
+    meeting = finalized["meeting"]
+    finalize = finalized["finalize"]
+    media_revision_id = meeting["media_revision"]["media_revision_id"]
+    workflow_id = f"processing/{media_revision_id}"
+
+    assert finalize["workflow_started"] is True
+    assert finalize["meeting"]["processing_status"] == "workflow_started"
+    assert workflow_id in client.app.state.temporal_client.starts
+    assert client.app.state.temporal_client.starts[workflow_id]["payload"]["meeting_id"] == meeting["meeting_id"]

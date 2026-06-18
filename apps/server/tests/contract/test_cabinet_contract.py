@@ -121,7 +121,7 @@ def test_cabinet_embedded_routes_are_contractually_bounded(client) -> None:
     ]:
         assert forbidden not in html
     assert "desktop-embedded" in html
-    assert 'aria-label="Статус медиа-ревизии"' in html
+    assert 'aria-label="Статус обработки"' in html
     assert "data-media-revision-id=" in html
 
 
@@ -135,10 +135,11 @@ def test_cabinet_review_html_has_localized_accessible_compact_revision_status(cl
     assert '<html lang="ru">' in html
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in html
     assert 'class="app-shell desktop-embedded"' in html
-    assert 'aria-label="Статус медиа-ревизии"' in html
+    assert 'aria-label="Статус обработки"' in html
     assert 'data-media-revision-id="' in html
     assert 'data-local-media-revision-id="' in html
-    assert "Медиа-ревизия" in html
+    assert "Статус обработки" in html
+    assert "Медиа-ревизия" not in html
     assert "detail-layout" in html
     assert "detail-playback" in html
 
