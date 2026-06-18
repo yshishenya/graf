@@ -129,12 +129,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
         }
 
+        @MainActor
         public func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
             guard let url = webView.url,
                   routePolicy.decision(for: url).decision == .allow
             else {
                 return
             }
+            DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
             cabinetState = .ready
         }
 

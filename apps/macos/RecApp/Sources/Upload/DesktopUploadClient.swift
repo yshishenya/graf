@@ -166,6 +166,11 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
 
 public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let defaultPartSizeBytes = 5 * 1024 * 1024
+    public static let baseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let fallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let baseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let fallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let uploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
 
     private let baseURL: URL
@@ -190,11 +195,32 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         self.decoder = decoder
     }
 
+    public var baseOrigin: URL {
+        baseURL
+    }
+
+    public var sanitizedHeaderPreview: [String: String] {
+        headers.reduce(into: [:]) { result, pair in
+            result[pair.key] = Self.shouldRedactHeader(named: pair.key) ? "<redacted>" : pair.value
+        }
+    }
+
     public static func configuredFromEnvironment() -> DesktopUploadClient? {
-        let environment = ProcessInfo.processInfo.environment
-        let rawURL = environment["TWO_BRAIN_REC_UPLOAD_BASE_URL"] ??
-            UserDefaults.standard.string(forKey: "TWO_BRAIN_REC_UPLOAD_BASE_URL")
-        guard let rawURL, let url = URL(string: rawURL), url.scheme?.hasPrefix("http") == true else {
+        configured(from: ProcessInfo.processInfo.environment)
+    }
+
+    public static func configured(
+        from environment: [String: String],
+        defaults: UserDefaults = .standard,
+        includePackagedDefault: Bool = true
+    ) -> DesktopUploadClient? {
+        guard let rawURL = configuredBaseURLCandidate(
+            from: environment,
+            defaults: defaults,
+            includePackagedDefault: includePackagedDefault
+        ),
+            let url = normalizedHTTPOrigin(rawURL)
+        else {
             return nil
         }
 
@@ -233,6 +259,46 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             return trimmed
         }
         return "Bearer \(trimmed)"
+    }
+
+    private static func configuredBaseURLCandidate(
+        from environment: [String: String],
+        defaults: UserDefaults,
+        includePackagedDefault: Bool
+    ) -> String? {
+        let candidates = [
+            environment[baseURLEnvironmentKey],
+            environment[fallbackBaseURLEnvironmentKey],
+            defaults.string(forKey: baseURLUserDefaultsKey),
+            defaults.string(forKey: fallbackBaseURLUserDefaultsKey),
+            includePackagedDefault ? packagedDefaultBaseURL : nil
+        ]
+        return candidates.lazy
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
+    private static func normalizedHTTPOrigin(_ rawURL: String) -> URL? {
+        guard let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false
+        else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = url.host
+        components.port = url.port
+        return components.url
+    }
+
+    private static func shouldRedactHeader(named name: String) -> Bool {
+        let lowered = name.lowercased()
+        return lowered.contains("authorization") ||
+            lowered.contains("token") ||
+            lowered.contains("cookie") ||
+            lowered.contains("secret")
     }
 
     public func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {

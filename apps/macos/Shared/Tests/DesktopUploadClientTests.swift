@@ -68,6 +68,18 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertNil(headers["Authorization"])
     }
 
+    func testConfiguredFallsBackToPackagedProductionUploadOriginWithoutShellEnvironment() throws {
+        let suiteName = "DesktopUploadClientTests.packaged-default"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let client = try XCTUnwrap(DesktopUploadClient.configured(from: [:], defaults: defaults))
+
+        XCTAssertEqual(client.baseOrigin.absoluteString, "https://rec.2brain.pro")
+        XCTAssertEqual(client.sanitizedHeaderPreview["X-Client-Version"], "local-macos")
+        XCTAssertNil(client.sanitizedHeaderPreview["Authorization"])
+    }
+
     func testPartNumberUsesZeroBasedServerConvention() {
         XCTAssertEqual(
             DesktopUploadClient.partNumber(forByteOffset: 0, partSizeBytes: 128),

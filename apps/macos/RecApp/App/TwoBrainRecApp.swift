@@ -303,6 +303,9 @@ private struct ContentView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
+        }
         .onDisappear {
             guard !terminationCleanupInProgress else { return }
             Task { await releaseCaptureResourcesForAppExit() }

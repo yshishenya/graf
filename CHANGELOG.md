@@ -21,6 +21,11 @@ tooling in this repository may use Semantic Versioning where documented.
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Desktop recording upload now uses the packaged production origin when no
+  shell environment is present, reuses the embedded web owner session cookie for
+  native upload requests, refreshes stale local queue eligibility, and uploads
+  safe degraded recording packages so saved recordings can appear in web and
+  desktop review instead of remaining local-only blocked items (`feature:042`).
 - Desktop embedded cabinet now preserves desktop auth headers across WebKit
   link navigations to `/desktop/meetings` and meeting detail routes, so clicking
   a recording row no longer falls back to a false login/unavailable state

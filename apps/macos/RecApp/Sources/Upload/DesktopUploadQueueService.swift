@@ -16,6 +16,59 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
     }
 }
 
+private extension LocalRecordingManifest {
+    var isServerUploadEligible: Bool {
+        let uploadableStatus = status == .saved || status == .degraded
+        let uploadableReadiness = transcriptionReadiness == .ready || transcriptionReadiness == .degraded
+        return uploadableStatus &&
+            uploadableReadiness &&
+            !externalEgressStarted &&
+            !transcriptionStarted &&
+            scopeApproval?.isAcceptedForMeetingRecording == true &&
+            permissions?.allowsAcceptedRecording == true &&
+            durationDifferenceSeconds <= 3 &&
+            Self.isUploadSafeFailure(failureReason) &&
+            tracks.allSatisfy(\.isServerUploadEligible)
+    }
+
+    private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
+        switch reason {
+        case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .silentInput, .noFrames, .stoppedBeforeFrames:
+            return true
+        case .directoryUnavailable, .writeFailed, .finalizationFailed,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
+             .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
+             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .appClosed, .unknown:
+            return false
+        }
+    }
+}
+
+private extension LocalRecordingTrack {
+    var isServerUploadEligible: Bool {
+        let uploadableStatus = status == .saved || status == .degraded
+        return uploadableStatus && Self.isUploadSafeFailure(failureReason)
+    }
+
+    private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
+        switch reason {
+        case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .silentInput, .noFrames, .stoppedBeforeFrames:
+            return true
+        case .directoryUnavailable, .writeFailed, .finalizationFailed,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
+             .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
+             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .appClosed, .unknown:
+            return false
+        }
+    }
+}
+
 public final class DesktopUploadQueueService: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
 
@@ -82,7 +135,20 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     directoryURL: directory,
                     now: clock()
                 )
-                guard !document.items.contains(where: { $0.id == item.id }) else {
+                if let existingIndex = document.items.firstIndex(where: { $0.id == item.id }) {
+                    guard !document.items[existingIndex].state.isTerminal else {
+                        continue
+                    }
+                    let existing = document.items[existingIndex]
+                    let merged = mergeRefreshedLocalItem(
+                        existing: existing,
+                        refreshed: item,
+                        now: clock()
+                    )
+                    if merged != existing {
+                        document.items[existingIndex] = merged
+                        changed = true
+                    }
                     continue
                 }
                 document.items.append(item)
@@ -502,6 +568,47 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         )
     }
 
+    private func mergeRefreshedLocalItem(
+        existing: DesktopUploadQueueItem,
+        refreshed: DesktopUploadQueueItem,
+        now: Date
+    ) -> DesktopUploadQueueItem {
+        var merged = refreshed
+        merged.attemptCount = existing.attemptCount
+        merged.meetingId = existing.meetingId
+        merged.localMediaRevisionId = existing.localMediaRevisionId
+        merged.mediaRevisionId = existing.mediaRevisionId
+        merged.uploadSessionId = existing.uploadSessionId
+        merged.syncGeneration = existing.syncGeneration
+        merged.lastReconciledAt = existing.lastReconciledAt
+        merged.syncConflictState = existing.syncConflictState
+        merged.serverTruth = existing.serverTruth
+        merged.retryRecords = existing.retryRecords
+        merged.createdAt = existing.createdAt
+        if !refreshed.artifactProfile.isUploadable && existing.state == .blocked {
+            merged.state = existing.state
+            merged.failureCategory = existing.failureCategory
+            merged.failureReason = existing.failureReason
+            merged.retryMode = existing.retryMode
+            merged.nextRetryAt = existing.nextRetryAt
+            merged.retentionDecision = existing.retentionDecision
+        } else if refreshed.artifactProfile.isUploadable && existing.state == .blocked {
+            merged.state = .queued
+            merged.failureCategory = .none
+            merged.failureReason = nil
+            merged.retryMode = .automatic
+            merged.nextRetryAt = now
+            merged.retentionDecision = RetentionDecision(
+                decision: .retain,
+                decidedAt: now,
+                reason: "local_artifact_profile_refreshed",
+                localArtifactsRetained: true,
+                policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
+            )
+        }
+        return merged
+    }
+
     public static func artifactProfile(
         manifest: LocalRecordingManifest,
         manifestURL: URL,
@@ -539,8 +646,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let tracks = [microphoneTrack, systemTrack, manifestTrack]
         let manifestRoles = Set(manifest.tracks.compactMap { DesktopUploadTransportRole.role(forLocalTrackRole: $0.role) })
         let hasRequiredManifestRoles = manifestRoles.isSuperset(of: [.microphone, .system])
-        let uploadable = manifest.status == .saved &&
-            manifest.isComplete &&
+        let uploadable = manifest.isServerUploadEligible &&
             hasRequiredManifestRoles &&
             tracks.allSatisfy(\.uploadable)
         return ArtifactCompletenessProfile(

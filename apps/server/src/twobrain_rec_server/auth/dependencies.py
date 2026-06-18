@@ -141,12 +141,42 @@ async def get_principal(
 
 
 async def get_device_context(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization", include_in_schema=False),
+    x_auth_session: str | None = Header(default=None, alias="X-Auth-Session", include_in_schema=False),
+    auth_session_cookie: str | None = Cookie(default=None, alias=AUTH_SESSION_COOKIE_NAME, include_in_schema=False),
     x_device_id: str | None = Header(default=None, alias="X-Device-Id"),
     x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
     x_client_version: str | None = Header(default=None, alias="X-Client-Version"),
     x_device_registration_state: str | None = Header(default=None, alias="X-Device-Registration-State", include_in_schema=False),
     x_device_trust_state: str | None = Header(default=None, alias="X-Device-Trust-State", include_in_schema=False),
 ) -> DeviceContext:
+    if x_device_id and x_workspace_id:
+        return DeviceContext(
+            device_id=_parse_uuid(x_device_id, "X-Device-Id"),
+            workspace_id=_parse_uuid(x_workspace_id, "X-Workspace-Id"),
+            client_version=x_client_version,
+            registration_state=x_device_registration_state,
+            trust_state=x_device_trust_state,
+        )
+
+    session_token = _extract_session_token(authorization, x_auth_session, auth_session_cookie)
+    if session_token is not None:
+        principal = await _principal_from_session_token(request, session_token)
+        if principal is not None and principal.session_device_id is not None and principal.session_workspace_id is not None:
+            return DeviceContext(
+                device_id=principal.session_device_id,
+                workspace_id=principal.session_workspace_id,
+                client_version=x_client_version,
+                registration_state=x_device_registration_state,
+                trust_state=x_device_trust_state,
+            )
+        raise ProblemDetail(
+            status=401,
+            code="auth_session_mismatched",
+            title="Auth session context does not match workspace context",
+        )
+
     return DeviceContext(
         device_id=_parse_uuid(x_device_id, "X-Device-Id"),
         workspace_id=_parse_uuid(x_workspace_id, "X-Workspace-Id"),

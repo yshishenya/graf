@@ -103,6 +103,48 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.remoteSpeakerURL.path))
     }
 
+    func testScanRefreshesExistingNonTerminalItemWhenLocalArtifactProfileChanges() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "refresh-package-1", sessionId: "refresh-session-1")
+        let queueURL = root.appendingPathComponent("queue.json")
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var staleItem = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        staleItem.state = .blocked
+        staleItem.failureCategory = .schemaIncompatibility
+        staleItem.failureReason = "local_recording_package_not_uploadable"
+        staleItem.retryMode = .manualOnly
+        staleItem.nextRetryAt = nil
+        staleItem.artifactProfile.isUploadable = false
+        let staleDocument = DesktopUploadQueueDocument(
+            updatedAt: Date(timeIntervalSince1970: 110),
+            items: [staleItem]
+        )
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(staleDocument)
+            .write(to: queueURL, options: [.atomic])
+        let refreshService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 120) }
+        )
+
+        let refreshed = try XCTUnwrap(refreshService.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(refreshed.id, staleItem.id)
+        XCTAssertEqual(refreshed.state, .queued)
+        XCTAssertEqual(refreshed.retryMode, .automatic)
+        XCTAssertNil(refreshed.failureReason)
+        XCTAssertTrue(refreshed.artifactProfile.isUploadable)
+        XCTAssertEqual(refreshed.createdAt, staleItem.createdAt)
+    }
+
     func testReenqueuePreservesServerRevisionTruth() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
