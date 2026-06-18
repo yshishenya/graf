@@ -164,6 +164,7 @@ async def cleanup_smoke_artifacts(
                     ("delete from upload_parts where upload_session_id=:session_id", {"session_id": session_id}),
                     ("delete from upload_sessions where id=:session_id", {"session_id": session_id}),
                     ("delete from processing_placeholders where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
+                    ("delete from media_revisions where meeting_id=:meeting_id", {"meeting_id": meeting_id}),
                     ("delete from meetings where id=:meeting_id", {"meeting_id": meeting_id}),
                 ]
             )
