@@ -19,8 +19,8 @@ direct `gh issue create` must follow:
 
 Language rules:
 
-- write GitHub issue titles, bodies, comments, status updates, closure comments,
-  and sync notes in Russian by default;
+- write GitHub issue titles, bodies, PR descriptions, comments, status updates,
+  closure comments, and sync notes in Russian by default;
 - use simple language understandable to non-technical teammates;
 - describe blockers as concrete facts: what is blocked, why it is blocked, and
   what exact action unblocks it.
@@ -36,10 +36,24 @@ Closure rules:
 
 - when a task is marked `[X]` in `tasks.md`, close the corresponding GitHub
   issue only after validation evidence is checked;
-- add a short Russian comment with the validation result before or while
-  closing;
+- add a detailed Russian closure comment before closing; it must explain what
+  changed, why it matters, how it was checked, what is out of scope, and which
+  PR and Spec Kit task it closes;
+- if GitHub auto-closes an issue after merge, add the detailed closure comment
+  immediately after merge if it is missing;
 - if a GitHub issue is closed but `tasks.md` is still open, verify the
   implementation and evidence before marking the task complete.
+
+PR rules:
+
+- use the repository pull request template when it exists;
+- use `Fixes #123`, `Closes #123`, or `Resolves #123` only when the PR fully
+  satisfies every acceptance criterion for that issue;
+- use `Refs #123` or `Part of #123` when the PR is partial, preparatory, or
+  related but not sufficient to close the issue;
+- when a PR closes multiple issues, list every closing keyword explicitly in the
+  PR body;
+- do not rely on GitHub auto-close when a PR targets a non-default branch.
 
 ## Linear Is Retired
 

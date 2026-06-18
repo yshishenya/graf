@@ -4,7 +4,17 @@ from __future__ import annotations
 import re
 import sys
 
-from issue_canon_common import REQUIRED_SECTIONS, TITLE_RE, current_feature, is_speckit_issue, label_names, list_open_issues, repo_root, repo_slug, run
+from issue_canon_common import (
+    REQUIRED_SECTIONS,
+    TITLE_RE,
+    current_feature,
+    is_speckit_issue,
+    label_names,
+    list_open_issues,
+    repo_root,
+    repo_slug,
+    run,
+)
 
 
 def infer_priority(body: str, title: str) -> str:
@@ -15,16 +25,16 @@ def infer_priority(body: str, title: str) -> str:
 def infer_area(body: str, title: str) -> str:
     text = (title + "\n" + body).lower()
     candidates = [
-        ("auth", ["auth", "tenant", "device", "permission"]),
-        ("contract", ["openapi", "contract", "schema", "problem response"]),
-        ("docs", ["quickstart", "docs", "documentation", "prd"]),
-        ("infra", ["docker", "compose", "migration", "runtime", "readiness"]),
-        ("storage", ["minio", "object", "storage", "artifact"]),
-        ("tests", ["test", "pytest", "coverage", "fake"]),
-        ("security", ["security", "privacy", "redaction", "audit"]),
-        ("macos", ["macos", "driver", "audio"]),
+        ("auth", ["auth", "tenant", "device", "permission", "доступ", "пользователь"]),
+        ("contract", ["openapi", "contract", "schema", "problem response", "контракт", "схема"]),
+        ("docs", ["quickstart", "docs", "documentation", "prd", "документ", "changelog"]),
+        ("infra", ["docker", "compose", "migration", "runtime", "readiness", "инфра", "деплой"]),
+        ("storage", ["minio", "object", "storage", "artifact", "хранилище", "артефакт"]),
+        ("tests", ["test", "pytest", "coverage", "fake", "тест", "провер"]),
+        ("security", ["security", "privacy", "redaction", "audit", "безопас", "приват"]),
+        ("macos", ["macos", "driver", "audio", "аудио", "запись"]),
         ("ux", ["ux", "ui", "accessibility"]),
-        ("ingest", ["ingest", "upload", "finalize", "session", "range"]),
+        ("ingest", ["ingest", "upload", "finalize", "session", "range", "загрузка"]),
     ]
     for area, needles in candidates:
         if any(needle in text for needle in needles):
@@ -34,11 +44,11 @@ def infer_area(body: str, title: str) -> str:
 
 def infer_type(body: str, title: str) -> str:
     text = (title + "\n" + body).lower()
-    if "test" in text or "coverage" in text:
+    if "test" in text or "coverage" in text or "тест" in text or "провер" in text:
         return "type:test-gap"
-    if "docs" in text or "quickstart" in text or "documentation" in text:
+    if "docs" in text or "quickstart" in text or "documentation" in text or "документ" in text:
         return "type:docs"
-    if "hardening" in text or "security" in text or "privacy" in text:
+    if "hardening" in text or "security" in text or "privacy" in text or "безопас" in text or "приват" in text:
         return "type:hardening"
     return "type:bug"
 
@@ -55,7 +65,7 @@ def canonical_title(issue: dict, default_feature: str | None) -> str:
     priority = infer_priority(body, title)
     area = infer_area(body, title)
     cleaned = re.sub(r"^012 hackathon (remediation|additional):\s*", "", title, flags=re.I)
-    cleaned = cleaned[:1].upper() + cleaned[1:] if cleaned else "Resolve Spec Kit issue"
+    cleaned = cleaned[:1].upper() + cleaned[1:] if cleaned else "Закрыть Spec Kit задачу"
     return f"[{feature}][{priority}][{area}] {cleaned}"
 
 
@@ -75,40 +85,52 @@ def canonical_body(issue: dict, title: str) -> str:
     priority = match.group("priority") if match else infer_priority(body, title)
     area = match.group("area") if match else infer_area(body, title)
     tasks = extract_context_line(body, "Spec Kit tasks") or ", ".join(sorted(set(re.findall(r"\bT\d{3}\b", body)))) or "T000"
-    source = extract_context_line(body, "Source") or "Spec Kit task-to-issue sync / review"
-    gate = extract_context_line(body, "Gate") or ("blocks deployment" if "gate:deployment-blocker" in ",".join(label_names(issue)) else "blocks PR")
+    source = extract_context_line(body, "Source") or extract_context_line(body, "Источник") or "Spec Kit task-to-issue sync / review"
+    gate = extract_context_line(body, "Gate") or extract_context_line(body, "Гейт") or ("blocks deployment" if "gate:deployment-blocker" in ",".join(label_names(issue)) else "blocks PR")
 
     summary = title
     if match:
-        summary = title[match.end() :].strip()
-    summary = summary[:1].upper() + summary[1:] if summary else "Resolve Spec Kit issue"
+        summary = match.group("outcome").strip()
+    summary = summary[:1].upper() + summary[1:] if summary else "Закрыть Spec Kit задачу"
 
-    prefix = ""
-    if "## Summary" not in body:
-        prefix += f"## Summary\n\n{summary}.\n\n"
-    if "## Context" not in body:
-        prefix += (
-            "## Context\n\n"
-            f"- Feature: `{feature}`\n"
-            f"- Priority: `{priority}`\n"
-            f"- Area: `{area}`\n"
-            f"- Spec tasks: {tasks}\n"
-            f"- Source: {source}\n"
-            f"- Gate: {gate}\n"
-            f"- Related issues:\n\n"
-        )
-
-    suffix = ""
-    if "## Links" not in body:
-        suffix = (
-            "\n## Links\n\n"
-            f"- Spec: `specs/{feature}-*/spec.md`\n"
-            f"- Plan: `specs/{feature}-*/plan.md`\n"
-            f"- Tasks: `specs/{feature}-*/tasks.md`\n"
-            "- Related:\n"
-        )
-
-    return prefix + body.strip() + suffix
+    original = body.strip() or "Исходное описание отсутствовало."
+    return (
+        "## Кратко\n\n"
+        f"{summary}.\n\n"
+        "## Контекст\n\n"
+        f"- Фича: `{feature}`\n"
+        f"- Приоритет: `{priority}`\n"
+        f"- Область: `{area}`\n"
+        f"- Spec tasks: {tasks}\n"
+        f"- Источник: {source}\n"
+        f"- Гейт: {gate}\n"
+        "- Связанные issues:\n\n"
+        "## Проблема\n\n"
+        f"{original}\n\n"
+        "## Проверенные факты\n\n"
+        "- Требуется сверить с текущими `spec.md`, `plan.md` и `tasks.md`.\n"
+        "- Требуется зафиксировать evidence перед закрытием.\n\n"
+        "## Границы задачи\n\n"
+        "Входит:\n"
+        "- Выполнить связанную Spec Kit задачу.\n\n"
+        "Не входит:\n"
+        "- Расширять scope за пределы активной фичи без отдельного issue.\n\n"
+        "## Критерии приемки\n\n"
+        "- [ ] Связанная задача выполнена в указанных файлах.\n"
+        "- [ ] Поведение соответствует spec/plan/contract.\n"
+        "- [ ] Нет незадокументированных ограничений или скрытых follow-up.\n\n"
+        "## Что проверить перед закрытием\n\n"
+        "- [ ] Нужные тесты, smoke или ручная проверка пройдены.\n"
+        "- [ ] Evidence записан в PR, issue comment или feature docs.\n"
+        "- [ ] Связанный пункт в `tasks.md` отмечен `[X]` только после проверки.\n\n"
+        "## Заметки по реализации\n\n"
+        "- Сохрани исходный контекст выше в разделе `Проблема`, если issue был нормализован автоматически.\n\n"
+        "## Ссылки\n\n"
+        f"- Spec: `specs/{feature}-*/spec.md`\n"
+        f"- Plan: `specs/{feature}-*/plan.md`\n"
+        f"- Tasks: `specs/{feature}-*/tasks.md`\n"
+        "- Связано:\n"
+    )
 
 
 def main() -> int:

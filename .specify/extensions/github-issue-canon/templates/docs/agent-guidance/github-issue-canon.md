@@ -13,23 +13,24 @@ Project path:
 docs/agent-guidance/github-issue-canon.md
 ```
 
-All issue titles, issue bodies, status comments, closure comments, and sync
-notes must be written in Russian by default. Use simple, clear language that is
-understandable to non-technical teammates, not only engineers.
+All issue titles, issue bodies, PR descriptions, status comments, closure
+comments, and sync notes must be written in Russian by default. Use simple,
+clear language that is understandable to non-technical teammates, not only
+engineers.
 
 ## Title Format
 
-Use this exact format:
+Use this exact format, with the outcome written in Russian:
 
 ```text
-[{feature}][{priority}][{area}] {imperative outcome}
+[{feature}][{priority}][{area}] {результат простыми словами}
 ```
 
 Examples:
 
 ```text
-[012][P0][ingest/finalize] Reject mismatched artifact manifests before finalize
-[012][P1][infra/compose] Fail closed on production dev defaults
+[012][P0][ingest/finalize] Отклонять несовпадающие manifest до finalize
+[012][P1][infra/compose] Не запускать production с dev defaults
 ```
 
 Rules:
@@ -37,67 +38,70 @@ Rules:
 - `{feature}` is the three-digit Spec Kit feature number, e.g. `012`.
 - `{priority}` is `P0`, `P1`, `P2`, or `P3`.
 - `{area}` is a compact ownership/scope tag.
-- The title states the desired outcome in imperative form.
+- The title states the desired outcome in Russian and in plain language.
 - Do not use emoji, urgency words, all-caps shouting, or repeated punctuation.
 - Do not prefix with `bug:`/`feature:` when the same meaning belongs in labels.
 
 ## Body Format
 
-Use sections in this exact order.
+Use Russian sections in this exact order.
 
 ```markdown
-## Summary
+## Кратко
 
-One or two sentences describing what must become true.
+Одно-два предложения: что должно стать правдой.
 
-## Context
+## Контекст
 
-- Feature: `012-server-ingest-foundation`
+- Фича: `012-server-ingest-foundation`
+- Приоритет: `P1`
+- Область: `ingest`
 - Spec tasks: T119, T132
-- Source: review / analyze / implementation / user report / production incident
-- Gate: blocks PR / blocks deployment / follow-up / nice-to-have
-- Related issues: #123, #124
+- Источник: review / analyze / implementation / user report / production incident
+- Гейт: blocks PR / blocks deployment / follow-up / nice-to-have
+- Связанные issues: #123, #124
 
-## Problem
+## Проблема
 
-Concrete current behavior, gap, or risk. Explain why it matters.
+Что сейчас не так, какой риск есть, и почему это важно для проекта или
+пользователя.
 
-## Confirmed Findings
+## Проверенные факты
 
-- Observed fact or reviewed gap.
-- Missing test/proof.
-- Risk if left unresolved.
+- Проверенный факт или найденный gap.
+- Какого proof/test сейчас не хватает.
+- Что будет плохо, если оставить как есть.
 
-## Scope
+## Границы задачи
 
-In scope:
+Входит:
 - ...
 
-Out of scope:
+Не входит:
 - ...
 
-## Acceptance Criteria
+## Критерии приемки
 
 - [ ] Given ..., when ..., then ...
 - [ ] ...
 
-## Validation Required
+## Что проверить перед закрытием
 
 - [ ] Test file or command.
 - [ ] Contract/checklist/compose/manual smoke evidence.
 - [ ] Documentation/status update if required.
 
-## Implementation Notes
+## Заметки по реализации
 
-Constraints, important paths, and known traps. Keep this practical, not a full
-design document.
+Ограничения, важные пути, порядок работ и известные ловушки. Пиши практично,
+не превращай issue в полный design document.
 
-## Links
+## Ссылки
 
 - Spec:
 - Plan:
 - Tasks:
-- Related:
+- Связано:
 ```
 
 ## Labels
@@ -113,17 +117,58 @@ Required label families for Spec Kit issues:
 - `type:<name>`: `type:bug`, `type:hardening`, `type:docs`,
   `type:test-gap`, or `type:feature`
 
+## Pull Request Rules
+
+- Use a pull request template when the repository has one.
+- The PR description must include a Russian summary, validation evidence, and
+  issue links.
+- Use `Fixes #123`, `Closes #123`, or `Resolves #123` only when the PR fully
+  satisfies every acceptance criterion for that issue.
+- Use `Refs #123` or `Part of #123` when the PR is partial, preparatory, or
+  only related.
+- If a PR closes multiple issues, list every closing keyword explicitly.
+- Closing keywords are reliable only when the PR targets the repository default
+  branch. If the PR targets another branch, do not rely on auto-close.
+
 ## Closing Rules
 
 - Close an issue only when every acceptance criterion is met or explicitly
   marked not applicable with a reason.
-- Use `Closes #123` in the PR description only when that PR fully closes the
-  issue.
-- Use `Refs #123` or `Part of #123` when a PR only contributes partial work.
 - Do not close a security/privacy/durability issue without validation evidence
   recorded in the PR or the feature quickstart/status docs.
 - When an issue maps to Spec Kit tasks, mark matching tasks `[X]` in `tasks.md`
   only after implementation and validation are complete.
+- Before closing, add a detailed Russian closure comment that explains what was
+  done, why it matters, how it was checked, what is out of scope, and which PR
+  and Spec Kit task it closes.
+- If GitHub auto-closes the issue after merge, add the detailed closure comment
+  immediately after merge if it is missing.
+- For duplicates, comment `Duplicate of #123` and explain in Russian why the
+  other issue is the source of truth.
+- For `not planned` closures, explain in Russian why work will not continue and
+  whether a follow-up issue exists.
+
+Required closure comment format:
+
+```markdown
+Готово.
+
+Что закрыто:
+- ...
+
+Почему это важно:
+- ...
+
+Как проверено:
+- ...
+
+Что не входит:
+- ...
+
+Связи:
+- Spec task: T...
+- PR: #...
+```
 
 ## Automation And Spec Kit
 

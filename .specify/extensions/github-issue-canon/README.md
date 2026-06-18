@@ -18,6 +18,7 @@ Project files:
 - `docs/agent-guidance/github-issue-canon.md`
 - `.github/ISSUE_TEMPLATE/config.yml`
 - `.github/ISSUE_TEMPLATE/spec-kit-work-item.yml`
+- `.github/pull_request_template.md`
 - an `AGENTS.md` rule block when `AGENTS.md` exists
 
 GitHub labels:
@@ -77,3 +78,7 @@ python3 scripts/validate_issue_canon.py
 
 The scripts are intended to run from a Spec Kit project after the extension has
 been installed under `.specify/extensions/github-issue-canon`.
+
+The canonical project-facing issue and PR text is Russian-only. Validation
+requires the current Russian issue sections; normalize older issues before
+claiming the issue canon is clean.

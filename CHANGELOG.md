@@ -82,6 +82,14 @@ Semantic Versioning 2.0.0.
 
 ### Changed
 
+- GitHub issue and pull request workflow now follows the Russian-only issue
+  canon: issue forms use Russian sections, PR descriptions must be written in
+  Russian, `Fixes`/`Closes`/`Resolves` are reserved for issues fully closed by
+  a PR, partial work must use `Refs`/`Part of`, and every closed issue requires
+  a detailed Russian closure comment that explains what changed, why it
+  matters, how it was checked, what is out of scope, and which PR/Spec Kit task
+  it closes. The project also now ships a PR template and a synced
+  `github-issue-canon` extension `v0.2.0` copy for future task-to-issue syncs.
 - `docs/current-product-status.md` and the MVP readiness report now record
   `022-meeting-mute-truth` as closed, remove stale `018`/`022` next-slice
   guidance, and recommend validation-only `035-mvp-loop-live-evidence` while
