@@ -255,6 +255,140 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         monoSource.append(Array(repeating: 0.25, count: 512))
         XCTAssertEqual(monoSource.stats().frameCount, 512)
     }
+
+    func testWriterUsesInjectedAppOwnedMicrophoneSourceForMicTrackLevelsAndMetadata() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-app-owned-mic-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.45, count: 96_000))
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
+        let selection = writerRecordingMicrophoneSelection()
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-app-owned-mic",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions(),
+            microphoneSelection: selection
+        )
+        Thread.sleep(forTimeInterval: 0.15)
+        let levels = writer.currentLevels(now: Date())
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        XCTAssertGreaterThan(mic.frameCount, 0)
+        XCTAssertGreaterThan(incoming.frameCount, 0)
+        XCTAssertGreaterThan(levels.microphoneLevel, 0)
+        XCTAssertTrue(levels.microphoneIsLive(staleAfter: 2))
+        XCTAssertEqual(manifest.microphoneSelection, selection)
+        XCTAssertEqual(manifest.microphoneStream?.streamKind, .appOwnedSampleSource)
+        XCTAssertTrue(manifest.microphoneStream?.provesGraphReadiness == true)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)
+        XCTAssertGreaterThan(manifest.microphoneStreamHealth?.lastLevel ?? 0, 0)
+        XCTAssertNotNil(manifest.microphoneStreamHealth?.lastLevelAt)
+    }
+
+    func testAppOwnedMicrophoneNoFramesProducesUnprovenStreamHealth() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-mic-no-frames-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let microphoneSource = FixtureSampleSource(samples: [])
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-mic-no-frames",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions(),
+            microphoneSelection: writerRecordingMicrophoneSelection()
+        )
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
+        XCTAssertEqual(mic.failureReason, .noFrames)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.framesObserved, false)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .unproven)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.gateStatus, .failed)
+        XCTAssertFalse(manifest.microphoneStream?.provesGraphReadiness == true)
+    }
+
+    func testAppOwnedMicrophoneSilenceProducesSilentStreamHealth() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-mic-silent-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0, count: 96_000))
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-mic-silent",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions(),
+            microphoneSelection: writerRecordingMicrophoneSelection()
+        )
+        Thread.sleep(forTimeInterval: 0.15)
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
+        XCTAssertEqual(mic.failureReason, .silentInput)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.silenceStatus, .silent)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .unproven)
+        XCTAssertFalse(manifest.microphoneStream?.provesGraphReadiness == true)
+    }
+
+    func testPausedMicrophoneSamplesDoNotProveAppOwnedGraphReadiness() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-mic-paused-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let microphoneSource = GateableFixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-mic-paused",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions(),
+            microphoneSelection: writerRecordingMicrophoneSelection()
+        )
+        try writer.pausePrivacy(startedAt: Date(timeIntervalSince1970: 10.1))
+        microphoneSource.release()
+        Thread.sleep(forTimeInterval: 0.15)
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        XCTAssertEqual(manifest.microphoneStream?.frameCount, 0)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.framesObserved, false)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .unproven)
+        XCTAssertFalse(manifest.microphoneStream?.provesGraphReadiness == true)
+    }
 }
 
 private func acceptedScope() -> CaptureScopeApproval {
@@ -273,6 +407,19 @@ private func acceptedPermissions() -> SystemAudioPermissionSnapshot {
         microphone: .granted,
         systemAudio: .granted,
         evaluatedAt: Date(timeIntervalSince1970: 9)
+    )
+}
+
+private func writerRecordingMicrophoneSelection() -> RecordingMicrophoneSelection {
+    RecordingMicrophoneSelection(
+        selectionId: "writer-selection",
+        mode: .userSelected,
+        inputDeviceId: "built-in",
+        inputDisplayName: "Built-in Microphone",
+        deviceClass: .builtIn,
+        workingDeviceKind: .physical,
+        selectionResult: .accepted,
+        resolvedAt: Date(timeIntervalSince1970: 9)
     )
 }
 
@@ -301,6 +448,34 @@ private final class InfiniteFixtureSampleSource: LocalRecordingSampleSource, @un
             destination[index] = 0.25
         }
         return capacity
+    }
+}
+
+private final class GateableFixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Float]
+    private var released = false
+
+    init(samples: [Float]) {
+        self.samples = samples
+    }
+
+    func release() {
+        lock.lock()
+        released = true
+        lock.unlock()
+    }
+
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        guard released, !samples.isEmpty else { return 0 }
+        let count = min(capacity, samples.count)
+        for index in 0..<count {
+            destination[index] = samples[index]
+        }
+        samples.removeFirst(count)
+        return count
     }
 }
 #endif

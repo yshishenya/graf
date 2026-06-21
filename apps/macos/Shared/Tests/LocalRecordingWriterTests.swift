@@ -168,6 +168,7 @@ final class LocalRecordingWriterTests: XCTestCase {
         let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 4)
         defer { scratch.deallocate() }
 
+        XCTAssertFalse(suppressing.lastReadWasSuppressed)
         source.append([0.4, -0.4, 0.2, -0.2])
         suppressing.update(state: .paused)
         let read = suppressing.readSamples(into: scratch, capacity: 4)
@@ -175,6 +176,15 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertEqual(read, 4)
         XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [0, 0, 0, 0])
         XCTAssertEqual(suppressing.suppressedSampleCount, 4)
+        XCTAssertTrue(suppressing.lastReadWasSuppressed)
+
+        source.append([0.1, -0.1])
+        suppressing.update(state: .capturing)
+        let resumedRead = suppressing.readSamples(into: scratch, capacity: 4)
+
+        XCTAssertEqual(resumedRead, 2)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 2)), [0.1, -0.1])
+        XCTAssertFalse(suppressing.lastReadWasSuppressed)
     }
 
     func testWriterPersistsPrivacySegmentWhenPausedAndResumed() throws {

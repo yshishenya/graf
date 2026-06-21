@@ -204,6 +204,207 @@ public struct MicrophoneCaptureSession: Codable, Equatable, Sendable {
     }
 }
 
+public enum RecordingMicrophoneSelectionMode: String, Codable, Sendable {
+    case userSelected = "user_selected"
+    case macOSDefaultFallback = "macos_default_fallback"
+}
+
+public enum RecordingMicrophoneSelectionResult: String, Codable, Sendable {
+    case accepted
+    case rejected
+    case unavailable
+}
+
+public enum RecordingMicrophoneSelectionRejectionReason: String, Codable, Sendable {
+    case unsupportedSelfRoutingInput = "unsupported_self_routing_input"
+    case unsupportedVirtualInput = "unsupported_virtual_input"
+    case deviceUnavailable = "device_unavailable"
+    case inputIdentityUnproven = "input_identity_unproven"
+}
+
+public struct RecordingMicrophoneSelection: Codable, Equatable, Sendable {
+    public var selectionId: String
+    public var mode: RecordingMicrophoneSelectionMode
+    public var inputDeviceId: String?
+    public var inputDisplayName: String?
+    public var deviceClass: PhysicalDeviceClass?
+    public var workingDeviceKind: PhysicalWorkingDeviceKind?
+    public var selectionResult: RecordingMicrophoneSelectionResult
+    public var rejectionReason: RecordingMicrophoneSelectionRejectionReason?
+    public var resolvedAt: Date
+    public var diagnosticSafe: Bool
+
+    public init(
+        selectionId: String,
+        mode: RecordingMicrophoneSelectionMode,
+        inputDeviceId: String? = nil,
+        inputDisplayName: String? = nil,
+        deviceClass: PhysicalDeviceClass? = nil,
+        workingDeviceKind: PhysicalWorkingDeviceKind? = nil,
+        selectionResult: RecordingMicrophoneSelectionResult,
+        rejectionReason: RecordingMicrophoneSelectionRejectionReason? = nil,
+        resolvedAt: Date,
+        diagnosticSafe: Bool = true
+    ) {
+        self.selectionId = selectionId
+        self.mode = mode
+        self.inputDeviceId = inputDeviceId
+        self.inputDisplayName = inputDisplayName
+        self.deviceClass = deviceClass
+        self.workingDeviceKind = workingDeviceKind
+        self.selectionResult = selectionResult
+        self.rejectionReason = rejectionReason
+        self.resolvedAt = resolvedAt
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public var isAccepted: Bool {
+        selectionResult == .accepted && diagnosticSafe
+    }
+}
+
+public enum MicrophoneStreamKind: String, Codable, Sendable {
+    case appOwnedSampleSource = "app_owned_sample_source"
+    case legacyRecorderFallback = "legacy_recorder_fallback"
+}
+
+public enum MicrophoneTimingConfidence: String, Codable, Sendable {
+    case usable
+    case degraded
+    case missing
+    case unknown
+}
+
+public enum MicrophoneSilenceStatus: String, Codable, Sendable {
+    case audible
+    case silent
+    case clipped
+    case notMeasured = "not_measured"
+    case unknown
+}
+
+public enum FutureProcessingReadiness: String, Codable, Sendable {
+    case readyForFutureProcessing = "ready_for_future_processing"
+    case unproven
+    case legacyNotReady = "legacy_not_ready"
+    case blocked
+}
+
+public struct AppOwnedMicrophoneStreamSession: Codable, Equatable, Sendable {
+    public var sessionId: String
+    public var selection: RecordingMicrophoneSelection
+    public var permissionState: CapturePermissionState
+    public var streamKind: MicrophoneStreamKind
+    public var startedAt: Date?
+    public var stoppedAt: Date?
+    public var monotonicStartMs: Int?
+    public var monotonicStopMs: Int?
+    public var sampleRate: Double
+    public var channelCount: Int
+    public var writerSampleRate: Double
+    public var writerChannelCount: Int
+    public var frameCount: Int64
+    public var droppedFrameCount: Int64
+    public var silentFrameCount: Int64
+    public var clippedFrameCount: Int64
+    public var routeChangeCount: Int
+    public var lastFrameAt: Date?
+    public var failureReason: LocalRecordingFailureReason
+    public var diagnosticSafe: Bool
+
+    public init(
+        sessionId: String,
+        selection: RecordingMicrophoneSelection,
+        permissionState: CapturePermissionState,
+        streamKind: MicrophoneStreamKind,
+        startedAt: Date? = nil,
+        stoppedAt: Date? = nil,
+        monotonicStartMs: Int? = nil,
+        monotonicStopMs: Int? = nil,
+        sampleRate: Double = 0,
+        channelCount: Int = 0,
+        writerSampleRate: Double = 0,
+        writerChannelCount: Int = 0,
+        frameCount: Int64 = 0,
+        droppedFrameCount: Int64 = 0,
+        silentFrameCount: Int64 = 0,
+        clippedFrameCount: Int64 = 0,
+        routeChangeCount: Int = 0,
+        lastFrameAt: Date? = nil,
+        failureReason: LocalRecordingFailureReason = .none,
+        diagnosticSafe: Bool = true
+    ) {
+        self.sessionId = sessionId
+        self.selection = selection
+        self.permissionState = permissionState
+        self.streamKind = streamKind
+        self.startedAt = startedAt
+        self.stoppedAt = stoppedAt
+        self.monotonicStartMs = monotonicStartMs
+        self.monotonicStopMs = monotonicStopMs
+        self.sampleRate = sampleRate
+        self.channelCount = channelCount
+        self.writerSampleRate = writerSampleRate
+        self.writerChannelCount = writerChannelCount
+        self.frameCount = frameCount
+        self.droppedFrameCount = droppedFrameCount
+        self.silentFrameCount = silentFrameCount
+        self.clippedFrameCount = clippedFrameCount
+        self.routeChangeCount = routeChangeCount
+        self.lastFrameAt = lastFrameAt
+        self.failureReason = failureReason
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public var provesGraphReadiness: Bool {
+        streamKind == .appOwnedSampleSource &&
+            permissionState == .granted &&
+            selection.isAccepted &&
+            frameCount > 0 &&
+            writerSampleRate == 16_000 &&
+            writerChannelCount == 1 &&
+            failureReason == .none &&
+            diagnosticSafe
+    }
+}
+
+public struct MicrophoneStreamHealth: Codable, Equatable, Sendable {
+    public var gateStatus: CaptureHealthGateStatus
+    public var failureReason: LocalRecordingFailureReason
+    public var framesObserved: Bool
+    public var timingConfidence: MicrophoneTimingConfidence
+    public var silenceStatus: MicrophoneSilenceStatus
+    public var lastLevel: Double?
+    public var lastLevelAt: Date?
+    public var cleanupReadiness: FutureProcessingReadiness
+    public var evidenceCodes: [String]
+    public var diagnosticSafe: Bool
+
+    public init(
+        gateStatus: CaptureHealthGateStatus,
+        failureReason: LocalRecordingFailureReason,
+        framesObserved: Bool,
+        timingConfidence: MicrophoneTimingConfidence,
+        silenceStatus: MicrophoneSilenceStatus,
+        lastLevel: Double? = nil,
+        lastLevelAt: Date? = nil,
+        cleanupReadiness: FutureProcessingReadiness,
+        evidenceCodes: [String] = [],
+        diagnosticSafe: Bool = true
+    ) {
+        self.gateStatus = gateStatus
+        self.failureReason = failureReason
+        self.framesObserved = framesObserved
+        self.timingConfidence = timingConfidence
+        self.silenceStatus = silenceStatus
+        self.lastLevel = lastLevel
+        self.lastLevelAt = lastLevelAt
+        self.cleanupReadiness = cleanupReadiness
+        self.evidenceCodes = evidenceCodes
+        self.diagnosticSafe = diagnosticSafe
+    }
+}
+
 public struct SystemAudioPermissionSnapshot: Codable, Equatable, Sendable {
     public var microphone: CapturePermissionState
     public var systemAudio: CapturePermissionState
@@ -641,6 +842,7 @@ public enum SystemAudioStatusLabels {
     public static let pauseButtonAccessibilityLabel = "Поставить локальный микрофон на паузу"
     public static let resumeButtonTitle = "Продолжить"
     public static let resumeButtonAccessibilityLabel = "Продолжить запись локального микрофона"
+    public static let recordingMicrophoneMenuAccessibilityLabel = "Выбрать микрофон записи"
     public static let localRecordingPausedStatus =
         "Запись на паузе. Остановить можно в любой момент."
     public static let meetingMuteTruthLimitationCopy =
@@ -714,6 +916,9 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let statusSurface = "systemAudio.status.surface"
     public static let blockerBanner = "systemAudio.blocker.banner"
     public static let localRecordingStatus = "systemAudio.localRecording.status"
+    public static let recordingMicrophoneMenu = "systemAudio.recordingMicrophone.menu"
+    public static let recordingMicrophoneStatus = "systemAudio.recordingMicrophone.status"
+    public static let recordingMicrophoneRecovery = "systemAudio.recordingMicrophone.recovery"
     public static let muteTruthWarning = "systemAudio.muteTruth.warning"
     public static let localRecordingLocation = "systemAudio.localRecording.location"
     public static let meters = "systemAudio.meters"

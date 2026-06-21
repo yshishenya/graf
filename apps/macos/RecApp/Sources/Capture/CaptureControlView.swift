@@ -9,6 +9,9 @@ public struct CaptureControlView: View {
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
     private let muteTruthWarning: String?
+    private let recordingMicrophoneSelection: RecordingMicrophoneSelection?
+    private let recordingMicrophoneInputs: [PhysicalAudioDevice]
+    private let selectedRecordingMicrophoneDeviceId: String?
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let cabinetConfiguration: DesktopCabinetConfiguration?
     private let routeSignalLevels: LiveRouteSignalLevels
@@ -19,6 +22,7 @@ public struct CaptureControlView: View {
     private let onStop: () -> Void
     private let onPause: () -> Void
     private let onResume: () -> Void
+    private let onSelectRecordingMicrophone: (String?) -> Void
     private let onUploadRetry: (String) -> Void
     private let onUploadStopRetry: (String) -> Void
     private let onUploadReview: (URL) -> Void
@@ -29,6 +33,9 @@ public struct CaptureControlView: View {
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
         muteTruthWarning: String? = nil,
+        recordingMicrophoneSelection: RecordingMicrophoneSelection? = nil,
+        recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
+        selectedRecordingMicrophoneDeviceId: String? = nil,
         uploadQueueItems: [DesktopUploadQueueItem] = [],
         cabinetConfiguration: DesktopCabinetConfiguration? = nil,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
@@ -39,6 +46,7 @@ public struct CaptureControlView: View {
         onStop: @escaping () -> Void,
         onPause: @escaping () -> Void = {},
         onResume: @escaping () -> Void = {},
+        onSelectRecordingMicrophone: @escaping (String?) -> Void = { _ in },
         onUploadRetry: @escaping (String) -> Void = { _ in },
         onUploadStopRetry: @escaping (String) -> Void = { _ in },
         onUploadReview: @escaping (URL) -> Void = { _ in }
@@ -48,6 +56,9 @@ public struct CaptureControlView: View {
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
         self.muteTruthWarning = muteTruthWarning
+        self.recordingMicrophoneSelection = recordingMicrophoneSelection
+        self.recordingMicrophoneInputs = recordingMicrophoneInputs
+        self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfiguration = cabinetConfiguration
         self.routeSignalLevels = routeSignalLevels
@@ -58,6 +69,7 @@ public struct CaptureControlView: View {
         self.onStop = onStop
         self.onPause = onPause
         self.onResume = onResume
+        self.onSelectRecordingMicrophone = onSelectRecordingMicrophone
         self.onUploadRetry = onUploadRetry
         self.onUploadStopRetry = onUploadStopRetry
         self.onUploadReview = onUploadReview
@@ -106,6 +118,44 @@ public struct CaptureControlView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(blockedReason)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
+            }
+
+            if !recordingMicrophoneInputs.isEmpty || recordingMicrophoneSelection != nil {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Menu {
+                        Button("По умолчанию macOS") {
+                            onSelectRecordingMicrophone(nil)
+                        }
+                        ForEach(recordingMicrophoneInputs, id: \.id) { input in
+                            Button(input.displayName) {
+                                onSelectRecordingMicrophone(input.id)
+                            }
+                        }
+                    } label: {
+                        Label(recordingMicrophoneMenuTitle, systemImage: "mic")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .accessibilityLabel(SystemAudioStatusLabels.recordingMicrophoneMenuAccessibilityLabel)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneMenu)
+
+                    if let status = Self.recordingMicrophoneStatus(for: recordingMicrophoneSelection) {
+                        Text(status)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneStatus)
+                    }
+                }
+            }
+
+            if let recoveryCopy = Self.recordingMicrophoneRecoveryCopy(for: recordingMicrophoneSelection) {
+                Label(recoveryCopy, systemImage: "mic.badge.xmark")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneRecovery)
             }
 
             if let localRecordingStatus, !localRecordingStatus.isEmpty {
@@ -184,6 +234,52 @@ public struct CaptureControlView: View {
         guard let configuration else { return nil }
         let link = configuration.reviewLink(for: item)
         return link.availability == .available ? link : nil
+    }
+
+    public static func recordingMicrophoneStatus(
+        for selection: RecordingMicrophoneSelection?
+    ) -> String? {
+        guard let selection else { return nil }
+        let name = selection.inputDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = (name?.isEmpty == false ? name : nil) ?? "текущий микрофон macOS"
+
+        switch selection.selectionResult {
+        case .accepted:
+            if selection.mode == .macOSDefaultFallback {
+                return "Микрофон записи: \(displayName) (по умолчанию macOS)"
+            }
+            return "Микрофон записи: \(displayName)"
+        case .rejected:
+            return "Микрофон записи не подходит: \(displayName)"
+        case .unavailable:
+            return "Микрофон записи недоступен: \(displayName)"
+        }
+    }
+
+    public static func recordingMicrophoneRecoveryCopy(
+        for selection: RecordingMicrophoneSelection?
+    ) -> String? {
+        guard let selection else { return nil }
+        switch selection.rejectionReason {
+        case .unsupportedSelfRoutingInput:
+            return "Выберите обычный микрофон. Виртуальные устройства 2brain нельзя использовать как микрофон записи."
+        case .unsupportedVirtualInput:
+            return "Выберите встроенный, USB, проводной или Bluetooth-микрофон для записи."
+        case .deviceUnavailable:
+            return "Выбранный микрофон недоступен. Подключите его снова или выберите другой вход."
+        case .inputIdentityUnproven:
+            return "Не удалось надежно определить микрофон записи. Выберите другой вход."
+        case .none:
+            return nil
+        }
+    }
+
+    private var recordingMicrophoneMenuTitle: String {
+        if let selectedRecordingMicrophoneDeviceId,
+           let input = recordingMicrophoneInputs.first(where: { $0.id == selectedRecordingMicrophoneDeviceId }) {
+            return input.displayName
+        }
+        return "По умолчанию macOS"
     }
 
     private var localRecordingStatusIcon: String {

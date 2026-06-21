@@ -62,6 +62,55 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         XCTAssertFalse(manifest.transcriptionStarted)
     }
 
+    func testAppOwnedMicrophoneMetadataPreservesDualTrackPackageContract() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-package-app-owned-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let micSource = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let incomingSource = BufferedLocalRecordingSampleSource(channelCount: 1)
+        micSource.append(Array(repeating: 0.16, count: 96_000))
+        incomingSource.append(Array(repeating: 0.24, count: 96_000))
+
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { micSource },
+            incomingSampleSourceFactory: { incomingSource },
+            microphoneInputChannelCount: 1,
+            incomingInputChannelCount: 1,
+            recordMicrophone: true
+        )
+        let selection = systemAudioPackageRecordingMicrophoneSelection()
+
+        let directory = try writer.start(
+            sessionId: "session-app-owned",
+            startedAt: Date(timeIntervalSince1970: 110),
+            scopeApproval: scopeApproval(id: "scope-app-owned-package"),
+            permissions: grantedPermissions(),
+            microphoneSelection: selection
+        )
+        Thread.sleep(forTimeInterval: 0.2)
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 111))
+        let packageNames = try Set(FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path))
+        let micTrack = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
+        let incomingTrack = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+
+        XCTAssertTrue(packageNames.isSuperset(of: ["mic.wav", "incoming.wav", "manifest.json"]))
+        XCTAssertFalse(packageNames.contains("microphone-stream.wav"))
+        XCTAssertEqual(micTrack.fileName, "mic.wav")
+        XCTAssertEqual(incomingTrack.fileName, "incoming.wav")
+        XCTAssertEqual(micTrack.sourceKind, .microphone)
+        XCTAssertEqual(incomingTrack.sourceKind, .systemAudio)
+        XCTAssertLessThanOrEqual(abs(micTrack.durationMs - incomingTrack.durationMs), 3_000)
+        XCTAssertEqual(manifest.microphoneSelection, selection)
+        XCTAssertEqual(manifest.microphoneStream?.streamKind, .appOwnedSampleSource)
+        XCTAssertEqual(manifest.microphoneStream?.writerSampleRate, 16_000)
+        XCTAssertEqual(manifest.microphoneStream?.writerChannelCount, 1)
+        XCTAssertTrue(manifest.microphoneStreamHealth?.diagnosticSafe == true)
+        XCTAssertFalse(manifest.externalEgressStarted)
+        XCTAssertFalse(manifest.transcriptionStarted)
+    }
+
     func testAsyncStopProducesSameDualTrackPackageWithoutMainThreadFinalization() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("system-audio-package-async-\(UUID().uuidString)", isDirectory: true)
@@ -210,5 +259,18 @@ private func grantedPermissions() -> SystemAudioPermissionSnapshot {
         microphone: .granted,
         systemAudio: .granted,
         evaluatedAt: Date(timeIntervalSince1970: 39)
+    )
+}
+
+private func systemAudioPackageRecordingMicrophoneSelection() -> RecordingMicrophoneSelection {
+    RecordingMicrophoneSelection(
+        selectionId: "selection-package",
+        mode: .userSelected,
+        inputDeviceId: "built-in-mic",
+        inputDisplayName: "Built-in Microphone",
+        deviceClass: .builtIn,
+        workingDeviceKind: .physical,
+        selectionResult: .accepted,
+        resolvedAt: Date(timeIntervalSince1970: 109)
     )
 }

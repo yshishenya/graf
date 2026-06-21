@@ -480,6 +480,58 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(item.artifactProfile.trackCompleteness.contains { $0.transportRole == .manifest })
     }
 
+    func testMicrophoneSampleGraphMetadataDoesNotChangeUploadCompletenessDecision() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "package-mic-graph",
+            sessionId: "session-mic-graph",
+            includeMicrophoneGraphMetadata: true
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(item.state, .queued)
+        XCTAssertTrue(item.artifactProfile.isUploadable)
+        XCTAssertEqual(item.artifactProfile.trackCompleteness.map(\.transportRole), [.microphone, .system, .manifest])
+        XCTAssertEqual(item.artifactProfile.microphoneSizeBytes, 128)
+        XCTAssertEqual(item.artifactProfile.systemAudioSizeBytes, 128)
+        XCTAssertGreaterThan(item.artifactProfile.manifestSizeBytes, 128)
+    }
+
+    func testMicrophoneSampleGraphMetadataDoesNotChangeUploadFileDescriptors() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "package-mic-graph-descriptors",
+            sessionId: "session-mic-graph-descriptors",
+            includeMicrophoneGraphMetadata: true
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(for: item)
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
+        XCTAssertEqual(
+            descriptors.map { $0.url.lastPathComponent },
+            ["mic.wav", "incoming.wav", "manifest.json"]
+        )
+    }
+
     func testIncompletePackageBecomesBlockedAndManualOnly() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -626,7 +678,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         directoryId: String,
         sessionId: String,
         includeIncoming: Bool = true,
-        includeMuteTruth: Bool = false
+        includeMuteTruth: Bool = false,
+        includeMicrophoneGraphMetadata: Bool = false
     ) throws -> TestRecordingPackage {
         let directoryURL = root.appendingPathComponent(directoryId, isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -643,7 +696,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         let manifest = makeManifest(
             directoryId: directoryId,
             sessionId: sessionId,
-            includeMuteTruth: includeMuteTruth
+            includeMuteTruth: includeMuteTruth,
+            includeMicrophoneGraphMetadata: includeMicrophoneGraphMetadata
         )
         try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
         return package
@@ -652,10 +706,15 @@ final class DesktopUploadQueueTests: XCTestCase {
     private func makeManifest(
         directoryId: String,
         sessionId: String,
-        includeMuteTruth: Bool = false
+        includeMuteTruth: Bool = false,
+        includeMicrophoneGraphMetadata: Bool = false
     ) -> LocalRecordingManifest {
         let startedAt = Date(timeIntervalSince1970: 10)
         let stoppedAt = Date(timeIntervalSince1970: 20)
+        let selection = includeMicrophoneGraphMetadata ? uploadQueueRecordingMicrophoneSelection(
+            sessionId: sessionId,
+            resolvedAt: Date(timeIntervalSince1970: 9)
+        ) : nil
         let tracks = [
             LocalRecordingTrack(
                 trackId: "mic-track",
@@ -711,6 +770,34 @@ final class DesktopUploadQueueTests: XCTestCase {
                 systemAudio: .granted,
                 evaluatedAt: startedAt
             ),
+            microphoneSelection: selection,
+            microphoneStream: selection.map {
+                AppOwnedMicrophoneStreamSession(
+                    sessionId: sessionId,
+                    selection: $0,
+                    permissionState: .granted,
+                    streamKind: .appOwnedSampleSource,
+                    startedAt: startedAt,
+                    stoppedAt: stoppedAt,
+                    sampleRate: 48_000,
+                    channelCount: 1,
+                    writerSampleRate: 16_000,
+                    writerChannelCount: 1,
+                    frameCount: 160_000,
+                    failureReason: .none
+                )
+            },
+            microphoneStreamHealth: selection.map { _ in
+                MicrophoneStreamHealth(
+                    gateStatus: .passed,
+                    failureReason: .none,
+                    framesObserved: true,
+                    timingConfidence: .usable,
+                    silenceStatus: .audible,
+                    cleanupReadiness: .readyForFutureProcessing,
+                    evidenceCodes: ["mic_graph_ready", "incoming_reference_present"]
+                )
+            },
             privacySegments: includeMuteTruth ? [
                 ProductPrivacySegment(
                     segmentId: "\(sessionId)-privacy-1",
@@ -745,6 +832,22 @@ final class DesktopUploadQueueTests: XCTestCase {
             ] : nil,
             targetMuteCapability: includeMuteTruth ? .chromeTelemost : nil,
             limitationCopyShownAt: includeMuteTruth ? startedAt : nil
+        )
+    }
+
+    private func uploadQueueRecordingMicrophoneSelection(
+        sessionId: String,
+        resolvedAt: Date
+    ) -> RecordingMicrophoneSelection {
+        RecordingMicrophoneSelection(
+            selectionId: "\(sessionId)-selection",
+            mode: .userSelected,
+            inputDeviceId: "built-in-mic",
+            inputDisplayName: "Built-in Microphone",
+            deviceClass: .builtIn,
+            workingDeviceKind: .physical,
+            selectionResult: .accepted,
+            resolvedAt: resolvedAt
         )
     }
 

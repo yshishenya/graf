@@ -186,6 +186,45 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.isEmpty)
     }
 
+    func testRecordingMicrophoneStatusNamesSelectedAndDefaultInput() {
+        let selected = controlRecordingMicrophoneSelection(
+            mode: .userSelected,
+            name: "USB Microphone"
+        )
+        let fallback = controlRecordingMicrophoneSelection(
+            mode: .macOSDefaultFallback,
+            name: "MacBook Pro Microphone"
+        )
+
+        XCTAssertEqual(
+            CaptureControlView.recordingMicrophoneStatus(for: selected),
+            "Микрофон записи: USB Microphone"
+        )
+        XCTAssertEqual(
+            CaptureControlView.recordingMicrophoneStatus(for: fallback),
+            "Микрофон записи: MacBook Pro Microphone (по умолчанию macOS)"
+        )
+    }
+
+    func testRecordingMicrophoneRecoveryCopyRejectsVirtualInputs() {
+        let rejected = RecordingMicrophoneSelection(
+            selectionId: "rejected",
+            mode: .userSelected,
+            inputDeviceId: SelfRoutingGuard.microphoneUID,
+            inputDisplayName: SelfRoutingGuard.microphoneDisplayName,
+            deviceClass: .otherVirtual,
+            workingDeviceKind: .twoBrainVirtual,
+            selectionResult: .rejected,
+            rejectionReason: .unsupportedSelfRoutingInput,
+            resolvedAt: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertEqual(
+            CaptureControlView.recordingMicrophoneRecoveryCopy(for: rejected),
+            "Выберите обычный микрофон. Виртуальные устройства 2brain нельзя использовать как микрофон записи."
+        )
+    }
+
     func testTrackEvidenceUsesCurrentSession() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 10) },
@@ -337,5 +376,21 @@ final class CaptureControlTests: XCTestCase {
             )
         )
     }
+}
+
+private func controlRecordingMicrophoneSelection(
+    mode: RecordingMicrophoneSelectionMode,
+    name: String
+) -> RecordingMicrophoneSelection {
+    RecordingMicrophoneSelection(
+        selectionId: "control-selection-\(mode.rawValue)",
+        mode: mode,
+        inputDeviceId: "control-input",
+        inputDisplayName: name,
+        deviceClass: .builtIn,
+        workingDeviceKind: .physical,
+        selectionResult: .accepted,
+        resolvedAt: Date(timeIntervalSince1970: 10)
+    )
 }
 #endif
