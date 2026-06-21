@@ -171,6 +171,59 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(normalized.failureReason, .timelineMisaligned)
     }
 
+    func testReadNormalizesCaptureHealthAgainstMicrophoneStreamFailure() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-manifest-mic-health-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let selection = manifestRecordingMicrophoneSelection()
+        let manifest = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .degraded,
+            directoryId: "dir",
+            transcriptionReadiness: .degraded,
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            failureReason: .none,
+            durationDifferenceSeconds: 0,
+            microphoneSelection: selection,
+            microphoneStream: AppOwnedMicrophoneStreamSession(
+                sessionId: "session",
+                selection: selection,
+                permissionState: .granted,
+                streamKind: .appOwnedSampleSource,
+                frameCount: 0,
+                failureReason: .noFrames
+            ),
+            microphoneStreamHealth: MicrophoneStreamHealth(
+                gateStatus: .failed,
+                failureReason: .noFrames,
+                framesObserved: false,
+                timingConfidence: .missing,
+                silenceStatus: .unknown,
+                cleanupReadiness: .unproven,
+                evidenceCodes: ["no_frames"]
+            ),
+            captureHealth: CaptureHealthSnapshot(
+                recordingSessionId: "session",
+                phase: .stop,
+                sampledAt: Date(timeIntervalSince1970: 20),
+                coreaudiodCpuPercent: 0,
+                appCpuPercent: 0,
+                gateStatus: .passed,
+                failureReason: .none
+            )
+        )
+        let service = LocalRecordingManifestService()
+
+        try service.write(manifest, to: url)
+        let normalized = try service.read(from: url)
+
+        XCTAssertEqual(normalized.captureHealth?.failureReason, .noFrames)
+        XCTAssertEqual(normalized.captureHealth?.gateStatus, .degraded)
+    }
+
     func testCompleteTracksWithoutScopeAndPermissionsStayDegraded() {
         let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
             .manifest(
@@ -266,6 +319,80 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(manifest.recordingTimelineEvidence?.autorepairAttemptIds, ["repair-1"])
         XCTAssertEqual(manifest.recordingTimelineEvidence?.interruptionCategory, .autorepairCovered)
         XCTAssertEqual(manifest.recordingTimelineEvidence?.alignmentBand, .accepted)
+    }
+
+    func testManifestCarriesMicrophoneStreamMetadata() {
+        let selection = manifestRecordingMicrophoneSelection()
+        let stream = AppOwnedMicrophoneStreamSession(
+            sessionId: "session",
+            selection: selection,
+            permissionState: .granted,
+            streamKind: .appOwnedSampleSource,
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            sampleRate: 48_000,
+            channelCount: 1,
+            writerSampleRate: 16_000,
+            writerChannelCount: 1,
+            frameCount: 16_000,
+            lastFrameAt: Date(timeIntervalSince1970: 19),
+            failureReason: .none
+        )
+        let health = MicrophoneStreamHealth(
+            gateStatus: .passed,
+            failureReason: .none,
+            framesObserved: true,
+            timingConfidence: .usable,
+            silenceStatus: .audible,
+            cleanupReadiness: .readyForFutureProcessing,
+            evidenceCodes: ["mic_graph_ready"]
+        )
+
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions(),
+                microphoneSelection: selection,
+                microphoneStream: stream,
+                microphoneStreamHealth: health
+            )
+
+        XCTAssertEqual(manifest.microphoneSelection, selection)
+        XCTAssertEqual(manifest.microphoneStream, stream)
+        XCTAssertEqual(manifest.microphoneStreamHealth, health)
+        XCTAssertTrue(manifest.microphoneStream?.provesGraphReadiness == true)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)
+    }
+
+    func testReadLegacyManifestWithoutMicrophoneMetadataLeavesOptionalFieldsNil() throws {
+        let manifest = LocalRecordingManifest(
+            sessionId: "legacy-session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .saved,
+            directoryId: "dir",
+            transcriptionReadiness: .ready,
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let data = try encoder.encode(manifest)
+        let decoded = try decoder.decode(LocalRecordingManifest.self, from: data)
+
+        XCTAssertNil(decoded.microphoneSelection)
+        XCTAssertNil(decoded.microphoneStream)
+        XCTAssertNil(decoded.microphoneStreamHealth)
     }
 
     func testManifestRoundTripsMuteTruthFieldsWithoutChangingTrackRoles() throws {
@@ -466,6 +593,19 @@ private func grantedPermissions() -> SystemAudioPermissionSnapshot {
         microphone: .granted,
         systemAudio: .granted,
         evaluatedAt: Date(timeIntervalSince1970: 9)
+    )
+}
+
+private func manifestRecordingMicrophoneSelection() -> RecordingMicrophoneSelection {
+    RecordingMicrophoneSelection(
+        selectionId: "selection",
+        mode: .userSelected,
+        inputDeviceId: "built-in",
+        inputDisplayName: "Built-in Microphone",
+        deviceClass: .builtIn,
+        workingDeviceKind: .physical,
+        selectionResult: .accepted,
+        resolvedAt: Date(timeIntervalSince1970: 9)
     )
 }
 #endif

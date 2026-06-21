@@ -55,7 +55,14 @@ public struct RecordingEvidenceService: Sendable {
     }
 
     public func localRecordingEvidence(for manifest: LocalRecordingManifest) -> [String: String] {
-        [
+        let graphSafetyValues = [
+            manifest.microphoneSelection?.diagnosticSafe,
+            manifest.microphoneStream?.diagnosticSafe,
+            manifest.microphoneStreamHealth?.diagnosticSafe
+        ].compactMap { $0 }
+        let graphDiagnosticSafe = graphSafetyValues.isEmpty ? "" : String(graphSafetyValues.allSatisfy { $0 })
+
+        return [
             "sessionId": manifest.sessionId,
             "status": manifest.status.rawValue,
             "transcriptionReadiness": manifest.transcriptionReadiness.rawValue,
@@ -77,6 +84,21 @@ public struct RecordingEvidenceService: Sendable {
             "systemAudioPermissionState": manifest.permissions?.systemAudio.rawValue ?? "",
             "captureHealthGateStatus": manifest.captureHealth?.gateStatus.rawValue ?? "",
             "captureHealthFailureReason": manifest.captureHealth?.failureReason.rawValue ?? "",
+            "recordingMicrophoneSelectionMode": manifest.microphoneSelection?.mode.rawValue ?? "",
+            "recordingMicrophoneSelectionResult": manifest.microphoneSelection?.selectionResult.rawValue ?? "",
+            "recordingMicrophoneRejectionReason": manifest.microphoneSelection?.rejectionReason?.rawValue ?? "",
+            "recordingMicrophoneInputDisplayName": manifest.microphoneSelection?.inputDisplayName ?? "",
+            "recordingMicrophoneDeviceClass": manifest.microphoneSelection?.deviceClass?.rawValue ?? "",
+            "recordingMicrophoneWorkingDeviceKind": manifest.microphoneSelection?.workingDeviceKind?.rawValue ?? "",
+            "microphoneStreamKind": manifest.microphoneStream?.streamKind.rawValue ?? "",
+            "microphoneStreamPermissionState": manifest.microphoneStream?.permissionState.rawValue ?? "",
+            "microphoneStreamFailureReason": manifest.microphoneStream?.failureReason.rawValue ?? "",
+            "microphoneStreamFramesObserved": manifest.microphoneStreamHealth.map { String($0.framesObserved) } ?? "",
+            "microphoneStreamGateStatus": manifest.microphoneStreamHealth?.gateStatus.rawValue ?? "",
+            "microphoneStreamTimingConfidence": manifest.microphoneStreamHealth?.timingConfidence.rawValue ?? "",
+            "microphoneStreamSilenceStatus": manifest.microphoneStreamHealth?.silenceStatus.rawValue ?? "",
+            "microphoneFutureProcessingReadiness": manifest.microphoneStreamHealth?.cleanupReadiness.rawValue ?? "",
+            "microphoneGraphDiagnosticSafe": graphDiagnosticSafe,
             "routeSessionId": manifest.recordingTimelineEvidence?.routeSessionId ?? "",
             "alignmentBand": manifest.recordingTimelineEvidence?.alignmentBand.rawValue ?? "",
             "routeInterruptionCategory": manifest.recordingTimelineEvidence?.interruptionCategory.rawValue ?? ""

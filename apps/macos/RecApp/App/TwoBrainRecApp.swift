@@ -141,6 +141,9 @@ private struct ContentView: View {
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var localRecordingLocation: String?
+    @State private var selectedRecordingMicrophoneDeviceId: String?
+    @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
+    @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
     @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
@@ -183,6 +186,9 @@ private struct ContentView: View {
                 localRecordingStatus: localRecordingStatusText,
                 localRecordingLocation: localRecordingLocation,
                 muteTruthWarning: meetingMuteTruthWarningText,
+                recordingMicrophoneSelection: recordingMicrophoneSelection,
+                recordingMicrophoneInputs: microphoneCaptureService.availableRecordingMicrophoneInputs(),
+                selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
                 uploadQueueItems: uploadQueueItems,
                 cabinetConfiguration: desktopCabinetConfiguration,
                 routeSignalLevels: liveRouteSignalLevels,
@@ -200,6 +206,12 @@ private struct ContentView: View {
                 },
                 onResume: {
                     Task { await resumeManualRecording() }
+                },
+                onSelectRecordingMicrophone: { inputDeviceId in
+                    selectedRecordingMicrophoneDeviceId = inputDeviceId
+                    recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+                        selectedInputDeviceId: inputDeviceId
+                    )
                 },
                 onUploadRetry: { itemId in
                     retryUpload(itemId: itemId)
@@ -352,9 +364,27 @@ private struct ContentView: View {
             recordingBlocker = "Запись не началась: \(recordingStartFailureMessage(for: error))"
             return
         }
+        let resolvedMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+            selectedInputDeviceId: selectedRecordingMicrophoneDeviceId
+        )
+        recordingMicrophoneSelection = resolvedMicrophoneSelection
+        guard resolvedMicrophoneSelection.isAccepted else {
+            let recoveryCopy = CaptureControlView.recordingMicrophoneRecoveryCopy(
+                for: resolvedMicrophoneSelection
+            ) ?? "Выберите другой микрофон записи."
+            if let blocked = try? captureController.blockStart(
+                reason: .captureFailed,
+                recoveryAction: recoveryCopy
+            ) {
+                captureSession = blocked
+            }
+            recordingBlocker = "Запись не началась: \(recoveryCopy)"
+            return
+        }
         let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight(
             sessionId: "pending",
-            inputDisplayName: "Default Microphone"
+            inputDeviceId: resolvedMicrophoneSelection.inputDeviceId,
+            inputDisplayName: resolvedMicrophoneSelection.inputDisplayName ?? "Default Microphone"
         )
         let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()
         let permissionGate = systemAudioPermissionGate.evaluate(
@@ -403,6 +433,10 @@ private struct ContentView: View {
                 "sourceDisplayName": scopeApproval.sourceDisplayName,
                 "microphonePermissionState": permissionGate.snapshot.microphone.rawValue,
                 "systemAudioPermissionState": permissionGate.snapshot.systemAudio.rawValue,
+                "recordingMicrophoneMode": resolvedMicrophoneSelection.mode.rawValue,
+                "recordingMicrophoneSelectionResult": resolvedMicrophoneSelection.selectionResult.rawValue,
+                "recordingMicrophoneInputDeviceId": resolvedMicrophoneSelection.inputDeviceId ?? "none",
+                "recordingMicrophoneInputDisplayName": resolvedMicrophoneSelection.inputDisplayName ?? "unknown",
                 "routeState": prerequisite.routeState.rawValue,
                 "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue,
                 "externalEgressStarted": "false",
@@ -425,8 +459,14 @@ private struct ContentView: View {
                 startedAt: Date()
             )
             let incomingSource = systemAudioCaptureService.incomingSampleSource
+            let microphoneSource = try microphoneCaptureService.startAppOwnedMicrophoneSampleSource(
+                for: resolvedMicrophoneSelection
+            )
+            activeMicrophoneSampleSource = microphoneSource
             localRecordingWriter = LocalRecordingWriter(
+                microphoneSampleSourceFactory: { microphoneSource },
                 incomingSampleSourceFactory: { incomingSource },
+                microphoneInputChannelCount: microphoneSource.channelCount,
                 recordMicrophone: true
             )
             let directory = try await localRecordingWriter.startAsync(
@@ -434,6 +474,7 @@ private struct ContentView: View {
                 startedAt: Date(),
                 scopeApproval: scopeApproval,
                 permissions: permissionGate.snapshot,
+                microphoneSelection: resolvedMicrophoneSelection,
                 targetMuteCapability: targetMuteCapability,
                 meetingMuteTruthEvidence: [targetMuteEvidence],
                 limitationCopyShownAt: limitationCopyShownAt
@@ -458,6 +499,8 @@ private struct ContentView: View {
         } catch {
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
+            activeMicrophoneSampleSource?.stop()
+            activeMicrophoneSampleSource = nil
             let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()
             await finalizeLocalRecordingForFailure(
                 reason: "start_failure_cleanup",
@@ -483,6 +526,8 @@ private struct ContentView: View {
         guard await localRecordingWriter.isRecordingAsync() else {
             return
         }
+        activeMicrophoneSampleSource?.stop()
+        activeMicrophoneSampleSource = nil
         let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
         do {
             let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
@@ -528,6 +573,14 @@ private struct ContentView: View {
                 return .unknown
             }
         }
+        if let microphoneError = error as? RecordingMicrophoneSampleSourceError {
+            switch microphoneError {
+            case .selectionNotAccepted:
+                return .captureFailed
+            case .runtimeUnavailable, .runtimeStartFailed:
+                return .captureFailed
+            }
+        }
         return .unknown
     }
 
@@ -558,6 +611,16 @@ private struct ContentView: View {
                 return "нет доступного экрана для записи системного звука."
             case .notRunning:
                 return "запись системного звука не была активна."
+            }
+        }
+        if let microphoneError = error as? RecordingMicrophoneSampleSourceError {
+            switch microphoneError {
+            case .selectionNotAccepted:
+                return "выбранный микрофон записи не принят."
+            case .runtimeUnavailable:
+                return "macOS не дала доступ к потоку микрофона."
+            case .runtimeStartFailed:
+                return "macOS не запустила поток микрофона."
             }
         }
         return "нужна повторная попытка."
@@ -623,6 +686,8 @@ private struct ContentView: View {
             _ = try captureController.requestStop(reason: .userRequested)
             let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
             let systemAudioSession = try await systemAudioCaptureService.stop()
+            activeMicrophoneSampleSource?.stop()
+            activeMicrophoneSampleSource = nil
             let manifest = try await localRecordingWriter.stopAsync(
                 failureReason: systemAudioSession.failureReason
             )
@@ -666,6 +731,8 @@ private struct ContentView: View {
                 captureSession = failed
             }
             let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
+            activeMicrophoneSampleSource?.stop()
+            activeMicrophoneSampleSource = nil
             await finalizeLocalRecordingForFailure(
                 reason: "stop_failure_cleanup",
                 failureReason: releasedSystemAudioSession?.failureReason ?? .none
@@ -708,6 +775,8 @@ private struct ContentView: View {
         let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
         localRecordingActive = false
         liveRouteSignalLevels = .inactive
+        activeMicrophoneSampleSource?.stop()
+        activeMicrophoneSampleSource = nil
         do {
             let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
             localRecordingManifest = manifest

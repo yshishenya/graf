@@ -32,6 +32,9 @@ public struct LocalRecordingManifestService: Sendable {
         routeInterruptionCategory: RouteInterruptionCategory = .none,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
+        microphoneSelection: RecordingMicrophoneSelection? = nil,
+        microphoneStream: AppOwnedMicrophoneStreamSession? = nil,
+        microphoneStreamHealth: MicrophoneStreamHealth? = nil,
         captureHealth: CaptureHealthSnapshot? = nil,
         privacySegments: [ProductPrivacySegment] = [],
         targetMuteCapability: TargetMuteCapability? = nil,
@@ -121,6 +124,9 @@ public struct LocalRecordingManifestService: Sendable {
             ),
             scopeApproval: scopeApproval,
             permissions: permissions,
+            microphoneSelection: microphoneSelection,
+            microphoneStream: microphoneStream,
+            microphoneStreamHealth: microphoneStreamHealth,
             captureHealth: captureHealth,
             privacySegments: privacySegments,
             meetingMuteTruth: muteTruthDecision,
@@ -209,6 +215,10 @@ public struct LocalRecordingManifestService: Sendable {
         }
         if let trackReason = manifest.tracks.first(where: { $0.failureReason != .none })?.failureReason {
             return trackReason
+        }
+        if let microphoneReason = manifest.microphoneStreamHealth?.failureReason,
+           microphoneReason != .none {
+            return microphoneReason
         }
         if manifest.tracks.contains(where: { !$0.timelineAligned }) {
             return .timelineMisaligned

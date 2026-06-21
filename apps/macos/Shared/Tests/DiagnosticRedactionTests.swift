@@ -333,6 +333,40 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("localRecordingTracks[0].meetingContent"))
     }
 
+    func testMicrophoneStreamDiagnosticsKeepSafeMetadataAndRemoveSensitiveFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "microphoneSelection": .object([
+                "selectionResult": .string("accepted"),
+                "mode": .string("user_selected"),
+                "inputDisplayName": .string("Built-in Microphone"),
+                "rawAudio": .string("forbidden")
+            ]),
+            "microphoneStream": .object([
+                "streamKind": .string("app_owned_sample_source"),
+                "permissionState": .string("granted"),
+                "frameCount": .int(160_000),
+                "absolutePath": .string("/Users/example/private/mic.wav")
+            ]),
+            "microphoneStreamHealth": .object([
+                "gateStatus": .string("passed"),
+                "failureReason": .string("none"),
+                "cleanupReadiness": .string("ready_for_future_processing"),
+                "transcriptText": .string("forbidden")
+            ]),
+            "rawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["microphoneSelection"])
+        XCTAssertNotNil(result.manifest["microphoneStream"])
+        XCTAssertNotNil(result.manifest["microphoneStreamHealth"])
+        XCTAssertNil(result.manifest["rawAudio"])
+        XCTAssertTrue(result.removedFields.contains("microphoneSelection.rawAudio"))
+        XCTAssertTrue(result.removedFields.contains("microphoneStream.absolutePath"))
+        XCTAssertTrue(result.removedFields.contains("microphoneStreamHealth.transcriptText"))
+    }
+
     func testUploadQueueDiagnosticsKeepSafeMetadataAndRemoveSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "uploadQueue": .object([

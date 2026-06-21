@@ -81,6 +81,16 @@ final class RecordingEvidenceTests: XCTestCase {
     }
 
     func testLocalRecordingEvidenceSummaryIsMetadataOnly() {
+        let selection = RecordingMicrophoneSelection(
+            selectionId: "selection-recording-evidence",
+            mode: .macOSDefaultFallback,
+            inputDeviceId: "built-in-mic",
+            inputDisplayName: "Built-in Microphone",
+            deviceClass: .builtIn,
+            workingDeviceKind: .physical,
+            selectionResult: .accepted,
+            resolvedAt: Date(timeIntervalSince1970: 1)
+        )
         let manifest = LocalRecordingManifest(
             sessionId: "session",
             createdAt: Date(timeIntervalSince1970: 1),
@@ -121,7 +131,30 @@ final class RecordingEvidenceTests: XCTestCase {
                     timelineStartMs: 0,
                     timelineAligned: true
                 )
-            ]
+            ],
+            microphoneSelection: selection,
+            microphoneStream: AppOwnedMicrophoneStreamSession(
+                sessionId: "session",
+                selection: selection,
+                permissionState: .granted,
+                streamKind: .appOwnedSampleSource,
+                stoppedAt: Date(timeIntervalSince1970: 2),
+                sampleRate: 48_000,
+                channelCount: 1,
+                writerSampleRate: 16_000,
+                writerChannelCount: 1,
+                frameCount: 16_000,
+                failureReason: .none
+            ),
+            microphoneStreamHealth: MicrophoneStreamHealth(
+                gateStatus: .passed,
+                failureReason: .none,
+                framesObserved: true,
+                timingConfidence: .usable,
+                silenceStatus: .audible,
+                cleanupReadiness: .readyForFutureProcessing,
+                evidenceCodes: ["mic_graph_ready"]
+            )
         )
 
         let evidence = RecordingEvidenceService().localRecordingEvidence(for: manifest)
@@ -133,6 +166,13 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence["mediaScribeFields"], "mic_file,incoming_file")
         XCTAssertEqual(evidence["trackFormats"], "wav-pcm-s16le,wav-pcm-s16le")
         XCTAssertEqual(evidence["externalEgressStarted"], "false")
+        XCTAssertEqual(evidence["recordingMicrophoneSelectionMode"], "macos_default_fallback")
+        XCTAssertEqual(evidence["recordingMicrophoneSelectionResult"], "accepted")
+        XCTAssertEqual(evidence["recordingMicrophoneInputDisplayName"], "Built-in Microphone")
+        XCTAssertEqual(evidence["microphoneStreamKind"], "app_owned_sample_source")
+        XCTAssertEqual(evidence["microphoneStreamGateStatus"], "passed")
+        XCTAssertEqual(evidence["microphoneFutureProcessingReadiness"], "ready_for_future_processing")
+        XCTAssertEqual(evidence["microphoneGraphDiagnosticSafe"], "true")
         XCTAssertNil(evidence["rawAudio"])
         XCTAssertNil(evidence["absolutePath"])
     }

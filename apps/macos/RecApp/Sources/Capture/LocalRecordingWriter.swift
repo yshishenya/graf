@@ -249,6 +249,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         startedAt: Date,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
+        microphoneSelection: RecordingMicrophoneSelection? = nil,
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
         limitationCopyShownAt: Date? = nil
@@ -259,6 +260,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 startedAt: startedAt,
                 scopeApproval: scopeApproval,
                 permissions: permissions,
+                microphoneSelection: microphoneSelection,
                 targetMuteCapability: targetMuteCapability,
                 meetingMuteTruthEvidence: meetingMuteTruthEvidence,
                 limitationCopyShownAt: limitationCopyShownAt
@@ -271,6 +273,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         startedAt: Date,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
+        microphoneSelection: RecordingMicrophoneSelection? = nil,
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
         limitationCopyShownAt: Date? = nil
@@ -283,6 +286,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                         startedAt: startedAt,
                         scopeApproval: scopeApproval,
                         permissions: permissions,
+                        microphoneSelection: microphoneSelection,
                         targetMuteCapability: targetMuteCapability,
                         meetingMuteTruthEvidence: meetingMuteTruthEvidence,
                         limitationCopyShownAt: limitationCopyShownAt
@@ -300,6 +304,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         startedAt: Date,
         scopeApproval: CaptureScopeApproval?,
         permissions: SystemAudioPermissionSnapshot?,
+        microphoneSelection: RecordingMicrophoneSelection?,
         targetMuteCapability: TargetMuteCapability?,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
         limitationCopyShownAt: Date?
@@ -372,8 +377,12 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 if read > 0 {
                     do {
                         try microphoneWriter.write(samples: active.scratch, count: read)
-                        active.lastMicrophoneLevel = Self.rmsLevel(samples: active.scratch, count: read)
-                        active.lastMicrophoneFrameAt = Date()
+                        let level = Self.rmsLevel(samples: active.scratch, count: read)
+                        active.updateMicrophoneLevel(
+                            level,
+                            at: Date(),
+                            suppressed: active.privacySuppressingSource?.lastReadWasSuppressed == true
+                        )
                     } catch {
                         active.microphoneWriteFailed = true
                     }
@@ -406,6 +415,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             scratchCapacity: 8192,
             scopeApproval: scopeApproval,
             permissions: permissions,
+            microphoneSelection: microphoneSelection,
             privacySuppressingSource: privacySuppressingSource,
             targetMuteCapability: targetMuteCapability,
             meetingMuteTruthEvidence: meetingMuteTruthEvidence,
@@ -541,6 +551,9 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             frameCount: Int64(active.microphoneWriter?.frameCount ?? Int(elapsedFrameCount)),
             fileName: "mic.wav",
             timelineAligned: true,
+            observedLevel: active.microphoneFrameObserved
+                ? (active.microphoneNonSilentFrameObserved ? max(active.lastObservedMicrophoneLevel ?? 0, 0.0001) : 0)
+                : nil,
             paddedToTimeline: paddingResult.microphonePadded,
             paddedFrameCount: paddingResult.microphonePaddedFrameCount,
             forcedFailureReason: drainResult.microphoneTruncated || active.microphoneWriteFailed ? .writeFailed : nil
@@ -582,6 +595,13 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             silentFrameCount: remoteTrack.failureReason == .silentInput ? remoteTrack.frameCount : 0,
             recordingFailureReason: recordingFailureReason
         )
+        let microphoneStream = microphoneStreamSession(for: active, micTrack: micTrack, stoppedAt: stoppedAt)
+        let microphoneHealth: MicrophoneStreamHealth?
+        if let microphoneStream {
+            microphoneHealth = makeMicrophoneStreamHealth(for: microphoneStream, active: active)
+        } else {
+            microphoneHealth = nil
+        }
 
         let manifest = manifestService.manifest(
             sessionId: active.sessionId,
@@ -593,6 +613,9 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             failureReason: failureReason,
             scopeApproval: active.scopeApproval,
             permissions: active.permissions,
+            microphoneSelection: active.microphoneSelection,
+            microphoneStream: microphoneStream,
+            microphoneStreamHealth: microphoneHealth,
             captureHealth: captureHealth,
             privacySegments: active.privacySegments,
             targetMuteCapability: active.targetMuteCapability,
@@ -601,6 +624,101 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         )
         try manifestService.write(manifest, to: active.directory.manifestURL)
         return manifest
+    }
+
+    private func microphoneStreamSession(
+        for active: ActiveRecording,
+        micTrack: LocalRecordingTrack,
+        stoppedAt: Date
+    ) -> AppOwnedMicrophoneStreamSession? {
+        guard let microphoneSelection = active.microphoneSelection else { return nil }
+        let observedFrameCount = active.microphoneFrameObserved ? micTrack.frameCount : 0
+        let streamFailureReason = active.microphoneFrameObserved || micTrack.failureReason != .none
+            ? micTrack.failureReason
+            : LocalRecordingFailureReason.noFrames
+        return AppOwnedMicrophoneStreamSession(
+            sessionId: active.sessionId,
+            selection: microphoneSelection,
+            permissionState: active.permissions?.microphone ?? .unknown,
+            streamKind: active.microphoneSampleSource == nil ? .legacyRecorderFallback : .appOwnedSampleSource,
+            startedAt: active.startedAt,
+            stoppedAt: stoppedAt,
+            monotonicStartMs: 0,
+            monotonicStopMs: monotonicMs(for: stoppedAt, relativeTo: active.startedAt),
+            sampleRate: 48_000,
+            channelCount: microphoneInputChannelCount,
+            writerSampleRate: 16_000,
+            writerChannelCount: 1,
+            frameCount: observedFrameCount,
+            droppedFrameCount: 0,
+            silentFrameCount: streamFailureReason == .silentInput ? observedFrameCount : 0,
+            clippedFrameCount: 0,
+            routeChangeCount: 0,
+            lastFrameAt: active.lastObservedMicrophoneFrameAt,
+            failureReason: streamFailureReason
+        )
+    }
+
+    private func makeMicrophoneStreamHealth(
+        for stream: AppOwnedMicrophoneStreamSession,
+        active: ActiveRecording
+    ) -> MicrophoneStreamHealth {
+        let readiness: FutureProcessingReadiness
+        if stream.provesGraphReadiness {
+            readiness = .readyForFutureProcessing
+        } else if stream.streamKind == .legacyRecorderFallback {
+            readiness = .legacyNotReady
+        } else if stream.permissionState != .granted || !stream.selection.isAccepted {
+            readiness = .blocked
+        } else {
+            readiness = .unproven
+        }
+
+        let gateStatus: CaptureHealthGateStatus = switch readiness {
+        case .readyForFutureProcessing:
+            .passed
+        case .blocked:
+            .blocked
+        case .legacyNotReady, .unproven:
+            stream.frameCount > 0 ? .degraded : .failed
+        }
+
+        let silenceStatus: MicrophoneSilenceStatus = if stream.failureReason == .silentInput {
+            .silent
+        } else if stream.frameCount > 0 {
+            .audible
+        } else {
+            .unknown
+        }
+
+        return MicrophoneStreamHealth(
+            gateStatus: gateStatus,
+            failureReason: stream.failureReason,
+            framesObserved: stream.frameCount > 0,
+            timingConfidence: stream.frameCount > 0 ? .usable : .missing,
+            silenceStatus: silenceStatus,
+            lastLevel: stream.frameCount > 0 ? active.lastObservedMicrophoneLevel : nil,
+            lastLevelAt: stream.lastFrameAt,
+            cleanupReadiness: readiness,
+            evidenceCodes: microphoneStreamEvidenceCodes(for: stream, readiness: readiness)
+        )
+    }
+
+    private func microphoneStreamEvidenceCodes(
+        for stream: AppOwnedMicrophoneStreamSession,
+        readiness: FutureProcessingReadiness
+    ) -> [String] {
+        var codes: [String] = []
+        codes.append(stream.streamKind.rawValue)
+        codes.append(stream.selection.mode.rawValue)
+        codes.append(readiness.rawValue)
+        if stream.frameCount > 0 {
+            codes.append("mic_frames_observed")
+        }
+        if stream.failureReason != .none {
+            codes.append(stream.failureReason.rawValue)
+        }
+        return codes
     }
 
     private func finalizeActivePrivacySegment(
@@ -658,8 +776,12 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 scratch: active.scratch,
                 capacity: active.scratchCapacity
             ) { count in
-                active.lastMicrophoneLevel = Self.rmsLevel(samples: active.scratch, count: count)
-                active.lastMicrophoneFrameAt = Date()
+                let level = Self.rmsLevel(samples: active.scratch, count: count)
+                active.updateMicrophoneLevel(
+                    level,
+                    at: Date(),
+                    suppressed: active.privacySuppressingSource?.lastReadWasSuppressed == true
+                )
             }
         }
 
@@ -848,14 +970,19 @@ private final class ActiveRecording {
     let scratchCapacity: Int
     let scopeApproval: CaptureScopeApproval?
     let permissions: SystemAudioPermissionSnapshot?
+    let microphoneSelection: RecordingMicrophoneSelection?
     let privacySuppressingSource: PrivacySuppressingSampleSource?
     let targetMuteCapability: TargetMuteCapability?
     let meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]
     let limitationCopyShownAt: Date?
     var lastMicrophoneLevel: Double
+    var lastObservedMicrophoneLevel: Double?
     var lastIncomingLevel: Double
     var lastMicrophoneFrameAt: Date?
+    var lastObservedMicrophoneFrameAt: Date?
     var lastIncomingFrameAt: Date?
+    var microphoneFrameObserved: Bool
+    var microphoneNonSilentFrameObserved: Bool
     var microphoneWriteFailed: Bool
     var incomingWriteFailed: Bool
     var privacySegments: [ProductPrivacySegment]
@@ -875,6 +1002,7 @@ private final class ActiveRecording {
         scratchCapacity: Int,
         scopeApproval: CaptureScopeApproval?,
         permissions: SystemAudioPermissionSnapshot?,
+        microphoneSelection: RecordingMicrophoneSelection?,
         privacySuppressingSource: PrivacySuppressingSampleSource?,
         targetMuteCapability: TargetMuteCapability?,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
@@ -893,18 +1021,35 @@ private final class ActiveRecording {
         self.scratchCapacity = scratchCapacity
         self.scopeApproval = scopeApproval
         self.permissions = permissions
+        self.microphoneSelection = microphoneSelection
         self.privacySuppressingSource = privacySuppressingSource
         self.targetMuteCapability = targetMuteCapability
         self.meetingMuteTruthEvidence = meetingMuteTruthEvidence
         self.limitationCopyShownAt = limitationCopyShownAt
         self.lastMicrophoneLevel = 0
+        self.lastObservedMicrophoneLevel = nil
         self.lastIncomingLevel = 0
         self.lastMicrophoneFrameAt = nil
+        self.lastObservedMicrophoneFrameAt = nil
         self.lastIncomingFrameAt = nil
+        self.microphoneFrameObserved = false
+        self.microphoneNonSilentFrameObserved = false
         self.microphoneWriteFailed = false
         self.incomingWriteFailed = false
         self.privacySegments = []
         self.activePrivacySegment = nil
+    }
+
+    func updateMicrophoneLevel(_ level: Double, at date: Date, suppressed: Bool) {
+        lastMicrophoneLevel = level
+        lastMicrophoneFrameAt = date
+        guard !suppressed else { return }
+        microphoneFrameObserved = true
+        lastObservedMicrophoneLevel = level
+        lastObservedMicrophoneFrameAt = date
+        if level > 0 {
+            microphoneNonSilentFrameObserved = true
+        }
     }
 }
 

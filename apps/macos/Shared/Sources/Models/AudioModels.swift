@@ -1210,6 +1210,9 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var recordingTimelineEvidence: RecordingTimelineIntegrityEvidence?
     public var scopeApproval: CaptureScopeApproval?
     public var permissions: SystemAudioPermissionSnapshot?
+    public var microphoneSelection: RecordingMicrophoneSelection?
+    public var microphoneStream: AppOwnedMicrophoneStreamSession?
+    public var microphoneStreamHealth: MicrophoneStreamHealth?
     public var captureHealth: CaptureHealthSnapshot?
     public var privacySegments: [ProductPrivacySegment]?
     public var meetingMuteTruth: MuteTruthDecision?
@@ -1240,6 +1243,9 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         recordingTimelineEvidence: RecordingTimelineIntegrityEvidence? = nil,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
+        microphoneSelection: RecordingMicrophoneSelection? = nil,
+        microphoneStream: AppOwnedMicrophoneStreamSession? = nil,
+        microphoneStreamHealth: MicrophoneStreamHealth? = nil,
         captureHealth: CaptureHealthSnapshot? = nil,
         privacySegments: [ProductPrivacySegment]? = nil,
         meetingMuteTruth: MuteTruthDecision? = nil,
@@ -1269,6 +1275,9 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.recordingTimelineEvidence = recordingTimelineEvidence
         self.scopeApproval = scopeApproval
         self.permissions = permissions
+        self.microphoneSelection = microphoneSelection
+        self.microphoneStream = microphoneStream
+        self.microphoneStreamHealth = microphoneStreamHealth
         self.captureHealth = captureHealth
         self.privacySegments = privacySegments
         self.meetingMuteTruth = meetingMuteTruth

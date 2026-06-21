@@ -39,7 +39,7 @@ final class SharedAudioMemoryCompatibilityTests: XCTestCase {
     }
 
     func testCopyLatestSamplesReadsTailWithoutRuntimeSharedMemory() {
-        var samples: [Float] = [0.1, 0.2, 0.3, 0.4]
+        let samples: [Float] = [0.1, 0.2, 0.3, 0.4]
         let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 2)
         defer { scratch.deallocate() }
 

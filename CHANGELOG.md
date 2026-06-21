@@ -8,6 +8,12 @@ tooling in this repository may use Semantic Versioning where documented.
 ## [Unreleased]
 
 ### Added
+- Добавлен foundation микрофонного sample graph для macOS: выбор native
+  recording microphone, fallback на текущий macOS default input, app-owned
+  microphone sample source для `mic.wav`, metadata-only
+  `microphoneSelection`/`microphoneStream`/`microphoneStreamHealth` в manifest
+  и diagnostics, без claims о AEC/WebRTC/voice processing (`feature:037`,
+  `T001-T048`).
 - Добавлен revision-aware loop записи, синхронизации, загрузки, обработки и
   review: offline-first desktop queue v2, `MediaRevision`, resumable upload
   reconciliation, revision-keyed processing workflow, MediaScribe provenance,
@@ -21,6 +27,12 @@ tooling in this repository may use Semantic Versioning where documented.
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Запись через выбранный/дефолтный микрофон теперь fail-closed для permission
+  denied/restricted/stale, unavailable device, unsupported virtual/self-routing
+  input, no-frames/silent stream и Stop/quit cleanup; Stop privacy suppression
+  tail больше не помечает здоровую запись как `silent_input`, выбранный
+  микрофон реально привязан к native capture device, а Pause-suppressed
+  samples не доказывают graph readiness (`feature:037`).
 - Desktop upload rescan now clears a stale `local_files_missing` conflict when
   a previously in-flight local recording is proven uploadable after restart, so
   the queue can resume creating the server meeting instead of leaving the item
@@ -47,6 +59,10 @@ tooling in this repository may use Semantic Versioning where documented.
   desktop app (`feature:042`).
 
 ### Security
+- Диагностика `037` остается metadata-only: selection/stream/health readiness
+  сохраняются как bounded counters/status fields, а raw audio, transcript text,
+  signed URLs, credentials, private local paths и meeting content удаляются
+  redactor-тестами и bundle coverage (`feature:037`).
 - Recording sync diagnostics, API responses, deletion reports, lifecycle audit,
   and validation evidence remain metadata-only: no raw audio, transcript text,
   signed URLs, object storage keys, provider job ids, bearer tokens, credentials,

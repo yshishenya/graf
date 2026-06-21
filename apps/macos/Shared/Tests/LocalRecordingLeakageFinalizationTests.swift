@@ -84,6 +84,67 @@ final class LocalRecordingLeakageFinalizationTests: XCTestCase {
         XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
         XCTAssertFalse(manifest.isComplete)
     }
+
+    func testAppOwnedMicrophoneStreamHealthDoesNotOverrideLeakageTruth() throws {
+        let incoming = leakageIntegrationSineSamples(count: 16_000 * 16, amplitude: 0.5)
+        let package = try leakageIntegrationPackage(
+            mic: incoming.map { $0 * 0.2 },
+            incoming: incoming
+        )
+        defer { try? FileManager.default.removeItem(at: package) }
+
+        let micTrack = leakageIntegrationTrack(role: .localMic, durationMs: 16_000)
+        let incomingTrack = leakageIntegrationTrack(role: .remoteSpeaker, durationMs: 16_000)
+        let finalization = LeakageFinalizationService(clock: { Date(timeIntervalSince1970: 90) })
+            .finalize(
+                micURL: package.appendingPathComponent("mic.wav"),
+                incomingURL: package.appendingPathComponent("incoming.wav"),
+                micTrack: micTrack,
+                incomingTrack: incomingTrack
+            )
+        let selection = leakageIntegrationRecordingMicrophoneSelection()
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 91) })
+            .manifest(
+                sessionId: "leakage-app-owned-mic",
+                directoryId: package.lastPathComponent,
+                startedAt: Date(timeIntervalSince1970: 74),
+                stoppedAt: Date(timeIntervalSince1970: 90),
+                tracks: [micTrack, incomingTrack],
+                leakageFinalization: finalization,
+                scopeApproval: leakageIntegrationAcceptedScope(),
+                permissions: leakageIntegrationAcceptedPermissions(),
+                microphoneSelection: selection,
+                microphoneStream: AppOwnedMicrophoneStreamSession(
+                    sessionId: "leakage-app-owned-mic",
+                    selection: selection,
+                    permissionState: .granted,
+                    streamKind: .appOwnedSampleSource,
+                    stoppedAt: Date(timeIntervalSince1970: 90),
+                    sampleRate: 48_000,
+                    channelCount: 1,
+                    writerSampleRate: 16_000,
+                    writerChannelCount: 1,
+                    frameCount: 256_000,
+                    failureReason: .none
+                ),
+                microphoneStreamHealth: MicrophoneStreamHealth(
+                    gateStatus: .passed,
+                    failureReason: .none,
+                    framesObserved: true,
+                    timingConfidence: .usable,
+                    silenceStatus: .audible,
+                    cleanupReadiness: .readyForFutureProcessing,
+                    evidenceCodes: ["mic_graph_ready", "incoming_reference_present"]
+                )
+            )
+
+        XCTAssertEqual(finalization.status, .leakageDetected)
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertEqual(manifest.failureReason, .leakageDetected)
+        XCTAssertEqual(manifest.transcriptionReadiness, .failed)
+        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)
+        XCTAssertFalse(manifest.isComplete)
+    }
 }
 
 private func leakageIntegrationPackage(mic: [Float], incoming: [Float]) throws -> URL {
@@ -152,6 +213,19 @@ private func leakageIntegrationAcceptedPermissions() -> SystemAudioPermissionSna
         microphone: .granted,
         systemAudio: .granted,
         evaluatedAt: Date(timeIntervalSince1970: 33)
+    )
+}
+
+private func leakageIntegrationRecordingMicrophoneSelection() -> RecordingMicrophoneSelection {
+    RecordingMicrophoneSelection(
+        selectionId: "selection-leakage",
+        mode: .userSelected,
+        inputDeviceId: "built-in-mic",
+        inputDisplayName: "Built-in Microphone",
+        deviceClass: .builtIn,
+        workingDeviceKind: .physical,
+        selectionResult: .accepted,
+        resolvedAt: Date(timeIntervalSince1970: 73)
     )
 }
 

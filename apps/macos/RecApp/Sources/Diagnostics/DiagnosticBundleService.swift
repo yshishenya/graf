@@ -300,6 +300,9 @@ public struct DiagnosticBundleService: Sendable {
             "leakageStatus": .string(manifest.leakageFinalization?.status.rawValue ?? "not_measured"),
             "transcriptionGate": .string(manifest.leakageFinalization?.transcriptionGate.rawValue ?? "blocked_not_measured")
         ])
+        bundleManifest["microphoneSelection"] = manifest.microphoneSelection.map(Self.diagnosticValue) ?? .null
+        bundleManifest["microphoneStream"] = manifest.microphoneStream.map(Self.diagnosticValue) ?? .null
+        bundleManifest["microphoneStreamHealth"] = manifest.microphoneStreamHealth.map(Self.diagnosticValue) ?? .null
         if let leakageFinalization = manifest.leakageFinalization {
             bundleManifest["leakageFinalization"] = Self.diagnosticValue(leakageFinalization)
             bundleManifest["leakageRouteMetadata"] = Self.diagnosticValue(leakageFinalization.routeMetadata)
@@ -646,11 +649,67 @@ public struct DiagnosticBundleService: Sendable {
             "localDeletionRegistered": .bool(manifest.localDeletionRegistered),
             "leakageFinalization": manifest.leakageFinalization.map(Self.diagnosticValue) ?? .null,
             "failureReason": .string(manifest.failureReason.rawValue),
+            "microphoneSelection": manifest.microphoneSelection.map(Self.diagnosticValue) ?? .null,
+            "microphoneStream": manifest.microphoneStream.map(Self.diagnosticValue) ?? .null,
+            "microphoneStreamHealth": manifest.microphoneStreamHealth.map(Self.diagnosticValue) ?? .null,
             "privacySegments": .array((manifest.privacySegments ?? []).map(Self.diagnosticValue)),
             "meetingMuteTruth": manifest.meetingMuteTruth.map(Self.diagnosticValue) ?? .null,
             "meetingMuteTruthEvidence": .array((manifest.meetingMuteTruthEvidence ?? []).map(Self.diagnosticValue)),
             "targetMuteCapability": manifest.targetMuteCapability.map(Self.diagnosticValue) ?? .null,
             "limitationCopyShownAt": .string(manifest.limitationCopyShownAt.map(Self.formatDate) ?? "none")
+        ])
+    }
+
+    private static func diagnosticValue(_ selection: RecordingMicrophoneSelection) -> DiagnosticFieldValue {
+        .object([
+            "selectionId": .string(selection.selectionId),
+            "mode": .string(selection.mode.rawValue),
+            "inputDeviceId": .string(selection.inputDeviceId ?? "unknown"),
+            "inputDisplayName": .string(selection.inputDisplayName ?? "unknown"),
+            "deviceClass": .string(selection.deviceClass?.rawValue ?? "unknown"),
+            "workingDeviceKind": .string(selection.workingDeviceKind?.rawValue ?? "unknown"),
+            "selectionResult": .string(selection.selectionResult.rawValue),
+            "rejectionReason": .string(selection.rejectionReason?.rawValue ?? "none"),
+            "resolvedAt": .string(Self.formatDate(selection.resolvedAt)),
+            "diagnosticSafe": .bool(selection.diagnosticSafe)
+        ])
+    }
+
+    private static func diagnosticValue(_ stream: AppOwnedMicrophoneStreamSession) -> DiagnosticFieldValue {
+        .object([
+            "sessionId": .string(stream.sessionId),
+            "selection": Self.diagnosticValue(stream.selection),
+            "permissionState": .string(stream.permissionState.rawValue),
+            "streamKind": .string(stream.streamKind.rawValue),
+            "startedAt": .string(stream.startedAt.map(Self.formatDate) ?? "none"),
+            "stoppedAt": .string(stream.stoppedAt.map(Self.formatDate) ?? "none"),
+            "sampleRate": .double(stream.sampleRate),
+            "channelCount": .int(stream.channelCount),
+            "writerSampleRate": .double(stream.writerSampleRate),
+            "writerChannelCount": .int(stream.writerChannelCount),
+            "frameCount": .int(Int(stream.frameCount)),
+            "droppedFrameCount": .int(Int(stream.droppedFrameCount)),
+            "silentFrameCount": .int(Int(stream.silentFrameCount)),
+            "clippedFrameCount": .int(Int(stream.clippedFrameCount)),
+            "routeChangeCount": .int(stream.routeChangeCount),
+            "lastFrameAt": .string(stream.lastFrameAt.map(Self.formatDate) ?? "none"),
+            "failureReason": .string(stream.failureReason.rawValue),
+            "diagnosticSafe": .bool(stream.diagnosticSafe)
+        ])
+    }
+
+    private static func diagnosticValue(_ health: MicrophoneStreamHealth) -> DiagnosticFieldValue {
+        .object([
+            "gateStatus": .string(health.gateStatus.rawValue),
+            "failureReason": .string(health.failureReason.rawValue),
+            "framesObserved": .bool(health.framesObserved),
+            "timingConfidence": .string(health.timingConfidence.rawValue),
+            "silenceStatus": .string(health.silenceStatus.rawValue),
+            "lastLevel": .double(health.lastLevel ?? -1),
+            "lastLevelAt": .string(health.lastLevelAt.map(Self.formatDate) ?? "none"),
+            "cleanupReadiness": .string(health.cleanupReadiness.rawValue),
+            "evidenceCodes": .array(health.evidenceCodes.map { .string($0) }),
+            "diagnosticSafe": .bool(health.diagnosticSafe)
         ])
     }
 

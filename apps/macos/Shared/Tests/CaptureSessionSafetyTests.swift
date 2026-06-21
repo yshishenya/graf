@@ -1,4 +1,5 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -53,6 +54,17 @@ final class CaptureSessionSafetyTests: XCTestCase {
         )
 
         XCTAssertTrue(CaptureSessionSafetyValidator.validate(session))
+    }
+
+    func testAppOwnedMicrophoneSampleSourceStopIsIdempotentBeforeStart() {
+        let source = AppOwnedMicrophoneSampleSource()
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8)
+        defer { scratch.deallocate() }
+
+        source.stop()
+        source.stop()
+
+        XCTAssertEqual(source.readSamples(into: scratch, capacity: 8), 0)
     }
 
     private func makeSession(
