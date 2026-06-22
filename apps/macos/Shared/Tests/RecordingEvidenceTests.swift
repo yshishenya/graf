@@ -201,6 +201,62 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertNil(evidence["absolutePath"])
     }
 
+    func testLocalRecordingEvidenceIncludesWebRTCAEC3PackageTruthWithoutPrivateContent() {
+        let manifest = LocalRecordingManifest(
+            sessionId: "session-aec3",
+            createdAt: Date(timeIntervalSince1970: 1),
+            startedAt: Date(timeIntervalSince1970: 1),
+            stoppedAt: Date(timeIntervalSince1970: 2),
+            status: .degraded,
+            directoryId: "safe-dir",
+            transcriptionReadiness: .degraded,
+            mediaScribeSourceMode: "dual",
+            tracks: [
+                LocalRecordingTrack(
+                    trackId: "mic",
+                    role: .localMic,
+                    status: .saved,
+                    fileName: "mic.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 1_000,
+                    byteCount: 32_044,
+                    frameCount: 16_000,
+                    timelineAligned: true
+                ),
+                LocalRecordingTrack(
+                    trackId: "incoming",
+                    role: .remoteSpeaker,
+                    status: .saved,
+                    fileName: "incoming.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 1_000,
+                    byteCount: 32_044,
+                    frameCount: 16_000,
+                    timelineAligned: true
+                )
+            ],
+            webRTCAEC3Outcome: recordingEvidenceWebRTCAEC3GuidanceOutcome()
+        )
+
+        let evidence = RecordingEvidenceService().localRecordingEvidence(for: manifest)
+
+        XCTAssertEqual(evidence["webRTCAEC3PrimaryOutcome"], "accepted_for_guidance_only")
+        XCTAssertEqual(evidence["webRTCAEC3NextStepRecommendation"], "guidance_only")
+        XCTAssertEqual(evidence["webRTCAEC3ValidationRowCount"], "1")
+        XCTAssertEqual(evidence["webRTCAEC3ThresholdProfileId"], "aec3-threshold-profile-v1")
+        XCTAssertEqual(evidence["webRTCAEC3CanClaimCleanBuiltInSpeakerphone"], "false")
+        XCTAssertEqual(evidence["webRTCAEC3PackageTruth"], "original_microphone_truth")
+        XCTAssertNil(evidence["rawAudio"])
+        XCTAssertNil(evidence["transcriptText"])
+        XCTAssertNil(evidence["privateLocalPath"])
+    }
+
     func testLocalRecordingDiagnosticBundlePreservesNoEgressTruth() throws {
         let manifest = LocalRecordingManifest(
             sessionId: "session",
@@ -288,6 +344,35 @@ final class RecordingEvidenceTests: XCTestCase {
             bufferSummaryId: nil,
             startedAt: Date(timeIntervalSince1970: 1_777_777_700),
             stoppedAt: Date(timeIntervalSince1970: 1_777_777_777)
+        )
+    }
+
+    private func recordingEvidenceWebRTCAEC3GuidanceOutcome() -> WebRTCAEC3DecisionRecord {
+        WebRTCAEC3DecisionRecord(
+            candidateId: "aec3-evidence-guidance",
+            primaryOutcome: .acceptedForGuidanceOnly,
+            validationRows: [
+                WebRTCAEC3ValidationRow(
+                    rowId: "aec3-evidence-row",
+                    candidateId: "aec3-evidence-guidance",
+                    scenarioFamily: .farEndOnlyLeakage,
+                    validationKind: .fullFile,
+                    routeClass: .builtInSpeakerphone,
+                    baselineStatus: .leakageDetected,
+                    candidateStatus: .unproven,
+                    lineageStatus: .candidateMetadata,
+                    speechPreservationStatus: .notMeasured,
+                    residualLeakageStatus: .unproven,
+                    timingConfidence: .notMeasured,
+                    referenceStatus: .present,
+                    stabilityStatus: .unproven,
+                    thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                    thresholdSummary: "guidance_only",
+                    appStatusState: .usingOriginalMicTruth,
+                    diagnosticSafe: true
+                )
+            ],
+            nextStepRecommendation: .guidanceOnly
         )
     }
 }

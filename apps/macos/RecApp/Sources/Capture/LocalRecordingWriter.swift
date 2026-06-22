@@ -253,7 +253,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
         limitationCopyShownAt: Date? = nil,
-        appleProcessingOutcome: AppleProcessingOutcome? = nil
+        appleProcessingOutcome: AppleProcessingOutcome? = nil,
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil
     ) throws -> LocalRecordingDirectory {
         try queue.sync {
             try startOnQueue(
@@ -265,7 +266,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 targetMuteCapability: targetMuteCapability,
                 meetingMuteTruthEvidence: meetingMuteTruthEvidence,
                 limitationCopyShownAt: limitationCopyShownAt,
-                appleProcessingOutcome: appleProcessingOutcome
+                appleProcessingOutcome: appleProcessingOutcome,
+                webRTCAEC3Outcome: webRTCAEC3Outcome
             )
         }
     }
@@ -279,7 +281,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
         limitationCopyShownAt: Date? = nil,
-        appleProcessingOutcome: AppleProcessingOutcome? = nil
+        appleProcessingOutcome: AppleProcessingOutcome? = nil,
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil
     ) async throws -> LocalRecordingDirectory {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -293,7 +296,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                         targetMuteCapability: targetMuteCapability,
                         meetingMuteTruthEvidence: meetingMuteTruthEvidence,
                         limitationCopyShownAt: limitationCopyShownAt,
-                        appleProcessingOutcome: appleProcessingOutcome
+                        appleProcessingOutcome: appleProcessingOutcome,
+                        webRTCAEC3Outcome: webRTCAEC3Outcome
                     )
                     continuation.resume(returning: directory)
                 } catch {
@@ -312,7 +316,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         targetMuteCapability: TargetMuteCapability?,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
         limitationCopyShownAt: Date?,
-        appleProcessingOutcome: AppleProcessingOutcome?
+        appleProcessingOutcome: AppleProcessingOutcome?,
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord?
     ) throws -> LocalRecordingDirectory {
         guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
         let directory: LocalRecordingDirectory
@@ -425,7 +430,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             targetMuteCapability: targetMuteCapability,
             meetingMuteTruthEvidence: meetingMuteTruthEvidence,
             limitationCopyShownAt: limitationCopyShownAt,
-            appleProcessingOutcome: appleProcessingOutcome
+            appleProcessingOutcome: appleProcessingOutcome,
+            webRTCAEC3Outcome: webRTCAEC3Outcome
         )
         active = activeRecording
         startSucceeded = true
@@ -623,6 +629,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             microphoneStream: microphoneStream,
             microphoneStreamHealth: microphoneHealth,
             appleProcessingOutcome: active.appleProcessingOutcome,
+            webRTCAEC3Outcome: active.webRTCAEC3Outcome,
             captureHealth: captureHealth,
             privacySegments: active.privacySegments,
             targetMuteCapability: active.targetMuteCapability,
@@ -983,6 +990,7 @@ private final class ActiveRecording {
     let meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]
     let limitationCopyShownAt: Date?
     let appleProcessingOutcome: AppleProcessingOutcome?
+    let webRTCAEC3Outcome: WebRTCAEC3DecisionRecord?
     var lastMicrophoneLevel: Double
     var lastObservedMicrophoneLevel: Double?
     var lastIncomingLevel: Double
@@ -1015,7 +1023,8 @@ private final class ActiveRecording {
         targetMuteCapability: TargetMuteCapability?,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
         limitationCopyShownAt: Date?,
-        appleProcessingOutcome: AppleProcessingOutcome?
+        appleProcessingOutcome: AppleProcessingOutcome?,
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord?
     ) {
         self.sessionId = sessionId
         self.startedAt = startedAt
@@ -1036,6 +1045,7 @@ private final class ActiveRecording {
         self.meetingMuteTruthEvidence = meetingMuteTruthEvidence
         self.limitationCopyShownAt = limitationCopyShownAt
         self.appleProcessingOutcome = appleProcessingOutcome
+        self.webRTCAEC3Outcome = webRTCAEC3Outcome
         self.lastMicrophoneLevel = 0
         self.lastObservedMicrophoneLevel = nil
         self.lastIncomingLevel = 0

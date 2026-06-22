@@ -755,6 +755,1075 @@ public struct AppleProcessingOutcome: Codable, Equatable, Sendable {
     }
 }
 
+public enum WebRTCAEC3Feature {
+    public static let identifier = "039-webrtc-aec3-speakerphone-spike"
+}
+
+public enum WebRTCAEC3CandidateKind: String, Codable, Sendable {
+    case nativeWebRTCAEC3
+    case adapterUnavailable
+    case dependencyBlocked
+    case offlineCorpusOnly
+}
+
+public enum WebRTCAEC3RouteClass: String, Codable, Sendable {
+    case builtInSpeakerphone
+    case wiredHeadphones
+    case usbHeadset
+    case bluetoothAirPodsClass
+    case browserTargetSupporting
+    case unknown
+}
+
+public enum WebRTCAEC3PromotionScope: String, Codable, Sendable {
+    case builtInMacMicAndSpeakers
+    case notPromotable
+}
+
+public enum WebRTCAEC3DependencyReadiness: String, Codable, Sendable {
+    case ready
+    case unavailable
+    case licenseBlocked
+    case packagingBlocked
+    case signingBlocked
+    case unknown
+}
+
+public enum WebRTCAEC3ReferenceStatus: String, Codable, Sendable {
+    case present
+    case missing
+    case late
+    case protected
+    case silent
+    case clipped
+    case notRepresentative
+    case unknown
+}
+
+public enum WebRTCAEC3CaptureTimingStatus: String, Codable, Sendable {
+    case safe
+    case jittery
+    case delayed
+    case callOrderUnsafe
+    case drifted
+    case unknown
+}
+
+public enum WebRTCAEC3MetricsStatus: String, Codable, Sendable {
+    case available
+    case partial
+    case notAvailable
+    case unknown
+}
+
+public enum WebRTCAEC3ScenarioFamily: String, Codable, CaseIterable, Sendable {
+    case farEndOnlyLeakage
+    case nearEndOnlySpeech
+    case doubleTalk
+    case loudSpeakerClipping
+    case routeChangeTimingStress
+    case unsafeReferenceNegativeControl
+    case stopQuit
+    case diagnostics
+    case appStatus
+    case rollback
+
+    public static let immediatePromotionRequired: [WebRTCAEC3ScenarioFamily] = [
+        .farEndOnlyLeakage,
+        .nearEndOnlySpeech,
+        .doubleTalk,
+        .loudSpeakerClipping,
+        .routeChangeTimingStress,
+        .unsafeReferenceNegativeControl
+    ]
+
+    public static let operationalPromotionRequired: [WebRTCAEC3ScenarioFamily] = [
+        .stopQuit,
+        .diagnostics,
+        .appStatus,
+        .rollback
+    ]
+
+    public static let allImmediatePromotionRequired: [WebRTCAEC3ScenarioFamily] =
+        immediatePromotionRequired + operationalPromotionRequired
+}
+
+public enum WebRTCAEC3ValidationKind: String, Codable, Sendable {
+    case slice
+    case fullFile
+    case longFormFullFile
+    case controlledRealHardware
+    case negativeControl
+    case stopQuit
+    case diagnostics
+    case appStatus
+    case rollback
+}
+
+public enum WebRTCAEC3BaselineStatus: String, Codable, Sendable {
+    case clean
+    case leakageDetected
+    case unproven
+    case notMeasured
+}
+
+public enum WebRTCAEC3CandidateStatus: String, Codable, Sendable {
+    case accepted
+    case degraded
+    case blocked
+    case unproven
+    case notMeasured
+}
+
+public enum WebRTCAEC3LineageStatus: String, Codable, Sendable {
+    case originalOnly
+    case candidateMetadata
+    case derivedCandidate
+    case promotedBuiltinRoute
+    case rolledBackToOriginal
+    case guidanceOnly
+    case blocked
+    case unproven
+
+    public static let allPackageTruthLabels: [WebRTCAEC3LineageStatus] = [
+        .originalOnly,
+        .candidateMetadata,
+        .derivedCandidate,
+        .promotedBuiltinRoute,
+        .rolledBackToOriginal,
+        .guidanceOnly,
+        .unproven,
+        .blocked
+    ]
+}
+
+public enum WebRTCAEC3SpeechPreservationStatus: String, Codable, Sendable {
+    case preserved
+    case degraded
+    case suppressed
+    case notMeasured
+    case unknown
+}
+
+public enum WebRTCAEC3ResidualLeakageStatus: String, Codable, Sendable {
+    case clean
+    case leakageDetected
+    case unproven
+    case notMeasured
+    case notApplicable
+}
+
+public enum WebRTCAEC3TimingConfidence: String, Codable, Sendable {
+    case safe
+    case degraded
+    case failed
+    case notMeasured
+    case unknown
+}
+
+public enum WebRTCAEC3StabilityStatus: String, Codable, Sendable {
+    case accepted
+    case blockedRouteTopology
+    case blockedQuality
+    case blockedStability
+    case rollbackRequired
+    case unproven
+    case notMeasured
+}
+
+public enum WebRTCAEC3AppStatusState: String, Codable, Sendable {
+    case notEvaluated
+    case evaluatingAEC3
+    case usingOriginalMicTruth
+    case candidateBlocked
+    case promotedBuiltinRoute
+    case rolledBackToOriginal
+    case fallbackRelevant
+    case requiresUserAttention
+    case notApplicable
+}
+
+public enum WebRTCAEC3StatusRouteScope: String, Codable, Sendable {
+    case builtInMacMicAndSpeakers
+    case supportingRouteOnly
+    case notApplicable
+}
+
+public enum WebRTCAEC3StatusCopySafety: String, Codable, Sendable {
+    case safe
+    case tooTechnical
+    case tooNoisy
+    case stale
+    case inconsistentWithPackageTruth
+}
+
+public enum WebRTCAEC3StatusActionHint: String, Codable, Sendable {
+    case none
+    case continueRecording
+    case reviewStatus
+    case useHeadphones
+    case retryCheck
+    case stopAvailable
+}
+
+public enum WebRTCAEC3FailureReason: String, Codable, Sendable {
+    case dependencyUnavailable = "dependency_unavailable"
+    case licenseBlocked = "license_blocked"
+    case packagingBlocked = "packaging_blocked"
+    case signingBlocked = "signing_blocked"
+    case referenceMissing = "reference_missing"
+    case referenceLate = "reference_late"
+    case referenceProtected = "reference_protected"
+    case referenceSilent = "reference_silent"
+    case referenceClipped = "reference_clipped"
+    case referenceNotRepresentative = "reference_not_representative"
+    case callOrderUnsafe = "call_order_unsafe"
+    case timingDrift = "timing_drift"
+    case jitterUnsafe = "jitter_unsafe"
+    case sampleFormatUnsupported = "sample_format_unsupported"
+    case speechSuppressed = "speech_suppressed"
+    case residualLeakageHigh = "residual_leakage_high"
+    case cpuPressure = "cpu_pressure"
+    case memoryPressure = "memory_pressure"
+    case noHangRegression = "no_hang_regression"
+    case diagnosticsUnsafe = "diagnostics_unsafe"
+    case thresholdProfileMissing = "threshold_profile_missing"
+    case thresholdProfileMismatch = "threshold_profile_mismatch"
+    case routeNotPromotable = "route_not_promotable"
+    case lineageIncomplete = "lineage_incomplete"
+    case stopQuitFailed = "stop_quit_failed"
+    case appStatusStale = "app_status_stale"
+    case appStatusNoisy = "app_status_noisy"
+    case appStatusContradictsPackage = "app_status_contradicts_package"
+    case controlledHardwareMissing = "controlled_hardware_missing"
+    case corpusIncomplete = "corpus_incomplete"
+}
+
+public struct WebRTCAEC3AcceptanceThresholdProfile: Codable, Equatable, Sendable {
+    public var thresholdProfileId: String
+    public var appliesToFeature: String
+    public var residualLeakageGate: String
+    public var speechPreservationGate: String
+    public var doubleTalkGate: String
+    public var timingDriftGate: String
+    public var clippingDropoutGate: String
+    public var cpuNoHangGate: String
+    public var stopQuitGate: String
+    public var diagnosticSafetyGate: String
+    public var appStatusConsistencyGate: String
+    public var rollbackTriggerGate: String
+    public var declaredBeforeValidation: Bool
+    public var diagnosticSafe: Bool
+
+    public init(
+        thresholdProfileId: String,
+        appliesToFeature: String = WebRTCAEC3Feature.identifier,
+        residualLeakageGate: String,
+        speechPreservationGate: String,
+        doubleTalkGate: String,
+        timingDriftGate: String,
+        clippingDropoutGate: String,
+        cpuNoHangGate: String,
+        stopQuitGate: String,
+        diagnosticSafetyGate: String,
+        appStatusConsistencyGate: String,
+        rollbackTriggerGate: String,
+        declaredBeforeValidation: Bool,
+        diagnosticSafe: Bool = true
+    ) {
+        self.thresholdProfileId = thresholdProfileId
+        self.appliesToFeature = appliesToFeature
+        self.residualLeakageGate = residualLeakageGate
+        self.speechPreservationGate = speechPreservationGate
+        self.doubleTalkGate = doubleTalkGate
+        self.timingDriftGate = timingDriftGate
+        self.clippingDropoutGate = clippingDropoutGate
+        self.cpuNoHangGate = cpuNoHangGate
+        self.stopQuitGate = stopQuitGate
+        self.diagnosticSafetyGate = diagnosticSafetyGate
+        self.appStatusConsistencyGate = appStatusConsistencyGate
+        self.rollbackTriggerGate = rollbackTriggerGate
+        self.declaredBeforeValidation = declaredBeforeValidation
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public static let standardV1 = WebRTCAEC3AcceptanceThresholdProfile(
+        thresholdProfileId: "aec3-threshold-profile-v1",
+        residualLeakageGate: "residual_leakage_below_declared_bound",
+        speechPreservationGate: "near_end_speech_preserved",
+        doubleTalkGate: "double_talk_preserves_speech_and_blocks_leakage",
+        timingDriftGate: "render_capture_timing_within_declared_bound",
+        clippingDropoutGate: "clipping_or_dropout_blocks_promotion",
+        cpuNoHangGate: "cpu_memory_and_no_hang_gates_pass",
+        stopQuitGate: "stop_and_quit_remain_bounded",
+        diagnosticSafetyGate: "metadata_only_diagnostics",
+        appStatusConsistencyGate: "app_status_matches_package_truth",
+        rollbackTriggerGate: "unsafe_runtime_evidence_restores_original_truth",
+        declaredBeforeValidation: true
+    )
+
+    public var canSupportPromotion: Bool {
+        !thresholdProfileId.isEmpty &&
+            appliesToFeature == WebRTCAEC3Feature.identifier &&
+            declaredBeforeValidation &&
+            diagnosticSafe &&
+            Self.summariesAreSafe([
+                residualLeakageGate,
+                speechPreservationGate,
+                doubleTalkGate,
+                timingDriftGate,
+                clippingDropoutGate,
+                cpuNoHangGate,
+                stopQuitGate,
+                diagnosticSafetyGate,
+                appStatusConsistencyGate,
+                rollbackTriggerGate
+            ])
+    }
+
+    private static func summariesAreSafe(_ summaries: [String]) -> Bool {
+        let forbiddenFragments = [
+            "rawaudio",
+            "transcript",
+            "signedurl",
+            "private",
+            "/users/",
+            "credential",
+            "token"
+        ]
+        return summaries.allSatisfy { summary in
+            let normalized = summary.lowercased()
+            return !forbiddenFragments.contains { normalized.contains($0) }
+        }
+    }
+}
+
+public struct WebRTCAEC3Candidate: Codable, Equatable, Sendable {
+    public var feature: String
+    public var candidateId: String
+    public var candidateKind: WebRTCAEC3CandidateKind
+    public var routeClass: WebRTCAEC3RouteClass
+    public var promotionScope: WebRTCAEC3PromotionScope
+    public var dependencyReadiness: WebRTCAEC3DependencyReadiness
+    public var renderReferenceStatus: WebRTCAEC3ReferenceStatus
+    public var captureTimingStatus: WebRTCAEC3CaptureTimingStatus
+    public var metricsStatus: WebRTCAEC3MetricsStatus
+    public var thresholdProfileId: String
+    public var diagnosticSafe: Bool
+    public var failureReason: String?
+
+    public init(
+        feature: String = WebRTCAEC3Feature.identifier,
+        candidateId: String,
+        candidateKind: WebRTCAEC3CandidateKind,
+        routeClass: WebRTCAEC3RouteClass,
+        promotionScope: WebRTCAEC3PromotionScope,
+        dependencyReadiness: WebRTCAEC3DependencyReadiness,
+        renderReferenceStatus: WebRTCAEC3ReferenceStatus,
+        captureTimingStatus: WebRTCAEC3CaptureTimingStatus,
+        metricsStatus: WebRTCAEC3MetricsStatus,
+        thresholdProfileId: String,
+        diagnosticSafe: Bool,
+        failureReason: String? = nil
+    ) {
+        self.feature = feature
+        self.candidateId = candidateId
+        self.candidateKind = candidateKind
+        self.routeClass = routeClass
+        self.promotionScope = promotionScope
+        self.dependencyReadiness = dependencyReadiness
+        self.renderReferenceStatus = renderReferenceStatus
+        self.captureTimingStatus = captureTimingStatus
+        self.metricsStatus = metricsStatus
+        self.thresholdProfileId = thresholdProfileId
+        self.diagnosticSafe = diagnosticSafe
+        self.failureReason = failureReason
+    }
+
+    public var isEligibleForImmediatePromotion: Bool {
+        feature == WebRTCAEC3Feature.identifier &&
+            candidateKind == .nativeWebRTCAEC3 &&
+            routeClass == .builtInSpeakerphone &&
+            promotionScope == .builtInMacMicAndSpeakers &&
+            dependencyReadiness == .ready &&
+            renderReferenceStatus == .present &&
+            captureTimingStatus == .safe &&
+            metricsStatus == .available &&
+            !thresholdProfileId.isEmpty &&
+            diagnosticSafe
+    }
+}
+
+public struct WebRTCAEC3ValidationRow: Codable, Equatable, Sendable {
+    public var feature: String
+    public var rowId: String
+    public var candidateId: String
+    public var corpusId: String?
+    public var scenarioFamily: WebRTCAEC3ScenarioFamily
+    public var validationKind: WebRTCAEC3ValidationKind
+    public var routeClass: WebRTCAEC3RouteClass
+    public var baselineStatus: WebRTCAEC3BaselineStatus
+    public var candidateStatus: WebRTCAEC3CandidateStatus
+    public var lineageStatus: WebRTCAEC3LineageStatus
+    public var speechPreservationStatus: WebRTCAEC3SpeechPreservationStatus
+    public var residualLeakageStatus: WebRTCAEC3ResidualLeakageStatus
+    public var timingConfidence: WebRTCAEC3TimingConfidence
+    public var referenceStatus: WebRTCAEC3ReferenceStatus
+    public var stabilityStatus: WebRTCAEC3StabilityStatus
+    public var thresholdProfileId: String
+    public var thresholdSummary: String
+    public var appStatusState: WebRTCAEC3AppStatusState
+    public var diagnosticSafe: Bool
+    public var failureReason: String?
+
+    public init(
+        feature: String = WebRTCAEC3Feature.identifier,
+        rowId: String,
+        candidateId: String,
+        corpusId: String? = nil,
+        scenarioFamily: WebRTCAEC3ScenarioFamily,
+        validationKind: WebRTCAEC3ValidationKind,
+        routeClass: WebRTCAEC3RouteClass,
+        baselineStatus: WebRTCAEC3BaselineStatus,
+        candidateStatus: WebRTCAEC3CandidateStatus,
+        lineageStatus: WebRTCAEC3LineageStatus,
+        speechPreservationStatus: WebRTCAEC3SpeechPreservationStatus,
+        residualLeakageStatus: WebRTCAEC3ResidualLeakageStatus,
+        timingConfidence: WebRTCAEC3TimingConfidence,
+        referenceStatus: WebRTCAEC3ReferenceStatus,
+        stabilityStatus: WebRTCAEC3StabilityStatus,
+        thresholdProfileId: String,
+        thresholdSummary: String,
+        appStatusState: WebRTCAEC3AppStatusState,
+        diagnosticSafe: Bool,
+        failureReason: String? = nil
+    ) {
+        self.feature = feature
+        self.rowId = rowId
+        self.candidateId = candidateId
+        self.corpusId = corpusId
+        self.scenarioFamily = scenarioFamily
+        self.validationKind = validationKind
+        self.routeClass = routeClass
+        self.baselineStatus = baselineStatus
+        self.candidateStatus = candidateStatus
+        self.lineageStatus = lineageStatus
+        self.speechPreservationStatus = speechPreservationStatus
+        self.residualLeakageStatus = residualLeakageStatus
+        self.timingConfidence = timingConfidence
+        self.referenceStatus = referenceStatus
+        self.stabilityStatus = stabilityStatus
+        self.thresholdProfileId = thresholdProfileId
+        self.thresholdSummary = thresholdSummary
+        self.appStatusState = appStatusState
+        self.diagnosticSafe = diagnosticSafe
+        self.failureReason = failureReason
+    }
+
+    public static func acceptedFixture(
+        scenarioFamily: WebRTCAEC3ScenarioFamily,
+        validationKind: WebRTCAEC3ValidationKind,
+        thresholdProfileId: String
+    ) -> WebRTCAEC3ValidationRow {
+        WebRTCAEC3ValidationRow(
+            rowId: "aec3-\(scenarioFamily.rawValue)-\(validationKind.rawValue)-accepted",
+            candidateId: "aec3-candidate-accepted",
+            corpusId: "metadata-lab-corpus-v1",
+            scenarioFamily: scenarioFamily,
+            validationKind: validationKind,
+            routeClass: .builtInSpeakerphone,
+            baselineStatus: .leakageDetected,
+            candidateStatus: .accepted,
+            lineageStatus: .promotedBuiltinRoute,
+            speechPreservationStatus: .preserved,
+            residualLeakageStatus: .clean,
+            timingConfidence: .safe,
+            referenceStatus: .present,
+            stabilityStatus: .accepted,
+            thresholdProfileId: thresholdProfileId,
+            thresholdSummary: "standard_v1_all_required_gates_passed",
+            appStatusState: .promotedBuiltinRoute,
+            diagnosticSafe: true
+        )
+    }
+
+    public func usesThresholdProfile(_ profile: WebRTCAEC3AcceptanceThresholdProfile) -> Bool {
+        thresholdProfileId == profile.thresholdProfileId &&
+            profile.canSupportPromotion
+    }
+
+    public func promotionBlockingReason(
+        expectedProfile: WebRTCAEC3AcceptanceThresholdProfile
+    ) -> String? {
+        if thresholdProfileId.isEmpty {
+            return WebRTCAEC3FailureReason.thresholdProfileMissing.rawValue
+        }
+        if thresholdProfileId != expectedProfile.thresholdProfileId {
+            return WebRTCAEC3FailureReason.thresholdProfileMismatch.rawValue
+        }
+        if !diagnosticSafe {
+            return WebRTCAEC3FailureReason.diagnosticsUnsafe.rawValue
+        }
+        if routeClass != .builtInSpeakerphone {
+            return WebRTCAEC3FailureReason.routeNotPromotable.rawValue
+        }
+        if lineageStatus != .promotedBuiltinRoute {
+            return WebRTCAEC3FailureReason.lineageIncomplete.rawValue
+        }
+        if appStatusState != .promotedBuiltinRoute {
+            return WebRTCAEC3FailureReason.appStatusContradictsPackage.rawValue
+        }
+        return nil
+    }
+
+    public var isAcceptedForImmediatePromotion: Bool {
+        promotionBlockingReason(expectedProfile: .standardV1) == nil &&
+            feature == WebRTCAEC3Feature.identifier &&
+            candidateStatus == .accepted &&
+            speechPreservationStatus == .preserved &&
+            residualLeakageStatus == .clean &&
+            timingConfidence == .safe &&
+            referenceStatus == .present &&
+            stabilityStatus == .accepted
+    }
+}
+
+public struct WebRTCAEC3CorpusScenario: Codable, Equatable, Sendable {
+    public var scenarioFamily: WebRTCAEC3ScenarioFamily
+    public var fileCount: Int
+    public var sliceCountPerFile: Int
+    public var fullFileValidationCount: Int
+    public var longFormFullFileRunCount: Int
+    public var criticalGateFailures: Int
+
+    public init(
+        scenarioFamily: WebRTCAEC3ScenarioFamily,
+        fileCount: Int,
+        sliceCountPerFile: Int,
+        fullFileValidationCount: Int,
+        longFormFullFileRunCount: Int,
+        criticalGateFailures: Int
+    ) {
+        self.scenarioFamily = scenarioFamily
+        self.fileCount = fileCount
+        self.sliceCountPerFile = sliceCountPerFile
+        self.fullFileValidationCount = fullFileValidationCount
+        self.longFormFullFileRunCount = longFormFullFileRunCount
+        self.criticalGateFailures = criticalGateFailures
+    }
+
+    public var slicedWindowValidationCount: Int {
+        fileCount * sliceCountPerFile
+    }
+
+    public var satisfiesImmediatePromotionCounts: Bool {
+        fileCount >= 10 &&
+            sliceCountPerFile >= 5 &&
+            fullFileValidationCount >= fileCount &&
+            longFormFullFileRunCount >= 2 &&
+            criticalGateFailures == 0
+    }
+}
+
+public struct WebRTCAEC3ValidationCorpus: Codable, Equatable, Sendable {
+    public var feature: String
+    public var corpusId: String
+    public var thresholdProfileId: String
+    public var diagnosticSafe: Bool
+    public var roomConditionCount: Int
+    public var deviceProfileCount: Int
+    public var speakerVolumeLevelCount: Int
+    public var scenarioFamilies: [WebRTCAEC3CorpusScenario]
+
+    public init(
+        feature: String = WebRTCAEC3Feature.identifier,
+        corpusId: String,
+        thresholdProfileId: String,
+        diagnosticSafe: Bool,
+        roomConditionCount: Int,
+        deviceProfileCount: Int,
+        speakerVolumeLevelCount: Int,
+        scenarioFamilies: [WebRTCAEC3CorpusScenario]
+    ) {
+        self.feature = feature
+        self.corpusId = corpusId
+        self.thresholdProfileId = thresholdProfileId
+        self.diagnosticSafe = diagnosticSafe
+        self.roomConditionCount = roomConditionCount
+        self.deviceProfileCount = deviceProfileCount
+        self.speakerVolumeLevelCount = speakerVolumeLevelCount
+        self.scenarioFamilies = scenarioFamilies
+    }
+
+    public var requiredScenarioFamiliesMissing: [WebRTCAEC3ScenarioFamily] {
+        let present = Set(scenarioFamilies.map(\.scenarioFamily))
+        return WebRTCAEC3ScenarioFamily.immediatePromotionRequired
+            .filter { !present.contains($0) }
+    }
+
+    public var totalFullFileValidations: Int {
+        scenarioFamilies.reduce(0) { $0 + $1.fullFileValidationCount }
+    }
+
+    public var totalSlicedWindowValidations: Int {
+        scenarioFamilies.reduce(0) { $0 + $1.slicedWindowValidationCount }
+    }
+
+    public var longFormRunCountByScenario: [WebRTCAEC3ScenarioFamily: Int] {
+        Dictionary(uniqueKeysWithValues: scenarioFamilies.map {
+            ($0.scenarioFamily, $0.longFormFullFileRunCount)
+        })
+    }
+
+    public var isEligibleForImmediatePromotion: Bool {
+        feature == WebRTCAEC3Feature.identifier &&
+            thresholdProfileId == WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId &&
+            diagnosticSafe &&
+            promotionCoverageFailures.isEmpty
+    }
+
+    public var promotionCoverageFailures: [String] {
+        var failures: [String] = []
+        if feature != WebRTCAEC3Feature.identifier {
+            failures.append("feature_mismatch")
+        }
+        if thresholdProfileId != WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId {
+            failures.append(WebRTCAEC3FailureReason.thresholdProfileMismatch.rawValue)
+        }
+        if !diagnosticSafe {
+            failures.append(WebRTCAEC3FailureReason.diagnosticsUnsafe.rawValue)
+        }
+        if roomConditionCount < 2 {
+            failures.append("room_condition_count_below_minimum")
+        }
+        if deviceProfileCount < 2 {
+            failures.append("device_profile_count_below_minimum")
+        }
+        if speakerVolumeLevelCount < 3 {
+            failures.append("speaker_volume_level_count_below_minimum")
+        }
+
+        let scenarioByFamily = Dictionary(uniqueKeysWithValues: scenarioFamilies.map {
+            ($0.scenarioFamily, $0)
+        })
+        for family in WebRTCAEC3ScenarioFamily.immediatePromotionRequired {
+            guard let scenario = scenarioByFamily[family] else {
+                failures.append("scenario_missing_\(family.rawValue)")
+                continue
+            }
+            if scenario.fileCount < 10 {
+                failures.append("file_count_below_minimum")
+            }
+            if scenario.sliceCountPerFile < 5 {
+                failures.append("slice_count_below_minimum")
+            }
+            if scenario.fullFileValidationCount < scenario.fileCount {
+                failures.append("full_file_validation_count_below_minimum")
+            }
+            if scenario.longFormFullFileRunCount < 2 {
+                failures.append("long_form_full_file_run_count_below_minimum")
+            }
+            if scenario.criticalGateFailures > 0 {
+                failures.append("critical_gate_failures_present")
+            }
+        }
+
+        return Array(Set(failures)).sorted()
+    }
+}
+
+public struct WebRTCAEC3InvalidCorpusCases: Codable, Equatable, Sendable {
+    public var feature: String
+    public var cases: [WebRTCAEC3InvalidCorpusCase]
+
+    public init(feature: String = WebRTCAEC3Feature.identifier, cases: [WebRTCAEC3InvalidCorpusCase]) {
+        self.feature = feature
+        self.cases = cases
+    }
+
+    public var caseIds: [String] {
+        cases.map(\.caseId)
+    }
+
+    public var promotionBlockers: [String] {
+        cases.map(\.reason.blockerCode)
+    }
+}
+
+public struct WebRTCAEC3InvalidCorpusCase: Codable, Equatable, Sendable {
+    public var caseId: String
+    public var reason: WebRTCAEC3InvalidCorpusReason
+    public var scenarioFamily: WebRTCAEC3ScenarioFamily?
+    public var fileCount: Int?
+    public var sliceCountPerFile: Int?
+    public var fullFileValidationCount: Int?
+    public var longFormFullFileRunCount: Int?
+    public var roomConditionCount: Int?
+    public var deviceProfileCount: Int?
+    public var speakerVolumeLevelCount: Int?
+    public var thresholdProfileId: String?
+
+    public init(
+        caseId: String,
+        reason: WebRTCAEC3InvalidCorpusReason,
+        scenarioFamily: WebRTCAEC3ScenarioFamily? = nil,
+        fileCount: Int? = nil,
+        sliceCountPerFile: Int? = nil,
+        fullFileValidationCount: Int? = nil,
+        longFormFullFileRunCount: Int? = nil,
+        roomConditionCount: Int? = nil,
+        deviceProfileCount: Int? = nil,
+        speakerVolumeLevelCount: Int? = nil,
+        thresholdProfileId: String? = nil
+    ) {
+        self.caseId = caseId
+        self.reason = reason
+        self.scenarioFamily = scenarioFamily
+        self.fileCount = fileCount
+        self.sliceCountPerFile = sliceCountPerFile
+        self.fullFileValidationCount = fullFileValidationCount
+        self.longFormFullFileRunCount = longFormFullFileRunCount
+        self.roomConditionCount = roomConditionCount
+        self.deviceProfileCount = deviceProfileCount
+        self.speakerVolumeLevelCount = speakerVolumeLevelCount
+        self.thresholdProfileId = thresholdProfileId
+    }
+}
+
+public enum WebRTCAEC3InvalidCorpusReason: String, Codable, Sendable {
+    case fileCountBelowMinimum
+    case sliceCountBelowMinimum
+    case fullFileValidationCountBelowMinimum
+    case longFormFullFileRunCountBelowMinimum
+    case roomConditionCountBelowMinimum
+    case deviceProfileCountBelowMinimum
+    case speakerVolumeLevelCountBelowMinimum
+    case thresholdProfileMismatch
+
+    public var blockerCode: String {
+        switch self {
+        case .fileCountBelowMinimum:
+            return "file_count_below_minimum"
+        case .sliceCountBelowMinimum:
+            return "slice_count_below_minimum"
+        case .fullFileValidationCountBelowMinimum:
+            return "full_file_validation_count_below_minimum"
+        case .longFormFullFileRunCountBelowMinimum:
+            return "long_form_full_file_run_count_below_minimum"
+        case .roomConditionCountBelowMinimum:
+            return "room_condition_count_below_minimum"
+        case .deviceProfileCountBelowMinimum:
+            return "device_profile_count_below_minimum"
+        case .speakerVolumeLevelCountBelowMinimum:
+            return "speaker_volume_level_count_below_minimum"
+        case .thresholdProfileMismatch:
+            return WebRTCAEC3FailureReason.thresholdProfileMismatch.rawValue
+        }
+    }
+}
+
+public struct WebRTCAEC3ControlledHardwareMatrix: Codable, Equatable, Sendable {
+    public var feature: String
+    public var thresholdProfileId: String
+    public var diagnosticSafe: Bool
+    public var criticalRows: [String]
+    public var supportingRouteRows: [String]
+    public var forbiddenContent: WebRTCAEC3ForbiddenContentSummary
+
+    public init(
+        feature: String = WebRTCAEC3Feature.identifier,
+        thresholdProfileId: String,
+        diagnosticSafe: Bool,
+        criticalRows: [String],
+        supportingRouteRows: [String],
+        forbiddenContent: WebRTCAEC3ForbiddenContentSummary
+    ) {
+        self.feature = feature
+        self.thresholdProfileId = thresholdProfileId
+        self.diagnosticSafe = diagnosticSafe
+        self.criticalRows = criticalRows
+        self.supportingRouteRows = supportingRouteRows
+        self.forbiddenContent = forbiddenContent
+    }
+
+    public var hasAllImmediatePromotionCriticalRows: Bool {
+        let present = Set(criticalRows)
+        let required = WebRTCAEC3ScenarioFamily.allImmediatePromotionRequired.map {
+            "builtInSpeakerphone.\($0.rawValue)"
+        }
+        return feature == WebRTCAEC3Feature.identifier &&
+            thresholdProfileId == WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId &&
+            diagnosticSafe &&
+            Set(required).isSubset(of: present)
+    }
+
+    public var supportingRoutesCanBroadenPromotionScope: Bool {
+        false
+    }
+
+    public var isMetadataOnly: Bool {
+        !forbiddenContent.rawAudio &&
+            !forbiddenContent.transcriptText &&
+            !forbiddenContent.meetingContent &&
+            !forbiddenContent.credentials &&
+            !forbiddenContent.signedUrls &&
+            !forbiddenContent.privateLocalPaths
+    }
+}
+
+public struct WebRTCAEC3ForbiddenContentSummary: Codable, Equatable, Sendable {
+    public var rawAudio: Bool
+    public var transcriptText: Bool
+    public var meetingContent: Bool
+    public var credentials: Bool
+    public var signedUrls: Bool
+    public var privateLocalPaths: Bool
+
+    public init(
+        rawAudio: Bool,
+        transcriptText: Bool,
+        meetingContent: Bool,
+        credentials: Bool,
+        signedUrls: Bool,
+        privateLocalPaths: Bool
+    ) {
+        self.rawAudio = rawAudio
+        self.transcriptText = transcriptText
+        self.meetingContent = meetingContent
+        self.credentials = credentials
+        self.signedUrls = signedUrls
+        self.privateLocalPaths = privateLocalPaths
+    }
+}
+
+extension ControlledRealHardwareRecordingEvidence {
+    public var satisfiesImmediatePromotion: Bool {
+        routeClass == .builtInSpeakerphone &&
+            stopBehaviorStatus == .accepted &&
+            appStatusShown &&
+            thresholdProfileId == WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId &&
+            diagnosticSafe
+    }
+}
+
+public struct ControlledRealHardwareRecordingEvidence: Codable, Equatable, Sendable {
+    public var recordingEvidenceId: String
+    public var candidateId: String
+    public var routeClass: WebRTCAEC3RouteClass
+    public var scenarioFamily: WebRTCAEC3ScenarioFamily
+    public var packageLineageStatus: WebRTCAEC3LineageStatus
+    public var stopBehaviorStatus: WebRTCAEC3CandidateStatus
+    public var appStatusShown: Bool
+    public var thresholdProfileId: String
+    public var diagnosticSafe: Bool
+    public var failureReason: String?
+
+    public init(
+        recordingEvidenceId: String,
+        candidateId: String,
+        routeClass: WebRTCAEC3RouteClass,
+        scenarioFamily: WebRTCAEC3ScenarioFamily,
+        packageLineageStatus: WebRTCAEC3LineageStatus,
+        stopBehaviorStatus: WebRTCAEC3CandidateStatus,
+        appStatusShown: Bool,
+        thresholdProfileId: String,
+        diagnosticSafe: Bool,
+        failureReason: String? = nil
+    ) {
+        self.recordingEvidenceId = recordingEvidenceId
+        self.candidateId = candidateId
+        self.routeClass = routeClass
+        self.scenarioFamily = scenarioFamily
+        self.packageLineageStatus = packageLineageStatus
+        self.stopBehaviorStatus = stopBehaviorStatus
+        self.appStatusShown = appStatusShown
+        self.thresholdProfileId = thresholdProfileId
+        self.diagnosticSafe = diagnosticSafe
+        self.failureReason = failureReason
+    }
+}
+
+public enum AEC3RollbackTrigger: String, Codable, Sendable {
+    case routeChanged
+    case referenceMissing
+    case referenceUnsafe
+    case qualityDropped
+    case timingUnsafe
+    case lineageIncomplete
+    case diagnosticsUnsafe
+    case stopQuit
+}
+
+public struct AEC3RollbackEvent: Codable, Equatable, Sendable {
+    public var rollbackId: String
+    public var candidateId: String
+    public var trigger: AEC3RollbackTrigger
+    public var previousLineageStatus: WebRTCAEC3LineageStatus
+    public var restoredLineageStatus: WebRTCAEC3LineageStatus
+    public var cleanRecordingClaimRemoved: Bool
+    public var appStatusShown: Bool
+    public var thresholdProfileId: String
+    public var occurredAt: Date
+    public var diagnosticSafe: Bool
+
+    public init(
+        rollbackId: String,
+        candidateId: String,
+        trigger: AEC3RollbackTrigger,
+        previousLineageStatus: WebRTCAEC3LineageStatus,
+        restoredLineageStatus: WebRTCAEC3LineageStatus,
+        cleanRecordingClaimRemoved: Bool,
+        appStatusShown: Bool,
+        thresholdProfileId: String,
+        occurredAt: Date,
+        diagnosticSafe: Bool = true
+    ) {
+        self.rollbackId = rollbackId
+        self.candidateId = candidateId
+        self.trigger = trigger
+        self.previousLineageStatus = previousLineageStatus
+        self.restoredLineageStatus = restoredLineageStatus
+        self.cleanRecordingClaimRemoved = cleanRecordingClaimRemoved
+        self.appStatusShown = appStatusShown
+        self.thresholdProfileId = thresholdProfileId
+        self.occurredAt = occurredAt
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public var restoresOriginalTruth: Bool {
+        previousLineageStatus == .promotedBuiltinRoute &&
+            restoredLineageStatus == .originalOnly &&
+            cleanRecordingClaimRemoved &&
+            appStatusShown &&
+            diagnosticSafe
+    }
+}
+
+public struct AppRecordingStatus: Codable, Equatable, Sendable {
+    public var statusId: String
+    public var candidateId: String?
+    public var state: WebRTCAEC3AppStatusState
+    public var routeScope: WebRTCAEC3StatusRouteScope
+    public var copySafety: WebRTCAEC3StatusCopySafety
+    public var actionHint: WebRTCAEC3StatusActionHint
+    public var matchesPackageTruth: Bool
+    public var diagnosticSafe: Bool
+
+    public init(
+        statusId: String,
+        candidateId: String? = nil,
+        state: WebRTCAEC3AppStatusState,
+        routeScope: WebRTCAEC3StatusRouteScope,
+        copySafety: WebRTCAEC3StatusCopySafety,
+        actionHint: WebRTCAEC3StatusActionHint,
+        matchesPackageTruth: Bool,
+        diagnosticSafe: Bool = true
+    ) {
+        self.statusId = statusId
+        self.candidateId = candidateId
+        self.state = state
+        self.routeScope = routeScope
+        self.copySafety = copySafety
+        self.actionHint = actionHint
+        self.matchesPackageTruth = matchesPackageTruth
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public var canSupportPromotion: Bool {
+        state == .promotedBuiltinRoute &&
+            routeScope == .builtInMacMicAndSpeakers &&
+            copySafety == .safe &&
+            matchesPackageTruth &&
+            diagnosticSafe
+    }
+}
+
+public enum WebRTCAEC3OutcomeState: String, Codable, Sendable {
+    case acceptedForImmediatePromotion = "accepted_for_immediate_promotion"
+    case acceptedForDerivedCandidateOnly = "accepted_for_derived_candidate_only"
+    case acceptedForGuidanceOnly = "accepted_for_guidance_only"
+    case blockedRouteTopology = "blocked_route_topology"
+    case blockedQuality = "blocked_quality"
+    case blockedStability = "blocked_stability"
+    case deferToFallbackDecision = "defer_to_fallback_decision"
+}
+
+public enum WebRTCAEC3NextStepRecommendation: String, Codable, Sendable {
+    case promoteBuiltInRoute = "promote_builtin_route"
+    case derivedCandidateOnly = "derived_candidate_only"
+    case guidanceOnly = "guidance_only"
+    case fallbackDecision = "fallback_decision"
+    case routeSpecificValidation = "route_specific_validation"
+    case dependencyPackaging = "dependency_packaging"
+}
+
+public struct WebRTCAEC3DecisionRecord: Codable, Equatable, Sendable {
+    public var feature: String
+    public var candidateId: String
+    public var primaryOutcome: WebRTCAEC3OutcomeState
+    public var validationRows: [WebRTCAEC3ValidationRow]
+    public var nextStepRecommendation: WebRTCAEC3NextStepRecommendation
+    public var diagnosticSafe: Bool
+    public var rollbackEvents: [AEC3RollbackEvent]?
+    public var supportingRouteRows: [WebRTCAEC3ValidationRow]?
+    public var limitations: [String]?
+    public var fallbackFeatureId: String?
+    public var failureReason: String?
+
+    public init(
+        feature: String = WebRTCAEC3Feature.identifier,
+        candidateId: String,
+        primaryOutcome: WebRTCAEC3OutcomeState,
+        validationRows: [WebRTCAEC3ValidationRow],
+        nextStepRecommendation: WebRTCAEC3NextStepRecommendation,
+        diagnosticSafe: Bool = true,
+        rollbackEvents: [AEC3RollbackEvent]? = nil,
+        supportingRouteRows: [WebRTCAEC3ValidationRow]? = nil,
+        limitations: [String]? = nil,
+        fallbackFeatureId: String? = nil,
+        failureReason: String? = nil
+    ) {
+        self.feature = feature
+        self.candidateId = candidateId
+        self.primaryOutcome = primaryOutcome
+        self.validationRows = validationRows
+        self.nextStepRecommendation = nextStepRecommendation
+        self.diagnosticSafe = diagnosticSafe
+        self.rollbackEvents = rollbackEvents
+        self.supportingRouteRows = supportingRouteRows
+        self.limitations = limitations
+        self.fallbackFeatureId = fallbackFeatureId
+        self.failureReason = failureReason
+    }
+
+    public var primaryOutcomeCount: Int {
+        1
+    }
+
+    public var requiresFallbackPlanning: Bool {
+        fallbackFeatureId == "040-speakerphone-recording-fallback-decision"
+    }
+
+    public var supportingRoutesCanBroadenPromotionScope: Bool {
+        false
+    }
+
+    public var decisionLimitations: [String] {
+        limitations ?? []
+    }
+
+    public var canClaimCleanBuiltInSpeakerphone: Bool {
+        primaryOutcome == .acceptedForImmediatePromotion &&
+            diagnosticSafe &&
+            (rollbackEvents?.isEmpty ?? true) &&
+            WebRTCAEC3ScenarioFamily.allImmediatePromotionRequired.allSatisfy { family in
+                validationRows.contains {
+                    $0.scenarioFamily == family && $0.isAcceptedForImmediatePromotion
+                }
+            }
+    }
+}
+
 public struct SystemAudioPermissionSnapshot: Codable, Equatable, Sendable {
     public var microphone: CapturePermissionState
     public var systemAudio: CapturePermissionState
@@ -1271,6 +2340,9 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let recordingMicrophoneRecovery = "systemAudio.recordingMicrophone.recovery"
     public static let muteTruthWarning = "systemAudio.muteTruth.warning"
     public static let appleProcessingStatus = "systemAudio.appleProcessing.status"
+    public static let webRTCAEC3Status = "systemAudio.webRTCAEC3.status"
+    public static let webRTCAEC3FallbackStatus = "systemAudio.webRTCAEC3.fallback.status"
+    public static let webRTCAEC3RollbackStatus = "systemAudio.webRTCAEC3.rollback.status"
     public static let localRecordingLocation = "systemAudio.localRecording.location"
     public static let meters = "systemAudio.meters"
     public static let microphoneMeter = "systemAudio.meter.microphone"

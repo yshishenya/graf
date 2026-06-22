@@ -866,6 +866,7 @@ public struct CaptureSession: Codable, Equatable, Sendable {
     public var bufferSummaryId: String?
     public var startedAt: Date?
     public var stoppedAt: Date?
+    public var webRTCAEC3Status: AppRecordingStatus?
     public var stopReason: RecordingStopReason?
     public var failureCategory: RecordingStartBlocker?
 
@@ -881,6 +882,7 @@ public struct CaptureSession: Codable, Equatable, Sendable {
         bufferSummaryId: String?,
         startedAt: Date?,
         stoppedAt: Date?,
+        webRTCAEC3Status: AppRecordingStatus? = nil,
         stopReason: RecordingStopReason? = nil,
         failureCategory: RecordingStartBlocker? = nil
     ) {
@@ -895,6 +897,7 @@ public struct CaptureSession: Codable, Equatable, Sendable {
         self.bufferSummaryId = bufferSummaryId
         self.startedAt = startedAt
         self.stoppedAt = stoppedAt
+        self.webRTCAEC3Status = webRTCAEC3Status
         self.stopReason = stopReason
         self.failureCategory = failureCategory
     }
@@ -1214,6 +1217,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var microphoneStream: AppOwnedMicrophoneStreamSession?
     public var microphoneStreamHealth: MicrophoneStreamHealth?
     public var appleProcessingOutcome: AppleProcessingOutcome?
+    public var webRTCAEC3Outcome: WebRTCAEC3DecisionRecord?
     public var captureHealth: CaptureHealthSnapshot?
     public var privacySegments: [ProductPrivacySegment]?
     public var meetingMuteTruth: MuteTruthDecision?
@@ -1248,6 +1252,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         microphoneStream: AppOwnedMicrophoneStreamSession? = nil,
         microphoneStreamHealth: MicrophoneStreamHealth? = nil,
         appleProcessingOutcome: AppleProcessingOutcome? = nil,
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil,
         captureHealth: CaptureHealthSnapshot? = nil,
         privacySegments: [ProductPrivacySegment]? = nil,
         meetingMuteTruth: MuteTruthDecision? = nil,
@@ -1281,6 +1286,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.microphoneStream = microphoneStream
         self.microphoneStreamHealth = microphoneStreamHealth
         self.appleProcessingOutcome = appleProcessingOutcome
+        self.webRTCAEC3Outcome = webRTCAEC3Outcome
         self.captureHealth = captureHealth
         self.privacySegments = privacySegments
         self.meetingMuteTruth = meetingMuteTruth
@@ -1304,14 +1310,14 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
 
         if mediaScribeSourceMode == "dual" {
             let originalTracks = tracks.filter { $0.evidenceRole == .original }
-            return Set(originalTracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
+            let originalTracksReady = Set(originalTracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
                 originalTracks.allSatisfy { $0.sourceKind != nil } &&
-                originalTracks.allSatisfy(\.isMediaScribeReady) &&
-                (
-                    leakageFinalization == nil ||
-                        leakageFinalization?.status == .clean &&
-                        leakageFinalization?.transcriptionGate == .eligibleOriginalDual
-                )
+                originalTracks.allSatisfy(\.isMediaScribeReady)
+            let originalLeakageGateReady = leakageFinalization == nil ||
+                leakageFinalization?.status == .clean &&
+                leakageFinalization?.transcriptionGate == .eligibleOriginalDual
+            let webRTCAEC3GateReady = webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone == true
+            return originalTracksReady && (originalLeakageGateReady || webRTCAEC3GateReady)
         }
 
         if mediaScribeSourceMode == "derived_dual" {

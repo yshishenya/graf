@@ -350,6 +350,41 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertFalse(manifest.appleProcessingOutcome?.canClaimCleanBuiltinSpeakerphone ?? true)
     }
 
+    func testWebRTCAEC3OutcomePropagatesWithoutReplacingOriginalTracks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-aec3-candidate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
+        let outcome = writerWebRTCAEC3GuidanceOutcome()
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-aec3-candidate",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions(),
+            webRTCAEC3Outcome: outcome
+        )
+        Thread.sleep(forTimeInterval: 0.15)
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        XCTAssertEqual(mic.fileName, "mic.wav")
+        XCTAssertEqual(incoming.fileName, "incoming.wav")
+        XCTAssertEqual(mic.evidenceRole, .original)
+        XCTAssertEqual(incoming.evidenceRole, .original)
+        XCTAssertEqual(manifest.webRTCAEC3Outcome, outcome)
+        XCTAssertFalse(manifest.webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone ?? true)
+    }
+
     func testAppOwnedMicrophoneNoFramesProducesUnprovenStreamHealth() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("system-audio-writer-mic-no-frames-\(UUID().uuidString)", isDirectory: true)
@@ -474,6 +509,35 @@ private func writerRecordingMicrophoneSelection() -> RecordingMicrophoneSelectio
         workingDeviceKind: .physical,
         selectionResult: .accepted,
         resolvedAt: Date(timeIntervalSince1970: 9)
+    )
+}
+
+private func writerWebRTCAEC3GuidanceOutcome() -> WebRTCAEC3DecisionRecord {
+    WebRTCAEC3DecisionRecord(
+        candidateId: "aec3-writer-guidance",
+        primaryOutcome: .acceptedForGuidanceOnly,
+        validationRows: [
+            WebRTCAEC3ValidationRow(
+                rowId: "aec3-writer-row",
+                candidateId: "aec3-writer-guidance",
+                scenarioFamily: .farEndOnlyLeakage,
+                validationKind: .fullFile,
+                routeClass: .builtInSpeakerphone,
+                baselineStatus: .leakageDetected,
+                candidateStatus: .unproven,
+                lineageStatus: .candidateMetadata,
+                speechPreservationStatus: .notMeasured,
+                residualLeakageStatus: .unproven,
+                timingConfidence: .notMeasured,
+                referenceStatus: .present,
+                stabilityStatus: .unproven,
+                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                thresholdSummary: "guidance_only",
+                appStatusState: .usingOriginalMicTruth,
+                diagnosticSafe: true
+            )
+        ],
+        nextStepRecommendation: .guidanceOnly
     )
 }
 

@@ -297,6 +297,52 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("appleProcessingLifecycle.rawAudio"))
     }
 
+    func testWebRTCAEC3DiagnosticsKeepMetadataAndRemoveForbiddenContentAndUnboundedLogs() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "webRTCAEC3Diagnostics": .object([
+                "candidateId": .string("aec3-diagnostics"),
+                "echoDelayMedianMs": .double(18),
+                "echoDelayP95Ms": .double(42),
+                "rawSamples": .string("forbidden"),
+                "transcriptText": .string("forbidden"),
+                "privateLocalPath": .string("/Users/example/private/aec3.wav"),
+                "credentialPath": .string("/tmp/secret"),
+                "signedUrl": .string("https://example.presigned/download"),
+                "webrtcLogDump": .string(String(repeating: "debug", count: 2_000)),
+                "unboundedLog": .string(String(repeating: "trace", count: 2_000))
+            ]),
+            "webRTCAEC3AppStatus": .object([
+                "state": .string(WebRTCAEC3AppStatusState.fallbackRelevant.rawValue),
+                "copySafety": .string(WebRTCAEC3StatusCopySafety.safe.rawValue),
+                "participantNames": .string("forbidden")
+            ]),
+            "webRTCAEC3Rollback": .object([
+                "trigger": .string(AEC3RollbackTrigger.referenceUnsafe.rawValue),
+                "restoredLineageStatus": .string(WebRTCAEC3LineageStatus.originalOnly.rawValue),
+                "debugLog": .string(String(repeating: "debug", count: 2_000))
+            ]),
+            "webRTCAEC3EchoDelaySummary": .string("median_ms=18,p95_ms=42"),
+            "webRTCAEC3RollbackTrigger": .string(AEC3RollbackTrigger.referenceUnsafe.rawValue)
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["webRTCAEC3Diagnostics"])
+        XCTAssertNotNil(result.manifest["webRTCAEC3AppStatus"])
+        XCTAssertNotNil(result.manifest["webRTCAEC3Rollback"])
+        XCTAssertEqual(result.manifest["webRTCAEC3EchoDelaySummary"], .string("median_ms=18,p95_ms=42"))
+        XCTAssertEqual(result.manifest["webRTCAEC3RollbackTrigger"], .string(AEC3RollbackTrigger.referenceUnsafe.rawValue))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Diagnostics.rawSamples"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Diagnostics.transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Diagnostics.privateLocalPath"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Diagnostics.credentialPath"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Diagnostics.signedUrl"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Diagnostics.webrtcLogDump"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Diagnostics.unboundedLog"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3AppStatus.participantNames"))
+        XCTAssertTrue(result.removedFields.contains("webRTCAEC3Rollback.debugLog"))
+    }
+
     func testMuteTruthFieldsKeepMetadataAndRemoveNestedSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "recordingEvidence": .array([

@@ -115,6 +115,34 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(secondScan.first?.artifactProfile.isUploadable == true)
     }
 
+    func testWebRTCAEC3GuidanceCannotMakeLeakageBlockedPackageUploadable() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directoryURL = root.appendingPathComponent("aec3-blocked-package", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let manifestURL = directoryURL.appendingPathComponent("manifest.json")
+        let micURL = directoryURL.appendingPathComponent("mic.wav")
+        let incomingURL = directoryURL.appendingPathComponent("incoming.wav")
+        try Data(repeating: 1, count: 128).write(to: micURL)
+        try Data(repeating: 2, count: 128).write(to: incomingURL)
+        let manifest = makeManifest(
+            directoryId: "aec3-blocked-package",
+            sessionId: "aec3-blocked-session",
+            leakageFinalization: uploadQueueBlockedLeakageFinalization(),
+            webRTCAEC3Outcome: uploadQueueWebRTCAEC3GuidanceOutcome()
+        )
+        try LocalRecordingManifestService().write(manifest, to: manifestURL)
+
+        let profile = DesktopUploadQueueService.artifactProfile(
+            manifest: manifest,
+            manifestURL: manifestURL,
+            microphoneURL: micURL,
+            systemAudioURL: incomingURL
+        )
+
+        XCTAssertFalse(profile.isUploadable)
+    }
+
     func testOfflineQueueSurvivesRestartWithoutServerTruth() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -707,7 +735,9 @@ final class DesktopUploadQueueTests: XCTestCase {
         directoryId: String,
         sessionId: String,
         includeMuteTruth: Bool = false,
-        includeMicrophoneGraphMetadata: Bool = false
+        includeMicrophoneGraphMetadata: Bool = false,
+        leakageFinalization: LeakageFinalization? = nil,
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil
     ) -> LocalRecordingManifest {
         let startedAt = Date(timeIntervalSince1970: 10)
         let stoppedAt = Date(timeIntervalSince1970: 20)
@@ -756,6 +786,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             directoryId: directoryId,
             transcriptionReadiness: .ready,
             tracks: tracks,
+            leakageFinalization: leakageFinalization,
             durationDifferenceSeconds: 0,
             scopeApproval: CaptureScopeApproval(
                 scopeApprovalId: "scope",
@@ -798,6 +829,7 @@ final class DesktopUploadQueueTests: XCTestCase {
                     evidenceCodes: ["mic_graph_ready", "incoming_reference_present"]
                 )
             },
+            webRTCAEC3Outcome: webRTCAEC3Outcome,
             privacySegments: includeMuteTruth ? [
                 ProductPrivacySegment(
                     segmentId: "\(sessionId)-privacy-1",
@@ -832,6 +864,49 @@ final class DesktopUploadQueueTests: XCTestCase {
             ] : nil,
             targetMuteCapability: includeMuteTruth ? .chromeTelemost : nil,
             limitationCopyShownAt: includeMuteTruth ? startedAt : nil
+        )
+    }
+
+    private func uploadQueueBlockedLeakageFinalization() -> LeakageFinalization {
+        LeakageFinalization(
+            status: .leakageDetected,
+            evaluatedAt: Date(timeIntervalSince1970: 20),
+            measurementAttempted: true,
+            measurementApplicable: true,
+            alignmentStatus: .aligned,
+            confidence: 0.95,
+            failureReason: .leakageDetected,
+            originalEvidenceStatus: .leakageDetected,
+            transcriptionGate: .blockedLeakageDetected
+        )
+    }
+
+    private func uploadQueueWebRTCAEC3GuidanceOutcome() -> WebRTCAEC3DecisionRecord {
+        WebRTCAEC3DecisionRecord(
+            candidateId: "aec3-upload-guidance",
+            primaryOutcome: .acceptedForGuidanceOnly,
+            validationRows: [
+                WebRTCAEC3ValidationRow(
+                    rowId: "aec3-upload-row",
+                    candidateId: "aec3-upload-guidance",
+                    scenarioFamily: .farEndOnlyLeakage,
+                    validationKind: .fullFile,
+                    routeClass: .builtInSpeakerphone,
+                    baselineStatus: .leakageDetected,
+                    candidateStatus: .unproven,
+                    lineageStatus: .candidateMetadata,
+                    speechPreservationStatus: .notMeasured,
+                    residualLeakageStatus: .unproven,
+                    timingConfidence: .notMeasured,
+                    referenceStatus: .present,
+                    stabilityStatus: .unproven,
+                    thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                    thresholdSummary: "guidance_only",
+                    appStatusState: .usingOriginalMicTruth,
+                    diagnosticSafe: true
+                )
+            ],
+            nextStepRecommendation: .guidanceOnly
         )
     }
 

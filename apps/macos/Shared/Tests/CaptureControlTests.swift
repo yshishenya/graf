@@ -202,6 +202,77 @@ final class CaptureControlTests: XCTestCase {
         }
     }
 
+    func testWebRTCAEC3StatusCopyCoversEvaluationFallbackRollbackAndAttentionStates() throws {
+        let cases: [(WebRTCAEC3AppStatusState, String, String, String)] = [
+            (.evaluatingAEC3, "Проверяем AEC3", "исходному микрофону", "waveform.and.mic"),
+            (.usingOriginalMicTruth, "Исходный микрофон", "источником правды", "mic.fill"),
+            (.candidateBlocked, "AEC3 не включен", "исходному микрофону", "exclamationmark.triangle"),
+            (.promotedBuiltinRoute, "AEC3 подтвержден", "проверками", "checkmark.shield"),
+            (.rolledBackToOriginal, "AEC3 откатился", "исходному микрофону", "arrow.uturn.backward.circle"),
+            (.fallbackRelevant, "Используем фолбэк", "исходный микрофон", "arrow.triangle.2.circlepath"),
+            (.requiresUserAttention, "Нужна проверка AEC3", "не повышаем", "exclamationmark.triangle.fill")
+        ]
+
+        for (state, title, detailFragment, iconName) in cases {
+            let status = controlWebRTCAEC3Status(state: state)
+            let copy = try XCTUnwrap(CaptureControlView.webRTCAEC3StatusCopy(for: status), state.rawValue)
+
+            XCTAssertEqual(CaptureControlView.webRTCAEC3StatusTitle(for: state), title)
+            XCTAssertTrue(copy.contains(detailFragment), "\(state.rawValue): \(copy)")
+            XCTAssertEqual(CaptureControlView.webRTCAEC3StatusIconName(for: state), iconName)
+            XCTAssertTrue(CaptureControlView.webRTCAEC3StatusCopyIsClaimSafe(copy, state: state))
+        }
+    }
+
+    func testWebRTCAEC3StatusPriorityIsCalmAndDoesNotHideStop() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 24) },
+            idFactory: { "aec3-status-session" },
+            policySnapshotProvider: { "policy-test" }
+        )
+        let rollbackStatus = controlWebRTCAEC3Status(state: .rolledBackToOriginal)
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        _ = try controller.markCapturing()
+        let activeWithStatus = try controller.updateWebRTCAEC3Status(rollbackStatus)
+
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: activeWithStatus))
+        XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: activeWithStatus, stopDisabled: false))
+        XCTAssertEqual(activeWithStatus.webRTCAEC3Status, rollbackStatus)
+        XCTAssertEqual(CaptureControlView.webRTCAEC3StatusAccessibilityIdentifier(for: .rolledBackToOriginal), SystemAudioAccessibilityIdentifier.webRTCAEC3RollbackStatus)
+        XCTAssertGreaterThan(
+            CaptureControlView.webRTCAEC3StatusPriority(for: .requiresUserAttention),
+            CaptureControlView.webRTCAEC3StatusPriority(for: .fallbackRelevant)
+        )
+        XCTAssertGreaterThan(
+            CaptureControlView.webRTCAEC3StatusPriority(for: .rolledBackToOriginal),
+            CaptureControlView.webRTCAEC3StatusPriority(for: .candidateBlocked)
+        )
+        XCTAssertFalse(CaptureControlView.webRTCAEC3StatusIsNoisyAlert(for: controlWebRTCAEC3Status(state: .fallbackRelevant)))
+        XCTAssertFalse(CaptureControlView.webRTCAEC3StatusIsNoisyAlert(for: rollbackStatus))
+    }
+
+    func testWebRTCAEC3BlockedAndUnprovenCopyNeverClaimsCleanRecording() throws {
+        let statuses = [
+            controlWebRTCAEC3Status(state: .evaluatingAEC3),
+            controlWebRTCAEC3Status(state: .usingOriginalMicTruth),
+            controlWebRTCAEC3Status(state: .candidateBlocked),
+            controlWebRTCAEC3Status(state: .rolledBackToOriginal),
+            controlWebRTCAEC3Status(state: .fallbackRelevant),
+            controlWebRTCAEC3Status(state: .requiresUserAttention, matchesPackageTruth: false)
+        ]
+        let forbiddenClaimWords = ["clean", "чист", "не попадает", "без эха"]
+
+        for status in statuses {
+            let copy = try XCTUnwrap(CaptureControlView.webRTCAEC3StatusCopy(for: status), status.state.rawValue)
+            for word in forbiddenClaimWords {
+                XCTAssertFalse(copy.localizedCaseInsensitiveContains(word), "\(status.state.rawValue) contained \(word): \(copy)")
+            }
+        }
+    }
+
     func testRecordingMicrophoneStatusNamesSelectedAndDefaultInput() {
         let selected = controlRecordingMicrophoneSelection(
             mode: .userSelected,
@@ -436,6 +507,22 @@ private func controlAppleOutcome(
         ],
         nextStepRecommendation: nextStep,
         failureReason: failureReason
+    )
+}
+
+private func controlWebRTCAEC3Status(
+    state: WebRTCAEC3AppStatusState,
+    matchesPackageTruth: Bool = true
+) -> AppRecordingStatus {
+    AppRecordingStatus(
+        statusId: "status-\(state.rawValue)",
+        candidateId: "aec3-\(state.rawValue)",
+        state: state,
+        routeScope: state == .promotedBuiltinRoute ? .builtInMacMicAndSpeakers : .notApplicable,
+        copySafety: .safe,
+        actionHint: state == .requiresUserAttention ? .reviewStatus : .continueRecording,
+        matchesPackageTruth: matchesPackageTruth,
+        diagnosticSafe: true
     )
 }
 #endif

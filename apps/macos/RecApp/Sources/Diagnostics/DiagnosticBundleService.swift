@@ -307,6 +307,16 @@ public struct DiagnosticBundleService: Sendable {
         bundleManifest["appleProcessingValidationRows"] = .array(
             (manifest.appleProcessingOutcome?.validationRows ?? []).map(Self.diagnosticValue)
         )
+        bundleManifest["webRTCAEC3Outcome"] = manifest.webRTCAEC3Outcome.map(Self.diagnosticValue) ?? .null
+        bundleManifest["webRTCAEC3ValidationRows"] = .array(
+            (manifest.webRTCAEC3Outcome?.validationRows ?? []).map(Self.diagnosticValue)
+        )
+        bundleManifest["webRTCAEC3RollbackEvents"] = .array(
+            (manifest.webRTCAEC3Outcome?.rollbackEvents ?? []).map(Self.diagnosticValue)
+        )
+        bundleManifest["webRTCAEC3EchoDelaySummary"] = .string(
+            manifest.webRTCAEC3Outcome?.validationRows.first?.thresholdSummary ?? "not_recorded"
+        )
         if let leakageFinalization = manifest.leakageFinalization {
             bundleManifest["leakageFinalization"] = Self.diagnosticValue(leakageFinalization)
             bundleManifest["leakageRouteMetadata"] = Self.diagnosticValue(leakageFinalization.routeMetadata)
@@ -657,6 +667,7 @@ public struct DiagnosticBundleService: Sendable {
             "microphoneStream": manifest.microphoneStream.map(Self.diagnosticValue) ?? .null,
             "microphoneStreamHealth": manifest.microphoneStreamHealth.map(Self.diagnosticValue) ?? .null,
             "appleProcessingOutcome": manifest.appleProcessingOutcome.map(Self.diagnosticValue) ?? .null,
+            "webRTCAEC3Outcome": manifest.webRTCAEC3Outcome.map(Self.diagnosticValue) ?? .null,
             "privacySegments": .array((manifest.privacySegments ?? []).map(Self.diagnosticValue)),
             "meetingMuteTruth": manifest.meetingMuteTruth.map(Self.diagnosticValue) ?? .null,
             "meetingMuteTruthEvidence": .array((manifest.meetingMuteTruthEvidence ?? []).map(Self.diagnosticValue)),
@@ -746,6 +757,69 @@ public struct DiagnosticBundleService: Sendable {
             "stabilityStatus": .string(row.normalizedStabilityStatus.rawValue),
             "diagnosticSafe": .bool(row.diagnosticSafe),
             "failureReason": .string(row.failureReason ?? "none")
+        ])
+    }
+
+    private static func diagnosticValue(_ outcome: WebRTCAEC3DecisionRecord) -> DiagnosticFieldValue {
+        .object([
+            "feature": .string(outcome.feature),
+            "candidateId": .string(outcome.candidateId),
+            "primaryOutcome": .string(outcome.primaryOutcome.rawValue),
+            "primaryOutcomeCount": .int(outcome.primaryOutcomeCount),
+            "nextStepRecommendation": .string(outcome.nextStepRecommendation.rawValue),
+            "thresholdProfileId": .string(outcome.validationRows.first?.thresholdProfileId ?? "not_recorded"),
+            "thresholdSummary": .string(outcome.validationRows.first?.thresholdSummary ?? "not_recorded"),
+            "appStatusState": .string(outcome.validationRows.first?.appStatusState.rawValue ?? WebRTCAEC3AppStatusState.notEvaluated.rawValue),
+            "diagnosticSafe": .bool(outcome.diagnosticSafe),
+            "failureReason": .string(outcome.failureReason ?? "none"),
+            "canClaimCleanBuiltInSpeakerphone": .bool(outcome.canClaimCleanBuiltInSpeakerphone),
+            "validationRowCount": .int(outcome.validationRows.count),
+            "supportingRouteRowCount": .int(outcome.supportingRouteRows?.count ?? 0),
+            "supportingRoutesCanBroadenPromotionScope": .bool(outcome.supportingRoutesCanBroadenPromotionScope),
+            "fallbackFeatureId": .string(outcome.fallbackFeatureId ?? "none"),
+            "requiresFallbackPlanning": .bool(outcome.requiresFallbackPlanning),
+            "limitations": .array(outcome.decisionLimitations.map { .string($0) }),
+            "rollbackEventCount": .int(outcome.rollbackEvents?.count ?? 0)
+        ])
+    }
+
+    private static func diagnosticValue(_ row: WebRTCAEC3ValidationRow) -> DiagnosticFieldValue {
+        .object([
+            "feature": .string(row.feature),
+            "rowId": .string(row.rowId),
+            "candidateId": .string(row.candidateId),
+            "corpusId": .string(row.corpusId ?? "none"),
+            "scenarioFamily": .string(row.scenarioFamily.rawValue),
+            "validationKind": .string(row.validationKind.rawValue),
+            "routeClass": .string(row.routeClass.rawValue),
+            "baselineStatus": .string(row.baselineStatus.rawValue),
+            "candidateStatus": .string(row.candidateStatus.rawValue),
+            "lineageStatus": .string(row.lineageStatus.rawValue),
+            "speechPreservationStatus": .string(row.speechPreservationStatus.rawValue),
+            "residualLeakageStatus": .string(row.residualLeakageStatus.rawValue),
+            "timingConfidence": .string(row.timingConfidence.rawValue),
+            "referenceStatus": .string(row.referenceStatus.rawValue),
+            "stabilityStatus": .string(row.stabilityStatus.rawValue),
+            "thresholdProfileId": .string(row.thresholdProfileId),
+            "thresholdSummary": .string(row.thresholdSummary),
+            "appStatusState": .string(row.appStatusState.rawValue),
+            "diagnosticSafe": .bool(row.diagnosticSafe),
+            "failureReason": .string(row.failureReason ?? "none")
+        ])
+    }
+
+    private static func diagnosticValue(_ event: AEC3RollbackEvent) -> DiagnosticFieldValue {
+        .object([
+            "rollbackId": .string(event.rollbackId),
+            "candidateId": .string(event.candidateId),
+            "trigger": .string(event.trigger.rawValue),
+            "previousLineageStatus": .string(event.previousLineageStatus.rawValue),
+            "restoredLineageStatus": .string(event.restoredLineageStatus.rawValue),
+            "cleanRecordingClaimRemoved": .bool(event.cleanRecordingClaimRemoved),
+            "appStatusShown": .bool(event.appStatusShown),
+            "thresholdProfileId": .string(event.thresholdProfileId),
+            "occurredAt": .string(Self.formatDate(event.occurredAt)),
+            "diagnosticSafe": .bool(event.diagnosticSafe)
         ])
     }
 

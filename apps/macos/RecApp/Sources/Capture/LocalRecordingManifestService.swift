@@ -36,6 +36,7 @@ public struct LocalRecordingManifestService: Sendable {
         microphoneStream: AppOwnedMicrophoneStreamSession? = nil,
         microphoneStreamHealth: MicrophoneStreamHealth? = nil,
         appleProcessingOutcome: AppleProcessingOutcome? = nil,
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil,
         captureHealth: CaptureHealthSnapshot? = nil,
         privacySegments: [ProductPrivacySegment] = [],
         targetMuteCapability: TargetMuteCapability? = nil,
@@ -59,7 +60,9 @@ public struct LocalRecordingManifestService: Sendable {
         )
         let derivedGateReady = leakageFinalization?.transcriptionGate == .eligibleDerivedDual &&
             tracks.contains(where: \.isDerivedTranscriptionEligible)
-        let complete = (originalGateReady || derivedGateReady) &&
+        let webRTCAEC3GateReady = webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone == true &&
+            originalTracksReady
+        let complete = (originalGateReady || derivedGateReady || webRTCAEC3GateReady) &&
             scopeAllowsAcceptedRecording &&
             permissionsAllowAcceptedRecording &&
             durationDifferenceSeconds <= 3 &&
@@ -129,6 +132,7 @@ public struct LocalRecordingManifestService: Sendable {
             microphoneStream: microphoneStream,
             microphoneStreamHealth: microphoneStreamHealth,
             appleProcessingOutcome: appleProcessingOutcome,
+            webRTCAEC3Outcome: webRTCAEC3Outcome,
             captureHealth: captureHealth,
             privacySegments: privacySegments,
             meetingMuteTruth: muteTruthDecision,
