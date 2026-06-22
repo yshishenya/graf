@@ -192,6 +192,10 @@ private struct ContentView: View {
                 appleProcessingStatus: CaptureControlView.appleProcessingStatusCopy(
                     for: activeAppleProcessingOutcome ?? localRecordingManifest?.appleProcessingOutcome
                 ),
+                webRTCAEC3Status: CaptureControlView.resolvedWebRTCAEC3Status(
+                    for: captureSession,
+                    manifest: localRecordingManifest
+                ),
                 recordingMicrophoneSelection: recordingMicrophoneSelection,
                 recordingMicrophoneInputs: microphoneCaptureService.availableRecordingMicrophoneInputs(),
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
