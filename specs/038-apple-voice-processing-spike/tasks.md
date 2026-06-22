@@ -69,13 +69,21 @@
 
 ## GitHub Completion Sync
 
-- Checked: 2026-06-22 with `gh issue list --repo yshishenya/crisp --search 'feature:038' --state open --limit 60`.
-- Result: 48 open `feature:038` issues were found and they match the task table
-  range `#1343`-`#1390`.
-- Completion status text for Russian issue closure comments:
-  `Закрыто в feature:038. Что сделано: Apple voice processing spike завершен как metadata-only evidence slice; итоговый primary outcome — defer_to_webrtc_aec3. Почему важно: Apple evidence не получает права обещать clean speakerphone recording без всех accepted gates; original mic.wav, incoming.wav, manifest.json и 020 leakage finalization остаются источником правды. Как проверено: apps/macos/Scripts/validate-apple-voice-processing-spike.sh, infra/scripts/ci-local.sh, evidence/test-results.md и manual-runtime-matrix.md. Что не входит: production Apple DSP acceptance, WebRTC AEC3 и fallback semantics; следующий шаг — 039-webrtc-aec3-speakerphone-spike. PR: <PR URL>. Task: <TASK ID>.`
-- Closure rule: close the linked issues only after PR merge, using the PR URL
-  and the task id for traceability.
+- Pre-merge checked: 2026-06-22 with
+  `gh issue list --repo yshishenya/crisp --search 'feature:038' --state open --limit 60`.
+- Pre-merge result: 48 open `feature:038` issues matched the task table range
+  `#1343`-`#1390`.
+- Post-merge result: PR #1391
+  (`https://github.com/yshishenya/crisp/pull/1391`) merged feature 038 at
+  commit `f5a8a8f56bd06933181aae1b409d2f218d171d5e`; issues `#1343`-`#1390`
+  were closed with per-task Russian closure comments and validation evidence.
+- Post-merge review recheck: `gh issue list --repo yshishenya/crisp --search
+  'feature:038' --state open --limit 100 --json number,title,state` returned
+  no open issues; direct issue views for `#1343`-`#1390` all returned `CLOSED`.
+- Closure rule status: satisfied after PR merge. Each closure comment includes
+  the merged PR URL, the task id, the metadata-only outcome
+  `defer_to_webrtc_aec3`, validation commands, preserved package-truth scope,
+  excluded work, and the 039 follow-up.
 
 ## Phase 1: Setup (Shared Evidence)
 

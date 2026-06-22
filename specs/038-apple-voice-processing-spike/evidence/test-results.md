@@ -102,6 +102,13 @@ metadata-only.
   released candidate id, idle release is a no-op, all lineage labels
   round-trip, Apple status copy stays claim-safe, and Apple leakage comparison
   tests remain covered.
+- 2026-06-22: Post-merge detailed review fix rerun,
+  `swift test --package-path apps/macos --filter
+  'AppleVoiceProcessingModelsTests|AppleVoiceProcessingEvaluationTests'`,
+  passed with 13 tests, 0 failures. Evidence: diagnostic-unsafe validation rows
+  now fail closed before accepted built-in speakerphone outcome selection and
+  cannot allow clean built-in speakerphone claims even when required accepted
+  rows are otherwise present.
 
 ## Package Inspection
 
@@ -110,6 +117,13 @@ metadata-only.
   failures, then ran `apps/macos/Scripts/validate-recording-artifact-format.sh`;
   artifact-format validation passed with the full macOS SwiftPM package at
   529 tests and 0 failures, `ContractValidation: PASS`, and
+  `audio-rt-safety-check: ACCEPTED`.
+- 2026-06-22: Post-merge detailed review rerun,
+  `apps/macos/Scripts/validate-apple-voice-processing-spike.sh` passed. The
+  helper ran the expanded 038 focused SwiftPM suite with 29 tests and 0
+  failures, then ran `apps/macos/Scripts/validate-recording-artifact-format.sh`;
+  artifact-format validation passed with the full macOS SwiftPM package at
+  531 tests and 0 failures, `ContractValidation: PASS`, and
   `audio-rt-safety-check: ACCEPTED`.
 
 ## Diagnostics Redaction
@@ -140,5 +154,11 @@ metadata-only.
   server tests `530 passed, 4 skipped`, server lint passed, Python compile
   passed, RLS hardening validation remained inside the expected blocked
   `postgres_test_database_required` boundary, production compose config
+  rendered, deployment evidence scan passed, and final result was
+  `ci_local_result=pass`.
+- 2026-06-22: Post-merge detailed review `infra/scripts/ci-local.sh` passed.
+  Evidence summary: server tests `530 passed, 4 skipped`, server lint passed,
+  Python compile passed, RLS hardening validation remained inside the expected
+  blocked `postgres_test_database_required` boundary, production compose config
   rendered, deployment evidence scan passed, and final result was
   `ci_local_result=pass`.

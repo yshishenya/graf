@@ -154,6 +154,16 @@ public struct AppleVoiceProcessingEvaluationService: Sendable {
         rows: [AppleProcessingValidationRow],
         fallbackFailureReason: String?
     ) -> AppleProcessingOutcome {
+        if !rows.allSatisfy(\.diagnosticSafe) {
+            return blockedOutcome(
+                candidateId: candidateId,
+                rows: rows,
+                primaryOutcome: .blockedStability,
+                nextStep: .deferToWebRTCAEC3,
+                failureReason: fallbackFailureReason ?? AppleProcessingFailureReason.diagnosticsNotSafe.rawValue
+            )
+        }
+
         if rowsContainAcceptedBuiltinSpeakerphone(rows) {
             return AppleProcessingOutcome(
                 candidateId: candidateId,

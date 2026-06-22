@@ -132,5 +132,46 @@ final class AppleVoiceProcessingModelsTests: XCTestCase {
 
         XCTAssertFalse(onlyFarEnd.canClaimCleanBuiltinSpeakerphone)
     }
+
+    func testOutcomeRejectsDiagnosticUnsafeRowsEvenWhenRequiredRowsExist() {
+        let requiredRows = AppleProcessingScenario.builtinSpeakerphoneAcceptanceScenarios.map { scenario in
+            AppleProcessingValidationRow(
+                candidateId: "apple-candidate-001",
+                candidateKind: .appOwnedGraphVoiceProcessing,
+                routeClass: .builtInSpeakerphone,
+                scenario: scenario,
+                baselineStatus: .degraded,
+                candidateStatus: .accepted,
+                lineageStatus: .liveAndPersisted,
+                speechPreservationStatus: .preserved,
+                alignmentStatus: .accepted,
+                stabilityStatus: .accepted,
+                diagnosticSafe: true
+            )
+        }
+        let diagnosticUnsafeRow = AppleProcessingValidationRow(
+            candidateId: "apple-candidate-001",
+            candidateKind: .appOwnedGraphVoiceProcessing,
+            routeClass: .builtInSpeakerphone,
+            scenario: .diagnostics,
+            baselineStatus: .degraded,
+            candidateStatus: .accepted,
+            lineageStatus: .liveAndPersisted,
+            speechPreservationStatus: .preserved,
+            alignmentStatus: .accepted,
+            stabilityStatus: .accepted,
+            diagnosticSafe: false,
+            failureReason: AppleProcessingFailureReason.diagnosticsNotSafe.rawValue
+        )
+        let outcome = AppleProcessingOutcome(
+            candidateId: "apple-candidate-001",
+            primaryOutcome: .acceptedForBuiltinSpeakerphone,
+            validationRows: requiredRows + [diagnosticUnsafeRow],
+            nextStepRecommendation: .promoteAppleProcessing
+        )
+
+        XCTAssertEqual(diagnosticUnsafeRow.normalizedStabilityStatus, .blockedStability)
+        XCTAssertFalse(outcome.canClaimCleanBuiltinSpeakerphone)
+    }
 }
 #endif

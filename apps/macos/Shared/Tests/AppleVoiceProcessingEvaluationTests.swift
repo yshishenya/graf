@@ -67,6 +67,50 @@ final class AppleVoiceProcessingEvaluationTests: XCTestCase {
         XCTAssertFalse(missingRows.canClaimCleanBuiltinSpeakerphone)
     }
 
+    func testOutcomeSelectionFailsClosedWhenAnyRowIsDiagnosticUnsafe() {
+        let service = AppleVoiceProcessingEvaluationService()
+        let acceptedRows = AppleProcessingScenario.builtinSpeakerphoneAcceptanceScenarios.map { scenario in
+            AppleProcessingValidationRow(
+                candidateId: "apple-candidate-001",
+                candidateKind: .appOwnedGraphVoiceProcessing,
+                routeClass: .builtInSpeakerphone,
+                scenario: scenario,
+                baselineStatus: .degraded,
+                candidateStatus: .accepted,
+                lineageStatus: .liveAndPersisted,
+                speechPreservationStatus: .preserved,
+                alignmentStatus: .accepted,
+                stabilityStatus: .accepted,
+                diagnosticSafe: true
+            )
+        }
+        let diagnosticUnsafeRow = AppleProcessingValidationRow(
+            candidateId: "apple-candidate-001",
+            candidateKind: .appOwnedGraphVoiceProcessing,
+            routeClass: .builtInSpeakerphone,
+            scenario: .diagnostics,
+            baselineStatus: .degraded,
+            candidateStatus: .accepted,
+            lineageStatus: .liveAndPersisted,
+            speechPreservationStatus: .preserved,
+            alignmentStatus: .accepted,
+            stabilityStatus: .accepted,
+            diagnosticSafe: false,
+            failureReason: AppleProcessingFailureReason.diagnosticsNotSafe.rawValue
+        )
+
+        let outcome = service.outcome(
+            candidateId: "apple-candidate-001",
+            rows: acceptedRows + [diagnosticUnsafeRow],
+            fallbackFailureReason: nil
+        )
+
+        XCTAssertEqual(outcome.primaryOutcome, .blockedStability)
+        XCTAssertEqual(outcome.nextStepRecommendation, .deferToWebRTCAEC3)
+        XCTAssertEqual(outcome.failureReason, AppleProcessingFailureReason.diagnosticsNotSafe.rawValue)
+        XCTAssertFalse(outcome.canClaimCleanBuiltinSpeakerphone)
+    }
+
     func testDecisionRecordIsMetadataOnlyAndSingleOutcome() {
         let service = AppleVoiceProcessingEvaluationService(clock: { Date(timeIntervalSince1970: 200) })
         let outcome = AppleProcessingOutcome(
