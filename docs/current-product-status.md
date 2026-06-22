@@ -1,6 +1,6 @@
 # Current Product Status
 
-Date: 2026-06-18
+Date: 2026-06-22
 
 This document is the short status source after the
 `042-recording-sync-transcription-loop` local implementation pass. The PRD
@@ -180,6 +180,14 @@ artifacts remain the detailed implementation record.
   Record/Stop/upload truth/local readiness outside the scaled WebKit surface.
   This slice does not change capture, upload, backend meeting data, retention,
   deletion, auth, or production rollout state.
+- Feature `038-apple-voice-processing-spike` is implemented as a bounded
+  metadata-only Apple candidate evidence slice. Its current primary outcome is
+  `defer_to_webrtc_aec3`: Apple processing is not accepted for built-in
+  speakerphone recording, original `mic.wav`/`incoming.wav`/`manifest.json`
+  package truth remains authoritative, existing `020` leakage finalization
+  remains the clean/leakage/unproven authority, and user-facing/release-facing
+  copy must not claim clean speakerphone behavior from Apple evidence. The next
+  technical slice is `039-webrtc-aec3-speakerphone-spike`.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -255,7 +263,8 @@ artifacts remain the detailed implementation record.
 - Built-in speakerphone clean dual-track acceptance remains constrained by
   `020` evidence: packages can be captured, but transcription readiness must
   stay blocked when persisted package evidence is contaminated, unproven, or
-  unavailable. Live Apple/WebRTC/AEC cleanup remains a future gated slice.
+  unavailable. Feature `038` did not accept Apple processing for built-in
+  speakerphone recording; WebRTC AEC3 remains the next gated cleanup candidate.
 - Driver live virtual-device publication is not accepted for MVP recording and
   must not be revived without a separate future advanced-routing spec,
   implementation, and safety evidence.

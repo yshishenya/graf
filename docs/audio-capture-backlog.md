@@ -1,6 +1,6 @@
 # Audio Capture Backlog
 
-Date: 2026-06-18
+Date: 2026-06-22
 
 This backlog expands the deferred live speakerphone cleanup work left by
 `020-speaker-to-mic-leakage` and `025-system-audio-capture-pivot`. It is not a
@@ -35,9 +35,9 @@ user explicitly retires or renumbers that reservation.
 | `001`-`008`, `010`-`022`, `025`-`036` | Active or accepted specs | Present in the current Spec Kit line or preserved as accepted/historical feature work. |
 | `009` | Superseded / do not reuse casually | Old meeting-mute draft superseded by `022-meeting-mute-truth`. |
 | `023`-`024` | Historical draft numbers | Historical spec paths exist in git history. Reuse only after explicit owner decision and registry update. |
-| `037` | Reserved backlog | `microphone-sample-graph-foundation`: app-owned mic sample graph before cleanup/AEC work. |
-| `038` | Reserved backlog | `apple-voice-processing-spike`: Apple Voice Processing / VoiceProcessingIO evaluation. |
-| `039` | Reserved backlog | `webrtc-aec3-speakerphone-spike`: WebRTC AEC3 speakerphone cleanup spike. |
+| `037` | Implemented | `microphone-sample-graph-foundation`: app-owned mic sample graph before cleanup/AEC work. |
+| `038` | Outcome recorded | `apple-voice-processing-spike`: Apple processing remains metadata/guidance evidence only; primary outcome is `defer_to_webrtc_aec3`. |
+| `039` | Next reserved backlog | `webrtc-aec3-speakerphone-spike`: WebRTC AEC3 speakerphone cleanup spike. |
 | `040` | Reserved backlog | `speakerphone-recording-fallback-decision`: truthful fallback decision if clean built-in speakerphone capture is not proven. |
 | `041` | Reserved backlog | `recording-permission-readiness-onboarding`: Mic and Screen/System Audio readiness before recording. |
 | `042` | Claimed branch | `recording-sync-transcription-loop`: offline-safe recording upload, server transcription, and transcript display loop. |
@@ -222,6 +222,31 @@ to clean, measure, align, and compare microphone audio safely in later features.
 Test whether Apple's native voice-processing stack can reduce speaker-to-mic
 leakage enough for built-in Mac microphone plus built-in Mac speakers to become
 clean or closer to clean.
+
+### Current Result
+
+As of 2026-06-22, the recorded primary outcome is
+`defer_to_webrtc_aec3`.
+
+What 038 proved:
+
+- Apple candidate evidence can be represented as metadata-only manifest and
+  diagnostic data.
+- Candidate metadata cannot overwrite original `mic.wav`, `incoming.wav`, or
+  `manifest.json` truth.
+- Existing `020` leakage finalization remains authoritative.
+- Apple candidate failures fail closed with bounded reason codes and visible
+  Stop/capture controls.
+- User-facing and release-facing summaries do not claim clean speakerphone
+  behavior unless all accepted built-in speakerphone gates pass.
+
+What 038 did not prove:
+
+- No accepted Apple built-in speakerphone route.
+- No accepted live Apple DSP path for persisted package truth.
+- No Apple-based clean dual-track speakerphone claim.
+
+Next step: continue with `039-webrtc-aec3-speakerphone-spike`.
 
 ### User Value
 

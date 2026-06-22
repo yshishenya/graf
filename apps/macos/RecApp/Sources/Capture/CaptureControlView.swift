@@ -9,6 +9,7 @@ public struct CaptureControlView: View {
     private let localRecordingStatus: String?
     private let localRecordingLocation: String?
     private let muteTruthWarning: String?
+    private let appleProcessingStatus: String?
     private let recordingMicrophoneSelection: RecordingMicrophoneSelection?
     private let recordingMicrophoneInputs: [PhysicalAudioDevice]
     private let selectedRecordingMicrophoneDeviceId: String?
@@ -33,6 +34,7 @@ public struct CaptureControlView: View {
         localRecordingStatus: String? = nil,
         localRecordingLocation: String? = nil,
         muteTruthWarning: String? = nil,
+        appleProcessingStatus: String? = nil,
         recordingMicrophoneSelection: RecordingMicrophoneSelection? = nil,
         recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
         selectedRecordingMicrophoneDeviceId: String? = nil,
@@ -56,6 +58,7 @@ public struct CaptureControlView: View {
         self.localRecordingStatus = localRecordingStatus
         self.localRecordingLocation = localRecordingLocation
         self.muteTruthWarning = muteTruthWarning
+        self.appleProcessingStatus = appleProcessingStatus
         self.recordingMicrophoneSelection = recordingMicrophoneSelection
         self.recordingMicrophoneInputs = recordingMicrophoneInputs
         self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
@@ -180,6 +183,17 @@ public struct CaptureControlView: View {
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.muteTruthWarning)
             }
 
+            if let appleProcessingStatus, !appleProcessingStatus.isEmpty {
+                StatusNoteView(
+                    icon: "waveform.and.mic",
+                    title: "Apple voice processing",
+                    detail: appleProcessingStatus,
+                    iconColor: .secondary
+                )
+                .accessibilityLabel(appleProcessingStatus)
+                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.appleProcessingStatus)
+            }
+
             if let localRecordingLocation, !localRecordingLocation.isEmpty {
                 Text("Локальная копия сохранена")
                     .font(.caption2)
@@ -271,6 +285,28 @@ public struct CaptureControlView: View {
             return "Не удалось надежно определить микрофон записи. Выберите другой вход."
         case .none:
             return nil
+        }
+    }
+
+    public static func appleProcessingStatusCopy(for outcome: AppleProcessingOutcome?) -> String? {
+        guard let outcome else { return nil }
+        switch outcome.primaryOutcome {
+        case .acceptedForBuiltinSpeakerphone:
+            return outcome.canClaimCleanBuiltinSpeakerphone
+                ? "Apple проверка принята для встроенного маршрута; итог все равно подтверждается package evidence."
+                : "Apple проверка требует полного набора evidence перед пользовательским обещанием."
+        case .acceptedForGuidanceOnly:
+            return "Apple evidence доступен только как подсказка; запись остается проверкой локального пакета."
+        case .acceptedForHeadsetRoutesOnly:
+            return "Apple evidence применим только к headset/wired маршрутам; speakerphone остается без нового обещания."
+        case .blockedRouteTopology:
+            return "Apple route topology заблокирован; продолжаем без повышения speakerphone-обещания."
+        case .blockedQuality:
+            return "Apple quality gate заблокирован; локальная запись остается с текущими ограничениями."
+        case .blockedStability:
+            return "Apple stability gate заблокирован; candidate отключен до новой проверки."
+        case .deferToWebRTCAEC3:
+            return "Apple evidence не доказал production route; следующий кандидат - WebRTC AEC3."
         }
     }
 

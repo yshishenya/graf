@@ -303,6 +303,10 @@ public struct DiagnosticBundleService: Sendable {
         bundleManifest["microphoneSelection"] = manifest.microphoneSelection.map(Self.diagnosticValue) ?? .null
         bundleManifest["microphoneStream"] = manifest.microphoneStream.map(Self.diagnosticValue) ?? .null
         bundleManifest["microphoneStreamHealth"] = manifest.microphoneStreamHealth.map(Self.diagnosticValue) ?? .null
+        bundleManifest["appleProcessingOutcome"] = manifest.appleProcessingOutcome.map(Self.diagnosticValue) ?? .null
+        bundleManifest["appleProcessingValidationRows"] = .array(
+            (manifest.appleProcessingOutcome?.validationRows ?? []).map(Self.diagnosticValue)
+        )
         if let leakageFinalization = manifest.leakageFinalization {
             bundleManifest["leakageFinalization"] = Self.diagnosticValue(leakageFinalization)
             bundleManifest["leakageRouteMetadata"] = Self.diagnosticValue(leakageFinalization.routeMetadata)
@@ -652,6 +656,7 @@ public struct DiagnosticBundleService: Sendable {
             "microphoneSelection": manifest.microphoneSelection.map(Self.diagnosticValue) ?? .null,
             "microphoneStream": manifest.microphoneStream.map(Self.diagnosticValue) ?? .null,
             "microphoneStreamHealth": manifest.microphoneStreamHealth.map(Self.diagnosticValue) ?? .null,
+            "appleProcessingOutcome": manifest.appleProcessingOutcome.map(Self.diagnosticValue) ?? .null,
             "privacySegments": .array((manifest.privacySegments ?? []).map(Self.diagnosticValue)),
             "meetingMuteTruth": manifest.meetingMuteTruth.map(Self.diagnosticValue) ?? .null,
             "meetingMuteTruthEvidence": .array((manifest.meetingMuteTruthEvidence ?? []).map(Self.diagnosticValue)),
@@ -710,6 +715,37 @@ public struct DiagnosticBundleService: Sendable {
             "cleanupReadiness": .string(health.cleanupReadiness.rawValue),
             "evidenceCodes": .array(health.evidenceCodes.map { .string($0) }),
             "diagnosticSafe": .bool(health.diagnosticSafe)
+        ])
+    }
+
+    private static func diagnosticValue(_ outcome: AppleProcessingOutcome) -> DiagnosticFieldValue {
+        .object([
+            "feature": .string(outcome.feature),
+            "candidateId": .string(outcome.candidateId),
+            "primaryOutcome": .string(outcome.primaryOutcome.rawValue),
+            "nextStepRecommendation": .string(outcome.nextStepRecommendation.rawValue),
+            "diagnosticSafe": .bool(outcome.diagnosticSafe),
+            "failureReason": .string(outcome.failureReason ?? "none"),
+            "canClaimCleanBuiltinSpeakerphone": .bool(outcome.canClaimCleanBuiltinSpeakerphone),
+            "validationRowCount": .int(outcome.validationRows.count)
+        ])
+    }
+
+    private static func diagnosticValue(_ row: AppleProcessingValidationRow) -> DiagnosticFieldValue {
+        .object([
+            "feature": .string(row.feature),
+            "candidateId": .string(row.candidateId),
+            "candidateKind": .string(row.candidateKind.rawValue),
+            "routeClass": .string(row.routeClass.rawValue),
+            "scenario": .string(row.scenario.rawValue),
+            "baselineStatus": .string(row.baselineStatus.rawValue),
+            "candidateStatus": .string(row.candidateStatus.rawValue),
+            "lineageStatus": .string(row.lineageStatus.rawValue),
+            "speechPreservationStatus": .string(row.speechPreservationStatus.rawValue),
+            "alignmentStatus": .string(row.alignmentStatus.rawValue),
+            "stabilityStatus": .string(row.normalizedStabilityStatus.rawValue),
+            "diagnosticSafe": .bool(row.diagnosticSafe),
+            "failureReason": .string(row.failureReason ?? "none")
         ])
     }
 

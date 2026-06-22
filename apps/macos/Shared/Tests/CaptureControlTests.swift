@@ -186,6 +186,22 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.isEmpty)
     }
 
+    func testAppleProcessingStatusCopyForGuidanceBlockedAndUnprovenDoesNotClaimCleanRecording() throws {
+        let outcomes = [
+            controlAppleOutcome(state: .acceptedForGuidanceOnly, nextStep: .guidanceOnly, failureReason: AppleProcessingFailureReason.userSystemControlled.rawValue),
+            controlAppleOutcome(state: .blockedRouteTopology, nextStep: .deferToWebRTCAEC3, failureReason: AppleProcessingFailureReason.routeTopologyBlocked.rawValue),
+            controlAppleOutcome(state: .deferToWebRTCAEC3, nextStep: .deferToWebRTCAEC3, failureReason: AppleProcessingFailureReason.processingUnavailable.rawValue)
+        ]
+
+        for outcome in outcomes {
+            let copy = try XCTUnwrap(CaptureControlView.appleProcessingStatusCopy(for: outcome))
+
+            XCTAssertFalse(copy.localizedCaseInsensitiveContains("чист"))
+            XCTAssertFalse(copy.localizedCaseInsensitiveContains("clean"))
+            XCTAssertTrue(copy.contains("Apple"))
+        }
+    }
+
     func testRecordingMicrophoneStatusNamesSelectedAndDefaultInput() {
         let selected = controlRecordingMicrophoneSelection(
             mode: .userSelected,
@@ -391,6 +407,35 @@ private func controlRecordingMicrophoneSelection(
         workingDeviceKind: .physical,
         selectionResult: .accepted,
         resolvedAt: Date(timeIntervalSince1970: 10)
+    )
+}
+
+private func controlAppleOutcome(
+    state: AppleProcessingOutcomeState,
+    nextStep: AppleProcessingNextStepRecommendation,
+    failureReason: String
+) -> AppleProcessingOutcome {
+    AppleProcessingOutcome(
+        candidateId: "apple-\(state.rawValue)",
+        primaryOutcome: state,
+        validationRows: [
+            AppleProcessingValidationRow(
+                candidateId: "apple-\(state.rawValue)",
+                candidateKind: state == .acceptedForGuidanceOnly ? .micModeGuidance : .appOwnedGraphVoiceProcessing,
+                routeClass: .builtInSpeakerphone,
+                scenario: .routeChange,
+                baselineStatus: .degraded,
+                candidateStatus: .unproven,
+                lineageStatus: state == .acceptedForGuidanceOnly ? .guidanceOnly : .unproven,
+                speechPreservationStatus: .notMeasured,
+                alignmentStatus: .notMeasured,
+                stabilityStatus: .unproven,
+                diagnosticSafe: true,
+                failureReason: failureReason
+            )
+        ],
+        nextStepRecommendation: nextStep,
+        failureReason: failureReason
     )
 }
 #endif

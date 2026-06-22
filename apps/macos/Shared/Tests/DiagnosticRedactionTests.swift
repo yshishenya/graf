@@ -235,6 +235,68 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("recordingPrerequisites[0].signedUrl"))
     }
 
+    func testAppleProcessingEvidenceKeepsMetadataAndRemovesForbiddenFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "appleProcessingOutcome": .object([
+                "feature": .string("038-apple-voice-processing-spike"),
+                "primaryOutcome": .string("accepted_for_guidance_only"),
+                "diagnosticSafe": .bool(true),
+                "transcriptText": .string("forbidden")
+            ]),
+            "appleProcessingValidationRows": .array([
+                .object([
+                    "scenario": .string("double_talk"),
+                    "candidateStatus": .string("unproven"),
+                    "rawAudio": .string("forbidden")
+                ])
+            ]),
+            "processedMicrophoneEvidence": .object([
+                "lineageStatus": .string("candidate_metadata"),
+                "originalMicrophoneTrackPreserved": .bool(true),
+                "signedUrl": .string("forbidden")
+            ])
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["appleProcessingOutcome"])
+        XCTAssertNotNil(result.manifest["appleProcessingValidationRows"])
+        XCTAssertNotNil(result.manifest["processedMicrophoneEvidence"])
+        XCTAssertTrue(result.removedFields.contains("appleProcessingOutcome.transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("appleProcessingValidationRows[0].rawAudio"))
+        XCTAssertTrue(result.removedFields.contains("processedMicrophoneEvidence.signedUrl"))
+    }
+
+    func testAppleProcessingRouteLineageCpuAndFailureFieldsStayBounded() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "appleProcessingRouteClass": .string("built_in_speakerphone"),
+            "appleProcessingLineageStatus": .string("candidate_metadata"),
+            "appleProcessingPrimaryOutcome": .string("defer_to_webrtc_aec3"),
+            "appleProcessingFailureReason": .string("missing_far_end_reference"),
+            "appleProcessingCPUPeakPercent": .double(8.5),
+            "appleProcessingCPUSustainedPercent": .double(2.1),
+            "appleProcessingLatencyMs": .double(12),
+            "appleProcessingLifecycle": .object([
+                "resourceActive": .bool(false),
+                "releaseReason": .string("stop"),
+                "rawAudio": .string("forbidden")
+            ]),
+            "appleRawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertEqual(result.manifest["appleProcessingRouteClass"], .string("built_in_speakerphone"))
+        XCTAssertEqual(result.manifest["appleProcessingLineageStatus"], .string("candidate_metadata"))
+        XCTAssertEqual(result.manifest["appleProcessingPrimaryOutcome"], .string("defer_to_webrtc_aec3"))
+        XCTAssertEqual(result.manifest["appleProcessingFailureReason"], .string("missing_far_end_reference"))
+        XCTAssertEqual(result.manifest["appleProcessingCPUPeakPercent"], .double(8.5))
+        XCTAssertEqual(result.manifest["appleProcessingCPUSustainedPercent"], .double(2.1))
+        XCTAssertEqual(result.manifest["appleProcessingLatencyMs"], .double(12))
+        XCTAssertNil(result.manifest["appleRawAudio"])
+        XCTAssertTrue(result.removedFields.contains("appleProcessingLifecycle.rawAudio"))
+    }
+
     func testMuteTruthFieldsKeepMetadataAndRemoveNestedSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "recordingEvidence": .array([

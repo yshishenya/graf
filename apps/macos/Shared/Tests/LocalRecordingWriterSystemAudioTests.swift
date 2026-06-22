@@ -296,6 +296,60 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertNotNil(manifest.microphoneStreamHealth?.lastLevelAt)
     }
 
+    func testWriterAttachesAppleCandidateMetadataWithoutReplacingOriginalTracks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-writer-apple-candidate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
+        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
+        let appleOutcome = AppleProcessingOutcome(
+            candidateId: "apple-candidate-001",
+            primaryOutcome: .acceptedForGuidanceOnly,
+            validationRows: [
+                AppleProcessingValidationRow(
+                    candidateId: "apple-candidate-001",
+                    candidateKind: .micModeGuidance,
+                    routeClass: .builtInSpeakerphone,
+                    scenario: .farEndOnly,
+                    baselineStatus: .degraded,
+                    candidateStatus: .unproven,
+                    lineageStatus: .candidateMetadata,
+                    speechPreservationStatus: .notMeasured,
+                    alignmentStatus: .notMeasured,
+                    stabilityStatus: .unproven,
+                    diagnosticSafe: true
+                )
+            ],
+            nextStepRecommendation: .deferToWebRTCAEC3
+        )
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphoneSource },
+            incomingSampleSourceFactory: { incomingSource },
+            recordMicrophone: true
+        )
+
+        _ = try writer.start(
+            sessionId: "session-apple-candidate",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScope(),
+            permissions: acceptedPermissions(),
+            appleProcessingOutcome: appleOutcome
+        )
+        Thread.sleep(forTimeInterval: 0.15)
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
+        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
+        XCTAssertEqual(mic.fileName, "mic.wav")
+        XCTAssertEqual(incoming.fileName, "incoming.wav")
+        XCTAssertEqual(mic.evidenceRole, .original)
+        XCTAssertEqual(incoming.evidenceRole, .original)
+        XCTAssertEqual(manifest.appleProcessingOutcome, appleOutcome)
+        XCTAssertFalse(manifest.appleProcessingOutcome?.canClaimCleanBuiltinSpeakerphone ?? true)
+    }
+
     func testAppOwnedMicrophoneNoFramesProducesUnprovenStreamHealth() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("system-audio-writer-mic-no-frames-\(UUID().uuidString)", isDirectory: true)

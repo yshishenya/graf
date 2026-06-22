@@ -8,6 +8,11 @@ tooling in this repository may use Semantic Versioning where documented.
 ## [Unreleased]
 
 ### Added
+- Добавлен Apple voice processing spike для macOS: metadata-only candidate
+  outcome в manifest/diagnostics, package-lineage labels, fail-closed reason
+  mapping, feature-gated lifecycle release на Stop/failed start/app quit,
+  capture-control status copy и итог `defer_to_webrtc_aec3` без clean
+  speakerphone claim (`feature:038`, `T001-T048`).
 - Добавлен foundation микрофонного sample graph для macOS: выбор native
   recording microphone, fallback на текущий macOS default input, app-owned
   microphone sample source для `mic.wav`, metadata-only
@@ -59,6 +64,10 @@ tooling in this repository may use Semantic Versioning where documented.
   desktop app (`feature:042`).
 
 ### Security
+- Диагностика `038` остается metadata-only: Apple outcome/validation rows,
+  route/lineage/CPU/failure/lifecycle fields проходят redaction coverage, а
+  raw audio, transcript text, signed URLs, credentials, private paths и meeting
+  content удаляются или не экспортируются (`feature:038`).
 - Диагностика `037` остается metadata-only: selection/stream/health readiness
   сохраняются как bounded counters/status fields, а raw audio, transcript text,
   signed URLs, credentials, private local paths и meeting content удаляются
