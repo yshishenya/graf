@@ -43,6 +43,40 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(manualSummary.detail, "нужна ручная проверка локальной записи")
     }
 
+    func testUploadQueueSummaryExplainsBlockedLocalRecordingReasons() {
+        let leakageSummary = DesktopUploadQueueSummary(
+            primaryItem: makeQueueItem(
+                state: .blocked,
+                retryMode: .manualOnly,
+                failureReason: LocalRecordingFailureReason.leakageDetected.rawValue
+            ),
+            pendingCount: 1,
+            totalCount: 1
+        )
+        let silentSummary = DesktopUploadQueueSummary(
+            primaryItem: makeQueueItem(
+                state: .blocked,
+                retryMode: .manualOnly,
+                failureReason: LocalRecordingFailureReason.silentInput.rawValue
+            ),
+            pendingCount: 1,
+            totalCount: 1
+        )
+        let unmeasuredSummary = DesktopUploadQueueSummary(
+            primaryItem: makeQueueItem(
+                state: .blocked,
+                retryMode: .manualOnly,
+                failureReason: LocalRecordingFailureReason.leakageNotMeasured.rawValue
+            ),
+            pendingCount: 1,
+            totalCount: 1
+        )
+
+        XCTAssertEqual(leakageSummary.detail, "звук динамиков попал в микрофон; отправка заблокирована")
+        XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым")
+        XCTAssertEqual(unmeasuredSummary.detail, "не удалось проверить утечку динамиков; нужна проверка")
+    }
+
     func testNativeMeetingListKeepsBlockedLocalRecordingsVisibleUntilServerSeesThem() {
         let visibleBlocked = makeQueueItem(
             id: "blocked-local",
@@ -143,6 +177,33 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(profile.isUploadable)
     }
 
+    func testScanCarriesManifestFailureReasonIntoBlockedQueueItem() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "leakage-blocked-package",
+            sessionId: "leakage-blocked-session",
+            leakageFinalization: uploadQueueBlockedLeakageFinalization(),
+            status: .failed,
+            transcriptionReadiness: .failed,
+            failureReason: .leakageDetected
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let summary = DesktopUploadQueueSummary(primaryItem: item, pendingCount: 1, totalCount: 1)
+
+        XCTAssertEqual(item.state, .blocked)
+        XCTAssertEqual(item.failureReason, LocalRecordingFailureReason.leakageDetected.rawValue)
+        XCTAssertEqual(summary.detail, "звук динамиков попал в микрофон; отправка заблокирована")
+    }
+
     func testOfflineQueueSurvivesRestartWithoutServerTruth() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -219,6 +280,47 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertNil(refreshed.failureReason)
         XCTAssertTrue(refreshed.artifactProfile.isUploadable)
         XCTAssertEqual(refreshed.createdAt, staleItem.createdAt)
+    }
+
+    func testScanRefreshesGenericBlockedReasonWithManifestReason() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "blocked-reason-refresh",
+            sessionId: "blocked-reason-session",
+            leakageFinalization: uploadQueueBlockedLeakageFinalization(),
+            status: .failed,
+            transcriptionReadiness: .failed,
+            failureReason: .leakageDetected
+        )
+        let queueURL = root.appendingPathComponent("queue.json")
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var genericItem = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        genericItem.failureReason = "local_recording_package_not_uploadable"
+        let genericDocument = DesktopUploadQueueDocument(
+            updatedAt: Date(timeIntervalSince1970: 110),
+            items: [genericItem]
+        )
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(genericDocument)
+            .write(to: queueURL, options: [.atomic])
+        let refreshService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 120) }
+        )
+
+        let refreshed = try XCTUnwrap(refreshService.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(refreshed.state, .blocked)
+        XCTAssertEqual(refreshed.failureReason, LocalRecordingFailureReason.leakageDetected.rawValue)
     }
 
     func testScanClearsStaleLocalFilesMissingConflictWhenUploadingItemIsUploadableAfterRestart() throws {
@@ -707,7 +809,11 @@ final class DesktopUploadQueueTests: XCTestCase {
         sessionId: String,
         includeIncoming: Bool = true,
         includeMuteTruth: Bool = false,
-        includeMicrophoneGraphMetadata: Bool = false
+        includeMicrophoneGraphMetadata: Bool = false,
+        leakageFinalization: LeakageFinalization? = nil,
+        status: LocalRecordingSessionStatus = .saved,
+        transcriptionReadiness: TranscriptionReadinessState = .ready,
+        failureReason: LocalRecordingFailureReason = .none
     ) throws -> TestRecordingPackage {
         let directoryURL = root.appendingPathComponent(directoryId, isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -725,7 +831,11 @@ final class DesktopUploadQueueTests: XCTestCase {
             directoryId: directoryId,
             sessionId: sessionId,
             includeMuteTruth: includeMuteTruth,
-            includeMicrophoneGraphMetadata: includeMicrophoneGraphMetadata
+            includeMicrophoneGraphMetadata: includeMicrophoneGraphMetadata,
+            leakageFinalization: leakageFinalization,
+            status: status,
+            transcriptionReadiness: transcriptionReadiness,
+            failureReason: failureReason
         )
         try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
         return package
@@ -737,7 +847,10 @@ final class DesktopUploadQueueTests: XCTestCase {
         includeMuteTruth: Bool = false,
         includeMicrophoneGraphMetadata: Bool = false,
         leakageFinalization: LeakageFinalization? = nil,
-        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil,
+        status: LocalRecordingSessionStatus = .saved,
+        transcriptionReadiness: TranscriptionReadinessState = .ready,
+        failureReason: LocalRecordingFailureReason = .none
     ) -> LocalRecordingManifest {
         let startedAt = Date(timeIntervalSince1970: 10)
         let stoppedAt = Date(timeIntervalSince1970: 20)
@@ -782,11 +895,12 @@ final class DesktopUploadQueueTests: XCTestCase {
             createdAt: startedAt,
             startedAt: startedAt,
             stoppedAt: stoppedAt,
-            status: .saved,
+            status: status,
             directoryId: directoryId,
-            transcriptionReadiness: .ready,
+            transcriptionReadiness: transcriptionReadiness,
             tracks: tracks,
             leakageFinalization: leakageFinalization,
+            failureReason: failureReason,
             durationDifferenceSeconds: 0,
             scopeApproval: CaptureScopeApproval(
                 scopeApprovalId: "scope",

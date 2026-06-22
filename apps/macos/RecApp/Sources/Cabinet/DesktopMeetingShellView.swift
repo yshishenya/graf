@@ -794,7 +794,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             return "Сохранена локально, повторим отправку"
         }
         if item.state == .blocked {
-            return "Нужна проверка локальной записи"
+            return DesktopUploadQueueSummary(
+                primaryItem: item,
+                pendingCount: 1,
+                totalCount: 1
+            ).detail
         }
         return item.state.displayName
     }

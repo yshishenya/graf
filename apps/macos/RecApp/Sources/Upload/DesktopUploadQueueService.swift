@@ -237,11 +237,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     @discardableResult
     public func retry(itemId: String) throws -> DesktopUploadQueueItem {
         try updateItem(itemId: itemId) { item, now in
-            item.withTransition(
+            let blockedFailureReason = item.failureReason ?? "local_artifacts_not_uploadable"
+            return item.withTransition(
                 to: item.artifactProfile.isUploadable ? .queued : .blocked,
                 now: now,
                 failureCategory: item.artifactProfile.isUploadable ? UploadFailureCategory.none : .localResource,
-                failureReason: item.artifactProfile.isUploadable ? nil : "local_artifacts_not_uploadable",
+                failureReason: item.artifactProfile.isUploadable ? nil : blockedFailureReason,
                 retryMode: item.artifactProfile.isUploadable ? .automatic : .manualOnly,
                 nextRetryAt: item.artifactProfile.isUploadable ? now : nil,
                 syncConflictState: item.artifactProfile.isUploadable ? DesktopSyncConflictState.none : .localFilesMissing,
@@ -574,7 +575,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             systemAudioPath: systemAudioURL.path,
             state: state,
             failureCategory: failureCategory,
-            failureReason: profile.isUploadable ? nil : "local_recording_package_not_uploadable",
+            failureReason: profile.isUploadable ? nil : Self.blockedFailureReason(
+                manifest: manifest,
+                profile: profile
+            ),
             retryMode: retryMode,
             nextRetryAt: profile.isUploadable ? now : nil,
             retentionDeadline: retentionDeadline,
@@ -614,7 +618,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         if !refreshed.artifactProfile.isUploadable && existing.state == .blocked {
             merged.state = existing.state
             merged.failureCategory = existing.failureCategory
-            merged.failureReason = existing.failureReason
+            merged.failureReason = Self.mostSpecificFailureReason(
+                existing: existing.failureReason,
+                refreshed: refreshed.failureReason
+            )
             merged.retryMode = existing.retryMode
             merged.nextRetryAt = existing.nextRetryAt
             merged.retentionDecision = existing.retentionDecision
@@ -633,6 +640,36 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             )
         }
         return merged
+    }
+
+    private static func blockedFailureReason(
+        manifest: LocalRecordingManifest,
+        profile: ArtifactCompletenessProfile
+    ) -> String {
+        if manifest.failureReason != .none {
+            return manifest.failureReason.rawValue
+        }
+        if let leakageReason = manifest.leakageFinalization?.failureReason,
+           leakageReason != .none {
+            return leakageReason.rawValue
+        }
+        if !profile.manifestPresent || !profile.microphonePresent || !profile.systemAudioPresent {
+            return "local_artifacts_not_uploadable"
+        }
+        return "local_recording_package_not_uploadable"
+    }
+
+    private static func mostSpecificFailureReason(
+        existing: String?,
+        refreshed: String?
+    ) -> String? {
+        guard let refreshed, !refreshed.isEmpty else { return existing }
+        guard let existing, !existing.isEmpty else { return refreshed }
+        let genericReasons: Set<String> = [
+            "local_recording_package_not_uploadable",
+            "local_artifacts_not_uploadable"
+        ]
+        return genericReasons.contains(existing) ? refreshed : existing
     }
 
     public static func artifactProfile(
@@ -797,6 +834,34 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
         switch reason {
         case "local_recording_package_not_uploadable", "local_artifacts_not_uploadable":
             return "нужна ручная проверка локальной записи"
+        case LocalRecordingFailureReason.leakageDetected.rawValue:
+            return "звук динамиков попал в микрофон; отправка заблокирована"
+        case LocalRecordingFailureReason.leakageUnproven.rawValue:
+            return "чистота микрофона не доказана; нужна проверка"
+        case LocalRecordingFailureReason.leakageNotMeasured.rawValue:
+            return "не удалось проверить утечку динамиков; нужна проверка"
+        case LocalRecordingFailureReason.insufficientReference.rawValue:
+            return "не хватает системной аудио-дорожки для проверки"
+        case LocalRecordingFailureReason.silentInput.rawValue:
+            return "микрофон был слишком тихим или пустым"
+        case LocalRecordingFailureReason.permissionDenied.rawValue:
+            return "нужно разрешение на запись микрофона и системного звука"
+        case LocalRecordingFailureReason.scopeUnavailable.rawValue:
+            return "не подтвержден источник встречи для отправки"
+        case LocalRecordingFailureReason.timelineMisaligned.rawValue:
+            return "дорожки записи не совпали по времени"
+        case LocalRecordingFailureReason.formatNotReady.rawValue:
+            return "аудиоформат еще не готов для сервера"
+        case LocalRecordingFailureReason.emptyRequiredTrack.rawValue,
+             LocalRecordingFailureReason.noFrames.rawValue,
+             LocalRecordingFailureReason.stoppedBeforeFrames.rawValue:
+            return "в записи нет достаточного аудио для транскрибации"
+        case LocalRecordingFailureReason.protectedAudioBlocked.rawValue:
+            return "защищенный звук не отправляется на сервер"
+        case LocalRecordingFailureReason.captureFailed.rawValue,
+             LocalRecordingFailureReason.finalizationFailed.rawValue,
+             LocalRecordingFailureReason.writeFailed.rawValue:
+            return "запись не завершилась корректно"
         case "automatic_retry_window_expired":
             return "автоповтор остановлен"
         default:
