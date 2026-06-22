@@ -49,7 +49,6 @@ FEATURE_036_REQUIRED_EVIDENCE_IDS = frozenset(
 )
 FEATURE_036_BLOCKING_GAP_IDS = frozenset(
     {
-        "web-owner-live-auth-context",
         "notes-action-output",
         "production-user-rollout-evidence",
     }

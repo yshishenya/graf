@@ -259,6 +259,12 @@ def _next_slice_recommendation(report: ReadinessReport) -> str:
             "and keep production rollout capped until a commit-safe owner journey passes."
         )
     if report.feature == "036-owner-review-live-polish" and p1_gaps:
+        if not any(gap.id == "web-owner-live-auth-context" for gap in p1_gaps):
+            return (
+                "Recommended next action: keep the 036 claim at `pilot_blocked`; "
+                "decide `notes-action-output` through stored generated output or an accepted "
+                "pilot deferral, and keep production rollout capped until a live user journey passes."
+            )
         return (
             "Recommended next action: keep the 036 claim at `pilot_blocked`; "
             "close `web-owner-live-auth-context` only after metadata-safe live owner "

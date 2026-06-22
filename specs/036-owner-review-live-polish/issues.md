@@ -37,8 +37,8 @@ Last verified: 2026-06-22 with
 | T022 | #1128 | closed | Owner-review smoke session purpose metadata. |
 | T023 | #1129 | closed | Sanitized owner review live proof script. |
 | T024 | #1130 | closed | Owner review execute-mode docs. |
-| T025 | #1131 | open | Still blocked: no metadata-safe live owner list/detail/governance result in committed evidence. |
-| T026 | #1132 | open | Still blocked: `screenshots/web-owner-review-evidence.md` records missing-auth, not authenticated list/detail/governance proof. |
+| T025 | #1131 | closed | Metadata-safe live owner list/detail/governance result added. |
+| T026 | #1132 | closed | Metadata-only owner proof artifact updated from missing-auth blocker to authenticated owner proof. |
 | T027 | #1133 | closed | Notes/action schema contract coverage. |
 | T028 | #1134 | closed | Notes/action derivation unit tests. |
 | T029 | #1135 | closed | Meeting detail notes/action state tests. |
@@ -82,10 +82,7 @@ Last verified: 2026-06-22 with
 
 ## Remaining Open Groups
 
-Must stay open until new evidence exists:
-
-- #1131 / T025: production owner list/detail/governance result.
-- #1132 / T026: metadata-only owner proof artifact.
+No 036 GitHub issues remain open after the owner proof closeout.
 
 ## Sync Notes
 
@@ -94,8 +91,7 @@ Must stay open until new evidence exists:
 - The previous tracker state was stale: many already-closed GitHub issues were
   still listed as `open` here. This file now mirrors GitHub state as of
   2026-06-22.
-- Do not close #1131 or #1132 from generated readiness evidence alone. They
-  require accessible authenticated owner list/detail/governance proof, not just
-  a missing-auth blocker note.
+- #1131 and #1132 can stay closed because accessible authenticated owner
+  list/detail/governance proof is now committed as metadata-safe evidence.
 - #1153 can stay closed because the installed-app walkthrough pack is now
   committed as metadata-safe evidence.
