@@ -158,6 +158,33 @@ def test_035_closes_stale_live_desktop_gap_and_adds_web_auth_gap() -> None:
     assert "web-owner-live-auth-context" in stages["meeting-list"].launch_gap_ids
 
 
+def test_036_keeps_live_owner_and_output_gaps_but_closes_visual_polish_gap() -> None:
+    report = build_default_readiness_report(feature="036-owner-review-live-polish")
+    stages = {stage.id: stage for stage in report.stages}
+    evidence_ids = {item.id for item in report.evidence}
+    gaps = {gap.id: gap for gap in report.launch_gaps}
+    comparisons = {comparison.id: comparison for comparison in report.reference_comparisons}
+
+    assert report.claim_summary.outcome == "pilot_blocked"
+    assert "web-owner-live-auth-context" in gaps
+    assert "notes-action-output" in gaps
+    assert "production-user-rollout-evidence" in gaps
+    assert "desktop-runtime-walkthrough-evidence" in gaps
+    assert "desktop-product-surface-polish" not in gaps
+    assert "live-desktop-evidence" not in gaps
+
+    assert "feature-036-owner-review-live" in evidence_ids
+    assert "feature-036-notes-action-truth" in evidence_ids
+    assert "feature-036-installed-app-visual-polish" in evidence_ids
+    assert stages["meeting-list"].status == "degraded"
+    assert stages["meeting-detail-transcript-playback"].status == "degraded"
+    assert "web-owner-live-auth-context" in stages["meeting-list"].launch_gap_ids
+    assert stages["notes-action-output"].status == "blocked"
+    assert "feature-036-notes-action-truth" in stages["notes-action-output"].evidence_ids
+    assert stages["desktop-embedded-cabinet"].launch_gap_ids == ["desktop-runtime-walkthrough-evidence"]
+    assert comparisons["desktop-first-viewport"].result == "pass"
+
+
 def test_policy_lifecycle_evidence_is_local_runtime_and_keeps_external_limits_visible() -> None:
     report = build_default_readiness_report()
     stages = {stage.id: stage for stage in report.stages}
