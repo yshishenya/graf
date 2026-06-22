@@ -273,6 +273,60 @@ final class CaptureControlTests: XCTestCase {
         }
     }
 
+    func testWebRTCAEC3StatusResolverPrefersLiveSessionStatusOverCompletedManifest() throws {
+        let liveStatus = controlWebRTCAEC3Status(state: .rolledBackToOriginal)
+        let session = CaptureSession(
+            id: "aec3-live-status",
+            mode: .audioRecording,
+            state: .active,
+            sourceAppEligibility: .eligible,
+            policySnapshotRef: "policy",
+            triggerEvidence: [:],
+            visibleIndicatorState: .active,
+            stopActionAvailable: true,
+            bufferSummaryId: nil,
+            startedAt: Date(timeIntervalSince1970: 1),
+            stoppedAt: nil,
+            webRTCAEC3Status: liveStatus
+        )
+        let manifest = controlManifest(webRTCAEC3Outcome: controlWebRTCAEC3Outcome(primaryOutcome: .deferToFallbackDecision))
+
+        let resolved = CaptureControlView.resolvedWebRTCAEC3Status(for: session, manifest: manifest)
+
+        XCTAssertEqual(resolved, liveStatus)
+        XCTAssertEqual(CaptureControlView.webRTCAEC3StatusTitle(for: resolved?.state ?? .notEvaluated), "AEC3 откатился")
+    }
+
+    func testWebRTCAEC3StatusResolverShowsFallbackFromCompletedManifest() throws {
+        let manifest = controlManifest(webRTCAEC3Outcome: controlWebRTCAEC3Outcome(primaryOutcome: .deferToFallbackDecision))
+
+        let resolved = try XCTUnwrap(CaptureControlView.resolvedWebRTCAEC3Status(for: nil, manifest: manifest))
+        let copy = try XCTUnwrap(CaptureControlView.webRTCAEC3StatusCopy(for: resolved))
+
+        XCTAssertEqual(resolved.state, .fallbackRelevant)
+        XCTAssertEqual(resolved.routeScope, .builtInMacMicAndSpeakers)
+        XCTAssertEqual(CaptureControlView.webRTCAEC3StatusTitle(for: resolved.state), "Используем фолбэк")
+        XCTAssertEqual(
+            CaptureControlView.webRTCAEC3StatusAccessibilityIdentifier(for: resolved.state),
+            SystemAudioAccessibilityIdentifier.webRTCAEC3FallbackStatus
+        )
+        XCTAssertTrue(copy.localizedCaseInsensitiveContains("фолбэк"))
+        XCTAssertTrue(CaptureControlView.webRTCAEC3StatusCopyIsClaimSafe(copy, state: resolved.state))
+    }
+
+    func testWebRTCAEC3StatusResolverDoesNotPromoteIncompleteImmediateOutcome() throws {
+        let manifest = controlManifest(webRTCAEC3Outcome: controlWebRTCAEC3Outcome(primaryOutcome: .acceptedForImmediatePromotion))
+
+        let resolved = try XCTUnwrap(CaptureControlView.resolvedWebRTCAEC3Status(for: nil, manifest: manifest))
+        let copy = try XCTUnwrap(CaptureControlView.webRTCAEC3StatusCopy(for: resolved))
+
+        XCTAssertFalse(manifest.webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone ?? true)
+        XCTAssertEqual(resolved.state, .requiresUserAttention)
+        XCTAssertEqual(CaptureControlView.webRTCAEC3StatusTitle(for: resolved.state), "Нужна проверка AEC3")
+        XCTAssertFalse(copy.localizedCaseInsensitiveContains("подтвержден"))
+        XCTAssertTrue(CaptureControlView.webRTCAEC3StatusCopyIsClaimSafe(copy, state: resolved.state))
+    }
+
     func testRecordingMicrophoneStatusNamesSelectedAndDefaultInput() {
         let selected = controlRecordingMicrophoneSelection(
             mode: .userSelected,
@@ -523,6 +577,51 @@ private func controlWebRTCAEC3Status(
         actionHint: state == .requiresUserAttention ? .reviewStatus : .continueRecording,
         matchesPackageTruth: matchesPackageTruth,
         diagnosticSafe: true
+    )
+}
+
+private func controlManifest(webRTCAEC3Outcome: WebRTCAEC3DecisionRecord?) -> LocalRecordingManifest {
+    LocalRecordingManifest(
+        sessionId: "manifest-aec3-status",
+        createdAt: Date(timeIntervalSince1970: 1),
+        startedAt: Date(timeIntervalSince1970: 2),
+        stoppedAt: Date(timeIntervalSince1970: 3),
+        status: .degraded,
+        directoryId: "manifest-dir",
+        tracks: [],
+        webRTCAEC3Outcome: webRTCAEC3Outcome
+    )
+}
+
+private func controlWebRTCAEC3Outcome(primaryOutcome: WebRTCAEC3OutcomeState) -> WebRTCAEC3DecisionRecord {
+    WebRTCAEC3DecisionRecord(
+        candidateId: "aec3-\(primaryOutcome.rawValue)",
+        primaryOutcome: primaryOutcome,
+        validationRows: [
+            WebRTCAEC3ValidationRow(
+                rowId: "row-\(primaryOutcome.rawValue)",
+                candidateId: "aec3-\(primaryOutcome.rawValue)",
+                scenarioFamily: .farEndOnlyLeakage,
+                validationKind: .fullFile,
+                routeClass: .builtInSpeakerphone,
+                baselineStatus: .leakageDetected,
+                candidateStatus: .blocked,
+                lineageStatus: .originalOnly,
+                speechPreservationStatus: .notMeasured,
+                residualLeakageStatus: .unproven,
+                timingConfidence: .notMeasured,
+                referenceStatus: .present,
+                stabilityStatus: .unproven,
+                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                thresholdSummary: primaryOutcome.rawValue,
+                appStatusState: .candidateBlocked,
+                diagnosticSafe: true
+            )
+        ],
+        nextStepRecommendation: primaryOutcome == .deferToFallbackDecision ? .fallbackDecision : .guidanceOnly,
+        diagnosticSafe: true,
+        fallbackFeatureId: primaryOutcome == .deferToFallbackDecision ? "040-speakerphone-recording-fallback-decision" : nil,
+        failureReason: primaryOutcome.rawValue
     )
 }
 #endif

@@ -265,6 +265,104 @@ public struct CaptureControlView: View {
         return link.availability == .available ? link : nil
     }
 
+    nonisolated public static func resolvedWebRTCAEC3Status(
+        for session: CaptureSession?,
+        manifest: LocalRecordingManifest?
+    ) -> AppRecordingStatus? {
+        session?.webRTCAEC3Status ?? webRTCAEC3Status(from: manifest?.webRTCAEC3Outcome)
+    }
+
+    nonisolated private static func webRTCAEC3Status(
+        from outcome: WebRTCAEC3DecisionRecord?
+    ) -> AppRecordingStatus? {
+        guard let outcome else { return nil }
+        let diagnosticSafe = outcome.diagnosticSafe && outcome.validationRows.allSatisfy(\.diagnosticSafe)
+        let state = webRTCAEC3StatusState(for: outcome, diagnosticSafe: diagnosticSafe)
+        let copySafety: WebRTCAEC3StatusCopySafety = diagnosticSafe ? .safe : .inconsistentWithPackageTruth
+        let matchesPackageTruth = webRTCAEC3StatusMatchesPackageTruth(
+            outcome,
+            state: state,
+            diagnosticSafe: diagnosticSafe
+        )
+
+        return AppRecordingStatus(
+            statusId: "manifest-\(outcome.candidateId)-\(state.rawValue)",
+            candidateId: outcome.candidateId,
+            state: state,
+            routeScope: webRTCAEC3RouteScope(for: outcome),
+            copySafety: copySafety,
+            actionHint: webRTCAEC3ActionHint(for: state),
+            matchesPackageTruth: matchesPackageTruth,
+            diagnosticSafe: diagnosticSafe
+        )
+    }
+
+    nonisolated private static func webRTCAEC3StatusState(
+        for outcome: WebRTCAEC3DecisionRecord,
+        diagnosticSafe: Bool
+    ) -> WebRTCAEC3AppStatusState {
+        guard diagnosticSafe else { return .requiresUserAttention }
+        let rowStates = Set(outcome.validationRows.map(\.appStatusState))
+
+        if rowStates.contains(.requiresUserAttention) {
+            return .requiresUserAttention
+        }
+        if outcome.rollbackEvents?.contains(where: \.restoresOriginalTruth) == true ||
+            rowStates.contains(.rolledBackToOriginal) {
+            return .rolledBackToOriginal
+        }
+        if outcome.nextStepRecommendation == .fallbackDecision ||
+            outcome.primaryOutcome == .deferToFallbackDecision {
+            return .fallbackRelevant
+        }
+
+        switch outcome.primaryOutcome {
+        case .acceptedForImmediatePromotion:
+            return outcome.canClaimCleanBuiltInSpeakerphone ? .promotedBuiltinRoute : .requiresUserAttention
+        case .acceptedForDerivedCandidateOnly, .acceptedForGuidanceOnly:
+            return .usingOriginalMicTruth
+        case .blockedRouteTopology, .blockedQuality, .blockedStability:
+            return .candidateBlocked
+        case .deferToFallbackDecision:
+            return .fallbackRelevant
+        }
+    }
+
+    nonisolated private static func webRTCAEC3StatusMatchesPackageTruth(
+        _ outcome: WebRTCAEC3DecisionRecord,
+        state: WebRTCAEC3AppStatusState,
+        diagnosticSafe: Bool
+    ) -> Bool {
+        guard diagnosticSafe else { return false }
+        if outcome.primaryOutcome == .acceptedForImmediatePromotion && !outcome.canClaimCleanBuiltInSpeakerphone {
+            return false
+        }
+        return state != .promotedBuiltinRoute || outcome.canClaimCleanBuiltInSpeakerphone
+    }
+
+    nonisolated private static func webRTCAEC3RouteScope(
+        for outcome: WebRTCAEC3DecisionRecord
+    ) -> WebRTCAEC3StatusRouteScope {
+        guard !outcome.validationRows.isEmpty else { return .notApplicable }
+        if outcome.validationRows.contains(where: { $0.routeClass == .builtInSpeakerphone }) {
+            return .builtInMacMicAndSpeakers
+        }
+        return .supportingRouteOnly
+    }
+
+    nonisolated private static func webRTCAEC3ActionHint(
+        for state: WebRTCAEC3AppStatusState
+    ) -> WebRTCAEC3StatusActionHint {
+        switch state {
+        case .candidateBlocked, .fallbackRelevant, .requiresUserAttention, .rolledBackToOriginal:
+            return .reviewStatus
+        case .evaluatingAEC3, .usingOriginalMicTruth, .promotedBuiltinRoute:
+            return .continueRecording
+        case .notEvaluated, .notApplicable:
+            return .none
+        }
+    }
+
     public static func recordingMicrophoneStatus(
         for selection: RecordingMicrophoneSelection?
     ) -> String? {
@@ -347,7 +445,7 @@ public struct CaptureControlView: View {
         case .rolledBackToOriginal:
             return "AEC3 откатился после нового риска; запись возвращена к исходному микрофону."
         case .fallbackRelevant:
-            return "Используем фолбэк: исходный микрофон остается источником правды для записи."
+            return "Используем фолбэк: AEC3 не доказан, исходный микрофон остается источником правды для записи."
         case .requiresUserAttention:
             return "Нужна проверка AEC3: статус не совпал с проверками, запись не повышаем."
         }
