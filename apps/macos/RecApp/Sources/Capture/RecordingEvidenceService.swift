@@ -58,7 +58,8 @@ public struct RecordingEvidenceService: Sendable {
         let graphSafetyValues = [
             manifest.microphoneSelection?.diagnosticSafe,
             manifest.microphoneStream?.diagnosticSafe,
-            manifest.microphoneStreamHealth?.diagnosticSafe
+            manifest.microphoneStreamHealth?.diagnosticSafe,
+            manifest.appleProcessingOutcome?.diagnosticSafe
         ].compactMap { $0 }
         let graphDiagnosticSafe = graphSafetyValues.isEmpty ? "" : String(graphSafetyValues.allSatisfy { $0 })
 
@@ -99,6 +100,11 @@ public struct RecordingEvidenceService: Sendable {
             "microphoneStreamSilenceStatus": manifest.microphoneStreamHealth?.silenceStatus.rawValue ?? "",
             "microphoneFutureProcessingReadiness": manifest.microphoneStreamHealth?.cleanupReadiness.rawValue ?? "",
             "microphoneGraphDiagnosticSafe": graphDiagnosticSafe,
+            "appleProcessingPrimaryOutcome": manifest.appleProcessingOutcome?.primaryOutcome.rawValue ?? "",
+            "appleProcessingNextStepRecommendation": manifest.appleProcessingOutcome?.nextStepRecommendation.rawValue ?? "",
+            "appleProcessingValidationRowCount": manifest.appleProcessingOutcome.map { String($0.validationRows.count) } ?? "",
+            "appleProcessingCanClaimCleanBuiltinSpeakerphone": manifest.appleProcessingOutcome.map { String($0.canClaimCleanBuiltinSpeakerphone) } ?? "",
+            "appleProcessingDiagnosticSafe": manifest.appleProcessingOutcome.map { String($0.diagnosticSafe) } ?? "",
             "routeSessionId": manifest.recordingTimelineEvidence?.routeSessionId ?? "",
             "alignmentBand": manifest.recordingTimelineEvidence?.alignmentBand.rawValue ?? "",
             "routeInterruptionCategory": manifest.recordingTimelineEvidence?.interruptionCategory.rawValue ?? ""

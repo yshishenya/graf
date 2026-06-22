@@ -154,6 +154,26 @@ final class RecordingEvidenceTests: XCTestCase {
                 silenceStatus: .audible,
                 cleanupReadiness: .readyForFutureProcessing,
                 evidenceCodes: ["mic_graph_ready"]
+            ),
+            appleProcessingOutcome: AppleProcessingOutcome(
+                candidateId: "apple-candidate-001",
+                primaryOutcome: .acceptedForGuidanceOnly,
+                validationRows: [
+                    AppleProcessingValidationRow(
+                        candidateId: "apple-candidate-001",
+                        candidateKind: .micModeGuidance,
+                        routeClass: .builtInSpeakerphone,
+                        scenario: .farEndOnly,
+                        baselineStatus: .degraded,
+                        candidateStatus: .unproven,
+                        lineageStatus: .guidanceOnly,
+                        speechPreservationStatus: .notMeasured,
+                        alignmentStatus: .notMeasured,
+                        stabilityStatus: .unproven,
+                        diagnosticSafe: true
+                    )
+                ],
+                nextStepRecommendation: .deferToWebRTCAEC3
             )
         )
 
@@ -173,6 +193,10 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence["microphoneStreamGateStatus"], "passed")
         XCTAssertEqual(evidence["microphoneFutureProcessingReadiness"], "ready_for_future_processing")
         XCTAssertEqual(evidence["microphoneGraphDiagnosticSafe"], "true")
+        XCTAssertEqual(evidence["appleProcessingPrimaryOutcome"], "accepted_for_guidance_only")
+        XCTAssertEqual(evidence["appleProcessingNextStepRecommendation"], "defer_to_webrtc_aec3")
+        XCTAssertEqual(evidence["appleProcessingValidationRowCount"], "1")
+        XCTAssertEqual(evidence["appleProcessingCanClaimCleanBuiltinSpeakerphone"], "false")
         XCTAssertNil(evidence["rawAudio"])
         XCTAssertNil(evidence["absolutePath"])
     }

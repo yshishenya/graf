@@ -235,6 +235,38 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("recordingPrerequisites[0].signedUrl"))
     }
 
+    func testAppleProcessingEvidenceKeepsMetadataAndRemovesForbiddenFields() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "appleProcessingOutcome": .object([
+                "feature": .string("038-apple-voice-processing-spike"),
+                "primaryOutcome": .string("accepted_for_guidance_only"),
+                "diagnosticSafe": .bool(true),
+                "transcriptText": .string("forbidden")
+            ]),
+            "appleProcessingValidationRows": .array([
+                .object([
+                    "scenario": .string("double_talk"),
+                    "candidateStatus": .string("unproven"),
+                    "rawAudio": .string("forbidden")
+                ])
+            ]),
+            "processedMicrophoneEvidence": .object([
+                "lineageStatus": .string("candidate_metadata"),
+                "originalMicrophoneTrackPreserved": .bool(true),
+                "signedUrl": .string("forbidden")
+            ])
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["appleProcessingOutcome"])
+        XCTAssertNotNil(result.manifest["appleProcessingValidationRows"])
+        XCTAssertNotNil(result.manifest["processedMicrophoneEvidence"])
+        XCTAssertTrue(result.removedFields.contains("appleProcessingOutcome.transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("appleProcessingValidationRows[0].rawAudio"))
+        XCTAssertTrue(result.removedFields.contains("processedMicrophoneEvidence.signedUrl"))
+    }
+
     func testMuteTruthFieldsKeepMetadataAndRemoveNestedSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "recordingEvidence": .array([

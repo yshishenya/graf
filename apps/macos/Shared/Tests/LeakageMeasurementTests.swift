@@ -105,6 +105,76 @@ final class LeakageMeasurementTests: XCTestCase {
             XCTAssertNotEqual(decision.0, .clean)
         }
     }
+
+    func testAppleProcessingComparisonAcceptsImprovedLeakageOnlyWithLineageAndSpeech() {
+        let service = AppleVoiceProcessingEvaluationService()
+        let baseline = LeakageMeasurement(
+            speakerReferenceDb: -12,
+            virtualMicLeakageDb: -30,
+            relativeLeakageDb: -18,
+            intelligibilityStatus: .notIntelligible,
+            status: .blocked,
+            measuredAt: Date(timeIntervalSince1970: 1),
+            leakageLevelDb: -18,
+            confidence: 0.9
+        )
+        let candidate = LeakageMeasurement(
+            speakerReferenceDb: -12,
+            virtualMicLeakageDb: -62,
+            relativeLeakageDb: -50,
+            intelligibilityStatus: .notIntelligible,
+            status: .passed,
+            measuredAt: Date(timeIntervalSince1970: 2),
+            leakageLevelDb: -50,
+            confidence: 0.92
+        )
+
+        let row = service.compareLeakage(
+            candidateId: "apple-candidate-001",
+            candidateKind: .appOwnedGraphVoiceProcessing,
+            routeClass: .builtInSpeakerphone,
+            scenario: .farEndOnly,
+            baseline: baseline,
+            candidate: candidate,
+            lineageStatus: .liveAndPersisted,
+            speechPreservationStatus: .preserved,
+            alignmentStatus: .accepted
+        )
+
+        XCTAssertEqual(row.baselineStatus, .degraded)
+        XCTAssertEqual(row.candidateStatus, .accepted)
+        XCTAssertTrue(row.isAcceptedForBuiltinSpeakerphone)
+    }
+
+    func testAppleProcessingComparisonBlocksSuppressedSpeechAndMissingCandidate() {
+        let service = AppleVoiceProcessingEvaluationService()
+        let baseline = LeakageMeasurement(
+            speakerReferenceDb: -12,
+            virtualMicLeakageDb: -30,
+            relativeLeakageDb: -18,
+            intelligibilityStatus: .notIntelligible,
+            status: .blocked,
+            measuredAt: Date(timeIntervalSince1970: 1),
+            leakageLevelDb: -18,
+            confidence: 0.9
+        )
+
+        let row = service.compareLeakage(
+            candidateId: "apple-candidate-001",
+            candidateKind: .appOwnedGraphVoiceProcessing,
+            routeClass: .builtInSpeakerphone,
+            scenario: .doubleTalk,
+            baseline: baseline,
+            candidate: nil,
+            lineageStatus: .liveAndPersisted,
+            speechPreservationStatus: .suppressed,
+            alignmentStatus: .accepted
+        )
+
+        XCTAssertEqual(row.candidateStatus, .unproven)
+        XCTAssertEqual(row.normalizedStabilityStatus, .blockedQuality)
+        XCTAssertFalse(row.isAcceptedForBuiltinSpeakerphone)
+    }
 }
 
 func sineSamples(count: Int, amplitude: Float, phase: Float = 0) -> [Float] {

@@ -369,6 +369,46 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)
     }
 
+    func testManifestServiceThreadsAppleProcessingOutcomeMetadata() {
+        let outcome = AppleProcessingOutcome(
+            candidateId: "apple-candidate-001",
+            primaryOutcome: .acceptedForGuidanceOnly,
+            validationRows: [
+                AppleProcessingValidationRow(
+                    candidateId: "apple-candidate-001",
+                    candidateKind: .micModeGuidance,
+                    routeClass: .builtInSpeakerphone,
+                    scenario: .farEndOnly,
+                    baselineStatus: .degraded,
+                    candidateStatus: .unproven,
+                    lineageStatus: .guidanceOnly,
+                    speechPreservationStatus: .notMeasured,
+                    alignmentStatus: .notMeasured,
+                    stabilityStatus: .unproven,
+                    diagnosticSafe: true,
+                    failureReason: "system_controlled_mic_mode"
+                )
+            ],
+            nextStepRecommendation: .deferToWebRTCAEC3
+        )
+
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions(),
+                appleProcessingOutcome: outcome
+            )
+
+        XCTAssertEqual(manifest.appleProcessingOutcome, outcome)
+        XCTAssertFalse(manifest.appleProcessingOutcome?.canClaimCleanBuiltinSpeakerphone ?? true)
+        XCTAssertEqual(manifest.appleProcessingOutcome?.feature, "038-apple-voice-processing-spike")
+    }
+
     func testReadLegacyManifestWithoutMicrophoneMetadataLeavesOptionalFieldsNil() throws {
         let manifest = LocalRecordingManifest(
             sessionId: "legacy-session",

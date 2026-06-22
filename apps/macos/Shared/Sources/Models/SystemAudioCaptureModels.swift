@@ -405,6 +405,291 @@ public struct MicrophoneStreamHealth: Codable, Equatable, Sendable {
     }
 }
 
+public enum AppleProcessingCandidateKind: String, Codable, Sendable {
+    case appOwnedGraphVoiceProcessing = "app_owned_graph_voice_processing"
+    case voiceProcessingIO = "voice_processing_io"
+    case micModeGuidance = "mic_mode_guidance"
+}
+
+public enum AppleProcessingRouteClass: String, Codable, Sendable {
+    case builtInSpeakerphone = "built_in_speakerphone"
+    case wiredHeadphones = "wired_headphones"
+    case usbHeadset = "usb_headset"
+    case bluetoothAirPodsClass = "bluetooth_airpods_class"
+    case unknown
+}
+
+public enum AppleProcessingScenario: String, Codable, Sendable, CaseIterable {
+    case farEndOnly = "far_end_only"
+    case nearEndOnly = "near_end_only"
+    case doubleTalk = "double_talk"
+    case loudSpeaker = "loud_speaker"
+    case routeChange = "route_change"
+    case browserMeeting = "browser_meeting"
+    case stopQuit = "stop_quit"
+    case diagnostics
+
+    public static let builtinSpeakerphoneAcceptanceScenarios: [AppleProcessingScenario] = [
+        .farEndOnly,
+        .nearEndOnly,
+        .doubleTalk,
+        .loudSpeaker,
+        .routeChange,
+        .browserMeeting,
+        .stopQuit,
+        .diagnostics
+    ]
+}
+
+public enum AppleProcessingEvidenceStatus: String, Codable, Sendable {
+    case accepted
+    case degraded
+    case blocked
+    case unproven
+    case notMeasured = "not_measured"
+}
+
+public enum AppleProcessingLineageStatus: String, Codable, Sendable {
+    case originalOnly = "original_only"
+    case candidateMetadata = "candidate_metadata"
+    case derivedCandidate = "derived_candidate"
+    case liveAndPersisted = "live_and_persisted"
+    case guidanceOnly = "guidance_only"
+    case unproven
+    case blocked
+}
+
+public enum AppleSpeechPreservationStatus: String, Codable, Sendable {
+    case preserved
+    case degraded
+    case suppressed
+    case notMeasured = "not_measured"
+    case unknown
+}
+
+public enum AppleProcessingAlignmentStatus: String, Codable, Sendable {
+    case accepted
+    case degraded
+    case failed
+    case notMeasured = "not_measured"
+}
+
+public enum AppleProcessingStabilityStatus: String, Codable, Sendable {
+    case accepted
+    case blockedRouteTopology = "blocked_route_topology"
+    case blockedQuality = "blocked_quality"
+    case blockedStability = "blocked_stability"
+    case unproven
+    case notMeasured = "not_measured"
+}
+
+public enum AppleProcessingOutcomeState: String, Codable, Sendable {
+    case acceptedForBuiltinSpeakerphone = "accepted_for_builtin_speakerphone"
+    case acceptedForGuidanceOnly = "accepted_for_guidance_only"
+    case acceptedForHeadsetRoutesOnly = "accepted_for_headset_routes_only"
+    case blockedRouteTopology = "blocked_route_topology"
+    case blockedQuality = "blocked_quality"
+    case blockedStability = "blocked_stability"
+    case deferToWebRTCAEC3 = "defer_to_webrtc_aec3"
+}
+
+public enum AppleProcessingNextStepRecommendation: String, Codable, Sendable {
+    case promoteAppleProcessing = "promote_apple_processing"
+    case guidanceOnly = "guidance_only"
+    case headsetRoutesOnly = "headset_routes_only"
+    case deferToWebRTCAEC3 = "defer_to_webrtc_aec3"
+    case fallbackDecision = "fallback_decision"
+}
+
+public struct AppleProcessingCandidate: Codable, Equatable, Sendable {
+    public var feature: String
+    public var candidateId: String
+    public var candidateKind: AppleProcessingCandidateKind
+    public var routeClass: AppleProcessingRouteClass
+    public var featureGateEnabled: Bool
+    public var apiAvailable: Bool
+    public var processingEnabled: Bool
+    public var observedAt: Date
+    public var failureReason: String?
+    public var diagnosticSafe: Bool
+
+    public init(
+        feature: String = "038-apple-voice-processing-spike",
+        candidateId: String,
+        candidateKind: AppleProcessingCandidateKind,
+        routeClass: AppleProcessingRouteClass,
+        featureGateEnabled: Bool,
+        apiAvailable: Bool,
+        processingEnabled: Bool,
+        observedAt: Date,
+        failureReason: String? = nil,
+        diagnosticSafe: Bool = true
+    ) {
+        self.feature = feature
+        self.candidateId = candidateId
+        self.candidateKind = candidateKind
+        self.routeClass = routeClass
+        self.featureGateEnabled = featureGateEnabled
+        self.apiAvailable = apiAvailable
+        self.processingEnabled = processingEnabled
+        self.observedAt = observedAt
+        self.failureReason = failureReason
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public var isUsableCandidate: Bool {
+        featureGateEnabled && apiAvailable && processingEnabled && diagnosticSafe
+    }
+}
+
+public struct AppleProcessingValidationRow: Codable, Equatable, Sendable {
+    public var feature: String
+    public var candidateId: String
+    public var candidateKind: AppleProcessingCandidateKind
+    public var routeClass: AppleProcessingRouteClass
+    public var scenario: AppleProcessingScenario
+    public var baselineStatus: AppleProcessingEvidenceStatus
+    public var candidateStatus: AppleProcessingEvidenceStatus
+    public var lineageStatus: AppleProcessingLineageStatus
+    public var speechPreservationStatus: AppleSpeechPreservationStatus
+    public var alignmentStatus: AppleProcessingAlignmentStatus
+    public var stabilityStatus: AppleProcessingStabilityStatus
+    public var diagnosticSafe: Bool
+    public var failureReason: String?
+
+    public init(
+        feature: String = "038-apple-voice-processing-spike",
+        candidateId: String,
+        candidateKind: AppleProcessingCandidateKind,
+        routeClass: AppleProcessingRouteClass,
+        scenario: AppleProcessingScenario,
+        baselineStatus: AppleProcessingEvidenceStatus,
+        candidateStatus: AppleProcessingEvidenceStatus,
+        lineageStatus: AppleProcessingLineageStatus,
+        speechPreservationStatus: AppleSpeechPreservationStatus,
+        alignmentStatus: AppleProcessingAlignmentStatus,
+        stabilityStatus: AppleProcessingStabilityStatus,
+        diagnosticSafe: Bool,
+        failureReason: String? = nil
+    ) {
+        self.feature = feature
+        self.candidateId = candidateId
+        self.candidateKind = candidateKind
+        self.routeClass = routeClass
+        self.scenario = scenario
+        self.baselineStatus = baselineStatus
+        self.candidateStatus = candidateStatus
+        self.lineageStatus = lineageStatus
+        self.speechPreservationStatus = speechPreservationStatus
+        self.alignmentStatus = alignmentStatus
+        self.stabilityStatus = stabilityStatus
+        self.diagnosticSafe = diagnosticSafe
+        self.failureReason = failureReason
+    }
+
+    public var normalizedStabilityStatus: AppleProcessingStabilityStatus {
+        if speechPreservationStatus == .suppressed {
+            return .blockedQuality
+        }
+        if lineageStatus == .blocked {
+            return .blockedRouteTopology
+        }
+        return stabilityStatus
+    }
+
+    public var isAcceptedForBuiltinSpeakerphone: Bool {
+        routeClass == .builtInSpeakerphone &&
+            candidateStatus == .accepted &&
+            lineageStatus == .liveAndPersisted &&
+            speechPreservationStatus == .preserved &&
+            alignmentStatus == .accepted &&
+            normalizedStabilityStatus == .accepted &&
+            diagnosticSafe
+    }
+}
+
+public struct ProcessedMicrophoneEvidence: Codable, Equatable, Sendable {
+    public var feature: String
+    public var candidateId: String
+    public var lineageStatus: AppleProcessingLineageStatus
+    public var originalMicrophoneTrackPreserved: Bool
+    public var incomingReferencePreserved: Bool
+    public var manifestLabelsCandidate: Bool
+    public var leakageFinalizationAuthorityPreserved: Bool
+    public var diagnosticSafe: Bool
+
+    public init(
+        feature: String = "038-apple-voice-processing-spike",
+        candidateId: String,
+        lineageStatus: AppleProcessingLineageStatus,
+        originalMicrophoneTrackPreserved: Bool,
+        incomingReferencePreserved: Bool,
+        manifestLabelsCandidate: Bool,
+        leakageFinalizationAuthorityPreserved: Bool,
+        diagnosticSafe: Bool = true
+    ) {
+        self.feature = feature
+        self.candidateId = candidateId
+        self.lineageStatus = lineageStatus
+        self.originalMicrophoneTrackPreserved = originalMicrophoneTrackPreserved
+        self.incomingReferencePreserved = incomingReferencePreserved
+        self.manifestLabelsCandidate = manifestLabelsCandidate
+        self.leakageFinalizationAuthorityPreserved = leakageFinalizationAuthorityPreserved
+        self.diagnosticSafe = diagnosticSafe
+    }
+
+    public var preservesPackageTruth: Bool {
+        originalMicrophoneTrackPreserved &&
+            incomingReferencePreserved &&
+            manifestLabelsCandidate &&
+            leakageFinalizationAuthorityPreserved &&
+            diagnosticSafe
+    }
+
+    public var canRedefineOriginalMicTrack: Bool {
+        false
+    }
+}
+
+public struct AppleProcessingOutcome: Codable, Equatable, Sendable {
+    public var feature: String
+    public var candidateId: String
+    public var primaryOutcome: AppleProcessingOutcomeState
+    public var validationRows: [AppleProcessingValidationRow]
+    public var nextStepRecommendation: AppleProcessingNextStepRecommendation
+    public var diagnosticSafe: Bool
+    public var failureReason: String?
+
+    public init(
+        feature: String = "038-apple-voice-processing-spike",
+        candidateId: String,
+        primaryOutcome: AppleProcessingOutcomeState,
+        validationRows: [AppleProcessingValidationRow],
+        nextStepRecommendation: AppleProcessingNextStepRecommendation,
+        diagnosticSafe: Bool = true,
+        failureReason: String? = nil
+    ) {
+        self.feature = feature
+        self.candidateId = candidateId
+        self.primaryOutcome = primaryOutcome
+        self.validationRows = validationRows
+        self.nextStepRecommendation = nextStepRecommendation
+        self.diagnosticSafe = diagnosticSafe
+        self.failureReason = failureReason
+    }
+
+    public var canClaimCleanBuiltinSpeakerphone: Bool {
+        guard primaryOutcome == .acceptedForBuiltinSpeakerphone, diagnosticSafe else { return false }
+        let acceptedScenarios = Set(
+            validationRows
+                .filter(\.isAcceptedForBuiltinSpeakerphone)
+                .map(\.scenario)
+        )
+        return Set(AppleProcessingScenario.builtinSpeakerphoneAcceptanceScenarios)
+            .isSubset(of: acceptedScenarios)
+    }
+}
+
 public struct SystemAudioPermissionSnapshot: Codable, Equatable, Sendable {
     public var microphone: CapturePermissionState
     public var systemAudio: CapturePermissionState
