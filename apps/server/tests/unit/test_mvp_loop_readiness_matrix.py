@@ -169,19 +169,21 @@ def test_036_keeps_live_owner_and_output_gaps_but_closes_visual_polish_gap() -> 
     assert "web-owner-live-auth-context" in gaps
     assert "notes-action-output" in gaps
     assert "production-user-rollout-evidence" in gaps
-    assert "desktop-runtime-walkthrough-evidence" in gaps
+    assert "desktop-runtime-walkthrough-evidence" not in gaps
     assert "desktop-product-surface-polish" not in gaps
     assert "live-desktop-evidence" not in gaps
 
     assert "feature-036-owner-review-live" in evidence_ids
     assert "feature-036-notes-action-truth" in evidence_ids
     assert "feature-036-installed-app-visual-polish" in evidence_ids
+    assert "feature-036-installed-app-final-walkthrough" in evidence_ids
     assert stages["meeting-list"].status == "degraded"
     assert stages["meeting-detail-transcript-playback"].status == "degraded"
     assert "web-owner-live-auth-context" in stages["meeting-list"].launch_gap_ids
     assert stages["notes-action-output"].status == "blocked"
     assert "feature-036-notes-action-truth" in stages["notes-action-output"].evidence_ids
-    assert stages["desktop-embedded-cabinet"].launch_gap_ids == ["desktop-runtime-walkthrough-evidence"]
+    assert stages["desktop-embedded-cabinet"].status == "ready"
+    assert stages["desktop-embedded-cabinet"].launch_gap_ids == []
     assert comparisons["desktop-first-viewport"].result == "pass"
 
 

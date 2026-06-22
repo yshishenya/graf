@@ -172,10 +172,11 @@ artifacts remain the detailed implementation record.
   desktop login recovery, denser clean-room meeting list/detail surfaces, and
   native/embedded shell polish. The 036 readiness pack now records the bounded
   `pilot_blocked` outcome: visual/product polish and notes/action truth states
-  are accepted, while live owner list/detail/governance proof, launchable
-  generated notes/actions or an explicit pilot deferral, production user
-  rollout evidence, and a final installed-app capture-state walkthrough remain
-  separate blockers. Evidence remains metadata-safe and keeps the production
+  are accepted, and the installed-app idle/active/paused/resumed/stopped
+  walkthrough is covered by cropped native-inspector evidence. Live owner
+  list/detail/governance proof, launchable generated notes/actions or an
+  explicit pilot deferral, and production user rollout evidence remain separate
+  blockers. Evidence remains metadata-safe and keeps the production
   claim bounded unless a separate rollout gate proves stronger live owner-review
   behavior.
 - Feature `043-app-zoom-shortcuts` is implemented on top of the `036` owner
@@ -324,14 +325,15 @@ Remaining launch blockers are now more specific:
   notes and actions, or an explicit owner-approved pilot deferral, are not yet
   accepted;
 - production evidence remains `infra_smoke_ready`, not a user rollout journey;
-- the installed desktop surface has accepted clean-room visual/product polish,
-  but still needs one final metadata-safe idle/active/paused/resumed/stopped and
-  cabinet configured/missing-auth/local-only walkthrough pack.
+- the installed desktop surface has accepted clean-room visual/product polish
+  and a metadata-safe idle/active/paused/resumed/stopped walkthrough pack, but
+  this does not replace live owner-review or production rollout evidence.
 
 Before any pilot claim, finish 042 review/deploy/proof, validate the owner
 auth/session path for `rec.2brain.pro`, capture metadata-safe live owner review
 evidence, decide whether generated notes/actions are implemented or explicitly
-deferred for MVP, and complete the installed-app walkthrough evidence.
+deferred for MVP, and keep the installed-app walkthrough linked as supporting
+evidence rather than a rollout claim.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey

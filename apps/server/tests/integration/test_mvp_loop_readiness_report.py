@@ -105,9 +105,10 @@ def test_036_report_keeps_owner_review_truthful_and_closes_visual_polish_wording
     assert evidence["feature-036-notes-action-truth"].strength == "local_runtime"
     assert "web-owner-live-auth-context" in gaps
     assert "notes-action-output" in gaps
-    assert "desktop-runtime-walkthrough-evidence" in gaps
+    assert "desktop-runtime-walkthrough-evidence" not in gaps
     assert "desktop-product-surface-polish" not in gaps
-    assert stages["desktop-embedded-cabinet"].launch_gap_ids == ["desktop-runtime-walkthrough-evidence"]
+    assert stages["desktop-embedded-cabinet"].status == "ready"
+    assert stages["desktop-embedded-cabinet"].launch_gap_ids == []
     assert "Recommended next action: keep the 036 claim at `pilot_blocked`" in markdown
     assert "feature-036-notes-action-truth" in markdown
 
