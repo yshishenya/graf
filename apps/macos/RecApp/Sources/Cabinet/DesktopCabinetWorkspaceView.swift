@@ -12,6 +12,7 @@ public struct DesktopCabinetWorkspaceView: View {
     private let initialRoute: URL?
     private let presentation: DesktopCabinetWorkspacePresentation
     private let workspaceZoom: WorkspaceZoomPreference
+    private let navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger?
     @State private var cabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
 
@@ -21,12 +22,14 @@ public struct DesktopCabinetWorkspaceView: View {
         currentRoute: Binding<URL?> = .constant(nil),
         presentation: DesktopCabinetWorkspacePresentation = .card,
         workspaceZoom: WorkspaceZoomPreference = .default,
+        navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger? = nil,
         initialState: DesktopCabinetState? = nil
     ) {
         self.configuration = configuration
         self.initialRoute = initialRoute
         self.presentation = presentation
         self.workspaceZoom = workspaceZoom
+        self.navigationEventLogger = navigationEventLogger
         _cabinetState = State(initialValue: initialState ?? (configuration == nil ? .notConfigured : .loading))
         _currentRoute = currentRoute
     }
@@ -85,7 +88,8 @@ public struct DesktopCabinetWorkspaceView: View {
                 routePolicy: DesktopCabinetRoutePolicy(baseURL: configuration.baseURL),
                 cabinetState: $cabinetState,
                 workspaceZoom: workspaceZoom,
-                currentRoute: $currentRoute
+                currentRoute: $currentRoute,
+                navigationEventLogger: navigationEventLogger
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.embeddedSurface)
 

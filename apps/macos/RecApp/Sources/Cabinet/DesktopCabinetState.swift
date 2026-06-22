@@ -118,10 +118,11 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
 
     public static func state(forNavigationError error: Error, currentState: DesktopCabinetState) -> DesktopCabinetState {
         let nsError = error as NSError
+        if isExpectedNavigationCancellation(nsError) {
+            return currentState
+        }
         if nsError.domain == NSURLErrorDomain {
             switch nsError.code {
-            case NSURLErrorCancelled:
-                return currentState
             case NSURLErrorTimedOut:
                 return .timeout
             default:
@@ -129,6 +130,17 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
             }
         }
         return .offline
+    }
+
+    private static func isExpectedNavigationCancellation(_ error: NSError) -> Bool {
+        if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled {
+            return true
+        }
+        // WKError.frameLoadInterruptedByPolicyChange uses code 102 after app-driven cancels.
+        if error.domain == "WebKitErrorDomain", error.code == 102 {
+            return true
+        }
+        return false
     }
 }
 
