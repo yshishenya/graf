@@ -136,6 +136,46 @@ final class LeakageDiagnosticBundleTests: XCTestCase {
             XCTAssertNil(bundle.manifest["transcriptText"])
         }
     }
+
+    func testLocalRecordingBundleIncludesMetadataOnlyAppleProcessingOutcomeForAllStates() throws {
+        let outcomes: [AppleProcessingOutcome] = [
+            leakageDiagnosticAppleOutcome(state: .acceptedForBuiltinSpeakerphone, nextStep: .promoteAppleProcessing),
+            leakageDiagnosticAppleOutcome(state: .blockedRouteTopology, nextStep: .deferToWebRTCAEC3, failureReason: AppleProcessingFailureReason.routeTopologyBlocked.rawValue),
+            leakageDiagnosticAppleOutcome(state: .acceptedForGuidanceOnly, nextStep: .guidanceOnly, failureReason: AppleProcessingFailureReason.userSystemControlled.rawValue),
+            leakageDiagnosticAppleOutcome(state: .deferToWebRTCAEC3, nextStep: .deferToWebRTCAEC3, failureReason: AppleProcessingFailureReason.processingUnavailable.rawValue)
+        ]
+
+        for outcome in outcomes {
+            let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(
+                manifest: LocalRecordingManifest(
+                    sessionId: "apple-\(outcome.primaryOutcome.rawValue)",
+                    createdAt: Date(timeIntervalSince1970: 10),
+                    startedAt: Date(timeIntervalSince1970: 10),
+                    stoppedAt: Date(timeIntervalSince1970: 20),
+                    status: .degraded,
+                    directoryId: "directory-\(outcome.primaryOutcome.rawValue)",
+                    transcriptionReadiness: .degraded,
+                    tracks: [],
+                    appleProcessingOutcome: outcome
+                )
+            )
+
+            guard case .object(let appleOutcome)? = bundle.manifest["appleProcessingOutcome"] else {
+                XCTFail("Expected Apple processing outcome diagnostics for \(outcome.primaryOutcome)")
+                return
+            }
+            guard case .array(let rows)? = bundle.manifest["appleProcessingValidationRows"] else {
+                XCTFail("Expected Apple processing validation rows for \(outcome.primaryOutcome)")
+                return
+            }
+            XCTAssertEqual(appleOutcome["primaryOutcome"], .string(outcome.primaryOutcome.rawValue))
+            XCTAssertEqual(appleOutcome["nextStepRecommendation"], .string(outcome.nextStepRecommendation.rawValue))
+            XCTAssertEqual(rows.count, outcome.validationRows.count)
+            XCTAssertNil(bundle.manifest["rawAudio"])
+            XCTAssertNil(bundle.manifest["transcriptText"])
+            XCTAssertNil(bundle.manifest["absolutePath"])
+        }
+    }
 }
 
 private func leakageDiagnosticRecordingMicrophoneSelection(
@@ -150,6 +190,35 @@ private func leakageDiagnosticRecordingMicrophoneSelection(
         workingDeviceKind: .physical,
         selectionResult: .accepted,
         resolvedAt: Date(timeIntervalSince1970: 9)
+    )
+}
+
+private func leakageDiagnosticAppleOutcome(
+    state: AppleProcessingOutcomeState,
+    nextStep: AppleProcessingNextStepRecommendation,
+    failureReason: String? = nil
+) -> AppleProcessingOutcome {
+    AppleProcessingOutcome(
+        candidateId: "apple-\(state.rawValue)",
+        primaryOutcome: state,
+        validationRows: [
+            AppleProcessingValidationRow(
+                candidateId: "apple-\(state.rawValue)",
+                candidateKind: state == .acceptedForGuidanceOnly ? .micModeGuidance : .appOwnedGraphVoiceProcessing,
+                routeClass: .builtInSpeakerphone,
+                scenario: state == .acceptedForBuiltinSpeakerphone ? .farEndOnly : .routeChange,
+                baselineStatus: .degraded,
+                candidateStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .unproven,
+                lineageStatus: state == .acceptedForBuiltinSpeakerphone ? .liveAndPersisted : .unproven,
+                speechPreservationStatus: state == .acceptedForBuiltinSpeakerphone ? .preserved : .notMeasured,
+                alignmentStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .notMeasured,
+                stabilityStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .unproven,
+                diagnosticSafe: true,
+                failureReason: failureReason
+            )
+        ],
+        nextStepRecommendation: nextStep,
+        failureReason: failureReason
     )
 }
 #endif

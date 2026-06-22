@@ -267,6 +267,36 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("processedMicrophoneEvidence.signedUrl"))
     }
 
+    func testAppleProcessingRouteLineageCpuAndFailureFieldsStayBounded() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "appleProcessingRouteClass": .string("built_in_speakerphone"),
+            "appleProcessingLineageStatus": .string("candidate_metadata"),
+            "appleProcessingPrimaryOutcome": .string("defer_to_webrtc_aec3"),
+            "appleProcessingFailureReason": .string("missing_far_end_reference"),
+            "appleProcessingCPUPeakPercent": .double(8.5),
+            "appleProcessingCPUSustainedPercent": .double(2.1),
+            "appleProcessingLatencyMs": .double(12),
+            "appleProcessingLifecycle": .object([
+                "resourceActive": .bool(false),
+                "releaseReason": .string("stop"),
+                "rawAudio": .string("forbidden")
+            ]),
+            "appleRawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertEqual(result.manifest["appleProcessingRouteClass"], .string("built_in_speakerphone"))
+        XCTAssertEqual(result.manifest["appleProcessingLineageStatus"], .string("candidate_metadata"))
+        XCTAssertEqual(result.manifest["appleProcessingPrimaryOutcome"], .string("defer_to_webrtc_aec3"))
+        XCTAssertEqual(result.manifest["appleProcessingFailureReason"], .string("missing_far_end_reference"))
+        XCTAssertEqual(result.manifest["appleProcessingCPUPeakPercent"], .double(8.5))
+        XCTAssertEqual(result.manifest["appleProcessingCPUSustainedPercent"], .double(2.1))
+        XCTAssertEqual(result.manifest["appleProcessingLatencyMs"], .double(12))
+        XCTAssertNil(result.manifest["appleRawAudio"])
+        XCTAssertTrue(result.removedFields.contains("appleProcessingLifecycle.rawAudio"))
+    }
+
     func testMuteTruthFieldsKeepMetadataAndRemoveNestedSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "recordingEvidence": .array([

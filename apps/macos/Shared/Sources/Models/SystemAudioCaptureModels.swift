@@ -457,6 +457,16 @@ public enum AppleProcessingLineageStatus: String, Codable, Sendable {
     case guidanceOnly = "guidance_only"
     case unproven
     case blocked
+
+    public static let allPackageTruthLabels: [AppleProcessingLineageStatus] = [
+        .originalOnly,
+        .candidateMetadata,
+        .derivedCandidate,
+        .liveAndPersisted,
+        .guidanceOnly,
+        .unproven,
+        .blocked
+    ]
 }
 
 public enum AppleSpeechPreservationStatus: String, Codable, Sendable {
@@ -481,6 +491,56 @@ public enum AppleProcessingStabilityStatus: String, Codable, Sendable {
     case blockedStability = "blocked_stability"
     case unproven
     case notMeasured = "not_measured"
+}
+
+public enum AppleProcessingFailureReason: String, Codable, Sendable {
+    case processingUnavailable = "apple_processing_unavailable"
+    case failedToEnable = "apple_processing_failed_to_enable"
+    case userSystemControlled = "user_system_controlled_mic_mode"
+    case missingFarEndReference = "missing_far_end_reference"
+    case routeTopologyBlocked = "route_topology_blocked"
+    case routeChanged = "route_changed"
+    case diagnosticsNotSafe = "diagnostics_not_safe"
+    case stopReleasedResources = "stop_released_candidate_resources"
+    case failedStartReleasedResources = "failed_start_released_candidate_resources"
+    case appQuitReleasedResources = "app_quit_released_candidate_resources"
+}
+
+public enum AppleProcessingLifecycleReleaseReason: String, Codable, Sendable {
+    case stop
+    case failedStart = "failed_start"
+    case appQuit = "app_quit"
+}
+
+public struct AppleProcessingLifecycleSnapshot: Codable, Equatable, Sendable {
+    public var feature: String
+    public var activeCandidateId: String?
+    public var releasedCandidateId: String?
+    public var startedAt: Date?
+    public var releasedAt: Date?
+    public var releaseReason: AppleProcessingLifecycleReleaseReason?
+    public var resourceActive: Bool
+    public var diagnosticSafe: Bool
+
+    public init(
+        feature: String = "038-apple-voice-processing-spike",
+        activeCandidateId: String? = nil,
+        releasedCandidateId: String? = nil,
+        startedAt: Date? = nil,
+        releasedAt: Date? = nil,
+        releaseReason: AppleProcessingLifecycleReleaseReason? = nil,
+        resourceActive: Bool,
+        diagnosticSafe: Bool = true
+    ) {
+        self.feature = feature
+        self.activeCandidateId = activeCandidateId
+        self.releasedCandidateId = releasedCandidateId
+        self.startedAt = startedAt
+        self.releasedAt = releasedAt
+        self.releaseReason = releaseReason
+        self.resourceActive = resourceActive
+        self.diagnosticSafe = diagnosticSafe
+    }
 }
 
 public enum AppleProcessingOutcomeState: String, Codable, Sendable {
@@ -1205,6 +1265,7 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let recordingMicrophoneStatus = "systemAudio.recordingMicrophone.status"
     public static let recordingMicrophoneRecovery = "systemAudio.recordingMicrophone.recovery"
     public static let muteTruthWarning = "systemAudio.muteTruth.warning"
+    public static let appleProcessingStatus = "systemAudio.appleProcessing.status"
     public static let localRecordingLocation = "systemAudio.localRecording.location"
     public static let meters = "systemAudio.meters"
     public static let microphoneMeter = "systemAudio.meter.microphone"

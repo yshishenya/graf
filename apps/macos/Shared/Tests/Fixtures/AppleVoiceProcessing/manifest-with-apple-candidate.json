@@ -1,0 +1,96 @@
+{
+  "appleProcessingOutcome" : {
+    "candidateId" : "apple-candidate-001",
+    "diagnosticSafe" : true,
+    "feature" : "038-apple-voice-processing-spike",
+    "nextStepRecommendation" : "defer_to_webrtc_aec3",
+    "primaryOutcome" : "accepted_for_guidance_only",
+    "validationRows" : [
+      {
+        "alignmentStatus" : "not_measured",
+        "baselineStatus" : "degraded",
+        "candidateId" : "apple-candidate-001",
+        "candidateKind" : "app_owned_graph_voice_processing",
+        "candidateStatus" : "unproven",
+        "diagnosticSafe" : true,
+        "feature" : "038-apple-voice-processing-spike",
+        "lineageStatus" : "candidate_metadata",
+        "routeClass" : "built_in_speakerphone",
+        "scenario" : "far_end_only",
+        "speechPreservationStatus" : "not_measured",
+        "stabilityStatus" : "unproven"
+      }
+    ]
+  },
+  "createdAt" : "2026-06-22T00:00:30Z",
+  "diagnosticSafe" : true,
+  "directoryId" : "fixture-apple-voice-processing",
+  "durationDifferenceSeconds" : 0,
+  "externalEgressStarted" : false,
+  "failureReason" : "leakage_unproven",
+  "localDeletionRegistered" : false,
+  "manifestFileName" : "manifest.json",
+  "mediaScribeSourceMode" : "dual",
+  "permissions" : {
+    "evaluatedAt" : "2026-06-22T00:00:00Z",
+    "microphone" : "granted",
+    "systemAudio" : "granted"
+  },
+  "schemaVersion" : "local-recording-manifest.v3",
+  "scopeApproval" : {
+    "approvalMode" : "userConfirmedSuggestedScope",
+    "approvedAt" : "2026-06-22T00:00:00Z",
+    "approvedBy" : "user",
+    "eligibleReason" : "manualMeetingScope",
+    "notTriggerForBackgroundAudio" : true,
+    "scopeApprovalId" : "fixture-scope",
+    "scopeKind" : "display",
+    "sourceDisplayName" : "Current Display"
+  },
+  "sessionId" : "fixture-session-apple-voice-processing",
+  "startedAt" : "2026-06-22T00:00:00Z",
+  "status" : "degraded",
+  "stoppedAt" : "2026-06-22T00:00:10Z",
+  "tracks" : [
+    {
+      "bitsPerSample" : 16,
+      "byteCount" : 320044,
+      "channelCount" : 1,
+      "durationMs" : 10000,
+      "evidenceRole" : "original",
+      "failureReason" : "none",
+      "fileName" : "mic.wav",
+      "format" : "wav-pcm-s16le",
+      "frameCount" : 160000,
+      "mediaScribeField" : "mic_file",
+      "role" : "local_mic",
+      "sampleRate" : 16000,
+      "sourceKind" : "microphone",
+      "status" : "saved",
+      "timelineAligned" : true,
+      "timelineStartMs" : 0,
+      "trackId" : "mic-track"
+    },
+    {
+      "bitsPerSample" : 16,
+      "byteCount" : 320044,
+      "channelCount" : 1,
+      "durationMs" : 10000,
+      "evidenceRole" : "original",
+      "failureReason" : "none",
+      "fileName" : "incoming.wav",
+      "format" : "wav-pcm-s16le",
+      "frameCount" : 160000,
+      "mediaScribeField" : "incoming_file",
+      "role" : "remote_speaker",
+      "sampleRate" : 16000,
+      "sourceKind" : "systemAudio",
+      "status" : "saved",
+      "timelineAligned" : true,
+      "timelineStartMs" : 0,
+      "trackId" : "incoming-track"
+    }
+  ],
+  "transcriptionReadiness" : "degraded",
+  "transcriptionStarted" : false
+}

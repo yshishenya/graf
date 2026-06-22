@@ -67,6 +67,16 @@
 | T047 | https://github.com/yshishenya/crisp/issues/1389 |
 | T048 | https://github.com/yshishenya/crisp/issues/1390 |
 
+## GitHub Completion Sync
+
+- Checked: 2026-06-22 with `gh issue list --repo yshishenya/crisp --search 'feature:038' --state open --limit 60`.
+- Result: 48 open `feature:038` issues were found and they match the task table
+  range `#1343`-`#1390`.
+- Completion status text for Russian issue closure comments:
+  `Закрыто в feature:038. Что сделано: Apple voice processing spike завершен как metadata-only evidence slice; итоговый primary outcome — defer_to_webrtc_aec3. Почему важно: Apple evidence не получает права обещать clean speakerphone recording без всех accepted gates; original mic.wav, incoming.wav, manifest.json и 020 leakage finalization остаются источником правды. Как проверено: apps/macos/Scripts/validate-apple-voice-processing-spike.sh, infra/scripts/ci-local.sh, evidence/test-results.md и manual-runtime-matrix.md. Что не входит: production Apple DSP acceptance, WebRTC AEC3 и fallback semantics; следующий шаг — 039-webrtc-aec3-speakerphone-spike. PR: <PR URL>. Task: <TASK ID>.`
+- Closure rule: close the linked issues only after PR merge, using the PR URL
+  and the task id for traceability.
+
 ## Phase 1: Setup (Shared Evidence)
 
 **Purpose**: Prepare metadata-only evidence surfaces for Apple processing validation.
@@ -126,18 +136,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Add manifest tests for original-only, candidate metadata, derived candidate, guidance-only, unproven, and blocked lineage labels in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
-- [ ] T019 [P] [US2] Add writer tests proving candidate processed evidence cannot overwrite original `mic.wav` or bypass `incoming.wav` alignment in `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`
-- [ ] T020 [P] [US2] Add leakage-finalization regression tests proving Apple candidate evidence does not override `020` clean/leakage/unproven truth in `apps/macos/Shared/Tests/LocalRecordingLeakageFinalizationTests.swift`
-- [ ] T021 [P] [US2] Add package contract fixture coverage for Apple candidate metadata without raw audio in `apps/macos/Shared/Tests/Fixtures/AppleVoiceProcessing/manifest-with-apple-candidate.json`
+- [X] T018 [P] [US2] Add manifest tests for original-only, candidate metadata, derived candidate, guidance-only, unproven, and blocked lineage labels in `apps/macos/Shared/Tests/LocalRecordingManifestTests.swift`
+- [X] T019 [P] [US2] Add writer tests proving candidate processed evidence cannot overwrite original `mic.wav` or bypass `incoming.wav` alignment in `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`
+- [X] T020 [P] [US2] Add leakage-finalization regression tests proving Apple candidate evidence does not override `020` clean/leakage/unproven truth in `apps/macos/Shared/Tests/LocalRecordingLeakageFinalizationTests.swift`
+- [X] T021 [P] [US2] Add package contract fixture coverage for Apple candidate metadata without raw audio in `apps/macos/Shared/Tests/Fixtures/AppleVoiceProcessing/manifest-with-apple-candidate.json`
 
 ### Implementation for User Story 2
 
-- [ ] T022 [US2] Extend `LocalRecordingManifest` with optional Apple candidate lineage metadata while preserving backward-compatible decoding in `apps/macos/Shared/Sources/Models/AudioModels.swift`
-- [ ] T023 [US2] Thread candidate lineage metadata through manifest creation and normalization in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
-- [ ] T024 [US2] Preserve original microphone and incoming track writing while attaching candidate metadata in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
-- [ ] T025 [US2] Preserve leakage finalization inputs and status mapping when Apple candidate metadata is present in `apps/macos/RecApp/Sources/Capture/LeakageFinalizationService.swift`
-- [ ] T026 [US2] Add fixture decoding coverage for Apple candidate manifest metadata in `apps/macos/Shared/Tests/ContractTests/AppleVoiceProcessingSpikeContractTests.swift`
+- [X] T022 [US2] Extend `LocalRecordingManifest` with optional Apple candidate lineage metadata while preserving backward-compatible decoding in `apps/macos/Shared/Sources/Models/AudioModels.swift`
+- [X] T023 [US2] Thread candidate lineage metadata through manifest creation and normalization in `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift`
+- [X] T024 [US2] Preserve original microphone and incoming track writing while attaching candidate metadata in `apps/macos/RecApp/Sources/Capture/LocalRecordingWriter.swift`
+- [X] T025 [US2] Preserve leakage finalization inputs and status mapping when Apple candidate metadata is present in `apps/macos/RecApp/Sources/Capture/LeakageFinalizationService.swift`
+- [X] T026 [US2] Add fixture decoding coverage for Apple candidate manifest metadata in `apps/macos/Shared/Tests/ContractTests/AppleVoiceProcessingSpikeContractTests.swift`
 
 **Checkpoint**: User Story 2 proves Apple candidate evidence stays traceable and cannot silently redefine local package truth.
 
@@ -151,18 +161,18 @@
 
 ### Tests for User Story 3
 
-- [ ] T027 [P] [US3] Add tests for unavailable, failed-to-enable, user/system-controlled, missing-reference, and route-topology-blocked candidate states in `apps/macos/Shared/Tests/AppleVoiceProcessingEvaluationTests.swift`
-- [ ] T028 [P] [US3] Add capture safety tests proving candidate processing cannot hide active capture or remove one-action Stop in `apps/macos/Shared/Tests/CaptureSessionSafetyTests.swift`
-- [ ] T029 [P] [US3] Add diagnostic bundle tests for accepted, blocked, guidance-only, unproven, and deferred Apple evidence states in `apps/macos/Shared/Tests/LeakageDiagnosticBundleTests.swift`
-- [ ] T030 [P] [US3] Add diagnostic redaction tests for forbidden Apple processing evidence fields in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
+- [X] T027 [P] [US3] Add tests for unavailable, failed-to-enable, user/system-controlled, missing-reference, and route-topology-blocked candidate states in `apps/macos/Shared/Tests/AppleVoiceProcessingEvaluationTests.swift`
+- [X] T028 [P] [US3] Add capture safety tests proving candidate processing cannot hide active capture or remove one-action Stop in `apps/macos/Shared/Tests/CaptureSessionSafetyTests.swift`
+- [X] T029 [P] [US3] Add diagnostic bundle tests for accepted, blocked, guidance-only, unproven, and deferred Apple evidence states in `apps/macos/Shared/Tests/LeakageDiagnosticBundleTests.swift`
+- [X] T030 [P] [US3] Add diagnostic redaction tests for forbidden Apple processing evidence fields in `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Implement Apple candidate failure reason mapping and fail-closed state normalization in `apps/macos/RecApp/Sources/Capture/AppleVoiceProcessingEvaluationService.swift`
-- [ ] T032 [US3] Add feature-gated candidate processing lifecycle coordination that releases resources on Stop, failed start, and app quit in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T033 [US3] Add metadata-only Apple processing evidence to diagnostic bundle output in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
-- [ ] T034 [US3] Extend diagnostic redaction rules for Apple processing route, lineage, outcome, CPU, and failure fields in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
-- [ ] T035 [US3] Add capture control status copy for guidance-only, blocked, and unproven Apple spike states without claiming clean recording in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T031 [US3] Implement Apple candidate failure reason mapping and fail-closed state normalization in `apps/macos/RecApp/Sources/Capture/AppleVoiceProcessingEvaluationService.swift`
+- [X] T032 [US3] Add feature-gated candidate processing lifecycle coordination that releases resources on Stop, failed start, and app quit in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T033 [US3] Add metadata-only Apple processing evidence to diagnostic bundle output in `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`
+- [X] T034 [US3] Extend diagnostic redaction rules for Apple processing route, lineage, outcome, CPU, and failure fields in `apps/macos/Shared/Sources/Diagnostics/DiagnosticRedactor.swift`
+- [X] T035 [US3] Add capture control status copy for guidance-only, blocked, and unproven Apple spike states without claiming clean recording in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
 
 **Checkpoint**: User Story 3 keeps failures safe, visible, bounded, and metadata-only.
 
@@ -176,14 +186,14 @@
 
 ### Tests for User Story 4
 
-- [ ] T036 [P] [US4] Add tests for exactly-one primary outcome and next-step recommendation mapping in `apps/macos/Shared/Tests/AppleVoiceProcessingEvaluationTests.swift`
-- [ ] T037 [P] [US4] Add contract tests ensuring release-facing and user-facing summaries cannot claim clean speakerphone unless accepted built-in speakerphone gates pass in `apps/macos/Shared/Tests/ContractTests/AppleVoiceProcessingSpikeContractTests.swift`
+- [X] T036 [P] [US4] Add tests for exactly-one primary outcome and next-step recommendation mapping in `apps/macos/Shared/Tests/AppleVoiceProcessingEvaluationTests.swift`
+- [X] T037 [P] [US4] Add contract tests ensuring release-facing and user-facing summaries cannot claim clean speakerphone unless accepted built-in speakerphone gates pass in `apps/macos/Shared/Tests/ContractTests/AppleVoiceProcessingSpikeContractTests.swift`
 
 ### Implementation for User Story 4
 
-- [ ] T038 [US4] Implement final outcome summary generation with accepted, guidance-only, blocked, and deferred next-step recommendations in `apps/macos/RecApp/Sources/Capture/AppleVoiceProcessingEvaluationService.swift`
-- [ ] T039 [US4] Update `docs/current-product-status.md` with the 038 decision boundary and follow-up state after evidence is available in `docs/current-product-status.md`
-- [ ] T040 [US4] Update `docs/audio-capture-backlog.md` to record the 038 result and whether `039`, `040`, or guidance-only work is next in `docs/audio-capture-backlog.md`
+- [X] T038 [US4] Implement final outcome summary generation with accepted, guidance-only, blocked, and deferred next-step recommendations in `apps/macos/RecApp/Sources/Capture/AppleVoiceProcessingEvaluationService.swift`
+- [X] T039 [US4] Update `docs/current-product-status.md` with the 038 decision boundary and follow-up state after evidence is available in `docs/current-product-status.md`
+- [X] T040 [US4] Update `docs/audio-capture-backlog.md` to record the 038 result and whether `039`, `040`, or guidance-only work is next in `docs/audio-capture-backlog.md`
 
 **Checkpoint**: User Story 4 leaves a single, reviewable Apple decision and a clear next step.
 
@@ -193,14 +203,14 @@
 
 **Purpose**: Validation, evidence, changelog, issue sync, and final readiness.
 
-- [ ] T041 [P] Add behavior change entry for Apple voice processing spike in `CHANGELOG.md`
-- [ ] T042 [P] Add feature registry note for 038 accepted/blocked/deferred state in `docs/feature-registry.md`
-- [ ] T043 Add validation helper script for the metadata-only 038 quickstart checks in `apps/macos/Scripts/validate-apple-voice-processing-spike.sh`
-- [ ] T044 Run focused SwiftPM tests and record outputs in `specs/038-apple-voice-processing-spike/evidence/test-results.md`
-- [ ] T045 Run package, diagnostic, CPU, and artifact validation from quickstart and record evidence in `specs/038-apple-voice-processing-spike/evidence/test-results.md`
-- [ ] T046 Run manual runtime matrix or record blocked/unavailable hardware rows in `specs/038-apple-voice-processing-spike/evidence/manual-runtime-matrix.md`
-- [ ] T047 Run `infra/scripts/ci-local.sh` and record final result in `specs/038-apple-voice-processing-spike/evidence/test-results.md`
-- [ ] T048 Reconcile completed tasks with GitHub issue links and Russian closure/status text in `specs/038-apple-voice-processing-spike/tasks.md`
+- [X] T041 [P] Add behavior change entry for Apple voice processing spike in `CHANGELOG.md`
+- [X] T042 [P] Add feature registry note for 038 accepted/blocked/deferred state in `docs/feature-registry.md`
+- [X] T043 Add validation helper script for the metadata-only 038 quickstart checks in `apps/macos/Scripts/validate-apple-voice-processing-spike.sh`
+- [X] T044 Run focused SwiftPM tests and record outputs in `specs/038-apple-voice-processing-spike/evidence/test-results.md`
+- [X] T045 Run package, diagnostic, CPU, and artifact validation from quickstart and record evidence in `specs/038-apple-voice-processing-spike/evidence/test-results.md`
+- [X] T046 Run manual runtime matrix or record blocked/unavailable hardware rows in `specs/038-apple-voice-processing-spike/evidence/manual-runtime-matrix.md`
+- [X] T047 Run `infra/scripts/ci-local.sh` and record final result in `specs/038-apple-voice-processing-spike/evidence/test-results.md`
+- [X] T048 Reconcile completed tasks with GitHub issue links and Russian closure/status text in `specs/038-apple-voice-processing-spike/tasks.md`
 
 ---
 

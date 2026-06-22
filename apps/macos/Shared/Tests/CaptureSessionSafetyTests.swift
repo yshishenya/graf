@@ -67,6 +67,28 @@ final class CaptureSessionSafetyTests: XCTestCase {
         XCTAssertEqual(source.readSamples(into: scratch, capacity: 8), 0)
     }
 
+    func testAppleCandidateFailureCannotHideActiveCaptureOrRemoveStop() {
+        let hiddenIndicator = makeSession(
+            state: .active,
+            visibleIndicatorState: .hidden,
+            stopActionAvailable: true
+        )
+        let missingStop = makeSession(
+            state: .active,
+            visibleIndicatorState: .degraded,
+            stopActionAvailable: false
+        )
+        let visibleStop = makeSession(
+            state: .active,
+            visibleIndicatorState: .degraded,
+            stopActionAvailable: true
+        )
+
+        XCTAssertFalse(CaptureSessionSafetyValidator.validate(hiddenIndicator))
+        XCTAssertFalse(CaptureSessionSafetyValidator.validate(missingStop))
+        XCTAssertTrue(CaptureSessionSafetyValidator.validate(visibleStop))
+    }
+
     private func makeSession(
         state: CaptureSessionState,
         visibleIndicatorState: VisibleIndicatorState,

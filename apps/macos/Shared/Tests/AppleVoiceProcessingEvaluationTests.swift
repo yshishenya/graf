@@ -86,5 +86,132 @@ final class AppleVoiceProcessingEvaluationTests: XCTestCase {
         XCTAssertNil(record["rawAudio"])
         XCTAssertNil(record["transcriptText"])
     }
+
+    func testFailClosedRowsCoverUnavailableControlledReferenceAndTopologyFailures() {
+        let service = AppleVoiceProcessingEvaluationService()
+        let cases: [(AppleProcessingFailureReason, AppleProcessingEvidenceStatus, AppleProcessingLineageStatus, AppleProcessingStabilityStatus)] = [
+            (.processingUnavailable, .blocked, .unproven, .blockedStability),
+            (.failedToEnable, .blocked, .unproven, .blockedStability),
+            (.userSystemControlled, .unproven, .guidanceOnly, .unproven),
+            (.missingFarEndReference, .blocked, .blocked, .blockedRouteTopology),
+            (.routeTopologyBlocked, .blocked, .blocked, .blockedRouteTopology)
+        ]
+
+        for (reason, candidateStatus, lineageStatus, stabilityStatus) in cases {
+            let row = service.failClosedRow(
+                candidateId: "apple-candidate-\(reason.rawValue)",
+                candidateKind: reason == .userSystemControlled ? .micModeGuidance : .appOwnedGraphVoiceProcessing,
+                routeClass: .builtInSpeakerphone,
+                scenario: .routeChange,
+                reason: reason
+            )
+
+            XCTAssertEqual(row.candidateStatus, candidateStatus, reason.rawValue)
+            XCTAssertEqual(row.lineageStatus, lineageStatus, reason.rawValue)
+            XCTAssertEqual(row.normalizedStabilityStatus, stabilityStatus, reason.rawValue)
+            XCTAssertEqual(row.failureReason, reason.rawValue)
+            XCTAssertTrue(row.diagnosticSafe)
+            XCTAssertFalse(row.isAcceptedForBuiltinSpeakerphone)
+        }
+    }
+
+    func testAppleCandidateLifecycleCoordinatorReleasesOnStopFailedStartAndAppQuit() {
+        let coordinator = AppleVoiceProcessingCandidateLifecycleCoordinator(
+            clock: { Date(timeIntervalSince1970: 300) }
+        )
+        let idleRelease = coordinator.release(reason: .stop)
+        let candidate = AppleProcessingCandidate(
+            candidateId: "apple-candidate-lifecycle",
+            candidateKind: .appOwnedGraphVoiceProcessing,
+            routeClass: .builtInSpeakerphone,
+            featureGateEnabled: true,
+            apiAvailable: false,
+            processingEnabled: false,
+            observedAt: Date(timeIntervalSince1970: 300),
+            failureReason: AppleProcessingFailureReason.processingUnavailable.rawValue
+        )
+
+        XCTAssertFalse(idleRelease.resourceActive)
+        XCTAssertNil(idleRelease.releasedCandidateId)
+        XCTAssertNil(idleRelease.releaseReason)
+
+        let started = coordinator.start(candidate: candidate)
+        let stopped = coordinator.release(reason: .stop)
+        _ = coordinator.start(candidate: candidate)
+        let failedStart = coordinator.release(reason: .failedStart)
+        _ = coordinator.start(candidate: candidate)
+        let appQuit = coordinator.release(reason: .appQuit)
+
+        XCTAssertTrue(started.resourceActive)
+        XCTAssertEqual(started.activeCandidateId, "apple-candidate-lifecycle")
+        XCTAssertFalse(stopped.resourceActive)
+        XCTAssertNil(stopped.activeCandidateId)
+        XCTAssertEqual(stopped.releasedCandidateId, "apple-candidate-lifecycle")
+        XCTAssertEqual(stopped.releaseReason, .stop)
+        XCTAssertFalse(failedStart.resourceActive)
+        XCTAssertEqual(failedStart.releasedCandidateId, "apple-candidate-lifecycle")
+        XCTAssertEqual(failedStart.releaseReason, .failedStart)
+        XCTAssertFalse(appQuit.resourceActive)
+        XCTAssertEqual(appQuit.releasedCandidateId, "apple-candidate-lifecycle")
+        XCTAssertEqual(appQuit.releaseReason, .appQuit)
+        XCTAssertTrue(appQuit.diagnosticSafe)
+    }
+
+    func testFinalOutcomeSummaryKeepsExactlyOnePrimaryOutcomeAndMapsNextStep() {
+        let service = AppleVoiceProcessingEvaluationService()
+        let cases: [(AppleProcessingOutcomeState, AppleProcessingNextStepRecommendation)] = [
+            (.acceptedForBuiltinSpeakerphone, .promoteAppleProcessing),
+            (.acceptedForGuidanceOnly, .guidanceOnly),
+            (.acceptedForHeadsetRoutesOnly, .headsetRoutesOnly),
+            (.blockedRouteTopology, .deferToWebRTCAEC3),
+            (.blockedQuality, .deferToWebRTCAEC3),
+            (.blockedStability, .deferToWebRTCAEC3),
+            (.deferToWebRTCAEC3, .deferToWebRTCAEC3)
+        ]
+
+        for (state, expectedNextStep) in cases {
+            let summary = service.finalOutcomeSummary(
+                appleEvaluationOutcome(
+                    state: state,
+                    nextStep: .fallbackDecision,
+                    failureReason: state == .acceptedForBuiltinSpeakerphone ? nil : "bounded_reason"
+                )
+            )
+
+            XCTAssertEqual(summary.primaryOutcome, state)
+            XCTAssertEqual(summary.primaryOutcomeCount, 1)
+            XCTAssertEqual(summary.nextStepRecommendation, expectedNextStep)
+            XCTAssertTrue(summary.diagnosticSafe)
+        }
+    }
+}
+
+private func appleEvaluationOutcome(
+    state: AppleProcessingOutcomeState,
+    nextStep: AppleProcessingNextStepRecommendation,
+    failureReason: String? = nil
+) -> AppleProcessingOutcome {
+    AppleProcessingOutcome(
+        candidateId: "apple-\(state.rawValue)",
+        primaryOutcome: state,
+        validationRows: [
+            AppleProcessingValidationRow(
+                candidateId: "apple-\(state.rawValue)",
+                candidateKind: state == .acceptedForGuidanceOnly ? .micModeGuidance : .appOwnedGraphVoiceProcessing,
+                routeClass: .builtInSpeakerphone,
+                scenario: .farEndOnly,
+                baselineStatus: .degraded,
+                candidateStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .unproven,
+                lineageStatus: state == .acceptedForBuiltinSpeakerphone ? .liveAndPersisted : .unproven,
+                speechPreservationStatus: state == .acceptedForBuiltinSpeakerphone ? .preserved : .notMeasured,
+                alignmentStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .notMeasured,
+                stabilityStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .unproven,
+                diagnosticSafe: true,
+                failureReason: failureReason
+            )
+        ],
+        nextStepRecommendation: nextStep,
+        failureReason: failureReason
+    )
 }
 #endif

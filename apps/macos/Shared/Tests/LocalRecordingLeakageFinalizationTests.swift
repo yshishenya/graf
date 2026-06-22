@@ -145,6 +145,64 @@ final class LocalRecordingLeakageFinalizationTests: XCTestCase {
         XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)
         XCTAssertFalse(manifest.isComplete)
     }
+
+    func testAppleCandidateMetadataDoesNotOverrideLeakageTruth() throws {
+        let incoming = leakageIntegrationSineSamples(count: 16_000 * 16, amplitude: 0.5)
+        let package = try leakageIntegrationPackage(
+            mic: incoming.map { $0 * 0.2 },
+            incoming: incoming
+        )
+        defer { try? FileManager.default.removeItem(at: package) }
+
+        let micTrack = leakageIntegrationTrack(role: .localMic, durationMs: 16_000)
+        let incomingTrack = leakageIntegrationTrack(role: .remoteSpeaker, durationMs: 16_000)
+        let finalization = LeakageFinalizationService(clock: { Date(timeIntervalSince1970: 110) })
+            .finalize(
+                micURL: package.appendingPathComponent("mic.wav"),
+                incomingURL: package.appendingPathComponent("incoming.wav"),
+                micTrack: micTrack,
+                incomingTrack: incomingTrack
+            )
+        let appleOutcome = AppleProcessingOutcome(
+            candidateId: "apple-candidate-001",
+            primaryOutcome: .acceptedForGuidanceOnly,
+            validationRows: [
+                AppleProcessingValidationRow(
+                    candidateId: "apple-candidate-001",
+                    candidateKind: .micModeGuidance,
+                    routeClass: .builtInSpeakerphone,
+                    scenario: .farEndOnly,
+                    baselineStatus: .degraded,
+                    candidateStatus: .accepted,
+                    lineageStatus: .candidateMetadata,
+                    speechPreservationStatus: .preserved,
+                    alignmentStatus: .accepted,
+                    stabilityStatus: .accepted,
+                    diagnosticSafe: true
+                )
+            ],
+            nextStepRecommendation: .deferToWebRTCAEC3
+        )
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 111) })
+            .manifest(
+                sessionId: "leakage-apple-candidate",
+                directoryId: package.lastPathComponent,
+                startedAt: Date(timeIntervalSince1970: 94),
+                stoppedAt: Date(timeIntervalSince1970: 110),
+                tracks: [micTrack, incomingTrack],
+                leakageFinalization: finalization,
+                scopeApproval: leakageIntegrationAcceptedScope(),
+                permissions: leakageIntegrationAcceptedPermissions(),
+                appleProcessingOutcome: appleOutcome
+            )
+
+        XCTAssertEqual(manifest.appleProcessingOutcome, appleOutcome)
+        XCTAssertEqual(finalization.status, .leakageDetected)
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertEqual(manifest.failureReason, .leakageDetected)
+        XCTAssertEqual(manifest.leakageFinalization?.transcriptionGate, .blockedLeakageDetected)
+        XCTAssertFalse(manifest.isComplete)
+    }
 }
 
 private func leakageIntegrationPackage(mic: [Float], incoming: [Float]) throws -> URL {

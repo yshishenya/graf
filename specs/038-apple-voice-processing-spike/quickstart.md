@@ -17,6 +17,7 @@ swift test --package-path apps/macos --filter 'MicrophoneCaptureServiceTests|Loc
 Run package and realtime-safety validators:
 
 ```sh
+apps/macos/Scripts/validate-apple-voice-processing-spike.sh
 apps/macos/Scripts/validate-recording-artifact-format.sh
 apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata
 apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-cpu-evidence

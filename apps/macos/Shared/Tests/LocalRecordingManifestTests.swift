@@ -409,6 +409,59 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(manifest.appleProcessingOutcome?.feature, "038-apple-voice-processing-spike")
     }
 
+    func testAppleProcessingLineageLabelsRoundTripWithoutChangingOriginalTracks() throws {
+        let outcomes = AppleProcessingLineageStatus.allPackageTruthLabels.map { lineage in
+            let candidateId = "apple-candidate-\(lineage.rawValue)"
+            let candidateStatus: AppleProcessingEvidenceStatus = lineage == .blocked ? .blocked : .unproven
+            let stabilityStatus: AppleProcessingStabilityStatus = lineage == .blocked ? .blockedRouteTopology : .unproven
+            return AppleProcessingOutcome(
+                candidateId: candidateId,
+                primaryOutcome: .deferToWebRTCAEC3,
+                validationRows: [
+                    AppleProcessingValidationRow(
+                        candidateId: candidateId,
+                        candidateKind: .appOwnedGraphVoiceProcessing,
+                        routeClass: .builtInSpeakerphone,
+                        scenario: .farEndOnly,
+                        baselineStatus: .degraded,
+                        candidateStatus: candidateStatus,
+                        lineageStatus: lineage,
+                        speechPreservationStatus: .notMeasured,
+                        alignmentStatus: .notMeasured,
+                        stabilityStatus: stabilityStatus,
+                        diagnosticSafe: true
+                    )
+                ],
+                nextStepRecommendation: .deferToWebRTCAEC3
+            )
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        for outcome in outcomes {
+            let manifest = LocalRecordingManifest(
+                sessionId: "session-\(outcome.candidateId)",
+                createdAt: Date(timeIntervalSince1970: 30),
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                status: .degraded,
+                directoryId: "dir",
+                transcriptionReadiness: .degraded,
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+                appleProcessingOutcome: outcome
+            )
+
+            let decoded = try decoder.decode(LocalRecordingManifest.self, from: encoder.encode(manifest))
+
+            XCTAssertEqual(decoded.appleProcessingOutcome, outcome)
+            XCTAssertEqual(decoded.tracks.first { $0.role == AudioTrackRole.localMic }?.fileName, "mic.wav")
+            XCTAssertEqual(decoded.tracks.first { $0.role == AudioTrackRole.remoteSpeaker }?.fileName, "incoming.wav")
+            XCTAssertEqual(Set(decoded.tracks.map { $0.evidenceRole }), Set<LeakageEvidenceRole>([.original]))
+        }
+    }
+
     func testReadLegacyManifestWithoutMicrophoneMetadataLeavesOptionalFieldsNil() throws {
         let manifest = LocalRecordingManifest(
             sessionId: "legacy-session",

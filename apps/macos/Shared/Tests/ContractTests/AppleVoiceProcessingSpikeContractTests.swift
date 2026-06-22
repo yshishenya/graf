@@ -1,4 +1,5 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -103,6 +104,59 @@ final class AppleVoiceProcessingSpikeContractTests: XCTestCase {
             XCTAssertFalse(vocabulary.contains(forbidden), "\(forbidden) must stay out of 038 outcome vocabulary")
         }
     }
+
+    func testManifestFixtureWithAppleCandidateMetadataDecodesWithoutRawAudio() throws {
+        let fixtureURL = try XCTUnwrap(contractFixtureURL(
+            "apps/macos/Shared/Tests/Fixtures/AppleVoiceProcessing/manifest-with-apple-candidate.json"
+        ))
+        let data = try Data(contentsOf: fixtureURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let manifest = try decoder.decode(LocalRecordingManifest.self, from: data)
+        let json = String(decoding: data, as: UTF8.self)
+
+        XCTAssertEqual(manifest.schemaVersion, LocalRecordingManifest.schemaVersion)
+        XCTAssertEqual(manifest.appleProcessingOutcome?.feature, "038-apple-voice-processing-spike")
+        XCTAssertEqual(manifest.appleProcessingOutcome?.primaryOutcome, .acceptedForGuidanceOnly)
+        XCTAssertEqual(manifest.appleProcessingOutcome?.validationRows.first?.lineageStatus, .candidateMetadata)
+        XCTAssertEqual(Set(manifest.tracks.map(\.role)), Set<AudioTrackRole>([.localMic, .remoteSpeaker]))
+        XCTAssertEqual(Set(manifest.tracks.map(\.evidenceRole)), Set<LeakageEvidenceRole>([.original]))
+        XCTAssertFalse(json.contains("rawAudio"))
+        XCTAssertFalse(json.contains("transcriptText"))
+        XCTAssertFalse(json.contains("signedUrl"))
+        XCTAssertFalse(json.contains("mediaScribeCredential"))
+    }
+
+    func testSummariesCannotClaimCleanSpeakerphoneWithoutAcceptedBuiltinGates() {
+        let service = AppleVoiceProcessingEvaluationService()
+        let outcomes = [
+            contractAppleOutcome(state: .acceptedForGuidanceOnly, nextStep: .guidanceOnly, failureReason: "system_controlled_mic_mode"),
+            contractAppleOutcome(state: .blockedRouteTopology, nextStep: .deferToWebRTCAEC3, failureReason: "route_topology_blocked"),
+            contractAppleOutcome(state: .deferToWebRTCAEC3, nextStep: .deferToWebRTCAEC3, failureReason: "required_rows_missing"),
+            contractAppleOutcome(state: .acceptedForBuiltinSpeakerphone, nextStep: .promoteAppleProcessing, failureReason: nil)
+        ]
+
+        for outcome in outcomes {
+            let summary = service.finalOutcomeSummary(outcome)
+
+            XCTAssertFalse(summary.canClaimCleanBuiltinSpeakerphone)
+            XCTAssertFalse(summary.containsCleanSpeakerphoneClaim)
+            XCTAssertFalse(summary.userFacingSummary.localizedCaseInsensitiveContains("чист"))
+            XCTAssertFalse(summary.releaseSummary.localizedCaseInsensitiveContains("clean"))
+        }
+    }
+}
+
+private func contractFixtureURL(_ relativePath: String) -> URL? {
+    let current = URL(fileURLWithPath: #filePath)
+    let candidates = sequence(first: current.deletingLastPathComponent()) { directory in
+        let parent = directory.deletingLastPathComponent()
+        return parent.path == directory.path ? nil : parent
+    }
+    return candidates
+        .map { $0.appendingPathComponent(relativePath) }
+        .first { FileManager.default.fileExists(atPath: $0.path) }
 }
 
 private func contractCompleteTrack(role: AudioTrackRole) -> LocalRecordingTrack {
@@ -139,6 +193,35 @@ private func contractGrantedPermissions() -> SystemAudioPermissionSnapshot {
         microphone: .granted,
         systemAudio: .granted,
         evaluatedAt: Date(timeIntervalSince1970: 9)
+    )
+}
+
+private func contractAppleOutcome(
+    state: AppleProcessingOutcomeState,
+    nextStep: AppleProcessingNextStepRecommendation,
+    failureReason: String?
+) -> AppleProcessingOutcome {
+    AppleProcessingOutcome(
+        candidateId: "apple-\(state.rawValue)",
+        primaryOutcome: state,
+        validationRows: [
+            AppleProcessingValidationRow(
+                candidateId: "apple-\(state.rawValue)",
+                candidateKind: state == .acceptedForGuidanceOnly ? .micModeGuidance : .appOwnedGraphVoiceProcessing,
+                routeClass: .builtInSpeakerphone,
+                scenario: .farEndOnly,
+                baselineStatus: .degraded,
+                candidateStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .unproven,
+                lineageStatus: state == .acceptedForBuiltinSpeakerphone ? .liveAndPersisted : .unproven,
+                speechPreservationStatus: state == .acceptedForBuiltinSpeakerphone ? .preserved : .notMeasured,
+                alignmentStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .notMeasured,
+                stabilityStatus: state == .acceptedForBuiltinSpeakerphone ? .accepted : .unproven,
+                diagnosticSafe: true,
+                failureReason: failureReason
+            )
+        ],
+        nextStepRecommendation: nextStep,
+        failureReason: failureReason
     )
 }
 #endif
