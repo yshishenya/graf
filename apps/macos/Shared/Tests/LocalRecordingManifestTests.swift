@@ -462,6 +462,33 @@ final class LocalRecordingManifestTests: XCTestCase {
         }
     }
 
+    func testWebRTCAEC3OutcomeRoundTripsWithoutChangingOriginalTracks() throws {
+        let outcome = webRTCAEC3GuidanceOutcome()
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session-aec3",
+                directoryId: "dir-aec3",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions(),
+                webRTCAEC3Outcome: outcome
+            )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decoded = try decoder.decode(LocalRecordingManifest.self, from: encoder.encode(manifest))
+
+        XCTAssertEqual(decoded.webRTCAEC3Outcome, outcome)
+        XCTAssertEqual(decoded.tracks.first { $0.role == .localMic }?.fileName, "mic.wav")
+        XCTAssertEqual(decoded.tracks.first { $0.role == .remoteSpeaker }?.fileName, "incoming.wav")
+        XCTAssertEqual(Set(decoded.tracks.map { $0.evidenceRole }), Set<LeakageEvidenceRole>([.original]))
+        XCTAssertFalse(decoded.webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone ?? true)
+    }
+
     func testReadLegacyManifestWithoutMicrophoneMetadataLeavesOptionalFieldsNil() throws {
         let manifest = LocalRecordingManifest(
             sessionId: "legacy-session",
@@ -699,6 +726,35 @@ private func manifestRecordingMicrophoneSelection() -> RecordingMicrophoneSelect
         workingDeviceKind: .physical,
         selectionResult: .accepted,
         resolvedAt: Date(timeIntervalSince1970: 9)
+    )
+}
+
+private func webRTCAEC3GuidanceOutcome() -> WebRTCAEC3DecisionRecord {
+    WebRTCAEC3DecisionRecord(
+        candidateId: "aec3-guidance",
+        primaryOutcome: .acceptedForGuidanceOnly,
+        validationRows: [
+            WebRTCAEC3ValidationRow(
+                rowId: "aec3-guidance-row",
+                candidateId: "aec3-guidance",
+                scenarioFamily: .farEndOnlyLeakage,
+                validationKind: .fullFile,
+                routeClass: .builtInSpeakerphone,
+                baselineStatus: .leakageDetected,
+                candidateStatus: .unproven,
+                lineageStatus: .candidateMetadata,
+                speechPreservationStatus: .notMeasured,
+                residualLeakageStatus: .unproven,
+                timingConfidence: .notMeasured,
+                referenceStatus: .present,
+                stabilityStatus: .unproven,
+                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                thresholdSummary: "guidance_only",
+                appStatusState: .usingOriginalMicTruth,
+                diagnosticSafe: true
+            )
+        ],
+        nextStepRecommendation: .guidanceOnly
     )
 }
 #endif

@@ -176,6 +176,95 @@ final class LeakageDiagnosticBundleTests: XCTestCase {
             XCTAssertNil(bundle.manifest["absolutePath"])
         }
     }
+
+    func testLocalRecordingBundleIncludesMetadataOnlyWebRTCAEC3OutcomeAndRows() throws {
+        let outcome = leakageDiagnosticWebRTCAEC3Outcome()
+        let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(
+            manifest: LocalRecordingManifest(
+                sessionId: "aec3-\(outcome.primaryOutcome.rawValue)",
+                createdAt: Date(timeIntervalSince1970: 10),
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                status: .degraded,
+                directoryId: "directory-\(outcome.primaryOutcome.rawValue)",
+                transcriptionReadiness: .degraded,
+                tracks: [],
+                webRTCAEC3Outcome: outcome
+            )
+        )
+
+        guard case .object(let diagnosticOutcome)? = bundle.manifest["webRTCAEC3Outcome"] else {
+            XCTFail("Expected WebRTC AEC3 outcome diagnostics")
+            return
+        }
+        guard case .array(let rows)? = bundle.manifest["webRTCAEC3ValidationRows"] else {
+            XCTFail("Expected WebRTC AEC3 validation rows")
+            return
+        }
+        guard case .object(let firstRow)? = rows.first else {
+            XCTFail("Expected first WebRTC AEC3 row object")
+            return
+        }
+
+        XCTAssertEqual(diagnosticOutcome["primaryOutcome"], .string(outcome.primaryOutcome.rawValue))
+        XCTAssertEqual(diagnosticOutcome["primaryOutcomeCount"], .int(1))
+        XCTAssertEqual(diagnosticOutcome["nextStepRecommendation"], .string(outcome.nextStepRecommendation.rawValue))
+        XCTAssertEqual(diagnosticOutcome["thresholdProfileId"], .string("aec3-threshold-profile-v1"))
+        XCTAssertEqual(diagnosticOutcome["fallbackFeatureId"], .string(WebRTCAEC3EvaluationService.fallbackFeatureId))
+        XCTAssertEqual(diagnosticOutcome["requiresFallbackPlanning"], .bool(true))
+        XCTAssertEqual(diagnosticOutcome["supportingRouteRowCount"], .int(1))
+        XCTAssertEqual(diagnosticOutcome["supportingRoutesCanBroadenPromotionScope"], .bool(false))
+        XCTAssertEqual(diagnosticOutcome["canClaimCleanBuiltInSpeakerphone"], .bool(false))
+        XCTAssertEqual(firstRow["lineageStatus"], .string(WebRTCAEC3LineageStatus.candidateMetadata.rawValue))
+        XCTAssertEqual(firstRow["appStatusState"], .string(WebRTCAEC3AppStatusState.usingOriginalMicTruth.rawValue))
+        XCTAssertEqual(firstRow["thresholdProfileId"], .string("aec3-threshold-profile-v1"))
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+        XCTAssertNil(bundle.manifest["privateLocalPath"])
+    }
+
+    func testLocalRecordingBundleIncludesWebRTCAEC3AppStatusRollbackThresholdAndMetadataOnlyFields() throws {
+        let outcome = leakageDiagnosticWebRTCAEC3RollbackOutcome()
+        let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(
+            manifest: LocalRecordingManifest(
+                sessionId: "aec3-rollback",
+                createdAt: Date(timeIntervalSince1970: 10),
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                status: .degraded,
+                directoryId: "directory-aec3-rollback",
+                transcriptionReadiness: .degraded,
+                tracks: [],
+                webRTCAEC3Outcome: outcome
+            )
+        )
+
+        guard case .object(let diagnosticOutcome)? = bundle.manifest["webRTCAEC3Outcome"] else {
+            XCTFail("Expected WebRTC AEC3 outcome diagnostics")
+            return
+        }
+        guard case .array(let rows)? = bundle.manifest["webRTCAEC3ValidationRows"],
+              case .object(let row)? = rows.first else {
+            XCTFail("Expected WebRTC AEC3 rollback row diagnostics")
+            return
+        }
+        guard case .array(let rollbackEvents)? = bundle.manifest["webRTCAEC3RollbackEvents"],
+              case .object(let rollbackEvent)? = rollbackEvents.first else {
+            XCTFail("Expected WebRTC AEC3 rollback event diagnostics")
+            return
+        }
+
+        XCTAssertEqual(diagnosticOutcome["rollbackEventCount"], .int(1))
+        XCTAssertEqual(diagnosticOutcome["appStatusState"], .string(WebRTCAEC3AppStatusState.rolledBackToOriginal.rawValue))
+        XCTAssertEqual(row["thresholdSummary"], .string("rollback_restored_original_truth"))
+        XCTAssertEqual(row["appStatusState"], .string(WebRTCAEC3AppStatusState.rolledBackToOriginal.rawValue))
+        XCTAssertEqual(rollbackEvent["trigger"], .string(AEC3RollbackTrigger.referenceUnsafe.rawValue))
+        XCTAssertEqual(rollbackEvent["restoredLineageStatus"], .string(WebRTCAEC3LineageStatus.originalOnly.rawValue))
+        XCTAssertEqual(rollbackEvent["cleanRecordingClaimRemoved"], .bool(true))
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+        XCTAssertNil(bundle.manifest["privateLocalPath"])
+    }
 }
 
 private func leakageDiagnosticRecordingMicrophoneSelection(
@@ -219,6 +308,105 @@ private func leakageDiagnosticAppleOutcome(
         ],
         nextStepRecommendation: nextStep,
         failureReason: failureReason
+    )
+}
+
+private func leakageDiagnosticWebRTCAEC3Outcome() -> WebRTCAEC3DecisionRecord {
+    WebRTCAEC3DecisionRecord(
+        candidateId: "aec3-diagnostic-guidance",
+        primaryOutcome: .acceptedForGuidanceOnly,
+        validationRows: [
+            WebRTCAEC3ValidationRow(
+                rowId: "aec3-diagnostic-row",
+                candidateId: "aec3-diagnostic-guidance",
+                scenarioFamily: .farEndOnlyLeakage,
+                validationKind: .fullFile,
+                routeClass: .builtInSpeakerphone,
+                baselineStatus: .leakageDetected,
+                candidateStatus: .unproven,
+                lineageStatus: .candidateMetadata,
+                speechPreservationStatus: .notMeasured,
+                residualLeakageStatus: .unproven,
+                timingConfidence: .notMeasured,
+                referenceStatus: .present,
+                stabilityStatus: .unproven,
+                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                thresholdSummary: "guidance_only",
+                appStatusState: .usingOriginalMicTruth,
+                diagnosticSafe: true
+            )
+        ],
+        nextStepRecommendation: .guidanceOnly,
+        supportingRouteRows: [
+            WebRTCAEC3ValidationRow(
+                rowId: "aec3-diagnostic-supporting-usb",
+                candidateId: "aec3-diagnostic-guidance",
+                scenarioFamily: .farEndOnlyLeakage,
+                validationKind: .controlledRealHardware,
+                routeClass: .usbHeadset,
+                baselineStatus: .leakageDetected,
+                candidateStatus: .accepted,
+                lineageStatus: .guidanceOnly,
+                speechPreservationStatus: .preserved,
+                residualLeakageStatus: .clean,
+                timingConfidence: .safe,
+                referenceStatus: .present,
+                stabilityStatus: .accepted,
+                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                thresholdSummary: "supporting_route_evidence_only",
+                appStatusState: .fallbackRelevant,
+                diagnosticSafe: true
+            )
+        ],
+        limitations: [
+            "supporting_routes_evidence_only",
+            "fallback_required_040"
+        ],
+        fallbackFeatureId: WebRTCAEC3EvaluationService.fallbackFeatureId
+    )
+}
+
+private func leakageDiagnosticWebRTCAEC3RollbackOutcome() -> WebRTCAEC3DecisionRecord {
+    WebRTCAEC3DecisionRecord(
+        candidateId: "aec3-diagnostic-rollback",
+        primaryOutcome: .blockedStability,
+        validationRows: [
+            WebRTCAEC3ValidationRow(
+                rowId: "aec3-diagnostic-rollback-row",
+                candidateId: "aec3-diagnostic-rollback",
+                scenarioFamily: .rollback,
+                validationKind: .rollback,
+                routeClass: .builtInSpeakerphone,
+                baselineStatus: .unproven,
+                candidateStatus: .blocked,
+                lineageStatus: .rolledBackToOriginal,
+                speechPreservationStatus: .unknown,
+                residualLeakageStatus: .unproven,
+                timingConfidence: .unknown,
+                referenceStatus: .notRepresentative,
+                stabilityStatus: .rollbackRequired,
+                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                thresholdSummary: "rollback_restored_original_truth",
+                appStatusState: .rolledBackToOriginal,
+                diagnosticSafe: true,
+                failureReason: WebRTCAEC3FailureReason.referenceNotRepresentative.rawValue
+            )
+        ],
+        nextStepRecommendation: .fallbackDecision,
+        rollbackEvents: [
+            AEC3RollbackEvent(
+                rollbackId: "rollback-aec3-diagnostic-rollback",
+                candidateId: "aec3-diagnostic-rollback",
+                trigger: .referenceUnsafe,
+                previousLineageStatus: .promotedBuiltinRoute,
+                restoredLineageStatus: .originalOnly,
+                cleanRecordingClaimRemoved: true,
+                appStatusShown: true,
+                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
+                occurredAt: Date(timeIntervalSince1970: 21)
+            )
+        ],
+        failureReason: WebRTCAEC3FailureReason.referenceNotRepresentative.rawValue
     )
 }
 #endif

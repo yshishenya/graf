@@ -31,6 +31,10 @@ let package = Package(
         .executable(
             name: "MeetingMuteTruthRuntimeProof",
             targets: ["MeetingMuteTruthRuntimeProof"]
+        ),
+        .executable(
+            name: "WebRTCAEC3Validation",
+            targets: ["WebRTCAEC3Validation"]
         )
     ],
     targets: [
@@ -68,6 +72,11 @@ let package = Package(
             name: "MeetingMuteTruthRuntimeProof",
             dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
             path: "Shared/Tools/MeetingMuteTruthRuntimeProof"
+        ),
+        .executableTarget(
+            name: "WebRTCAEC3Validation",
+            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
+            path: "Shared/Tools/WebRTCAEC3Validation"
         ),
         .testTarget(
             name: "TwoBrainRecSharedTests",

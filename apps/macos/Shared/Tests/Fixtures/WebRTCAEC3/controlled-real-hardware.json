@@ -1,0 +1,31 @@
+{
+  "feature": "039-webrtc-aec3-speakerphone-spike",
+  "thresholdProfileId": "aec3-threshold-profile-v1",
+  "diagnosticSafe": true,
+  "criticalRows": [
+    "builtInSpeakerphone.farEndOnlyLeakage",
+    "builtInSpeakerphone.nearEndOnlySpeech",
+    "builtInSpeakerphone.doubleTalk",
+    "builtInSpeakerphone.loudSpeakerClipping",
+    "builtInSpeakerphone.routeChangeTimingStress",
+    "builtInSpeakerphone.unsafeReferenceNegativeControl",
+    "builtInSpeakerphone.stopQuit",
+    "builtInSpeakerphone.diagnostics",
+    "builtInSpeakerphone.appStatus",
+    "builtInSpeakerphone.rollback"
+  ],
+  "supportingRouteRows": [
+    "wiredHeadphones.farEndOnlyLeakage",
+    "usbHeadset.farEndOnlyLeakage",
+    "bluetoothAirPodsClass.farEndOnlyLeakage",
+    "browserTargetSupporting.farEndOnlyLeakage"
+  ],
+  "forbiddenContent": {
+    "rawAudio": false,
+    "transcriptText": false,
+    "meetingContent": false,
+    "credentials": false,
+    "signedUrls": false,
+    "privateLocalPaths": false
+  }
+}

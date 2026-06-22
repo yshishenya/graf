@@ -27,8 +27,31 @@ private extension LocalRecordingManifest {
             scopeApproval?.isAcceptedForMeetingRecording == true &&
             permissions?.allowsAcceptedRecording == true &&
             durationDifferenceSeconds <= 3 &&
+            Self.packageTruthAllowsUpload(
+                leakageFinalization: leakageFinalization,
+                tracks: tracks,
+                webRTCAEC3Outcome: webRTCAEC3Outcome
+            ) &&
             Self.isUploadSafeFailure(failureReason) &&
             tracks.allSatisfy(\.isServerUploadEligible)
+    }
+
+    private static func packageTruthAllowsUpload(
+        leakageFinalization: LeakageFinalization?,
+        tracks: [LocalRecordingTrack],
+        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord?
+    ) -> Bool {
+        guard let leakageFinalization else {
+            return true
+        }
+        if leakageFinalization.transcriptionGate == .eligibleOriginalDual {
+            return true
+        }
+        if leakageFinalization.transcriptionGate == .eligibleDerivedDual &&
+            tracks.contains(where: \.isDerivedTranscriptionEligible) {
+            return true
+        }
+        return webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone == true
     }
 
     private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {

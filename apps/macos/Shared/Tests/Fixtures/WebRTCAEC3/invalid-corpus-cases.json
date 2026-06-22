@@ -1,0 +1,49 @@
+{
+  "feature": "039-webrtc-aec3-speakerphone-spike",
+  "cases": [
+    {
+      "caseId": "missing-files",
+      "reason": "fileCountBelowMinimum",
+      "scenarioFamily": "farEndOnlyLeakage",
+      "fileCount": 9
+    },
+    {
+      "caseId": "missing-slices",
+      "reason": "sliceCountBelowMinimum",
+      "scenarioFamily": "nearEndOnlySpeech",
+      "sliceCountPerFile": 4
+    },
+    {
+      "caseId": "missing-full-files",
+      "reason": "fullFileValidationCountBelowMinimum",
+      "scenarioFamily": "doubleTalk",
+      "fullFileValidationCount": 9
+    },
+    {
+      "caseId": "missing-long-form",
+      "reason": "longFormFullFileRunCountBelowMinimum",
+      "scenarioFamily": "loudSpeakerClipping",
+      "longFormFullFileRunCount": 1
+    },
+    {
+      "caseId": "missing-room-coverage",
+      "reason": "roomConditionCountBelowMinimum",
+      "roomConditionCount": 1
+    },
+    {
+      "caseId": "missing-device-coverage",
+      "reason": "deviceProfileCountBelowMinimum",
+      "deviceProfileCount": 1
+    },
+    {
+      "caseId": "missing-volume-coverage",
+      "reason": "speakerVolumeLevelCountBelowMinimum",
+      "speakerVolumeLevelCount": 2
+    },
+    {
+      "caseId": "threshold-profile-mismatch",
+      "reason": "thresholdProfileMismatch",
+      "thresholdProfileId": "aec3-threshold-profile-old"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "feature": "039-webrtc-aec3-speakerphone-spike",
+  "corpusId": "metadata-lab-corpus-v1",
+  "thresholdProfileId": "aec3-threshold-profile-v1",
+  "diagnosticSafe": true,
+  "roomConditionCount": 2,
+  "deviceProfileCount": 2,
+  "speakerVolumeLevelCount": 3,
+  "scenarioFamilies": [
+    {
+      "scenarioFamily": "farEndOnlyLeakage",
+      "fileCount": 10,
+      "sliceCountPerFile": 5,
+      "fullFileValidationCount": 10,
+      "longFormFullFileRunCount": 2,
+      "criticalGateFailures": 0
+    },
+    {
+      "scenarioFamily": "nearEndOnlySpeech",
+      "fileCount": 10,
+      "sliceCountPerFile": 5,
+      "fullFileValidationCount": 10,
+      "longFormFullFileRunCount": 2,
+      "criticalGateFailures": 0
+    },
+    {
+      "scenarioFamily": "doubleTalk",
+      "fileCount": 10,
+      "sliceCountPerFile": 5,
+      "fullFileValidationCount": 10,
+      "longFormFullFileRunCount": 2,
+      "criticalGateFailures": 0
+    },
+    {
+      "scenarioFamily": "loudSpeakerClipping",
+      "fileCount": 10,
+      "sliceCountPerFile": 5,
+      "fullFileValidationCount": 10,
+      "longFormFullFileRunCount": 2,
+      "criticalGateFailures": 0
+    },
+    {
+      "scenarioFamily": "routeChangeTimingStress",
+      "fileCount": 10,
+      "sliceCountPerFile": 5,
+      "fullFileValidationCount": 10,
+      "longFormFullFileRunCount": 2,
+      "criticalGateFailures": 0
+    },
+    {
+      "scenarioFamily": "unsafeReferenceNegativeControl",
+      "fileCount": 10,
+      "sliceCountPerFile": 5,
+      "fullFileValidationCount": 10,
+      "longFormFullFileRunCount": 2,
+      "criticalGateFailures": 0
+    }
+  ]
+}

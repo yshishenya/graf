@@ -8,6 +8,11 @@ tooling in this repository may use Semantic Versioning where documented.
 ## [Unreleased]
 
 ### Added
+- Добавлен WebRTC AEC3 speakerphone spike для macOS: metadata-only corpus,
+  controlled hardware matrix, fail-closed outcome selection, package-truth
+  manifest fields, calm app status copy для fallback/rollback/problem states,
+  single decision record с `040` fallback recommendation и supporting-route
+  evidence без расширения clean speakerphone claim (`feature:039`, `T001-T056`).
 - Добавлен Apple voice processing spike для macOS: metadata-only candidate
   outcome в manifest/diagnostics, package-lineage labels, fail-closed reason
   mapping, feature-gated lifecycle release на Stop/failed start/app quit,
@@ -68,6 +73,11 @@ tooling in this repository may use Semantic Versioning where documented.
   desktop app (`feature:042`).
 
 ### Security
+- Диагностика `039` остается metadata-only: AEC3 outcome/validation rows,
+  threshold/app-status/rollback/decision fields проходят redaction coverage, а
+  raw audio, transcript text, signed URLs, credentials, private paths,
+  unbounded WebRTC logs и meeting content удаляются или не экспортируются
+  (`feature:039`).
 - Диагностика `038` остается metadata-only: Apple outcome/validation rows,
   route/lineage/CPU/failure/lifecycle fields проходят redaction coverage, а
   raw audio, transcript text, signed URLs, credentials, private paths и meeting

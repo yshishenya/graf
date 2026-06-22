@@ -59,7 +59,8 @@ public struct RecordingEvidenceService: Sendable {
             manifest.microphoneSelection?.diagnosticSafe,
             manifest.microphoneStream?.diagnosticSafe,
             manifest.microphoneStreamHealth?.diagnosticSafe,
-            manifest.appleProcessingOutcome?.diagnosticSafe
+            manifest.appleProcessingOutcome?.diagnosticSafe,
+            manifest.webRTCAEC3Outcome?.diagnosticSafe
         ].compactMap { $0 }
         let graphDiagnosticSafe = graphSafetyValues.isEmpty ? "" : String(graphSafetyValues.allSatisfy { $0 })
 
@@ -105,6 +106,13 @@ public struct RecordingEvidenceService: Sendable {
             "appleProcessingValidationRowCount": manifest.appleProcessingOutcome.map { String($0.validationRows.count) } ?? "",
             "appleProcessingCanClaimCleanBuiltinSpeakerphone": manifest.appleProcessingOutcome.map { String($0.canClaimCleanBuiltinSpeakerphone) } ?? "",
             "appleProcessingDiagnosticSafe": manifest.appleProcessingOutcome.map { String($0.diagnosticSafe) } ?? "",
+            "webRTCAEC3PrimaryOutcome": manifest.webRTCAEC3Outcome?.primaryOutcome.rawValue ?? "",
+            "webRTCAEC3NextStepRecommendation": manifest.webRTCAEC3Outcome?.nextStepRecommendation.rawValue ?? "",
+            "webRTCAEC3ValidationRowCount": manifest.webRTCAEC3Outcome.map { String($0.validationRows.count) } ?? "",
+            "webRTCAEC3ThresholdProfileId": manifest.webRTCAEC3Outcome?.validationRows.first?.thresholdProfileId ?? "",
+            "webRTCAEC3CanClaimCleanBuiltInSpeakerphone": manifest.webRTCAEC3Outcome.map { String($0.canClaimCleanBuiltInSpeakerphone) } ?? "",
+            "webRTCAEC3DiagnosticSafe": manifest.webRTCAEC3Outcome.map { String($0.diagnosticSafe) } ?? "",
+            "webRTCAEC3PackageTruth": Self.webRTCAEC3PackageTruth(manifest.webRTCAEC3Outcome),
             "routeSessionId": manifest.recordingTimelineEvidence?.routeSessionId ?? "",
             "alignmentBand": manifest.recordingTimelineEvidence?.alignmentBand.rawValue ?? "",
             "routeInterruptionCategory": manifest.recordingTimelineEvidence?.interruptionCategory.rawValue ?? ""
@@ -117,5 +125,12 @@ public struct RecordingEvidenceService: Sendable {
         }
         let end = session.stoppedAt ?? clock()
         return max(0, Int(end.timeIntervalSince(startedAt) * 1000))
+    }
+
+    private static func webRTCAEC3PackageTruth(_ outcome: WebRTCAEC3DecisionRecord?) -> String {
+        guard let outcome else { return "" }
+        return outcome.canClaimCleanBuiltInSpeakerphone
+            ? "promoted_builtin_route"
+            : "original_microphone_truth"
     }
 }

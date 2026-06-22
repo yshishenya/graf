@@ -10,6 +10,7 @@ public struct CaptureControlView: View {
     private let localRecordingLocation: String?
     private let muteTruthWarning: String?
     private let appleProcessingStatus: String?
+    private let webRTCAEC3Status: AppRecordingStatus?
     private let recordingMicrophoneSelection: RecordingMicrophoneSelection?
     private let recordingMicrophoneInputs: [PhysicalAudioDevice]
     private let selectedRecordingMicrophoneDeviceId: String?
@@ -35,6 +36,7 @@ public struct CaptureControlView: View {
         localRecordingLocation: String? = nil,
         muteTruthWarning: String? = nil,
         appleProcessingStatus: String? = nil,
+        webRTCAEC3Status: AppRecordingStatus? = nil,
         recordingMicrophoneSelection: RecordingMicrophoneSelection? = nil,
         recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
         selectedRecordingMicrophoneDeviceId: String? = nil,
@@ -59,6 +61,7 @@ public struct CaptureControlView: View {
         self.localRecordingLocation = localRecordingLocation
         self.muteTruthWarning = muteTruthWarning
         self.appleProcessingStatus = appleProcessingStatus
+        self.webRTCAEC3Status = webRTCAEC3Status ?? session?.webRTCAEC3Status
         self.recordingMicrophoneSelection = recordingMicrophoneSelection
         self.recordingMicrophoneInputs = recordingMicrophoneInputs
         self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
@@ -194,6 +197,18 @@ public struct CaptureControlView: View {
                 .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.appleProcessingStatus)
             }
 
+            if let webRTCAEC3Status,
+               let statusCopy = Self.webRTCAEC3StatusCopy(for: webRTCAEC3Status) {
+                StatusNoteView(
+                    icon: Self.webRTCAEC3StatusIconName(for: webRTCAEC3Status.state),
+                    title: Self.webRTCAEC3StatusTitle(for: webRTCAEC3Status.state),
+                    detail: statusCopy,
+                    iconColor: Self.webRTCAEC3StatusStyle(for: webRTCAEC3Status)
+                )
+                .accessibilityLabel("\(Self.webRTCAEC3StatusTitle(for: webRTCAEC3Status.state)): \(statusCopy)")
+                .accessibilityIdentifier(Self.webRTCAEC3StatusAccessibilityIdentifier(for: webRTCAEC3Status.state))
+            }
+
             if let localRecordingLocation, !localRecordingLocation.isEmpty {
                 Text("Локальная копия сохранена")
                     .font(.caption2)
@@ -293,21 +308,158 @@ public struct CaptureControlView: View {
         switch outcome.primaryOutcome {
         case .acceptedForBuiltinSpeakerphone:
             return outcome.canClaimCleanBuiltinSpeakerphone
-                ? "Apple проверка принята для встроенного маршрута; итог все равно подтверждается package evidence."
-                : "Apple проверка требует полного набора evidence перед пользовательским обещанием."
+                ? "Apple проверка принята для встроенного маршрута; итог все равно сверяется с локальным пакетом."
+                : "Apple проверка требует полного набора подтверждений перед пользовательским обещанием."
         case .acceptedForGuidanceOnly:
-            return "Apple evidence доступен только как подсказка; запись остается проверкой локального пакета."
+            return "Apple проверка доступна только как подсказка; запись остается проверкой локального пакета."
         case .acceptedForHeadsetRoutesOnly:
-            return "Apple evidence применим только к headset/wired маршрутам; speakerphone остается без нового обещания."
+            return "Apple проверка применима только к гарнитурам и проводным маршрутам; режим встроенных динамиков и микрофона остается без нового обещания."
         case .blockedRouteTopology:
-            return "Apple route topology заблокирован; продолжаем без повышения speakerphone-обещания."
+            return "Apple проверка маршрута заблокирована; продолжаем без повышения обещания для встроенных динамиков и микрофона."
         case .blockedQuality:
-            return "Apple quality gate заблокирован; локальная запись остается с текущими ограничениями."
+            return "Apple проверка качества заблокирована; локальная запись остается с текущими ограничениями."
         case .blockedStability:
-            return "Apple stability gate заблокирован; candidate отключен до новой проверки."
+            return "Apple проверка стабильности заблокирована; вариант отключен до новой проверки."
         case .deferToWebRTCAEC3:
-            return "Apple evidence не доказал production route; следующий кандидат - WebRTC AEC3."
+            return "Apple проверка не доказала рабочий маршрут; следующий вариант - WebRTC AEC3."
         }
+    }
+
+    nonisolated public static func webRTCAEC3StatusCopy(for status: AppRecordingStatus?) -> String? {
+        guard let status else { return nil }
+        if !status.diagnosticSafe || status.copySafety != .safe || !status.matchesPackageTruth {
+            return "Статус AEC3 требует проверки; запись не повышаем и оставляем исходный микрофон источником правды."
+        }
+
+        switch status.state {
+        case .notEvaluated, .notApplicable:
+            return nil
+        case .evaluatingAEC3:
+            return "Проверяем AEC3 по служебным признакам; запись сейчас идет по исходному микрофону."
+        case .usingOriginalMicTruth:
+            return "Записываем исходный микрофон; он остается источником правды для локального пакета."
+        case .candidateBlocked:
+            return "AEC3 не включен: проверка заблокирована, запись продолжается по исходному микрофону."
+        case .promotedBuiltinRoute:
+            return status.canSupportPromotion
+                ? "Встроенный маршрут подтвержден проверками; AEC3 можно использовать для этой записи."
+                : "AEC3 не подтвержден проверками; запись остается по исходному микрофону."
+        case .rolledBackToOriginal:
+            return "AEC3 откатился после нового риска; запись возвращена к исходному микрофону."
+        case .fallbackRelevant:
+            return "Используем фолбэк: исходный микрофон остается источником правды для записи."
+        case .requiresUserAttention:
+            return "Нужна проверка AEC3: статус не совпал с проверками, запись не повышаем."
+        }
+    }
+
+    nonisolated public static func webRTCAEC3StatusTitle(for state: WebRTCAEC3AppStatusState) -> String {
+        switch state {
+        case .notEvaluated:
+            return "AEC3 не проверялся"
+        case .evaluatingAEC3:
+            return "Проверяем AEC3"
+        case .usingOriginalMicTruth:
+            return "Исходный микрофон"
+        case .candidateBlocked:
+            return "AEC3 не включен"
+        case .promotedBuiltinRoute:
+            return "AEC3 подтвержден"
+        case .rolledBackToOriginal:
+            return "AEC3 откатился"
+        case .fallbackRelevant:
+            return "Используем фолбэк"
+        case .requiresUserAttention:
+            return "Нужна проверка AEC3"
+        case .notApplicable:
+            return "AEC3 не применим"
+        }
+    }
+
+    nonisolated public static func webRTCAEC3StatusIconName(for state: WebRTCAEC3AppStatusState) -> String {
+        switch state {
+        case .evaluatingAEC3:
+            return "waveform.and.mic"
+        case .usingOriginalMicTruth:
+            return "mic.fill"
+        case .candidateBlocked:
+            return "exclamationmark.triangle"
+        case .promotedBuiltinRoute:
+            return "checkmark.shield"
+        case .rolledBackToOriginal:
+            return "arrow.uturn.backward.circle"
+        case .fallbackRelevant:
+            return "arrow.triangle.2.circlepath"
+        case .requiresUserAttention:
+            return "exclamationmark.triangle.fill"
+        case .notEvaluated, .notApplicable:
+            return "waveform"
+        }
+    }
+
+    nonisolated public static func webRTCAEC3StatusPriority(for state: WebRTCAEC3AppStatusState) -> Int {
+        switch state {
+        case .requiresUserAttention:
+            return 50
+        case .rolledBackToOriginal:
+            return 40
+        case .candidateBlocked:
+            return 30
+        case .fallbackRelevant:
+            return 20
+        case .evaluatingAEC3, .usingOriginalMicTruth:
+            return 10
+        case .promotedBuiltinRoute:
+            return 5
+        case .notEvaluated, .notApplicable:
+            return 0
+        }
+    }
+
+    nonisolated public static func webRTCAEC3StatusToneName(for state: WebRTCAEC3AppStatusState) -> String {
+        switch state {
+        case .promotedBuiltinRoute:
+            return "success"
+        case .candidateBlocked, .requiresUserAttention:
+            return "attention"
+        case .rolledBackToOriginal, .fallbackRelevant:
+            return "warning"
+        case .evaluatingAEC3, .usingOriginalMicTruth, .notEvaluated, .notApplicable:
+            return "secondary"
+        }
+    }
+
+    nonisolated public static func webRTCAEC3StatusAccessibilityIdentifier(
+        for state: WebRTCAEC3AppStatusState
+    ) -> String {
+        switch state {
+        case .rolledBackToOriginal:
+            return SystemAudioAccessibilityIdentifier.webRTCAEC3RollbackStatus
+        case .fallbackRelevant:
+            return SystemAudioAccessibilityIdentifier.webRTCAEC3FallbackStatus
+        default:
+            return SystemAudioAccessibilityIdentifier.webRTCAEC3Status
+        }
+    }
+
+    nonisolated public static func webRTCAEC3StatusIsNoisyAlert(for status: AppRecordingStatus) -> Bool {
+        status.state == .requiresUserAttention &&
+            (status.copySafety != .safe || !status.matchesPackageTruth || !status.diagnosticSafe)
+    }
+
+    nonisolated public static func webRTCAEC3StatusCopyIsClaimSafe(
+        _ copy: String,
+        state: WebRTCAEC3AppStatusState
+    ) -> Bool {
+        let normalized = copy.lowercased()
+        let forbiddenClaimFragments = ["clean", "чист", "не попадает", "без эха"]
+        guard !forbiddenClaimFragments.contains(where: { normalized.contains($0) }) else {
+            return false
+        }
+        if state != .promotedBuiltinRoute && normalized.contains("подтвержден") {
+            return false
+        }
+        return true
     }
 
     private var recordingMicrophoneMenuTitle: String {
@@ -372,6 +524,17 @@ public struct CaptureControlView: View {
             return nil
         }
         return localRecordingStatus
+    }
+
+    private static func webRTCAEC3StatusStyle(for status: AppRecordingStatus) -> Color {
+        switch webRTCAEC3StatusToneName(for: status.state) {
+        case "success":
+            return .green
+        case "attention", "warning":
+            return .orange
+        default:
+            return .secondary
+        }
     }
 }
 
