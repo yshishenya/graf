@@ -240,7 +240,10 @@ private struct ContentView: View {
                 initialRoute: selectedCabinetRoute,
                 currentRoute: $selectedCabinetRoute,
                 presentation: .shell,
-                workspaceZoom: workspaceZoom
+                workspaceZoom: workspaceZoom,
+                navigationEventLogger: { event, detail in
+                    AppLog.writeRaw(event: event, detail: detail)
+                }
             )
         } diagnosticsContent: {
             VStack(alignment: .leading, spacing: 12) {

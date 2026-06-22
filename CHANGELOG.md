@@ -37,6 +37,10 @@ tooling in this repository may use Semantic Versioning where documented.
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Desktop embedded cabinet now preserves the intended login/access status after
+  WebKit policy-cancel callbacks and writes metadata-only navigation status
+  events, so a recoverable cabinet state is no longer overwritten by a false
+  “temporarily unavailable” fallback.
 - Apple voice processing outcome selection now fails closed when any validation
   row is diagnostic-unsafe, preventing accepted built-in speakerphone outcomes
   or clean-claim eligibility from surviving unsafe Apple evidence

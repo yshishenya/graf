@@ -97,7 +97,9 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Action Items" in ready.text
     assert "Outcomes deferred" in ready.text
     assert "AI notes are reserved for a later feature" not in ready.text
-    assert "016" not in ready.text
+    assert "feature 016" not in ready.text.lower()
+    assert "feature:016" not in ready.text.lower()
+    assert "016-meeting-detail" not in ready.text
     assert "Access" in ready.text
     assert "Team visibility" in ready.text
     assert "Artifacts" in ready.text

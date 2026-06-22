@@ -194,6 +194,27 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         )
     }
 
+    func testWebKitPolicyCancellationDoesNotOverwriteCabinetFailureState() {
+        let interruptedByPolicy = NSError(domain: "WebKitErrorDomain", code: 102)
+
+        XCTAssertEqual(
+            DesktopCabinetState.state(forNavigationError: interruptedByPolicy, currentState: .expiredSession),
+            .expiredSession
+        )
+        XCTAssertEqual(
+            DesktopCabinetState.state(forNavigationError: interruptedByPolicy, currentState: .accessDenied),
+            .accessDenied
+        )
+        XCTAssertEqual(
+            DesktopCabinetState.state(forNavigationError: interruptedByPolicy, currentState: .blockedRoute),
+            .blockedRoute
+        )
+        XCTAssertEqual(
+            DesktopCabinetState.state(forNavigationError: interruptedByPolicy, currentState: .loading),
+            .loading
+        )
+    }
+
     func testNavigationTimeoutStillMapsToTimeout() {
         let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
 

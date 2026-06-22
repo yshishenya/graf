@@ -5,9 +5,12 @@ import AppKit
 import WebKit
 
 public struct EmbeddedCabinetWebView: NSViewRepresentable {
+    public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
+
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
     private let workspaceZoom: WorkspaceZoomPreference
+    private let navigationEventLogger: NavigationEventLogger?
     @Binding private var cabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
 
@@ -16,11 +19,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         routePolicy: DesktopCabinetRoutePolicy,
         cabinetState: Binding<DesktopCabinetState>,
         workspaceZoom: WorkspaceZoomPreference = .default,
-        currentRoute: Binding<URL?> = .constant(nil)
+        currentRoute: Binding<URL?> = .constant(nil),
+        navigationEventLogger: NavigationEventLogger? = nil
     ) {
         self.request = request
         self.routePolicy = routePolicy
         self.workspaceZoom = workspaceZoom
+        self.navigationEventLogger = navigationEventLogger
         _cabinetState = cabinetState
         _currentRoute = currentRoute
     }
@@ -73,13 +78,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             routePolicy: routePolicy,
             desktopHeaders: request.allHTTPHeaderFields ?? [:],
             cabinetState: $cabinetState,
-            currentRoute: $currentRoute
+            currentRoute: $currentRoute,
+            navigationEventLogger: navigationEventLogger
         )
     }
 
     public final class Coordinator: NSObject, WKNavigationDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
+        private let navigationEventLogger: NavigationEventLogger?
         @Binding private var cabinetState: DesktopCabinetState
         @Binding private var currentRoute: URL?
 
@@ -87,13 +94,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             routePolicy: DesktopCabinetRoutePolicy,
             desktopHeaders: [String: String],
             cabinetState: Binding<DesktopCabinetState>,
-            currentRoute: Binding<URL?>
+            currentRoute: Binding<URL?>,
+            navigationEventLogger: NavigationEventLogger?
         ) {
             self.routePolicy = routePolicy
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
                 routePolicy: routePolicy,
                 desktopHeaders: desktopHeaders
             )
+            self.navigationEventLogger = navigationEventLogger
             _cabinetState = cabinetState
             _currentRoute = currentRoute
         }
@@ -157,6 +166,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             cabinetState = .ready
+            logNavigationEvent(
+                "cabinet_navigation_finished",
+                detail: "state=\(DesktopCabinetState.ready.rawValue) \(urlLogDetail(url))"
+            )
         }
 
         @MainActor
@@ -173,16 +186,85 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 decisionHandler(.allow)
             case let .cancel(state):
                 cabinetState = state
+                logNavigationEvent(
+                    "cabinet_navigation_response_blocked",
+                    detail: responseLogDetail(navigationResponse.response, state: state)
+                )
                 decisionHandler(.cancel)
             }
         }
 
-        public func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
-            cabinetState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
+        @MainActor
+        public func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {
+            transitionAfterNavigationFailure(error, webViewURL: webView.url, phase: "committed")
         }
 
-        public func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
-            cabinetState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
+        @MainActor
+        public func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
+            transitionAfterNavigationFailure(error, webViewURL: webView.url, phase: "provisional")
+        }
+
+        private func transitionAfterNavigationFailure(_ error: Error, webViewURL: URL?, phase: String) {
+            let previousState = cabinetState
+            let nextState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
+            cabinetState = nextState
+            logNavigationEvent(
+                "cabinet_navigation_failed",
+                detail: errorLogDetail(error, webViewURL: webViewURL, phase: phase, from: previousState, to: nextState)
+            )
+        }
+
+        private func logNavigationEvent(_ event: String, detail: String) {
+            navigationEventLogger?(event, detail)
+        }
+
+        private func responseLogDetail(_ response: URLResponse, state: DesktopCabinetState) -> String {
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return "state=\(state.rawValue) response=non_http"
+            }
+            return [
+                "state=\(state.rawValue)",
+                "status=\(httpResponse.statusCode)",
+                urlLogDetail(httpResponse.url)
+            ].joined(separator: " ")
+        }
+
+        private func errorLogDetail(
+            _ error: Error,
+            webViewURL: URL?,
+            phase: String,
+            from previousState: DesktopCabinetState,
+            to nextState: DesktopCabinetState
+        ) -> String {
+            let nsError = error as NSError
+            let failingURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? webViewURL
+            return [
+                "phase=\(phase)",
+                "domain=\(sanitized(nsError.domain))",
+                "code=\(nsError.code)",
+                "from=\(previousState.rawValue)",
+                "to=\(nextState.rawValue)",
+                urlLogDetail(failingURL)
+            ].joined(separator: " ")
+        }
+
+        private func urlLogDetail(_ url: URL?) -> String {
+            guard let url else {
+                return "scheme=none host=none routeKind=unknown"
+            }
+            let decision = routePolicy.decision(for: url)
+            return [
+                "scheme=\(sanitized(url.scheme ?? "none"))",
+                "host=\(sanitized(url.host ?? "none"))",
+                "routeKind=\(decision.route.kind.rawValue)"
+            ].joined(separator: " ")
+        }
+
+        private func sanitized(_ value: String) -> String {
+            value
+                .replacingOccurrences(of: " ", with: "_")
+                .replacingOccurrences(of: "\n", with: "_")
+                .replacingOccurrences(of: "\r", with: "_")
         }
     }
 
@@ -218,6 +300,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 }
 #else
 public struct EmbeddedCabinetWebView: View {
+    public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
+
     private let message: String
 
     public init(
@@ -225,7 +309,8 @@ public struct EmbeddedCabinetWebView: View {
         routePolicy _: DesktopCabinetRoutePolicy,
         cabinetState _: Binding<DesktopCabinetState>,
         workspaceZoom _: WorkspaceZoomPreference = .default,
-        currentRoute _: Binding<URL?> = .constant(nil)
+        currentRoute _: Binding<URL?> = .constant(nil),
+        navigationEventLogger _: NavigationEventLogger? = nil
     ) {
         message = DesktopCabinetState.notConfigured.userMessage
     }
