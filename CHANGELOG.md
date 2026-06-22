@@ -101,11 +101,12 @@ tooling in this repository may use Semantic Versioning where documented.
   is covered by focused tests (`feature:042`, `T079-T088`).
 
 ### Docs
-- Сформирован 036 readiness closeout без live-owner overclaim: 036-aware
-  readiness report/gap register, актуальный статус `pilot_blocked`, tracker/task
-  reconciliation и явные оставшиеся блокеры для live owner proof, generated
-  notes/actions или pilot deferral, production rollout evidence и финального
-  installed-app walkthrough (`feature:036`, `T049-T058`, `T062`, `T064`).
+- Сформирован 036 readiness closeout без overclaim: 036-aware readiness
+  report/gap register, актуальный статус `pilot_blocked`, tracker/task
+  reconciliation, metadata-safe live owner list/detail/governance proof и явные
+  оставшиеся блокеры для generated notes/actions или pilot deferral и
+  production rollout evidence (`feature:036`, `T025-T026`, `T049-T058`,
+  `T062`, `T064`).
 
 ### Ops
 - _No entries yet._

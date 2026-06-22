@@ -17,22 +17,42 @@ URLs, or local home paths.
 
 | Context | Result URL | Visible state | Result |
 |---------|------------|---------------|--------|
-| Chrome extension profile | `/login?next=%2Fmeetings&error=missing_auth_context` | Login page with `Войти в кабинет`, `Нужен вход, чтобы открыть кабинет встреч.`, email field, and login/signup actions. | blocked |
-| Codex In-app Browser | `/login?next=%2Fmeetings&error=missing_auth_context` | Login page with the same missing-auth state and no visible owner meeting list. | blocked |
+| Chrome extension profile, first check | `/login?next=%2Fmeetings&error=missing_auth_context` | Login page with `Войти в кабинет`, `Нужен вход, чтобы открыть кабинет встреч.`, email field, and login/signup actions. | blocked |
+| Codex In-app Browser, first check | `/login?next=%2Fmeetings&error=missing_auth_context` | Login page with the same missing-auth state and no visible owner meeting list. | blocked |
+| Chrome extension profile, approved owner session | `/meetings` | Authenticated owner meeting list with `Мои встречи`, `Ближайшие`, `Записи встреч`, `Submitted`, `Без даты`, and eight unique meeting detail links. | pass |
+| Chrome extension profile, approved owner detail | `/meetings/{id}` | Authenticated owner detail route with notes states, transcript panel, access/share summary, delete panel, governance buttons, and deletion report link. | pass |
 
 ## List, Detail, And Governance Decision
 
 | Required state | Evidence result | Reason |
 |----------------|-----------------|--------|
-| Owner list | blocked | The available browser contexts redirect to the login page with `missing_auth_context`; no authenticated owner list is visible. |
-| Owner detail | blocked | No authenticated list is available, so no metadata-safe owner detail can be opened without fabricating state. |
-| Governance actions | blocked | No authenticated owner detail/governance surface is available in the checked browser contexts. |
+| Owner list | pass | `/meetings` loaded without login copy; the page exposed the owner list sections and eight unique detail links. |
+| Owner detail | pass | One detail route loaded as `/meetings/{id}` without committing the meeting id, title, transcript text, or screenshot. |
+| Governance actions | pass | The detail route exposed access rows, share panel, delete panel, one report link, and governance controls for `Share`, `Export package`, `Download`, and bounded deletion. Destructive controls were not clicked. |
+
+## Metadata-Safe Detail Signals
+
+- List proof: `hasLoginCopy=false`, `hasMeetingsHeader=true`,
+  `hasUpcomingSection=true`, `hasRecordingsSection=true`,
+  `uniqueMeetingLinkCount=8`, `hasStatusSubmitted=true`, and
+  `hasNoDateLabel=true`.
+- Detail proof: route shape `/meetings/{id}`, `hasLoginCopy=false`,
+  `hasNotesPanel=true`, notes categories `Summary`, `Decisions`,
+  `Action Items`, and `Follow-ups` all visible with `Outcomes processing`,
+  transcript panel present, and no transcript segment text committed.
+- Access/governance proof: access rows `Share On`, `Download On`,
+  `Export On`, `Team visibility disabled`, `Copy link available`,
+  and `Public links disabled by default`; governance buttons include
+  `Share` as available and `Export package`, `Download`, and
+  `Delete this meeting everywhere 2brain Rec controls` as disabled or planned.
+- Deletion proof: bounded delete copy is visible through the delete panel,
+  `Request deletion` is disabled, and one `Report` link is present.
 
 ## Decision
 
-The owner review proof is still not complete. This artifact records the
-2026-06-22 check and explains the blocker, but it does not close the
-`web-owner-live-auth-context` readiness gap. Keep `#1131` and `#1132` open
-until an approved owner session is available in a browser context accessible to
-automation and the list/detail/governance states can be recorded without
-private content.
+The owner review proof is complete for feature `036`: the approved Chrome owner
+session proves production owner list, detail, and governance/access/deletion
+panel states with metadata-safe evidence. This closes
+`web-owner-live-auth-context`, `T025`, `T026`, `#1131`, and `#1132` without
+broadening the remaining launch claims. Notes/action output, production rollout
+evidence, signed installer evidence, and target hardening remain separate.

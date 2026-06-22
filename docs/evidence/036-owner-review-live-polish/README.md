@@ -29,16 +29,19 @@ Forbidden evidence:
 ## Current Baseline
 
 Feature 035 left the strongest truthful claim at `pilot_blocked` with bounded
-`infra_smoke_ready`. Feature 036 starts with three relevant open blockers:
+`infra_smoke_ready`. Feature 036 closes the owner review and installed-app
+walkthrough evidence without broadening the rollout claim. The remaining 036
+readiness blockers are:
 
-- `web-owner-live-auth-context`;
 - `notes-action-output`;
-- `desktop-product-surface-polish`.
+- `production-user-rollout-evidence`;
+- P2 browser target and signed-installer evidence.
 
 The initial Chrome/live observation on 2026-06-16 showed
 `https://rec.2brain.pro/meetings` returning `401 missing_auth_context` without a
-browser-safe owner session. This confirms that 036 must implement or prove a
-real owner session path rather than treating the route as ready.
+browser-safe owner session. The approved Chrome owner session on 2026-06-22 then
+proved the production owner list, one detail route, and governance/access panel
+metadata-safely without committing private meeting content.
 
 ## Owner Review Execute Mode
 

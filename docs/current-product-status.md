@@ -174,9 +174,10 @@ artifacts remain the detailed implementation record.
   `pilot_blocked` outcome: visual/product polish and notes/action truth states
   are accepted, and the installed-app idle/active/paused/resumed/stopped
   walkthrough is covered by cropped native-inspector evidence. Live owner
-  list/detail/governance proof, launchable generated notes/actions or an
-  explicit pilot deferral, and production user rollout evidence remain separate
-  blockers. Evidence remains metadata-safe and keeps the production
+  list/detail/governance proof is now committed as metadata-safe Chrome owner
+  session evidence. Launchable generated notes/actions or an explicit pilot
+  deferral, plus production user rollout evidence, remain separate blockers.
+  Evidence remains metadata-safe and keeps the production
   claim bounded unless a separate rollout gate proves stronger live owner-review
   behavior.
 - Feature `043-app-zoom-shortcuts` is implemented on top of the `036` owner
@@ -315,10 +316,6 @@ that implementation is reviewed and proven in the target environment.
 
 Remaining launch blockers are now more specific:
 
-- production owner review on `rec.2brain.pro` is not yet proven because the
-  committed 036 evidence does not include a metadata-safe authenticated
-  list/detail/governance proof from an approved owner session;
-- list/detail/governance UI is fixture-backed, not live-owner proven;
 - `042` production upload-to-transcript-to-review path is not yet deployed or
   proven with metadata-safe production evidence;
 - notes/action truth states are implemented, but stored/generated launchable
@@ -327,13 +324,12 @@ Remaining launch blockers are now more specific:
 - production evidence remains `infra_smoke_ready`, not a user rollout journey;
 - the installed desktop surface has accepted clean-room visual/product polish
   and a metadata-safe idle/active/paused/resumed/stopped walkthrough pack, but
-  this does not replace live owner-review or production rollout evidence.
+  this does not replace production rollout evidence.
 
-Before any pilot claim, finish 042 review/deploy/proof, validate the owner
-auth/session path for `rec.2brain.pro`, capture metadata-safe live owner review
-evidence, decide whether generated notes/actions are implemented or explicitly
-deferred for MVP, and keep the installed-app walkthrough linked as supporting
-evidence rather than a rollout claim.
+Before any pilot claim, finish 042 review/deploy/proof, decide whether
+generated notes/actions are implemented or explicitly deferred for MVP, and keep
+the owner proof plus installed-app walkthrough linked as supporting evidence
+rather than a rollout claim.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey

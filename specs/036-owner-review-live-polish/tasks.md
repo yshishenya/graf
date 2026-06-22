@@ -59,8 +59,8 @@
 - [X] T022 [US1] Extend or wrap `apps/server/scripts/issue_smoke_auth_session.py` for owner-review purpose metadata without printing token values
 - [X] T023 [US1] Add sanitized owner review live proof script in `apps/server/scripts/prove_owner_review_live.py`
 - [X] T024 [US1] Document owner review execute-mode token-file and cleanup flow in `docs/evidence/036-owner-review-live-polish/README.md`
-- [ ] T025 [US1] Capture sanitized `rec.2brain.pro` owner list/detail/governance result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
-- [ ] T026 [US1] Add metadata-only owner proof artifact in `docs/evidence/036-owner-review-live-polish/screenshots/web-owner-review-evidence.md`
+- [X] T025 [US1] Capture sanitized `rec.2brain.pro` owner list/detail/governance result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [X] T026 [US1] Add metadata-only owner proof artifact in `docs/evidence/036-owner-review-live-polish/screenshots/web-owner-review-evidence.md`
 
 **Checkpoint**: User Story 1 can be validated independently with `quickstart.md` sections 3 and 4.
 

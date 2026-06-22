@@ -158,7 +158,7 @@ def test_035_closes_stale_live_desktop_gap_and_adds_web_auth_gap() -> None:
     assert "web-owner-live-auth-context" in stages["meeting-list"].launch_gap_ids
 
 
-def test_036_keeps_live_owner_and_output_gaps_but_closes_visual_polish_gap() -> None:
+def test_036_closes_live_owner_and_visual_polish_gaps_but_keeps_output_gaps() -> None:
     report = build_default_readiness_report(feature="036-owner-review-live-polish")
     stages = {stage.id: stage for stage in report.stages}
     evidence_ids = {item.id for item in report.evidence}
@@ -166,7 +166,7 @@ def test_036_keeps_live_owner_and_output_gaps_but_closes_visual_polish_gap() -> 
     comparisons = {comparison.id: comparison for comparison in report.reference_comparisons}
 
     assert report.claim_summary.outcome == "pilot_blocked"
-    assert "web-owner-live-auth-context" in gaps
+    assert "web-owner-live-auth-context" not in gaps
     assert "notes-action-output" in gaps
     assert "production-user-rollout-evidence" in gaps
     assert "desktop-runtime-walkthrough-evidence" not in gaps
@@ -177,9 +177,10 @@ def test_036_keeps_live_owner_and_output_gaps_but_closes_visual_polish_gap() -> 
     assert "feature-036-notes-action-truth" in evidence_ids
     assert "feature-036-installed-app-visual-polish" in evidence_ids
     assert "feature-036-installed-app-final-walkthrough" in evidence_ids
-    assert stages["meeting-list"].status == "degraded"
-    assert stages["meeting-detail-transcript-playback"].status == "degraded"
-    assert "web-owner-live-auth-context" in stages["meeting-list"].launch_gap_ids
+    assert stages["meeting-list"].status == "ready"
+    assert stages["meeting-detail-transcript-playback"].status == "ready"
+    assert stages["meeting-list"].launch_gap_ids == []
+    assert stages["meeting-detail-transcript-playback"].launch_gap_ids == []
     assert stages["notes-action-output"].status == "blocked"
     assert "feature-036-notes-action-truth" in stages["notes-action-output"].evidence_ids
     assert stages["desktop-embedded-cabinet"].status == "ready"
