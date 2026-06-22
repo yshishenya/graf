@@ -408,14 +408,14 @@ final class CaptureControlTests: XCTestCase {
             id: "blocked-local",
             state: .blocked,
             updatedAt: Date(timeIntervalSince1970: 20),
-            failureReason: "local_recording_package_not_uploadable",
+            failureReason: LocalRecordingFailureReason.leakageDetected.rawValue,
             retryMode: .manualOnly
         )
 
         let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
 
         XCTAssertEqual(summary.title, "Нужна проверка")
-        XCTAssertEqual(summary.detail, "нужна ручная проверка локальной записи")
+        XCTAssertEqual(summary.detail, "звук динамиков попал в микрофон; отправка заблокирована")
         XCTAssertEqual(summary.primaryItem.nextActionLabel, "Повторить")
     }
 

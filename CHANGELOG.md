@@ -37,6 +37,10 @@ tooling in this repository may use Semantic Versioning where documented.
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Desktop upload queue now preserves and shows the specific local recording
+  block reason from package truth, so users see whether upload was stopped by
+  speaker leakage, silent input, unmeasured leakage, missing tracks, or another
+  local readiness problem instead of a generic manual-review message.
 - Desktop embedded cabinet now preserves the intended login/access status after
   WebKit policy-cancel callbacks and writes metadata-only navigation status
   events, so a recoverable cabinet state is no longer overwritten by a false
