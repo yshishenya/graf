@@ -170,9 +170,14 @@ artifacts remain the detailed implementation record.
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
   desktop login recovery, denser clean-room meeting list/detail surfaces, and
-  native/embedded shell polish. Evidence remains metadata-safe and keeps the
-  production claim bounded unless a separate rollout gate proves stronger live
-  owner-review behavior.
+  native/embedded shell polish. The 036 readiness pack now records the bounded
+  `pilot_blocked` outcome: visual/product polish and notes/action truth states
+  are accepted, while live owner list/detail/governance proof, launchable
+  generated notes/actions or an explicit pilot deferral, production user
+  rollout evidence, and a final installed-app capture-state walkthrough remain
+  separate blockers. Evidence remains metadata-safe and keeps the production
+  claim bounded unless a separate rollout gate proves stronger live owner-review
+  behavior.
 - Feature `043-app-zoom-shortcuts` is implemented on top of the `036` owner
   review shell baseline as a local macOS readability feature. Standard macOS
   shortcuts adjust only the embedded meeting workspace zoom, persist the local
@@ -310,22 +315,23 @@ that implementation is reviewed and proven in the target environment.
 Remaining launch blockers are now more specific:
 
 - production owner review on `rec.2brain.pro` is not yet proven because the
-  protected `/meetings` route returned `401 missing_auth_context` without a
-  commit-safe authenticated owner session;
+  committed 036 evidence does not include a metadata-safe authenticated
+  list/detail/governance proof from an approved owner session;
 - list/detail/governance UI is fixture-backed, not live-owner proven;
 - `042` production upload-to-transcript-to-review path is not yet deployed or
   proven with metadata-safe production evidence;
-- notes/action output is still a truthful placeholder, not a launchable
-  generated-output capability;
+- notes/action truth states are implemented, but stored/generated launchable
+  notes and actions, or an explicit owner-approved pilot deferral, are not yet
+  accepted;
 - production evidence remains `infra_smoke_ready`, not a user rollout journey;
-- the installed desktop surface is operational and safe, but still needs the
-  accepted clean-room V8 product polish before a broad launch claim.
+- the installed desktop surface has accepted clean-room visual/product polish,
+  but still needs one final metadata-safe idle/active/paused/resumed/stopped and
+  cabinet configured/missing-auth/local-only walkthrough pack.
 
 Before any pilot claim, finish 042 review/deploy/proof, validate the owner
 auth/session path for `rec.2brain.pro`, capture metadata-safe live owner review
-evidence, decide whether notes/actions are implemented or explicitly deferred
-for MVP, and carry the desktop/web product surface toward the accepted V8
-baseline.
+evidence, decide whether generated notes/actions are implemented or explicitly
+deferred for MVP, and complete the installed-app walkthrough evidence.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey
@@ -335,9 +341,9 @@ Keep separate unless the next spec explicitly changes scope:
 
 - Public-link and external-recipient sharing policy: optional public links,
   expiration, abuse controls, external invitations, and legal/admin copy.
-- Notes/action output: decide whether the MVP requires generated notes/action
-  items next or whether a truthful planned placeholder remains acceptable for an
-  internal pilot.
+- Notes/action output: decide whether the MVP requires stored generated
+  notes/action items next or whether the now-truthful 036 state model is
+  explicitly accepted as a narrower internal-pilot deferral.
 - Assisted auto-start and generalized meeting detection.
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates

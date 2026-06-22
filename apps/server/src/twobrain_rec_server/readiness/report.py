@@ -90,6 +90,8 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "desktop-shell-regression-tests",
                     "desktop-first-surface-blocker-note",
                     "desktop-embedded-detail-blocker-note",
+                    "feature-036-installed-app-visual-polish",
+                    "feature-036-clean-room-reference",
                 ],
             ),
             "",
@@ -115,6 +117,9 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-035-web-list-evidence",
                     "feature-035-web-detail-evidence",
                     "feature-035-web-governance-evidence",
+                    "feature-036-owner-review-live",
+                    "feature-036-notes-action-truth",
+                    "feature-036-validation-log",
                     "reference-comparison-note",
                 ],
             ),
@@ -252,6 +257,13 @@ def _next_slice_recommendation(report: ReadinessReport) -> str:
             "Recommended next product slice: `036-owner-review-live-polish`. "
             "Close `web-owner-live-auth-context`, decide `notes-action-output`, "
             "and keep production rollout capped until a commit-safe owner journey passes."
+        )
+    if report.feature == "036-owner-review-live-polish" and p1_gaps:
+        return (
+            "Recommended next action: keep the 036 claim at `pilot_blocked`; "
+            "close `web-owner-live-auth-context` only after metadata-safe live owner "
+            "list/detail/governance proof, and keep `notes-action-output` excluded "
+            "until stored generated output or an accepted pilot deferral exists."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."

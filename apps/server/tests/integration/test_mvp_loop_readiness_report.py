@@ -89,6 +89,29 @@ def test_035_report_keeps_web_owner_review_truthful_when_live_auth_is_blocked() 
     assert gaps["web-owner-live-auth-context"].owner_area == "web"
 
 
+def test_036_report_keeps_owner_review_truthful_and_closes_visual_polish_wording() -> None:
+    report = build_default_readiness_report(
+        feature="036-owner-review-live-polish",
+        generated_at="2026-06-22T00:00:00Z",
+    )
+    markdown = render_markdown_report(report)
+    evidence = {item.id: item for item in report.evidence}
+    gaps = {gap.id: gap for gap in report.launch_gaps}
+    stages = {stage.id: stage for stage in report.stages}
+
+    assert report.claim_summary.outcome == "pilot_blocked"
+    assert evidence["feature-036-owner-review-live"].strength == "blocked"
+    assert "list/detail/governance proof remains blocked" in evidence["feature-036-owner-review-live"].scope
+    assert evidence["feature-036-notes-action-truth"].strength == "local_runtime"
+    assert "web-owner-live-auth-context" in gaps
+    assert "notes-action-output" in gaps
+    assert "desktop-runtime-walkthrough-evidence" in gaps
+    assert "desktop-product-surface-polish" not in gaps
+    assert stages["desktop-embedded-cabinet"].launch_gap_ids == ["desktop-runtime-walkthrough-evidence"]
+    assert "Recommended next action: keep the 036 claim at `pilot_blocked`" in markdown
+    assert "feature-036-notes-action-truth" in markdown
+
+
 def test_035_status_and_changelog_record_current_next_slice() -> None:
     root = Path(__file__).resolve().parents[4]
     status_doc = (root / "docs/current-product-status.md").read_text()

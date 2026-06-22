@@ -10,6 +10,7 @@ from twobrain_rec_server.readiness import (
 )
 
 FEATURE = "035-mvp-loop-live-evidence"
+FEATURE_036 = "036-owner-review-live-polish"
 
 
 def test_035_live_evidence_report_uses_feature_contract_and_caps_claims(tmp_path: Path) -> None:
@@ -188,3 +189,49 @@ def test_035_clean_room_reference_assertions_stay_metadata_only() -> None:
     assert "No committed private Krisp screenshots." in clean_room_note
     assert "layout-specific instructions" in clean_room_note
     assert "/Users/" not in clean_room_note
+
+
+def test_036_readiness_output_generation_contains_current_claim_and_open_gaps(tmp_path: Path) -> None:
+    report = build_default_readiness_report(
+        feature=FEATURE_036,
+        generated_at="2026-06-22T00:00:00Z",
+        deployed_commit="036-closeout-test",
+    )
+    write_readiness_outputs(report, tmp_path)
+
+    payload = json.loads((tmp_path / "readiness-report.json").read_text())
+    markdown = (tmp_path / "readiness-report.md").read_text()
+    gap_register = (tmp_path / "launch-gap-register.md").read_text()
+
+    assert payload["feature"] == FEATURE_036
+    assert payload["claim_summary"]["outcome"] == "pilot_blocked"
+    assert payload["claim_summary"]["bounded_claims"] == ["infra_smoke_ready"]
+    assert {item["id"] for item in payload["evidence"]} >= {
+        "feature-036-owner-review-live",
+        "feature-036-validation-log",
+        "feature-036-notes-action-truth",
+        "feature-036-clean-room-reference",
+        "feature-036-github-issues",
+    }
+    assert "web-owner-live-auth-context" in gap_register
+    assert "notes-action-output" in gap_register
+    assert "desktop-runtime-walkthrough-evidence" in gap_register
+    assert "desktop-product-surface-polish" not in gap_register
+    assert "Recommended next action: keep the 036 claim at `pilot_blocked`" in markdown
+
+
+def test_036_existing_evidence_files_are_metadata_safe_and_bound_open_claims() -> None:
+    evidence_dir = Path(__file__).resolve().parents[4] / "docs/evidence/036-owner-review-live-polish"
+
+    validation_log = (evidence_dir / "validation-log.md").read_text()
+    clean_room_note = (evidence_dir / "clean-room-reference.md").read_text()
+    notes_truth = (evidence_dir / "screenshots/web-notes-action-truth-evidence.md").read_text()
+
+    assert "Owner review session proof for list/detail/governance" in validation_log
+    assert "real owner list/detail/governance content still needs metadata-safe live" in clean_room_note
+    assert "active/paused/resumed/stopped recording walkthrough still needs final" in clean_room_note
+    assert "Summary" in notes_truth
+    assert "Action Items" in notes_truth
+    assert "/Users/" not in validation_log
+    assert "/Users/" not in clean_room_note
+    assert "/Users/" not in notes_truth
