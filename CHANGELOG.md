@@ -32,6 +32,10 @@ tooling in this repository may use Semantic Versioning where documented.
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Apple voice processing outcome selection now fails closed when any validation
+  row is diagnostic-unsafe, preventing accepted built-in speakerphone outcomes
+  or clean-claim eligibility from surviving unsafe Apple evidence
+  (`feature:038` post-merge review).
 - Запись через выбранный/дефолтный микрофон теперь fail-closed для permission
   denied/restricted/stale, unavailable device, unsupported virtual/self-routing
   input, no-frames/silent stream и Stop/quit cleanup; Stop privacy suppression

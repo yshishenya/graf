@@ -648,6 +648,9 @@ public struct AppleProcessingValidationRow: Codable, Equatable, Sendable {
     }
 
     public var normalizedStabilityStatus: AppleProcessingStabilityStatus {
+        if !diagnosticSafe {
+            return .blockedStability
+        }
         if speechPreservationStatus == .suppressed {
             return .blockedQuality
         }
@@ -739,7 +742,9 @@ public struct AppleProcessingOutcome: Codable, Equatable, Sendable {
     }
 
     public var canClaimCleanBuiltinSpeakerphone: Bool {
-        guard primaryOutcome == .acceptedForBuiltinSpeakerphone, diagnosticSafe else { return false }
+        guard primaryOutcome == .acceptedForBuiltinSpeakerphone,
+              diagnosticSafe,
+              validationRows.allSatisfy(\.diagnosticSafe) else { return false }
         let acceptedScenarios = Set(
             validationRows
                 .filter(\.isAcceptedForBuiltinSpeakerphone)
