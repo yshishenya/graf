@@ -188,3 +188,15 @@ This file records metadata-only validation for feature `048`.
   during closeout, with links to PR #1610, the `feature:048` task list, the
   current production release that still contains 048, validation evidence,
   compatibility notes, limitations, and rollback notes.
+- Product-status closeout consistency was corrected after rechecking `master`:
+  `docs/current-product-status.md` no longer says 048 still needs PR/merge,
+  release, deploy dry-run, or production smoke; it also records that the later
+  `v2026.06.25.2` production release still includes the 048 playback baseline.
+- Docs-closeout validation on the consistency correction passed:
+  Spec Kit prerequisite anchor resolved `specs/048-real-playback-availability`,
+  incomplete task scan returned no matches, GitHub tracker check returned
+  `45` closed and `0` open issues for `feature:048`, production health returned
+  live `ok` and ready `ready`, focused readiness doc tests passed
+  `7 passed, 1 warning`, and full local CI returned `ci_local_result=pass`
+  with `570 passed, 4 skipped, 90 warnings`, server lint, Python compile, and
+  deployment evidence scan passing.
