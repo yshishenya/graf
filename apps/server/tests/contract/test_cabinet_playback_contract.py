@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import seed_cabinet_meetings
-from tests.fixtures.cabinet_access import set_artifact_policy
 
 
 def test_ready_detail_exposes_server_mediated_combined_playback_contract(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
 
@@ -23,11 +21,13 @@ def test_ready_detail_exposes_server_mediated_combined_playback_contract(client)
     assert playback["speed_options"] == [0.75, 1.0, 1.25, 1.5, 2.0]
     assert "http" not in playback["playback_path"]
     assert "X-Amz" not in playback["playback_path"]
+    audio_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio")
+    assert audio_artifact["state"] == "policy_blocked"
+    assert audio_artifact["action"] == "disabled"
 
 
 def test_ready_detail_exposes_seekable_transcript_segments_when_playback_available(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
 
@@ -40,7 +40,6 @@ def test_ready_detail_exposes_seekable_transcript_segments_when_playback_availab
 
 def test_processing_detail_keeps_playback_unavailable_without_path(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.processing_id, audio_download="allowed")
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.processing_id}", headers=auth_headers())
 
@@ -54,7 +53,6 @@ def test_processing_detail_keeps_playback_unavailable_without_path(client) -> No
 
 def test_desktop_embedded_detail_uses_same_playback_contract(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
 
     api_response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
     desktop_response = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())

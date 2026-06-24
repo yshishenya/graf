@@ -566,7 +566,7 @@ def notes_action_truth_state(
 def playback_state(
     meeting: Meeting,
     status: MeetingReviewStatus,
-    artifacts: list[ArtifactEgressState] | None = None,
+    review_playback: ArtifactEgressState | None = None,
 ) -> PlaybackReviewState:
     duration_seconds = max(0, meeting.duration_seconds)
     if status in {"processing", "submitted", "blocked", "local_only", "uploading"}:
@@ -590,30 +590,29 @@ def playback_state(
             unavailable_reason="deleting",
             policy_label="Аудио удаляется",
         )
-    audio_state = next((artifact for artifact in artifacts or [] if artifact.artifact_class == "audio"), None)
-    if audio_state is None or audio_state.state == "missing":
+    if review_playback is None or review_playback.state == "missing":
         return PlaybackReviewState(
             available=False,
             duration_seconds=duration_seconds,
             unavailable_reason="no_audio",
             policy_label="Аудио недоступно",
         )
-    if audio_state.state in {"policy_blocked", "owner_only"}:
-        reason = "access_denied" if audio_state.label == "Access required" else "policy_disabled"
+    if review_playback.state in {"policy_blocked", "owner_only"}:
+        reason = "access_denied" if review_playback.label == "Access required" else "policy_disabled"
         return PlaybackReviewState(
             available=False,
             duration_seconds=duration_seconds,
             unavailable_reason=reason,
             policy_label="Аудио закрыто политикой доступа",
         )
-    if audio_state.state == "deleted":
+    if review_playback.state == "deleted":
         return PlaybackReviewState(
             available=False,
             duration_seconds=duration_seconds,
             unavailable_reason="deleting",
             policy_label="Аудио удаляется",
         )
-    if status not in {"ready", "partial"} or audio_state.state != "available":
+    if status not in {"ready", "partial"} or review_playback.state != "available":
         return PlaybackReviewState(
             available=False,
             duration_seconds=duration_seconds,
@@ -663,6 +662,7 @@ def build_review_response(
     access: MeetingAccessState | None = None,
     share: SharePanelState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
+    review_playback: ArtifactEgressState | None = None,
     activity: MeetingActivityResponse | None = None,
 ) -> MeetingReviewResponse:
     access_state = access or owner_access_state()
@@ -676,7 +676,7 @@ def build_review_response(
     )
     status = cast(MeetingReviewStatus, item.status)
     notes_truth = notes_action_truth_state(status=status, result=result)
-    playback = playback_state(meeting, status, artifact_states)
+    playback = playback_state(meeting, status, review_playback)
     return MeetingReviewResponse(
         meeting=item,
         provenance=provenance_state(

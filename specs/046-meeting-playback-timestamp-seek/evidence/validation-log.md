@@ -103,3 +103,15 @@ This file records metadata-only validation for feature `046`.
   - All tasks `T001-T049` in
     `specs/046-meeting-playback-timestamp-seek/tasks.md` are checked after
     validation evidence was recorded.
+
+## Correction Boundary Added During 048
+
+- Feature `048-real-playback-availability` found that 046's positive playback
+  tests manually enabled `audio_download="allowed"` for ready meetings. That
+  meant 046 correctly added the server-owned playback route, timestamp seek,
+  dual-source review audio builder, and safe blocked states, but did not by
+  itself prove that ordinary processed user recordings would show playback
+  under the default disabled audio download policy.
+- 048 preserves the 046 route/building foundation and corrects the product
+  availability boundary: in-page review playback is now separate from file
+  download/export policy, while downloads remain policy-controlled.

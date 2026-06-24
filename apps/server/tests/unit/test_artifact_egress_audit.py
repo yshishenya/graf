@@ -35,3 +35,25 @@ def test_safe_audit_metadata_for_playback_keeps_source_mode_without_private_audi
         "source_mode": "combined_review_stream",
         "byte_length": 456,
     }
+
+
+def test_safe_audit_metadata_for_playback_range_denial_drops_private_headers() -> None:
+    metadata = safe_audit_metadata(
+        {
+            "artifact_class": "audio",
+            "request_class": "playback",
+            "outcome": "denied",
+            "policy_reason": "playback_range_not_satisfiable",
+            "range_header": "bytes=999999-1000000",
+            "authorization": "Bearer private-token",
+            "storage_object_key": "private/object/key",
+            "raw_audio": "private samples",
+        }
+    )
+
+    assert metadata == {
+        "artifact_class": "audio",
+        "request_class": "playback",
+        "outcome": "denied",
+        "policy_reason": "playback_range_not_satisfiable",
+    }

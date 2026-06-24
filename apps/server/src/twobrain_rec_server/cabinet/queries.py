@@ -14,7 +14,11 @@ from twobrain_rec_server.api.schemas import (
     MeetingReviewStatus,
 )
 from twobrain_rec_server.cabinet.access import decide_meeting_access, share_panel_state
-from twobrain_rec_server.cabinet.egress import activity_response, artifact_egress_states
+from twobrain_rec_server.cabinet.egress import (
+    activity_response,
+    artifact_egress_states,
+    review_playback_state,
+)
 from twobrain_rec_server.cabinet.view_models import build_list_item, build_review_response
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -176,6 +180,7 @@ async def get_cabinet_meeting_review(
         access=decision.to_schema(),
         share=await share_panel_state(db, meeting, decision),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
+        review_playback=await review_playback_state(db, meeting=meeting, access=decision, result=result),
         activity=await activity_response(
             db,
             workspace_id=workspace_id,

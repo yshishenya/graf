@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -70,6 +70,14 @@ class DownloadArtifact:
 class PlaybackArtifact:
     media_type: str
     body: bytes
+    status_code: int = 200
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackByteRange:
+    start: int
+    end: int
 
 
 def safe_audit_metadata(metadata: Mapping[str, object] | None) -> dict[str, object]:
@@ -188,6 +196,61 @@ async def stored_audio_artifacts(
     ).all()
 
 
+async def review_playback_state(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    access: AccessDecision,
+    result: ProcessingResult | None,
+) -> ArtifactEgressState:
+    if meeting_deletion_active(meeting):
+        return ArtifactEgressState(
+            artifact_class="audio",
+            state="deleted",
+            label="Review audio deleting",
+            reason="meeting_deletion_active",
+            action="disabled",
+        )
+    if not access.can_view:
+        return ArtifactEgressState(
+            artifact_class="audio",
+            state="policy_blocked",
+            label="Access required",
+            reason="Viewer cannot access this meeting.",
+            action="disabled",
+        )
+    if result is None or result.status != ProcessingResultStatus.IMPORTED.value:
+        reason = _playback_result_unavailable_reason(meeting, result)
+        state = "failed" if reason in {"processing_failed", "review_result_not_imported"} else "processing"
+        return ArtifactEgressState(
+            artifact_class="audio",
+            state=state,
+            label="Review audio unavailable",
+            reason=reason,
+            action="disabled",
+        )
+
+    artifacts = {
+        artifact.track_role: artifact
+        for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    }
+    if TrackRole.MICROPHONE.value not in artifacts or TrackRole.SYSTEM.value not in artifacts:
+        return ArtifactEgressState(
+            artifact_class="audio",
+            state="missing",
+            label="Review audio unavailable",
+            reason="missing_audio_source",
+            action="disabled",
+        )
+    return ArtifactEgressState(
+        artifact_class="audio",
+        state="available",
+        label="Review playback",
+        reason="server_mediated_review_playback",
+        action="disabled",
+    )
+
+
 async def download_artifact(
     db: AsyncSession,
     *,
@@ -287,6 +350,7 @@ async def playback_artifact(
     result: ProcessingResult | None,
     actor_user_id: UUID,
     device_id: UUID,
+    range_header: str | None = None,
 ) -> PlaybackArtifact:
     if meeting_deletion_active(meeting):
         await _record_playback_denied(
@@ -298,29 +362,14 @@ async def playback_artifact(
         )
         raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
 
-    if result is None or result.status != ProcessingResultStatus.IMPORTED.value:
+    playback_state = await review_playback_state(db, meeting=meeting, access=access, result=result)
+    if playback_state.state != "available":
         await _record_playback_denied(
             db,
             meeting=meeting,
             actor_user_id=actor_user_id,
             device_id=device_id,
-            reason=_playback_result_unavailable_reason(meeting, result),
-        )
-        await db.commit()
-        raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
-
-    states = {
-        state.artifact_class: state
-        for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
-    }
-    audio_state = states.get("audio")
-    if audio_state is None or audio_state.state != "available":
-        await _record_playback_denied(
-            db,
-            meeting=meeting,
-            actor_user_id=actor_user_id,
-            device_id=device_id,
-            reason=audio_state.reason if audio_state is not None else "audio_unavailable",
+            reason=playback_state.reason,
         )
         await db.commit()
         raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
@@ -373,6 +422,19 @@ async def playback_artifact(
         await db.commit()
         raise ProblemDetail(status=409, code="review_audio_unavailable", title="Review audio unavailable") from exc
 
+    try:
+        response_body, status_code, headers = _playback_response_for_range(review_audio.body, range_header)
+    except ProblemDetail:
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason="playback_range_not_satisfiable",
+        )
+        await db.commit()
+        raise
+
     await record_egress_audit_event(
         db,
         workspace_id=meeting.workspace_id,
@@ -382,7 +444,7 @@ async def playback_artifact(
         event_type="playback_requested",
         outcome="allowed",
         artifact_class="audio",
-        policy_reason="policy_allowed",
+        policy_reason="server_mediated_review_playback",
         metadata={
             "artifact_class": "audio",
             "viewer_access_state": access.state,
@@ -399,15 +461,76 @@ async def playback_artifact(
         event_type="playback_completed",
         outcome="completed",
         artifact_class="audio",
-        policy_reason="policy_allowed",
+        policy_reason="server_mediated_review_playback",
         metadata={
             "artifact_class": "audio",
             "outcome": "completed",
-            "byte_length": len(review_audio.body),
+            "byte_length": len(response_body),
             "source_mode": review_audio.source_mode,
         },
     )
-    return PlaybackArtifact(media_type=review_audio.media_type, body=review_audio.body)
+    return PlaybackArtifact(
+        media_type=review_audio.media_type,
+        body=response_body,
+        status_code=status_code,
+        headers=headers,
+    )
+
+
+def _playback_response_for_range(body: bytes, range_header: str | None) -> tuple[bytes, int, dict[str, str]]:
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": 'inline; filename="meeting-review.wav"',
+    }
+    if not range_header:
+        headers["Content-Length"] = str(len(body))
+        return body, 200, headers
+
+    byte_range = _parse_playback_byte_range(range_header, total_length=len(body))
+    partial = body[byte_range.start : byte_range.end + 1]
+    headers["Content-Range"] = f"bytes {byte_range.start}-{byte_range.end}/{len(body)}"
+    headers["Content-Length"] = str(len(partial))
+    return partial, 206, headers
+
+
+def _parse_playback_byte_range(range_header: str, *, total_length: int) -> PlaybackByteRange:
+    if total_length <= 0 or not range_header.startswith("bytes="):
+        raise ProblemDetail(
+            status=416,
+            code="playback_range_not_satisfiable",
+            title="Playback range not satisfiable",
+        )
+    range_spec = range_header.removeprefix("bytes=").strip()
+    if "," in range_spec or "-" not in range_spec:
+        raise ProblemDetail(
+            status=416,
+            code="playback_range_not_satisfiable",
+            title="Playback range not satisfiable",
+        )
+    start_text, end_text = range_spec.split("-", 1)
+    try:
+        if start_text == "":
+            suffix_length = int(end_text)
+            if suffix_length <= 0:
+                raise ValueError
+            start = max(total_length - suffix_length, 0)
+            end = total_length - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else total_length - 1
+    except ValueError as exc:
+        raise ProblemDetail(
+            status=416,
+            code="playback_range_not_satisfiable",
+            title="Playback range not satisfiable",
+        ) from exc
+    if start < 0 or end < start or start >= total_length:
+        raise ProblemDetail(
+            status=416,
+            code="playback_range_not_satisfiable",
+            title="Playback range not satisfiable",
+        )
+    return PlaybackByteRange(start=start, end=min(end, total_length - 1))
 
 
 async def _record_playback_denied(

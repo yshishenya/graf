@@ -1,9 +1,9 @@
 # Текущий статус продукта
 
-Date: 2026-06-24
+Date: 2026-06-25
 
 Этот документ коротко фиксирует состояние продукта после локальной реализации
-`046-meeting-playback-timestamp-seek`. PRD остается базовой продуктовой
+`048-real-playback-availability`. PRD остается базовой продуктовой
 линией; feature specs и metadata-only evidence остаются подробной историей
 реализации.
 
@@ -202,6 +202,26 @@ Date: 2026-06-24
   `/Applications`. This still does not implement real echo cancellation,
   noise suppression, transcript editing, waveform generation, signed/notarized
   external distribution, or final user-rollout readiness.
+- Feature `048-real-playback-availability` is implemented locally as the
+  product-visible playback correction after `046`. A normal ready owner review
+  no longer needs `audio_download=allowed` to show playback: review listening
+  is separated from file download/export policy, while the "Files" audio
+  download action can remain policy-blocked. The web review and macOS embedded
+  review render the same transcript-first surface with a persistent bottom
+  player, timestamp seek controls, speed/skip/time controls, and diarization
+  speaker lanes. The playback route is server-mediated, relative, range-aware
+  (`206`/`Accept-Ranges`/`Content-Range`), and does not expose signed URLs,
+  storage object keys, raw audio diagnostics, or private paths. Local evidence:
+  RED reproduced the 046 real-product gap (`15 failed, 14 passed`), extended
+  focused validation passed `48 passed, 1 warning`, the real local
+  FastAPI/Playwright verifier on 2026-06-25 passed across ordinary web,
+  mobile-width web, and desktop embedded review with range playback and no
+  visible audio download link, and fresh full local CI passed
+  `570 passed, 4 skipped, 90 warnings`. This still does not implement
+  materialized compressed share audio, public links, real echo cancellation,
+  noise suppression, waveform generation, transcript editing, native Swift
+  playback controls, signed/notarized distribution, or final user-rollout
+  readiness.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -350,10 +370,10 @@ Date: 2026-06-24
 Recommended next action before starting another feature: close out the current
 MVP review path with full local CI, deploy dry-run, PR/merge, release, and
 production smoke/e2e evidence. The local implementation now proves upload
-eligibility, server processing start/reuse, result availability, and
-timestamp-linked review playback in focused tests; product rollout is still
-blocked until the implementation is reviewed and proven in the target
-environment.
+eligibility, server processing start/reuse, result availability, real visible
+review playback, timestamp seek, and server-mediated range playback in focused
+tests; product rollout is still blocked until the implementation is reviewed
+and proven in the target environment.
 
 Remaining launch blockers are now more specific:
 
@@ -372,9 +392,10 @@ Remaining launch blockers are now more specific:
   over `origin/master`, full local CI, and a passing deploy dry-run, but
   post-deploy production smoke/e2e evidence is still required before any pilot
   claim;
-- PRD-level audio playback linked to transcript timestamps is implemented
-  locally in `046`, but still needs full local CI, deploy dry-run, PR/merge,
-  release, and production smoke before it can be counted as rollout evidence;
+- PRD-level visible review playback linked to transcript timestamps is
+  implemented locally in `048`, but still needs full local CI, deploy dry-run,
+  PR/merge, release, and production smoke before it can be counted as rollout
+  evidence;
 - notes/action truth states are implemented, but stored/generated launchable
   notes and actions, or an explicit owner-approved pilot deferral, are not yet
   accepted;
@@ -386,7 +407,7 @@ Remaining launch blockers are now more specific:
   this does not replace production rollout evidence.
 
 Before any pilot claim, finish production deploy/proof for the current MVP
-path, keep `046` playback evidence tied to real deployed review behavior, and
+path, keep `048` playback evidence tied to real deployed review behavior, and
 decide whether generated notes/actions are implemented or explicitly deferred
 for MVP. Keep the owner proof plus installed-app walkthrough linked as
 supporting evidence rather than a rollout claim.
@@ -402,8 +423,9 @@ Keep separate unless the next spec explicitly changes scope:
 - Notes/action output: decide whether the MVP requires stored generated
   notes/action items next or whether the now-truthful 036 state model is
   explicitly accepted as a narrower internal-pilot deferral.
-- Interactive playback/timestamp seek: local implementation is in `046`.
-  Remaining work is validation and rollout proof, not product-scope decision.
+- Interactive playback/timestamp seek: real visible local implementation is in
+  `048`. Remaining work is validation and rollout proof, not product-scope
+  decision.
 - Assisted auto-start and generalized meeting detection.
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates
@@ -460,11 +482,11 @@ the current accepted implementation or `012` ingest slice.
   limits before any clean speakerphone claim is allowed. It is separate from
   `045`, which lets imperfect-but-structurally-valid packages reach
   transcription/results without claiming the mic was cleaned.
-- Post-MVP editing/media backlog: features `048`-`051` are reserved for local
-  media trim revisions, online transcript edit sync, video capture package
-  foundation, and explicit media replace/reprocess flows. They are not part of
-  `042` MVP, but `042` must avoid data/identity choices that would force
-  duplicate meetings later.
+- Post-MVP editing/media backlog still needs separate numbering after `048`:
+  local media trim revisions, online transcript edit sync, video capture
+  package foundation, and explicit media replace/reprocess flows are not part
+  of `042`/`048` MVP, but current data/identity choices must avoid duplicate
+  meetings later.
 - `direct-object-upload`: future upload optimization only after a separate
   security and lifecycle review; `012` remains `server_mediated`.
 - Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
