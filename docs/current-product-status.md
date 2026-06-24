@@ -2,8 +2,9 @@
 
 Date: 2026-06-25
 
-Этот документ коротко фиксирует состояние продукта после локальной реализации
-`048-real-playback-availability`. PRD остается базовой продуктовой
+Этот документ коротко фиксирует состояние продукта после closeout
+`048-real-playback-availability` и последующего релиза
+`047-cabinet-runtime-truth`. PRD остается базовой продуктовой
 линией; feature specs и metadata-only evidence остаются подробной историей
 реализации.
 
@@ -202,8 +203,9 @@ Date: 2026-06-25
   `/Applications`. This still does not implement real echo cancellation,
   noise suppression, transcript editing, waveform generation, signed/notarized
   external distribution, or final user-rollout readiness.
-- Feature `047-cabinet-runtime-truth` is implemented locally on top of the
-  deployed `048` baseline as the macOS cabinet trust correction. The desktop
+- Feature `047-cabinet-runtime-truth` is implemented, merged through PR
+  `#1635`, released as `v2026.06.25.2`, and deployed to production on top of
+  the `048` playback baseline as the macOS cabinet trust correction. The desktop
   shell no longer treats a configured cabinet URL as proof that the server,
   session, or review surface is healthy. It starts configured cabinets in a
   neutral checking state, shows server-unavailable truth for offline/timeout
@@ -217,9 +219,9 @@ Date: 2026-06-25
   focused server cabinet tests passed `43 passed`, fixture and real-server
   Playwright/Chrome runtime checks passed with `failures=[]`, production health
   returned live `ok` and ready `ready`, full local CI passed
-  `570 passed, 4 skipped, 8 warnings`, and deploy dry-run returned
-  `deploy_result=dry_run`. This slice is not yet merged, released, or deployed,
-  so it is not production truth until closeout completes.
+  `570 passed, 4 skipped, 8 warnings`, deploy dry-run returned
+  `deploy_result=dry_run`, and production health returned live `ok` and ready
+  `ready` after release closeout.
 - Feature `048-real-playback-availability` is implemented, merged through PR
   `#1610`, released as `v2026.06.25.1`, and deployed to production as the
   product-visible playback correction after `046`. A normal ready owner review
@@ -238,11 +240,12 @@ Date: 2026-06-25
   visible audio download link, full local CI passed
   `570 passed, 4 skipped, 90 warnings`, and production deploy returned
   `deploy_result=pass` with deployed SHA
-  `94e6cbfa2c15d9e3e94ee8d533c13d91b0f5c4d9`. This still does not implement
-  materialized compressed share audio, public links, real echo cancellation,
-  noise suppression, waveform generation, transcript editing, native Swift
-  playback controls, signed/notarized distribution, or final user-rollout
-  readiness.
+  `94e6cbfa2c15d9e3e94ee8d533c13d91b0f5c4d9`; the later
+  `v2026.06.25.2` production release still contains the 048 playback merge.
+  This still does not implement materialized compressed share audio, public
+  links, real echo cancellation, noise suppression, waveform generation,
+  transcript editing, native Swift playback controls, signed/notarized
+  distribution, or final user-rollout readiness.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -388,13 +391,13 @@ Date: 2026-06-25
 
 ## Next Product Slice
 
-Recommended next action before starting another feature: close out the current
-MVP review path with full local CI, deploy dry-run, PR/merge, release, and
-production smoke/e2e evidence. The local implementation now proves upload
-eligibility, server processing start/reuse, result availability, real visible
-review playback, timestamp seek, and server-mediated range playback in focused
-tests; product rollout is still blocked until the implementation is reviewed
-and proven in the target environment.
+Recommended next action before starting another feature: close the remaining
+MVP launch blocker around stored/generated notes and actions, or record an
+explicit owner-approved MVP deferral. The current deployed path now proves
+upload eligibility, server processing start/reuse, result availability, real
+visible review playback, timestamp seek, and server-mediated range playback;
+product rollout is still blocked until launchable notes/actions and final
+user-rollout proof are accepted.
 
 Remaining launch blockers are now more specific:
 
@@ -414,9 +417,9 @@ Remaining launch blockers are now more specific:
   post-deploy production smoke/e2e evidence is still required before any pilot
   claim;
 - PRD-level visible review playback linked to transcript timestamps is
-  implemented locally in `048`, but still needs full local CI, deploy dry-run,
-  PR/merge, release, and production smoke before it can be counted as rollout
-  evidence;
+  implemented, merged, released, and production-smoked in `048`; remaining MVP
+  rollout risk is no longer the playback release gate, but the broader
+  launchability evidence below;
 - notes/action truth states are implemented, but stored/generated launchable
   notes and actions, or an explicit owner-approved pilot deferral, are not yet
   accepted;
@@ -427,11 +430,11 @@ Remaining launch blockers are now more specific:
   and a metadata-safe idle/active/paused/resumed/stopped walkthrough pack, but
   this does not replace production rollout evidence.
 
-Before any pilot claim, finish production deploy/proof for the current MVP
-path, keep `048` playback evidence tied to real deployed review behavior, and
-decide whether generated notes/actions are implemented or explicitly deferred
-for MVP. Keep the owner proof plus installed-app walkthrough linked as
-supporting evidence rather than a rollout claim.
+Before any pilot claim, keep `048` playback evidence tied to real deployed
+review behavior, finish the remaining generated notes/actions decision or
+explicit MVP deferral, and collect final user-rollout proof. Keep the owner
+proof plus installed-app walkthrough linked as supporting evidence rather than
+a rollout claim.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey
@@ -444,9 +447,10 @@ Keep separate unless the next spec explicitly changes scope:
 - Notes/action output: decide whether the MVP requires stored generated
   notes/action items next or whether the now-truthful 036 state model is
   explicitly accepted as a narrower internal-pilot deferral.
-- Interactive playback/timestamp seek: real visible local implementation is in
-  `048`. Remaining work is validation and rollout proof, not product-scope
-  decision.
+- Interactive playback/timestamp seek: real visible owner review playback is
+  implemented, merged, released, and production-smoked in `048`. Remaining
+  playback-related work is post-MVP scope such as compressed share audio,
+  public links, waveform polish, native Swift controls, or editing.
 - Assisted auto-start and generalized meeting detection.
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates

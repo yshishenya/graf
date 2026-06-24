@@ -53,7 +53,8 @@ def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() 
     assert "Recommended next feature: `018-retention-deletion-execution`" not in status_doc
     assert "Recommended next feature: `022-meeting-mute-truth`" not in status_doc
     assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc
-    assert "Recommended next action before starting another feature: close out" in status_doc
+    assert "Recommended next action before starting another feature: close the remaining" in status_doc
+    assert "stored/generated notes and actions" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
     assert "034-mvp-loop-readiness" in status_doc
 
@@ -123,7 +124,8 @@ def test_035_status_and_changelog_record_current_next_slice() -> None:
     changelog = (root / "CHANGELOG.md").read_text()
 
     assert "Feature `035-mvp-loop-live-evidence`" in status_doc
-    assert "Recommended next action before starting another feature: close out" in status_doc
+    assert "Recommended next action before starting another feature: close the remaining" in status_doc
+    assert "stored/generated notes and actions" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
     assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc
     assert "`401 missing_auth_context`" in status_doc
