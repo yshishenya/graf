@@ -193,7 +193,7 @@ async function pageMetrics(browser, label, url, viewport) {
       barCount: document.querySelectorAll("[data-playback-shell]").length,
       seekTargets: document.querySelectorAll("[data-seek-seconds]").length,
       transcriptSeekTargets: document.querySelectorAll(".transcript [data-seek-seconds]").length,
-      transcriptTextLength: transcript ? transcript.innerText.length : 0,
+      transcriptCharCount: transcript ? transcript.innerText.length : 0,
       seekCurrentTime: audio ? audio.currentTime : null,
       sourceMode: bar ? bar.getAttribute("data-source-mode") : null,
       timelineSegments: document.querySelectorAll("[data-lane-segment]").length,
@@ -293,7 +293,7 @@ async function main() {
       if (metrics.horizontalOverflow > 1) failures.push(`${label}: horizontalOverflow=${metrics.horizontalOverflow}`);
       if (metrics.barBottom !== 0) failures.push(`${label}: barBottom=${metrics.barBottom}`);
       if (metrics.transcriptSeekTargets < 2) failures.push(`${label}: transcript seek targets missing`);
-      if (metrics.transcriptTextLength < 20) failures.push(`${label}: transcript content missing`);
+      if (metrics.transcriptCharCount < 20) failures.push(`${label}: transcript content missing`);
     }
     if (results.range.status !== 206) failures.push(`range: status=${results.range.status}`);
     if (results.range.acceptRanges !== "bytes") failures.push(`range: accept-ranges=${results.range.acceptRanges}`);

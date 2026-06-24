@@ -158,3 +158,29 @@ This file records metadata-only validation for feature `048`.
   `ci_local_result=pass` with server tests
   `570 passed, 4 skipped, 90 warnings`, server lint, Python compile, and
   deployment evidence scan passing.
+- Final closeout check confirmed PR
+  [#1610](https://github.com/yshishenya/crisp/pull/1610) is merged into
+  `master` with merge commit `9367f66`, release
+  [v2026.06.25.1](https://github.com/yshishenya/crisp/releases/tag/v2026.06.25.1)
+  is published, and the later deployed `master` release `v2026.06.25.2`
+  still contains the 048 playback commit.
+- Production health endpoints returned `{"status":"ok"}` for live and
+  `{"status":"ready"}` for ready after the later master deploy that includes
+  048.
+- GitHub tracker closeout recheck returned `open=[]` and `45` closed issues
+  for label `feature:048`. The stale local remote-tracking branch for
+  `origin/048-real-playback-availability` was pruned after GitHub confirmed
+  the remote branch no longer exists.
+- Closeout safety cleanup renamed an evidence-only metric field from a
+  forbidden-content-like marker to `transcriptCharCount`; behavior did not
+  change. The real local server/browser playback verifier was rerun and
+  returned `failures=[]`, including `206` range playback, fixed bottom player
+  in web/mobile/embedded routes, timestamp seek, speaker timeline, no audio
+  download links, and no horizontal overflow.
+- Forbidden-content scan over `specs/048-real-playback-availability` excluding
+  `quickstart.md` returned no matches after the evidence cleanup.
+- Full local CI was rerun after the final closeout evidence cleanup. Result:
+  `ci_local_result=pass`; server tests: `570 passed, 4 skipped, 90 warnings`;
+  server lint, Python compile, and deployment evidence scan passed. The local
+  RLS boundary remained blocked on the expected `postgres_test` requirement and
+  did not attempt a live production probe.
