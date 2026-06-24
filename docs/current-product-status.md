@@ -202,7 +202,26 @@ Date: 2026-06-25
   `/Applications`. This still does not implement real echo cancellation,
   noise suppression, transcript editing, waveform generation, signed/notarized
   external distribution, or final user-rollout readiness.
-- Feature `048-real-playback-availability` is implemented locally as the
+- Feature `047-cabinet-runtime-truth` is implemented locally on top of the
+  deployed `048` baseline as the macOS cabinet trust correction. The desktop
+  shell no longer treats a configured cabinet URL as proof that the server,
+  session, or review surface is healthy. It starts configured cabinets in a
+  neutral checking state, shows server-unavailable truth for offline/timeout
+  navigation failures, treats successful login/sign-up page loads as
+  auth-required instead of ready, and shows green cabinet status only after an
+  allowed authenticated meeting list/detail route finishes. The runtime state
+  is shared from the embedded WebKit cabinet into the native shell, while
+  native Record/Stop/upload truth remains visible for every cabinet state.
+  Local evidence on 2026-06-25: focused macOS cabinet tests passed
+  `20 + 15 + 9` tests, full macOS SwiftPM passed `579 tests, 0 failures`,
+  focused server cabinet tests passed `43 passed`, fixture and real-server
+  Playwright/Chrome runtime checks passed with `failures=[]`, production health
+  returned live `ok` and ready `ready`, full local CI passed
+  `570 passed, 4 skipped, 8 warnings`, and deploy dry-run returned
+  `deploy_result=dry_run`. This slice is not yet merged, released, or deployed,
+  so it is not production truth until closeout completes.
+- Feature `048-real-playback-availability` is implemented, merged through PR
+  `#1610`, released as `v2026.06.25.1`, and deployed to production as the
   product-visible playback correction after `046`. A normal ready owner review
   no longer needs `audio_download=allowed` to show playback: review listening
   is separated from file download/export policy, while the "Files" audio
@@ -211,13 +230,15 @@ Date: 2026-06-25
   player, timestamp seek controls, speed/skip/time controls, and diarization
   speaker lanes. The playback route is server-mediated, relative, range-aware
   (`206`/`Accept-Ranges`/`Content-Range`), and does not expose signed URLs,
-  storage object keys, raw audio diagnostics, or private paths. Local evidence:
-  RED reproduced the 046 real-product gap (`15 failed, 14 passed`), extended
-  focused validation passed `48 passed, 1 warning`, the real local
+  storage object keys, raw audio diagnostics, or private paths. Closeout
+  evidence: RED reproduced the 046 real-product gap (`15 failed, 14 passed`),
+  extended focused validation passed `48 passed, 1 warning`, the real local
   FastAPI/Playwright verifier on 2026-06-25 passed across ordinary web,
   mobile-width web, and desktop embedded review with range playback and no
-  visible audio download link, and fresh full local CI passed
-  `570 passed, 4 skipped, 90 warnings`. This still does not implement
+  visible audio download link, full local CI passed
+  `570 passed, 4 skipped, 90 warnings`, and production deploy returned
+  `deploy_result=pass` with deployed SHA
+  `94e6cbfa2c15d9e3e94ee8d533c13d91b0f5c4d9`. This still does not implement
   materialized compressed share audio, public links, real echo cancellation,
   noise suppression, waveform generation, transcript editing, native Swift
   playback controls, signed/notarized distribution, or final user-rollout

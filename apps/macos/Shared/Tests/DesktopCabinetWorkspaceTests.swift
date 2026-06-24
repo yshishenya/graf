@@ -62,6 +62,13 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(EmbeddedCabinetWebView.trackedRoute(current: detail, loaded: detail), detail)
     }
 
+    func testSuccessfulLoginPageLoadDoesNotMarkCabinetReady() {
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingList), .ready)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingDetail), .ready)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
+    }
+
     func testExpiredSessionRecoveryOpensBrowserLoginForDesktopMeetings() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",
@@ -203,6 +210,54 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(acceptedRuntimePath, "/Applications/2brain Rec.app")
         XCTAssertFalse(acceptedRuntimePath.hasPrefix("/Users/"))
         XCTAssertTrue(acceptedRuntimePath.hasSuffix("2brain Rec.app"))
+    }
+
+    func testConfiguredCabinetDoesNotShowHealthyShellStatusBeforeRuntimeProof() {
+        let presentation = DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: true,
+            cabinetState: .loading
+        )
+
+        XCTAssertEqual(presentation.menuStatusText, "Проверяем кабинет")
+        XCTAssertEqual(presentation.tileTitle, "Проверяем сервер")
+        XCTAssertEqual(presentation.systemImage, "clock")
+        XCTAssertEqual(presentation.tone, .neutral)
+        XCTAssertFalse(presentation.menuStatusText.localizedCaseInsensitiveContains("задан"))
+        XCTAssertNotEqual(presentation.systemImage, "checkmark.circle")
+    }
+
+    func testShellShowsServerUnavailableWhenCabinetNavigationFails() {
+        for state in [DesktopCabinetState.offline, .timeout] {
+            let presentation = DesktopMeetingShellCabinetStatusPresentation.resolved(
+                cabinetConfigured: true,
+                cabinetState: state
+            )
+
+            XCTAssertEqual(presentation.sidebarSubtitle, "Сервер недоступен", "\(state)")
+            XCTAssertEqual(presentation.menuStatusText, "Сервер недоступен", "\(state)")
+            XCTAssertEqual(presentation.tileDetail, "Запись работает локально", "\(state)")
+            XCTAssertEqual(presentation.systemImage, "wifi.slash", "\(state)")
+            XCTAssertEqual(presentation.tone, .error, "\(state)")
+        }
+    }
+
+    func testShellShowsSuccessOnlyAfterCabinetReadyState() {
+        let ready = DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: true,
+            cabinetState: .ready
+        )
+        let expired = DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: true,
+            cabinetState: .expiredSession
+        )
+
+        XCTAssertEqual(ready.menuStatusText, "Кабинет доступен")
+        XCTAssertEqual(ready.tileTitle, "Сервер доступен")
+        XCTAssertEqual(ready.systemImage, "checkmark.circle")
+        XCTAssertEqual(ready.tone, .success)
+        XCTAssertEqual(expired.menuStatusText, "Нужен вход")
+        XCTAssertEqual(expired.systemImage, "person.crop.circle.badge.exclamationmark")
+        XCTAssertEqual(expired.tone, .warning)
     }
 }
 #endif

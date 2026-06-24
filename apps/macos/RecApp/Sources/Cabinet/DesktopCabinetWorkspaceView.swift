@@ -13,24 +13,28 @@ public struct DesktopCabinetWorkspaceView: View {
     private let presentation: DesktopCabinetWorkspacePresentation
     private let workspaceZoom: WorkspaceZoomPreference
     private let navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger?
-    @State private var cabinetState: DesktopCabinetState
+    private let externalCabinetState: Binding<DesktopCabinetState>?
+    @State private var internalCabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
 
     public init(
         configuration: DesktopCabinetConfiguration? = DesktopCabinetConfiguration.configuredFromEnvironment(),
         initialRoute: URL? = nil,
         currentRoute: Binding<URL?> = .constant(nil),
+        cabinetState: Binding<DesktopCabinetState>? = nil,
         presentation: DesktopCabinetWorkspacePresentation = .card,
         workspaceZoom: WorkspaceZoomPreference = .default,
         navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger? = nil,
         initialState: DesktopCabinetState? = nil
     ) {
+        let resolvedInitialState = initialState ?? (configuration == nil ? .notConfigured : .loading)
         self.configuration = configuration
         self.initialRoute = initialRoute
         self.presentation = presentation
         self.workspaceZoom = workspaceZoom
         self.navigationEventLogger = navigationEventLogger
-        _cabinetState = State(initialValue: initialState ?? (configuration == nil ? .notConfigured : .loading))
+        self.externalCabinetState = cabinetState
+        _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
         _currentRoute = currentRoute
     }
 
@@ -81,12 +85,12 @@ public struct DesktopCabinetWorkspaceView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let configuration, cabinetState.shouldShowEmbeddedSurface {
+        if let configuration, activeCabinetState.shouldShowEmbeddedSurface {
             let route = currentRoute ?? initialRoute ?? configuration.meetingsURL()
             let webView = EmbeddedCabinetWebView(
                 request: configuration.urlRequest(for: route),
                 routePolicy: DesktopCabinetRoutePolicy(baseURL: configuration.baseURL),
-                cabinetState: $cabinetState,
+                cabinetState: activeCabinetStateBinding,
                 workspaceZoom: workspaceZoom,
                 currentRoute: $currentRoute,
                 navigationEventLogger: navigationEventLogger
@@ -116,14 +120,14 @@ public struct DesktopCabinetWorkspaceView: View {
 
     private var unavailableState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(cabinetState.unavailableTitle, systemImage: cabinetState.unavailableSystemImage)
+            Label(activeCabinetState.unavailableTitle, systemImage: activeCabinetState.unavailableSystemImage)
                 .font(.subheadline)
                 .fontWeight(.semibold)
-            Text(cabinetState.userMessage)
+            Text(activeCabinetState.userMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let recoveryActionTitle = cabinetState.recoveryActionTitle,
+            if let recoveryActionTitle = activeCabinetState.recoveryActionTitle,
                let recoveryURL {
                 Link(destination: recoveryURL) {
                     Label(recoveryActionTitle, systemImage: "arrow.up.right.square")
@@ -144,7 +148,7 @@ public struct DesktopCabinetWorkspaceView: View {
 
     private var recoveryURL: URL? {
         guard let configuration else { return nil }
-        switch cabinetState {
+        switch activeCabinetState {
         case .expiredSession:
             return DesktopCabinetWorkspace.loginRoute(configuration: configuration)
         case .offline, .timeout:
@@ -155,7 +159,7 @@ public struct DesktopCabinetWorkspaceView: View {
     }
 
     private var statusText: String {
-        switch cabinetState {
+        switch activeCabinetState {
         case .ready:
             return "Готово"
         case .loading:
@@ -178,7 +182,7 @@ public struct DesktopCabinetWorkspaceView: View {
     }
 
     private var statusColor: Color {
-        switch cabinetState {
+        switch activeCabinetState {
         case .ready:
             return .green
         case .loading:
@@ -188,6 +192,14 @@ public struct DesktopCabinetWorkspaceView: View {
         default:
             return .orange
         }
+    }
+
+    private var activeCabinetState: DesktopCabinetState {
+        externalCabinetState?.wrappedValue ?? internalCabinetState
+    }
+
+    private var activeCabinetStateBinding: Binding<DesktopCabinetState> {
+        externalCabinetState ?? $internalCabinetState
     }
 }
 
