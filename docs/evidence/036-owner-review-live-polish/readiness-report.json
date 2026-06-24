@@ -1,7 +1,7 @@
 {
   "feature": "036-owner-review-live-polish",
-  "generated_at": "2026-06-22T08:46:13Z",
-  "deployed_commit": "38f1540",
+  "generated_at": "2026-06-22T09:47:45Z",
+  "deployed_commit": "3d7cd0f",
   "claim_summary": {
     "outcome": "pilot_blocked",
     "bounded_claims": [
@@ -13,7 +13,7 @@
       "user_rollout_ready",
       "production_ready"
     ],
-    "p0_p1_blockers": 3
+    "p0_p1_blockers": 2
   },
   "stages": [
     {
@@ -27,7 +27,8 @@
         "feature-022-meeting-mute-truth",
         "desktop-shell-regression-tests",
         "feature-035-live-evidence-pack",
-        "feature-036-validation-log"
+        "feature-036-validation-log",
+        "feature-036-installed-app-final-walkthrough"
       ],
       "launch_gap_ids": [],
       "claim_impact": [
@@ -88,7 +89,7 @@
       "id": "meeting-list",
       "label": "Meeting list",
       "owner_surface": "web_cabinet",
-      "status": "degraded",
+      "status": "ready",
       "evidence_strength": "local_runtime",
       "evidence_ids": [
         "feature-016-web-review",
@@ -98,20 +99,18 @@
         "feature-036-owner-review-live",
         "feature-036-validation-log"
       ],
-      "launch_gap_ids": [
-        "web-owner-live-auth-context"
-      ],
+      "launch_gap_ids": [],
       "claim_impact": [
         "web_review_verified",
         "mvp_loop_ready"
       ],
-      "notes": "Production list/auth polish exists and fixture evidence is safe, but live owner list proof remains blocked until a commit-safe owner session is available."
+      "notes": "Production Chrome owner session proves the list route with metadata-safe counts and state labels."
     },
     {
       "id": "meeting-detail-transcript-playback",
       "label": "Meeting detail transcript, playback, and provenance",
       "owner_surface": "web_cabinet",
-      "status": "degraded",
+      "status": "ready",
       "evidence_strength": "local_runtime",
       "evidence_ids": [
         "feature-016-web-review",
@@ -120,14 +119,12 @@
         "feature-036-owner-review-live",
         "feature-036-validation-log"
       ],
-      "launch_gap_ids": [
-        "web-owner-live-auth-context"
-      ],
+      "launch_gap_ids": [],
       "claim_impact": [
         "web_review_verified",
         "mvp_loop_ready"
       ],
-      "notes": "Ready/partial/processing/failed detail states are fixture-backed; live private detail and governance proof remains blocked by missing approved owner-session evidence."
+      "notes": "Production Chrome owner session proves one detail route, transcript panel, notes/action truth states, and governance surface metadata-safely."
     },
     {
       "id": "notes-action-output",
@@ -152,7 +149,7 @@
       "id": "desktop-embedded-cabinet",
       "label": "Desktop embedded cabinet",
       "owner_surface": "desktop_embedded_web",
-      "status": "degraded",
+      "status": "ready",
       "evidence_strength": "local_runtime",
       "evidence_ids": [
         "feature-033-desktop-embedding",
@@ -160,16 +157,15 @@
         "desktop-first-surface-blocker-note",
         "desktop-embedded-detail-blocker-note",
         "feature-036-installed-app-visual-polish",
+        "feature-036-installed-app-final-walkthrough",
         "feature-036-clean-room-reference"
       ],
-      "launch_gap_ids": [
-        "desktop-runtime-walkthrough-evidence"
-      ],
+      "launch_gap_ids": [],
       "claim_impact": [
         "desktop_loop_verified",
         "mvp_loop_ready"
       ],
-      "notes": "Installed desktop product polish is current, but the final capture-state walkthrough evidence remains open before a broad launch claim."
+      "notes": "Installed desktop product polish and final /Applications capture-state walkthrough evidence are current; broad launch remains blocked by web, notes/action, and production rollout gaps."
     },
     {
       "id": "access-sharing-download-export",
@@ -250,7 +246,7 @@
       "id": "spec-034",
       "type": "document",
       "source": "specs/034-mvp-loop-readiness/spec.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Defines the MVP loop readiness requirements and forbidden evidence boundaries.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -261,7 +257,7 @@
       "id": "plan-034",
       "type": "document",
       "source": "specs/034-mvp-loop-readiness/plan.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Defines the server-side readiness harness and validation strategy.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -272,7 +268,7 @@
       "id": "tasks-034",
       "type": "github",
       "source": "specs/034-mvp-loop-readiness/issues.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Maps Spec Kit tasks to GitHub issues #956-#1014.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -283,7 +279,7 @@
       "id": "feature-016-web-review",
       "type": "document",
       "source": "docs/current-product-status.md#feature-016-meeting-dashboard-review",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted server-owned meeting list/detail review cabinet.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -296,7 +292,7 @@
       "id": "feature-017-access-egress",
       "type": "document",
       "source": "docs/current-product-status.md#feature-017-access-sharing-downloads",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted browser/server-owned access, sharing, download, and export layer.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -307,7 +303,7 @@
       "id": "feature-018-retention-deletion",
       "type": "document",
       "source": "docs/current-product-status.md#feature-018-retention-deletion-execution",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted retention/deletion execution and local purge truth.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -318,7 +314,7 @@
       "id": "feature-020-finalization",
       "type": "document",
       "source": "docs/current-product-status.md#feature-020-speaker-to-mic-leakage",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted finalization truth gate for dual-track recording packages.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -329,7 +325,7 @@
       "id": "feature-025-system-audio",
       "type": "document",
       "source": "docs/current-product-status.md#feature-025-system-audio-capture-pivot",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted system-audio-first macOS MVP capture path.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -340,7 +336,7 @@
       "id": "feature-022-meeting-mute-truth",
       "type": "document",
       "source": "specs/022-meeting-mute-truth/evidence/test-results.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted product-owned Pause/Resume mute truth, privacy segment metadata, fail-closed unsupported target handling, and installed /Applications runtime evidence.",
       "strength": "local_runtime",
       "safe_to_commit": true,
@@ -351,7 +347,7 @@
       "id": "feature-014-desktop-upload",
       "type": "document",
       "source": "CHANGELOG.md#unreleased",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted desktop upload queue and server-mediated ingest mapping.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -362,7 +358,7 @@
       "id": "feature-015-processing",
       "type": "document",
       "source": "docs/current-product-status.md#feature-015-mediascribe-processing-pipeline",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted server-side MediaScribe processing/import path.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -373,7 +369,7 @@
       "id": "feature-033-desktop-embedding",
       "type": "document",
       "source": "docs/current-product-status.md#feature-033-desktop-cabinet-embedding",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted desktop shell bridge for embedded cabinet routes using synthetic evidence.",
       "strength": "synthetic",
       "safe_to_commit": true,
@@ -386,7 +382,7 @@
       "id": "desktop-shell-regression-tests",
       "type": "command",
       "source": "swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinet|DesktopLocalPurge'",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Local macOS regression coverage for workspace-first routing, native capture boundaries, embedded route policy, upload review identity, and local purge truth.",
       "strength": "local_runtime",
       "safe_to_commit": true,
@@ -399,7 +395,7 @@
       "id": "desktop-first-surface-blocker-note",
       "type": "document",
       "source": "docs/evidence/034-mvp-loop-readiness/screenshots/desktop-first-surface-evidence.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Documents safe first-surface desktop evidence and the remaining live screenshot blocker.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -412,7 +408,7 @@
       "id": "desktop-embedded-detail-blocker-note",
       "type": "document",
       "source": "docs/evidence/034-mvp-loop-readiness/screenshots/desktop-embedded-detail-evidence.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Documents safe embedded detail evidence and the remaining live screenshot blocker.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -425,7 +421,7 @@
       "id": "web-cabinet-regression-tests",
       "type": "command",
       "source": "uv run --extra dev pytest -q tests/unit/test_cabinet_web_shell.py tests/integration/test_cabinet_meeting_list.py tests/integration/test_cabinet_meeting_detail.py",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Local fixture coverage for web list/detail IA, embedded cabinet boundaries, transcript/playback/provenance, notes placeholders, and governance slots.",
       "strength": "local_runtime",
       "safe_to_commit": true,
@@ -438,7 +434,7 @@
       "id": "web-meeting-list-blocker-note",
       "type": "document",
       "source": "docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-list-evidence.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Documents metadata-safe web list evidence and live screenshot boundary.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -451,7 +447,7 @@
       "id": "web-meeting-detail-blocker-note",
       "type": "document",
       "source": "docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-detail-evidence.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Documents metadata-safe meeting detail evidence and live screenshot boundary.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -464,7 +460,7 @@
       "id": "reference-comparison-note",
       "type": "reference_review",
       "source": "docs/evidence/034-mvp-loop-readiness/reference-comparison.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Clean-room comparison of allowed IA lessons and forbidden Krisp similarity.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -475,7 +471,7 @@
       "id": "policy-lifecycle-regression-tests",
       "type": "command",
       "source": "uv run --extra dev pytest -q tests/contract/test_access_sharing_downloads_contract.py tests/contract/test_retention_deletion_contract.py tests/unit/test_deletion_report_view_models.py tests/integration/test_local_purge_coordination.py",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Local fixture coverage for login-required sharing, bounded download/export, deletion report partitioning, dependency truth, post-egress limits, and local purge acknowledgements.",
       "strength": "local_runtime",
       "safe_to_commit": true,
@@ -488,7 +484,7 @@
       "id": "policy-lifecycle-evidence-note",
       "type": "document",
       "source": "docs/evidence/034-mvp-loop-readiness/policy-lifecycle-evidence.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Documents metadata-safe policy, egress, retention, deletion, and local purge evidence boundaries.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -498,8 +494,8 @@
     {
       "id": "production-018-infra-smoke",
       "type": "production_smoke",
-      "source": "master deploy/smoke for commit 38f1540",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "source": "master deploy/smoke for commit 3d7cd0f",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Production deployment reached infra_smoke_ready after 018 merge.",
       "strength": "production_smoke",
       "safe_to_commit": true,
@@ -512,7 +508,7 @@
       "id": "reference-clean-room-contract",
       "type": "reference_review",
       "source": "specs/034-mvp-loop-readiness/contracts/reference-comparison-contract.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Defines allowed IA/category reference lessons and forbidden Krisp copy/private content.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -523,7 +519,7 @@
       "id": "current-product-status-034-next-slice",
       "type": "document",
       "source": "docs/current-product-status.md#next-product-slice",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Current status records the 034 readiness outcome and evidence-based next product slice.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -534,7 +530,7 @@
       "id": "feature-035-live-evidence-pack",
       "type": "document",
       "source": "docs/evidence/035-mvp-loop-live-evidence/README.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Accepted installed /Applications desktop loop evidence reused as the recording-control foundation for 036 readiness.",
       "strength": "local_runtime",
       "safe_to_commit": true,
@@ -544,22 +540,22 @@
     {
       "id": "feature-036-owner-review-live",
       "type": "endpoint",
-      "source": "docs/evidence/036-owner-review-live-polish/validation-log.md",
-      "captured_at": "2026-06-22T08:46:13Z",
-      "scope": "Production browser/login polish and list-like route evidence exists, but commit-safe owner list/detail/governance proof remains blocked until an approved owner session can be used without committing private data.",
-      "strength": "blocked",
+      "source": "docs/evidence/036-owner-review-live-polish/screenshots/web-owner-review-evidence.md",
+      "captured_at": "2026-06-22T09:47:45Z",
+      "scope": "Production Chrome owner session proves the meeting list, one detail route, notes/transcript state, access/share summary, delete panel, and governance controls with metadata-safe labels and counts only.",
+      "strength": "live",
       "safe_to_commit": true,
       "forbidden_content_scan": "pass",
       "limitations": [
-        "No private screenshots, cookies, tokens, account identifiers, or transcript text are committed.",
-        "The committed browser screenshot does not prove detail or governance states."
+        "No screenshots, cookies, tokens, account identifiers, meeting titles, meeting ids, or transcript text are committed.",
+        "Destructive governance actions were not clicked; only visible disabled/available states were recorded."
       ]
     },
     {
       "id": "feature-036-validation-log",
       "type": "document",
       "source": "docs/evidence/036-owner-review-live-polish/validation-log.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Records 036 command/manual validation evidence and remaining blockers.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -570,7 +566,7 @@
       "id": "feature-036-notes-action-truth",
       "type": "document",
       "source": "docs/evidence/036-owner-review-live-polish/screenshots/web-notes-action-truth-evidence.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Records structured Summary, Decisions, Action Items, and Follow-ups truth states with processing, blocked, deferred, unavailable, and available contracts.",
       "strength": "local_runtime",
       "safe_to_commit": true,
@@ -583,7 +579,7 @@
       "id": "feature-036-clean-room-reference",
       "type": "reference_review",
       "source": "docs/evidence/036-owner-review-live-polish/clean-room-reference.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Records V8 clean-room alignment, accepted runtime polish, and remaining live proof gaps.",
       "strength": "local_runtime",
       "safe_to_commit": true,
@@ -594,20 +590,33 @@
       "id": "feature-036-installed-app-visual-polish",
       "type": "screenshot",
       "source": "docs/evidence/036-owner-review-live-polish/screenshots/installed-app-ui-parity-2026-06-17.png",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Installed app visual parity evidence for native/WebView palette, compact rail, responsive sidebar, and product workspace polish.",
       "strength": "local_runtime",
       "safe_to_commit": true,
       "forbidden_content_scan": "pass",
       "limitations": [
-        "Does not replace the active/paused/resumed/stopped capture-state walkthrough."
+        "Final capture-state walkthrough is recorded separately as cropped native-inspector evidence."
+      ]
+    },
+    {
+      "id": "feature-036-installed-app-final-walkthrough",
+      "type": "document",
+      "source": "docs/evidence/036-owner-review-live-polish/screenshots/installed-app-final-walkthrough-2026-06-22.md",
+      "captured_at": "2026-06-22T09:47:45Z",
+      "scope": "Installed /Applications app idle, active, paused, resumed, stopped, configured, missing-auth, and local-only walkthrough evidence.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "Full-window captures were not committed; only metadata-safe native-inspector crops are linked."
       ]
     },
     {
       "id": "feature-036-github-issues",
       "type": "github",
       "source": "specs/036-owner-review-live-polish/issues.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Maps 036 Spec Kit tasks to GitHub issues and records remaining open closeout tails.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -618,7 +627,7 @@
       "id": "feature-036-readiness-report-json",
       "type": "document",
       "source": "docs/evidence/036-owner-review-live-polish/readiness-report.json",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Structured 036 readiness report generated from the current evidence matrix.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -629,7 +638,7 @@
       "id": "feature-036-readiness-report-md",
       "type": "document",
       "source": "docs/evidence/036-owner-review-live-polish/readiness-report.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Reviewer-facing 036 readiness summary with the current bounded claim.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -640,7 +649,7 @@
       "id": "feature-036-launch-gap-register",
       "type": "document",
       "source": "docs/evidence/036-owner-review-live-polish/launch-gap-register.md",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "036 launch gap register with remaining P1/P2 blockers and next actions.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -651,7 +660,7 @@
       "id": "current-product-status-036-closeout",
       "type": "document",
       "source": "docs/current-product-status.md#next-product-slice",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Current status records 036 as a visual/auth baseline while keeping pilot claims blocked.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -662,7 +671,7 @@
       "id": "changelog-036",
       "type": "document",
       "source": "CHANGELOG.md#unreleased",
-      "captured_at": "2026-06-22T08:46:13Z",
+      "captured_at": "2026-06-22T09:47:45Z",
       "scope": "Changelog records the 036 readiness closeout and remaining live proof boundaries.",
       "strength": "docs_only",
       "safe_to_commit": true,
@@ -694,34 +703,12 @@
       "deferral_guardrail": null
     },
     {
-      "id": "web-owner-live-auth-context",
-      "severity": "P1",
-      "affected_journey": "meeting-list",
-      "current_evidence": "Browser login/signup and session-protected cabinet routes are implemented, and committed evidence shows only metadata-safe route/list observations.",
-      "missing_evidence": "Commit-safe authenticated owner review proof on rec.2brain.pro for list, detail, and governance states.",
-      "recommended_next_action": "Use an approved temporary owner session, capture metadata-only list/detail/governance state evidence, and clean up the session without committing private values.",
-      "owner_area": "web",
-      "deferred": false,
-      "deferral_guardrail": null
-    },
-    {
       "id": "browser-target-gaps",
       "severity": "P2",
       "affected_journey": "capture-target-coverage",
       "current_evidence": "Yandex Browser remains intentionally skipped/not accepted.",
       "missing_evidence": "Target matrix decision for browser coverage before pilot promises.",
       "recommended_next_action": "Keep unsupported targets explicit or run a browser target hardening slice.",
-      "owner_area": "desktop",
-      "deferred": false,
-      "deferral_guardrail": null
-    },
-    {
-      "id": "desktop-runtime-walkthrough-evidence",
-      "severity": "P2",
-      "affected_journey": "desktop-embedded-cabinet",
-      "current_evidence": "Installed app visual parity, responsive sidebar, embedded login, and missing-auth recovery evidence are committed.",
-      "missing_evidence": "Installed /Applications app idle, active, paused, resumed, stopped, configured, missing-auth, and local-only walkthrough evidence in one final pack.",
-      "recommended_next_action": "Run the installed-app walkthrough and commit metadata-safe screenshots or a blocker note.",
       "owner_area": "desktop",
       "deferred": false,
       "deferral_guardrail": null
@@ -746,7 +733,7 @@
         "Meeting workspace first",
         "Native capture authority remains local"
       ],
-      "implementation_alignment": "036 installed-app screenshots prove native/WebView visual parity and product-workspace polish; capture-state walkthrough evidence remains separate.",
+      "implementation_alignment": "036 installed-app screenshots and final walkthrough prove native/WebView visual parity, product-workspace polish, and idle/active/paused/resumed/stopped local control states.",
       "intentional_differences": [
         "2brain keeps Record/Stop as native trust controls."
       ],
@@ -763,6 +750,7 @@
         "reference-clean-room-contract",
         "reference-comparison-note",
         "feature-036-installed-app-visual-polish",
+        "feature-036-installed-app-final-walkthrough",
         "feature-036-clean-room-reference"
       ]
     },
@@ -772,7 +760,7 @@
       "allowed_lessons": [
         "Meeting list, filters, sort, upload slot, and future action slots are discoverable"
       ],
-      "implementation_alignment": "036 improves browser auth/list polish and records the remaining metadata-safe owner proof blocker before live detail/governance evidence can be committed.",
+      "implementation_alignment": "036 improves browser auth/list polish and records the remaining metadata-safe live owner list proof without committing private meeting content.",
       "intentional_differences": [
         "2brain keeps capture creation out of embedded web content."
       ],
@@ -796,7 +784,7 @@
       "allowed_lessons": [
         "Transcript/playback/provenance are discoverable in one review workspace"
       ],
-      "implementation_alignment": "016/017/018 provide the server-owned review/governance surfaces; 036 records structured notes/action truth and visual polish while live owner detail proof and generated notes/actions remain blocked.",
+      "implementation_alignment": "016/017/018 provide the server-owned review/governance surfaces; 036 records structured notes/action truth and visual polish while live owner detail/governance proof is metadata-safe; generated notes/actions remain blocked.",
       "intentional_differences": [
         "2brain uses its own design language and truthful placeholder policy."
       ],
@@ -822,7 +810,7 @@
       "allowed_lessons": [
         "Share, export/download, deletion, and lifecycle truth must be visible by policy"
       ],
-      "implementation_alignment": "017/018 cover policy-owned access, egress, retention, deletion, and purge truth; production destructive governance actions remain out of scope while live owner governance proof is still pending.",
+      "implementation_alignment": "017/018 cover policy-owned access, egress, retention, deletion, and purge truth; 036 now records live owner governance panel states without clicking destructive actions.",
       "intentional_differences": [
         "External public links remain out of scope."
       ],

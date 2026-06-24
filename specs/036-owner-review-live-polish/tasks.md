@@ -59,8 +59,8 @@
 - [X] T022 [US1] Extend or wrap `apps/server/scripts/issue_smoke_auth_session.py` for owner-review purpose metadata without printing token values
 - [X] T023 [US1] Add sanitized owner review live proof script in `apps/server/scripts/prove_owner_review_live.py`
 - [X] T024 [US1] Document owner review execute-mode token-file and cleanup flow in `docs/evidence/036-owner-review-live-polish/README.md`
-- [ ] T025 [US1] Capture sanitized `rec.2brain.pro` owner list/detail/governance result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
-- [ ] T026 [US1] Add metadata-only owner proof artifact in `docs/evidence/036-owner-review-live-polish/screenshots/web-owner-review-evidence.md`
+- [X] T025 [US1] Capture sanitized `rec.2brain.pro` owner list/detail/governance result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
+- [X] T026 [US1] Add metadata-only owner proof artifact in `docs/evidence/036-owner-review-live-polish/screenshots/web-owner-review-evidence.md`
 
 **Checkpoint**: User Story 1 can be validated independently with `quickstart.md` sections 3 and 4.
 
@@ -113,7 +113,7 @@
 - [X] T044 [US3] Polish installed desktop meeting workspace hierarchy and cabinet connection status in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
 - [X] T045 [US3] Add persistent or packaged installed-app cabinet configuration resolution and truthful unavailable states in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetConfiguration.swift` and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`
 - [X] T046 [US3] Preserve embedded route loading/failure behavior and native controls in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
-- [ ] T047 [US3] Capture installed app idle/active/paused/resumed/stopped and cabinet configured/missing-auth/local-only evidence from `/Applications/2brain Rec.app` into `docs/evidence/036-owner-review-live-polish/screenshots/`
+- [X] T047 [US3] Capture installed app idle/active/paused/resumed/stopped and cabinet configured/missing-auth/local-only evidence from `/Applications/2brain Rec.app` into `docs/evidence/036-owner-review-live-polish/screenshots/`
 - [X] T048 [US3] Record V8 clean-room comparison and remaining gaps in `docs/evidence/036-owner-review-live-polish/clean-room-reference.md`
 
 **Checkpoint**: User Story 3 can be validated independently with server web tests, Swift build/tests, and installed-app screenshots.
@@ -156,7 +156,7 @@
 - [X] T062 Run forbidden-content scans over `specs/036-owner-review-live-polish` and `docs/evidence/036-owner-review-live-polish`, then record policy-only matches in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [X] T063 Run `git diff --check` and record the result in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 - [X] T064 Re-run `$speckit-analyze` after implementation validation and update `specs/036-owner-review-live-polish/analysis.md`
-- [ ] T065 Sync and close mapped GitHub issues only after evidence is present in `specs/036-owner-review-live-polish/issues.md`
+- [X] T065 Sync and close mapped GitHub issues only after evidence is present in `specs/036-owner-review-live-polish/issues.md`
 - [X] T066 Confirm installed launch from `/Applications/2brain Rec.app` after final build/install, including no-shell-env cabinet behavior, and record it in `docs/evidence/036-owner-review-live-polish/validation-log.md`
 
 ---

@@ -405,9 +405,10 @@ Remaining launch blockers are now more specific:
   review proof are not yet proven. A metadata-only local manifest scan found
   only older `v2` `saved` / `ready` packages, not a fresh/current-branch `v3`
   clean candidate;
-- 045 PR/deploy preflight risk is reduced by a passing include-set apply-check
-  over `origin/master` and a passing deploy dry-run, but commit/PR/merge/deploy
-  remain approval-gated and unperformed;
+- 045 deploy preflight risk is reduced by a passing include-set apply-check
+  over `origin/master`, full local CI, and a passing deploy dry-run, but
+  post-deploy production smoke/e2e evidence is still required before any pilot
+  claim;
 - PRD-level audio playback linked to transcript timestamps is not yet
   implemented or proven. `045` proves timestamp labels and a playback shell
   only; `specs/045-transcription-results-pipeline/evidence/playback-timestamp-seek-preflight.md`
@@ -422,7 +423,7 @@ Remaining launch blockers are now more specific:
   and a metadata-safe idle/active/paused/resumed/stopped walkthrough pack, but
   this does not replace production rollout evidence.
 
-Before any pilot claim, finish 045 review/deploy/proof, decide whether
+Before any pilot claim, finish 045 production deploy/proof, decide whether
 interactive playback/timestamp seek and generated notes/actions are implemented
 or explicitly deferred for MVP, and keep the owner proof plus installed-app
 walkthrough linked as supporting evidence rather than a rollout claim.

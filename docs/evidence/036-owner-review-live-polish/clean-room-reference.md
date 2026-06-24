@@ -59,7 +59,7 @@ Remaining clean-room/product gaps:
 - embedded owner sign-in/session handoff is not complete;
 - real owner list/detail/governance content still needs metadata-safe live
   proof;
-- active/paused/resumed/stopped recording walkthrough still needs final
-  screenshot evidence;
+- installed-app idle/active/paused/resumed/stopped recording walkthrough is now
+  covered by cropped native-inspector evidence from `/Applications/2brain Rec.app`;
 - transcript/player/chat surfaces remain future embedded web work, not copied
   from Krisp.

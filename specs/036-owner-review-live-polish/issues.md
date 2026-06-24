@@ -37,8 +37,8 @@ Last verified: 2026-06-22 with
 | T022 | #1128 | closed | Owner-review smoke session purpose metadata. |
 | T023 | #1129 | closed | Sanitized owner review live proof script. |
 | T024 | #1130 | closed | Owner review execute-mode docs. |
-| T025 | #1131 | open | Still blocked: no metadata-safe live owner list/detail/governance result in committed evidence. |
-| T026 | #1132 | open | Still blocked: `screenshots/web-owner-review-evidence.md` is absent. |
+| T025 | #1131 | closed | Metadata-safe live owner list/detail/governance result added. |
+| T026 | #1132 | closed | Metadata-only owner proof artifact updated from missing-auth blocker to authenticated owner proof. |
 | T027 | #1133 | closed | Notes/action schema contract coverage. |
 | T028 | #1134 | closed | Notes/action derivation unit tests. |
 | T029 | #1135 | closed | Meeting detail notes/action state tests. |
@@ -59,50 +59,30 @@ Last verified: 2026-06-22 with
 | T044 | #1150 | closed | Installed desktop hierarchy polish. |
 | T045 | #1151 | closed | Desktop embedded review framing polish. |
 | T046 | #1152 | closed | Embedded route loading/failure behavior. |
-| T047 | #1153 | open | Still blocked: no final installed idle/active/paused/resumed/stopped and cabinet-state walkthrough pack. |
+| T047 | #1153 | closed | Installed idle/active/paused/resumed/stopped and cabinet-state walkthrough pack added. |
 | T048 | #1154 | closed | V8 clean-room comparison. |
-| T049 | #1155 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes readiness matrix tests. |
-| T050 | #1156 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes readiness report tests. |
-| T051 | #1157 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes 036 live-evidence tests. |
-| T052 | #1158 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes 036 matrix logic. |
-| T053 | #1159 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes 036 report generation logic. |
-| T054 | #1160 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes generated readiness JSON/Markdown. |
-| T055 | #1161 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes the final 036 gap register. |
-| T056 | #1162 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes current status update. |
+| T049 | #1155 | closed | Readiness matrix tests closed after merge evidence. |
+| T050 | #1156 | closed | Readiness report tests closed after merge evidence. |
+| T051 | #1157 | closed | 036 live-evidence tests closed after merge evidence. |
+| T052 | #1158 | closed | 036 matrix logic closed after merge evidence. |
+| T053 | #1159 | closed | 036 report generation logic closed after merge evidence. |
+| T054 | #1160 | closed | Generated readiness JSON/Markdown closed after merge evidence. |
+| T055 | #1161 | closed | Final 036 gap register closed after merge evidence. |
+| T056 | #1162 | closed | Current status update closed after merge evidence. |
 | T057 | #1163 | closed | Changelog update. |
-| T058 | #1164 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes reconciled `tasks.md`. |
+| T058 | #1164 | closed | Reconciled `tasks.md` closed after merge evidence. |
 | T059 | #1165 | closed | Focused server validation. |
 | T060 | #1166 | closed | Swift build/tests validation. |
 | T061 | #1167 | closed | Canonical CI local validation. |
-| T062 | #1168 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes recorded forbidden-content scan evidence. |
+| T062 | #1168 | closed | Forbidden-content scan evidence closed after merge evidence. |
 | T063 | #1169 | closed | `git diff --check` validation. |
-| T064 | #1170 | open | Ready in `codex/036-safe-closeout`; close only after PR/merge exposes post-implementation analyze. |
-| T065 | #1171 | open | Still open: final GitHub issue closeout must happen after committed evidence is visible and closure comments are added. |
+| T064 | #1170 | closed | Post-implementation analyze closed after merge evidence. |
+| T065 | #1171 | closed | Final GitHub issue closeout sync closed after Russian closure comments. |
 | T066 | #1172 | closed | Final installed launch proof. |
 
 ## Remaining Open Groups
 
-Must stay open until new evidence exists:
-
-- #1131 / T025: production owner list/detail/governance result.
-- #1132 / T026: metadata-only owner proof artifact.
-- #1153 / T047: installed-app capture-state and cabinet-state walkthrough.
-- #1171 / T065: final GitHub issue closeout after PR/merge.
-
-Ready to close after this branch is committed/merged and linked evidence is
-visible on GitHub:
-
-- #1155 / T049
-- #1156 / T050
-- #1157 / T051
-- #1158 / T052
-- #1159 / T053
-- #1160 / T054
-- #1161 / T055
-- #1162 / T056
-- #1164 / T058
-- #1168 / T062
-- #1170 / T064
+No 036 GitHub issues remain open after the owner proof closeout.
 
 ## Sync Notes
 
@@ -111,7 +91,7 @@ visible on GitHub:
 - The previous tracker state was stale: many already-closed GitHub issues were
   still listed as `open` here. This file now mirrors GitHub state as of
   2026-06-22.
-- Do not close #1131, #1132, or #1153 from generated readiness evidence alone.
-  They require new live owner or installed-app walkthrough evidence.
-- Do not close #1171 until the closeout PR is merged and the ready-to-close
-  GitHub issues above receive Russian closure comments.
+- #1131 and #1132 can stay closed because accessible authenticated owner
+  list/detail/governance proof is now committed as metadata-safe evidence.
+- #1153 can stay closed because the installed-app walkthrough pack is now
+  committed as metadata-safe evidence.

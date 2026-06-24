@@ -210,12 +210,13 @@ def test_036_readiness_output_generation_contains_current_claim_and_open_gaps(tm
         "feature-036-owner-review-live",
         "feature-036-validation-log",
         "feature-036-notes-action-truth",
+        "feature-036-installed-app-final-walkthrough",
         "feature-036-clean-room-reference",
         "feature-036-github-issues",
     }
-    assert "web-owner-live-auth-context" in gap_register
+    assert "web-owner-live-auth-context" not in gap_register
     assert "notes-action-output" in gap_register
-    assert "desktop-runtime-walkthrough-evidence" in gap_register
+    assert "desktop-runtime-walkthrough-evidence" not in gap_register
     assert "desktop-product-surface-polish" not in gap_register
     assert "Recommended next action: keep the 036 claim at `pilot_blocked`" in markdown
 
@@ -226,12 +227,25 @@ def test_036_existing_evidence_files_are_metadata_safe_and_bound_open_claims() -
     validation_log = (evidence_dir / "validation-log.md").read_text()
     clean_room_note = (evidence_dir / "clean-room-reference.md").read_text()
     notes_truth = (evidence_dir / "screenshots/web-notes-action-truth-evidence.md").read_text()
+    owner_evidence = (evidence_dir / "screenshots/web-owner-review-evidence.md").read_text()
+    installed_walkthrough = (
+        evidence_dir / "screenshots/installed-app-final-walkthrough-2026-06-22.md"
+    ).read_text()
 
-    assert "Owner review session proof for list/detail/governance" in validation_log
+    assert "owner-session-live-proof-2026-06-22" in validation_log
+    assert "list `uniqueMeetingLinkCount=8`" in validation_log
     assert "real owner list/detail/governance content still needs metadata-safe live" in clean_room_note
-    assert "active/paused/resumed/stopped recording walkthrough still needs final" in clean_room_note
+    assert "idle/active/paused/resumed/stopped recording walkthrough is now" in clean_room_note
+    assert "missing_auth_context" in owner_evidence
+    assert "Owner list | pass" in owner_evidence
+    assert "Owner detail | pass" in owner_evidence
+    assert "Governance actions | pass" in owner_evidence
+    assert "`T047` is complete" in installed_walkthrough
+    assert "paused, resumed, stopped, configured, missing-auth" in installed_walkthrough
     assert "Summary" in notes_truth
     assert "Action Items" in notes_truth
     assert "/Users/" not in validation_log
     assert "/Users/" not in clean_room_note
     assert "/Users/" not in notes_truth
+    assert "/Users/" not in owner_evidence
+    assert "/Users/" not in installed_walkthrough

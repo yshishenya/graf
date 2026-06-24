@@ -444,18 +444,18 @@ def build_default_evidence(
                 ReadinessEvidence(
                     id="feature-036-owner-review-live",
                     type="endpoint",
-                    source="docs/evidence/036-owner-review-live-polish/validation-log.md",
+                    source="docs/evidence/036-owner-review-live-polish/screenshots/web-owner-review-evidence.md",
                     captured_at=captured_at,
                     scope=(
-                        "Production browser/login polish and list-like route evidence exists, "
-                        "but commit-safe owner list/detail/governance proof remains blocked "
-                        "until an approved owner session can be used without committing private data."
+                        "Production Chrome owner session proves the meeting list, one detail "
+                        "route, notes/transcript state, access/share summary, delete panel, "
+                        "and governance controls with metadata-safe labels and counts only."
                     ),
-                    strength="blocked",
+                    strength="live",
                     forbidden_content_scan="pass",
                     limitations=[
-                        "No private screenshots, cookies, tokens, account identifiers, or transcript text are committed.",
-                        "The committed browser screenshot does not prove detail or governance states.",
+                        "No screenshots, cookies, tokens, account identifiers, meeting titles, meeting ids, or transcript text are committed.",
+                        "Destructive governance actions were not clicked; only visible disabled/available states were recorded.",
                     ],
                 ),
                 ReadinessEvidence(
@@ -500,7 +500,23 @@ def build_default_evidence(
                     ),
                     strength="local_runtime",
                     forbidden_content_scan="pass",
-                    limitations=["Does not replace the active/paused/resumed/stopped capture-state walkthrough."],
+                    limitations=["Final capture-state walkthrough is recorded separately as cropped native-inspector evidence."],
+                ),
+                ReadinessEvidence(
+                    id="feature-036-installed-app-final-walkthrough",
+                    type="document",
+                    source=(
+                        "docs/evidence/036-owner-review-live-polish/screenshots/"
+                        "installed-app-final-walkthrough-2026-06-22.md"
+                    ),
+                    captured_at=captured_at,
+                    scope=(
+                        "Installed /Applications app idle, active, paused, resumed, stopped, "
+                        "configured, missing-auth, and local-only walkthrough evidence."
+                    ),
+                    strength="local_runtime",
+                    forbidden_content_scan="pass",
+                    limitations=["Full-window captures were not committed; only metadata-safe native-inspector crops are linked."],
                 ),
                 ReadinessEvidence(
                     id="feature-036-github-issues",
@@ -611,47 +627,7 @@ def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[L
         if feature == "035-mvp-loop-live-evidence"
         else []
     )
-    feature_036_gaps = (
-        [
-            LaunchGap(
-                id="web-owner-live-auth-context",
-                severity="P1",
-                affected_journey="meeting-list",
-                current_evidence=(
-                    "Browser login/signup and session-protected cabinet routes are implemented, "
-                    "and committed evidence shows only metadata-safe route/list observations."
-                ),
-                missing_evidence=(
-                    "Commit-safe authenticated owner review proof on rec.2brain.pro for list, "
-                    "detail, and governance states."
-                ),
-                recommended_next_action=(
-                    "Use an approved temporary owner session, capture metadata-only list/detail/governance "
-                    "state evidence, and clean up the session without committing private values."
-                ),
-                owner_area="web",
-            ),
-            LaunchGap(
-                id="desktop-runtime-walkthrough-evidence",
-                severity="P2",
-                affected_journey="desktop-embedded-cabinet",
-                current_evidence=(
-                    "Installed app visual parity, responsive sidebar, embedded login, and missing-auth "
-                    "recovery evidence are committed."
-                ),
-                missing_evidence=(
-                    "Installed /Applications app idle, active, paused, resumed, stopped, configured, "
-                    "missing-auth, and local-only walkthrough evidence in one final pack."
-                ),
-                recommended_next_action=(
-                    "Run the installed-app walkthrough and commit metadata-safe screenshots or a blocker note."
-                ),
-                owner_area="desktop",
-            ),
-        ]
-        if is_036
-        else []
-    )
+    feature_036_gaps: list[LaunchGap] = []
     return sort_launch_gaps(
         [
             *live_desktop_gap,
@@ -720,7 +696,13 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
     if is_035:
         desktop_capture_evidence.extend(["feature-035-live-evidence-pack", "feature-035-validation-log"])
     if is_036:
-        desktop_capture_evidence.extend(["feature-035-live-evidence-pack", "feature-036-validation-log"])
+        desktop_capture_evidence.extend(
+            [
+                "feature-035-live-evidence-pack",
+                "feature-036-validation-log",
+                "feature-036-installed-app-final-walkthrough",
+            ]
+        )
 
     meeting_list_evidence = [
         "feature-016-web-review",
@@ -828,17 +810,21 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             id="meeting-list",
             label="Meeting list",
             owner_surface="web_cabinet",
-            status="degraded" if (is_035 or is_036) else "ready",
+            status="degraded" if is_035 else "ready",
             evidence_strength="local_runtime",
             evidence_ids=meeting_list_evidence,
-            launch_gap_ids=["web-owner-live-auth-context"] if (is_035 or is_036) else [],
+            launch_gap_ids=["web-owner-live-auth-context"] if is_035 else [],
             claim_impact=["web_review_verified", "mvp_loop_ready"],
             notes=(
                 "List route has fixture and local regression evidence with authorized access states; live private list evidence is not committed."
                 if not (is_035 or is_036)
                 else (
-                    "Production list/auth polish exists and fixture evidence is safe, but live owner "
-                    "list proof remains blocked until a commit-safe owner session is available."
+                    "Production Chrome owner session proves the list route with metadata-safe counts and state labels."
+                    if is_036
+                    else (
+                        "Production list/auth polish exists and fixture evidence is safe, but live owner "
+                        "list proof remains blocked until a commit-safe owner session is available."
+                    )
                 )
             ),
         ),
@@ -846,17 +832,21 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             id="meeting-detail-transcript-playback",
             label="Meeting detail transcript, playback, and provenance",
             owner_surface="web_cabinet",
-            status="degraded" if (is_035 or is_036) else "ready",
+            status="degraded" if is_035 else "ready",
             evidence_strength="local_runtime",
             evidence_ids=meeting_detail_evidence,
-            launch_gap_ids=["web-owner-live-auth-context"] if (is_035 or is_036) else [],
+            launch_gap_ids=["web-owner-live-auth-context"] if is_035 else [],
             claim_impact=["web_review_verified", "mvp_loop_ready"],
             notes=(
                 "Ready/partial/processing/failed detail states have local fixture evidence for transcript, playback, and provenance."
                 if not (is_035 or is_036)
                 else (
-                    "Ready/partial/processing/failed detail states are fixture-backed; live "
-                    "private detail and governance proof remains blocked by missing approved owner-session evidence."
+                    "Production Chrome owner session proves one detail route, transcript panel, notes/action truth states, and governance surface metadata-safely."
+                    if is_036
+                    else (
+                        "Ready/partial/processing/failed detail states are fixture-backed; live "
+                        "private detail and governance proof remains blocked by missing approved owner-session evidence."
+                    )
                 )
             ),
         ),
@@ -879,27 +869,34 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             id="desktop-embedded-cabinet",
             label="Desktop embedded cabinet",
             owner_surface="desktop_embedded_web",
-            status="degraded",
+            status="ready" if is_036 else "degraded",
             evidence_strength="local_runtime",
             evidence_ids=[
                 "feature-033-desktop-embedding",
                 "desktop-shell-regression-tests",
                 "desktop-first-surface-blocker-note",
                 "desktop-embedded-detail-blocker-note",
-                *(["feature-036-installed-app-visual-polish", "feature-036-clean-room-reference"] if is_036 else []),
+                *(
+                    [
+                        "feature-036-installed-app-visual-polish",
+                        "feature-036-installed-app-final-walkthrough",
+                        "feature-036-clean-room-reference",
+                    ]
+                    if is_036
+                    else []
+                ),
             ],
             launch_gap_ids=(
-                ["desktop-runtime-walkthrough-evidence"]
-                if is_036
-                else (["desktop-product-surface-polish"] if is_035 else ["live-desktop-evidence"])
+                [] if is_036 else (["desktop-product-surface-polish"] if is_035 else ["live-desktop-evidence"])
             ),
             claim_impact=["desktop_loop_verified", "mvp_loop_ready"],
             notes=(
                 "Embedding has synthetic and local regression evidence; fresh metadata-safe live screenshots are still required."
                 if not (is_035 or is_036)
                 else (
-                    "Installed desktop product polish is current, but the final capture-state "
-                    "walkthrough evidence remains open before a broad launch claim."
+                    "Installed desktop product polish and final /Applications capture-state "
+                    "walkthrough evidence are current; broad launch remains blocked by web, "
+                    "notes/action, and production rollout gaps."
                 )
             ),
         ),
@@ -976,8 +973,9 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 "033 establishes the desktop cabinet shell and 034 adds local regression evidence; live screenshots are still blocked."
                 if not (is_035 or is_036)
                 else (
-                    "036 installed-app screenshots prove native/WebView visual parity and "
-                    "product-workspace polish; capture-state walkthrough evidence remains separate."
+                    "036 installed-app screenshots and final walkthrough prove native/WebView "
+                    "visual parity, product-workspace polish, and idle/active/paused/resumed/stopped "
+                    "local control states."
                     if is_036
                     else (
                         "035 proves the installed local capture loop, but the visible desktop "
@@ -1003,7 +1001,15 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                     if is_035
                     else []
                 ),
-                *(["feature-036-installed-app-visual-polish", "feature-036-clean-room-reference"] if is_036 else []),
+                *(
+                    [
+                        "feature-036-installed-app-visual-polish",
+                        "feature-036-installed-app-final-walkthrough",
+                        "feature-036-clean-room-reference",
+                    ]
+                    if is_036
+                    else []
+                ),
             ],
         ),
         ReferenceComparison(
@@ -1015,7 +1021,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 if not (is_035 or is_036)
                 else (
                     "036 improves browser auth/list polish and records the remaining "
-                    "metadata-safe owner proof blocker before live detail/governance evidence can be committed."
+                    "metadata-safe live owner list proof without committing private meeting content."
                     if is_036
                     else (
                         "035 keeps the web list fixture-backed and records the production "
@@ -1052,7 +1058,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 else (
                     "016/017/018 provide the server-owned review/governance surfaces; "
                     "036 records structured notes/action truth and visual polish while "
-                    "live owner detail proof and generated notes/actions remain blocked."
+                    "live owner detail/governance proof is metadata-safe; generated notes/actions remain blocked."
                     if is_036
                     else (
                         "016/017/018 provide the server-owned review/governance surfaces; "
@@ -1087,8 +1093,8 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 if not (is_035 or is_036)
                 else (
                     "017/018 cover policy-owned access, egress, retention, deletion, and "
-                    "purge truth; production destructive governance actions remain out "
-                    "of scope while live owner governance proof is still pending."
+                    "purge truth; 036 now records live owner governance panel states "
+                    "without clicking destructive actions."
                 )
             ),
             intentional_differences=["External public links remain out of scope."],
