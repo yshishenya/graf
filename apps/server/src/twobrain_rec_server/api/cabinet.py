@@ -418,6 +418,7 @@ async def resolve_login_required_share_link_route(
 )
 async def play_cabinet_meeting_audio_route(
     meeting_id: UUID,
+    request: Request,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
@@ -441,12 +442,14 @@ async def play_cabinet_meeting_audio_route(
         result=result,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
+        range_header=request.headers.get("range"),
     )
     await db.commit()
     return Response(
         content=playback.body,
         media_type=playback.media_type,
-        headers={"Content-Disposition": 'inline; filename="meeting-review.wav"'},
+        status_code=playback.status_code,
+        headers=playback.headers,
     )
 
 

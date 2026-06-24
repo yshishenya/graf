@@ -23,6 +23,8 @@ from twobrain_rec_server.api.schemas import (
     ProcessingReviewState,
     SharePanelState,
     SlotState,
+    SpeakerLane,
+    SpeakerLaneSegment,
     SpeakerReviewState,
     TranscriptReviewState,
     TranscriptSegmentView,
@@ -335,13 +337,68 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
 
     page = render_meeting_detail_page(review)
 
-    assert '<audio data-playback-player controls preload="metadata"' in page
+    assert 'class="playback-bar detail-playback"' in page
+    assert "data-playback-shell" in page
+    assert '<audio class="playback-audio" data-playback-player preload="metadata"' in page
+    assert '<audio data-playback-player controls preload="metadata"' not in page
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
     assert 'data-source-mode="combined_review_stream"' in page
+    assert 'data-playback-toggle' in page
+    assert 'data-playback-skip="-15"' in page
+    assert 'data-playback-skip="15"' in page
+    assert "data-playback-current" in page
+    assert "data-playback-duration" in page
+    assert "data-playback-speed-toggle" in page
     assert 'data-seek-seconds="0.0"' in page
     assert 'data-seek-seconds="12.5"' in page
     assert 'class="timestamp timestamp-seek"' in page
     assert "currentTime = seekSeconds" in page
+
+
+def test_detail_shell_renders_speaker_timeline_segments() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=120,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="combined_review_stream",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="reserved",
+        degraded_reason=None,
+        speakers=[
+            SpeakerLane(
+                speaker_key="speaker-1",
+                label="Speaker 1",
+                talk_time_percent=35,
+                source_roles=["local_microphone"],
+                segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=12.0)],
+            ),
+            SpeakerLane(
+                speaker_key="speaker-2",
+                label="Speaker 2",
+                talk_time_percent=65,
+                source_roles=["incoming_system"],
+                segments=[SpeakerLaneSegment(start_seconds=30.0, end_seconds=90.0)],
+            ),
+        ],
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "data-speaker-timeline" in page
+    assert 'data-speaker-lane="speaker-1"' in page
+    assert 'data-speaker-lane="speaker-2"' in page
+    assert page.count("data-lane-segment") == 2
+    assert "left:0.00%" in page
+    assert "width:10.00%" in page
+    assert "left:25.00%" in page
+    assert "width:50.00%" in page
 
 
 def test_detail_shell_renders_unavailable_playback_without_audio_element() -> None:
@@ -358,7 +415,7 @@ def test_detail_shell_renders_unavailable_playback_without_audio_element() -> No
 
     page = render_meeting_detail_page(review)
 
-    assert '<section class="playback detail-playback is-unavailable" data-source-mode="none">' in page
+    assert '<section class="playback-bar detail-playback is-unavailable" data-source-mode="none">' in page
     assert "Аудио закрыто политикой доступа" in page
     assert "<audio" not in page
     assert "data-playback-player" not in page
@@ -438,9 +495,15 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     page = render_meeting_detail_page(review, embedded=True)
 
     assert 'class="app-shell desktop-embedded"' in page
-    assert '<audio data-playback-player controls preload="metadata"' in page
+    assert 'class="playback-bar detail-playback"' in page
+    assert "data-playback-shell" in page
+    assert '<audio class="playback-audio" data-playback-player preload="metadata"' in page
+    assert '<audio data-playback-player controls preload="metadata"' not in page
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
     assert 'data-source-mode="combined_review_stream"' in page
+    assert 'data-playback-toggle' in page
+    assert 'data-playback-skip="-15"' in page
+    assert 'data-playback-skip="15"' in page
     assert 'data-seek-seconds="12.5"' in page
     assert "currentTime = seekSeconds" in page
 

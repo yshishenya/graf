@@ -31,7 +31,6 @@ def _samples(body: bytes) -> list[int]:
 
 def test_owner_playback_route_returns_combined_review_audio_without_storage_url(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
@@ -48,6 +47,26 @@ def test_owner_playback_route_returns_combined_review_audio_without_storage_url(
     ]
 
 
+def test_owner_playback_route_supports_byte_range_without_audio_download_policy(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    replace_retained_audio_with_test_wav(client, seeds.ready_id)
+
+    full_response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
+    range_response = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback",
+        headers={**auth_headers(), "Range": "bytes=0-15"},
+    )
+
+    assert full_response.status_code == 200
+    assert range_response.status_code == 206
+    assert range_response.headers["accept-ranges"] == "bytes"
+    assert range_response.headers["content-range"] == f"bytes 0-15/{len(full_response.content)}"
+    assert range_response.headers["content-length"] == "16"
+    assert range_response.content == full_response.content[:16]
+    for marker in FORBIDDEN_MARKERS:
+        assert marker not in range_response.content
+
+
 def test_playback_route_blocks_foreign_workspace_without_disclosing_meeting(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
@@ -58,25 +77,22 @@ def test_playback_route_blocks_foreign_workspace_without_disclosing_meeting(clie
     assert audit_events(client, seeds.foreign_id) == []
 
 
-def test_playback_route_blocks_disabled_policy_with_safe_audit(client) -> None:
+def test_playback_route_allows_review_when_audio_download_policy_is_disabled(client) -> None:
     seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, audio_download="disabled")
+    replace_retained_audio_with_test_wav(client, seeds.ready_id)
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
 
-    assert response.status_code == 409
-    assert response.json()["code"] == "playback_unavailable"
-    body = response.content
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
     for marker in FORBIDDEN_MARKERS:
-        assert marker not in body
+        assert marker not in response.content
     events = audit_events(client, seeds.ready_id)
-    assert [(event.event_type, event.outcome, event.policy_reason) for event in events] == [
-        ("playback_denied", "denied", "Workspace policy disables this artifact egress.")
+    assert [(event.event_type, event.outcome) for event in events] == [
+        ("playback_requested", "allowed"),
+        ("playback_completed", "completed"),
     ]
-    assert events[0].metadata_json == {
-        "artifact_class": "audio",
-        "outcome": "denied",
-        "request_class": "playback",
-    }
 
 
 def test_playback_route_blocks_deleting_meeting_with_safe_audit(client) -> None:
@@ -107,7 +123,6 @@ def test_playback_route_blocks_processing_and_failed_reviews_even_when_audio_pol
 
 def test_playback_route_requires_both_retained_sources_for_review_audio(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     set_retained_audio_source_status(client, seeds.ready_id, TrackRole.SYSTEM, "purged")
 
@@ -119,3 +134,25 @@ def test_playback_route_requires_both_retained_sources_for_review_audio(client) 
     assert [(event.event_type, event.outcome, event.policy_reason) for event in events] == [
         ("playback_denied", "denied", "missing_audio_source")
     ]
+
+
+def test_playback_route_rejects_malformed_and_unsatisfiable_ranges_safely(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    replace_retained_audio_with_test_wav(client, seeds.ready_id)
+
+    malformed = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback",
+        headers={**auth_headers(), "Range": "items=0-10"},
+    )
+    unsatisfiable = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback",
+        headers={**auth_headers(), "Range": "bytes=999999-1000000"},
+    )
+
+    assert malformed.status_code == 416
+    assert malformed.json()["code"] == "playback_range_not_satisfiable"
+    assert unsatisfiable.status_code == 416
+    assert unsatisfiable.json()["code"] == "playback_range_not_satisfiable"
+    for response in (malformed, unsatisfiable):
+        for marker in FORBIDDEN_MARKERS:
+            assert marker not in response.content

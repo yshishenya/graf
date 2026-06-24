@@ -214,7 +214,9 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .sidebar-foot { margin-top: auto; display: grid; gap: 8px; }
 .trial { background: #3b3270; border-radius: 7px; padding: 9px 10px; font-weight: 700; }
 .main { min-width: 0; padding: 28px clamp(24px, 7vw, 118px) 92px; }
+.detail-page-main { padding-bottom: 192px; }
 .desktop-embedded .main { padding: 22px clamp(18px, 4vw, 64px) 28px; }
+.desktop-embedded .detail-page-main { padding-bottom: 192px; }
 .topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .page-title { display: grid; gap: 2px; min-width: 0; }
 h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weight: 700; }
@@ -353,21 +355,116 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .report-layout { max-width: 980px; display: grid; gap: 18px; padding-bottom: 96px; }
 .report-band { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 16px; display: grid; gap: 12px; }
 .report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.playback {
+.playback-bar {
   position: fixed;
   left: 184px;
   right: 0;
   bottom: 0;
-  min-height: 62px;
+  min-height: 132px;
   border-top: 1px solid var(--line);
-  background: #222529;
+  background: rgba(33,36,40,.98);
+  box-shadow: 0 -18px 44px rgba(0,0,0,.28);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 14px clamp(18px, 4vw, 56px) 12px;
+  color: var(--muted);
+  z-index: 30;
+}
+.desktop-embedded .playback-bar { left: 0; }
+.playback-bar.is-unavailable {
+  min-height: 72px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 16px;
-  color: var(--muted);
 }
-.desktop-embedded .playback { position: static; left: 0; right: 0; margin-top: 16px; border-radius: 8px; border: 1px solid var(--line); }
+.playback-audio { display: none; }
+.playback-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+.playback-round {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 0;
+  background: #2d3035;
+  border-color: #3b4047;
+  color: #eef0f4;
+  font-weight: 850;
+}
+.playback-round.primary-play {
+  width: 42px;
+  height: 42px;
+  background: #f1f3f6;
+  border-color: #f1f3f6;
+  color: #1e2125;
+}
+.playback-speed {
+  min-width: 46px;
+  border: 0;
+  background: transparent;
+  color: #e5e7eb;
+  font-weight: 800;
+}
+.playback-progress-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 54px;
+  gap: 10px;
+  align-items: center;
+}
+.playback-time {
+  color: #c7cbd2;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.playback-time:last-child { text-align: right; }
+.playback-progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.speaker-timeline {
+  display: grid;
+  gap: 7px;
+}
+.timeline-lane {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) 42px;
+  gap: 10px;
+  align-items: center;
+}
+.timeline-label {
+  color: #d9dde4;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: #353940;
+  overflow: hidden;
+}
+.timeline-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.timeline-lane:nth-child(2n) .timeline-segment { background: var(--red); }
+.timeline-share {
+  text-align: right;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .auth-page {
   min-height: 100vh;
   display: grid;
@@ -717,7 +814,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .main { width: 100%; max-width: 100vw; overflow-x: hidden; padding: 18px; }
-  .cabinet-main { padding: 18px 14px 88px; }
+  .detail-page-main { padding-bottom: 172px; }
+  .cabinet-main { padding: 18px 14px 172px; }
   .cabinet-workspace { max-width: none; }
   .topline { flex-direction: column; align-items: stretch; }
   .action-row { justify-content: flex-start; }
@@ -734,13 +832,30 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .segment { display: block; }
   .segment .speaker, .segment .text { margin-top: 6px; }
   .report-grid { grid-template-columns: 1fr; }
-  .playback { position: static; left: 0; right: 0; margin-top: 16px; border-radius: 8px; border: 1px solid var(--line); }
+  .playback-bar {
+    left: 0;
+    min-height: 118px;
+    gap: 6px;
+    padding: 10px 14px 9px;
+    background: #212428;
+  }
+  .playback-controls { gap: 8px; }
+  .playback-round { width: 30px; height: 30px; font-size: 12px; }
+  .playback-round.primary-play { width: 38px; height: 38px; }
+  .playback-speed { min-width: 38px; font-size: 12px; }
+  .playback-progress-row { grid-template-columns: 48px minmax(0, 1fr) 48px; gap: 8px; }
+  .speaker-timeline { gap: 5px; }
+  .timeline-lane { grid-template-columns: 72px minmax(0, 1fr) 38px; }
+  .timeline-label, .timeline-share { font-size: 11px; }
+  .timeline-track { height: 7px; }
   .floating-search { left: 14px; right: 14px; width: auto; }
   .auth-legal { position: relative; inset: auto; margin-top: -8px; }
 }
 @media (max-width: 540px) {
   .toolbar { grid-template-columns: 1fr; }
   .toolbar button { grid-column: auto; }
+  .playback-bar { padding-inline: 12px; }
+  .timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }
 }
 """
 
@@ -1649,7 +1764,7 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
     media_revision_id = escape(str(review.provenance.media_revision_id or ""))
     local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
     content = f"""
-      <main class="main" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
+      <main class="main detail-page-main" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
         <div class="topline">
           <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(_ui_text(review.meeting.status_label))}</span>{_render_access_chip(review.meeting.access)}</div>
           <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
@@ -2505,20 +2620,27 @@ def _render_timestamp(segment: TranscriptSegmentView) -> str:
 
 def _render_playback(review: MeetingReviewResponse) -> str:
     if review.playback.available and review.playback.playback_path:
-        speeds = "".join(
-            f'<button type="button" class="speed-button" data-playback-speed="{speed}">{speed:g}x</button>'
-            for speed in review.playback.speed_options
-        )
+        speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
         return f"""
-          <section class="playback detail-playback" data-source-mode="{escape(review.playback.source_mode)}">
-            <audio data-playback-player controls preload="metadata" src="{escape(review.playback.playback_path)}"></audio>
-            <div class="row-meta"><span>{escape(review.playback.policy_label)}</span><span>{_duration(review.playback.duration_seconds)}</span></div>
-            <div class="speed-options">{speeds}</div>
+          <section class="playback-bar detail-playback" data-playback-shell data-source-mode="{escape(review.playback.source_mode)}">
+            <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(review.playback.playback_path)}"></audio>
+            <div class="playback-controls" aria-label="Управление воспроизведением">
+              <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд">15</button>
+              <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести">Play</button>
+              <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд">15</button>
+              <button type="button" class="playback-speed" data-playback-speed-toggle data-speed-options="{escape(speed_options)}">1x</button>
+            </div>
+            <div class="playback-progress-row">
+              <span class="playback-time" data-playback-current>00:00</span>
+              <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.1" value="0" aria-label="Позиция записи">
+              <span class="playback-time" data-playback-duration>{_timecode(review.playback.duration_seconds)}</span>
+            </div>
+            {_render_playback_speaker_timeline(review)}
           </section>
           {_playback_script()}
         """
     return f"""
-      <section class="playback detail-playback is-unavailable" data-source-mode="{escape(review.playback.source_mode)}">
+      <section class="playback-bar detail-playback is-unavailable" data-source-mode="{escape(review.playback.source_mode)}">
         <span>{escape(review.playback.policy_label)}</span>
         <span>{_duration(review.playback.duration_seconds)}</span>
       </section>
@@ -2531,6 +2653,54 @@ def _playback_script() -> str:
         (() => {
           const player = document.querySelector("[data-playback-player]");
           if (!player) return;
+          const toggle = document.querySelector("[data-playback-toggle]");
+          const current = document.querySelector("[data-playback-current]");
+          const duration = document.querySelector("[data-playback-duration]");
+          const progress = document.querySelector("[data-playback-progress]");
+          const speedToggle = document.querySelector("[data-playback-speed-toggle]");
+          const formatTime = (seconds) => {
+            if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
+            const rounded = Math.floor(seconds);
+            const minutes = Math.floor(rounded / 60);
+            const rest = String(rounded % 60).padStart(2, "0");
+            return `${String(minutes).padStart(2, "0")}:${rest}`;
+          };
+          const syncTime = () => {
+            if (current) current.textContent = formatTime(player.currentTime);
+            if (progress) progress.value = String(player.currentTime || 0);
+            if (duration && Number.isFinite(player.duration)) duration.textContent = formatTime(player.duration);
+          };
+          player.addEventListener("loadedmetadata", () => {
+            if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration);
+            syncTime();
+          });
+          player.addEventListener("timeupdate", syncTime);
+          player.addEventListener("play", () => {
+            if (toggle) toggle.textContent = "Pause";
+          });
+          player.addEventListener("pause", () => {
+            if (toggle) toggle.textContent = "Play";
+          });
+          if (toggle) {
+            toggle.addEventListener("click", () => {
+              if (player.paused) player.play().catch(() => {});
+              else player.pause();
+            });
+          }
+          document.querySelectorAll("[data-playback-skip]").forEach((button) => {
+            button.addEventListener("click", () => {
+              const delta = Number.parseFloat(button.dataset.playbackSkip || "0");
+              if (!Number.isFinite(delta)) return;
+              const max = Number.isFinite(player.duration) ? player.duration : Number.POSITIVE_INFINITY;
+              player.currentTime = Math.max(0, Math.min(max, player.currentTime + delta));
+            });
+          });
+          if (progress) {
+            progress.addEventListener("input", () => {
+              const next = Number.parseFloat(progress.value || "0");
+              if (Number.isFinite(next)) player.currentTime = next;
+            });
+          }
           document.querySelectorAll("[data-seek-seconds]").forEach((button) => {
             button.addEventListener("click", () => {
               const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
@@ -2539,15 +2709,48 @@ def _playback_script() -> str:
               player.play().catch(() => {});
             });
           });
-          document.querySelectorAll("[data-playback-speed]").forEach((button) => {
-            button.addEventListener("click", () => {
-              const speed = Number.parseFloat(button.dataset.playbackSpeed || "1");
-              if (Number.isFinite(speed)) player.playbackRate = speed;
+          if (speedToggle) {
+            const speeds = (speedToggle.dataset.speedOptions || "1").split(",")
+              .map((value) => Number.parseFloat(value))
+              .filter((value) => Number.isFinite(value) && value > 0);
+            speedToggle.addEventListener("click", () => {
+              const currentSpeed = player.playbackRate || 1;
+              const index = speeds.findIndex((speed) => Math.abs(speed - currentSpeed) < 0.001);
+              const nextSpeed = speeds[(index + 1) % speeds.length] || 1;
+              player.playbackRate = nextSpeed;
+              speedToggle.textContent = `${nextSpeed}x`;
             });
-          });
+          }
         })();
       </script>
     """
+
+
+def _render_playback_speaker_timeline(review: MeetingReviewResponse) -> str:
+    if not review.speakers.available:
+        return '<div class="speaker-timeline" data-speaker-timeline></div>'
+    duration = max(1, review.playback.duration_seconds)
+    lanes = []
+    for speaker in review.speakers.speakers:
+        segments = []
+        for segment in speaker.segments:
+            start = max(0.0, float(segment.start_seconds))
+            end = min(float(duration), max(start, float(segment.end_seconds)))
+            left = min(100.0, max(0.0, start / duration * 100))
+            width = min(100.0 - left, max(0.2, (end - start) / duration * 100))
+            segments.append(
+                f'<span class="timeline-segment" data-lane-segment style="left:{left:.2f}%;width:{width:.2f}%"></span>'
+            )
+        lanes.append(
+            f"""
+            <div class="timeline-lane" data-speaker-lane="{escape(speaker.speaker_key)}">
+              <span class="timeline-label">{escape(_speaker_display_label(speaker.label))}</span>
+              <span class="timeline-track">{"".join(segments)}</span>
+              <span class="timeline-share">{speaker.talk_time_percent}%</span>
+            </div>
+            """
+        )
+    return f'<div class="speaker-timeline" data-speaker-timeline>{"".join(lanes)}</div>'
 
 
 def _render_speaker_lanes(review: MeetingReviewResponse) -> str:
@@ -2842,6 +3045,11 @@ def _empty_body(review: MeetingReviewResponse) -> str:
     if review.processing.state in {"processing", "submitted"}:
         return "Мы показываем только подтвержденные данные и не создаем фальшивый текст."
     return "Проверьте статус обработки позже."
+
+
+def _timecode(seconds: int) -> str:
+    minutes, second = divmod(max(0, seconds), 60)
+    return f"{minutes:02d}:{second:02d}"
 
 
 def _duration(seconds: int) -> str:

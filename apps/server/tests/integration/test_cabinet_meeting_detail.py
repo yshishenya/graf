@@ -6,12 +6,10 @@ from tests.fixtures.cabinet import (
     create_summary_reported_meeting,
     seed_cabinet_meetings,
 )
-from tests.fixtures.cabinet_access import set_artifact_policy
 
 
 def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
 
@@ -28,6 +26,9 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
     assert payload["provenance"]["source_roles"] == ["local_microphone", "incoming_system"]
     assert payload["provenance"]["processing_dependency"] == "mediascribe"
     assert payload["playback"]["available"] is True
+    audio_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio")
+    assert audio_artifact["state"] == "policy_blocked"
+    assert audio_artifact["action"] == "disabled"
     assert {speaker["label"] for speaker in payload["speakers"]["speakers"]} == {"Speaker 1", "Speaker 2"}
     assert PRIVATE_EXTERNAL_JOB_ID not in response.text
 
@@ -135,6 +136,9 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Доступ" in ready.text
     assert "Видимость для команды" in ready.text
     assert "Файлы" in ready.text
+    assert 'class="playback-bar detail-playback"' in ready.text
+    assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in ready.text
+    assert "/downloads/audio" not in ready.text
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
     assert "Итоги готовятся" in processing.text
@@ -161,15 +165,19 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
 
 def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
 
     response = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
-    assert '<audio data-playback-player controls preload="metadata"' in response.text
+    assert 'class="playback-bar detail-playback"' in response.text
+    assert 'data-playback-shell' in response.text
+    assert 'data-playback-toggle' in response.text
+    assert 'data-playback-skip="-15"' in response.text
+    assert 'data-playback-skip="15"' in response.text
     assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in response.text
     assert 'data-source-mode="combined_review_stream"' in response.text
     assert 'class="timestamp timestamp-seek"' in response.text
     assert 'data-seek-seconds="0.0"' in response.text
     assert 'data-seek-seconds="12.5"' in response.text
+    assert "/downloads/audio" not in response.text
