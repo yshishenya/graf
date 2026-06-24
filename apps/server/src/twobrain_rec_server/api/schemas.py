@@ -139,6 +139,11 @@ class DesktopSyncProcessingState(BaseModel):
 
 class DesktopSyncReviewState(BaseModel):
     available: bool = False
+    status: str = "unavailable"
+    media_revision_id: UUID | None = None
+    transcript_available: bool = False
+    diarization_available: bool = False
+    content_available: bool = False
     web_url: str | None = None
     desktop_url: str | None = None
 

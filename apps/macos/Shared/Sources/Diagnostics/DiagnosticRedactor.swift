@@ -22,6 +22,8 @@ public struct DiagnosticRedactor: Sendable {
         "audioSnippet",
         "rawSamples",
         "audioClip",
+        "audioDownloadUrl",
+        "audio_download_url",
         "debugWav",
         "debugWAV",
         "webrtcLogDump",

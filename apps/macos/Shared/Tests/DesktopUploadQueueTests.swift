@@ -72,9 +72,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             totalCount: 1
         )
 
-        XCTAssertEqual(leakageSummary.detail, "звук динамиков попал в микрофон; отправка заблокирована")
-        XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым")
-        XCTAssertEqual(unmeasuredSummary.detail, "не удалось проверить утечку динамиков; нужна проверка")
+        XCTAssertEqual(leakageSummary.detail, "звук динамиков попал в микрофон; отправим как есть")
+        XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым; отправим как есть")
+        XCTAssertEqual(unmeasuredSummary.detail, "не удалось проверить утечку динамиков; отправим как есть")
     }
 
     func testNativeMeetingListKeepsBlockedLocalRecordingsVisibleUntilServerSeesThem() {
@@ -149,10 +149,10 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(secondScan.first?.artifactProfile.isUploadable == true)
     }
 
-    func testWebRTCAEC3GuidanceCannotMakeLeakageBlockedPackageUploadable() throws {
+    func testQualityLeakageStateDoesNotBlockStructurallyValidPackageUpload() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let directoryURL = root.appendingPathComponent("aec3-blocked-package", isDirectory: true)
+        let directoryURL = root.appendingPathComponent("leakage-warning-package", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let manifestURL = directoryURL.appendingPathComponent("manifest.json")
         let micURL = directoryURL.appendingPathComponent("mic.wav")
@@ -160,10 +160,13 @@ final class DesktopUploadQueueTests: XCTestCase {
         try Data(repeating: 1, count: 128).write(to: micURL)
         try Data(repeating: 2, count: 128).write(to: incomingURL)
         let manifest = makeManifest(
-            directoryId: "aec3-blocked-package",
-            sessionId: "aec3-blocked-session",
+            directoryId: "leakage-warning-package",
+            sessionId: "leakage-warning-session",
             leakageFinalization: uploadQueueBlockedLeakageFinalization(),
-            webRTCAEC3Outcome: uploadQueueWebRTCAEC3GuidanceOutcome()
+            webRTCAEC3Outcome: uploadQueueWebRTCAEC3GuidanceOutcome(),
+            status: .failed,
+            transcriptionReadiness: .failed,
+            failureReason: .leakageDetected
         )
         try LocalRecordingManifestService().write(manifest, to: manifestURL)
 
@@ -174,10 +177,10 @@ final class DesktopUploadQueueTests: XCTestCase {
             systemAudioURL: incomingURL
         )
 
-        XCTAssertFalse(profile.isUploadable)
+        XCTAssertTrue(profile.isUploadable)
     }
 
-    func testScanCarriesManifestFailureReasonIntoBlockedQueueItem() throws {
+    func testScanQueuesLeakageFailedPackageWhenFilesConsentPermissionsAreValid() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = try makeRecordingPackage(
@@ -199,9 +202,121 @@ final class DesktopUploadQueueTests: XCTestCase {
         let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
         let summary = DesktopUploadQueueSummary(primaryItem: item, pendingCount: 1, totalCount: 1)
 
-        XCTAssertEqual(item.state, .blocked)
-        XCTAssertEqual(item.failureReason, LocalRecordingFailureReason.leakageDetected.rawValue)
-        XCTAssertEqual(summary.detail, "звук динамиков попал в микрофон; отправка заблокирована")
+        XCTAssertEqual(item.state, .queued)
+        XCTAssertNil(item.failureReason)
+        XCTAssertTrue(item.artifactProfile.isUploadable)
+        XCTAssertEqual(item.artifactProfile.qualityWarningReason, LocalRecordingFailureReason.leakageDetected.rawValue)
+        XCTAssertEqual(summary.detail, "локальная копия сохранена, отправим при сети")
+    }
+
+    func testQualityReadinessFailuresRemainUploadableWhenPackageIsStructurallyValid() throws {
+        let cases: [(LocalRecordingFailureReason, LeakageFinalization?)] = [
+            (.leakageUnproven, uploadQueueLeakageFinalization(
+                status: .unproven,
+                alignmentStatus: .aligned,
+                failureReason: .leakageUnproven,
+                transcriptionGate: .blockedUnproven
+            )),
+            (.leakageNotMeasured, uploadQueueLeakageFinalization(
+                status: .notMeasured,
+                measurementAttempted: false,
+                measurementApplicable: false,
+                alignmentStatus: .unknown,
+                failureReason: .leakageNotMeasured,
+                transcriptionGate: .blockedNotMeasured
+            )),
+            (.insufficientReference, uploadQueueLeakageFinalization(
+                status: .unproven,
+                alignmentStatus: .insufficientReference,
+                failureReason: .insufficientReference,
+                transcriptionGate: .blockedUnproven
+            )),
+            (.timelineMisaligned, uploadQueueLeakageFinalization(
+                status: .unproven,
+                alignmentStatus: .misaligned,
+                failureReason: .timelineMisaligned,
+                transcriptionGate: .blockedTimelineMisaligned
+            )),
+            (.silentInput, nil)
+        ]
+
+        for (index, testCase) in cases.enumerated() {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            _ = try makeRecordingPackage(
+                root: root,
+                directoryId: "quality-warning-\(index)",
+                sessionId: "quality-warning-session-\(index)",
+                leakageFinalization: testCase.1,
+                status: .failed,
+                transcriptionReadiness: .failed,
+                failureReason: testCase.0
+            )
+            let service = DesktopUploadQueueService(
+                queueURL: root.appendingPathComponent("queue.json"),
+                recordingsRootURL: root,
+                client: nil,
+                clock: { Date(timeIntervalSince1970: 100) }
+            )
+
+            let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+
+            XCTAssertEqual(item.state, .queued, "failure reason \(testCase.0.rawValue) must not block upload")
+            XCTAssertNil(item.failureReason)
+            XCTAssertTrue(item.artifactProfile.isUploadable)
+            XCTAssertEqual(item.artifactProfile.qualityWarningReason, testCase.0.rawValue)
+        }
+    }
+
+    func testMissingFilesConsentAndPermissionsStillBlockUpload() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "missing-incoming-package",
+            sessionId: "missing-incoming-session",
+            includeIncoming: false
+        )
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "permission-denied-package",
+            sessionId: "permission-denied-session",
+            permissions: SystemAudioPermissionSnapshot(
+                microphone: .denied,
+                systemAudio: .granted,
+                evaluatedAt: Date(timeIntervalSince1970: 9)
+            )
+        )
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "scope-rejected-package",
+            sessionId: "scope-rejected-session",
+            scopeApproval: CaptureScopeApproval(
+                scopeApprovalId: "scope-rejected",
+                scopeKind: .display,
+                sourceDisplayName: "Display",
+                approvedBy: "system",
+                approvedAt: Date(timeIntervalSince1970: 9),
+                approvalMode: .userConfirmedSuggestedScope,
+                eligibleReason: .manualMeetingScope
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let items = try service.scanAndEnqueueCompletedRecordings()
+        let byDirectory = Dictionary(uniqueKeysWithValues: items.map { ($0.directoryId, $0) })
+
+        XCTAssertEqual(byDirectory["missing-incoming-package"]?.state, .blocked)
+        XCTAssertEqual(byDirectory["missing-incoming-package"]?.failureReason, "local_artifacts_not_uploadable")
+        XCTAssertEqual(byDirectory["permission-denied-package"]?.state, .blocked)
+        XCTAssertEqual(byDirectory["permission-denied-package"]?.failureReason, LocalRecordingFailureReason.permissionDenied.rawValue)
+        XCTAssertEqual(byDirectory["scope-rejected-package"]?.state, .blocked)
+        XCTAssertEqual(byDirectory["scope-rejected-package"]?.failureReason, LocalRecordingFailureReason.scopeUnavailable.rawValue)
     }
 
     func testOfflineQueueSurvivesRestartWithoutServerTruth() throws {
@@ -282,7 +397,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(refreshed.createdAt, staleItem.createdAt)
     }
 
-    func testScanRefreshesGenericBlockedReasonWithManifestReason() throws {
+    func testScanRefreshesGenericBlockedReasonWithManifestWarningMetadata() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = try makeRecordingPackage(
@@ -319,8 +434,10 @@ final class DesktopUploadQueueTests: XCTestCase {
 
         let refreshed = try XCTUnwrap(refreshService.scanAndEnqueueCompletedRecordings().first)
 
-        XCTAssertEqual(refreshed.state, .blocked)
-        XCTAssertEqual(refreshed.failureReason, LocalRecordingFailureReason.leakageDetected.rawValue)
+        XCTAssertEqual(refreshed.state, .queued)
+        XCTAssertNil(refreshed.failureReason)
+        XCTAssertTrue(refreshed.artifactProfile.isUploadable)
+        XCTAssertEqual(refreshed.artifactProfile.qualityWarningReason, LocalRecordingFailureReason.leakageDetected.rawValue)
     }
 
     func testScanClearsStaleLocalFilesMissingConflictWhenUploadingItemIsUploadableAfterRestart() throws {
@@ -463,6 +580,73 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(savedItem.state, .uploaded)
         XCTAssertEqual(savedItem.serverTruth.acceptedBytesByTrack["microphone"], 128)
         XCTAssertGreaterThanOrEqual(savedItem.syncGeneration, 2)
+    }
+
+    func testProcessDueItemsRefreshesUploadedProcessingStatusWithoutReuploading() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("queue.json")
+        let finalizedAt = Date(timeIntervalSince1970: 100)
+        var uploaded = makeQueueItem(
+            state: .uploaded,
+            retryMode: .terminal,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-processed",
+                mediaRevisionId: "server-media-processed",
+                uploadSessionId: "server-session-processed",
+                serverStatus: "ingested_pending_processing",
+                processingStatus: "not_submitted",
+                acceptedBytesByTrack: ["microphone": 128, "system": 128, "manifest": 64],
+                finalizedAt: finalizedAt,
+                desktopTruthRule: "server_ranges_authoritative"
+            ),
+            updatedAt: finalizedAt
+        )
+        uploaded.lastReconciledAt = finalizedAt
+        uploaded.syncGeneration = 1
+        let document = DesktopUploadQueueDocument(updatedAt: finalizedAt, items: [uploaded])
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(document)
+            .write(to: queueURL, options: [.atomic])
+        let client = ReconcileThenUploadClient(
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "server-meeting-processed",
+                    mediaRevisionId: "server-media-processed",
+                    uploadSessionId: "server-session-processed",
+                    serverStatus: "ingested_pending_processing",
+                    processingStatus: "processed",
+                    acceptedBytesByTrack: ["microphone": 128, "system": 128, "manifest": 64],
+                    finalizedAt: finalizedAt,
+                    desktopTruthRule: "server_ranges_authoritative"
+                )
+            ),
+            result: DesktopUploadResult(
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(meetingId: "should-not-reupload")
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 130) }
+        )
+
+        let items = try await service.processDueItems()
+
+        let savedItem = try XCTUnwrap(items.first)
+        XCTAssertTrue(client.uploadedItems.isEmpty)
+        XCTAssertEqual(client.reconciledItems.map(\.id), [uploaded.id])
+        XCTAssertEqual(savedItem.state, .uploaded)
+        XCTAssertEqual(savedItem.retryMode, .terminal)
+        XCTAssertEqual(savedItem.serverTruth.processingStatus, "processed")
+        XCTAssertEqual(savedItem.syncConflictState, .none)
+        XCTAssertEqual(savedItem.failureCategory, .none)
+        XCTAssertNil(savedItem.failureReason)
+        XCTAssertEqual(savedItem.lastReconciledAt, Date(timeIntervalSince1970: 130))
+        XCTAssertEqual(savedItem.syncGeneration, 2)
     }
 
     func testReconciliationConflictBlocksUploadAndPreservesServerTruth() async throws {
@@ -722,6 +906,38 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(expired.first?.failureReason, "automatic_retry_window_expired")
     }
 
+    func testUploadedProcessingFollowUpStopsAfterProcessedStatus() {
+        let active = makeQueueItem(
+            state: .uploaded,
+            retryMode: .terminal,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "meeting-active",
+                processingStatus: "workflow_started",
+                finalizedAt: Date(timeIntervalSince1970: 100)
+            ),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let processed = makeQueueItem(
+            state: .uploaded,
+            retryMode: .terminal,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "meeting-processed",
+                processingStatus: "processed",
+                finalizedAt: Date(timeIntervalSince1970: 100)
+            ),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        XCTAssertTrue(DesktopUploadQueueService.needsProcessingFollowUp(
+            active,
+            now: Date(timeIntervalSince1970: 130)
+        ))
+        XCTAssertFalse(DesktopUploadQueueService.needsProcessingFollowUp(
+            processed,
+            now: Date(timeIntervalSince1970: 130)
+        ))
+    }
+
     func testQueueDocumentUsesRevisionReadyV2Schema() {
         let fixture = makeQueueV2Fixture(directoryId: "recording-sync-001")
 
@@ -736,6 +952,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         failureReason: String? = nil,
         syncConflictState: DesktopSyncConflictState = .none,
         meetingId: String? = nil,
+        serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         createdAt: Date = Date(timeIntervalSince1970: 1),
         updatedAt: Date = Date(timeIntervalSince1970: 1)
     ) -> DesktopUploadQueueItem {
@@ -771,6 +988,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             meetingId: meetingId,
             syncConflictState: syncConflictState,
             artifactProfile: profile,
+            serverTruth: serverTruth,
             retentionDecision: RetentionDecision(
                 decision: .retain,
                 decidedAt: Date(timeIntervalSince1970: 1),
@@ -813,7 +1031,9 @@ final class DesktopUploadQueueTests: XCTestCase {
         leakageFinalization: LeakageFinalization? = nil,
         status: LocalRecordingSessionStatus = .saved,
         transcriptionReadiness: TranscriptionReadinessState = .ready,
-        failureReason: LocalRecordingFailureReason = .none
+        failureReason: LocalRecordingFailureReason = .none,
+        scopeApproval: CaptureScopeApproval? = nil,
+        permissions: SystemAudioPermissionSnapshot? = nil
     ) throws -> TestRecordingPackage {
         let directoryURL = root.appendingPathComponent(directoryId, isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -835,7 +1055,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             leakageFinalization: leakageFinalization,
             status: status,
             transcriptionReadiness: transcriptionReadiness,
-            failureReason: failureReason
+            failureReason: failureReason,
+            scopeApproval: scopeApproval,
+            permissions: permissions
         )
         try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
         return package
@@ -850,7 +1072,9 @@ final class DesktopUploadQueueTests: XCTestCase {
         webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil,
         status: LocalRecordingSessionStatus = .saved,
         transcriptionReadiness: TranscriptionReadinessState = .ready,
-        failureReason: LocalRecordingFailureReason = .none
+        failureReason: LocalRecordingFailureReason = .none,
+        scopeApproval: CaptureScopeApproval? = nil,
+        permissions: SystemAudioPermissionSnapshot? = nil
     ) -> LocalRecordingManifest {
         let startedAt = Date(timeIntervalSince1970: 10)
         let stoppedAt = Date(timeIntervalSince1970: 20)
@@ -902,7 +1126,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             leakageFinalization: leakageFinalization,
             failureReason: failureReason,
             durationDifferenceSeconds: 0,
-            scopeApproval: CaptureScopeApproval(
+            scopeApproval: scopeApproval ?? CaptureScopeApproval(
                 scopeApprovalId: "scope",
                 scopeKind: .display,
                 sourceDisplayName: "Display",
@@ -910,7 +1134,7 @@ final class DesktopUploadQueueTests: XCTestCase {
                 approvalMode: .userConfirmedSuggestedScope,
                 eligibleReason: .manualMeetingScope
             ),
-            permissions: SystemAudioPermissionSnapshot(
+            permissions: permissions ?? SystemAudioPermissionSnapshot(
                 microphone: .granted,
                 systemAudio: .granted,
                 evaluatedAt: startedAt
@@ -982,16 +1206,31 @@ final class DesktopUploadQueueTests: XCTestCase {
     }
 
     private func uploadQueueBlockedLeakageFinalization() -> LeakageFinalization {
-        LeakageFinalization(
+        uploadQueueLeakageFinalization(
             status: .leakageDetected,
-            evaluatedAt: Date(timeIntervalSince1970: 20),
-            measurementAttempted: true,
-            measurementApplicable: true,
-            alignmentStatus: .aligned,
-            confidence: 0.95,
             failureReason: .leakageDetected,
-            originalEvidenceStatus: .leakageDetected,
             transcriptionGate: .blockedLeakageDetected
+        )
+    }
+
+    private func uploadQueueLeakageFinalization(
+        status: LeakageStatus,
+        measurementAttempted: Bool = true,
+        measurementApplicable: Bool = true,
+        alignmentStatus: LeakageAlignmentStatus = .aligned,
+        failureReason: LocalRecordingFailureReason,
+        transcriptionGate: LeakageTranscriptionGate
+    ) -> LeakageFinalization {
+        LeakageFinalization(
+            status: status,
+            evaluatedAt: Date(timeIntervalSince1970: 20),
+            measurementAttempted: measurementAttempted,
+            measurementApplicable: measurementApplicable,
+            alignmentStatus: alignmentStatus,
+            confidence: 0.95,
+            failureReason: failureReason,
+            originalEvidenceStatus: status,
+            transcriptionGate: transcriptionGate
         )
     }
 
@@ -1060,6 +1299,7 @@ final class DesktopUploadQueueTests: XCTestCase {
     private final class ReconcileThenUploadClient: @unchecked Sendable, DesktopUploadClientProtocol {
         private let reconciliation: DesktopUploadReconciliation?
         private let result: DesktopUploadResult
+        private(set) var reconciledItems: [DesktopUploadQueueItem] = []
         private(set) var uploadedItems: [DesktopUploadQueueItem] = []
 
         init(reconciliation: DesktopUploadReconciliation?, result: DesktopUploadResult) {
@@ -1068,7 +1308,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         }
 
         func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
-            reconciliation
+            reconciledItems.append(item)
+            return reconciliation
         }
 
         func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {

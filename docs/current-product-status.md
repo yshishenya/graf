@@ -1,9 +1,9 @@
 # Current Product Status
 
-Date: 2026-06-22
+Date: 2026-06-24
 
 This document is the short status source after the
-`042-recording-sync-transcription-loop` local implementation pass. The PRD
+`045-transcription-results-pipeline` local implementation pass. The PRD
 remains the product baseline; feature specs and metadata-only evidence
 artifacts remain the detailed implementation record.
 
@@ -166,6 +166,79 @@ artifacts remain the detailed implementation record.
   `infra/scripts/ci-local.sh` gate. This is local implementation readiness
   only: the branch is not merged, not PR-reviewed, not deployed, and has no
   production upload-to-transcript e2e evidence yet.
+- Feature `045-transcription-results-pipeline` is implemented locally as the
+  product pipeline close-out on top of `042`. Structurally valid local packages
+  now remain upload/transcription eligible even when local leakage, echo,
+  silence, timing, or transcription-readiness checks are degraded, failed,
+  inconclusive, or unavailable; consent, permission, missing/unreadable files,
+  package role/size/checksum/fingerprint integrity, lifecycle, and privacy
+  boundaries remain hard gates. Accepted server finalization starts or reuses
+  one processing workflow when processing is enabled, unavailable dependencies
+  become visible processing blockers without rolling back upload success, and
+  web plus embedded desktop review expose matching transcript/diarization
+  availability for the accepted media revision. Quality warning reasons are
+  retained as metadata-only artifact profile context, not as queue-blocking
+  failure reasons. Focused local validation passed macOS upload/manifest/
+  diagnostics tests, server finalize/processing/cabinet/privacy tests, and a
+  synthetic one-hour orchestration benchmark with faked transcription
+  dependency. Web cabinet fixture runtime was rechecked with Russian-first
+  visible launch copy across desktop, embedded desktop, and mobile result
+  states, with no visible legacy English labels, no horizontal overflow, and no
+  clipped status chips; the latest 9-page browser runtime recheck recorded
+  `failures=[]` in `/tmp/2brain-rec-045-web-cabinet-ru-20260624g`. Focused
+  macOS validation, focused server validation with the source-role regression
+  suite, the one-hour orchestration benchmark, full local CI, and deploy dry-run
+  passed in the latest closeout continuation. The current branch desktop bundle
+  also rebuilt with ad-hoc local signing and passed the safe non-recording
+  preflight on repeat after an environmental pre-launch `coreaudiod` CPU blocker:
+  packaged app launch, idle, and quit phases were observed without helper/HAL
+  probe warnings. After explicit owner approval,
+  the current branch app-only package was also installed over
+  `/Applications/2brain Rec.app`; the installed CDHash matched the just-built
+  current-branch bundle, microphone and Screen/System Audio permissions were
+  granted, manual Record entered active recording, one-action Stop produced a
+  fresh user-requested stop event, both `local_mic` and `remote_speaker` tracks
+  were saved, and the package was queued for upload. That proof was a real
+  speakerphone/high-leakage class: the manifest remained `degraded` with
+  `leakage_unproven`, so it does not satisfy the older clean
+  `saved`/`ready` artifact gate. Replaying that same real degraded package
+  through the current branch server ingest API in a local fake-storage/
+  fake-Temporal harness proved it is not blocked by `leakage_unproven`:
+  manifest, microphone, and system bytes were accepted, finalize returned `200`,
+  the session moved to `finalized`, the meeting moved to
+  `ingested_pending_processing`, and processing moved to `workflow_started`.
+  That local replay did not use production, a live worker, or live MediaScribe,
+  so transcript/diarization availability remained unproven. It also exposed a
+  separate speakerphone quality gap: the same artifact's incoming/system track
+  was effectively silent (`-91.0 dB` mean / `-78.3 dB` max), so this run proves
+  degraded uploadability but not useful dual-track capture of incoming sound
+  through speakers. A later fresh installed-app production probe on
+  2026-06-24 created a v3 `failed` / `leakage_detected` speakerphone package
+  with meaningful microphone and incoming/system audio, uploaded it to
+  production, finalized it, and after a targeted manual processing pickup
+  reached a live MediaScribe-backed processed review state with transcript,
+  diarization, playback, workflow presence, and both source roles visible.
+  Production was still on `master` commit `e312d25`, not feature `045`, so this
+  proves one real upload-to-transcript path after manual pickup but not 045
+  production auto-start/reuse after finalize. The same live result also exposed
+  a review-quality issue: segment-level speaker labels and source roles were not
+  consistently aligned, so local microphone vs incoming/system attribution can
+  be visually confusing. The current branch now includes a regression fix for
+  that mapping bug: cabinet transcript rendering matches diarization by
+  normalized `(sequence, source_role)` instead of sequence alone, and focused
+  cabinet/source-role tests pass locally. Production is still on `e312d25`, so
+  this fix is not live until 045 is reviewed, merged, and deployed. Deploy
+  dry-run and
+  include-set apply-check over `origin/master` `a89cf91` have passed, but this
+  does not prove clean low-leakage artifact creation, 045 production deploy,
+  045 automatic upload-to-transcript behavior, or production e2e after merge.
+  The feature remains branch-local readiness until PR review, merge, deploy,
+  completion of the desktop proof matrix, post-deploy source-role/speaker-label
+  verification, and post-deploy 045 production evidence are completed.
+  Earlier production e2e evidence for `015` proves the pre-045 processing
+  slice on its deployed commit only; it must not be reused as proof that the
+  new 045 upload-eligibility, auto-start/reuse, and result-delivery behavior is
+  live in production.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -238,9 +311,12 @@ artifacts remain the detailed implementation record.
   `mic.wav` and `incoming.wav` evidence is measured against
   `leakage-threshold.v1`; `manifest.json` uses
   `local-recording-manifest.v3`; contaminated, ambiguous, malformed,
-  misaligned, not-measured, or unproven packages fail closed for transcription
-  readiness. The implementation is integrated on top of the accepted `025`
-  system-audio capture path and does not replace scope approvals, permissions,
+  misaligned, not-measured, or unproven packages still record local
+  transcription-readiness failure/degradation truth. Feature `045` changes how
+  that truth is used for product upload/transcription eligibility: for
+  structurally valid packages it is diagnostic metadata, not an upload blocker.
+  The implementation is integrated on top of the accepted `025` system-audio
+  capture path and does not replace scope approvals, permissions,
   capture-health evidence, dual-track role mapping, or system-audio recording
   truth.
 - `020` diagnostics remain metadata-only: leakage status, transcription gate,
@@ -268,10 +344,11 @@ artifacts remain the detailed implementation record.
   mute state remains unverified unless a future adapter provides fresh
   target-specific evidence.
 - Built-in speakerphone clean dual-track acceptance remains constrained by
-  `020` evidence: packages can be captured, but transcription readiness must
-  stay blocked when persisted package evidence is contaminated, unproven, or
-  unavailable. Feature `038` did not accept Apple processing for built-in
-  speakerphone recording; WebRTC AEC3 remains the next gated cleanup candidate.
+  `020`/`038` evidence: packages can be captured and, after `045`, structurally
+  valid imperfect packages can still proceed to server transcription, but the
+  product must not label polluted microphone audio as clean local speech.
+  Feature `038` did not accept Apple processing for built-in speakerphone
+  recording; `044` remains the real echo/noise suppression runtime candidate.
 - Driver live virtual-device publication is not accepted for MVP recording and
   must not be revived without a separate future advanced-routing spec,
   implementation, and safety evidence.
@@ -308,28 +385,48 @@ artifacts remain the detailed implementation record.
 ## Next Product Slice
 
 Recommended next action before starting another feature: close out
-`042-recording-sync-transcription-loop` with reviewed branch state, then only
-after approval proceed to PR, merge, deploy, and production smoke/e2e evidence.
-The local implementation now proves the offline-safe upload, sync,
-transcription, and review loop in tests; product rollout is still blocked until
-that implementation is reviewed and proven in the target environment.
+`045-transcription-results-pipeline` with reviewed branch state, then only after
+approval proceed to PR, merge, deploy, and production smoke/e2e evidence. The
+local implementation now proves offline-safe upload eligibility, automatic
+server processing start/reuse, result availability in web/desktop review, and
+metadata-safe diagnostics in tests; product rollout is still blocked until that
+implementation is reviewed and proven in the target environment.
 
 Remaining launch blockers are now more specific:
 
-- `042` production upload-to-transcript-to-review path is not yet deployed or
-  proven with metadata-safe production evidence;
+- `045` post-deploy production upload-to-transcript-to-review path is not yet
+  proven with metadata-safe production evidence; a fresh speakerphone package
+  did reach live transcript review after targeted manual processing pickup while
+  production was still on `master e312d25`;
+- current-branch desktop build/launch/idle/quit is proven by safe non-recording
+  preflight; permissioned installed-current-branch Record/Stop and dual-track
+  package creation are proven for the speakerphone/degraded class, but clean
+  low-leakage `saved` / `ready` artifact creation and production desktop-to-
+  review proof are not yet proven. A metadata-only local manifest scan found
+  only older `v2` `saved` / `ready` packages, not a fresh/current-branch `v3`
+  clean candidate;
+- 045 deploy preflight risk is reduced by a passing include-set apply-check
+  over `origin/master`, full local CI, and a passing deploy dry-run, but
+  post-deploy production smoke/e2e evidence is still required before any pilot
+  claim;
+- PRD-level audio playback linked to transcript timestamps is not yet
+  implemented or proven. `045` proves timestamp labels and a playback shell
+  only; `specs/045-transcription-results-pipeline/evidence/playback-timestamp-seek-preflight.md`
+  records the candidate `046-meeting-playback-timestamp-seek` handoff;
 - notes/action truth states are implemented, but stored/generated launchable
   notes and actions, or an explicit owner-approved pilot deferral, are not yet
   accepted;
-- production evidence remains `infra_smoke_ready`, not a user rollout journey;
+- production evidence remains below full user-rollout proof: one manual-pickup
+  live transcript result exists, but deployed 045 auto-start/reuse and
+  source-attribution proof are still missing;
 - the installed desktop surface has accepted clean-room visual/product polish
   and a metadata-safe idle/active/paused/resumed/stopped walkthrough pack, but
   this does not replace production rollout evidence.
 
-Before any pilot claim, finish 042 review/deploy/proof, decide whether
-generated notes/actions are implemented or explicitly deferred for MVP, and keep
-the owner proof plus installed-app walkthrough linked as supporting evidence
-rather than a rollout claim.
+Before any pilot claim, finish 045 production deploy/proof, decide whether
+interactive playback/timestamp seek and generated notes/actions are implemented
+or explicitly deferred for MVP, and keep the owner proof plus installed-app
+walkthrough linked as supporting evidence rather than a rollout claim.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey
@@ -342,6 +439,11 @@ Keep separate unless the next spec explicitly changes scope:
 - Notes/action output: decide whether the MVP requires stored generated
   notes/action items next or whether the now-truthful 036 state model is
   explicitly accepted as a narrower internal-pilot deferral.
+- Interactive playback/timestamp seek: decide whether the MVP requires
+  retained-audio playback with transcript timestamp seek before launch, or
+  explicitly defer it from a narrower pilot. Candidate context is recorded in
+  the 045 playback preflight evidence and should become a separate Spec Kit
+  slice if required.
 - Assisted auto-start and generalized meeting detection.
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates
@@ -392,7 +494,13 @@ the current accepted implementation or `012` ingest slice.
   and product surfaces must follow ADR `003-tenant-isolation-rls`; destructive
   RLS probes stay on disposable/test databases, and production truth must be
   proven with read-only catalog metadata.
-- Post-MVP editing/media backlog: features `044`-`047` are reserved for local
+- `044-speakerphone-echo-noise-suppression`: clean-recording runtime slice for
+  real echo cancellation/noise suppression. It must preserve package truth,
+  metadata-only evidence, reversible fallback, and built-in speakerphone route
+  limits before any clean speakerphone claim is allowed. It is separate from
+  `045`, which lets imperfect-but-structurally-valid packages reach
+  transcription/results without claiming the mic was cleaned.
+- Post-MVP editing/media backlog: features `048`-`051` are reserved for local
   media trim revisions, online transcript edit sync, video capture package
   foundation, and explicit media replace/reprocess flows. They are not part of
   `042` MVP, but `042` must avoid data/identity choices that would force

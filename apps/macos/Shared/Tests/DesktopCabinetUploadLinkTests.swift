@@ -25,6 +25,26 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
         XCTAssertEqual(link.destination?.absoluteString, "https://rec.2brain.dev/desktop/meetings/server-meeting-033")
     }
 
+    func testUploadedItemWithAcceptedMediaRevisionKeepsProcessedReviewContext() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let item = uploadItem(
+            state: .uploaded,
+            meetingId: nil,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-045",
+                mediaRevisionId: "server-media-revision-045"
+            )
+        )
+
+        let link = configuration.reviewLink(for: item)
+
+        XCTAssertEqual(link.availability, .available)
+        XCTAssertEqual(link.reason, "server_meeting_available")
+        XCTAssertEqual(link.meetingId, "server-meeting-045")
+        XCTAssertEqual(link.mediaRevisionId, "server-media-revision-045")
+        XCTAssertEqual(link.destination?.absoluteString, "https://rec.2brain.dev/desktop/meetings/server-meeting-045")
+    }
+
     func testUploadedLocalOnlyItemDoesNotClaimReviewExists() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let item = uploadItem(
@@ -55,6 +75,22 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
         XCTAssertEqual(link.destination?.absoluteString, "https://rec.2brain.dev/desktop/meetings/server-meeting-033")
     }
 
+    func testUploadedItemWithReviewBlockingConflictDoesNotOpenReviewDestination() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let item = uploadItem(
+            state: .uploaded,
+            meetingId: nil,
+            serverTruth: ServerTruthFingerprint(meetingId: "server-meeting-deleted"),
+            syncConflictState: .serverMeetingDeleted
+        )
+
+        let link = configuration.reviewLink(for: item)
+
+        XCTAssertEqual(link.availability, .unavailable)
+        XCTAssertNil(link.destination)
+        XCTAssertEqual(link.reason, "server_meeting_deleted")
+    }
+
     func testTerminalDeletedItemWithServerMeetingIdDoesNotOpenReviewDestination() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let item = uploadItem(
@@ -73,7 +109,8 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
     private func uploadItem(
         state: UploadItemState,
         meetingId: String?,
-        serverTruth: ServerTruthFingerprint
+        serverTruth: ServerTruthFingerprint,
+        syncConflictState: DesktopSyncConflictState = .none
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
@@ -104,6 +141,7 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 2),
             meetingId: meetingId,
+            syncConflictState: syncConflictState,
             artifactProfile: profile,
             serverTruth: serverTruth,
             retentionDecision: RetentionDecision(

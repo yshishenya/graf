@@ -96,13 +96,17 @@ async def get_processing_workflow(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingWorkflow | None:
-    query = select(ProcessingWorkflow).where(
+    base_query = select(ProcessingWorkflow).where(
             ProcessingWorkflow.workspace_id == workspace_id,
             ProcessingWorkflow.meeting_id == meeting_id,
     )
+    query = base_query
     if media_revision_id is not None:
         query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
-    return await db.scalar(query)
+    workflow = await db.scalar(query)
+    if workflow is None and media_revision_id is not None:
+        workflow = await db.scalar(base_query.where(ProcessingWorkflow.media_revision_id.is_(None)))
+    return workflow
 
 
 async def upsert_processing_workflow(

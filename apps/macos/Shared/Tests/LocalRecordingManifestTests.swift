@@ -570,7 +570,7 @@ final class LocalRecordingManifestTests: XCTestCase {
         )
     }
 
-    func testDegradedSilentInputRecordingPackageRemainsUploadEligibleWhenFilesArePresent() throws {
+    func testDiagnosticOnlyReadinessWarningsRemainUploadEligibleWhenFilesArePresent() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-recording-eligibility-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -581,48 +581,36 @@ final class LocalRecordingManifestTests: XCTestCase {
         try Data(repeating: 1, count: 128).write(to: microphoneURL)
         try Data(repeating: 2, count: 128).write(to: systemAudioURL)
 
-        let degraded = LocalRecordingManifest(
-            sessionId: "degraded-session",
+        let failedReadiness = LocalRecordingManifest(
+            sessionId: "failed-readiness-session",
             createdAt: Date(timeIntervalSince1970: 30),
             startedAt: Date(timeIntervalSince1970: 10),
             stoppedAt: Date(timeIntervalSince1970: 20),
-            status: .degraded,
-            directoryId: "degraded-dir",
-            transcriptionReadiness: .degraded,
+            status: .failed,
+            directoryId: "failed-readiness-dir",
+            transcriptionReadiness: .failed,
             tracks: [
                 completeTrack(role: .localMic),
-                LocalRecordingTrack(
-                    trackId: "remote",
-                    role: .remoteSpeaker,
-                    status: .degraded,
-                    fileName: "incoming.wav",
-                    format: "wav-pcm-s16le",
-                    sampleRate: 16_000,
-                    channelCount: 1,
-                    bitsPerSample: 16,
-                    durationMs: 1000,
-                    byteCount: 32_044,
-                    frameCount: 16_000,
-                    timelineStartMs: 0,
-                    timelineAligned: false,
-                    failureReason: .silentInput
-                )
+                completeTrack(role: .remoteSpeaker)
             ],
+            failureReason: .leakageDetected,
             scopeApproval: acceptedScopeApproval(),
             permissions: grantedPermissions()
         )
-        try LocalRecordingManifestService().write(degraded, to: manifestURL)
-        let degradedProfile = DesktopUploadQueueService.artifactProfile(
-            manifest: degraded,
+        try LocalRecordingManifestService().write(failedReadiness, to: manifestURL)
+        let failedReadinessProfile = DesktopUploadQueueService.artifactProfile(
+            manifest: failedReadiness,
             manifestURL: manifestURL,
             microphoneURL: microphoneURL,
             systemAudioURL: systemAudioURL
         )
 
-        XCTAssertEqual(degraded.status, .degraded)
-        XCTAssertTrue(degradedProfile.microphonePresent)
-        XCTAssertTrue(degradedProfile.systemAudioPresent)
-        XCTAssertTrue(degradedProfile.isUploadable)
+        XCTAssertEqual(failedReadiness.status, .failed)
+        XCTAssertEqual(failedReadiness.transcriptionReadiness, .failed)
+        XCTAssertTrue(failedReadinessProfile.microphonePresent)
+        XCTAssertTrue(failedReadinessProfile.systemAudioPresent)
+        XCTAssertTrue(failedReadinessProfile.isUploadable)
+        XCTAssertEqual(failedReadinessProfile.qualityWarningReason, LocalRecordingFailureReason.leakageDetected.rawValue)
     }
 
     func testBlockedRecordingPackagesAreNotUploadEligible() throws {
@@ -676,6 +664,81 @@ final class LocalRecordingManifestTests: XCTestCase {
 
         XCTAssertEqual(blocked.status, .blocked)
         XCTAssertFalse(blockedProfile.isUploadable)
+    }
+
+    func testBlockedSessionOrMissingTrackCannotBeRescuedByQualityWarningReason() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-hard-block-eligibility-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let manifestURL = root.appendingPathComponent("manifest.json")
+        let microphoneURL = root.appendingPathComponent("mic.wav")
+        let systemAudioURL = root.appendingPathComponent("incoming.wav")
+        try Data(repeating: 1, count: 128).write(to: microphoneURL)
+        try Data(repeating: 2, count: 128).write(to: systemAudioURL)
+
+        let blockedQualityWarning = LocalRecordingManifest(
+            sessionId: "blocked-quality-session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .blocked,
+            directoryId: "blocked-quality-dir",
+            transcriptionReadiness: .failed,
+            tracks: [
+                completeTrack(role: .localMic),
+                completeTrack(role: .remoteSpeaker)
+            ],
+            failureReason: .leakageDetected,
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+        let blockedProfile = DesktopUploadQueueService.artifactProfile(
+            manifest: blockedQualityWarning,
+            manifestURL: manifestURL,
+            microphoneURL: microphoneURL,
+            systemAudioURL: systemAudioURL
+        )
+
+        let missingTrack = LocalRecordingManifest(
+            sessionId: "missing-track-session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .degraded,
+            directoryId: "missing-track-dir",
+            transcriptionReadiness: .degraded,
+            tracks: [
+                completeTrack(role: .localMic),
+                LocalRecordingTrack(
+                    trackId: "remote",
+                    role: .remoteSpeaker,
+                    status: .missing,
+                    fileName: "incoming.wav",
+                    format: "wav-pcm-s16le",
+                    sampleRate: 16_000,
+                    channelCount: 1,
+                    bitsPerSample: 16,
+                    durationMs: 0,
+                    byteCount: 44,
+                    frameCount: 0,
+                    timelineAligned: false,
+                    failureReason: .emptyRequiredTrack
+                )
+            ],
+            failureReason: .emptyRequiredTrack,
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+        let missingTrackProfile = DesktopUploadQueueService.artifactProfile(
+            manifest: missingTrack,
+            manifestURL: manifestURL,
+            microphoneURL: microphoneURL,
+            systemAudioURL: systemAudioURL
+        )
+
+        XCTAssertFalse(blockedProfile.isUploadable)
+        XCTAssertFalse(missingTrackProfile.isUploadable)
     }
 }
 

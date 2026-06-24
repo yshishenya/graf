@@ -153,6 +153,7 @@ private struct ContentView: View {
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
     @State private var uploadQueueRefreshInProgress = false
+    @State private var uploadQueueFollowUpScheduled = false
     @State private var terminationCleanupInProgress = false
     @State private var recordingStartInProgress = false
     @State private var recordingStopInProgress = false
@@ -883,6 +884,7 @@ private struct ContentView: View {
                 await MainActor.run {
                     uploadQueueItems = items
                     uploadQueueRefreshInProgress = false
+                    scheduleUploadQueueFollowUpIfNeeded(items: items, reason: reason)
                     AppLog.writeRaw(
                         event: "upload.queue_refreshed",
                         detail: "reason=\(reason) total=\(items.count) pending=\(items.filter { !$0.state.isTerminal }.count)"
@@ -897,6 +899,21 @@ private struct ContentView: View {
                     )
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func scheduleUploadQueueFollowUpIfNeeded(
+        items: [DesktopUploadQueueItem],
+        reason: String
+    ) {
+        guard !uploadQueueFollowUpScheduled else { return }
+        guard items.contains(where: { DesktopUploadQueueService.needsProcessingFollowUp($0) }) else { return }
+        uploadQueueFollowUpScheduled = true
+        let followUpReason = reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            uploadQueueFollowUpScheduled = false
+            refreshUploadQueueAndProcess(reason: followUpReason)
         }
     }
 

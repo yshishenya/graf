@@ -93,6 +93,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
     client.app.state.temporal_client = FakeTemporalClient()
     finalized = create_finalized_meeting(client, "processing-e2e-proof")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     expected_hashes = {str(track["track_role"]): str(track["sha256"]) for track in finalized["tracks"]}
     fake_client = FakeMediaScribeClient(
@@ -239,3 +240,14 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
         ],
         "dependency": ("mediascribe", "imported", "job_e2e"),
     }
+
+    review = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+    assert review.status_code == 200
+    review_payload = review.json()
+    assert review_payload["meeting"]["status"] == "ready"
+    assert review_payload["provenance"]["media_revision_id"] == str(media_revision_id)
+    assert review_payload["processing"]["state"] == "ready"
+    assert review_payload["processing"]["transcript_available"] is True
+    assert review_payload["processing"]["diarization_available"] is True
+    assert review_payload["transcript"]["available"] is True
+    assert review_payload["speakers"]["available"] is True

@@ -6,7 +6,7 @@ import TwoBrainRecShared
 import XCTest
 
 final class LocalRecordingLeakageFinalizationTests: XCTestCase {
-    func testContaminatedPackageBlocksManifestTranscriptionReadiness() throws {
+    func testContaminatedPackageKeepsDiagnosticReadinessButRemainsUploadEligible() throws {
         let incoming = leakageIntegrationSineSamples(count: 16_000 * 16, amplitude: 0.5)
         let package = try leakageIntegrationPackage(
             mic: incoming.map { $0 * 0.2 },
@@ -45,9 +45,14 @@ final class LocalRecordingLeakageFinalizationTests: XCTestCase {
         XCTAssertFalse(manifest.isComplete)
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)
+        try assertUploadableWarningProfile(
+            manifest,
+            package: package,
+            warningReason: LocalRecordingFailureReason.leakageDetected.rawValue
+        )
     }
 
-    func testTimelineMismatchPackageBlocksManifestTranscriptionReadiness() throws {
+    func testTimelineMismatchPackageKeepsDiagnosticReadinessButRemainsUploadEligible() throws {
         let package = try leakageIntegrationPackage(
             mic: leakageIntegrationLowNoiseSamples(count: 16_000 * 16),
             incoming: leakageIntegrationSineSamples(count: 16_000 * 16, amplitude: 0.5)
@@ -83,6 +88,11 @@ final class LocalRecordingLeakageFinalizationTests: XCTestCase {
         XCTAssertEqual(manifest.failureReason, .timelineMisaligned)
         XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
         XCTAssertFalse(manifest.isComplete)
+        try assertUploadableWarningProfile(
+            manifest,
+            package: package,
+            warningReason: LocalRecordingFailureReason.timelineMisaligned.rawValue
+        )
     }
 
     func testAppOwnedMicrophoneStreamHealthDoesNotOverrideLeakageTruth() throws {
@@ -144,6 +154,11 @@ final class LocalRecordingLeakageFinalizationTests: XCTestCase {
         XCTAssertEqual(manifest.transcriptionReadiness, .failed)
         XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)
         XCTAssertFalse(manifest.isComplete)
+        try assertUploadableWarningProfile(
+            manifest,
+            package: package,
+            warningReason: LocalRecordingFailureReason.leakageDetected.rawValue
+        )
     }
 
     func testAppleCandidateMetadataDoesNotOverrideLeakageTruth() throws {
@@ -202,7 +217,33 @@ final class LocalRecordingLeakageFinalizationTests: XCTestCase {
         XCTAssertEqual(manifest.failureReason, .leakageDetected)
         XCTAssertEqual(manifest.leakageFinalization?.transcriptionGate, .blockedLeakageDetected)
         XCTAssertFalse(manifest.isComplete)
+        try assertUploadableWarningProfile(
+            manifest,
+            package: package,
+            warningReason: LocalRecordingFailureReason.leakageDetected.rawValue
+        )
     }
+}
+
+private func assertUploadableWarningProfile(
+    _ manifest: LocalRecordingManifest,
+    package: URL,
+    warningReason: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws {
+    let manifestURL = package.appendingPathComponent("manifest.json")
+    try LocalRecordingManifestService().write(manifest, to: manifestURL)
+
+    let profile = DesktopUploadQueueService.artifactProfile(
+        manifest: manifest,
+        manifestURL: manifestURL,
+        microphoneURL: package.appendingPathComponent("mic.wav"),
+        systemAudioURL: package.appendingPathComponent("incoming.wav")
+    )
+
+    XCTAssertTrue(profile.isUploadable, file: file, line: line)
+    XCTAssertEqual(profile.qualityWarningReason, warningReason, file: file, line: line)
 }
 
 private func leakageIntegrationPackage(mic: [Float], incoming: [Float]) throws -> URL {

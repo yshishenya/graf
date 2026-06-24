@@ -1551,6 +1551,7 @@ public struct ArtifactCompletenessProfile: Codable, Equatable, Sendable {
     public var durationSeconds: Int
     public var trackCompleteness: [UploadTrackCompleteness]
     public var isUploadable: Bool
+    public var qualityWarningReason: String?
 
     public init(
         schemaVersion: String,
@@ -1565,7 +1566,8 @@ public struct ArtifactCompletenessProfile: Codable, Equatable, Sendable {
         systemAudioSizeBytes: Int64,
         durationSeconds: Int,
         trackCompleteness: [UploadTrackCompleteness],
-        isUploadable: Bool
+        isUploadable: Bool,
+        qualityWarningReason: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.manifestPresent = manifestPresent
@@ -1580,6 +1582,7 @@ public struct ArtifactCompletenessProfile: Codable, Equatable, Sendable {
         self.durationSeconds = max(1, durationSeconds)
         self.trackCompleteness = trackCompleteness
         self.isUploadable = isUploadable
+        self.qualityWarningReason = qualityWarningReason
     }
 
     public var totalUploadBytes: Int64 {
@@ -1681,6 +1684,18 @@ public enum DesktopSyncConflictState: String, Codable, CaseIterable, Sendable {
     case processingBlocked = "processing_blocked"
     case retentionExpired = "retention_expired"
     case dependencyUnavailable = "dependency_unavailable"
+
+    public var blocksReviewDestination: Bool {
+        switch self {
+        case .serverMeetingDeleted, .accessRevoked, .authRequired, .staleDeviceIdentity,
+             .serverExpectedMetadataMismatch, .dependencyUnavailable:
+            return true
+        case .none, .localFilesMissing, .localChecksumChanged, .queueDocumentMalformed,
+             .queueSchemaMigrationBlocked, .serverRangesInconsistent, .uploadSessionExpired,
+             .processingFailed, .processingBlocked, .retentionExpired:
+            return false
+        }
+    }
 
     public var safeDetail: String? {
         switch self {

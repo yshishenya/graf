@@ -57,6 +57,36 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
     assert partial["notes_action_truth"]["followups"]["state"] == "deferred"
 
 
+def test_cabinet_and_desktop_sync_review_states_match_for_result_states(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    cases = [
+        ("cabinet-ready", seeds.ready_id),
+        ("cabinet-partial", seeds.partial_id),
+        ("cabinet-processing", seeds.processing_id),
+        ("cabinet-failed", seeds.failed_id),
+    ]
+
+    for local_recording_id, meeting_id in cases:
+        cabinet = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+        sync = client.get(
+            f"/api/v1/desktop/recordings/{local_recording_id}/sync-state",
+            headers=auth_headers(),
+            params={"local_media_revision_id": f"{local_recording_id}--initial"},
+        )
+
+        assert cabinet.status_code == 200
+        assert sync.status_code == 200
+        cabinet_payload = cabinet.json()
+        sync_payload = sync.json()
+        assert sync_payload["review"]["status"] == cabinet_payload["meeting"]["status"]
+        assert sync_payload["review"]["available"] is True
+        assert sync_payload["review"]["media_revision_id"] == cabinet_payload["provenance"]["media_revision_id"]
+        assert sync_payload["review"]["transcript_available"] == cabinet_payload["processing"]["transcript_available"]
+        assert sync_payload["review"]["diarization_available"] == cabinet_payload["processing"]["diarization_available"]
+        assert sync_payload["review"]["web_url"] == f"/meetings/{meeting_id}"
+        assert sync_payload["review"]["desktop_url"] == f"/desktop/meetings/{meeting_id}"
+
+
 def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> None:
     meeting_id = create_summary_reported_meeting(client)
 
@@ -87,25 +117,25 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     processing = client.get(f"/meetings/{seeds.processing_id}", headers=auth_headers())
 
     assert ready.status_code == 200
-    assert "Notes" in ready.text
-    assert "Recording &amp; Transcript" in ready.text
+    assert "Итоги" in ready.text
+    assert "Запись и расшифровка" in ready.text
     assert SAFE_TRANSCRIPT_TEXT in ready.text
-    assert "Assign speakers" in ready.text
-    assert "Assistant" in ready.text
-    assert "Template" in ready.text
-    assert "Summary" in ready.text
-    assert "Action Items" in ready.text
-    assert "Outcomes deferred" in ready.text
+    assert "Спикеры" in ready.text
+    assert "Ассистент" in ready.text
+    assert "Шаблон" in ready.text
+    assert "Кратко" in ready.text
+    assert "Действия" in ready.text
+    assert "Итоги отложены" in ready.text
     assert "AI notes are reserved for a later feature" not in ready.text
     assert "feature 016" not in ready.text.lower()
     assert "feature:016" not in ready.text.lower()
     assert "016-meeting-detail" not in ready.text
-    assert "Access" in ready.text
-    assert "Team visibility" in ready.text
-    assert "Artifacts" in ready.text
+    assert "Доступ" in ready.text
+    assert "Видимость для команды" in ready.text
+    assert "Файлы" in ready.text
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
-    assert "Outcomes processing" in processing.text
+    assert "Итоги готовятся" in processing.text
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
 
 
@@ -116,12 +146,12 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
-    assert "Transcript" in response.text
+    assert "Расшифровка" in response.text
     assert "Recording &amp; Transcript" not in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text
-    assert "Open in browser" in response.text
-    assert "Access" in response.text
-    assert "Share" in response.text
-    assert "Report" in response.text
+    assert "Открыть в браузере" in response.text
+    assert "Доступ" in response.text
+    assert "Поделиться" in response.text
+    assert "Отчет" in response.text
     assert "Record live" not in response.text
     assert "Krisp Devices" not in response.text

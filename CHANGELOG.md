@@ -8,6 +8,41 @@ tooling in this repository may use Semantic Versioning where documented.
 ## [Unreleased]
 
 ### Added
+- _No entries yet._
+
+### Changed
+- _No entries yet._
+
+### Fixed
+- _No entries yet._
+
+### Security
+- _No entries yet._
+
+### Docs
+- _No entries yet._
+
+### Ops
+- _No entries yet._
+
+## [2026.06.24.1] - 2026-06-24
+
+
+### Added
+- Добавлен полный 045 transcription results pipeline: web/desktop review теперь
+  видят matching transcript/diarization availability для accepted media
+  revision, status/reason payloads остаются metadata-only, и synthetic one-hour
+  orchestration benchmark подтверждает product-owned processing budget с fake
+  transcription dependency (`feature:045`, `T029-T052`).
+- Добавлен metadata-only closeout handoff для playback/timestamp gap:
+  `045` теперь явно фиксирует, что timestamp labels и playback shell доказаны
+  локально, а PRD-level play/pause/seek/waveform/segment seek требуют отдельной
+  фичи или явного pilot-MVP deferral (`feature:045` evidence).
+- Добавлен server-owned auto-start processing после accepted finalize:
+  processing-enabled upload запускает или переиспользует один workflow,
+  dependency-unavailable состояние остается безопасным processing blocker без
+  отката upload success, а finalize/status/audit payloads остаются
+  metadata-safe (`feature:045`, `T003`, `T006-T008`, `T019-T028`).
 - Добавлен WebRTC AEC3 speakerphone spike для macOS: metadata-only corpus,
   controlled hardware matrix, fail-closed outcome selection, package-truth
   manifest fields, calm app status copy для fallback/rollback/problem states,
@@ -31,12 +66,35 @@ tooling in this repository may use Semantic Versioning where documented.
   `T001-T088`).
 
 ### Changed
+- Local audio quality/leakage/echo/silence/timing/transcription-readiness
+  failures больше не являются upload/transcription blocker для структурно
+  валидных recording packages: queue сохраняет safe quality warning metadata,
+  но не выставляет blocking failure reason (`feature:045`, `T009-T018`).
 - Desktop upload truth now separates local-only, uploading, uploaded,
   conflict, failed processing, and review-available states, so reconnect/retry
   flows do not duplicate meetings or claim transcript/review readiness before
   server truth exists (`feature:042`, `T020-T078`).
 
 ### Fixed
+- Desktop upload queue now follows up terminal uploaded recordings and refreshes
+  server processing state after upload, so an already-uploaded meeting can move
+  from `not_submitted` to `processed` locally after server-side processing
+  completes instead of staying stale in the app (`feature:045` evidence).
+- Desktop upload eligibility now keeps local session `blocked` and track
+  `missing` states as hard blockers even when the failure reason resembles a
+  diagnostic-only quality warning, preserving consent/permission/file truth
+  while still allowing structurally valid leakage/silence recordings
+  (`feature:045` evidence).
+- Cabinet transcript rows now match diarization by normalized
+  `(sequence, source_role)`, so duplicate per-track segment sequences do not
+  visually swap local microphone and incoming/system speaker attribution in
+  review (`feature:045` evidence).
+- Web cabinet review/detail surfaces now use Russian-first visible launch copy
+  for meeting results, access, sharing, artifact policy, deletion, speakers,
+  notes, assistant/template, and embedded desktop actions; the legal deletion
+  boundary copy remains preserved as machine-readable metadata while the
+  checked desktop/mobile fixture UI avoids visible legacy English labels and
+  clipped policy chips (`feature:045` evidence).
 - Desktop upload queue now preserves and shows the specific local recording
   block reason from package truth, so users see whether upload was stopped by
   speaker leakage, silent input, unmeasured leakage, missing tracks, or another

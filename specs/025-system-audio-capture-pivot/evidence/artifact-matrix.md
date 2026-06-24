@@ -361,3 +361,23 @@ Manual equivalent:
   - manifest status must be saved
   - transcriptionReadiness must be ready
   - manifest failureReason must be none for accepted artifact
+
+## Artifact Directory Validator Run
+
+- Run ID: `20260624T151256Z`
+- Timestamp: `2026-06-24T15:12:56Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--validate-latest-artifact`
+- Directory ID: `20260624-151135-16287729-FC91-4FAB-9EBA-C7DDA333199B`
+- Manifest status: `degraded`
+- Duration difference seconds: `0.015`
+- Artifact minimum mtime epoch: `1782313829`
+- Validator result: `blocked`
+- Reason: artifact directory did not satisfy accepted controlled-recording metadata.
+- Findings:
+  - schemaVersion must be local-recording-manifest.v2
+  - manifest status must be saved
+  - transcriptionReadiness must be ready
+  - manifest failureReason must be none for accepted artifact

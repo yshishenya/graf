@@ -40,7 +40,7 @@ def test_deleting_meeting_is_hidden_from_list_and_blocks_original_content_routes
 
     report_page = client.get(f"/meetings/{seeds.ready_id}/deletion-report", headers=auth_headers())
     assert report_page.status_code == 200
-    assert "Deletion report" in report_page.text
-    assert "2brain Rec controlled artifacts" in report_page.text
+    assert "Отчет удаления" in report_page.text
+    assert "Файлы под контролем 2brain Rec" in report_page.text
     assert SAFE_TRANSCRIPT_TEXT not in report_page.text
     assert "storage_object_key" not in report_page.text

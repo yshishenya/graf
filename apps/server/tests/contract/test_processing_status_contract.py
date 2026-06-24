@@ -1,11 +1,14 @@
+import asyncio
 from pathlib import Path
 from uuid import UUID
 
 import yaml
+from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
-from tests.fixtures.processing import create_finalized_meeting
+from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
+from twobrain_rec_server.db.models import ProcessingAuditEvent
 
 ROOT = Path(__file__).parents[4]
 
@@ -43,3 +46,28 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     assert payload["mediascribe_job_id_present"] is False
     forbidden = {"transcript_text", "audio_download_url", "mediascribe_job_id", "api_key", "signed_url"}
     assert forbidden.isdisjoint(payload)
+
+
+def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:
+    enable_processing_autostart(client, FakeTemporalClient())
+    finalized = create_finalized_meeting(client, "processing-autostart-audit")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+
+    async def audit_metadata() -> dict[str, object]:
+        async with client.app_state["sessionmaker"]() as db:
+            event = await db.scalar(
+                select(ProcessingAuditEvent)
+                .where(
+                    ProcessingAuditEvent.meeting_id == meeting_id,
+                    ProcessingAuditEvent.event_type == "workflow_started",
+                )
+                .order_by(ProcessingAuditEvent.created_at.desc())
+            )
+            assert event is not None
+            return event.metadata_json
+
+    metadata = asyncio.run(audit_metadata())
+    assert set(metadata) <= {"workflow_id", "started_count"}
+    serialized = str(metadata).lower()
+    forbidden = {"transcript", "audio_download_url", "api_key", "signed_url", "/users/"}
+    assert all(token not in serialized for token in forbidden)

@@ -35,6 +35,7 @@ from twobrain_rec_server.ingest.lifecycle import abort_upload_session
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
 from twobrain_rec_server.ingest.parts import accept_part
 from twobrain_rec_server.ingest.policy import IngestLimitViolation
+from twobrain_rec_server.ingest.processing_dispatch import dispatch_processing_after_finalize
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
 from twobrain_rec_server.ingest.sessions import create_upload_session
 from twobrain_rec_server.ingest.status import get_upload_session_status
@@ -305,6 +306,7 @@ async def abort_session(
 async def finalize_session(
     session_id: UUID,
     payload: FinalizeUploadRequest,
+    request: Request,
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> FinalizeUploadResponse:
@@ -315,8 +317,18 @@ async def finalize_session(
         manifest_sha256=payload.manifest_sha256,
         tracks=payload.tracks,
     )
+    processing = await dispatch_processing_after_finalize(
+        db=db,
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        meeting=meeting,
+        session=session,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+    )
     return FinalizeUploadResponse(
         meeting=meeting_response(meeting),
         upload_session=session_response(session),
         object_count=len(session.parts),
+        workflow_started=processing.workflow_started,
+        mediascribe_job_created=processing.mediascribe_job_created,
     )

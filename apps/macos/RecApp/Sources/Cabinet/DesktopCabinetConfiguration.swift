@@ -176,7 +176,11 @@ public struct UploadReviewLink: Equatable, Sendable {
         self.itemId = item.id
         self.meetingId = meetingId
         self.state = item.state
-        if let meetingId, item.state == .uploaded {
+        if meetingId != nil, item.syncConflictState.blocksReviewDestination {
+            self.destination = nil
+            self.availability = .unavailable
+            self.reason = item.syncConflictState.rawValue
+        } else if let meetingId, item.state == .uploaded {
             self.destination = configuration.meetingDetailURL(meetingId: meetingId)
             self.availability = .available
             self.reason = "server_meeting_available"

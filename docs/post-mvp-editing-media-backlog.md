@@ -1,15 +1,15 @@
 # Post-MVP Editing And Media Backlog
 
-Date: 2026-06-18
+Date: 2026-06-23
 
 This backlog captures product-improvement work that is intentionally outside
-the `042-recording-sync-transcription-loop` MVP. The MVP must prove recording,
-offline-safe upload, server transcription, and transcript display first. Editing,
-reprocessing, and full video review should build on that loop later without
-creating duplicate meeting entities.
+the `045-transcription-results-pipeline` MVP close-out. The MVP must prove
+recording, offline-safe upload, server transcription, diarization availability,
+and transcript display first. Editing, reprocessing, and full video review
+should build on that loop later without creating duplicate meeting entities.
 
 Number allocation lives in `docs/audio-capture-backlog.md`. This file is the
-detailed context for reserved post-MVP product-improvement features `044`-`047`;
+detailed context for reserved post-MVP product-improvement features `048`-`051`;
 it must not become a second numbering source of truth.
 
 ## Design Rule For Future Work
@@ -25,7 +25,7 @@ it must not become a second numbering source of truth.
 
 ## Reserved Feature Candidates
 
-### 044-local-media-trim-revisions
+### 048-local-media-trim-revisions
 
 **Status**: Reserved backlog, post-MVP product improvement.
 
@@ -40,7 +40,7 @@ is accepted for upload, creating a new media revision under the same meeting.
 - No server-side destructive mutation of accepted media.
 - No transcript editing unless a later spec explicitly includes it.
 
-### 045-online-transcript-edit-sync
+### 049-online-transcript-edit-sync
 
 **Status**: Reserved backlog, post-MVP product improvement.
 
@@ -55,7 +55,7 @@ without losing server/client consistency.
 - Audit and rollback/revert truth.
 - No audio/video media trimming in this slice.
 
-### 046-video-capture-package-foundation
+### 050-video-capture-package-foundation
 
 **Status**: Reserved backlog, post-MVP product improvement.
 
@@ -70,7 +70,7 @@ audio-first `042` MVP promise.
 - Video track lifecycle, retention, deletion, and storage accounting.
 - Transcript still derives from approved audio/media processing boundaries.
 
-### 047-media-reprocess-replace-flow
+### 051-media-reprocess-replace-flow
 
 **Status**: Reserved backlog, post-MVP product improvement.
 
@@ -85,9 +85,22 @@ flows after a media revision has already been accepted or processed.
 - Revert/restore metadata and lifecycle accounting.
 - No silent overwrite of accepted media or transcript results.
 
-## Relationship To 042
+## Relationship To 042/045
 
-Feature `042` should not implement the features above. It should only keep the
-identity and lifecycle model compatible with them: one meeting, immutable
-accepted media, revision-ready upload/processing/transcript truth, and visible
-conflict states when local and server truth disagree.
+Features `042` and `045` should not implement the features above. They should
+only keep the identity and lifecycle model compatible with them: one meeting,
+immutable accepted media, revision-ready upload/processing/transcript truth,
+review state tied to the accepted media revision, and visible conflict states
+when local and server truth disagree.
+
+Feature `045` did surface one concrete follow-up for `051`: a future reprocess
+flow must preserve the accepted original media revision, create an explicit new
+processing/media-result revision when the owner requests reprocessing, and keep
+review warnings truthful when transcript or diarization results belong to an
+older revision.
+
+Feature `045` also surfaced a separate MVP review gap that is not transcript
+editing: interactive retained-audio playback linked to transcript timestamps.
+That candidate `046-meeting-playback-timestamp-seek` slice should remain
+separate from the `048`-`051` post-MVP editing/media-revision backlog unless a
+future spec deliberately combines them.

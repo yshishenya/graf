@@ -276,14 +276,16 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
 def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     page = render_meeting_detail_page(_review())
 
-    assert "Notes" in page
-    assert "Recording &amp; Transcript" in page
+    assert "Итоги" in page
+    assert "Запись и расшифровка" in page
     assert "Транскрипт готовится" in page
-    assert "Team visibility" in page
-    assert "Public links" in page
-    assert "Files already downloaded" in page
-    assert "Delete this meeting everywhere 2brain Rec controls" in page
-    assert "Request deletion" in page
+    assert "Видимость для команды" in page
+    assert "Публичные ссылки" in page
+    assert "Уже скачанные или экспортированные файлы" in page
+    assert 'data-boundary-copy="Files already downloaded' in page
+    assert "Удалить встречу в системах 2brain Rec" in page
+    assert "Request deletion" not in page
+    assert "Запросить удаление" in page
 
 
 def test_detail_shell_reserves_notes_assistant_template_without_internal_feature_labels() -> None:
@@ -292,16 +294,16 @@ def test_detail_shell_reserves_notes_assistant_template_without_internal_feature
 
     page = render_meeting_detail_page(review)
 
-    assert "Summary" in page
-    assert "Decisions" in page
-    assert "Action Items" in page
-    assert "Follow-ups" in page
-    assert "Outcomes processing" in page
+    assert "Кратко" in page
+    assert "Решения" in page
+    assert "Действия" in page
+    assert "Продолжение" in page
+    assert "Итоги готовятся" in page
     assert "AI notes are reserved for a later feature" not in page
     assert "No generated summary is shown yet" not in page
-    assert "<h3>Assistant</h3>" in page
-    assert "<button type=\"button\" disabled>Assistant</button>" in page
-    assert "<h3>Template</h3>" in page
+    assert "<h3>Ассистент</h3>" in page
+    assert "<button type=\"button\" disabled>Ассистент</button>" in page
+    assert "<h3>Шаблон</h3>" in page
     assert "feature 016" not in page.lower()
     assert "feature:016" not in page.lower()
     assert "016-meeting-detail" not in page
@@ -328,19 +330,19 @@ def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
 def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:
     page = render_deletion_report_page("Sensitive customer sync", _deletion_report())
 
-    assert "Deletion report" in page
-    assert "2brain Rec controlled artifacts" in page
-    assert "External dependencies" in page
-    assert "Post-egress limits" in page
-    assert "Local device purge" in page
-    assert "Lifecycle activity" in page
-    assert "deletion requested" in page
-    assert "local purge acknowledged" in page
-    assert "Owner/Admin" in page
-    assert "Desktop device" in page
-    assert "pending" in page
-    assert "acknowledged" in page
-    assert "unreachable" in page
+    assert "Отчет удаления" in page
+    assert "Файлы под контролем 2brain Rec" in page
+    assert "Внешние зависимости" in page
+    assert "Ограничения после выгрузки" in page
+    assert "Очистка на устройстве" in page
+    assert "События удаления" in page
+    assert "удаление запрошено" in page
+    assert "локальная очистка подтверждена" in page
+    assert "Владелец/админ" in page
+    assert "Десктоп" in page
+    assert "ожидает" in page
+    assert "подтверждено" in page
+    assert "недоступно" in page
     assert BOUNDED_DELETE_COPY in page
     assert "Sensitive customer sync" in page
     assert "storage_object_key" not in page

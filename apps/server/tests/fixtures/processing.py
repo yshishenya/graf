@@ -6,11 +6,23 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 
 
-def create_finalized_meeting(client: TestClient, local_recording_id: str = "processing-ready") -> dict[str, object]:
+def enable_processing_autostart(client: TestClient, temporal_client: object | None = None) -> object | None:
+    client.app.state.settings.processing_enabled = True
+    if temporal_client is not None:
+        client.app.state.temporal_client = temporal_client
+    return temporal_client
+
+
+def create_finalized_meeting(
+    client: TestClient,
+    local_recording_id: str = "processing-ready",
+    *,
+    duration_seconds: int = 60,
+) -> dict[str, object]:
     meeting_response = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
-        json={"local_recording_id": local_recording_id, "duration_seconds": 60},
+        json={"local_recording_id": local_recording_id, "duration_seconds": duration_seconds},
     )
     assert meeting_response.status_code == 200
     meeting = meeting_response.json()
@@ -38,4 +50,5 @@ def create_finalized_meeting(client: TestClient, local_recording_id: str = "proc
         json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks},
     )
     assert finalize.status_code == 200
-    return {"meeting": finalize.json()["meeting"], "session": session, "tracks": tracks}
+    finalized = finalize.json()
+    return {"finalize": finalized, "meeting": finalized["meeting"], "session": session, "tracks": tracks}

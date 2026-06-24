@@ -339,7 +339,9 @@ def transcript_state(
     status: MeetingReviewStatus,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
-    diarization_by_sequence = {row.sequence: row for row in diarization_segments}
+    diarization_by_segment_key = {
+        (row.sequence, source_role_label(row.source_role)): row for row in diarization_segments
+    }
     if status not in {"ready", "partial"} or not transcripts:
         return TranscriptReviewState(
             available=False,
@@ -355,7 +357,10 @@ def transcript_state(
             start_seconds=float(segment.start_seconds),
             end_seconds=float(segment.end_seconds),
             timestamp_label=format_timestamp(segment.start_seconds),
-            speaker_label=speaker_label_for_segment(segment, diarization_by_sequence.get(segment.sequence)),
+            speaker_label=speaker_label_for_segment(
+                segment,
+                diarization_by_segment_key.get((segment.sequence, source_role_label(segment.source_role))),
+            ),
             source_role=source_role_label(segment.source_role),
             text=segment.text,
             confidence_label="unknown",
