@@ -2,6 +2,7 @@ from hashlib import sha256
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
+from tests.fixtures.cabinet import seed_cabinet_meetings
 
 
 def test_finalize_without_required_tracks_returns_truthful_failure(client) -> None:
@@ -29,3 +30,23 @@ def test_finalize_without_required_tracks_returns_truthful_failure(client) -> No
     )
     assert response.status_code == 422
     assert response.json()["detail"][0]["type"] == "too_short"
+
+
+def test_desktop_sync_exposes_review_ready_state_for_processed_upload(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    response = client.get(
+        "/api/v1/desktop/recordings/cabinet-ready/sync-state",
+        headers=auth_headers(),
+        params={"local_media_revision_id": "cabinet-ready--initial"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meeting"]["meeting_id"] == str(seeds.ready_id)
+    assert payload["review"]["available"] is True
+    assert payload["review"]["status"] == "ready"
+    assert payload["review"]["media_revision_id"] == payload["media_revision"]["media_revision_id"]
+    assert payload["review"]["transcript_available"] is True
+    assert payload["review"]["diarization_available"] is True
+    assert payload["review"]["desktop_url"] == f"/desktop/meetings/{seeds.ready_id}"

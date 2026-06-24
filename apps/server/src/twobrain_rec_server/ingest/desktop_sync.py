@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -15,10 +16,13 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import Meeting as MeetingModel
+from twobrain_rec_server.db.models import ProcessingResult, ProcessingWorkflow
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionStatus,
     MeetingStatus,
+    ProcessingAvailabilityStatus,
+    ProcessingResultStatus,
     ProcessingStatus,
     SyncConflictState,
     UploadSessionStatus,
@@ -149,23 +153,128 @@ def _processing_conflict(status: ProcessingStatus) -> DesktopSyncConflict:
     return DesktopSyncConflict()
 
 
+def _status_value(status: object) -> str:
+    return str(getattr(status, "value", status))
+
+
+def _transcript_available(result: ProcessingResult | None) -> bool:
+    return bool(
+        result is not None
+        and result.status == ProcessingResultStatus.IMPORTED.value
+        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.segment_count > 0
+    )
+
+
+def _diarization_available(result: ProcessingResult | None) -> bool:
+    return bool(
+        result is not None
+        and result.status == ProcessingResultStatus.IMPORTED.value
+        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.diarization_segment_count > 0
+    )
+
+
+def _desktop_review_status(
+    *,
+    meeting: object,
+    result: ProcessingResult | None,
+    workflow: ProcessingWorkflow | None,
+) -> str:
+    has_transcript = _transcript_available(result)
+    has_diarization = _diarization_available(result)
+    if has_transcript and has_diarization:
+        return "ready"
+    if has_transcript or has_diarization:
+        return "partial"
+
+    lifecycle_status = workflow.status if workflow is not None else _status_value(meeting.processing_status)
+    if lifecycle_status in {
+        ProcessingStatus.PENDING_PROCESSING.value,
+        ProcessingStatus.STARTING.value,
+        ProcessingStatus.WORKFLOW_STARTED.value,
+        ProcessingStatus.SUBMITTING.value,
+        ProcessingStatus.SUBMITTED.value,
+        ProcessingStatus.POLLING.value,
+        ProcessingStatus.IMPORTING.value,
+    }:
+        return "processing"
+    if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
+        return "submitted"
+    if lifecycle_status == ProcessingStatus.BLOCKED.value:
+        return "blocked"
+    if lifecycle_status in {ProcessingStatus.FAILED_RETRYABLE.value, ProcessingStatus.FAILED_TERMINAL.value}:
+        return "failed"
+    if lifecycle_status == ProcessingStatus.CANCELED.value:
+        return "unavailable"
+
+    meeting_status = _status_value(meeting.status)
+    if meeting_status == MeetingStatus.DRAFT.value:
+        return "local_only"
+    if meeting_status == MeetingStatus.UPLOADING.value:
+        return "uploading"
+    if meeting_status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
+        return "failed"
+    return "unavailable"
+
+
+async def _latest_processing_workflow(
+    db: AsyncSession | None,
+    *,
+    workspace_id: object,
+    meeting_id: object,
+    media_revision_id: object | None,
+) -> ProcessingWorkflow | None:
+    if db is None:
+        return None
+    base_query = select(ProcessingWorkflow).where(
+        ProcessingWorkflow.workspace_id == workspace_id,
+        ProcessingWorkflow.meeting_id == meeting_id,
+    )
+    query = base_query
+    if media_revision_id is not None:
+        query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
+    workflow = await db.scalar(query.order_by(desc(ProcessingWorkflow.updated_at), desc(ProcessingWorkflow.created_at)))
+    if workflow is None and media_revision_id is not None:
+        workflow = await db.scalar(
+            base_query.where(ProcessingWorkflow.media_revision_id.is_(None)).order_by(
+                desc(ProcessingWorkflow.updated_at),
+                desc(ProcessingWorkflow.created_at),
+            )
+        )
+    return workflow
+
+
+async def _latest_processing_result(
+    db: AsyncSession | None,
+    *,
+    workspace_id: object,
+    meeting_id: object,
+    media_revision_id: object | None,
+) -> ProcessingResult | None:
+    if db is None or media_revision_id is None:
+        return None
+    return await db.scalar(
+        select(ProcessingResult)
+        .where(
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+            ProcessingResult.media_revision_id == media_revision_id,
+        )
+        .order_by(desc(ProcessingResult.imported_at), desc(ProcessingResult.created_at))
+    )
+
+
 def _review_available(conflict: DesktopSyncConflict, processing_status: ProcessingStatus) -> bool:
     if conflict.state in {
         SyncConflictState.SERVER_MEETING_DELETED,
         SyncConflictState.ACCESS_REVOKED,
         SyncConflictState.STALE_DEVICE_IDENTITY,
         SyncConflictState.SERVER_EXPECTED_METADATA_MISMATCH,
-        SyncConflictState.PROCESSING_FAILED,
-        SyncConflictState.PROCESSING_BLOCKED,
         SyncConflictState.DEPENDENCY_UNAVAILABLE,
     }:
         return False
-    return processing_status not in {
-        ProcessingStatus.FAILED_RETRYABLE,
-        ProcessingStatus.FAILED_TERMINAL,
-        ProcessingStatus.BLOCKED,
-        ProcessingStatus.CANCELED,
-    }
+    return processing_status != ProcessingStatus.CANCELED
 
 
 async def _mark_expired_if_needed(
@@ -221,6 +330,24 @@ async def get_desktop_recording_sync_state(
         media_revision_status=meeting.media_revision_status,
     )
     processing_conflict = _processing_conflict(meeting.processing_status)
+    review_workflow = await _latest_processing_workflow(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=meeting.media_revision_id,
+    )
+    review_result = await _latest_processing_result(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=meeting.media_revision_id,
+    )
+    effective_processing_status = (
+        ProcessingStatus(review_workflow.status) if review_workflow is not None else meeting.processing_status
+    )
+    review_status = _desktop_review_status(meeting=meeting, result=review_result, workflow=review_workflow)
+    transcript_ready = _transcript_available(review_result)
+    diarization_ready = _diarization_available(review_result)
     session: UploadSessionRecord | None = None
     dependency_conflict = DesktopSyncConflict()
     try:
@@ -268,13 +395,19 @@ async def get_desktop_recording_sync_state(
             missing_ranges_by_track=_missing_ranges_by_track(session),
         ),
         processing=DesktopSyncProcessingState(
-            status=meeting.processing_status,
-            reason_code=processing_conflict.reason,
+            status=effective_processing_status,
+            workflow_id=review_workflow.workflow_id if review_workflow is not None else None,
+            reason_code=review_workflow.last_reason_code if review_workflow is not None else processing_conflict.reason,
         ),
         review=DesktopSyncReviewState(
-            available=_review_available(conflict, meeting.processing_status),
-            web_url=f"/meetings/{meeting.id}" if _review_available(conflict, meeting.processing_status) else None,
-            desktop_url=f"/desktop/meetings/{meeting.id}" if _review_available(conflict, meeting.processing_status) else None,
+            available=_review_available(conflict, effective_processing_status),
+            status=review_status,
+            media_revision_id=meeting.media_revision_id,
+            transcript_available=transcript_ready,
+            diarization_available=diarization_ready,
+            content_available=transcript_ready or diarization_ready,
+            web_url=f"/meetings/{meeting.id}" if _review_available(conflict, effective_processing_status) else None,
+            desktop_url=f"/desktop/meetings/{meeting.id}" if _review_available(conflict, effective_processing_status) else None,
         ),
         conflict=conflict,
     )

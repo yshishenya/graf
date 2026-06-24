@@ -1,12 +1,14 @@
 import json
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import (
     PRIVATE_EXTERNAL_JOB_ID,
     SAFE_SECOND_TRANSCRIPT_TEXT,
     SAFE_TRANSCRIPT_TEXT,
     seed_cabinet_meetings,
 )
+from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
 
 
 def _dump_json(payload: object) -> str:
@@ -74,3 +76,29 @@ def test_notes_action_truth_egresses_only_metadata_safe_states(client) -> None:
     assert PRIVATE_EXTERNAL_JOB_ID not in body
     assert "storage_object_key" not in body
     assert "session_token" not in body
+
+
+def test_finalize_autostart_payloads_do_not_egress_content_or_secrets(client) -> None:
+    enable_processing_autostart(client, FakeTemporalClient())
+
+    finalized = create_finalized_meeting(client, "finalize-autostart-no-secret")
+    status = client.get(f"/api/v1/meetings/{finalized['meeting']['meeting_id']}/processing", headers=auth_headers())
+
+    assert status.status_code == 200
+    body = _dump_json({"finalize": finalized["finalize"], "processing": status.json()})
+    forbidden = {
+        "transcript_text",
+        "transcriptText",
+        "raw_audio",
+        "rawAudio",
+        "audio_download_url",
+        "signed_url",
+        "api_key",
+        "mediascribe_api_key",
+        "storage_object_key",
+        "private-run-id",
+        "local speaker",
+        "remote speaker",
+    }
+    for marker in forbidden:
+        assert marker not in body

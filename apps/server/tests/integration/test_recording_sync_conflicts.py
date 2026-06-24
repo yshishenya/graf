@@ -150,7 +150,7 @@ def test_sync_state_reports_access_revoked_conflict_for_different_owner(client) 
     assert response.json()["conflict"]["next_action"] == "sign_in_again"
 
 
-def test_sync_state_reports_processing_failure_as_review_blocker(client) -> None:
+def test_sync_state_reports_processing_failure_as_review_state(client) -> None:
     local_id = "sync-conflict-processing-001"
     finalized = create_finalized_meeting(client, local_id)
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
@@ -170,7 +170,13 @@ def test_sync_state_reports_processing_failure_as_review_blocker(client) -> None
     body = response.json()
     assert body["processing"]["status"] == "failed_terminal"
     assert body["processing"]["reason_code"] == "processing_failed"
-    assert body["review"]["available"] is False
+    assert body["review"]["available"] is True
+    assert body["review"]["status"] == "failed"
+    assert body["review"]["transcript_available"] is False
+    assert body["review"]["diarization_available"] is False
+    assert body["review"]["content_available"] is False
+    assert body["review"]["web_url"] == f"/meetings/{meeting_id}"
+    assert body["review"]["desktop_url"] == f"/desktop/meetings/{meeting_id}"
     assert body["conflict"]["state"] == "processing_failed"
     assert body["conflict"]["next_action"] == "contact_operator"
 

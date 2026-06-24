@@ -18,11 +18,13 @@ def test_cabinet_web_detail_renders_access_artifacts_and_activity_without_privat
     response = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
 
     assert response.status_code == 200
-    assert "Owner" in response.text
-    assert "Team visibility" in response.text
-    assert "Download transcript" in response.text
-    assert "download completed" in response.text.lower()
-    assert "Files already downloaded" in response.text
+    assert "Владелец" in response.text
+    assert "Видимость для команды" in response.text
+    assert "Расшифровка" in response.text
+    assert "Скачать" in response.text
+    assert "скачивание завершено" in response.text.lower()
+    assert "Уже скачанные или экспортированные файлы" in response.text
+    assert 'data-boundary-copy="Files already downloaded' in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text
     assert PRIVATE_EXTERNAL_JOB_ID not in response.text
     assert "storage_object_key" not in response.text

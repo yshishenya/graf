@@ -434,7 +434,7 @@ controlled stores.
   metadata-only Langfuse boundaries from the constitution and accepted plans.
 - `docs/audio-capture-backlog.md` confirms `042` is the current claimed feature
   number after reserved `037`-`041` backlog slices and before reserved
-  post-MVP editing/media features `044`-`047`.
+  post-MVP editing/media features `048`-`051`.
 
 ## Success Criteria *(mandatory)*
 

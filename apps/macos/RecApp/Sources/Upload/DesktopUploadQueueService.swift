@@ -18,50 +18,37 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
 
 private extension LocalRecordingManifest {
     var isServerUploadEligible: Bool {
-        let uploadableStatus = status == .saved || status == .degraded
-        let uploadableReadiness = transcriptionReadiness == .ready || transcriptionReadiness == .degraded
-        return uploadableStatus &&
-            uploadableReadiness &&
+        Self.sessionStatusAllowsUpload(status, failureReason: failureReason) &&
             !externalEgressStarted &&
             !transcriptionStarted &&
             scopeApproval?.isAcceptedForMeetingRecording == true &&
             permissions?.allowsAcceptedRecording == true &&
-            durationDifferenceSeconds <= 3 &&
-            Self.packageTruthAllowsUpload(
-                leakageFinalization: leakageFinalization,
-                tracks: tracks,
-                webRTCAEC3Outcome: webRTCAEC3Outcome
-            ) &&
             Self.isUploadSafeFailure(failureReason) &&
             tracks.allSatisfy(\.isServerUploadEligible)
     }
 
-    private static func packageTruthAllowsUpload(
-        leakageFinalization: LeakageFinalization?,
-        tracks: [LocalRecordingTrack],
-        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord?
+    private static func sessionStatusAllowsUpload(
+        _ status: LocalRecordingSessionStatus,
+        failureReason: LocalRecordingFailureReason
     ) -> Bool {
-        guard let leakageFinalization else {
+        switch status {
+        case .saved, .degraded:
             return true
+        case .failed:
+            return isUploadSafeFailure(failureReason)
+        case .active, .blocked:
+            return false
         }
-        if leakageFinalization.transcriptionGate == .eligibleOriginalDual {
-            return true
-        }
-        if leakageFinalization.transcriptionGate == .eligibleDerivedDual &&
-            tracks.contains(where: \.isDerivedTranscriptionEligible) {
-            return true
-        }
-        return webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone == true
     }
 
     private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
              .silentInput, .noFrames, .stoppedBeforeFrames:
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
              .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
              .appClosed, .unknown:
@@ -72,18 +59,32 @@ private extension LocalRecordingManifest {
 
 private extension LocalRecordingTrack {
     var isServerUploadEligible: Bool {
-        let uploadableStatus = status == .saved || status == .degraded
-        return uploadableStatus && Self.isUploadSafeFailure(failureReason)
+        Self.trackStatusAllowsUpload(status, failureReason: failureReason) &&
+            Self.isUploadSafeFailure(failureReason)
+    }
+
+    private static func trackStatusAllowsUpload(
+        _ status: LocalRecordingTrackStatus,
+        failureReason: LocalRecordingFailureReason
+    ) -> Bool {
+        switch status {
+        case .saved, .degraded:
+            return true
+        case .failed, .blocked:
+            return isUploadSafeFailure(failureReason)
+        case .pending, .recording, .missing:
+            return false
+        }
     }
 
     private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
              .silentInput, .noFrames, .stoppedBeforeFrames:
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
              .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
              .appClosed, .unknown:
@@ -94,6 +95,14 @@ private extension LocalRecordingTrack {
 
 public final class DesktopUploadQueueService: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
+    private static let processingFollowUpWindowSeconds: TimeInterval = 15 * 60
+    private static let uploadedReconciliationStaleSeconds: TimeInterval = 60
+    private static let finalProcessingStatuses: Set<String> = [
+        "processed",
+        "blocked",
+        "failed_terminal",
+        "canceled"
+    ]
 
     private let queueURL: URL
     private let recordingsRootURL: URL
@@ -337,7 +346,30 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         for item in dueItems {
             try await upload(item: item, client: client)
         }
+        await reconcileUploadedItemsIfNeeded(
+            client: client,
+            excludingItemIds: Set(dueItems.map(\.id))
+        )
         return try loadItems()
+    }
+
+    public static func needsProcessingFollowUp(
+        _ item: DesktopUploadQueueItem,
+        now: Date = Date()
+    ) -> Bool {
+        guard item.state == .uploaded,
+              item.serverTruth.meetingId != nil || item.meetingId != nil
+        else {
+            return false
+        }
+        guard let status = normalizedProcessingStatus(item.serverTruth.processingStatus) else {
+            return true
+        }
+        guard !finalProcessingStatuses.contains(status) else {
+            return false
+        }
+        let referenceDate = item.serverTruth.finalizedAt ?? item.lastReconciledAt ?? item.updatedAt
+        return now.timeIntervalSince(referenceDate) <= processingFollowUpWindowSeconds
     }
 
     public func acknowledgePendingLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
@@ -515,6 +547,83 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    private func reconcileUploadedItemsIfNeeded(
+        client: DesktopUploadClientProtocol,
+        excludingItemIds: Set<String>
+    ) async {
+        let candidates: [DesktopUploadQueueItem]
+        do {
+            candidates = try queue.sync {
+                let document = try loadDocumentOnQueue()
+                let now = clock()
+                return document.items.filter {
+                    !excludingItemIds.contains($0.id) &&
+                        Self.shouldReconcileUploadedItem($0, now: now)
+                }
+            }
+        } catch {
+            return
+        }
+
+        for item in candidates {
+            do {
+                guard let reconciliation = try await client.reconcile(item) else {
+                    continue
+                }
+                try applyUploadedReconciliation(itemId: item.id, reconciliation: reconciliation)
+            } catch {
+                continue
+            }
+        }
+    }
+
+    private static func shouldReconcileUploadedItem(_ item: DesktopUploadQueueItem, now: Date) -> Bool {
+        guard item.state == .uploaded,
+              item.serverTruth.meetingId != nil || item.meetingId != nil
+        else {
+            return false
+        }
+        if needsProcessingFollowUp(item, now: now) {
+            return true
+        }
+        guard let lastReconciledAt = item.lastReconciledAt else {
+            return true
+        }
+        return now.timeIntervalSince(lastReconciledAt) >= uploadedReconciliationStaleSeconds
+    }
+
+    private static func normalizedProcessingStatus(_ status: String?) -> String? {
+        let normalized = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized?.isEmpty == false ? normalized : nil
+    }
+
+    private func applyUploadedReconciliation(
+        itemId: String,
+        reconciliation: DesktopUploadReconciliation
+    ) throws {
+        _ = try updateItem(itemId: itemId) { current, now in
+            guard current.state == .uploaded else {
+                return current
+            }
+            var next = current
+            next.serverTruth = reconciliation.serverTruth
+            next.meetingId = reconciliation.serverTruth.meetingId ?? next.meetingId
+            next.mediaRevisionId = reconciliation.serverTruth.mediaRevisionId ?? next.mediaRevisionId
+            next.uploadSessionId = reconciliation.serverTruth.uploadSessionId ?? next.uploadSessionId
+            next.lastReconciledAt = now
+            next.syncGeneration += 1
+            next.syncConflictState = reconciliation.conflictState
+            if reconciliation.conflictState == .none {
+                next.failureCategory = .none
+                next.failureReason = nil
+            } else {
+                next.failureCategory = .serverValidation
+                next.failureReason = reconciliation.conflictReason ?? reconciliation.conflictState.rawValue
+            }
+            return next
+        }
+    }
+
     private func updateItem(
         itemId: String,
         update: (DesktopUploadQueueItem, Date) -> DesktopUploadQueueItem
@@ -646,15 +755,21 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         profile: ArtifactCompletenessProfile
     ) -> String {
+        if manifest.scopeApproval?.isAcceptedForMeetingRecording != true {
+            return LocalRecordingFailureReason.scopeUnavailable.rawValue
+        }
+        if manifest.permissions?.allowsAcceptedRecording != true {
+            return LocalRecordingFailureReason.permissionDenied.rawValue
+        }
+        if !profile.manifestPresent || !profile.microphonePresent || !profile.systemAudioPresent {
+            return "local_artifacts_not_uploadable"
+        }
         if manifest.failureReason != .none {
             return manifest.failureReason.rawValue
         }
         if let leakageReason = manifest.leakageFinalization?.failureReason,
            leakageReason != .none {
             return leakageReason.rawValue
-        }
-        if !profile.manifestPresent || !profile.microphonePresent || !profile.systemAudioPresent {
-            return "local_artifacts_not_uploadable"
         }
         return "local_recording_package_not_uploadable"
     }
@@ -712,6 +827,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let uploadable = manifest.isServerUploadEligible &&
             hasRequiredManifestRoles &&
             tracks.allSatisfy(\.uploadable)
+        let qualityWarningReason = uploadable ? Self.qualityWarningReason(for: manifest) : nil
         return ArtifactCompletenessProfile(
             schemaVersion: manifest.schemaVersion,
             manifestPresent: manifestTrack.present,
@@ -725,8 +841,40 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             systemAudioSizeBytes: systemAudioSize,
             durationSeconds: durationSeconds,
             trackCompleteness: tracks,
-            isUploadable: uploadable
+            isUploadable: uploadable,
+            qualityWarningReason: qualityWarningReason
         )
+    }
+
+    private static func qualityWarningReason(for manifest: LocalRecordingManifest) -> String? {
+        if let reason = uploadableQualityWarningReason(manifest.failureReason) {
+            return reason
+        }
+        if let leakageReason = manifest.leakageFinalization?.failureReason,
+           let reason = uploadableQualityWarningReason(leakageReason) {
+            return reason
+        }
+        for track in manifest.tracks {
+            if let reason = uploadableQualityWarningReason(track.failureReason) {
+                return reason
+            }
+        }
+        return nil
+    }
+
+    private static func uploadableQualityWarningReason(_ reason: LocalRecordingFailureReason) -> String? {
+        switch reason {
+        case .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
+             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
+             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
+             .silentInput, .noFrames, .stoppedBeforeFrames:
+            return reason.rawValue
+        case .none, .directoryUnavailable, .writeFailed, .finalizationFailed,
+             .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
+             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .appClosed, .unknown:
+            return nil
+        }
     }
 
     private func loadDocumentOnQueue() throws -> DesktopUploadQueueDocument {
@@ -835,15 +983,15 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
         case "local_recording_package_not_uploadable", "local_artifacts_not_uploadable":
             return "нужна ручная проверка локальной записи"
         case LocalRecordingFailureReason.leakageDetected.rawValue:
-            return "звук динамиков попал в микрофон; отправка заблокирована"
+            return "звук динамиков попал в микрофон; отправим как есть"
         case LocalRecordingFailureReason.leakageUnproven.rawValue:
-            return "чистота микрофона не доказана; нужна проверка"
+            return "чистота микрофона не доказана; отправим как есть"
         case LocalRecordingFailureReason.leakageNotMeasured.rawValue:
-            return "не удалось проверить утечку динамиков; нужна проверка"
+            return "не удалось проверить утечку динамиков; отправим как есть"
         case LocalRecordingFailureReason.insufficientReference.rawValue:
-            return "не хватает системной аудио-дорожки для проверки"
+            return "не хватает системной аудио-дорожки для проверки; отправим как есть"
         case LocalRecordingFailureReason.silentInput.rawValue:
-            return "микрофон был слишком тихим или пустым"
+            return "микрофон был слишком тихим или пустым; отправим как есть"
         case LocalRecordingFailureReason.permissionDenied.rawValue:
             return "нужно разрешение на запись микрофона и системного звука"
         case LocalRecordingFailureReason.scopeUnavailable.rawValue:

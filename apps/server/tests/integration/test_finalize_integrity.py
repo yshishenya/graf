@@ -12,20 +12,27 @@ from twobrain_rec_server.db.models import IngestAuditEvent, Meeting, UploadSessi
 def _create_session_with_parts(
     client: TestClient,
     expected_track_sizes: dict[str, int] | None = None,
+    meeting_id: str | None = None,
+    sizes: tuple[int, int, int] = (8, 9, 10),
 ) -> tuple[str, list[dict[str, object]]]:
-    meeting = client.post(
-        "/api/v1/meetings",
-        headers=auth_headers(),
-        json={"local_recording_id": "finalize-integrity", "duration_seconds": 60},
-    ).json()
+    if meeting_id is None:
+        meeting = client.post(
+            "/api/v1/meetings",
+            headers=auth_headers(),
+            json={"local_recording_id": "finalize-integrity", "duration_seconds": 60},
+        ).json()
+        meeting_id = meeting["meeting_id"]
     session = client.post(
-        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": expected_track_sizes or {"manifest": 8, "microphone": 9, "system": 10}},
+        json={
+            "expected_track_sizes": expected_track_sizes
+            or {"manifest": sizes[0], "microphone": sizes[1], "system": sizes[2]}
+        },
     ).json()
 
     tracks = []
-    for size, role in [(8, "manifest"), (9, "microphone"), (10, "system")]:
+    for size, role in zip(sizes, ["manifest", "microphone", "system"], strict=True):
         data = deterministic_wav_bytes(size)
         digest = sha256(data).hexdigest()
         response = client.put(
@@ -138,3 +145,24 @@ def test_finalize_rejects_expected_track_size_mismatch(client: TestClient) -> No
 
     assert response.status_code == 409
     assert response.json()["code"] == "expected_track_size_mismatch"
+
+
+def test_finalize_rejects_immutable_media_revision_fingerprint_change(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-fingerprint-conflict", "duration_seconds": 60},
+    ).json()
+    first_session_id, first_tracks = _create_session_with_parts(client, meeting_id=meeting["meeting_id"])
+    first_finalize = _finalize(client, first_session_id, first_tracks, str(first_tracks[0]["sha256"]))
+    assert first_finalize.status_code == 200
+
+    second_session_id, second_tracks = _create_session_with_parts(
+        client,
+        meeting_id=meeting["meeting_id"],
+        sizes=(8, 11, 12),
+    )
+    response = _finalize(client, second_session_id, second_tracks, str(second_tracks[0]["sha256"]))
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "media_revision_fingerprint_conflict"

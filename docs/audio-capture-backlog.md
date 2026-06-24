@@ -1,6 +1,6 @@
 # Audio Capture Backlog
 
-Date: 2026-06-22
+Date: 2026-06-23
 
 This backlog expands the deferred live speakerphone cleanup work left by
 `020-speaker-to-mic-leakage` and `025-system-audio-capture-pivot`. It is not a
@@ -42,13 +42,18 @@ user explicitly retires or renumbers that reservation.
 | `041` | Reserved backlog | `recording-permission-readiness-onboarding`: Mic and Screen/System Audio readiness before recording. |
 | `042` | Claimed branch | `recording-sync-transcription-loop`: offline-safe recording upload, server transcription, and transcript display loop. |
 | `043` | Active / existing spec branch | `app-zoom-shortcuts`: present in git history/branch after `git fetch --all --prune`; do not reuse. |
-| `044` | Reserved backlog | `local-media-trim-revisions`: post-MVP local audio/video trim/edit revisions; see `docs/post-mvp-editing-media-backlog.md`. |
-| `045` | Reserved backlog | `online-transcript-edit-sync`: post-MVP online transcript/speaker edit sync and conflict handling; see `docs/post-mvp-editing-media-backlog.md`. |
-| `046` | Reserved backlog | `video-capture-package-foundation`: post-MVP video-capable capture package foundation; see `docs/post-mvp-editing-media-backlog.md`. |
-| `047` | Reserved backlog | `media-reprocess-replace-flow`: post-MVP replace/reprocess/restore flows; see `docs/post-mvp-editing-media-backlog.md`. |
+| `044` | Active / reserved backlog | `speakerphone-echo-noise-suppression`: real runtime echo cancellation/noise suppression path after the `039` WebRTC AEC3 spike. |
+| `045` | Active implementation branch | `transcription-results-pipeline`: product upload/transcription/result loop; imperfect local quality is diagnostic metadata, not an upload blocker. |
+| `046` | Candidate follow-up / not created | `meeting-playback-timestamp-seek`: possible MVP review-player slice surfaced by `045`; this is not an audio cleanup/AEC feature. |
+| `048` | Reserved backlog | `local-media-trim-revisions`: post-MVP local audio/video trim/edit revisions; see `docs/post-mvp-editing-media-backlog.md`. |
+| `049` | Reserved backlog | `online-transcript-edit-sync`: post-MVP online transcript/speaker edit sync and conflict handling; see `docs/post-mvp-editing-media-backlog.md`. |
+| `050` | Reserved backlog | `video-capture-package-foundation`: post-MVP video-capable capture package foundation; see `docs/post-mvp-editing-media-backlog.md`. |
+| `051` | Reserved backlog | `media-reprocess-replace-flow`: post-MVP replace/reprocess flows that depend on accepted media revision identity; see `docs/post-mvp-editing-media-backlog.md`. |
 
-As of 2026-06-18, the next unreserved candidate after documented reservations
-is `048`. Re-check all sources above before creating it.
+As of 2026-06-24, `046` is a candidate playback/timestamp-seek follow-up from
+`045`, not a speakerphone cleanup number. If the owner accepts that reservation,
+the next unreserved candidate after documented reservations is `047`. Re-check
+all sources above before creating any new feature.
 
 ### Useful Checks
 
@@ -74,14 +79,18 @@ Current accepted behavior:
 - `025` records separate `mic.wav` and `incoming.wav` with system-audio capture.
 - `020` analyzes saved evidence after `Stop`.
 - If `mic.wav` is contaminated, unproven, or not measurable, the package fails
-  closed for transcription readiness.
+- If `mic.wav` is contaminated, unproven, or not measurable, local package truth
+  records failed/degraded transcription readiness. Feature `045` makes that
+  quality truth diagnostic for upload/transcription eligibility when required
+  files, consent, permissions, and integrity are valid.
 
 Current missing behavior:
 
 - The app does not clean the microphone live.
 - Built-in Mac microphone plus built-in Mac speakers are not accepted as clean
   dual-track speakerphone recording.
-- Apple/WebRTC/AEC cleanup remains future gated work.
+- Apple/WebRTC/AEC cleanup remains future gated work under `044`; it is not
+  required for the `045` results pipeline to process imperfect source audio.
 
 ## External Research Summary
 
@@ -423,7 +432,7 @@ transcription behavior possible.
 - Use evidence from `038` and `039`.
 - Choose one or more accepted fallback modes:
   - headset-first clean dual-track acceptance;
-  - built-in speakerphone pilot-only with blocked transcription readiness;
+  - built-in speakerphone pilot-only with quality-warning transcription;
   - single mixed meeting audio track;
   - original dual evidence plus derived cleaned track;
   - explicit unsupported route state.
@@ -447,8 +456,9 @@ transcription behavior possible.
 - Does playback expose original evidence, derived cleaned output, or mixed
   audio?
 - What does the user see immediately after `Stop`?
-- What is upload eligibility for `leakage_detected`, `unproven`, or mixed
-  packages?
+- How should review label confidence and speaker attribution for
+  `leakage_detected`, `unproven`, or mixed packages now that feature `045`
+  makes structurally valid imperfect packages upload/transcription eligible?
 - How does deletion truth account for derived/mixed artifacts?
 
 ### Acceptance Gates

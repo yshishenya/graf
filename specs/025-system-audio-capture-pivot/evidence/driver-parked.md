@@ -1943,3 +1943,211 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/020-speaker-to-mic-leakage/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T021346Z`
+- Timestamp: `2026-06-24T02:13:46Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T021902Z`
+- Timestamp: `2026-06-24T02:19:02Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T031916Z`
+- Timestamp: `2026-06-24T03:19:16Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T040016Z`
+- Timestamp: `2026-06-24T04:00:16Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T150259Z`
+- Timestamp: `2026-06-24T15:02:59Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T150631Z`
+- Timestamp: `2026-06-24T15:06:31Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T150834Z`
+- Timestamp: `2026-06-24T15:08:34Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T151010Z`
+- Timestamp: `2026-06-24T15:10:10Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T151033Z`
+- Timestamp: `2026-06-24T15:10:33Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T151617Z`
+- Timestamp: `2026-06-24T15:16:17Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T163503Z`
+- Timestamp: `2026-06-24T16:35:03Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T163657Z`
+- Timestamp: `2026-06-24T16:36:57Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T165853Z`
+- Timestamp: `2026-06-24T16:58:53Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T172111Z`
+- Timestamp: `2026-06-24T17:21:11Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `<feature-worktree>/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T180823Z`
+- Timestamp: `2026-06-24T18:08:23Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
+
+## App-Only Installer Validator Run
+
+- Run ID: `20260624T180905Z`
+- Timestamp: `2026-06-24T18:09:05Z`
+- Commit: `94fadf5`
+- macOS: `26.5`
+- Hardware: `Mac15,10`
+- Mode: `--installer-app-only`
+- Package: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/components`
+- Validator result: `passed`
+- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.

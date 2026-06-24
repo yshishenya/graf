@@ -1642,18 +1642,18 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
             </div>
           </div>
         """
-    recording_tab = "Transcript" if embedded else "Recording &amp; Transcript"
+    recording_tab = "Расшифровка" if embedded else "Запись и расшифровка"
     speaker_lanes = _render_speaker_lanes(review)
     media_revision_id = escape(str(review.provenance.media_revision_id or ""))
     local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
     content = f"""
       <main class="main" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
         <div class="topline">
-          <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(review.meeting.status_label)}</span>{_render_access_chip(review.meeting.access)}</div>
+          <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(_ui_text(review.meeting.status_label))}</span>{_render_access_chip(review.meeting.access)}</div>
           <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
         </div>
         <div class="tabs">
-          <span class="tab">Notes</span>
+          <span class="tab">Итоги</span>
           <span class="tab active">{recording_tab}</span>
         </div>
         <div class="detail-layout">
@@ -1663,28 +1663,28 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
           </section>
           <aside class="right-panel">
             {_render_revision_status(review)}
-            <h3>Access</h3>
+            <h3>Доступ</h3>
             {_render_access_summary(review)}
-            <h3>Share</h3>
+            <h3>Поделиться</h3>
             {_render_share_panel(review)}
-            <h3>Artifacts</h3>
+            <h3>Файлы</h3>
             {_render_artifacts(review)}
-            <div class="truth-copy">{escape(review.deletion_truth_copy or "")}</div>
-            <h3>Delete</h3>
+            <div class="truth-copy" data-boundary-copy="{escape(review.deletion_truth_copy or "")}">{escape(_ui_text(review.deletion_truth_copy or ""))}</div>
+            <h3>Удаление</h3>
             {_render_delete_confirmation(review, embedded=embedded)}
-            <h3>Assign speakers</h3>
+            <h3>Спикеры</h3>
             {speaker_lanes}
-            <h3>Governance</h3>
+            <h3>Управление</h3>
             <div class="governance">{_render_governance(review)}</div>
-            <h3>Activity</h3>
+            <h3>Активность</h3>
             {_render_activity(review)}
-            <h3>Assistant</h3>
-            <button type="button" disabled>{escape(review.assistant.label)}</button>
-            <h3>Template</h3>
-            <button type="button" disabled>{escape(review.template.label)}</button>
+            <h3>Ассистент</h3>
+            <button type="button" disabled>{escape(_ui_text(review.assistant.label))}</button>
+            <h3>Шаблон</h3>
+            <button type="button" disabled>{escape(_ui_text(review.template.label))}</button>
           </aside>
         </div>
-        <div class="playback detail-playback"><span>{escape(review.meeting.status_label)}</span><span>1x</span><span>{_duration(review.playback.duration_seconds)}</span></div>
+        <div class="playback detail-playback"><span>{escape(_ui_text(review.meeting.status_label))}</span><span>1x</span><span>{_duration(review.playback.duration_seconds)}</span></div>
       </main>
     """
     return _page_shell(review.meeting.title, content, embedded=embedded)
@@ -1700,32 +1700,32 @@ def render_deletion_report_page(
       <main class="main">
         <div class="topline">
           <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(meeting_title)}</strong><span>Отчет удаления</span></div>
-          <div class="action-row"><a class="button" href="{_base_path(embedded)}">Back</a></div>
+          <div class="action-row"><a class="button" href="{_base_path(embedded)}">Назад</a></div>
         </div>
-        <section class="report-layout" aria-label="Deletion report">
+        <section class="report-layout" aria-label="Отчет удаления">
           <div class="report-band">
-            <h3>Lifecycle</h3>
-            <div class="state-row"><strong>{escape(report.overall_state.value.replace("_", " "))}</strong><span class="chip deleted_future">metadata only</span></div>
-            <div class="truth-copy">{escape(report.bounded_copy)}</div>
+            <h3>Жизненный цикл</h3>
+            <div class="state-row"><strong>{escape(_ui_text(report.overall_state.value))}</strong><span class="chip deleted_future">только метаданные</span></div>
+            <div class="truth-copy" data-boundary-copy="{escape(report.bounded_copy)}">{escape(_ui_text(report.bounded_copy))}</div>
           </div>
           <div class="report-grid">
-            {_render_report_band("2brain Rec controlled artifacts", report.artifact_states)}
-            {_render_report_band("Backups", [report.backup])}
-            {_render_report_band("External dependencies", report.dependencies)}
-            {_render_report_band("Post-egress limits", report.post_egress_limits)}
+            {_render_report_band("Файлы под контролем 2brain Rec", report.artifact_states)}
+            {_render_report_band("Резервные копии", [report.backup])}
+            {_render_report_band("Внешние зависимости", report.dependencies)}
+            {_render_report_band("Ограничения после выгрузки", report.post_egress_limits)}
           </div>
           <div class="report-band">
-            <h3>Local device purge</h3>
+            <h3>Очистка на устройстве</h3>
             {_render_local_purge_tasks(report.local_purge)}
           </div>
           <div class="report-band">
-            <h3>Lifecycle activity</h3>
+            <h3>События удаления</h3>
             {_render_lifecycle_activity(report.activity)}
           </div>
         </section>
       </main>
     """
-    return _page_shell("Deletion report", content, embedded=embedded)
+    return _page_shell("Отчет удаления", content, embedded=embedded)
 
 
 def _page_shell(title: str, content: str, *, embedded: bool) -> str:
@@ -2298,15 +2298,169 @@ def _sidebar() -> str:
         <a href="#" aria-disabled="true">⌁ Активность</a>
         <a href="#" aria-disabled="true">⚙ Настройки</a>
       </nav>
-      <div class="sidebar-foot"><div class="trial">TRIAL 7 дней</div><div class="muted">2brain Rec</div></div>
+      <div class="sidebar-foot"><div class="trial">Пробный период 7 дней</div><div class="muted">2brain Rec</div></div>
     </aside>
     """
+
+
+UI_TEXT: dict[str, str] = {
+    "Access": "Доступ",
+    "Access state is unavailable.": "Статус доступа недоступен.",
+    "Action Items": "Действия",
+    "Assistant": "Ассистент",
+    "Available": "Доступно",
+    "Can view": "Может смотреть",
+    "Blocked": "Заблокировано",
+    "Copy link": "Ссылка",
+    "Decisions": "Решения",
+    "Delete planned": "Удаление запланировано",
+    "Delete this meeting everywhere 2brain Rec controls": "Удалить встречу в системах 2brain Rec",
+    "Delete this meeting everywhere 2brain Rec controls.": "Удалить встречу везде, где ее контролирует 2brain Rec.",
+    "Disabled": "Выключено",
+    "Disabled by policy": "Заблокировано",
+    "Download": "Скачать",
+    "Export": "Экспорт",
+    "Export package": "Экспорт",
+    "Export ready": "Экспорт готов",
+    "Failed": "Сбой",
+    "Files already downloaded or exported are outside 2brain Rec deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в 2brain Rec.",
+    "Files already downloaded or exported are outside later 2brain Rec revocation. Deleting a meeting can remove what 2brain Rec controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в 2brain Rec. Удаление встречи может убрать то, что контролирует 2brain Rec, но не копии, уже сохраненные где-то еще.",
+    "Follow-ups": "Продолжение",
+    "Incoming system": "Входящий звук",
+    "Local only": "Только локально",
+    "Local microphone": "Микрофон",
+    "Meeting processing needs operator review before outcomes can be trusted.": "Обработку встречи нужно проверить оператору, прежде чем доверять итогам.",
+    "More": "Еще",
+    "No access activity yet.": "Событий доступа пока нет.",
+    "No active user grants.": "Активных доступов для пользователей нет.",
+    "No exportable artifacts yet.": "Файлы для выгрузки пока недоступны.",
+    "No lifecycle activity yet.": "Событий жизненного цикла пока нет.",
+    "No lifecycle rows yet.": "Строк жизненного цикла пока нет.",
+    "No local purge acknowledgement has been received yet.": "Подтверждение локальной очистки еще не получено.",
+    "Not available": "Недоступно",
+    "Notes": "Итоги",
+    "On": "Вкл",
+    "Off": "Выкл",
+    "Open in browser": "Открыть в браузере",
+    "Outcome deferred": "Итоги отложены",
+    "Outcome source": "Источник итогов",
+    "Outcomes blocked": "Итоги заблокированы",
+    "Outcomes deferred": "Итоги отложены",
+    "Outcomes processing": "Итоги готовятся",
+    "Outcomes unavailable": "Итоги недоступны",
+    "Owner": "Владелец",
+    "owner": "владелец",
+    "Partial": "Частично готово",
+    "Processing": "Расшифровка",
+    "Processing result could not be imported safely.": "Результат обработки не удалось безопасно импортировать.",
+    "Public links": "Публичные ссылки",
+    "Ready": "Готово",
+    "Report": "Отчет",
+    "Request deletion": "Запросить удаление",
+    "Retention policy planned": "Правила хранения",
+    "Retention controls will show policy truth before activation.": "Правила хранения появятся после активации политики.",
+    "Share": "Поделиться",
+    "Sharing is unavailable for this meeting.": "Поделиться этой встречей сейчас нельзя.",
+    "Speaker lanes are reserved until diarization is available.": "Спикеры появятся после диаризации.",
+    "Star": "Избранное",
+    "Submitted": "Загружено",
+    "Summary": "Кратко",
+    "Summary unavailable": "Краткое резюме недоступно",
+    "Tag": "Тег",
+    "Team": "Команда",
+    "Team visibility": "Видимость для команды",
+    "Template": "Шаблон",
+    "Transcript": "Расшифровка",
+    "Transcript and generated outcomes may still be processing.": "Расшифровка и итоги еще могут обрабатываться.",
+    "Transcript is still processing.": "Расшифровка еще готовится.",
+    "Transcript review is available, but generated meeting outcomes are not part of this stored result.": "Расшифровка доступна, но сгенерированные итоги не входят в этот сохраненный результат.",
+    "Uploading": "Загружается",
+    "Unavailable": "Недоступно",
+    "You own this meeting.": "Это ваша встреча.",
+    "accepted": "принято",
+    "acknowledged": "подтверждено",
+    "active": "активен",
+    "artifact lifecycle state": "состояние файла",
+    "auth required": "нужен вход",
+    "auth_required": "нужен вход",
+    "allowed": "разрешено",
+    "available": "доступно",
+    "backup expiry pending": "ожидает срока хранения резервной копии",
+    "backup_expiry_pending": "ожидает срока хранения резервной копии",
+    "completed": "готово",
+    "delete requested": "удаление запрошено",
+    "delete_requested": "удаление запрошено",
+    "deletion requested": "удаление запрошено",
+    "deletion_requested": "удаление запрошено",
+    "Desktop device": "Десктоп",
+    "dependency unconfirmed": "зависимость не подтверждена",
+    "dependency_unconfirmed": "зависимость не подтверждена",
+    "disabled": "выключено",
+    "disabled by default": "выключено по умолчанию",
+    "disabled_by_default": "выключено по умолчанию",
+    "download completed": "скачивание завершено",
+    "download requested": "скачивание запрошено",
+    "enabled": "включено",
+    "external deletion support is not confirmed": "удаление во внешнем сервисе не подтверждено",
+    "External deletion support is not confirmed": "Удаление во внешнем сервисе не подтверждено",
+    "local purge acknowledged": "локальная очистка подтверждена",
+    "local_purge_acknowledged": "локальная очистка подтверждена",
+    "local buffers purged": "локальные буферы очищены",
+    "local_buffers_purged": "локальные буферы очищены",
+    "metadata only": "только метаданные",
+    "Owner/Admin": "Владелец/админ",
+    "outside 2brain rec control": "вне контроля 2brain Rec",
+    "outside_control": "вне контроля 2brain Rec",
+    "pending": "ожидает",
+    "Planned; this does not promise deletion outside 2brain Rec control.": "Запланировано; это не обещает удаление вне контроля 2brain Rec.",
+    "policy blocked": "по политике",
+    "policy_blocked": "по политике",
+    "processing": "обработка",
+    "purge_local_buffers": "локальные буферы",
+    "purge_local_exports": "локальные экспорты",
+    "confirm_local_expiry": "подтвердить локальное истечение",
+    "Server audio purge requested": "Очистка серверного аудио запрошена",
+    "unreachable": "недоступно",
+    "Workspace policy disables this artifact egress.": "Политика рабочего пространства запрещает выгрузку этого файла.",
+    "You": "Вы",
+}
+
+
+def _ui_text(value: str | None) -> str:
+    if value is None:
+        return ""
+    normalized = value.replace("_", " ")
+    return UI_TEXT.get(value, UI_TEXT.get(normalized, normalized))
+
+
+def _speaker_display_label(label: str) -> str:
+    if label.startswith("Speaker "):
+        suffix = label.removeprefix("Speaker ").strip()
+        return f"Спикер {suffix}" if suffix else "Спикер"
+    return _ui_text(label)
+
+
+def _notes_source_label(source_basis: str) -> str:
+    return {
+        "not_supported": "не поддерживается",
+        "policy_deferral": "отложено политикой",
+        "processing_status": "статус обработки",
+    }.get(source_basis, _ui_text(source_basis))
+
+
+def _notes_title(title: str) -> str:
+    return {
+        "Summary": "Кратко",
+        "Decisions": "Решения",
+        "Action Items": "Действия",
+        "Follow-ups": "Продолжение",
+    }.get(title, _ui_text(title))
 
 
 def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool = False) -> str:
     href = f"{_base_path(embedded)}/{item.meeting_id}"
     future = "".join(
-        f'<button class="icon-button" type="button" disabled aria-label="{escape(slot.label)}">{escape(slot.label[:1])}</button>'
+        f'<button class="icon-button" type="button" disabled aria-label="{escape(_ui_text(slot.label))}">{escape(_ui_text(slot.label)[:1])}</button>'
         for slot in item.future_slots[:4]
     )
     selected_class = " is-selected" if selected else ""
@@ -2317,7 +2471,7 @@ def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool
         <span class="row-icon">{source_icon}</span>
         <span class="meeting-title">
           <span class="row-title">{escape(item.title)} <span class="muted">{_duration(item.duration_seconds)}</span></span>
-          <span class="row-meta"><span>{escape(item.status_label)}</span></span>
+          <span class="row-meta"><span>{escape(_ui_text(item.status_label))}</span></span>
         </span>
         <span class="future-actions">{future}</span>
         <span class="meeting-date">{_date_label(item)}</span>
@@ -2330,7 +2484,7 @@ def _render_transcript(segments: list[TranscriptSegmentView]) -> str:
         f"""
           <article class="segment">
             <div class="timestamp">{escape(segment.timestamp_label)}</div>
-            <div class="speaker"><span class="dot"></span>{escape(segment.speaker_label)}</div>
+            <div class="speaker"><span class="dot"></span>{escape(_speaker_display_label(segment.speaker_label))}</div>
             <div class="text">{escape(segment.text)}</div>
           </article>
         """
@@ -2340,11 +2494,11 @@ def _render_transcript(segments: list[TranscriptSegmentView]) -> str:
 
 def _render_speaker_lanes(review: MeetingReviewResponse) -> str:
     if not review.speakers.available:
-        return '<div class="muted">Speaker lanes are reserved until diarization is available.</div>'
+        return f'<div class="muted">{escape(_ui_text("Speaker lanes are reserved until diarization is available."))}</div>'
     return "\n".join(
         f"""
         <div class="speaker-lane">
-          <div class="row-meta"><strong>{escape(speaker.label)}</strong><span>{speaker.talk_time_percent}%</span></div>
+          <div class="row-meta"><strong>{escape(_speaker_display_label(speaker.label))}</strong><span>{speaker.talk_time_percent}%</span></div>
           <div class="lane-track"><div class="lane-fill" style="width:{speaker.talk_time_percent}%"></div></div>
         </div>
         """
@@ -2355,8 +2509,8 @@ def _render_speaker_lanes(review: MeetingReviewResponse) -> str:
 def _render_revision_status(review: MeetingReviewResponse) -> str:
     media_revision_id = escape(str(review.provenance.media_revision_id or ""))
     local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
-    label = escape(review.meeting.status_label)
-    reason = escape(review.processing.reason_label or review.processing.reason_code or "Текущая медиа-ревизия")
+    label = escape(_ui_text(review.meeting.status_label))
+    reason = escape(_ui_text(review.processing.reason_label or review.processing.reason_code) or "Текущая медиа-ревизия")
     return f"""
       <section class="revision-status" aria-label="Статус медиа-ревизии" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
         <span class="chip {escape(review.meeting.status)}">{label}</span>
@@ -2368,26 +2522,26 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
 def _render_access_chip(access) -> str:
     if access is None:
         return ""
-    return f'<span class="chip {escape(access.state)}">{escape(access.label)}</span>'
+    return f'<span class="chip {escape(access.state)}">{escape(_ui_text(access.label))}</span>'
 
 
 def _render_access_summary(review: MeetingReviewResponse) -> str:
     access = review.access
     if access is None:
-        return '<div class="muted">Access state is unavailable.</div>'
-    reason = f'<div class="muted">{escape(access.reason)}</div>' if access.reason else ""
+        return f'<div class="muted">{escape(_ui_text("Access state is unavailable."))}</div>'
+    reason = f'<div class="muted">{escape(_ui_text(access.reason))}</div>' if access.reason else ""
     capabilities = [
-        ("Share", access.can_share),
-        ("Download", access.can_download),
-        ("Export", access.can_export),
+        ("Поделиться", access.can_share),
+        ("Скачать", access.can_download),
+        ("Экспорт", access.can_export),
     ]
     capability_rows = "".join(
-        f'<div class="state-row"><span>{escape(label)}</span><span class="chip {"available" if enabled else "disabled"}">{ "On" if enabled else "Off" }</span></div>'
+        f'<div class="state-row"><span>{escape(label)}</span><span class="chip {"available" if enabled else "disabled"}">{escape(_ui_text("On" if enabled else "Off"))}</span></div>'
         for label, enabled in capabilities
     )
     return f"""
       <div class="state-list">
-        <div class="state-row"><strong>{escape(access.label)}</strong><span class="chip {escape(access.state)}">{escape(access.state)}</span></div>
+        <div class="state-row"><strong>{escape(_ui_text(access.label))}</strong><span class="chip {escape(access.state)}">{escape(_ui_text(access.state))}</span></div>
         {reason}
         {capability_rows}
       </div>
@@ -2397,23 +2551,23 @@ def _render_access_summary(review: MeetingReviewResponse) -> str:
 def _render_share_panel(review: MeetingReviewResponse) -> str:
     share = review.share
     if share is None:
-        return '<div class="muted">Sharing is unavailable for this meeting.</div>'
+        return f'<div class="muted">{escape(_ui_text("Sharing is unavailable for this meeting."))}</div>'
     grants = "".join(
         f"""
         <div class="state-row">
-          <span><strong>{escape(grant.display_name)}</strong><br><span class="muted">{escape(grant.role_label)}</span></span>
-          <span class="chip {escape(grant.status)}">{escape(grant.status)}</span>
+          <span><strong>{escape(grant.display_name)}</strong><br><span class="muted">{escape(_ui_text(grant.role_label))}</span></span>
+          <span class="chip {escape(grant.status)}">{escape(_ui_text(grant.status))}</span>
         </div>
         """
         for grant in share.active_grants
     )
     if not grants:
-        grants = '<div class="muted">No active user grants.</div>'
+        grants = f'<div class="muted">{escape(_ui_text("No active user grants."))}</div>'
     return f"""
       <div class="state-list">
-        <div class="state-row"><span>Team visibility</span><span class="chip {escape(share.team_visibility)}">{escape(share.team_visibility.replace("_", " "))}</span></div>
-        <div class="state-row"><span>Copy link</span><span class="chip {escape(share.copy_link_state)}">{escape(share.copy_link_state.replace("_", " "))}</span></div>
-        <div class="state-row"><span>Public links</span><span class="chip {escape(share.public_link_state)}">{escape(share.public_link_state.replace("_", " "))}</span></div>
+        <div class="state-row"><span>{escape(_ui_text("Team visibility"))}</span><span class="chip {escape(share.team_visibility)}">{escape(_ui_text(share.team_visibility))}</span></div>
+        <div class="state-row"><span>{escape(_ui_text("Copy link"))}</span><span class="chip {escape(share.copy_link_state)}">{escape(_ui_text(share.copy_link_state))}</span></div>
+        <div class="state-row"><span>{escape(_ui_text("Public links"))}</span><span class="chip {escape(share.public_link_state)}">{escape(_ui_text(share.public_link_state))}</span></div>
         {grants}
       </div>
     """
@@ -2421,23 +2575,23 @@ def _render_share_panel(review: MeetingReviewResponse) -> str:
 
 def _render_artifacts(review: MeetingReviewResponse) -> str:
     if not review.artifacts:
-        return '<div class="muted">No exportable artifacts yet.</div>'
+        return f'<div class="muted">{escape(_ui_text("No exportable artifacts yet."))}</div>'
     rows = "".join(_render_artifact_state(review, artifact) for artifact in review.artifacts)
     return f'<div class="state-list">{rows}</div>'
 
 
 def _render_artifact_state(review: MeetingReviewResponse, artifact: ArtifactEgressState) -> str:
-    label = escape(artifact.label)
-    reason = f'<span class="muted">{escape(artifact.reason)}</span>' if artifact.reason else ""
+    label = escape(_ui_text(artifact.label))
+    reason = f'<span class="muted">{escape(_ui_text(artifact.reason))}</span>' if artifact.reason else ""
     if artifact.state == "available" and artifact.artifact_class != "package":
         action = (
             f'<a class="mini-link" href="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/downloads/'
-            f'{escape(artifact.artifact_class)}">Download</a>'
+            f'{escape(artifact.artifact_class)}">{escape(_ui_text("Download"))}</a>'
         )
     elif artifact.state == "available":
-        action = '<span class="chip available">Export ready</span>'
+        action = f'<span class="chip available">{escape(_ui_text("Export ready"))}</span>'
     else:
-        action = f'<span class="chip {escape(artifact.state)}">{escape(artifact.state.replace("_", " "))}</span>'
+        action = f'<span class="chip {escape(artifact.state)}">{escape(_ui_text(artifact.state))}</span>'
     return f"""
       <div class="state-row">
         <span><strong>{label}</strong><br>{reason}</span>
@@ -2450,13 +2604,13 @@ def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool
     report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
       <div class="delete-confirmation">
-        <strong>Delete this meeting everywhere 2brain Rec controls</strong>
-        <div class="truth-copy">{escape(BOUNDED_DELETE_COPY)}</div>
+        <strong>{escape(_ui_text("Delete this meeting everywhere 2brain Rec controls"))}</strong>
+        <div class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</div>
         <div class="state-row">
-          <span class="muted">Backups, local buffers, provider metadata, and delivered copies are reported separately.</span>
-          <a class="mini-link" href="{report_href}">Report</a>
+          <span class="muted">Резервные копии, локальные буферы, метаданные провайдера и уже переданные копии показываются отдельно.</span>
+          <a class="mini-link" href="{report_href}">{escape(_ui_text("Report"))}</a>
         </div>
-        <button type="button" disabled>Request deletion</button>
+        <button type="button" disabled>{escape(_ui_text("Request deletion"))}</button>
       </div>
     """
 
@@ -2464,7 +2618,7 @@ def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool
 def _render_report_band(title: str, rows: list[ArtifactDeletionState]) -> str:
     rendered = "".join(_render_report_artifact_row(row) for row in rows)
     if not rendered:
-        rendered = '<div class="muted">No lifecycle rows yet.</div>'
+        rendered = f'<div class="muted">{escape(_ui_text("No lifecycle rows yet."))}</div>'
     return f"""
       <div class="report-band">
         <h3>{escape(title)}</h3>
@@ -2477,35 +2631,35 @@ def _render_report_artifact_row(row: ArtifactDeletionState) -> str:
     reason = row.safe_reason or row.label
     return f"""
       <div class="state-row">
-        <span><strong>{escape(row.label)}</strong><br><span class="muted">{escape(reason)}</span></span>
-        <span class="chip {escape(row.state.value)}">{escape(row.state.value.replace("_", " "))}</span>
+        <span><strong>{escape(_ui_text(row.label))}</strong><br><span class="muted">{escape(_ui_text(reason))}</span></span>
+        <span class="chip {escape(row.state.value)}">{escape(_ui_text(row.state.value))}</span>
       </div>
     """
 
 
 def _render_local_purge_tasks(tasks: list[LocalPurgeTask]) -> str:
     if not tasks:
-        return '<div class="muted">No local purge acknowledgement has been received yet.</div>'
+        return f'<div class="muted">{escape(_ui_text("No local purge acknowledgement has been received yet."))}</div>'
     return '<div class="state-list">' + "".join(_render_local_purge_task(task) for task in tasks) + "</div>"
 
 
 def _render_local_purge_task(task: LocalPurgeTask) -> str:
     return f"""
       <div class="state-row">
-        <span><strong>{escape(task.task_type.value.replace("_", " "))}</strong><br><span class="muted">{escape(task.safe_reason or "metadata only")}</span></span>
-        <span class="chip {escape(task.state.value)}">{escape(task.state.value.replace("_", " "))}</span>
+        <span><strong>{escape(_ui_text(task.task_type.value))}</strong><br><span class="muted">{escape(_ui_text(task.safe_reason or "metadata only"))}</span></span>
+        <span class="chip {escape(task.state.value)}">{escape(_ui_text(task.state.value))}</span>
       </div>
     """
 
 
 def _render_lifecycle_activity(activity: list) -> str:
     if not activity:
-        return '<div class="muted">No lifecycle activity yet.</div>'
+        return f'<div class="muted">{escape(_ui_text("No lifecycle activity yet."))}</div>'
     rows = "".join(
         f"""
         <div class="state-row">
-          <span><strong>{escape(item.event_type.replace("_", " "))}</strong><br><span class="muted">{escape(item.actor_label)} · {escape(item.safe_reason or "metadata only")}</span></span>
-          <span class="chip {escape(item.outcome)}">{escape(item.outcome)}</span>
+          <span><strong>{escape(_ui_text(item.event_type))}</strong><br><span class="muted">{escape(_ui_text(item.actor_label))} · {escape(_ui_text(item.safe_reason or "metadata only"))}</span></span>
+          <span class="chip {escape(item.outcome)}">{escape(_ui_text(item.outcome))}</span>
         </div>
         """
         for item in activity
@@ -2516,12 +2670,12 @@ def _render_lifecycle_activity(activity: list) -> str:
 def _render_activity(review: MeetingReviewResponse) -> str:
     activity = review.activity
     if activity is None or not activity.items:
-        return '<div class="muted">No access activity yet.</div>'
+        return f'<div class="muted">{escape(_ui_text("No access activity yet."))}</div>'
     rows = "".join(
         f"""
         <div class="activity-item">
-          <div class="state-row"><strong>{escape(item.event_type.replace("_", " "))}</strong><span class="chip {escape(item.outcome)}">{escape(item.outcome)}</span></div>
-          <div class="muted">{escape(item.actor_label)} · {escape(item.created_at.strftime("%Y-%m-%d %H:%M"))}</div>
+          <div class="state-row"><strong>{escape(_ui_text(item.event_type))}</strong><span class="chip {escape(item.outcome)}">{escape(_ui_text(item.outcome))}</span></div>
+          <div class="muted">{escape(_ui_text(item.actor_label))} · {escape(item.created_at.strftime("%Y-%m-%d %H:%M"))}</div>
         </div>
         """
         for item in activity.items[:6]
@@ -2538,7 +2692,7 @@ def _render_governance(review: MeetingReviewResponse) -> str:
         review.governance.delete,
     ]
     return "\n".join(
-        f'<button type="button" title="{escape(action.reason or action.label)}" {"disabled" if action.state != "available" else ""}>{escape(action.label)}</button>'
+        f'<button type="button" title="{escape(_ui_text(action.reason or action.label))}" {"disabled" if action.state != "available" else ""}>{escape(_ui_text(action.label))}</button>'
         for action in actions
     )
 
@@ -2551,14 +2705,14 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         ("Follow-ups", review.notes_action_truth.followups),
     ]
     rows = "".join(_render_notes_outcome_row(title, state) for title, state in outcomes)
-    source = escape(review.notes_action_truth.source_basis.replace("_", " "))
+    source = escape(_notes_source_label(review.notes_action_truth.source_basis))
     return f"""
       <div class="notes">
-        <h3>Notes</h3>
+        <h3>{escape(_ui_text("Notes"))}</h3>
         <div class="state-list notes-outcomes">
           {rows}
         </div>
-        <div class="muted">Outcome source: {source}</div>
+        <div class="muted">{escape(_ui_text("Outcome source"))}: {source}</div>
       </div>
     """
 
@@ -2567,22 +2721,22 @@ def _render_notes_outcome_row(title: str, state: NotesActionCategoryState) -> st
     state_name = escape(state.state)
     return f"""
       <div class="state-row notes-outcome-row">
-        <span><strong>{escape(title)}</strong><br><span class="muted">{escape(state.reason)}</span></span>
-        <span class="chip {state_name}">{escape(state.label)}</span>
+        <span><strong>{escape(_notes_title(title))}</strong><br><span class="muted">{escape(_ui_text(state.reason))}</span></span>
+        <span class="chip {state_name}">{escape(_ui_text(state.label))}</span>
       </div>
     """
 
 
 def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str:
     if embedded:
-        return '<button type="button" disabled>Open in browser</button>'
+        return f'<button type="button" disabled>{escape(_ui_text("Open in browser"))}</button>'
     export_disabled = "disabled" if review.governance.export.state != "available" else ""
     share_disabled = "disabled" if review.governance.share.state != "available" else ""
     return f"""
-      <button type="button" disabled>{escape(review.template.label)}</button>
-      <button type="button" {export_disabled}>{escape(review.governance.export.label)}</button>
-      <button type="button" {share_disabled}>{escape(review.governance.share.label)}</button>
-      <button type="button" disabled>More</button>
+      <button type="button" disabled>{escape(_ui_text(review.template.label))}</button>
+      <button type="button" {export_disabled}>{escape(_ui_text(review.governance.export.label))}</button>
+      <button type="button" {share_disabled}>{escape(_ui_text(review.governance.share.label))}</button>
+      <button type="button" disabled>{escape(_ui_text("More"))}</button>
     """
 
 
@@ -2626,7 +2780,7 @@ def _empty_title(review: MeetingReviewResponse) -> str:
 
 def _empty_body(review: MeetingReviewResponse) -> str:
     if review.processing.reason_label:
-        return review.processing.reason_label
+        return _ui_text(review.processing.reason_label)
     if review.processing.state in {"processing", "submitted"}:
         return "Мы показываем только подтвержденные данные и не создаем фальшивый текст."
     return "Проверьте статус обработки позже."

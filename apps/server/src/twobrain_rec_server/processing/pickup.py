@@ -64,7 +64,17 @@ async def pick_up_processing(
                 )
                 result.blocked_count += 1
             return result
-        temporal_client = await connect_temporal_client(settings)
+        try:
+            temporal_client = await connect_temporal_client(settings)
+        except Exception:
+            for meeting in meetings:
+                await _block_meeting(
+                    db,
+                    meeting,
+                    reason_code=reasons.BLOCKED_TEMPORAL_UNAVAILABLE,
+                )
+                result.blocked_count += 1
+            return result
 
     for meeting in meetings:
         media_revision = await store.latest_media_revision_for_meeting(
@@ -134,14 +144,24 @@ async def pick_up_processing(
             workflow_id=workflow_id,
             status=ProcessingStatus.STARTING,
         )
-        started = await start_processing_workflow(
-            temporal_client=temporal_client,
-            settings=settings,
-            meeting_id=meeting.id,
-            media_revision_id=media_revision_id,
-            workspace_id=workspace_id,
-            tenant_scope=tenant_scope,
-        )
+        try:
+            started = await start_processing_workflow(
+                temporal_client=temporal_client,
+                settings=settings,
+                meeting_id=meeting.id,
+                media_revision_id=media_revision_id,
+                workspace_id=workspace_id,
+                tenant_scope=tenant_scope,
+            )
+        except Exception:
+            await _block_meeting(
+                db,
+                meeting,
+                media_revision_id=media_revision_id,
+                reason_code=reasons.BLOCKED_TEMPORAL_UNAVAILABLE,
+            )
+            result.blocked_count += 1
+            continue
         workflow = await store.upsert_processing_workflow(
             db,
             workspace_id=workspace_id,

@@ -106,6 +106,74 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
     assert state.segments[0].source_role == "incoming_system"
 
 
+def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="remote audio",
+            source_role="incoming",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="local audio",
+            source_role="mic",
+        ),
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="local audio",
+            speaker_label="MIC",
+            source_role="mic",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="remote audio",
+            speaker_label="REMOTE_00",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+    )
+
+    by_source = {segment.source_role: segment.speaker_label for segment in state.segments}
+    assert by_source == {
+        "incoming_system": "REMOTE_00",
+        "local_microphone": "MIC",
+    }
+
+
 def test_speaker_mapping_calculates_talk_time_percentages() -> None:
     result_id = uuid4()
     meeting_id = uuid4()

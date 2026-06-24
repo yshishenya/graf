@@ -3797,6 +3797,28 @@ components:
           type: boolean
           title: Available
           default: false
+        status:
+          type: string
+          title: Status
+          default: unavailable
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        content_available:
+          type: boolean
+          title: Content Available
+          default: false
         web_url:
           anyOf:
           - type: string

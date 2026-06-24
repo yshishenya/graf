@@ -441,6 +441,44 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("localRecordingTracks[0].meetingContent"))
     }
 
+    func testDiagnosticOnlyQualityStatesRemainMetadataSafe() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "localRecordingManifest": .object([
+                "sessionId": .string("session"),
+                "directoryId": .string("20260623-session"),
+                "status": .string("failed"),
+                "failureReason": .string("leakage_detected"),
+                "transcriptionReadiness": .string("failed"),
+                "mediaScribeSourceMode": .string("dual"),
+                "transcriptText": .string("forbidden transcript"),
+                "privateLocalPath": .string("/Users/example/Recordings/session")
+            ]),
+            "leakageFinalization": .object([
+                "status": .string("leakage_detected"),
+                "failureReason": .string("leakage_detected"),
+                "transcriptionGate": .string("blocked_leakage_detected"),
+                "rawAudio": .string("forbidden audio")
+            ])
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        guard case .object(let localRecordingManifest)? = result.manifest["localRecordingManifest"] else {
+            XCTFail("localRecordingManifest should be preserved as safe metadata")
+            return
+        }
+        guard case .object(let leakageFinalization)? = result.manifest["leakageFinalization"] else {
+            XCTFail("leakageFinalization should be preserved as safe metadata")
+            return
+        }
+        XCTAssertEqual(localRecordingManifest["failureReason"], .string("leakage_detected"))
+        XCTAssertEqual(localRecordingManifest["transcriptionReadiness"], .string("failed"))
+        XCTAssertEqual(leakageFinalization["transcriptionGate"], .string("blocked_leakage_detected"))
+        XCTAssertTrue(result.removedFields.contains("localRecordingManifest.transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("localRecordingManifest.privateLocalPath"))
+        XCTAssertTrue(result.removedFields.contains("leakageFinalization.rawAudio"))
+    }
+
     func testMicrophoneStreamDiagnosticsKeepSafeMetadataAndRemoveSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "microphoneSelection": .object([
@@ -569,6 +607,49 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("recordingSyncState.temporaryUploadUrl"))
         XCTAssertTrue(result.removedFields.contains("serverTruth.mediaScribeJobId"))
         XCTAssertTrue(result.removedFields.contains("serverTruth.objectStorageKey"))
+    }
+
+    func testDesktopSyncReviewDiagnosticsKeepResultMetadataOnly() {
+        let manifest: [String: DiagnosticFieldValue] = [
+            "desktopSyncState": .object([
+                "reviewStatus": .string("ready"),
+                "mediaRevisionId": .string("019f-revision"),
+                "transcriptAvailable": .bool(true),
+                "diarizationAvailable": .bool(true),
+                "contentAvailable": .bool(true),
+                "transcriptText": .string("forbidden transcript"),
+                "audioDownloadUrl": .string("https://example.invalid/audio"),
+                "signedUrl": .string("https://example.presigned/review")
+            ]),
+            "serverTruth": .object([
+                "meetingId": .string("meeting-045"),
+                "mediaRevisionId": .string("019f-revision"),
+                "workflowId": .string("processing/019f-revision"),
+                "mediaScribeApiKey": .string("forbidden"),
+                "storageObjectKey": .string("private/object")
+            ]),
+            "uploadQueueItems": .array([
+                .object([
+                    "state": .string("uploaded"),
+                    "qualityWarning": .string("leakage_detected"),
+                    "failureReason": .string("Bearer forbidden")
+                ])
+            ]),
+            "rawAudio": .string("forbidden")
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["desktopSyncState"])
+        XCTAssertNotNil(result.manifest["serverTruth"])
+        XCTAssertNotNil(result.manifest["uploadQueueItems"])
+        XCTAssertNil(result.manifest["rawAudio"])
+        XCTAssertTrue(result.removedFields.contains("desktopSyncState.transcriptText"))
+        XCTAssertTrue(result.removedFields.contains("desktopSyncState.audioDownloadUrl"))
+        XCTAssertTrue(result.removedFields.contains("desktopSyncState.signedUrl"))
+        XCTAssertTrue(result.removedFields.contains("serverTruth.mediaScribeApiKey"))
+        XCTAssertTrue(result.removedFields.contains("serverTruth.storageObjectKey"))
+        XCTAssertTrue(result.removedFields.contains("uploadQueueItems[0].failureReason"))
     }
 }
 #endif
