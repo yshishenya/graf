@@ -403,7 +403,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertNil(CaptureControlView.uploadReviewLink(for: queued, configuration: configuration))
     }
 
-    func testBlockedLocalUploadCopyRequestsManualPackageReview() throws {
+    func testBlockedLocalUploadCopyDoesNotTreatAudioQualityAsHardGate() throws {
         let blocked = uploadItem(
             id: "blocked-local",
             state: .blocked,
@@ -415,7 +415,7 @@ final class CaptureControlTests: XCTestCase {
         let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
 
         XCTAssertEqual(summary.title, "Нужна проверка")
-        XCTAssertEqual(summary.detail, "звук динамиков попал в микрофон; отправка заблокирована")
+        XCTAssertEqual(summary.detail, "звук динамиков попал в микрофон; отправим как есть")
         XCTAssertEqual(summary.primaryItem.nextActionLabel, "Повторить")
     }
 
