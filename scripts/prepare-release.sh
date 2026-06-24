@@ -65,7 +65,7 @@ if [[ -z "${unreleased_content}" ]]; then
   exit 1
 fi
 
-real_entries="$(printf '%s\n' "$unreleased_content" | awk '/^[[:space:]]*-[[:space:]]*/ {if ($0 !~ /No entries yet/) count++} END {if (count > 0) {print count} else {print 0}}')"
+real_entries="$(printf '%s\n' "$unreleased_content" | awk '/^[[:space:]]*-[[:space:]]*/ {if ($0 !~ /No entries yet/ && $0 !~ /Пока нет записей/) count++} END {if (count > 0) {print count} else {print 0}}')"
 if [[ "$real_entries" -eq 0 ]]; then
   echo "error: unreleased block has no concrete entries"
   echo "add real bullets to CHANGELOG.md first"
@@ -83,23 +83,23 @@ trap 'rm -f "$tmp_file"' EXIT
   cat <<'EOF'
 ## [Unreleased]
 
-### Added
-- _No entries yet._
+### Добавлено
+- _Пока нет записей._
 
-### Changed
-- _No entries yet._
+### Изменено
+- _Пока нет записей._
 
-### Fixed
-- _No entries yet._
+### Исправлено
+- _Пока нет записей._
 
-### Security
-- _No entries yet._
+### Безопасность
+- _Пока нет записей._
 
-### Docs
-- _No entries yet._
+### Документы
+- _Пока нет записей._
 
-### Ops
-- _No entries yet._
+### Операции
+- _Пока нет записей._
 
 EOF
   printf '## [%s] - %s\n\n' "$next_version" "$today"
