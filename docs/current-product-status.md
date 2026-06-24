@@ -1,11 +1,11 @@
-# Current Product Status
+# Текущий статус продукта
 
 Date: 2026-06-24
 
-This document is the short status source after the
-`045-transcription-results-pipeline` local implementation pass. The PRD
-remains the product baseline; feature specs and metadata-only evidence
-artifacts remain the detailed implementation record.
+Этот документ коротко фиксирует состояние продукта после локальной реализации
+`046-meeting-playback-timestamp-seek`. PRD остается базовой продуктовой
+линией; feature specs и metadata-only evidence остаются подробной историей
+реализации.
 
 ## Accepted Now
 
@@ -218,6 +218,19 @@ artifacts remain the detailed implementation record.
   production, finalized it, and after a targeted manual processing pickup
   reached a live MediaScribe-backed processed review state with transcript,
   diarization, playback, workflow presence, and both source roles visible.
+- Feature `046-meeting-playback-timestamp-seek` is implemented locally as the
+  review gap close-out after `045`. A ready meeting can expose a server-owned
+  playback route, the review page can render an audio player, transcript
+  timestamps can seek the player, and web plus desktop embedded review use the
+  same playback state. For normal dual-track recordings, review playback must
+  represent both retained sources: local microphone and incoming/system audio.
+  If one source is missing, purged, still processing, failed, deleted, not
+  allowed, or unsafe to combine, playback fails closed with a simple unavailable
+  state. Focused local validation passed the playback contract, route,
+  no-secret egress, audit, view-model, web-shell, and desktop embedded parity
+  tests: `31 passed in 6.52s`. This is local implementation evidence only;
+  full local CI, deploy dry-run, PR/merge, release, and production smoke are
+  still required before any rollout claim.
   Production was still on `master` commit `e312d25`, not feature `045`, so this
   proves one real upload-to-transcript path after manual pickup but not 045
   production auto-start/reuse after finalize. The same live result also exposed
@@ -384,13 +397,13 @@ artifacts remain the detailed implementation record.
 
 ## Next Product Slice
 
-Recommended next action before starting another feature: close out
-`045-transcription-results-pipeline` with reviewed branch state, then only after
-approval proceed to PR, merge, deploy, and production smoke/e2e evidence. The
-local implementation now proves offline-safe upload eligibility, automatic
-server processing start/reuse, result availability in web/desktop review, and
-metadata-safe diagnostics in tests; product rollout is still blocked until that
-implementation is reviewed and proven in the target environment.
+Recommended next action before starting another feature: close out the current
+MVP review path with full local CI, deploy dry-run, PR/merge, release, and
+production smoke/e2e evidence. The local implementation now proves upload
+eligibility, server processing start/reuse, result availability, and
+timestamp-linked review playback in focused tests; product rollout is still
+blocked until the implementation is reviewed and proven in the target
+environment.
 
 Remaining launch blockers are now more specific:
 
@@ -409,10 +422,9 @@ Remaining launch blockers are now more specific:
   over `origin/master`, full local CI, and a passing deploy dry-run, but
   post-deploy production smoke/e2e evidence is still required before any pilot
   claim;
-- PRD-level audio playback linked to transcript timestamps is not yet
-  implemented or proven. `045` proves timestamp labels and a playback shell
-  only; `specs/045-transcription-results-pipeline/evidence/playback-timestamp-seek-preflight.md`
-  records the candidate `046-meeting-playback-timestamp-seek` handoff;
+- PRD-level audio playback linked to transcript timestamps is implemented
+  locally in `046`, but still needs full local CI, deploy dry-run, PR/merge,
+  release, and production smoke before it can be counted as rollout evidence;
 - notes/action truth states are implemented, but stored/generated launchable
   notes and actions, or an explicit owner-approved pilot deferral, are not yet
   accepted;
@@ -423,10 +435,11 @@ Remaining launch blockers are now more specific:
   and a metadata-safe idle/active/paused/resumed/stopped walkthrough pack, but
   this does not replace production rollout evidence.
 
-Before any pilot claim, finish 045 production deploy/proof, decide whether
-interactive playback/timestamp seek and generated notes/actions are implemented
-or explicitly deferred for MVP, and keep the owner proof plus installed-app
-walkthrough linked as supporting evidence rather than a rollout claim.
+Before any pilot claim, finish production deploy/proof for the current MVP
+path, keep `046` playback evidence tied to real deployed review behavior, and
+decide whether generated notes/actions are implemented or explicitly deferred
+for MVP. Keep the owner proof plus installed-app walkthrough linked as
+supporting evidence rather than a rollout claim.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey
@@ -439,11 +452,8 @@ Keep separate unless the next spec explicitly changes scope:
 - Notes/action output: decide whether the MVP requires stored generated
   notes/action items next or whether the now-truthful 036 state model is
   explicitly accepted as a narrower internal-pilot deferral.
-- Interactive playback/timestamp seek: decide whether the MVP requires
-  retained-audio playback with transcript timestamp seek before launch, or
-  explicitly defer it from a narrower pilot. Candidate context is recorded in
-  the 045 playback preflight evidence and should become a separate Spec Kit
-  slice if required.
+- Interactive playback/timestamp seek: local implementation is in `046`.
+  Remaining work is validation and rollout proof, not product-scope decision.
 - Assisted auto-start and generalized meeting detection.
 - Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
   AEC, and mixed-audio fallback remain decision records or future spike gates

@@ -311,6 +311,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .transcript { display: grid; gap: 14px; }
 .segment { display: grid; grid-template-columns: 76px 112px minmax(0, 1fr); gap: 12px; min-width: 0; }
 .timestamp { color: var(--accent); font-size: 12px; font-weight: 750; }
+.timestamp-seek { appearance: none; border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; }
+.timestamp-seek:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .speaker { display: flex; align-items: center; gap: 7px; font-weight: 750; font-size: 12px; color: #d5d8de; min-width: 0; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
 .text { color: #e6e8ec; overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
@@ -1684,7 +1686,7 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
             <button type="button" disabled>{escape(_ui_text(review.template.label))}</button>
           </aside>
         </div>
-        <div class="playback detail-playback"><span>{escape(_ui_text(review.meeting.status_label))}</span><span>1x</span><span>{_duration(review.playback.duration_seconds)}</span></div>
+        {_render_playback(review)}
       </main>
     """
     return _page_shell(review.meeting.title, content, embedded=embedded)
@@ -2483,13 +2485,69 @@ def _render_transcript(segments: list[TranscriptSegmentView]) -> str:
     return "\n".join(
         f"""
           <article class="segment">
-            <div class="timestamp">{escape(segment.timestamp_label)}</div>
+            {_render_timestamp(segment)}
             <div class="speaker"><span class="dot"></span>{escape(_speaker_display_label(segment.speaker_label))}</div>
             <div class="text">{escape(segment.text)}</div>
           </article>
         """
         for segment in segments
     )
+
+
+def _render_timestamp(segment: TranscriptSegmentView) -> str:
+    if segment.seekable and segment.seek_seconds is not None:
+        return (
+            f'<button class="timestamp timestamp-seek" type="button" '
+            f'data-seek-seconds="{escape(str(segment.seek_seconds))}">{escape(segment.timestamp_label)}</button>'
+        )
+    return f'<div class="timestamp">{escape(segment.timestamp_label)}</div>'
+
+
+def _render_playback(review: MeetingReviewResponse) -> str:
+    if review.playback.available and review.playback.playback_path:
+        speeds = "".join(
+            f'<button type="button" class="speed-button" data-playback-speed="{speed}">{speed:g}x</button>'
+            for speed in review.playback.speed_options
+        )
+        return f"""
+          <section class="playback detail-playback" data-source-mode="{escape(review.playback.source_mode)}">
+            <audio data-playback-player controls preload="metadata" src="{escape(review.playback.playback_path)}"></audio>
+            <div class="row-meta"><span>{escape(review.playback.policy_label)}</span><span>{_duration(review.playback.duration_seconds)}</span></div>
+            <div class="speed-options">{speeds}</div>
+          </section>
+          {_playback_script()}
+        """
+    return f"""
+      <section class="playback detail-playback is-unavailable" data-source-mode="{escape(review.playback.source_mode)}">
+        <span>{escape(review.playback.policy_label)}</span>
+        <span>{_duration(review.playback.duration_seconds)}</span>
+      </section>
+    """
+
+
+def _playback_script() -> str:
+    return """
+      <script>
+        (() => {
+          const player = document.querySelector("[data-playback-player]");
+          if (!player) return;
+          document.querySelectorAll("[data-seek-seconds]").forEach((button) => {
+            button.addEventListener("click", () => {
+              const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
+              if (!Number.isFinite(seekSeconds)) return;
+              player.currentTime = seekSeconds;
+              player.play().catch(() => {});
+            });
+          });
+          document.querySelectorAll("[data-playback-speed]").forEach((button) => {
+            button.addEventListener("click", () => {
+              const speed = Number.parseFloat(button.dataset.playbackSpeed || "1");
+              if (Number.isFinite(speed)) player.playbackRate = speed;
+            });
+          });
+        })();
+      </script>
+    """
 
 
 def _render_speaker_lanes(review: MeetingReviewResponse) -> str:

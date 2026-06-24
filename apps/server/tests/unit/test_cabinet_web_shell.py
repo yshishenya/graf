@@ -25,6 +25,7 @@ from twobrain_rec_server.api.schemas import (
     SlotState,
     SpeakerReviewState,
     TranscriptReviewState,
+    TranscriptSegmentView,
 )
 from twobrain_rec_server.cabinet.web import (
     render_deletion_report_page,
@@ -288,6 +289,81 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Запросить удаление" in page
 
 
+def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=120,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="combined_review_stream",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.transcript = TranscriptReviewState(
+        available=True,
+        language="ru",
+        search_enabled=True,
+        segments=[
+            TranscriptSegmentView(
+                segment_id="safe-segment-1",
+                sequence=0,
+                start_seconds=0.0,
+                end_seconds=10.0,
+                timestamp_label="00:00",
+                speaker_label="Speaker 1",
+                source_role="local_microphone",
+                text="Безопасный синтетический текст.",
+                seekable=True,
+                seek_seconds=0.0,
+            ),
+            TranscriptSegmentView(
+                segment_id="safe-segment-2",
+                sequence=1,
+                start_seconds=12.5,
+                end_seconds=20.0,
+                timestamp_label="00:12",
+                speaker_label="Speaker 2",
+                source_role="incoming_system",
+                text="Еще один безопасный синтетический текст.",
+                seekable=True,
+                seek_seconds=12.5,
+            ),
+        ],
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert '<audio data-playback-player controls preload="metadata"' in page
+    assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
+    assert 'data-source-mode="combined_review_stream"' in page
+    assert 'data-seek-seconds="0.0"' in page
+    assert 'data-seek-seconds="12.5"' in page
+    assert 'class="timestamp timestamp-seek"' in page
+    assert "currentTime = seekSeconds" in page
+
+
+def test_detail_shell_renders_unavailable_playback_without_audio_element() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=False,
+        duration_seconds=120,
+        unavailable_reason="policy_disabled",
+        playback_path=None,
+        policy_label="Аудио закрыто политикой доступа",
+        source_mode="none",
+        included_sources=[],
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert '<section class="playback detail-playback is-unavailable" data-source-mode="none">' in page
+    assert "Аудио закрыто политикой доступа" in page
+    assert "<audio" not in page
+    assert "data-playback-player" not in page
+
+
 def test_detail_shell_reserves_notes_assistant_template_without_internal_feature_labels() -> None:
     review = _review()
     review.notes = NotesReviewState(available=False, sections=[], unavailable_reason="generation_future")
@@ -325,6 +401,48 @@ def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
     assert "Recording &amp; Transcript" not in html
     for forbidden in ["Record live", "Stop", "Screen Recording", "Noise", "Accent", "Krisp Devices"]:
         assert forbidden not in html
+
+
+def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=120,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="combined_review_stream",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.transcript = TranscriptReviewState(
+        available=True,
+        language="ru",
+        search_enabled=True,
+        segments=[
+            TranscriptSegmentView(
+                segment_id="safe-segment-embedded",
+                sequence=0,
+                start_seconds=12.5,
+                end_seconds=20.0,
+                timestamp_label="00:12",
+                speaker_label="Speaker 2",
+                source_role="incoming_system",
+                text="Безопасный синтетический текст.",
+                seekable=True,
+                seek_seconds=12.5,
+            )
+        ],
+    )
+
+    page = render_meeting_detail_page(review, embedded=True)
+
+    assert 'class="app-shell desktop-embedded"' in page
+    assert '<audio data-playback-player controls preload="metadata"' in page
+    assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
+    assert 'data-source-mode="combined_review_stream"' in page
+    assert 'data-seek-seconds="12.5"' in page
+    assert "currentTime = seekSeconds" in page
 
 
 def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:

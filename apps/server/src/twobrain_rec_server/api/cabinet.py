@@ -52,6 +52,7 @@ from twobrain_rec_server.cabinet.egress import (
     create_export_package,
     download_artifact,
     export_package_bytes,
+    playback_artifact,
 )
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
@@ -408,6 +409,45 @@ async def resolve_login_required_share_link_route(
         raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
     await db.commit()
     return RedirectResponse(url=f"/meetings/{meeting.id}", status_code=302)
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/playback",
+    operation_id="playCabinetMeetingAudio",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def play_cabinet_meeting_audio_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = DbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    result = await latest_processing_result(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
+    playback = await playback_artifact(
+        db,
+        storage=storage,
+        meeting=meeting,
+        access=decision,
+        result=result,
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+    )
+    await db.commit()
+    return Response(
+        content=playback.body,
+        media_type=playback.media_type,
+        headers={"Content-Disposition": 'inline; filename="meeting-review.wav"'},
+    )
 
 
 @router.get(

@@ -337,6 +337,8 @@ def transcript_state(
     transcript_segments: Iterable[TranscriptSegment],
     diarization_segments: Iterable[DiarizationSegment],
     status: MeetingReviewStatus,
+    playback_available: bool = False,
+    playback_duration_seconds: int | None = None,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
     diarization_by_segment_key = {
@@ -350,8 +352,15 @@ def transcript_state(
             search_enabled=False,
             segments=[],
         )
-    segments = [
-        TranscriptSegmentView(
+    segments = []
+    for segment in transcripts:
+        seek_seconds = _seek_seconds(
+            segment.start_seconds,
+            playback_available=playback_available,
+            playback_duration_seconds=playback_duration_seconds,
+        )
+        segments.append(
+            TranscriptSegmentView(
             segment_id=str(segment.id),
             sequence=segment.sequence,
             start_seconds=float(segment.start_seconds),
@@ -364,9 +373,10 @@ def transcript_state(
             source_role=source_role_label(segment.source_role),
             text=segment.text,
             confidence_label="unknown",
+            seekable=seek_seconds is not None,
+            seek_seconds=seek_seconds,
         )
-        for segment in transcripts
-    ]
+        )
     return TranscriptReviewState(
         available=True,
         language=language,
@@ -374,6 +384,22 @@ def transcript_state(
         search_enabled=True,
         segments=segments,
     )
+
+
+def _seek_seconds(
+    value: Decimal,
+    *,
+    playback_available: bool,
+    playback_duration_seconds: int | None,
+) -> float | None:
+    if not playback_available:
+        return None
+    seconds = float(value)
+    if seconds < 0:
+        return None
+    if playback_duration_seconds is not None and seconds > playback_duration_seconds:
+        return None
+    return seconds
 
 
 def speaker_label_for_segment(segment: TranscriptSegment, diarization: DiarizationSegment | None) -> str:
@@ -537,10 +563,71 @@ def notes_action_truth_state(
     )
 
 
-def playback_state(meeting: Meeting, status: MeetingReviewStatus) -> PlaybackReviewState:
+def playback_state(
+    meeting: Meeting,
+    status: MeetingReviewStatus,
+    artifacts: list[ArtifactEgressState] | None = None,
+) -> PlaybackReviewState:
+    duration_seconds = max(0, meeting.duration_seconds)
+    if status in {"processing", "submitted", "blocked", "local_only", "uploading"}:
+        return PlaybackReviewState(
+            available=False,
+            duration_seconds=duration_seconds,
+            unavailable_reason="processing",
+            policy_label="Аудио еще готовится",
+        )
+    if status == "failed":
+        return PlaybackReviewState(
+            available=False,
+            duration_seconds=duration_seconds,
+            unavailable_reason="failed",
+            policy_label="Аудио недоступно из-за ошибки обработки",
+        )
+    if status == "deleted_future":
+        return PlaybackReviewState(
+            available=False,
+            duration_seconds=duration_seconds,
+            unavailable_reason="deleting",
+            policy_label="Аудио удаляется",
+        )
+    audio_state = next((artifact for artifact in artifacts or [] if artifact.artifact_class == "audio"), None)
+    if audio_state is None or audio_state.state == "missing":
+        return PlaybackReviewState(
+            available=False,
+            duration_seconds=duration_seconds,
+            unavailable_reason="no_audio",
+            policy_label="Аудио недоступно",
+        )
+    if audio_state.state in {"policy_blocked", "owner_only"}:
+        reason = "access_denied" if audio_state.label == "Access required" else "policy_disabled"
+        return PlaybackReviewState(
+            available=False,
+            duration_seconds=duration_seconds,
+            unavailable_reason=reason,
+            policy_label="Аудио закрыто политикой доступа",
+        )
+    if audio_state.state == "deleted":
+        return PlaybackReviewState(
+            available=False,
+            duration_seconds=duration_seconds,
+            unavailable_reason="deleting",
+            policy_label="Аудио удаляется",
+        )
+    if status not in {"ready", "partial"} or audio_state.state != "available":
+        return PlaybackReviewState(
+            available=False,
+            duration_seconds=duration_seconds,
+            unavailable_reason="review_audio_unavailable",
+            policy_label="Аудио для проверки недоступно",
+        )
     return PlaybackReviewState(
-        available=status in {"ready", "partial"},
-        duration_seconds=max(0, meeting.duration_seconds),
+        available=True,
+        duration_seconds=duration_seconds,
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{meeting.id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="combined_review_stream",
+        included_sources=["local_microphone", "incoming_system"],
     )
 
 
@@ -589,6 +676,7 @@ def build_review_response(
     )
     status = cast(MeetingReviewStatus, item.status)
     notes_truth = notes_action_truth_state(status=status, result=result)
+    playback = playback_state(meeting, status, artifact_states)
     return MeetingReviewResponse(
         meeting=item,
         provenance=provenance_state(
@@ -603,11 +691,13 @@ def build_review_response(
             transcript_segments=transcript_segments,
             diarization_segments=diarization_segments,
             status=status,
+            playback_available=playback.available,
+            playback_duration_seconds=playback.duration_seconds,
         ),
         speakers=speaker_state(diarization_segments),
         notes=notes_state(status),
         notes_action_truth=notes_truth,
-        playback=playback_state(meeting, status),
+        playback=playback,
         governance=governance_summary(access=access_state, artifacts=artifact_states),
         access=access_state,
         share=share,

@@ -22,6 +22,10 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.access import AccessDecision
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.cabinet.playback_audio import (
+    ReviewAudioBuildError,
+    build_combined_review_wav,
+)
 from twobrain_rec_server.cabinet.view_models import format_timestamp
 from twobrain_rec_server.db.models import (
     ExportPackage,
@@ -36,6 +40,7 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
+    ProcessingStatus,
     SummaryStatus,
     TrackRole,
 )
@@ -50,12 +55,19 @@ ALLOWED_AUDIT_KEYS = {
     "byte_length",
     "export_id",
     "share_grant_id",
+    "source_mode",
 }
 
 
 @dataclass(frozen=True, slots=True)
 class DownloadArtifact:
     filename: str
+    media_type: str
+    body: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackArtifact:
     media_type: str
     body: bytes
 
@@ -264,6 +276,178 @@ async def download_artifact(
         metadata={"artifact_class": artifact_class, "outcome": "completed", "byte_length": len(body)},
     )
     return DownloadArtifact(filename=filename, media_type=media_type, body=body)
+
+
+async def playback_artifact(
+    db: AsyncSession,
+    *,
+    storage: object,
+    meeting: Meeting,
+    access: AccessDecision,
+    result: ProcessingResult | None,
+    actor_user_id: UUID,
+    device_id: UUID,
+) -> PlaybackArtifact:
+    if meeting_deletion_active(meeting):
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason="meeting_deletion_active",
+        )
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
+
+    if result is None or result.status != ProcessingResultStatus.IMPORTED.value:
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason=_playback_result_unavailable_reason(meeting, result),
+        )
+        await db.commit()
+        raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
+
+    states = {
+        state.artifact_class: state
+        for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
+    }
+    audio_state = states.get("audio")
+    if audio_state is None or audio_state.state != "available":
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason=audio_state.reason if audio_state is not None else "audio_unavailable",
+        )
+        await db.commit()
+        raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
+
+    artifacts = {
+        artifact.track_role: artifact
+        for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    }
+    mic = artifacts.get(TrackRole.MICROPHONE.value)
+    incoming = artifacts.get(TrackRole.SYSTEM.value)
+    if mic is None or incoming is None:
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason="missing_audio_source",
+        )
+        await db.commit()
+        raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
+
+    get_bytes = getattr(storage, "get_bytes", None)
+    if get_bytes is None:
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason="storage_unavailable",
+        )
+        await db.commit()
+        raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable")
+
+    try:
+        review_audio = build_combined_review_wav(
+            [
+                ("local_microphone", get_bytes(mic.storage_object_key)),
+                ("incoming_system", get_bytes(incoming.storage_object_key)),
+            ]
+        )
+    except (KeyError, ReviewAudioBuildError) as exc:
+        reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason=reason,
+        )
+        await db.commit()
+        raise ProblemDetail(status=409, code="review_audio_unavailable", title="Review audio unavailable") from exc
+
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=actor_user_id,
+        device_id=device_id,
+        event_type="playback_requested",
+        outcome="allowed",
+        artifact_class="audio",
+        policy_reason="policy_allowed",
+        metadata={
+            "artifact_class": "audio",
+            "viewer_access_state": access.state,
+            "request_class": "playback",
+            "source_mode": review_audio.source_mode,
+        },
+    )
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=actor_user_id,
+        device_id=device_id,
+        event_type="playback_completed",
+        outcome="completed",
+        artifact_class="audio",
+        policy_reason="policy_allowed",
+        metadata={
+            "artifact_class": "audio",
+            "outcome": "completed",
+            "byte_length": len(review_audio.body),
+            "source_mode": review_audio.source_mode,
+        },
+    )
+    return PlaybackArtifact(media_type=review_audio.media_type, body=review_audio.body)
+
+
+async def _record_playback_denied(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    actor_user_id: UUID,
+    device_id: UUID,
+    reason: str | None,
+) -> None:
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=actor_user_id,
+        device_id=device_id,
+        event_type="playback_denied",
+        outcome="denied",
+        artifact_class="audio",
+        policy_reason=reason or "playback_unavailable",
+        metadata={"artifact_class": "audio", "outcome": "denied", "request_class": "playback"},
+    )
+
+
+def _playback_result_unavailable_reason(meeting: Meeting, result: ProcessingResult | None) -> str:
+    if result is not None:
+        return "review_result_not_imported"
+    if meeting.processing_status in {ProcessingStatus.FAILED_TERMINAL.value, ProcessingStatus.FAILED_RETRYABLE.value}:
+        return "processing_failed"
+    if meeting.processing_status in {
+        ProcessingStatus.PENDING_PROCESSING.value,
+        ProcessingStatus.STARTING.value,
+        ProcessingStatus.WORKFLOW_STARTED.value,
+        ProcessingStatus.SUBMITTING.value,
+        ProcessingStatus.SUBMITTED.value,
+        ProcessingStatus.POLLING.value,
+        ProcessingStatus.IMPORTING.value,
+    }:
+        return "processing_not_ready"
+    return "review_result_unavailable"
 
 
 async def create_export_package(

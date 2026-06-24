@@ -8,6 +8,7 @@ from tests.fixtures.cabinet import (
     SAFE_TRANSCRIPT_TEXT,
     seed_cabinet_meetings,
 )
+from tests.fixtures.cabinet_access import set_artifact_policy
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
 
 
@@ -99,6 +100,29 @@ def test_finalize_autostart_payloads_do_not_egress_content_or_secrets(client) ->
         "private-run-id",
         "local speaker",
         "remote speaker",
+    }
+    for marker in forbidden:
+        assert marker not in body
+
+
+def test_playback_policy_denial_does_not_egress_audio_or_storage_identifiers(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, audio_download="disabled")
+
+    response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
+
+    assert response.status_code == 409
+    body = _dump_json(response.json())
+    forbidden = {
+        SAFE_TRANSCRIPT_TEXT,
+        SAFE_SECOND_TRANSCRIPT_TEXT,
+        PRIVATE_EXTERNAL_JOB_ID,
+        "storage_object_key",
+        "sha256",
+        "private-run-id",
+        "signed_url",
+        "X-Amz",
+        "raw_audio",
     }
     for marker in forbidden:
         assert marker not in body
