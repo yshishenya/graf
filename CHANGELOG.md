@@ -1,173 +1,113 @@
-# Changelog
+# История изменений
 
-All notable changes to this project will be documented in this file.
-This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
-uses Calendar Versioning for product releases (`vYYYY.MM.DD.N`). Reusable
-tooling in this repository may use Semantic Versioning where documented.
+Здесь фиксируются заметные изменения продукта.
+
+Продуктовые релизы используют календарные версии вида `vYYYY.MM.DD.N`.
+Вспомогательные библиотеки и инструменты могут использовать SemVer, если это
+прямо указано в их документации.
 
 ## [Unreleased]
 
-### Added
-- _No entries yet._
+### Добавлено
+- Встречу теперь можно слушать прямо на странице результата: сервер отдает
+  безопасный аудиопоток для просмотра, а не прямую ссылку на файл в хранилище
+  (`feature:046`).
+- Таймкоды в расшифровке стали кликабельными: пользователь может перейти в
+  нужное место записи и быстро проверить конкретную реплику (`feature:046`).
+- Веб-кабинет и встроенное окно macOS-приложения показывают одинаковое
+  состояние прослушивания и одинаковые переходы по таймкодам (`feature:046`).
 
-### Changed
-- _No entries yet._
+### Изменено
+- Для dual-track записей review-аудио должно включать и локальный микрофон, и
+  входящий/system звук. Если сервер не может безопасно собрать оба источника,
+  плеер не притворяется готовым (`feature:046`).
 
-### Fixed
-- _No entries yet._
+### Исправлено
+- _Пока нет записей._
 
-### Security
-- _No entries yet._
+### Безопасность
+- Прослушивание результата теперь закрыто теми же правилами доступа, удаления,
+  обработки и наличия аудио. Для чужих, удаляемых, неготовых, ошибочных или
+  неполных встреч сервер не отдает аудио (`feature:046`).
+- Логи и evidence по прослушиванию остаются metadata-only: без сырого аудио,
+  текста встреч, ключей хранения, signed URL и приватных путей (`feature:046`).
 
-### Docs
-- _No entries yet._
+### Документы
+- Обновлен текущий MVP-статус: gap “прослушивание по таймкодам” закрыт
+  локальной реализацией 046, но общий MVP еще требует финальных gate-проверок,
+  PR/merge, релиза и production evidence.
 
-### Ops
-- _No entries yet._
+### Операции
+- _Пока нет записей._
 
 ## [2026.06.24.1] - 2026-06-24
 
 
-### Added
-- Добавлен полный 045 transcription results pipeline: web/desktop review теперь
-  видят matching transcript/diarization availability для accepted media
-  revision, status/reason payloads остаются metadata-only, и synthetic one-hour
-  orchestration benchmark подтверждает product-owned processing budget с fake
-  transcription dependency (`feature:045`, `T029-T052`).
-- Добавлен metadata-only closeout handoff для playback/timestamp gap:
-  `045` теперь явно фиксирует, что timestamp labels и playback shell доказаны
-  локально, а PRD-level play/pause/seek/waveform/segment seek требуют отдельной
-  фичи или явного pilot-MVP deferral (`feature:045` evidence).
-- Добавлен server-owned auto-start processing после accepted finalize:
-  processing-enabled upload запускает или переиспользует один workflow,
-  dependency-unavailable состояние остается безопасным processing blocker без
-  отката upload success, а finalize/status/audit payloads остаются
-  metadata-safe (`feature:045`, `T003`, `T006-T008`, `T019-T028`).
-- Добавлен WebRTC AEC3 speakerphone spike для macOS: metadata-only corpus,
-  controlled hardware matrix, fail-closed outcome selection, package-truth
-  manifest fields, calm app status copy для fallback/rollback/problem states,
-  single decision record с `040` fallback recommendation и supporting-route
-  evidence без расширения clean speakerphone claim (`feature:039`, `T001-T056`).
-- Добавлен Apple voice processing spike для macOS: metadata-only candidate
-  outcome в manifest/diagnostics, package-lineage labels, fail-closed reason
-  mapping, feature-gated lifecycle release на Stop/failed start/app quit,
-  capture-control status copy и итог `defer_to_webrtc_aec3` без clean
-  speakerphone claim (`feature:038`, `T001-T048`).
-- Добавлен foundation микрофонного sample graph для macOS: выбор native
-  recording microphone, fallback на текущий macOS default input, app-owned
-  microphone sample source для `mic.wav`, metadata-only
-  `microphoneSelection`/`microphoneStream`/`microphoneStreamHealth` в manifest
-  и diagnostics, без claims о AEC/WebRTC/voice processing (`feature:037`,
-  `T001-T048`).
-- Добавлен revision-aware loop записи, синхронизации, загрузки, обработки и
-  review: offline-first desktop queue v2, `MediaRevision`, resumable upload
-  reconciliation, revision-keyed processing workflow, MediaScribe provenance,
-  and browser/embedded desktop transcript review parity (`feature:042`,
-  `T001-T088`).
+### Добавлено
+- Запись теперь проходит весь путь до результата: приложение загружает запись,
+  сервер запускает обработку, а в кабинете появляются расшифровка и разделение
+  говорящих (`feature:045`).
+- Сервер сам стартует обработку после успешной загрузки. Если обработка уже
+  идет, второй запуск не создается (`feature:045`).
+- В веб-кабинете и во встроенном окне приложения показано, что уже готово:
+  загрузка, обработка, расшифровка, говорящие, заметки и ограничения доступа
+  (`feature:045`).
+- В macOS-приложении появилась более надежная связка записи, очереди загрузки
+  и серверного результата. Приложение может подтянуть готовый результат позже,
+  даже если запись была загружена раньше (`feature:042`, `feature:045`).
+- Проведены отдельные проверки микрофона, Apple Voice Processing и WebRTC AEC3
+  для будущей работы над чистым звуком (`feature:037`, `feature:038`,
+  `feature:039`).
 
-### Changed
-- Local audio quality/leakage/echo/silence/timing/transcription-readiness
-  failures больше не являются upload/transcription blocker для структурно
-  валидных recording packages: queue сохраняет safe quality warning metadata,
-  но не выставляет blocking failure reason (`feature:045`, `T009-T018`).
-- Desktop upload truth now separates local-only, uploading, uploaded,
-  conflict, failed processing, and review-available states, so reconnect/retry
-  flows do not duplicate meetings or claim transcript/review readiness before
-  server truth exists (`feature:042`, `T020-T078`).
+### Изменено
+- Проверка шума, тишины, эха и утечки звука из динамиков в микрофон больше не
+  блокирует отправку записи, если сама запись целая и в ней есть нужные файлы
+  (`feature:045`).
+- Жесткие блокеры остались жесткими: запись не отправляется без разрешений, без
+  нужных дорожек, с поврежденными файлами или с ошибками целостности
+  (`feature:045`).
+- Состояния в приложении стали честнее: отдельно видны локальная запись,
+  загрузка, обработка, ошибка, конфликт и готовность результата (`feature:042`).
 
-### Fixed
-- Desktop upload queue now follows up terminal uploaded recordings and refreshes
-  server processing state after upload, so an already-uploaded meeting can move
-  from `not_submitted` to `processed` locally after server-side processing
-  completes instead of staying stale in the app (`feature:045` evidence).
-- Desktop upload eligibility now keeps local session `blocked` and track
-  `missing` states as hard blockers even when the failure reason resembles a
-  diagnostic-only quality warning, preserving consent/permission/file truth
-  while still allowing structurally valid leakage/silence recordings
-  (`feature:045` evidence).
-- Cabinet transcript rows now match diarization by normalized
-  `(sequence, source_role)`, so duplicate per-track segment sequences do not
-  visually swap local microphone and incoming/system speaker attribution in
-  review (`feature:045` evidence).
-- Web cabinet review/detail surfaces now use Russian-first visible launch copy
-  for meeting results, access, sharing, artifact policy, deletion, speakers,
-  notes, assistant/template, and embedded desktop actions; the legal deletion
-  boundary copy remains preserved as machine-readable metadata while the
-  checked desktop/mobile fixture UI avoids visible legacy English labels and
-  clipped policy chips (`feature:045` evidence).
-- Desktop upload queue now preserves and shows the specific local recording
-  block reason from package truth, so users see whether upload was stopped by
-  speaker leakage, silent input, unmeasured leakage, missing tracks, or another
-  local readiness problem instead of a generic manual-review message.
-- Desktop embedded cabinet now preserves the intended login/access status after
-  WebKit policy-cancel callbacks and writes metadata-only navigation status
-  events, so a recoverable cabinet state is no longer overwritten by a false
-  “temporarily unavailable” fallback.
-- Apple voice processing outcome selection now fails closed when any validation
-  row is diagnostic-unsafe, preventing accepted built-in speakerphone outcomes
-  or clean-claim eligibility from surviving unsafe Apple evidence
-  (`feature:038` post-merge review).
-- Запись через выбранный/дефолтный микрофон теперь fail-closed для permission
-  denied/restricted/stale, unavailable device, unsupported virtual/self-routing
-  input, no-frames/silent stream и Stop/quit cleanup; Stop privacy suppression
-  tail больше не помечает здоровую запись как `silent_input`, выбранный
-  микрофон реально привязан к native capture device, а Pause-suppressed
-  samples не доказывают graph readiness (`feature:037`).
-- Desktop upload rescan now clears a stale `local_files_missing` conflict when
-  a previously in-flight local recording is proven uploadable after restart, so
-  the queue can resume creating the server meeting instead of leaving the item
-  invisible in web and desktop review (`feature:042`).
-- Upload resume status now omits fully covered tracks from
-  `missing_ranges_by_track`, so desktop recordings that uploaded all parts are
-  finalized instead of being marked `server_still_missing_ranges`
-  (`feature:042`).
-- Desktop recording upload now uses the packaged production origin when no
-  shell environment is present, reuses the embedded web owner session cookie for
-  native upload requests, refreshes stale local queue eligibility, and uploads
-  safe degraded recording packages so saved recordings can appear in web and
-  desktop review instead of remaining local-only blocked items (`feature:042`).
-- Desktop embedded cabinet now preserves desktop auth headers across WebKit
-  link navigations to `/desktop/meetings` and meeting detail routes, so clicking
-  a recording row no longer falls back to a false login/unavailable state
-  (`feature:042`).
-- Desktop embedded cabinet now ignores non-main-frame WebKit response failures,
-  so favicon/apple-touch icon probes cannot replace a valid login/meetings
-  surface with a false unavailable state; production web cabinet also answers
-  standard icon probes without `404` noise (`feature:042`).
-- Local macOS install now force-registers the copied `2brain Rec.app` bundle with
-  LaunchServices, reducing stale Dock/Spotlight launches after rebuilding the
-  desktop app (`feature:042`).
+### Исправлено
+- Исправлено обновление уже загруженных записей: если сервер обработал запись
+  позже, приложение больше не должно оставлять ее в старом локальном статусе
+  (`feature:045`).
+- Исправлено сопоставление строк расшифровки и говорящих в кабинете, чтобы
+  локальный микрофон и входящий звук не менялись местами в интерфейсе
+  (`feature:045`).
+- Исправлены русские тексты в кабинете и во встроенном окне приложения: меньше
+  технических слов, понятнее состояния доступа, удаления, результата и заметок
+  (`feature:045`).
+- Исправлены несколько случаев, когда встроенный кабинет в приложении мог
+  показать ложное состояние входа или недоступности после переходов внутри
+  встроенного браузера (`feature:042`).
 
-### Security
-- Диагностика `039` остается metadata-only: AEC3 outcome/validation rows,
-  threshold/app-status/rollback/decision fields проходят redaction coverage, а
-  raw audio, transcript text, signed URLs, credentials, private paths,
-  unbounded WebRTC logs и meeting content удаляются или не экспортируются
-  (`feature:039`).
-- Диагностика `038` остается metadata-only: Apple outcome/validation rows,
-  route/lineage/CPU/failure/lifecycle fields проходят redaction coverage, а
-  raw audio, transcript text, signed URLs, credentials, private paths и meeting
-  content удаляются или не экспортируются (`feature:038`).
-- Диагностика `037` остается metadata-only: selection/stream/health readiness
-  сохраняются как bounded counters/status fields, а raw audio, transcript text,
-  signed URLs, credentials, private local paths и meeting content удаляются
-  redactor-тестами и bundle coverage (`feature:037`).
-- Recording sync diagnostics, API responses, deletion reports, lifecycle audit,
-  and validation evidence remain metadata-only: no raw audio, transcript text,
-  signed URLs, object storage keys, provider job ids, bearer tokens, credentials,
-  or private local paths are exposed, and media revision RLS/deletion accounting
-  is covered by focused tests (`feature:042`, `T079-T088`).
+### Безопасность
+- Диагностика и доказательства проверок остаются без приватного содержимого:
+  без сырого аудио, текста расшифровок, ключей, токенов, приватных путей,
+  подписанных ссылок и содержимого встреч (`feature:037`, `feature:038`,
+  `feature:039`, `feature:042`, `feature:045`).
+- Приложение по-прежнему не отправляет аудио напрямую в MediaScribe и не хранит
+  ключи MediaScribe на Mac (`feature:045`).
 
-### Docs
-- Сформирован 036 readiness closeout без overclaim: 036-aware readiness
-  report/gap register, актуальный статус `pilot_blocked`, tracker/task
-  reconciliation, metadata-safe live owner list/detail/governance proof и явные
-  оставшиеся блокеры для generated notes/actions или pilot deferral и
-  production rollout evidence (`feature:036`, `T025-T026`, `T049-T058`,
-  `T062`, `T064`).
+### Документы
+- Зафиксировано, что полноценное прослушивание по таймкодам еще не закрыто и
+  должно идти отдельной фичей (`feature:045`).
+- Зафиксировано, что настоящее эхоподавление и шумоподавление не входят в этот
+  релиз и остаются отдельной работой (`feature:044`).
+- Зафиксированы оставшиеся MVP-блокеры: чистый звук или честное ограничение,
+  прослушивание по таймкодам, заметки/действия или явное отложенное решение,
+  финальная проверка владельцем и подписанный установщик.
 
-### Ops
-- _No entries yet._
+### Операции
+- Серверная часть выпущена на прод как `v2026.06.24.1`.
+- Перед выкаткой прошли локальные проверки, сборка продовой конфигурации,
+  резервное копирование, проверка восстановления, запуск сервиса и проверка
+  работоспособности.
+- К релизу приложен локальный пакет macOS для внутренней проверки. Он не
+  подписан сертификатом Apple Developer ID и не заверен Apple для внешнего
+  распространения.
 
 ## [2026.06.18.1] - 2026-06-18
 

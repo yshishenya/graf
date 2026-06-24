@@ -105,14 +105,22 @@ push the branch and tags only when the user approves the release action.
 
 ## Release Notes
 
-Every GitHub Release must be written in Russian and include:
+Каждый GitHub Release должен быть написан простым русским языком:
 
-- what changed, in plain language;
-- compatibility or migration impact;
-- validation evidence;
-- links to PRs and issues when available;
-- rollout, deployment, or rollback notes when relevant;
-- explicit limitations and follow-up work.
+- не смешивай русский текст с английским инженерным жаргоном, кроме буквальных
+  названий продуктов, команд, тегов, файлов, протоколов и внешних сервисов;
+- пиши для пользователя, а не для внутренней команды разработки;
+- избегай внутренних терминов вроде payload, fixture, dependency,
+  status/reason, review surface, metadata-safe или benchmark.
+
+В каждом GitHub Release должны быть:
+
+- что изменилось, простыми словами;
+- влияние на совместимость или миграции;
+- чем проверяли релиз;
+- ссылки на запросы на слияние и задачи, если они есть;
+- заметки про выкатку, откат или эксплуатацию, если это важно;
+- явные ограничения и следующая работа.
 
 ## Git Safety
 

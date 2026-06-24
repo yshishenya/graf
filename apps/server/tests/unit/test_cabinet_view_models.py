@@ -104,6 +104,8 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
     assert state.segments[0].timestamp_label == "01:05"
     assert state.segments[0].speaker_label == "Speaker 2"
     assert state.segments[0].source_role == "incoming_system"
+    assert state.segments[0].seekable is False
+    assert state.segments[0].seek_seconds is None
 
 
 def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() -> None:
@@ -172,6 +174,49 @@ def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() ->
         "incoming_system": "REMOTE_00",
         "local_microphone": "MIC",
     }
+
+
+def test_transcript_mapping_marks_valid_segments_seekable_when_playback_available() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="local audio",
+            source_role="mic",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("12.500"),
+            end_seconds=Decimal("20.000"),
+            text="remote audio",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="ready",
+        playback_available=True,
+        playback_duration_seconds=30,
+    )
+
+    assert [(segment.seekable, segment.seek_seconds) for segment in state.segments] == [
+        (True, 0.0),
+        (True, 12.5),
+    ]
 
 
 def test_speaker_mapping_calculates_talk_time_percentages() -> None:

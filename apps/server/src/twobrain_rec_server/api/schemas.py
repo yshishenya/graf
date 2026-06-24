@@ -339,6 +339,21 @@ MeetingReviewStatus = Literal[
 MeetingSource = Literal["desktop_recording", "manual_upload", "unknown"]
 PrimaryAction = Literal["open", "wait", "retry_future", "open_status", "unavailable"]
 SourceRoleView = Literal["local_microphone", "incoming_system", "unknown"]
+PlaybackUnavailableReason = Literal[
+    "none",
+    "no_audio",
+    "policy_disabled",
+    "access_denied",
+    "processing",
+    "failed",
+    "deleted",
+    "deleting",
+    "audio_purged",
+    "transcript_only",
+    "review_audio_unavailable",
+    "storage_unavailable",
+]
+PlaybackSourceMode = Literal["none", "combined_review_stream", "single_retained_track"]
 GovernanceState = Literal["available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"]
 SlotStateValue = Literal["available", "disabled", "planned", "policy_blocked", "out_of_scope"]
 NextAction = Literal["wait", "retry_future", "contact_operator", "open_desktop_queue", "none"]
@@ -577,6 +592,8 @@ class TranscriptSegmentView(BaseModel):
     source_role: SourceRoleView
     text: str
     confidence_label: str | None = None
+    seekable: bool = False
+    seek_seconds: float | None = None
 
 
 class TranscriptReviewState(BaseModel):
@@ -625,6 +642,11 @@ class PlaybackReviewState(BaseModel):
     available: bool = False
     duration_seconds: int = Field(default=0, ge=0)
     speed_options: list[float] = Field(default_factory=lambda: [0.75, 1.0, 1.25, 1.5, 2.0])
+    unavailable_reason: PlaybackUnavailableReason = "none"
+    playback_path: str | None = None
+    policy_label: str = "Аудио недоступно"
+    source_mode: PlaybackSourceMode = "none"
+    included_sources: list[SourceRoleView] = Field(default_factory=list)
 
 
 class MeetingReviewResponse(BaseModel):

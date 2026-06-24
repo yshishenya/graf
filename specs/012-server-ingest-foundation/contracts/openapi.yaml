@@ -2629,6 +2629,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/playback:
+    get:
+      tags:
+      - cabinet
+      summary: Play Cabinet Meeting Audio Route
+      operationId: playCabinetMeetingAudio
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/downloads/{artifact_class}:
     get:
       tags:
@@ -4880,6 +4946,49 @@ components:
             type: number
           type: array
           title: Speed Options
+        unavailable_reason:
+          type: string
+          enum:
+          - none
+          - no_audio
+          - policy_disabled
+          - access_denied
+          - processing
+          - failed
+          - deleted
+          - deleting
+          - audio_purged
+          - transcript_only
+          - review_audio_unavailable
+          - storage_unavailable
+          title: Unavailable Reason
+          default: none
+        playback_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Playback Path
+        policy_label:
+          type: string
+          title: Policy Label
+          default: Аудио недоступно
+        source_mode:
+          type: string
+          enum:
+          - none
+          - combined_review_stream
+          - single_retained_track
+          title: Source Mode
+          default: none
+        included_sources:
+          items:
+            type: string
+            enum:
+            - local_microphone
+            - incoming_system
+            - unknown
+          type: array
+          title: Included Sources
       type: object
       title: PlaybackReviewState
     Problem:
@@ -5483,6 +5592,15 @@ components:
           - type: string
           - type: 'null'
           title: Confidence Label
+        seekable:
+          type: boolean
+          title: Seekable
+          default: false
+        seek_seconds:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Seek Seconds
       type: object
       required:
       - segment_id
