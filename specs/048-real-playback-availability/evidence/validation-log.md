@@ -184,3 +184,7 @@ This file records metadata-only validation for feature `048`.
   server lint, Python compile, and deployment evidence scan passed. The local
   RLS boundary remained blocked on the expected `postgres_test` requirement and
   did not attempt a live production probe.
+- GitHub Release notes for `v2026.06.25.1` were rewritten in simple Russian
+  during closeout, with links to PR #1610, the `feature:048` task list, the
+  current production release that still contains 048, validation evidence,
+  compatibility notes, limitations, and rollback notes.
