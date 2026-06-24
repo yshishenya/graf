@@ -166,92 +166,42 @@ Date: 2026-06-24
   `infra/scripts/ci-local.sh` gate. This is local implementation readiness
   only: the branch is not merged, not PR-reviewed, not deployed, and has no
   production upload-to-transcript e2e evidence yet.
-- Feature `045-transcription-results-pipeline` is implemented locally as the
-  product pipeline close-out on top of `042`. Structurally valid local packages
-  now remain upload/transcription eligible even when local leakage, echo,
-  silence, timing, or transcription-readiness checks are degraded, failed,
-  inconclusive, or unavailable; consent, permission, missing/unreadable files,
-  package role/size/checksum/fingerprint integrity, lifecycle, and privacy
-  boundaries remain hard gates. Accepted server finalization starts or reuses
-  one processing workflow when processing is enabled, unavailable dependencies
-  become visible processing blockers without rolling back upload success, and
-  web plus embedded desktop review expose matching transcript/diarization
-  availability for the accepted media revision. Quality warning reasons are
-  retained as metadata-only artifact profile context, not as queue-blocking
-  failure reasons. Focused local validation passed macOS upload/manifest/
-  diagnostics tests, server finalize/processing/cabinet/privacy tests, and a
-  synthetic one-hour orchestration benchmark with faked transcription
-  dependency. Web cabinet fixture runtime was rechecked with Russian-first
-  visible launch copy across desktop, embedded desktop, and mobile result
-  states, with no visible legacy English labels, no horizontal overflow, and no
-  clipped status chips; the latest 9-page browser runtime recheck recorded
-  `failures=[]` in `/tmp/2brain-rec-045-web-cabinet-ru-20260624g`. Focused
-  macOS validation, focused server validation with the source-role regression
-  suite, the one-hour orchestration benchmark, full local CI, and deploy dry-run
-  passed in the latest closeout continuation. The current branch desktop bundle
-  also rebuilt with ad-hoc local signing and passed the safe non-recording
-  preflight on repeat after an environmental pre-launch `coreaudiod` CPU blocker:
-  packaged app launch, idle, and quit phases were observed without helper/HAL
-  probe warnings. After explicit owner approval,
-  the current branch app-only package was also installed over
-  `/Applications/2brain Rec.app`; the installed CDHash matched the just-built
-  current-branch bundle, microphone and Screen/System Audio permissions were
-  granted, manual Record entered active recording, one-action Stop produced a
-  fresh user-requested stop event, both `local_mic` and `remote_speaker` tracks
-  were saved, and the package was queued for upload. That proof was a real
-  speakerphone/high-leakage class: the manifest remained `degraded` with
-  `leakage_unproven`, so it does not satisfy the older clean
-  `saved`/`ready` artifact gate. Replaying that same real degraded package
-  through the current branch server ingest API in a local fake-storage/
-  fake-Temporal harness proved it is not blocked by `leakage_unproven`:
-  manifest, microphone, and system bytes were accepted, finalize returned `200`,
-  the session moved to `finalized`, the meeting moved to
-  `ingested_pending_processing`, and processing moved to `workflow_started`.
-  That local replay did not use production, a live worker, or live MediaScribe,
-  so transcript/diarization availability remained unproven. It also exposed a
-  separate speakerphone quality gap: the same artifact's incoming/system track
-  was effectively silent (`-91.0 dB` mean / `-78.3 dB` max), so this run proves
-  degraded uploadability but not useful dual-track capture of incoming sound
-  through speakers. A later fresh installed-app production probe on
-  2026-06-24 created a v3 `failed` / `leakage_detected` speakerphone package
-  with meaningful microphone and incoming/system audio, uploaded it to
-  production, finalized it, and after a targeted manual processing pickup
-  reached a live MediaScribe-backed processed review state with transcript,
-  diarization, playback, workflow presence, and both source roles visible.
-- Feature `046-meeting-playback-timestamp-seek` is implemented locally as the
-  review gap close-out after `045`. A ready meeting can expose a server-owned
-  playback route, the review page can render an audio player, transcript
-  timestamps can seek the player, and web plus desktop embedded review use the
-  same playback state. For normal dual-track recordings, review playback must
-  represent both retained sources: local microphone and incoming/system audio.
-  If one source is missing, purged, still processing, failed, deleted, not
-  allowed, or unsafe to combine, playback fails closed with a simple unavailable
-  state. Focused local validation passed the playback contract, route,
-  no-secret egress, audit, view-model, web-shell, and desktop embedded parity
-  tests: `31 passed in 6.52s`. This is local implementation evidence only;
-  full local CI, deploy dry-run, PR/merge, release, and production smoke are
-  still required before any rollout claim.
-  Production was still on `master` commit `e312d25`, not feature `045`, so this
-  proves one real upload-to-transcript path after manual pickup but not 045
-  production auto-start/reuse after finalize. The same live result also exposed
-  a review-quality issue: segment-level speaker labels and source roles were not
-  consistently aligned, so local microphone vs incoming/system attribution can
-  be visually confusing. The current branch now includes a regression fix for
-  that mapping bug: cabinet transcript rendering matches diarization by
-  normalized `(sequence, source_role)` instead of sequence alone, and focused
-  cabinet/source-role tests pass locally. Production is still on `e312d25`, so
-  this fix is not live until 045 is reviewed, merged, and deployed. Deploy
-  dry-run and
-  include-set apply-check over `origin/master` `a89cf91` have passed, but this
-  does not prove clean low-leakage artifact creation, 045 production deploy,
-  045 automatic upload-to-transcript behavior, or production e2e after merge.
-  The feature remains branch-local readiness until PR review, merge, deploy,
-  completion of the desktop proof matrix, post-deploy source-role/speaker-label
-  verification, and post-deploy 045 production evidence are completed.
-  Earlier production e2e evidence for `015` proves the pre-045 processing
-  slice on its deployed commit only; it must not be reused as proof that the
-  new 045 upload-eligibility, auto-start/reuse, and result-delivery behavior is
-  live in production.
+- Feature `045-transcription-results-pipeline` is implemented, merged,
+  released as `v2026.06.24.1`, and deployed to production. Structurally valid
+  local packages remain upload/transcription eligible even when local leakage,
+  echo, silence, timing, or transcription-readiness checks are degraded,
+  failed, inconclusive, or unavailable. Consent, permission, missing/unreadable
+  files, package role/size/checksum/fingerprint integrity, lifecycle, and
+  privacy boundaries remain hard gates. Accepted server finalization starts or
+  reuses one processing workflow when processing is enabled, unavailable
+  dependencies become visible processing blockers without rolling back upload
+  success, and web plus embedded desktop review expose matching transcript and
+  diarization availability for the accepted media revision. Quality warnings
+  are retained as metadata-only artifact profile context, not as queue-blocking
+  failure reasons. Production evidence on 2026-06-24 proved a real installed
+  app recording could upload, finalize, process through MediaScribe, and reach
+  a review state with transcript, diarization, playback, workflow presence, and
+  both source roles visible. Speakerphone quality remains a product limitation:
+  the pipeline accepts degraded-but-structurally-valid recordings, but this is
+  not proof of clean echo/noise suppression.
+- Feature `046-meeting-playback-timestamp-seek` is implemented, merged through
+  PR `#1564`, released as `v2026.06.24.2`, and deployed to production. A ready
+  meeting can expose a server-owned playback route, the review page can render
+  an audio player, transcript timestamps can seek the player, and web plus
+  desktop embedded review use the same playback state. For recordings with
+  microphone and incoming/system audio, review playback must represent both
+  retained sources in one review stream; if one source is missing, purged, still
+  processing, failed, deleted, not allowed, or unsafe to combine, playback fails
+  closed with a simple unavailable state. Latest closeout evidence on
+  2026-06-24: focused 046 server quickstart `39 passed`, browser runtime
+  `failures=[]` across web/embedded desktop/mobile and blocked states, macOS
+  SwiftPM suite `575 tests, 0 failures`, GitHub Release published in Russian,
+  open 046 GitHub issues `[]`, and production deploy `deploy_result=pass` with
+  `readiness_verdict=infra_smoke_ready` on deployed commit `cd168c0`. The
+  installed local app bundle is version `2026.06.24.2` and launches from
+  `/Applications`. This still does not implement real echo cancellation,
+  noise suppression, transcript editing, waveform generation, signed/notarized
+  external distribution, or final user-rollout readiness.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
