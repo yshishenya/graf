@@ -103,7 +103,9 @@ public enum DesktopMeetingShellChrome {
             + max(
                 textWidth("2brain Rec", font: NSFont.systemFont(ofSize: 13, weight: .semibold)),
                 textWidth("Рабочее место", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
-                textWidth("Локальный режим", font: NSFont.systemFont(ofSize: 11, weight: .medium))
+                textWidth("Локальный режим", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
+                textWidth("Сервер недоступен", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
+                textWidth("Нужен вход", font: NSFont.systemFont(ofSize: 11, weight: .medium))
             )
             + safetyPadding
 
@@ -114,7 +116,9 @@ public enum DesktopMeetingShellChrome {
             + max(
                 textWidth("2brain Rec", font: NSFont.systemFont(ofSize: 12, weight: .semibold)),
                 textWidth("Кабинет не подключен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
-                textWidth("Кабинет задан", font: NSFont.systemFont(ofSize: 10, weight: .medium))
+                textWidth("Кабинет доступен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
+                textWidth("Проверяем кабинет", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
+                textWidth("Сервер недоступен", font: NSFont.systemFont(ofSize: 10, weight: .medium))
             )
             + 2
             + 12
@@ -239,6 +243,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let pendingUploadCount: Int
     private let cabinetConfigured: Bool
+    private let cabinetState: DesktopCabinetState
     private let statusSummary: String
     private let lastEventSummary: String
     private let isChecking: Bool
@@ -256,6 +261,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         uploadQueueItems: [DesktopUploadQueueItem],
         pendingUploadCount: Int,
         cabinetConfigured: Bool,
+        cabinetState: DesktopCabinetState,
         statusSummary: String,
         lastEventSummary: String,
         isChecking: Bool,
@@ -270,6 +276,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.uploadQueueItems = uploadQueueItems
         self.pendingUploadCount = pendingUploadCount
         self.cabinetConfigured = cabinetConfigured
+        self.cabinetState = cabinetState
         self.statusSummary = statusSummary
         self.lastEventSummary = lastEventSummary
         self.isChecking = isChecking
@@ -322,7 +329,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("2brain Rec")
                         .font(.system(size: 13, weight: .semibold))
-                    Text(cabinetConfigured ? "Рабочее место" : "Локальный режим")
+                    Text(cabinetStatusPresentation.sidebarSubtitle)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -391,7 +398,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         Menu {
             Button("2brain Rec") {}
                 .disabled(true)
-            Button(cabinetConfigured ? "Кабинет задан" : "Локальный режим") {}
+            Button(cabinetStatusPresentation.menuStatusText) {}
                 .disabled(true)
             Divider()
             ForEach(DesktopMeetingShellChrome.profileMenuLabels, id: \.self) { label in
@@ -426,9 +433,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.86)
-                    Text(cabinetConfigured ? "Кабинет задан" : "Кабинет не подключен")
+                    Text(cabinetStatusPresentation.menuStatusText)
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(cabinetConfigured ? Color.secondary : Color.orange)
+                        .foregroundStyle(cabinetStatusColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
@@ -619,26 +626,30 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 localTodayTile(
                     date: "Сейчас",
                     title: captureStatusText,
-                    detail: pendingUploadCount > 0 ? "Загрузка ожидает" : "Готово"
+                    detail: pendingUploadCount > 0 ? "Загрузка ожидает" : "Готово",
+                    icon: captureStatusIcon,
+                    color: captureStatusColor
                 )
                 localTodayTile(
                     date: "Кабинет",
-                    title: cabinetConfigured ? "Сервер задан" : "Локальный режим",
-                    detail: cabinetConfigured ? "Вход проверяется здесь" : "Сохраняются здесь"
+                    title: cabinetStatusPresentation.tileTitle,
+                    detail: cabinetStatusPresentation.tileDetail,
+                    icon: cabinetStatusPresentation.systemImage,
+                    color: cabinetStatusColor
                 )
             }
         }
     }
 
-    private func localTodayTile(date: String, title: String, detail: String) -> some View {
+    private func localTodayTile(date: String, title: String, detail: String, icon: String, color: Color) -> some View {
         HStack(spacing: 10) {
             VStack(spacing: 2) {
                 Text(date)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Image(systemName: date == "Сейчас" ? captureStatusIcon : (cabinetConfigured ? "checkmark.circle" : "wifi.slash"))
-                    .foregroundStyle(date == "Сейчас" ? captureStatusColor : (cabinetConfigured ? .green : .orange))
+                Image(systemName: icon)
+                    .foregroundStyle(color)
             }
             .frame(width: 52)
             .padding(.vertical, 8)
@@ -1158,6 +1169,142 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
     }
 
+    private var cabinetStatusPresentation: DesktopMeetingShellCabinetStatusPresentation {
+        DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: cabinetConfigured,
+            cabinetState: cabinetState
+        )
+    }
+
+    private var cabinetStatusColor: Color {
+        switch cabinetStatusPresentation.tone {
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .error:
+            return .red
+        case .neutral:
+            return .secondary
+        }
+    }
+
+}
+
+public enum DesktopMeetingShellCabinetStatusTone: Equatable, Sendable {
+    case success
+    case neutral
+    case warning
+    case error
+}
+
+public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable {
+    public let sidebarSubtitle: String
+    public let menuStatusText: String
+    public let tileTitle: String
+    public let tileDetail: String
+    public let systemImage: String
+    public let tone: DesktopMeetingShellCabinetStatusTone
+
+    public static func resolved(
+        cabinetConfigured: Bool,
+        cabinetState: DesktopCabinetState
+    ) -> DesktopMeetingShellCabinetStatusPresentation {
+        guard cabinetConfigured else {
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Локальный режим",
+                menuStatusText: "Кабинет не подключен",
+                tileTitle: "Локальный режим",
+                tileDetail: "Сохраняются здесь",
+                systemImage: "wifi.slash",
+                tone: .warning
+            )
+        }
+
+        switch cabinetState {
+        case .ready:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Рабочее место",
+                menuStatusText: "Кабинет доступен",
+                tileTitle: "Сервер доступен",
+                tileDetail: "Вход подтвержден",
+                systemImage: "checkmark.circle",
+                tone: .success
+            )
+        case .loading:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Рабочее место",
+                menuStatusText: "Проверяем кабинет",
+                tileTitle: "Проверяем сервер",
+                tileDetail: "Ждем ответ кабинета",
+                systemImage: "clock",
+                tone: .neutral
+            )
+        case .offline, .timeout:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Сервер недоступен",
+                menuStatusText: "Сервер недоступен",
+                tileTitle: "Сервер недоступен",
+                tileDetail: "Запись работает локально",
+                systemImage: "wifi.slash",
+                tone: .error
+            )
+        case .expiredSession:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Нужен вход",
+                menuStatusText: "Нужен вход",
+                tileTitle: "Нужен вход",
+                tileDetail: "Откройте кабинет заново",
+                systemImage: "person.crop.circle.badge.exclamationmark",
+                tone: .warning
+            )
+        case .accessDenied:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Нет доступа",
+                menuStatusText: "Нет доступа",
+                tileTitle: "Нет доступа",
+                tileDetail: "Проверьте права",
+                systemImage: "lock.trianglebadge.exclamationmark",
+                tone: .warning
+            )
+        case .notFound:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Не найдено",
+                menuStatusText: "Обзор не найден",
+                tileTitle: "Обзор не найден",
+                tileDetail: "Проверьте встречу",
+                systemImage: "questionmark.folder",
+                tone: .warning
+            )
+        case .malformedResponse:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Нужна проверка",
+                menuStatusText: "Нужна проверка",
+                tileTitle: "Нужна проверка",
+                tileDetail: "Ответ сервера неожиданный",
+                systemImage: "exclamationmark.triangle",
+                tone: .warning
+            )
+        case .blockedRoute:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Ограничено",
+                menuStatusText: "Ограничено",
+                tileTitle: "Ограничено",
+                tileDetail: "Откройте снаружи",
+                systemImage: "hand.raised",
+                tone: .warning
+            )
+        case .notConfigured:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                sidebarSubtitle: "Локальный режим",
+                menuStatusText: "Кабинет не подключен",
+                tileTitle: "Локальный режим",
+                tileDetail: "Сохраняются здесь",
+                systemImage: "wifi.slash",
+                tone: .warning
+            )
+        }
+    }
 }
 
 private struct InspectorDisclosureButton: View {

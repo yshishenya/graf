@@ -158,6 +158,7 @@ private struct ContentView: View {
     @State private var recordingStartInProgress = false
     @State private var recordingStopInProgress = false
     @State private var desktopCabinetConfiguration = DesktopCabinetConfiguration.configuredFromEnvironment()
+    @State private var desktopCabinetState: DesktopCabinetState = DesktopCabinetConfiguration.configuredFromEnvironment() == nil ? .notConfigured : .loading
     @State private var selectedCabinetRoute: URL?
 
     let snapshot: LocalAudioSnapshot
@@ -173,6 +174,7 @@ private struct ContentView: View {
             uploadQueueItems: uploadQueueItems,
             pendingUploadCount: uploadQueueItems.filter { !$0.state.isTerminal }.count,
             cabinetConfigured: desktopCabinetConfiguration != nil,
+            cabinetState: desktopCabinetState,
             statusSummary: snapshot.summary,
             lastEventSummary: snapshot.lastEventSummary,
             isChecking: isChecking,
@@ -240,6 +242,7 @@ private struct ContentView: View {
                 configuration: desktopCabinetConfiguration,
                 initialRoute: selectedCabinetRoute,
                 currentRoute: $selectedCabinetRoute,
+                cabinetState: $desktopCabinetState,
                 presentation: .shell,
                 workspaceZoom: workspaceZoom,
                 navigationEventLogger: { event, detail in

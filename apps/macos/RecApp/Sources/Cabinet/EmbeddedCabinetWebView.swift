@@ -48,6 +48,17 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         loaded
     }
 
+    public nonisolated static func finishedState(for routeKind: DesktopCabinetRouteKind) -> DesktopCabinetState {
+        switch routeKind {
+        case .authLogin, .authSignup:
+            return .expiredSession
+        case .meetingList, .meetingDetail:
+            return .ready
+        case .unsupported, .external, .forbiddenAction:
+            return .blockedRoute
+        }
+    }
+
     public func makeNSView(context: Context) -> NSView {
         let configuration = WKWebViewConfiguration()
         configuration.allowsAirPlayForMediaPlayback = false
@@ -155,20 +166,23 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
         @MainActor
         public func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
-            guard let url = webView.url,
-                  routePolicy.decision(for: url).decision == .allow
-            else {
+            guard let url = webView.url else {
                 return
             }
+            let routeDecision = routePolicy.decision(for: url)
+            guard routeDecision.decision == .allow else {
+                return
+            }
+            let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
             if let container = webView.superview as? WebViewContainer {
                 container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
             }
             currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
-            cabinetState = .ready
+            cabinetState = finishedState
             logNavigationEvent(
                 "cabinet_navigation_finished",
-                detail: "state=\(DesktopCabinetState.ready.rawValue) \(urlLogDetail(url))"
+                detail: "state=\(finishedState.rawValue) \(urlLogDetail(url))"
             )
         }
 
@@ -327,6 +341,10 @@ public struct EmbeddedCabinetWebView: View {
 
     public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
         loaded
+    }
+
+    public nonisolated static func finishedState(for _: DesktopCabinetRouteKind) -> DesktopCabinetState {
+        .notConfigured
     }
 
     public var body: some View {
