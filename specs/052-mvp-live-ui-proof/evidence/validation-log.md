@@ -458,3 +458,42 @@ tokens, signed URLs, storage object keys, or private local paths.
   - summary: `failures=[]`; web and embedded fixture checks show one playback
     shell, timestamp seek, three speaker timeline lanes, stored outcome rows,
     and no horizontal overflow across desktop/mobile viewports
+
+## 2026-06-25 Upload Contract Recheck
+
+- fresh installed-app candidate:
+  - session: `FDE7D402-EF68-4272-92E8-9F886B157C0F`
+  - initial upload blocker: `http_status_409:ambiguous_track_parts`
+  - root cause: macOS client split ordinary WAV tracks into multiple 5 MB
+    parts while server finalize expected one accepted object per track role
+  - follow-up state after retry: `uploaded`
+  - processing status after reconciliation: `processed`
+- 1 GiB upload contract update:
+  - server default `max_upload_part_bytes`: `1073741824`
+  - macOS default upload part size: `1073741824`
+  - env templates updated: server local and production examples
+  - larger-than-1-GiB tracks: outside the current MVP upload contract
+- focused validation:
+  - command:
+    `cd apps/server && uv run --extra dev pytest -q tests/unit/test_config_validation.py -q`
+  - result: `pass`
+  - summary: `24 passed`
+  - command:
+    `swift test --package-path apps/macos --disable-swift-testing --filter DesktopUploadClientTests`
+  - result: `pass`
+  - summary: `9 tests passed`
+- full local validation:
+  - command:
+    `git diff --check && infra/scripts/ci-local.sh`
+  - result: `pass`
+  - summary: `627 passed, 4 skipped`; server lint, python compile, production
+    compose rendering, and deployment evidence scan passed
+  - production config proof: rendered compose includes
+    `TWOBRAIN_MAX_UPLOAD_PART_BYTES=1073741824`
+- final local app rebuild:
+  - command:
+    `TWO_BRAIN_REC_VERSION=2026.06.26.3 TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - result: `pass`
+  - installed app: `/Applications/2brain Rec.app`
+  - installed version: `2026.06.26.3`
+  - codesign verify: `pass`

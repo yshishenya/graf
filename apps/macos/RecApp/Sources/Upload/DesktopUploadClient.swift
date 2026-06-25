@@ -165,7 +165,7 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
 }
 
 public struct DesktopUploadClient: DesktopUploadClientProtocol {
-    public static let defaultPartSizeBytes = 5 * 1024 * 1024
+    public static let defaultPartSizeBytes = 1024 * 1024 * 1024
     public static let baseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
     public static let fallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
     public static let baseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"

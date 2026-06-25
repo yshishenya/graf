@@ -95,6 +95,10 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
+    func testDefaultPartSizeMatchesServerSingleTrackLimit() {
+        XCTAssertEqual(DesktopUploadClient.defaultPartSizeBytes, 1024 * 1024 * 1024)
+    }
+
     private func makeQueueItem() -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
