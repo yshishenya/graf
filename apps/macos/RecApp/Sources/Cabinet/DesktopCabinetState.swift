@@ -222,6 +222,25 @@ public enum DesktopCabinetWorkspace {
             return nil
         }
     }
+
+    public static func shouldShowEmbeddedSurface(
+        for state: DesktopCabinetState,
+        currentRoute: URL?,
+        initialRoute: URL?,
+        configuration: DesktopCabinetConfiguration?
+    ) -> Bool {
+        if state.shouldShowEmbeddedSurface {
+            return true
+        }
+        guard state == .expiredSession, let configuration else {
+            return false
+        }
+        guard let route = currentRoute ?? initialRoute else {
+            return false
+        }
+        let decision = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(for: route)
+        return decision.decision == .allow && (decision.route.kind == .authLogin || decision.route.kind == .authSignup)
+    }
 }
 
 public enum DesktopCabinetLayoutSection: String, Equatable, Sendable {

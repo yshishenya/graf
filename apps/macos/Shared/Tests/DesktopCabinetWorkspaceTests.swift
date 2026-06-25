@@ -94,6 +94,33 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testExpiredSessionKeepsEmbeddedLoginSurfaceVisible() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .expiredSession,
+            currentRoute: login,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertFalse(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .expiredSession,
+            currentRoute: configuration.meetingsURL(),
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertFalse(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .offline,
+            currentRoute: login,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+    }
+
     func testShellInvariantKeepsStopReachableDuringActiveRecordingForEveryCabinetState() {
         for state in DesktopCabinetState.allCases {
             let invariant = NativeShellInvariant(
