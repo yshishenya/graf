@@ -446,3 +446,15 @@ tokens, signed URLs, storage object keys, or private local paths.
   - result: `pass`
   - summary: readiness docs now point at the current deployed commit while the
     outcome remains `pilot_blocked`
+- 2026-06-25 safe UI/probe recheck:
+  - command:
+    `python3 specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py`
+  - result: `blocked`
+  - summary: public live/ready passed; owner review proof still requires a
+    real `OWNER_SESSION_COOKIE` and `OWNER_MEETING_ID`
+  - command:
+    `NODE_PATH=<codex-runtime-node-modules> <codex-runtime-node> specs/052-mvp-live-ui-proof/evidence/browser-runtime-check.cjs`
+  - result: `pass`
+  - summary: `failures=[]`; web and embedded fixture checks show one playback
+    shell, timestamp seek, three speaker timeline lanes, stored outcome rows,
+    and no horizontal overflow across desktop/mobile viewports
