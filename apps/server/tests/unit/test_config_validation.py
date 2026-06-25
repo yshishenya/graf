@@ -24,6 +24,10 @@ def test_production_config_accepts_non_local_runtime_credentials() -> None:
     assert settings.env == "production"
 
 
+def test_default_upload_part_contract_is_one_gib() -> None:
+    assert Settings().max_upload_part_bytes == 1_073_741_824
+
+
 @pytest.mark.parametrize(
     "database_url",
     [

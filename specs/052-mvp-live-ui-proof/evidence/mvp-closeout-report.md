@@ -49,5 +49,9 @@ Keep these P1 launch gaps open until direct evidence closes them:
 - Timing note: the three-minute-per-hour target passed on a non-sensitive
   synthetic one-hour production candidate; this does not replace fresh
   installed-app owner journey proof.
+- UX note: native upload rows still need visible upload progress and stalled
+  state copy so users can distinguish a slow large upload from a stuck upload.
+- Upload contract note: the single-part upload contract is being raised to 1
+  GiB per track; larger tracks stay outside the current MVP upload contract.
 - Current claim: keep `pilot_blocked`; do not claim
   `internal_pilot_candidate`, `user_rollout_ready`, or `production_ready`.
