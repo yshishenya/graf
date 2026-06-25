@@ -24,6 +24,7 @@ from twobrain_rec_server.db.models import (
     MeetingDeletionRequest,
     MeetingEgressAuditEvent,
     MeetingLifecycleAuditEvent,
+    MeetingOutcomeSet,
 )
 from twobrain_rec_server.deletion.audit import build_lifecycle_audit_metadata
 from twobrain_rec_server.deletion.local_purge import create_local_purge_tasks_for_request
@@ -43,6 +44,7 @@ from twobrain_rec_server.domain.statuses import (
     DeletionRequestSource,
     DeletionState,
     LifecycleAuditOutcome,
+    OutcomeLifecycleState,
 )
 from twobrain_rec_server.processing.lifecycle import MEDIA_REVISION_DELETION_SAFE_REASON
 
@@ -139,6 +141,7 @@ async def request_meeting_deletion(
         meeting=meeting,
         deletion_request_id=deletion_request.id,
     )
+    outcomes_materialized = await _mark_outcomes_deleting(db, meeting=meeting)
     post_egress_safe_reason = await _post_egress_safe_reason(db, meeting=meeting)
     artifact_states = _initial_artifact_states(
         meeting,
@@ -146,6 +149,7 @@ async def request_meeting_deletion(
         local_purge_requested=bool(local_purge_tasks),
         backup_expiry_days=backup_expiry_days,
         post_egress_safe_reason=post_egress_safe_reason,
+        outcomes_materialized=outcomes_materialized,
     )
     report = MeetingDeletionReport(
         workspace_id=meeting.workspace_id,
@@ -276,6 +280,7 @@ def _initial_artifact_states(
     local_purge_requested: bool = False,
     backup_expiry_days: int | None = DEFAULT_BACKUP_EXPIRY_DAYS,
     post_egress_safe_reason: str = "Delivered copies are outside 2brain Rec control",
+    outcomes_materialized: bool = False,
 ) -> list[MeetingDeletionArtifactState]:
     local_purge_state = (
         DeletionArtifactState.LOCAL_PENDING
@@ -288,13 +293,15 @@ def _initial_artifact_states(
         if backup_expiry_days is not None
         else "backup_expiry_policy_missing"
     )
+    outcomes_state = DeletionArtifactState.PURGE_REQUESTED if outcomes_materialized else DeletionArtifactState.NOT_APPLICABLE
+    outcomes_reason = "Meeting outcomes purge requested" if outcomes_materialized else "Meeting outcomes not materialized"
     rows = [
         (DeletionArtifactClass.MEETING_ROW, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, "Meeting row retained as deletion report metadata"),
         (DeletionArtifactClass.MEDIA_REVISION, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, MEDIA_REVISION_DELETION_SAFE_REASON),
         (DeletionArtifactClass.AUDIO_OBJECT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Server audio purge requested"),
         (DeletionArtifactClass.TRANSCRIPT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Transcript purge requested"),
         (DeletionArtifactClass.DIARIZATION, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Diarization purge requested"),
-        (DeletionArtifactClass.NOTES_SUMMARY, DeletionControlScope.CONTROLLED, DeletionArtifactState.NOT_APPLICABLE, "Notes are not materialized in this MVP seed"),
+        (DeletionArtifactClass.NOTES_SUMMARY, DeletionControlScope.CONTROLLED, outcomes_state, outcomes_reason),
         (DeletionArtifactClass.EXPORT_PACKAGE, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Export package purge requested"),
         (DeletionArtifactClass.SHARE_GRANT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Share grants disabled for this meeting"),
         (DeletionArtifactClass.UPLOAD_TEMP, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Temporary upload purge requested"),
@@ -360,6 +367,20 @@ async def _post_egress_safe_reason(db: AsyncSession, *, meeting: Meeting) -> str
     if not unique_event_types:
         return "Delivered copies are outside 2brain Rec control"
     return "post_egress_events:" + ",".join(unique_event_types)
+
+
+async def _mark_outcomes_deleting(db: AsyncSession, *, meeting: Meeting) -> bool:
+    outcome_sets = (
+        await db.scalars(
+            select(MeetingOutcomeSet)
+            .where(MeetingOutcomeSet.workspace_id == meeting.workspace_id)
+            .where(MeetingOutcomeSet.meeting_id == meeting.id)
+            .where(MeetingOutcomeSet.lifecycle_state == OutcomeLifecycleState.ACTIVE.value)
+        )
+    ).all()
+    for outcome_set in outcome_sets:
+        outcome_set.lifecycle_state = OutcomeLifecycleState.DELETING.value
+    return bool(outcome_sets)
 
 
 def _local_purge_task_from_model(task: LocalPurgeTaskModel) -> LocalPurgeTask:

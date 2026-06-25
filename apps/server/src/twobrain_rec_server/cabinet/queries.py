@@ -24,12 +24,14 @@ from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaRevision,
     Meeting,
+    MeetingOutcomeSet,
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import DeletionState
+from twobrain_rec_server.outcomes.service import load_outcome_items
 
 
 async def list_cabinet_meetings(
@@ -79,6 +81,12 @@ async def list_cabinet_meetings(
             meeting_id=meeting.id,
             media_revision_id=media_revision_id,
         )
+        outcome_set = await _latest_outcome_set(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            processing_result_id=result.id if result is not None else None,
+        )
         artifacts = await artifact_egress_states(db, meeting=meeting, access=decision, result=result)
         item = build_list_item(
             meeting,
@@ -86,6 +94,8 @@ async def list_cabinet_meetings(
             workflow=workflow,
             access=decision.to_schema(),
             artifacts=artifacts,
+            outcome_set=outcome_set,
+            outcome_items=[],
         )
         if status is not None and item.status != status:
             continue
@@ -161,6 +171,12 @@ async def get_cabinet_meeting_review(
                 .order_by(DiarizationSegment.sequence.asc(), DiarizationSegment.start_seconds.asc())
             )
         ).all()
+    outcome_set = await _latest_outcome_set(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        processing_result_id=result.id if result is not None else None,
+    )
     dependency = await db.scalar(
         select(ProcessingDependencyState)
         .where(
@@ -187,6 +203,8 @@ async def get_cabinet_meeting_review(
             meeting_id=meeting_id,
             viewer_user_id=viewer_user_id,
         ),
+        outcome_set=outcome_set,
+        outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
     )
 
 
@@ -247,6 +265,27 @@ async def _latest_media_revision(
             MediaRevision.meeting_id == meeting_id,
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+    )
+
+
+async def _latest_outcome_set(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    processing_result_id: UUID | None,
+) -> MeetingOutcomeSet | None:
+    if processing_result_id is None:
+        return None
+    return await db.scalar(
+        select(MeetingOutcomeSet)
+        .where(
+            MeetingOutcomeSet.workspace_id == workspace_id,
+            MeetingOutcomeSet.meeting_id == meeting_id,
+            MeetingOutcomeSet.processing_result_id == processing_result_id,
+            MeetingOutcomeSet.lifecycle_state == "active",
+        )
+        .order_by(MeetingOutcomeSet.generated_at.desc(), MeetingOutcomeSet.created_at.desc())
     )
 
 

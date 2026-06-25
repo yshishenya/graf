@@ -23,6 +23,10 @@ RECORDING_SYNC_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0008_recording_sync_transcription_loop.py"
 )
+OUTCOMES_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0009_meeting_outcomes_mvp.py"
+)
 CONTRACT = REPO_ROOT / "specs/031-rls-hardening/contracts/rls-policy-matrix.md"
 
 
@@ -32,6 +36,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + ACCESS_MIGRATION.read_text(encoding="utf-8")
         + DELETION_MIGRATION.read_text(encoding="utf-8")
         + RECORDING_SYNC_MIGRATION.read_text(encoding="utf-8")
+        + OUTCOMES_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):

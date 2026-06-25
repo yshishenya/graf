@@ -4848,10 +4848,13 @@ components:
           type: string
           enum:
           - available
+          - not_found
+          - not_inferable
           - processing
           - blocked
           - unavailable
           - deferred
+          - unsafe
           title: State
         label:
           type: string
@@ -4869,6 +4872,11 @@ components:
         copy_key:
           type: string
           title: Copy Key
+        items:
+          items:
+            $ref: '#/components/schemas/OutcomeItemView'
+          type: array
+          title: Items
       type: object
       required:
       - state
@@ -4881,11 +4889,19 @@ components:
       properties:
         summary:
           $ref: '#/components/schemas/NotesActionCategoryState'
+        key_points:
+          $ref: '#/components/schemas/NotesActionCategoryState'
         decisions:
           $ref: '#/components/schemas/NotesActionCategoryState'
         action_items:
           $ref: '#/components/schemas/NotesActionCategoryState'
         followups:
+          $ref: '#/components/schemas/NotesActionCategoryState'
+        risks:
+          $ref: '#/components/schemas/NotesActionCategoryState'
+        questions:
+          $ref: '#/components/schemas/NotesActionCategoryState'
+        evidence:
           $ref: '#/components/schemas/NotesActionCategoryState'
         source_basis:
           type: string
@@ -4895,7 +4911,12 @@ components:
           - transcript_only
           - policy_deferral
           - not_supported
+          - blocked
           title: Source Basis
+        provenance:
+          anyOf:
+          - $ref: '#/components/schemas/OutcomeProvenanceView'
+          - type: 'null'
       type: object
       required:
       - summary
@@ -4930,6 +4951,122 @@ components:
       - available
       - unavailable_reason
       title: NotesReviewState
+    OutcomeItemView:
+      properties:
+        category:
+          type: string
+          title: Category
+        sequence:
+          type: integer
+          minimum: 0.0
+          title: Sequence
+        text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Text
+        owner_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Owner Text
+        due_date_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Due Date Text
+        truth_label:
+          type: string
+          enum:
+          - supported
+          - not_found
+          - not_inferable
+          - unsafe
+          - blocked
+          title: Truth Label
+        source_refs:
+          items:
+            $ref: '#/components/schemas/OutcomeSourceReferenceView'
+          type: array
+          title: Source Refs
+      type: object
+      required:
+      - category
+      - sequence
+      - truth_label
+      title: OutcomeItemView
+    OutcomeProvenanceView:
+      properties:
+        generator_kind:
+          type: string
+          title: Generator Kind
+        generator_version:
+          type: string
+          title: Generator Version
+        generated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Generated At
+        latency_ms:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Latency Ms
+      type: object
+      required:
+      - generator_kind
+      - generator_version
+      title: OutcomeProvenanceView
+    OutcomeSourceReferenceView:
+      properties:
+        transcript_segment_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Transcript Segment Id
+        sequence:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Sequence
+        start_seconds:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Start Seconds
+        end_seconds:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: End Seconds
+        speaker_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Speaker Label
+        source_role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Role
+        evidence_kind:
+          type: string
+          enum:
+          - segment
+          - timestamp
+          - category_state
+          - source_hint
+          title: Evidence Kind
+      type: object
+      required:
+      - evidence_kind
+      title: OutcomeSourceReferenceView
     PlaybackReviewState:
       properties:
         available:

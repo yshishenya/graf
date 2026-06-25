@@ -108,6 +108,80 @@ class SummaryStatus(StrEnum):
     FAILED = "failed"
 
 
+class OutcomeCategory(StrEnum):
+    SUMMARY = "summary"
+    KEY_POINTS = "key_points"
+    DECISIONS = "decisions"
+    ACTION_ITEMS = "action_items"
+    FOLLOWUPS = "followups"
+    RISKS = "risks"
+    QUESTIONS = "questions"
+    EVIDENCE = "evidence"
+
+
+class OutcomeCategoryState(StrEnum):
+    AVAILABLE = "available"
+    NOT_FOUND = "not_found"
+    NOT_INFERABLE = "not_inferable"
+    PROCESSING = "processing"
+    BLOCKED = "blocked"
+    UNSAFE = "unsafe"
+    UNAVAILABLE = "unavailable"
+
+
+class OutcomeSetStatus(StrEnum):
+    QUEUED = "queued"
+    GENERATING = "generating"
+    AVAILABLE = "available"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    UNSAFE = "unsafe"
+
+
+class OutcomeSourceKind(StrEnum):
+    STORED_OUTPUT = "stored_output"
+    EXTRACTIVE_GENERATOR = "extractive_generator"
+    MEDIASCRIBE_SUMMARY = "mediascribe_summary"
+    PROVIDER_OUTPUT = "provider_output"
+    NOT_INFERABLE = "not_inferable"
+    BLOCKED = "blocked"
+
+
+class OutcomeGeneratorKind(StrEnum):
+    DETERMINISTIC_EXTRACTIVE = "deterministic_extractive"
+    MEDIASCRIBE_SUMMARY = "mediascribe_summary"
+    LLM_PROVIDER = "llm_provider"
+    MANUAL_FIXTURE = "manual_fixture"
+
+
+class OutcomeTruthLabel(StrEnum):
+    SUPPORTED = "supported"
+    NOT_FOUND = "not_found"
+    NOT_INFERABLE = "not_inferable"
+    UNSAFE = "unsafe"
+    BLOCKED = "blocked"
+
+
+class OutcomeLifecycleState(StrEnum):
+    ACTIVE = "active"
+    DELETING = "deleting"
+    DELETED = "deleted"
+    RETENTION_EXPIRED = "retention_expired"
+    BLOCKED = "blocked"
+
+
+class OutcomeGenerationAttemptStatus(StrEnum):
+    QUEUED = "queued"
+    GENERATING = "generating"
+    STORED = "stored"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED_RETRYABLE = "failed_retryable"
+    FAILED_TERMINAL = "failed_terminal"
+    UNSAFE = "unsafe"
+
+
 class ProcessingDependencyName(StrEnum):
     TEMPORAL = "temporal"
     MEDIASCRIBE = "mediascribe"

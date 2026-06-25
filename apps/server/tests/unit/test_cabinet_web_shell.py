@@ -19,6 +19,8 @@ from twobrain_rec_server.api.schemas import (
     NotesActionCategoryState,
     NotesActionTruthState,
     NotesReviewState,
+    OutcomeItemView,
+    OutcomeSourceReferenceView,
     PlaybackReviewState,
     ProcessingReviewState,
     SharePanelState,
@@ -440,6 +442,76 @@ def test_detail_shell_reserves_notes_assistant_template_without_internal_feature
     assert "feature 016" not in page.lower()
     assert "feature:016" not in page.lower()
     assert "016-meeting-detail" not in page
+
+
+def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spacing() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=120,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="combined_review_stream",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    summary = NotesActionCategoryState(
+        state="available",
+        label="Итоги готовы",
+        reason="Сохраненный итог доступен и связан с расшифровкой.",
+        readiness_impact="closes_gap",
+        copy_key="notes.summary.available",
+        items=[
+            OutcomeItemView(
+                category="summary",
+                sequence=0,
+                text=(
+                    "Синтетический длинный итог встречи занимает несколько строк, "
+                    "чтобы проверить переносы, ширину карточки и совместимость с нижним плеером."
+                ),
+                truth_label="supported",
+                source_refs=[
+                    OutcomeSourceReferenceView(
+                        sequence=1,
+                        start_seconds=12.5,
+                        end_seconds=20.0,
+                        evidence_kind="segment",
+                    )
+                ],
+            )
+        ],
+    )
+    deferred = NotesActionCategoryState(
+        state="not_found",
+        label="Не найдено",
+        reason="В расшифровке нет надежной опоры для этой категории.",
+        readiness_impact="closes_gap",
+        copy_key="notes.outcomes.not_found",
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        summary=summary,
+        key_points=deferred,
+        decisions=deferred,
+        action_items=deferred,
+        followups=deferred,
+        risks=deferred,
+        questions=deferred,
+        evidence=summary,
+        source_basis="stored_output",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert 'data-outcome-source-basis="stored_output"' in page
+    assert 'data-outcome-category="summary"' in page
+    assert 'data-outcome-state="available"' in page
+    assert "Синтетический длинный итог встречи" in page
+    assert "Источник: 00:12" in page
+    assert "Ключевое" in page
+    assert ".notes-outcome-row .outcome-item" in page
+    assert "grid-column: 1 / -1" in page
+    assert 'class="playback-bar detail-playback"' in page
 
 
 def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:

@@ -246,6 +246,21 @@ Date: 2026-06-25
   links, real echo cancellation, noise suppression, waveform generation,
   transcript editing, native Swift playback controls, signed/notarized
   distribution, or final user-rollout readiness.
+- Feature `049-meeting-outcomes-mvp` is implemented in the current feature
+  branch as the stored meeting outcomes slice for MVP readiness. The
+  notes/action output blocker is closed by stored, launch-safe outcome rows:
+  summary, key points, decisions, action items, follow-ups, risks, questions,
+  and evidence states are materialized only from transcript-backed source
+  segments, with category-level not-found/not-inferable truth instead of
+  fabrication. Web review and macOS embedded review share the same server-owned
+  response, responsive layout, source evidence rows, processing/blocked/partial
+  states, and playback coexistence. Privacy boundaries stay in force: outcome
+  text is hidden from list egress and denied/deleted/deleting states, outcome
+  artifacts are included in deletion accounting, RLS inventory covers outcome
+  tables, and committed evidence remains metadata-only. This does not claim
+  production rollout readiness yet: the branch still needs final focused
+  quickstart validation, full local CI, deploy dry-run, PR/release closeout, and
+  production user-journey evidence before any pilot or user rollout claim.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -391,13 +406,13 @@ Date: 2026-06-25
 
 ## Next Product Slice
 
-Recommended next action before starting another feature: close the remaining
-MVP launch blocker around stored/generated notes and actions, or record an
-explicit owner-approved MVP deferral. The current deployed path now proves
-upload eligibility, server processing start/reuse, result availability, real
-visible review playback, timestamp seek, and server-mediated range playback;
-product rollout is still blocked until launchable notes/actions and final
-user-rollout proof are accepted.
+Recommended next action before starting another feature: finish validating and
+closing `049-meeting-outcomes-mvp`, then keep the readiness claim capped until
+production user-rollout evidence is accepted. The current branch closes the
+notes/action output blocker with stored meeting outcomes, while the deployed
+path already proves upload eligibility, server processing start/reuse, result
+availability, real visible review playback, timestamp seek, and
+server-mediated range playback.
 
 Remaining launch blockers are now more specific:
 
@@ -420,9 +435,10 @@ Remaining launch blockers are now more specific:
   implemented, merged, released, and production-smoked in `048`; remaining MVP
   rollout risk is no longer the playback release gate, but the broader
   launchability evidence below;
-- notes/action truth states are implemented, but stored/generated launchable
-  notes and actions, or an explicit owner-approved pilot deferral, are not yet
-  accepted;
+- notes/action output blocker is closed in `049` by stored meeting outcomes
+  with transcript evidence, category truth, privacy/deletion/RLS coverage, and
+  web/embedded review parity; it still needs final feature closeout before it
+  can be described as released/deployed product behavior;
 - production evidence remains below full user-rollout proof: one manual-pickup
   live transcript result exists, but deployed 045 auto-start/reuse and
   source-attribution proof are still missing;
@@ -431,10 +447,9 @@ Remaining launch blockers are now more specific:
   this does not replace production rollout evidence.
 
 Before any pilot claim, keep `048` playback evidence tied to real deployed
-review behavior, finish the remaining generated notes/actions decision or
-explicit MVP deferral, and collect final user-rollout proof. Keep the owner
-proof plus installed-app walkthrough linked as supporting evidence rather than
-a rollout claim.
+review behavior, finish `049` validation/PR/release/deploy closeout, and collect
+final user-rollout proof. Keep the owner proof plus installed-app walkthrough
+linked as supporting evidence rather than a rollout claim.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey
@@ -444,9 +459,10 @@ Keep separate unless the next spec explicitly changes scope:
 
 - Public-link and external-recipient sharing policy: optional public links,
   expiration, abuse controls, external invitations, and legal/admin copy.
-- Notes/action output: decide whether the MVP requires stored generated
-  notes/action items next or whether the now-truthful 036 state model is
-  explicitly accepted as a narrower internal-pilot deferral.
+- Notes/action output: `049` closes the MVP blocker with stored meeting
+  outcomes. Follow-up work is quality/model improvement, editing, richer
+  owner controls, or rollout hardening, not a replacement for the basic stored
+  outcome surface.
 - Interactive playback/timestamp seek: real visible owner review playback is
   implemented, merged, released, and production-smoked in `048`. Remaining
   playback-related work is post-MVP scope such as compressed share audio,

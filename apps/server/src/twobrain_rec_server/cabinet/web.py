@@ -310,6 +310,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .notes-outcomes { display: grid; gap: 8px; }
 .notes-outcome-row { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .notes-outcome-row:last-child { border-bottom: 0; }
+.notes-outcome-row .outcome-item { grid-column: 1 / -1; display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .transcript { display: grid; gap: 14px; }
 .segment { display: grid; grid-template-columns: 76px 112px minmax(0, 1fr); gap: 12px; min-width: 0; }
 .timestamp { color: var(--accent); font-size: 12px; font-weight: 750; }
@@ -2436,6 +2437,7 @@ UI_TEXT: dict[str, str] = {
     "Disabled": "Выключено",
     "Disabled by policy": "Заблокировано",
     "Download": "Скачать",
+    "Evidence": "Фрагменты",
     "Export": "Экспорт",
     "Export package": "Экспорт",
     "Export ready": "Экспорт готов",
@@ -2444,6 +2446,7 @@ UI_TEXT: dict[str, str] = {
     "Files already downloaded or exported are outside later 2brain Rec revocation. Deleting a meeting can remove what 2brain Rec controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в 2brain Rec. Удаление встречи может убрать то, что контролирует 2brain Rec, но не копии, уже сохраненные где-то еще.",
     "Follow-ups": "Продолжение",
     "Incoming system": "Входящий звук",
+    "Key points": "Ключевое",
     "Local only": "Только локально",
     "Local microphone": "Микрофон",
     "Meeting processing needs operator review before outcomes can be trusted.": "Обработку встречи нужно проверить оператору, прежде чем доверять итогам.",
@@ -2471,11 +2474,13 @@ UI_TEXT: dict[str, str] = {
     "Processing": "Расшифровка",
     "Processing result could not be imported safely.": "Результат обработки не удалось безопасно импортировать.",
     "Public links": "Публичные ссылки",
+    "Questions": "Вопросы",
     "Ready": "Готово",
     "Report": "Отчет",
     "Request deletion": "Запросить удаление",
     "Retention policy planned": "Правила хранения",
     "Retention controls will show policy truth before activation.": "Правила хранения появятся после активации политики.",
+    "Risks": "Риски",
     "Share": "Поделиться",
     "Sharing is unavailable for this meeting.": "Поделиться этой встречей сейчас нельзя.",
     "Speaker lanes are reserved until diarization is available.": "Спикеры появятся после диаризации.",
@@ -2559,18 +2564,24 @@ def _speaker_display_label(label: str) -> str:
 
 def _notes_source_label(source_basis: str) -> str:
     return {
+        "blocked": "заблокировано",
         "not_supported": "не поддерживается",
         "policy_deferral": "отложено политикой",
         "processing_status": "статус обработки",
+        "stored_output": "сохраненные итоги",
     }.get(source_basis, _ui_text(source_basis))
 
 
 def _notes_title(title: str) -> str:
     return {
         "Summary": "Кратко",
+        "Key points": "Ключевое",
         "Decisions": "Решения",
         "Action Items": "Действия",
         "Follow-ups": "Продолжение",
+        "Risks": "Риски",
+        "Questions": "Вопросы",
+        "Evidence": "Фрагменты",
     }.get(title, _ui_text(title))
 
 
@@ -2960,16 +2971,21 @@ def _render_governance(review: MeetingReviewResponse) -> str:
 
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     outcomes = [
-        ("Summary", review.notes_action_truth.summary),
-        ("Decisions", review.notes_action_truth.decisions),
-        ("Action Items", review.notes_action_truth.action_items),
-        ("Follow-ups", review.notes_action_truth.followups),
+        ("summary", "Summary", review.notes_action_truth.summary),
+        ("key_points", "Key points", review.notes_action_truth.key_points),
+        ("decisions", "Decisions", review.notes_action_truth.decisions),
+        ("action_items", "Action Items", review.notes_action_truth.action_items),
+        ("followups", "Follow-ups", review.notes_action_truth.followups),
+        ("risks", "Risks", review.notes_action_truth.risks),
+        ("questions", "Questions", review.notes_action_truth.questions),
+        ("evidence", "Evidence", review.notes_action_truth.evidence),
     ]
-    rows = "".join(_render_notes_outcome_row(title, state) for title, state in outcomes)
+    rows = "".join(_render_notes_outcome_row(category, title, state) for category, title, state in outcomes)
     source = escape(_notes_source_label(review.notes_action_truth.source_basis))
+    source_basis = escape(review.notes_action_truth.source_basis)
     return f"""
-      <div class="notes">
-        <h3>{escape(_ui_text("Notes"))}</h3>
+      <div class="notes" data-outcome-source-basis="{source_basis}">
+        <h3>{escape(_ui_text("Итоги встречи"))}</h3>
         <div class="state-list notes-outcomes">
           {rows}
         </div>
@@ -2978,14 +2994,29 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     """
 
 
-def _render_notes_outcome_row(title: str, state: NotesActionCategoryState) -> str:
+def _render_notes_outcome_row(category: str, title: str, state: NotesActionCategoryState) -> str:
     state_name = escape(state.state)
+    items = "".join(_render_outcome_item(item) for item in state.items)
     return f"""
-      <div class="state-row notes-outcome-row">
+      <div class="state-row notes-outcome-row" data-outcome-category="{escape(category)}" data-outcome-state="{state_name}">
         <span><strong>{escape(_notes_title(title))}</strong><br><span class="muted">{escape(_ui_text(state.reason))}</span></span>
         <span class="chip {state_name}">{escape(_ui_text(state.label))}</span>
+        {items}
       </div>
     """
+
+
+def _render_outcome_item(item) -> str:
+    text = escape(item.text or "")
+    if not text:
+        return ""
+    refs = ", ".join(
+        _timecode(int(ref.start_seconds or 0))
+        for ref in item.source_refs[:2]
+        if ref.start_seconds is not None
+    )
+    refs_html = f'<span class="muted">Источник: {escape(refs)}</span>' if refs else ""
+    return f'<div class="outcome-item"><span>{text}</span>{refs_html}</div>'
 
 
 def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str:

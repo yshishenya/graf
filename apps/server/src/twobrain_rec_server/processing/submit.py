@@ -13,6 +13,7 @@ from twobrain_rec_server.mediascribe.import_results import (
     normalize_result,
     result_digest,
 )
+from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_MISSING_ARTIFACTS,
@@ -169,12 +170,13 @@ async def poll_and_import_mediascribe_result(
             reason_code=MEDIASCRIBE_MALFORMED_RESPONSE,
         )
         return ImportProcessingResult(imported=False, status=ProcessingStatus.FAILED_RETRYABLE)
-    await store.persist_processing_result(
+    result_row = await store.persist_processing_result(
         db,
         job=job,
         result=result,
         source_result_hash=result_digest(result),
     )
+    await ensure_outcomes_for_processing_result(db, result=result_row)
     await store.set_workflow_status(db, workflow, ProcessingStatus.PROCESSED, terminal=True)
     await store.record_processing_audit_event(
         db,

@@ -60,6 +60,9 @@ Tables:
 - `retention_policy_snapshots`
 - `local_purge_tasks`
 - `meeting_lifecycle_audit_events`
+- `meeting_outcome_sets`
+- `meeting_outcome_items`
+- `meeting_outcome_generation_attempts`
 
 ## Inherited Workspace Tables
 

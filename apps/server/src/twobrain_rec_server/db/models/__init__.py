@@ -39,6 +39,11 @@ from twobrain_rec_server.db.models.meeting_access import (
     MeetingEgressAuditEvent,
     MeetingShareGrant,
 )
+from twobrain_rec_server.db.models.outcomes import (
+    MeetingOutcomeGenerationAttempt,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
+)
 from twobrain_rec_server.db.models.processing import (
     DiarizationSegment,
     MediaScribeJob,
@@ -65,6 +70,9 @@ __all__ = [
     "MeetingEgressAuditEvent",
     "MeetingLifecycleAuditEvent",
     "MeetingShareGrant",
+    "MeetingOutcomeGenerationAttempt",
+    "MeetingOutcomeItem",
+    "MeetingOutcomeSet",
     "Organization",
     "ProcessingAuditEvent",
     "ProcessingDependencyState",

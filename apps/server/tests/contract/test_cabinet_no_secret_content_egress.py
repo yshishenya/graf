@@ -1,4 +1,7 @@
+import asyncio
 import json
+
+from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
@@ -6,10 +9,13 @@ from tests.fixtures.cabinet import (
     PRIVATE_EXTERNAL_JOB_ID,
     SAFE_SECOND_TRANSCRIPT_TEXT,
     SAFE_TRANSCRIPT_TEXT,
+    create_outcome_ready_meeting,
     seed_cabinet_meetings,
 )
 from tests.fixtures.cabinet_access import replace_retained_audio_with_test_wav
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
+from twobrain_rec_server.db.models import MeetingOutcomeItem
+from twobrain_rec_server.outcomes.service import ensure_outcomes_for_meeting
 
 
 def _dump_json(payload: object) -> str:
@@ -79,6 +85,21 @@ def test_notes_action_truth_egresses_only_metadata_safe_states(client) -> None:
     assert "session_token" not in body
 
 
+def test_cabinet_list_omits_stored_outcome_item_text(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "no-secret-outcome-list")
+    asyncio.run(ensure_outcomes_for_meeting(client.app_state["sessionmaker"], meeting_id=meeting_id))
+    outcome_text = asyncio.run(_first_outcome_text(client, meeting_id))
+    assert outcome_text
+
+    response = client.get("/api/v1/cabinet/meetings", headers=auth_headers())
+
+    assert response.status_code == 200
+    body = _dump_json(response.json())
+    assert outcome_text not in body
+    assert "source_refs" not in body
+    assert "storage_object_key" not in body
+
+
 def test_finalize_autostart_payloads_do_not_egress_content_or_secrets(client) -> None:
     enable_processing_autostart(client, FakeTemporalClient())
 
@@ -103,6 +124,18 @@ def test_finalize_autostart_payloads_do_not_egress_content_or_secrets(client) ->
     }
     for marker in forbidden:
         assert marker not in body
+
+
+async def _first_outcome_text(client, meeting_id) -> str:
+    async with client.app_state["sessionmaker"]() as db:
+        text = await db.scalar(
+            select(MeetingOutcomeItem.text)
+            .where(MeetingOutcomeItem.meeting_id == meeting_id)
+            .where(MeetingOutcomeItem.text.is_not(None))
+            .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+        )
+        assert text is not None
+        return text
 
 
 def test_playback_processing_denial_does_not_egress_audio_or_storage_identifiers(client) -> None:
