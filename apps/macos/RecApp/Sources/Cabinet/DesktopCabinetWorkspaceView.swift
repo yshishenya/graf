@@ -85,7 +85,7 @@ public struct DesktopCabinetWorkspaceView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let configuration, activeCabinetState.shouldShowEmbeddedSurface {
+        if let configuration, shouldShowEmbeddedSurface {
             let route = currentRoute ?? initialRoute ?? configuration.meetingsURL()
             let webView = EmbeddedCabinetWebView(
                 request: configuration.urlRequest(for: route),
@@ -163,6 +163,15 @@ public struct DesktopCabinetWorkspaceView: View {
     private var recoveryTarget: DesktopCabinetRecoveryTarget? {
         guard let configuration else { return nil }
         return DesktopCabinetWorkspace.recoveryTarget(for: activeCabinetState, configuration: configuration)
+    }
+
+    private var shouldShowEmbeddedSurface: Bool {
+        DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: activeCabinetState,
+            currentRoute: currentRoute,
+            initialRoute: initialRoute,
+            configuration: configuration
+        )
     }
 
     private var statusText: String {
