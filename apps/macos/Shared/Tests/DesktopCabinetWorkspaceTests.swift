@@ -259,5 +259,40 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(expired.systemImage, "person.crop.circle.badge.exclamationmark")
         XCTAssertEqual(expired.tone, .warning)
     }
+
+    func testShellNeverCarriesCachedReadyAcrossAuthOrServerFailureStates() {
+        let nonReadyStates: [DesktopCabinetState] = [
+            .loading,
+            .offline,
+            .timeout,
+            .expiredSession,
+            .accessDenied,
+            .notFound,
+            .malformedResponse,
+            .blockedRoute,
+        ]
+
+        for state in nonReadyStates {
+            let presentation = DesktopMeetingShellCabinetStatusPresentation.resolved(
+                cabinetConfigured: true,
+                cabinetState: state
+            )
+
+            XCTAssertNotEqual(presentation.menuStatusText, "Кабинет доступен", "\(state)")
+            XCTAssertNotEqual(presentation.tileTitle, "Сервер доступен", "\(state)")
+            XCTAssertNotEqual(presentation.systemImage, "checkmark.circle", "\(state)")
+            XCTAssertNotEqual(presentation.tone, .success, "\(state)")
+        }
+    }
+
+    func testHTTPStatusMappingPreventsFalseGreenCabinetState() {
+        XCTAssertNil(DesktopCabinetState.state(forHTTPStatus: 200))
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 401), .expiredSession)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 403), .accessDenied)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 404), .notFound)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 504), .timeout)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 503), .offline)
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 429), .malformedResponse)
+    }
 }
 #endif

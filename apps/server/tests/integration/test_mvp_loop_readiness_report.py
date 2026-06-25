@@ -53,7 +53,8 @@ def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() 
     assert "Recommended next feature: `018-retention-deletion-execution`" not in status_doc
     assert "Recommended next feature: `022-meeting-mute-truth`" not in status_doc
     assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc
-    assert "Recommended next action before starting another feature: finish validating" in status_doc
+    assert "Feature `050-mvp-launch-proof` is the active MVP launch-proof slice" in status_doc
+    assert "production-user-rollout-evidence" in status_doc
     assert "notes/action output blocker is closed" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
     assert "034-mvp-loop-readiness" in status_doc
@@ -147,13 +148,36 @@ def test_049_report_and_status_doc_close_notes_action_output_truthfully() -> Non
     assert "stored/generated launchable notes and actions, or an explicit owner-approved pilot deferral" not in status_doc
 
 
+def test_050_report_keeps_notes_action_closed_and_rollout_boundary_visible() -> None:
+    report = build_default_readiness_report(
+        feature="050-mvp-launch-proof",
+        generated_at="2026-06-25T00:00:00Z",
+    )
+    markdown = render_markdown_report(report)
+    payload = report.model_dump(mode="json")
+    stages = {stage["id"]: stage for stage in payload["stages"]}
+    gap_ids = {gap["id"] for gap in payload["launch_gaps"]}
+
+    assert report.claim_summary.outcome == "pilot_blocked"
+    assert report.claim_summary.p0_p1_blockers == 1
+    assert stages["notes-action-output"]["status"] == "ready"
+    assert stages["notes-action-output"]["launch_gap_ids"] == []
+    assert "feature-049-stored-outcomes" in stages["notes-action-output"]["evidence_ids"]
+    assert "notes-action-output" not in gap_ids
+    assert "production-user-rollout-evidence" in gap_ids
+    assert "feature-050-closeout-report" in markdown
+    assert "Recommended next action: keep 050 capped at `pilot_blocked`" in markdown
+    assert "MVP launch cannot advance until the live owner journey" in markdown
+
+
 def test_035_status_and_changelog_record_current_next_slice() -> None:
     root = Path(__file__).resolve().parents[4]
     status_doc = (root / "docs/current-product-status.md").read_text()
     changelog = (root / "CHANGELOG.md").read_text()
 
     assert "Feature `035-mvp-loop-live-evidence`" in status_doc
-    assert "Recommended next action before starting another feature: finish validating" in status_doc
+    assert "Feature `050-mvp-launch-proof` is the active MVP launch-proof slice" in status_doc
+    assert "production-user-rollout-evidence" in status_doc
     assert "notes/action output blocker is closed" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
     assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc

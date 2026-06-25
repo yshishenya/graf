@@ -21,6 +21,10 @@ infra_smoke_ready is not user rollout readiness, internal pilot readiness, or pr
   coverage. Keep this report as the 036 baseline and use
   `specs/049-meeting-outcomes-mvp/evidence/validation-log.md` for current
   outcome-readiness evidence.
+- For current MVP launch truth, use `050-mvp-launch-proof`: it keeps the
+  accepted 049 outcomes/playback evidence, but still caps the product at
+  `pilot_blocked` until production user-rollout evidence, a fresh owner
+  upload-to-review journey, and representative timing proof pass.
 
 ## MVP Loop Matrix
 

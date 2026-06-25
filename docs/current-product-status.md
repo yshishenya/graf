@@ -2,9 +2,9 @@
 
 Date: 2026-06-25
 
-Этот документ коротко фиксирует состояние продукта после closeout
-`048-real-playback-availability` и последующего релиза
-`047-cabinet-runtime-truth`. PRD остается базовой продуктовой
+Этот документ коротко фиксирует состояние продукта после production closeout
+`049-meeting-outcomes-mvp` и начала launch-proof slice
+`050-mvp-launch-proof`. PRD остается базовой продуктовой
 линией; feature specs и metadata-only evidence остаются подробной историей
 реализации.
 
@@ -246,9 +246,10 @@ Date: 2026-06-25
   links, real echo cancellation, noise suppression, waveform generation,
   transcript editing, native Swift playback controls, signed/notarized
   distribution, or final user-rollout readiness.
-- Feature `049-meeting-outcomes-mvp` is implemented in the current feature
-  branch as the stored meeting outcomes slice for MVP readiness. The
-  notes/action output blocker is closed by stored, launch-safe outcome rows:
+- Feature `049-meeting-outcomes-mvp` is implemented, merged through PR `#1706`,
+  released as `v2026.06.25.4`, and deployed to production as the stored meeting
+  outcomes slice for MVP readiness. The notes/action output blocker is closed
+  by stored, launch-safe outcome rows:
   summary, key points, decisions, action items, follow-ups, risks, questions,
   and evidence states are materialized only from transcript-backed source
   segments, with category-level not-found/not-inferable truth instead of
@@ -257,10 +258,18 @@ Date: 2026-06-25
   states, and playback coexistence. Privacy boundaries stay in force: outcome
   text is hidden from list egress and denied/deleted/deleting states, outcome
   artifacts are included in deletion accounting, RLS inventory covers outcome
-  tables, and committed evidence remains metadata-only. This does not claim
-  production rollout readiness yet: the branch still needs final focused
-  quickstart validation, full local CI, deploy dry-run, PR/release closeout, and
-  production user-journey evidence before any pilot or user rollout claim.
+  tables, and committed evidence remains metadata-only. The notes/action output
+  blocker is closed for the MVP surface; follow-up work is quality, editing,
+  richer controls, and rollout hardening, not basic outcome availability. This
+  does not claim production rollout readiness by itself.
+- Feature `050-mvp-launch-proof` is the active MVP launch-proof slice. It
+  verifies that the installed macOS app, production server, web cabinet,
+  embedded review, playback, transcript, diarization, speaker timeline, stored
+  outcomes, product status, and release/deploy truth can support a bounded
+  MVP claim. The allowed current claim remains `pilot_blocked`; `mvp_loop_ready`,
+  `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
+  excluded until production user-rollout evidence and a live owner journey pass
+  with metadata-only evidence.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -406,50 +415,38 @@ Date: 2026-06-25
 
 ## Next Product Slice
 
-Recommended next action before starting another feature: finish validating and
-closing `049-meeting-outcomes-mvp`, then keep the readiness claim capped until
-production user-rollout evidence is accepted. The current branch closes the
-notes/action output blocker with stored meeting outcomes, while the deployed
-path already proves upload eligibility, server processing start/reuse, result
-availability, real visible review playback, timestamp seek, and
-server-mediated range playback.
+Feature `050-mvp-launch-proof` is the active MVP launch-proof slice. Its job is
+to decide, with evidence rather than optimism, whether the current product can
+be called an internal pilot candidate.
 
-Remaining launch blockers are now more specific:
+The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
+`infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
+`user_rollout_ready`, and `production_ready` remain excluded until the 050 gate
+table passes.
 
-- `045` post-deploy production upload-to-transcript-to-review path is not yet
-  proven with metadata-safe production evidence; a fresh speakerphone package
-  did reach live transcript review after targeted manual processing pickup while
-  production was still on `master e312d25`;
-- current-branch desktop build/launch/idle/quit is proven by safe non-recording
-  preflight; permissioned installed-current-branch Record/Stop and dual-track
-  package creation are proven for the speakerphone/degraded class, but clean
-  low-leakage `saved` / `ready` artifact creation and production desktop-to-
-  review proof are not yet proven. A metadata-only local manifest scan found
-  only older `v2` `saved` / `ready` packages, not a fresh/current-branch `v3`
-  clean candidate;
-- 045 deploy preflight risk is reduced by a passing include-set apply-check
-  over `origin/master`, full local CI, and a passing deploy dry-run, but
-  post-deploy production smoke/e2e evidence is still required before any pilot
-  claim;
-- PRD-level visible review playback linked to transcript timestamps is
-  implemented, merged, released, and production-smoked in `048`; remaining MVP
-  rollout risk is no longer the playback release gate, but the broader
-  launchability evidence below;
-- notes/action output blocker is closed in `049` by stored meeting outcomes
-  with transcript evidence, category truth, privacy/deletion/RLS coverage, and
-  web/embedded review parity; it still needs final feature closeout before it
-  can be described as released/deployed product behavior;
-- production evidence remains below full user-rollout proof: one manual-pickup
-  live transcript result exists, but deployed 045 auto-start/reuse and
-  source-attribution proof are still missing;
-- the installed desktop surface has accepted clean-room visual/product polish
-  and a metadata-safe idle/active/paused/resumed/stopped walkthrough pack, but
-  this does not replace production rollout evidence.
+Current evidence already accepted before 050:
 
-Before any pilot claim, keep `048` playback evidence tied to real deployed
-review behavior, finish `049` validation/PR/release/deploy closeout, and collect
-final user-rollout proof. Keep the owner proof plus installed-app walkthrough
-linked as supporting evidence rather than a rollout claim.
+- `045` lets structurally valid recordings proceed to upload/transcription even
+  when local audio quality diagnostics are degraded, while keeping permission,
+  consent, integrity, lifecycle, and privacy gates hard.
+- `046` and `048` provide real review playback, server-mediated range playback,
+  and transcript timestamp seek in web and embedded review.
+- `047` keeps the macOS cabinet status honest: green state requires a real
+  authenticated allowed route, not just a configured URL.
+- `049` closes the notes/action output blocker with stored meeting outcomes,
+  transcript-backed evidence, category truth, privacy/deletion/RLS coverage, and
+  web/embedded review parity.
+
+Remaining launch boundary for 050:
+
+- `production-user-rollout-evidence` stays open until a current live owner
+  journey proves record/upload/finalize/process/review, transcript and
+  diarization visibility, playback, stored outcomes, interface truth, and the
+  processing-speed target with metadata-only evidence.
+- Signed/notarized installer evidence, Yandex Browser support, real
+  speakerphone echo/noise suppression, compressed share audio, public links,
+  waveform polish, transcript editing, and native Swift playback controls remain
+  outside the MVP launch-proof claim unless a later spec changes scope.
 
 A remote `021` infrastructure smoke on `2brain.dev` can continue only within
 the `infra_smoke_ready` boundary until user rollout slices and live journey

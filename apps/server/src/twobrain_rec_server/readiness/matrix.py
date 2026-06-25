@@ -26,6 +26,8 @@ REQUIRED_MVP_LOOP_STAGE_IDS = [
 ]
 
 SEVERITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+FEATURE_049_ID = "049-meeting-outcomes-mvp"
+FEATURE_050_ID = "050-mvp-launch-proof"
 
 
 def utc_now_iso() -> str:
@@ -574,7 +576,7 @@ def build_default_evidence(
                 ),
             ]
         )
-    if feature == "049-meeting-outcomes-mvp":
+    if feature in {FEATURE_049_ID, FEATURE_050_ID}:
         evidence.extend(
             [
                 ReadinessEvidence(
@@ -757,15 +759,111 @@ def build_default_evidence(
                 ),
             ]
         )
+    if feature == FEATURE_050_ID:
+        evidence.extend(
+            [
+                ReadinessEvidence(
+                    id="feature-050-validation-log",
+                    type="document",
+                    source="specs/050-mvp-launch-proof/evidence/validation-log.md",
+                    captured_at=captured_at,
+                    scope=(
+                        "Records 050 Spec Kit gates, RED/GREEN readiness checks, UI/runtime proof, "
+                        "release evidence, and remaining launch boundaries."
+                    ),
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-050-browser-runtime",
+                    type="runtime",
+                    source="specs/050-mvp-launch-proof/evidence/browser-runtime-check.cjs",
+                    captured_at=captured_at,
+                    scope=(
+                        "Runtime verifier covers web, desktop-embedded, and mobile-width review with "
+                        "active transcript tab, persistent playback, timestamp seek, speaker timeline, "
+                        "stored outcomes, and overflow/console checks."
+                    ),
+                    strength="local_runtime",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-050-closeout-report",
+                    type="document",
+                    source="specs/050-mvp-launch-proof/evidence/mvp-closeout-report.md",
+                    captured_at=captured_at,
+                    scope="Metadata-only gate table for the final 050 MVP claim decision.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-050-github-issues",
+                    type="github",
+                    source="specs/050-mvp-launch-proof/issues.md",
+                    captured_at=captured_at,
+                    scope="Maps 050 Spec Kit tasks to GitHub issues for tracked launch-proof closeout.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-050-readiness-report-json",
+                    type="document",
+                    source="docs/evidence/050-mvp-launch-proof/readiness-report.json",
+                    captured_at=captured_at,
+                    scope="Structured 050 readiness report generated from the current evidence matrix.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-050-readiness-report-md",
+                    type="document",
+                    source="docs/evidence/050-mvp-launch-proof/readiness-report.md",
+                    captured_at=captured_at,
+                    scope="Reviewer-facing 050 readiness summary with the current bounded claim.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-050-launch-gap-register",
+                    type="document",
+                    source="docs/evidence/050-mvp-launch-proof/launch-gap-register.md",
+                    captured_at=captured_at,
+                    scope="050 launch gap register with the remaining P1 rollout proof boundary.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="current-product-status-050-closeout",
+                    type="document",
+                    source="docs/current-product-status.md#next-product-slice",
+                    captured_at=captured_at,
+                    scope=(
+                        "Current status records 049 as shipped product behavior and 050 as the active "
+                        "MVP launch-proof boundary without inflating pilot or production claims."
+                    ),
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="changelog-050",
+                    type="document",
+                    source="CHANGELOG.md#unreleased",
+                    captured_at=captured_at,
+                    scope="Changelog records the 050 MVP proof/status-truth closeout.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+            ]
+        )
     return evidence
 
 
 def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[LaunchGap]:
     is_036 = feature == "036-owner-review-live-polish"
-    is_049 = feature == "049-meeting-outcomes-mvp"
+    has_stored_outcomes = feature in {FEATURE_049_ID, FEATURE_050_ID}
     live_desktop_gap = (
         []
-        if feature in {"035-mvp-loop-live-evidence", "036-owner-review-live-polish", "049-meeting-outcomes-mvp"}
+        if feature in {"035-mvp-loop-live-evidence", "036-owner-review-live-polish", FEATURE_049_ID, FEATURE_050_ID}
         else [
             LaunchGap(
                 id="live-desktop-evidence",
@@ -814,7 +912,7 @@ def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[L
     feature_036_gaps: list[LaunchGap] = []
     notes_action_gap = (
         []
-        if is_049
+        if has_stored_outcomes
         else [
             LaunchGap(
                 id="notes-action-output",
@@ -879,8 +977,10 @@ def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[L
 def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoopStage]:
     is_035 = feature == "035-mvp-loop-live-evidence"
     is_036 = feature == "036-owner-review-live-polish"
-    is_049 = feature == "049-meeting-outcomes-mvp"
-    owner_review_polished = is_036 or is_049
+    is_049 = feature == FEATURE_049_ID
+    is_050 = feature == FEATURE_050_ID
+    has_stored_outcomes = is_049 or is_050
+    owner_review_polished = is_036 or has_stored_outcomes
     desktop_capture_evidence = [
         "feature-025-system-audio",
         "feature-022-meeting-mute-truth",
@@ -896,13 +996,14 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-036-installed-app-final-walkthrough",
             ]
         )
-    if is_049:
+    if has_stored_outcomes:
         desktop_capture_evidence.extend(
             [
                 "feature-035-live-evidence-pack",
                 "feature-036-validation-log",
                 "feature-036-installed-app-final-walkthrough",
                 "feature-049-validation-log",
+                *(["feature-050-validation-log"] if is_050 else []),
             ]
         )
 
@@ -958,12 +1059,13 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             "current-product-status-036-closeout",
             "changelog-036",
         ]
-    if is_049:
+    if has_stored_outcomes:
         meeting_list_evidence.extend(
             [
                 "feature-036-owner-review-live",
                 "feature-036-validation-log",
                 "feature-049-validation-log",
+                *(["feature-050-validation-log"] if is_050 else []),
             ]
         )
         meeting_detail_evidence.extend(
@@ -973,6 +1075,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-048-real-playback-availability",
                 "feature-049-browser-runtime",
                 "feature-049-validation-log",
+                *(["feature-050-browser-runtime", "feature-050-validation-log"] if is_050 else []),
             ]
         )
         notes_evidence.extend(
@@ -981,15 +1084,29 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-049-browser-runtime",
                 "feature-049-privacy-deletion-rls",
                 "feature-049-validation-log",
+                *(["feature-050-closeout-report"] if is_050 else []),
             ]
         )
         governance_evidence.extend(["feature-036-owner-review-live", "feature-049-privacy-deletion-rls"])
-        product_status_evidence = [
-            "feature-049-validation-log",
-            "feature-049-github-issues",
-            "current-product-status-049-outcomes",
-            "changelog-049",
-        ]
+        product_status_evidence = (
+            [
+                "feature-050-validation-log",
+                "feature-050-github-issues",
+                "feature-050-readiness-report-json",
+                "feature-050-readiness-report-md",
+                "feature-050-launch-gap-register",
+                "feature-050-closeout-report",
+                "current-product-status-050-closeout",
+                "changelog-050",
+            ]
+            if is_050
+            else [
+                "feature-049-validation-log",
+                "feature-049-github-issues",
+                "current-product-status-049-outcomes",
+                "changelog-049",
+            ]
+        )
 
     return [
         MvpLoopStage(
@@ -1079,7 +1196,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                         "Ready owner review now has transcript, real review playback, timestamp seek, "
                         "and stored outcome evidence in web and embedded routes."
                     )
-                    if is_049
+                    if has_stored_outcomes
                     else (
                         "Production Chrome owner session proves one detail route, transcript panel, "
                         "notes/action truth states, and governance surface metadata-safely."
@@ -1096,14 +1213,14 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             id="notes-action-output",
             label="Notes and action output",
             owner_surface="web_cabinet",
-            status="ready" if is_049 else "blocked",
+            status="ready" if has_stored_outcomes else "blocked",
             evidence_strength="local_runtime",
             evidence_ids=notes_evidence,
-            launch_gap_ids=[] if is_049 else ["notes-action-output"],
+            launch_gap_ids=[] if has_stored_outcomes else ["notes-action-output"],
             claim_impact=["mvp_loop_ready"],
             notes=(
                 "Stored meeting outcomes are available with category truth, transcript evidence, retry safety, and privacy/deletion boundaries."
-                if is_049
+                if has_stored_outcomes
                 else (
                     "The interface exposes structured notes/action truth states; launchable generated notes/action output remains unaccepted."
                     if is_036
@@ -1131,7 +1248,8 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                     if owner_review_polished
                     else []
                 ),
-                *(["feature-049-browser-runtime"] if is_049 else []),
+                *(["feature-049-browser-runtime"] if has_stored_outcomes else []),
+                *(["feature-050-browser-runtime"] if is_050 else []),
             ],
             launch_gap_ids=(
                 [] if owner_review_polished else (["desktop-product-surface-polish"] if is_035 else ["live-desktop-evidence"])
@@ -1145,7 +1263,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                         "Installed desktop polish remains current, and the server-owned embedded route "
                         "shows the same stored outcome truth as web review."
                     )
-                    if is_049
+                    if has_stored_outcomes
                     else (
                         "Installed desktop product polish and final /Applications capture-state "
                         "walkthrough evidence are current; broad launch remains blocked by web, "
@@ -1165,7 +1283,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             notes=(
                 "Access/egress policy is accepted and locally regressed with bounded artifact actions; "
                 "049 keeps outcome text out of list egress and denied states."
-                if is_049
+                if has_stored_outcomes
                 else "Access/egress policy is accepted and locally regressed with bounded artifact actions."
             ),
         ),
@@ -1179,13 +1297,13 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-018-retention-deletion",
                 "policy-lifecycle-regression-tests",
                 "policy-lifecycle-evidence-note",
-                *(["feature-049-privacy-deletion-rls"] if is_049 else []),
+                *(["feature-049-privacy-deletion-rls"] if has_stored_outcomes else []),
             ],
             claim_impact=["policy_lifecycle_verified", "mvp_loop_ready"],
             notes=(
                 "Deletion reports, dependency limits, post-egress limits, outcome lifecycle marking, "
                 "and local purge acknowledgements are locally regressed as metadata-only truth."
-                if is_049
+                if has_stored_outcomes
                 else "Deletion reports, dependency limits, post-egress limits, and local purge acknowledgements are locally regressed as metadata-only truth."
             ),
         ),
@@ -1212,8 +1330,12 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "The status document records the 034 bounded outcome and next evidence-based product slice."
                 if not (is_035 or owner_review_polished)
                 else (
-                    "The 049 readiness truth records stored outcomes as accepted while keeping production rollout evidence separate."
-                    if is_049
+                    (
+                        "The 050 readiness truth records shipped 049 outcomes and the remaining production rollout proof boundary."
+                        if is_050
+                        else "The 049 readiness truth records stored outcomes as accepted while keeping production rollout evidence separate."
+                    )
+                    if has_stored_outcomes
                     else (
                         "The generated 036 readiness pack records the current bounded claim and remaining live-proof gaps."
                     )
@@ -1228,8 +1350,10 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
 def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness") -> list[ReferenceComparison]:
     is_035 = feature == "035-mvp-loop-live-evidence"
     is_036 = feature == "036-owner-review-live-polish"
-    is_049 = feature == "049-meeting-outcomes-mvp"
-    owner_review_polished = is_036 or is_049
+    is_049 = feature == FEATURE_049_ID
+    is_050 = feature == FEATURE_050_ID
+    has_stored_outcomes = is_049 or is_050
+    owner_review_polished = is_036 or has_stored_outcomes
     checks = [
         "No committed private Krisp screenshots.",
         "No copied Krisp visual expression, brand assets, colors, or icons.",
@@ -1281,7 +1405,8 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                     if is_036
                     else []
                 ),
-                *(["feature-049-browser-runtime", "feature-036-clean-room-reference"] if is_049 else []),
+                *(["feature-049-browser-runtime", "feature-036-clean-room-reference"] if has_stored_outcomes else []),
+                *(["feature-050-browser-runtime"] if is_050 else []),
             ],
         ),
         ReferenceComparison(
@@ -1296,7 +1421,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                         "049 keeps the 036 owner-review truth and adds stored outcome review coverage "
                         "without committing private meeting content."
                     )
-                    if is_049
+                    if has_stored_outcomes
                     else (
                         "036 improves browser auth/list polish and records the remaining "
                         "metadata-safe live owner list proof without committing private meeting content."
@@ -1325,7 +1450,8 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                     else []
                 ),
                 *(["feature-036-owner-review-live", "feature-036-clean-room-reference"] if is_036 else []),
-                *(["feature-036-owner-review-live", "feature-049-browser-runtime"] if is_049 else []),
+                *(["feature-036-owner-review-live", "feature-049-browser-runtime"] if has_stored_outcomes else []),
+                *(["feature-050-browser-runtime"] if is_050 else []),
             ],
         ),
         ReferenceComparison(
@@ -1341,7 +1467,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                         "privacy/deletion boundaries, and web/embedded parity on top of the "
                         "server-owned review surface."
                     )
-                    if is_049
+                    if has_stored_outcomes
                     else (
                         "016/017/018 provide the server-owned review/governance surfaces; "
                         "036 records structured notes/action truth and visual polish while "
@@ -1357,7 +1483,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
             ),
             intentional_differences=["2brain uses its own design language and truthful placeholder policy."],
             forbidden_similarity_checks=checks,
-            result="pass" if is_049 else ("needs_polish" if (is_035 or is_036) else "pass"),
+            result="pass" if has_stored_outcomes else ("needs_polish" if (is_035 or is_036) else "pass"),
             evidence_ids=[
                 "feature-016-web-review",
                 "feature-017-access-egress",
@@ -1377,9 +1503,10 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                         "feature-049-browser-runtime",
                         "feature-049-privacy-deletion-rls",
                     ]
-                    if is_049
+                    if has_stored_outcomes
                     else []
                 ),
+                *(["feature-050-browser-runtime", "feature-050-closeout-report"] if is_050 else []),
             ],
         ),
         ReferenceComparison(
@@ -1394,7 +1521,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                         "017/018 cover policy-owned access, egress, retention, deletion, and "
                         "purge truth; 049 adds stored outcome denial, deletion, and RLS coverage."
                     )
-                    if is_049
+                    if has_stored_outcomes
                     else (
                         "017/018 cover policy-owned access, egress, retention, deletion, and "
                         "purge truth; 036 now records live owner governance panel states "
@@ -1416,7 +1543,8 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                     else []
                 ),
                 *(["feature-036-owner-review-live", "feature-036-clean-room-reference"] if is_036 else []),
-                *(["feature-049-privacy-deletion-rls"] if is_049 else []),
+                *(["feature-049-privacy-deletion-rls"] if has_stored_outcomes else []),
+                *(["feature-050-closeout-report"] if is_050 else []),
             ],
         ),
     ]

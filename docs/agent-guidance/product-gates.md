@@ -63,7 +63,7 @@ Use this file with `.specify/memory/constitution.md`,
 ## Deployment
 
 - MVP server target is `2brain.dev` with public URL
-  `https://rec.2brain.dev`.
+  `https://rec.2brain.pro`.
 - MVP infrastructure runs in Docker containers.
 - Dedicated Postgres and MinIO are required for `2brain_rec`.
 - Temporal is the selected durable workflow engine unless the constitution is
