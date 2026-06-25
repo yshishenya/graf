@@ -439,8 +439,8 @@ Feature `052-mvp-live-ui-proof` is implemented, merged through PR `#1844`, and
 followed by production fix PRs after deploy and cleanup gates exposed real
 blockers. It rechecks the real installed app, production cabinet, KRISP-style
 playback/timeline reference, stored outcomes, and timing before any stronger
-MVP claim. The current deployed release is `v2026.06.25.14` at
-`1580988f7c9bf00f9c6d9c74037b145cd902b913`: public health returns live `ok`
+MVP claim. The current deployed release is `v2026.06.26.3` at
+`6c1b2f2ffa2545ee3a2f5bc5af734b0f19bcbd1e`: public health returns live `ok`
 and ready `ready`, production smoke passes, and synthetic timing artifacts were
 cleaned up without residue. Earlier 052 production fix PR `#1845` shipped
 `v2026.06.25.10` at `db1eca18f08d26f6816b2bd88067709d0e57e590`: production
@@ -458,9 +458,12 @@ installed macOS shell also avoids a false-green cabinet state. A production-safe
 synthetic one-hour candidate processed in 37 seconds created-to-imported, under
 the 180-seconds-per-hour target, with transcript, diarization, playback, speaker
 timeline, and stored outcome counts available. Live production owner review
-remains degraded because installed-app cabinet navigation redirects to login
-with expired session state and queue retry sees missing auth context, so these
-local UI checks do not prove MVP rollout readiness.
+remains degraded. The latest fresh installed-app candidate proves record,
+upload, finalization, and processing, but imported `0` transcript segments and
+`0` diarization segments; its stored outcome set is blocked with
+`outcomes_transcript_unavailable`. That candidate cannot close review,
+speaker-timeline, or stored-outcome proof, so these local and production checks
+still do not prove MVP rollout readiness.
 
 Current evidence already accepted before 050:
 
@@ -479,10 +482,12 @@ Remaining launch boundary after 052:
 
 - `fresh-owner-journey-evidence` stays open until a current live owner journey
   proves record/stop/upload/finalize/process/review from the installed app.
+  The latest fresh candidate reaches processing, but not usable review content.
 - `production-stored-outcomes-evidence` stays open until a current production
   installed-app candidate shows stored outcome states and counts without private
-  generated text. Synthetic production-safe outcome counts exist, but they do
-  not replace fresh installed-app proof.
+  generated text. Synthetic production-safe outcome counts exist, and the
+  latest fresh candidate has a blocked outcome set, but neither replaces a
+  fresh candidate with reviewable transcript content.
 - Live owner-review UI proof stays degraded until authenticated production
   detail and embedded review can be opened and checked end to end.
 - Signed/notarized installer evidence, Yandex Browser support, real

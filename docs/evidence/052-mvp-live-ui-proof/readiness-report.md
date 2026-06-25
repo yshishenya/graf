@@ -139,8 +139,8 @@ Evidence records:
 
 | Gap | Severity | Journey | Missing Evidence | Next Action |
 |-----|----------|---------|------------------|-------------|
-| `fresh-owner-journey-evidence` | `P1` | fresh-owner-journey | Fresh installed-app record, stop, upload, finalization, processing, and review proof on the current production release. | Sign in inside `/Applications/2brain Rec.app`, create a short fresh recording, then record metadata-only gate states in the active closeout report. |
-| `production-stored-outcomes-evidence` | `P1` | stored-outcomes-production | Stored outcome category states and counts on a current installed-app production candidate. | After the fresh installed-app candidate exists, run the production owner journey probe and record outcome category states without private text. |
+| `fresh-owner-journey-evidence` | `P1` | fresh-owner-journey | A fresh installed-app candidate now proves record, upload, finalization, and processing, but it produced `0` transcript segments, `0` diarization segments, and no usable speaker timeline. | Create a fresh audible recording with reviewable speech and, ideally, non-silent system audio, then rerun metadata and owner-review checks. |
+| `production-stored-outcomes-evidence` | `P1` | stored-outcomes-production | The current installed-app candidate has a blocked outcome set with reason `outcomes_transcript_unavailable` and `0` outcome items. | Rerun the production owner journey probe on a fresh candidate that has transcript/diarization content, then record outcome category states without private text. |
 | `browser-target-gaps` | `P2` | capture-target-coverage | Target matrix decision for browser coverage before pilot promises. | Keep unsupported targets explicit or run a browser target hardening slice. |
 | `signed-installer-evidence` | `P2` | desktop-distribution | signed installer evidence for broader pilot distribution. | Plan installer signing/notarization as a follow-up slice if pilot distribution needs it. |
 

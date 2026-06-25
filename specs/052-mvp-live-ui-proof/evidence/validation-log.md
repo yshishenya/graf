@@ -543,3 +543,56 @@ tokens, signed URLs, storage object keys, or private local paths.
   - reason: `specs/052-mvp-live-ui-proof/tasks.md` intentionally leaves T019
     and T020 unchecked until the current installed app produces a fresh
     production candidate and metadata-only review/probe evidence is recorded
+
+## 2026-06-26 Fresh Installed-App Candidate Recheck
+
+- local installed-app queue:
+  - candidate ref: `fresh-20260625T2218Z-fde7d402`
+  - installed app version: `2026.06.26.3`
+  - recording window: `2026-06-25T22:18:07Z` to `2026-06-25T22:22:31Z`
+  - local queue state: `uploaded`
+  - server processing status: `processed`
+  - local mic track: `saved`, `wav-pcm-s16le`, `16000 Hz`, `1 channel`,
+    `263938 ms`, `8446076 bytes`
+  - system track: `degraded`, `silent_input`, `wav-pcm-s16le`, `16000 Hz`,
+    `1 channel`, `263820 ms`, `8442284 bytes`
+- production DB metadata probe:
+  - public live: `ok`
+  - public ready: `ready`
+  - deployed SHA: `6c1b2f2ffa2545ee3a2f5bc5af734b0f19bcbd1e`
+  - meeting status: `ingested_pending_processing`
+  - meeting processing status: `processed`
+  - media revision status: `accepted`
+  - final upload session: `finalized`
+  - workflow status: `processed`
+  - workflow duration seconds: `9`
+  - MediaScribe job status: `ready`
+  - MediaScribe mode: `dual_track`
+  - MediaScribe submit-to-ready seconds: `6`
+  - stored track roles: `manifest`, `microphone`, `system`
+  - review playback source metadata: `available` from stored microphone and
+    system track roles
+  - processing result status: `imported`
+  - transcript status: `unavailable`
+  - transcript segments: `0`
+  - diarization status: `unavailable`
+  - diarization segments: `0`
+  - speaker count: `0`
+  - outcome set status: `blocked`
+  - outcome failure reason: `outcomes_transcript_unavailable`
+  - outcome item counts: `0`
+  - result: upload/finalize/processing are now proven on a fresh installed-app
+    candidate, but T019 and T020 stay open because the candidate did not
+    produce usable transcript, diarization, speaker timeline, or stored
+    outcome items
+- production owner journey probe:
+  - command:
+    `python3 specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py`
+  - result: `blocked`
+  - public live: `ok`
+  - public ready: `ready`
+  - owner review proof:
+    `blocked_without_OWNER_SESSION_COOKIE_and_OWNER_MEETING_ID`
+  - current limitation: the HTTP owner-review proof still requires a real
+    authenticated owner session and a candidate with reviewable transcript
+    content
