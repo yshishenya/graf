@@ -525,6 +525,90 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
     assert 'class="playback-bar detail-playback"' in page
 
 
+def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_contract() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=180,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="combined_review_stream",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.transcript = TranscriptReviewState(
+        available=True,
+        language="ru",
+        search_enabled=True,
+        segments=[
+            TranscriptSegmentView(
+                segment_id="safe-review-segment-1",
+                sequence=0,
+                start_seconds=0.0,
+                end_seconds=8.0,
+                timestamp_label="00:00",
+                speaker_label="Speaker 1",
+                source_role="local_microphone",
+                text="Безопасная синтетическая строка для проверки review.",
+                seekable=True,
+                seek_seconds=0.0,
+            )
+        ],
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="reserved",
+        degraded_reason=None,
+        speakers=[
+            SpeakerLane(
+                speaker_key="speaker-1",
+                label="Speaker 1",
+                talk_time_percent=60,
+                source_roles=["local_microphone"],
+                segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=8.0)],
+            )
+        ],
+    )
+    category = NotesActionCategoryState(
+        state="not_found",
+        label="Не найдено",
+        reason="Синтетический review не содержит надежного решения.",
+        readiness_impact="closes_gap",
+        copy_key="notes.outcomes.not_found",
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        summary=category,
+        key_points=category,
+        decisions=category,
+        action_items=category,
+        followups=category,
+        risks=category,
+        questions=category,
+        evidence=category,
+        source_basis="stored_output",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert 'class="tab active" role="tab" id="detail-tab-recording"' in page
+    assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
+    assert 'data-detail-panel="recording"' in page
+    assert 'data-playback-shell' in page
+    assert 'data-playback-player' in page
+    assert 'data-playback-progress' in page
+    assert 'data-seek-seconds="0.0"' in page
+    assert 'data-speaker-timeline' in page
+    assert 'data-speaker-lane="speaker-1"' in page
+    assert page.count("data-lane-segment") == 1
+    assert 'data-outcome-source-basis="stored_output"' in page
+    assert page.count("data-outcome-category=") == 8
+    assert "@media (max-width: 980px)" in page
+    assert "@media (max-width: 540px)" in page
+    assert ".detail-page-main { padding-bottom: 172px; }" in page
+    assert ".timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }" in page
+
+
 def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
     list_page = render_meeting_list_page(
         MeetingListResponse(

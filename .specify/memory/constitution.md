@@ -1,22 +1,21 @@
 <!--
 Sync Impact Report
-Version change: 1.0.0 -> 2.0.0
+Version change: 2.0.0 -> 2.0.1
 Modified principles:
-- I. Driver-First Capture Integrity -> I. Capture-First MVP Integrity
-- II. Visible Consent And User Control: tightened assisted auto-start scope for system-audio capture.
-- III. Data Boundary And Secret Discipline: unchanged.
-- IV. Deletion Truth And Lifecycle Accounting: unchanged.
-- V. Spec-Driven Delivery With Testable Gates: unchanged.
+- Product And Platform Constraints: corrected public Rec URL from
+  https://rec.2brain.dev to https://rec.2brain.pro while keeping deployment
+  host 2brain.dev.
 Added sections:
 - None.
 Removed sections:
-- Driver-first MVP prohibition.
+- None.
 Templates requiring updates:
-- ✅ reviewed .specify/templates/plan-template.md; no capture-path-specific wording.
-- ✅ reviewed .specify/templates/spec-template.md; no capture-path-specific wording.
-- ✅ reviewed .specify/templates/tasks-template.md; no capture-path-specific wording.
+- ✅ reviewed .specify/templates/plan-template.md; no URL-specific wording.
+- ✅ reviewed .specify/templates/spec-template.md; no URL-specific wording.
+- ✅ reviewed .specify/templates/tasks-template.md; no URL-specific wording.
+- ✅ updated docs/agent-guidance/product-gates.md public URL guidance.
 Follow-up items:
-- PRD, current status, AGENTS, ADR 002, and spec 025 updated for system-audio-first MVP pivot.
+- None.
 -->
 # 2brain Rec Constitution
 
@@ -128,7 +127,7 @@ must be decomposed into reviewable artifacts before code.
   where appropriate for the macOS app. Virtual audio driver work is future
   advanced routing work and requires a separate approved spec, safety gate, and
   rollback plan before implementation.
-- MVP server target is `2brain.dev` with public URL `https://rec.2brain.dev`.
+- MVP server target is `2brain.dev` with public URL `https://rec.2brain.pro`.
 - `2brain_rec`-owned infrastructure MUST run in Docker containers for MVP.
 - Dedicated Postgres and MinIO are required for `2brain_rec`.
 - Temporal is the selected durable workflow engine for MVP workflows unless the
@@ -194,4 +193,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 2.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-06-08
+**Version**: 2.0.1 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-06-25

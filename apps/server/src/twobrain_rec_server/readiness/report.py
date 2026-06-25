@@ -93,6 +93,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-036-installed-app-visual-polish",
                     "feature-036-clean-room-reference",
                     "feature-049-browser-runtime",
+                    "feature-050-browser-runtime",
                 ],
             ),
             "",
@@ -126,6 +127,9 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-049-browser-runtime",
                     "feature-049-privacy-deletion-rls",
                     "feature-049-validation-log",
+                    "feature-050-validation-log",
+                    "feature-050-browser-runtime",
+                    "feature-050-closeout-report",
                     "reference-comparison-note",
                 ],
             ),
@@ -140,6 +144,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "policy-lifecycle-regression-tests",
                     "policy-lifecycle-evidence-note",
                     "feature-049-privacy-deletion-rls",
+                    "feature-050-closeout-report",
                 ],
             ),
             "",
@@ -283,6 +288,12 @@ def _next_slice_recommendation(report: ReadinessReport) -> str:
             "Recommended next action: keep 049 capped at `pilot_blocked`; "
             "the `notes-action-output` blocker is closed by stored outcome evidence, "
             "but production rollout stays capped until `production-user-rollout-evidence` passes."
+        )
+    if report.feature == "050-mvp-launch-proof" and p1_gaps:
+        return (
+            "Recommended next action: keep 050 capped at `pilot_blocked`; "
+            "049 stored outcomes and playback remain accepted, but MVP launch cannot advance "
+            "until the live owner journey and production user-rollout evidence pass."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."
