@@ -532,3 +532,14 @@ tokens, signed URLs, storage object keys, or private local paths.
     OpenResty/nginx `client_max_body_size`, keep request buffering off and long
     send/read timeouts, validate/reload the proxy, then repeat the header-only
     probes and a non-sensitive large-audio processing check
+
+## 2026-06-26 GitHub Issue Tracker Reconciliation
+
+- task issue state:
+  - completed 052 task issues: closed in GitHub and reflected in
+    `specs/052-mvp-live-ui-proof/issues.md`
+  - still open: `#1818` / `T019` fresh installed-app record-to-review proof
+  - still open: `#1819` / `T020` production candidate metadata proof
+  - reason: `specs/052-mvp-live-ui-proof/tasks.md` intentionally leaves T019
+    and T020 unchecked until the current installed app produces a fresh
+    production candidate and metadata-only review/probe evidence is recorded
