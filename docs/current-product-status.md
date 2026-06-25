@@ -442,9 +442,11 @@ playback/timeline reference, stored outcomes, and timing before any stronger
 MVP claim. The current deployed release is `v2026.06.25.14` at
 `1580988f7c9bf00f9c6d9c74037b145cd902b913`: public health returns live `ok`
 and ready `ready`, production smoke passes, and synthetic timing artifacts were
-cleaned up without residue. Earlier 052 fixes also keep the production dispatch
-boundary intact: `rec-api` dispatches Temporal work without mounting the
-MediaScribe key, and the key stays on `rec-processing-worker`.
+cleaned up without residue. Earlier 052 production fix PR `#1845` shipped
+`v2026.06.25.10` at `db1eca18f08d26f6816b2bd88067709d0e57e590`: production
+smoke reported `processing=enabled`, `temporal=configured`, and
+`mediascribe=dispatcher_only`; `rec-api` dispatches Temporal work, does not mount the MediaScribe key,
+and the key stays on `rec-processing-worker`.
 
 The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
 `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
