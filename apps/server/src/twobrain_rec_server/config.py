@@ -129,7 +129,7 @@ class Settings(BaseSettings):
             "minio_access_key_file": self.minio_access_key_file,
             "minio_secret_key_file": self.minio_secret_key_file,
             "smoke_credential_file": self.smoke_credential_file,
-            "mediascribe_api_key_file": self.mediascribe_api_key_file if self.processing_enabled else None,
+            "mediascribe_api_key_file": self.mediascribe_api_key_file,
         }
         for field_name, path in required_secret_files.items():
             if path is None:
@@ -141,15 +141,13 @@ class Settings(BaseSettings):
                     pass
             except OSError as exc:
                 raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}") from exc
-        if self.processing_enabled:
-            if self.mediascribe_base_url is None:
-                raise ValueError("production processing requires mediascribe_base_url")
-            if self.mediascribe_api_key_file is None:
-                raise ValueError("production processing requires mediascribe_api_key_file")
-            if self.mediascribe_api_key_file.read_text(encoding="utf-8").strip() == "":
-                raise ValueError("production MediaScribe API key file must be non-empty")
-            if not self.temporal_address:
-                raise ValueError("production processing requires temporal_address")
+        if self.processing_enabled and not self.temporal_address:
+            raise ValueError("production processing requires temporal_address")
+        if (
+            self.mediascribe_api_key_file is not None
+            and self.mediascribe_api_key_file.read_text(encoding="utf-8").strip() == ""
+        ):
+            raise ValueError("production MediaScribe API key file must be non-empty")
         if self.email_login_delivery_enabled:
             if self.web_login_workspace_id is None:
                 raise ValueError("production email login delivery requires web_login_workspace_id")
