@@ -267,3 +267,15 @@ cookies, signed URLs, storage object keys, or private local paths.
     called a completed check "template/unproven"
   - no new dependencies, architecture, storage schema, background service, or
     product surface were added for 051
+
+## 2026-06-26 GitHub Issue Tracker Reconciliation
+
+- task issue cleanup:
+  - scope: `feature:051`
+  - GitHub issues closed: `#1754` through `#1798`
+  - reason: every mapped 051 task is checked `[X]` in
+    `specs/051-mvp-owner-journey-proof/tasks.md`, and PR `#1799` is merged
+  - boundary: closing these task issues does not close the product P1 launch
+    gaps; `fresh-owner-journey-evidence` and
+    `production-stored-outcomes-evidence` remain carried by 052 issue `#1818`
+    and issue `#1819`
