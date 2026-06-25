@@ -571,3 +571,8 @@ the current accepted implementation or `012` ingest slice.
   security and lifecycle review; `012` remains `server_mediated`.
 - Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
   30/60 minute integrity, and signed/notarized installer evidence.
+- `mediascribe-large-audio-proxy-ceiling`: do not raise MediaScribe just
+  because Rec accepts larger upload packages or future video files. MediaScribe
+  receives only audio. Raise its separate OpenResty/nginx body limit only if
+  real combined `mic_file` + `incoming_file` audio approaches the observed
+  public proxy ceiling and starts failing with `413`.

@@ -284,7 +284,10 @@ Common statuses:
 | `409` | Job failed and has no result. |
 | `413` | Uploaded file is too large. |
 
-Current public nginx request body limit: `512 MB` for the whole multipart
-request. Treat this as an approximate public-domain upload limit unless the
-deployment config is raised.
-
+Current public MediaScribe proxy status: large-audio ceiling observed, not a
+blocker for large Rec upload packages by itself. As of 2026-06-25,
+`mediascribe.2brain.pro` responds with `413 Request Entity Too Large` to
+header-only probes with `600 MiB` and `1100 MiB` content lengths. MediaScribe
+receives only `mic_file` and `incoming_file`, not the whole Rec upload package
+or video file. Raise the MediaScribe OpenResty/nginx request body limit only
+when real combined dual-track audio sent to MediaScribe approaches this ceiling.

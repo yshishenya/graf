@@ -497,3 +497,38 @@ tokens, signed URLs, storage object keys, or private local paths.
   - installed app: `/Applications/2brain Rec.app`
   - installed version: `2026.06.26.3`
   - codesign verify: `pass`
+
+## 2026-06-25 Proxy Limit Recheck
+
+- production deploy:
+  - deployed sha: `6c1b2f2ffa2545ee3a2f5bc5af734b0f19bcbd1e`
+  - deploy result: `pass`
+  - public Rec live/ready: `pass`
+- Rec ingress proxy:
+  - host: `2brain.dev`
+  - enabled config: `/etc/nginx/sites-enabled/rec.2brain.pro.conf`
+  - `client_max_body_size`: `6g`
+  - `proxy_request_buffering`: `off`
+  - `proxy_buffering`: `off`
+  - `proxy_read_timeout` / `proxy_send_timeout`: `3600s`
+  - header-only large request probes to Rec returned app-level `405`, not
+    proxy `413`, for `600 MiB` and `1100 MiB` content lengths
+- MediaScribe proxy:
+  - domain: `mediascribe.2brain.pro`
+  - observed server: `openresty`
+  - DNS differs from Rec (`rec.2brain.pro` and `mediascribe.2brain.pro` are on
+    separate machines)
+  - local access to MediaScribe host: unavailable
+  - header-only probes returned `413 Request Entity Too Large` for `600 MiB`
+    and `1100 MiB` content lengths before any body upload
+  - interpretation: not a blocker for the 1 GiB Rec upload contract when Rec is
+    used to store video/package data and MediaScribe receives smaller extracted
+    or retained audio
+  - conditional risk: if real combined `mic_file` + `incoming_file` audio sent
+    to MediaScribe approaches the proxy ceiling, processing may fail with
+    `mediascribe_payload_too_large`
+- conditional follow-up:
+  - only if large audio processing hits this ceiling, raise MediaScribe
+    OpenResty/nginx `client_max_body_size`, keep request buffering off and long
+    send/read timeouts, validate/reload the proxy, then repeat the header-only
+    probes and a non-sensitive large-audio processing check
