@@ -77,6 +77,7 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         "delete from diarization_segments where meeting_id=:meeting_id",
         "delete from processing_audit_events where meeting_id=:meeting_id",
         "delete from processing_dependency_states where meeting_id=:meeting_id",
+        "delete from meeting_outcome_generation_attempts",
         "delete from meeting_outcome_items",
         "delete from meeting_outcome_sets where meeting_id=:meeting_id",
         "delete from processing_results where meeting_id=:meeting_id",
