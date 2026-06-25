@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from twobrain_rec_server.readiness import build_default_readiness_report, render_markdown_report
 
+
 def test_051_keeps_all_three_owner_journey_p1_proofs_open() -> None:
     report = build_default_readiness_report(feature="051-mvp-owner-journey-proof", generated_at="2026-06-25T00:00:00Z")
     gaps = {gap.id: gap for gap in report.launch_gaps}
