@@ -75,8 +75,10 @@ def test_current_status_records_051_as_active_owner_journey_proof_slice() -> Non
     status_doc = _status_doc()
 
     assert "Feature `050-mvp-launch-proof` is implemented, merged through PR `#1753`" in status_doc
-    assert "Feature `051-mvp-owner-journey-proof`" in status_doc
-    assert "current proof closeout over the\nfresh owner journey" in status_doc
+    assert "Feature `051-mvp-owner-journey-proof` is implemented, merged through PR `#1799`" in status_doc
+    assert "released as `v2026.06.25.7`" in status_doc
+    assert "deployed to production at\n`67cb9a15752143881cb0123e1ef5fa9c9c60a632`" in status_doc
+    assert "post-deploy\ncloseout release `v2026.06.25.8`" in status_doc
     assert "fresh owner journey" in status_doc
     assert "production stored" in status_doc
     assert "outcomes" in status_doc

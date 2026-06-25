@@ -243,6 +243,22 @@ cookies, signed URLs, storage object keys, or private local paths.
   - result: `pass`
   - summary: `deploy_result=dry_run`, remote host `2brain.dev`, remote path
     `/opt/projects/2brain-rec`, branch `051-mvp-owner-journey-proof`
+- 2026-06-25 production deploy:
+  - command: `infra/scripts/cd-remote.sh --execute`
+  - result: `pass`
+  - branch: `master`
+  - deployed SHA: `67cb9a15752143881cb0123e1ef5fa9c9c60a632`
+  - backup reference: `/opt/projects/2brain-rec/backups/20260625T155751Z`
+  - smoke result: `pass`
+  - readiness verdict: `infra_smoke_ready`
+  - smoke run id: `smoke-20260625-155839`
+  - production live health after deploy: `ok`
+  - production ready health after deploy: `ready`
+  - remote branch after deploy: `master`
+  - remote SHA after deploy: `67cb9a15752143881cb0123e1ef5fa9c9c60a632`
+  - claim boundary: deployment proves only `infra_smoke_ready`; the 051 P1
+    gates for fresh owner journey, production stored outcomes, and
+    representative timing remain open
 - 2026-06-25 Ponytail pass:
   - result: `pass`
   - changes kept: one 051 readiness matrix extension, focused guard tests,

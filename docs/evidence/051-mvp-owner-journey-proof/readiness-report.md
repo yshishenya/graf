@@ -3,8 +3,8 @@
 ## Claim Summary
 
 - Feature: `051-mvp-owner-journey-proof`
-- Generated at: `2026-06-25T15:48:13Z`
-- Deployed commit: `b07d7a2abd2a6d0add9e919e97261903bf933672`
+- Generated at: `2026-06-25T16:00:33Z`
+- Deployed commit: `67cb9a15752143881cb0123e1ef5fa9c9c60a632`
 - Outcome: `pilot_blocked`
 - Bounded claims: `infra_smoke_ready`
 - Excluded claims: `mvp_loop_ready`, `internal_pilot_candidate`, `user_rollout_ready`, `production_ready`

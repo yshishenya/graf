@@ -17,7 +17,7 @@ tokens, signed URLs, storage object keys, or private local paths.
 
 | Gate ID | Status | Evidence | Notes |
 |---------|--------|----------|-------|
-| `release-deployed` | `unproven` | `validation-log.md` | Awaiting current release, deployed SHA, and production health proof for 051. |
+| `release-deployed` | `pass` | `validation-log.md` | Release `v2026.06.25.7` deployed to production SHA `67cb9a15752143881cb0123e1ef5fa9c9c60a632`; public live health is `ok`, ready health is `ready`, and production smoke verdict is `infra_smoke_ready`. |
 | `installed-app-current` | `pass` | `installed-app-check.md` | Installed app `2026.06.25.6` exists, is running, verifies with codesign, and had zero active recording media handles during the check. |
 | `fresh-record-stop-upload` | `unproven` | `validation-log.md` | Awaiting fresh installed-app record, stop, upload, finalization, processing, and review proof. |
 | `finalize-processing` | `pass` | `validation-log.md` | Current production metadata candidate `candidate_ref=6adcee6d4e` has accepted media, processed workflow, ready MediaScribe job, and imported result. |
@@ -40,7 +40,7 @@ Keep these P1 launch gaps open until direct evidence closes them:
 
 ## Final P1 Summary
 
-- Passed P1 gates: installed app identity/runtime safety, production
+- Passed P1 gates: release/deploy health, installed app identity/runtime safety, production
   finalization/processing state, transcript/diarization metadata for the
   current candidate, interface-quality runtime checks, and truth-doc
   reconciliation.

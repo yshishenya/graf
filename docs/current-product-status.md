@@ -422,11 +422,13 @@ Feature `050-mvp-launch-proof` is closed as the MVP launch-proof slice. Its job
 was to decide, with evidence rather than optimism, whether the current product
 can be called an internal pilot candidate.
 
-Feature `051-mvp-owner-journey-proof` is the current proof closeout over the
-fresh owner journey. It did not add a new user feature. It checked the installed
-app, production health, short production processing metadata, stored outcomes,
-playback/timeline runtime, macOS cabinet truth, and readiness docs before any
-MVP claim could be raised.
+Feature `051-mvp-owner-journey-proof` is implemented, merged through PR `#1799`,
+released as `v2026.06.25.7`, deployed to production at
+`67cb9a15752143881cb0123e1ef5fa9c9c60a632`, and followed by post-deploy
+closeout release `v2026.06.25.8`. It did not add a new user feature. It checked
+the installed app, production health, short production processing metadata,
+stored outcomes, playback/timeline runtime, macOS cabinet truth, and readiness
+docs before any MVP claim could be raised.
 
 The 051 result keeps the product at `pilot_blocked`: installed app identity,
 current production health, local web/embedded playback/timeline/outcome runtime,

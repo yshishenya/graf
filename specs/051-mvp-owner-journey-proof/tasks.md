@@ -132,7 +132,7 @@
 - [X] T042 Run `infra/scripts/cd-remote.sh --dry-run` and record deploy-readiness evidence in `specs/051-mvp-owner-journey-proof/evidence/validation-log.md`
 - [X] T043 Run a Ponytail over-engineering pass over the final diff and remove avoidable new abstractions before PR; record result in `specs/051-mvp-owner-journey-proof/evidence/validation-log.md`
 - [X] T044 Prepare PR description and release notes draft in simple Russian in `specs/051-mvp-owner-journey-proof/evidence/pr-draft.md`
-- [ ] T045 After merge/release gate, run release and production deploy, then record deployed SHA and public health in `specs/051-mvp-owner-journey-proof/evidence/validation-log.md`
+- [X] T045 After merge/release gate, run release and production deploy, then record deployed SHA and public health in `specs/051-mvp-owner-journey-proof/evidence/validation-log.md`
 
 ---
 
