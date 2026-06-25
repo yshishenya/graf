@@ -3,8 +3,8 @@
 ## Claim Summary
 
 - Feature: `052-mvp-live-ui-proof`
-- Generated at: `2026-06-25T17:39:17Z`
-- Deployed commit: `efcbea1c7417761db489d07aef23198e49d8313c`
+- Generated at: `2026-06-25T18:21:58Z`
+- Deployed commit: `db1eca18f08d26f6816b2bd88067709d0e57e590`
 - Outcome: `pilot_blocked`
 - Bounded claims: `infra_smoke_ready`
 - Excluded claims: `mvp_loop_ready`, `internal_pilot_candidate`, `user_rollout_ready`, `production_ready`
@@ -89,7 +89,7 @@ Evidence records:
 
 ## Production Evidence
 
-- `production-deployment-smoke`: `degraded` / `production_smoke`. The active proof slice splits the old rollout blocker into fresh owner journey, production outcomes, and timing proof gates.
+- `production-deployment-smoke`: `degraded` / `production_smoke`. Release `v2026.06.25.10` is deployed with public live `ok`, public ready `ready`, and internal `processing=enabled`; this still leaves fresh owner journey, production outcomes, and timing proof gates open.
 
 ## Clean-Room Reference Comparison
 

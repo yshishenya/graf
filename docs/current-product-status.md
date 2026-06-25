@@ -435,16 +435,17 @@ current production health, local web/embedded playback/timeline/outcome runtime,
 and native false-green guards pass, but the three P1 proof gates below remain
 open.
 
-Feature `052-mvp-live-ui-proof` is the active MVP proof slice. It rechecks the
-real installed app, production cabinet, KRISP-style playback/timeline reference,
-stored outcomes, and timing before any stronger MVP claim. Current 052
-production metadata found a normal-path blocker: production API currently
-reports `processing=disabled`, while accepted recordings can remain
-`not_submitted` after upload finalize even when manifest, microphone, and system
-track artifacts are present. Current 052 branch fix: production `rec-api`
-enables processing dispatch, points at Temporal, and can read the required
-MediaScribe Docker secret file; `rec-processing-worker` remains the execution
-worker.
+Feature `052-mvp-live-ui-proof` is implemented, merged through PR `#1844`, and
+followed by production fix PR `#1845` after the first deploy exposed a startup
+blocker. It rechecks the real installed app, production cabinet, KRISP-style
+playback/timeline reference, stored outcomes, and timing before any stronger
+MVP claim. The production dispatch blocker is fixed in release
+`v2026.06.25.10`, deployed at
+`db1eca18f08d26f6816b2bd88067709d0e57e590`: public health returns live `ok`
+and ready `ready`; internal readiness reports `processing=enabled`,
+`temporal=configured`, and `mediascribe=dispatcher_only`. `rec-api` now only
+dispatches Temporal work and does not mount the MediaScribe key; the key stays
+on `rec-processing-worker`.
 
 The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
 `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,

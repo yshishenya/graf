@@ -1,7 +1,7 @@
 {
   "feature": "052-mvp-live-ui-proof",
-  "generated_at": "2026-06-25T17:39:17Z",
-  "deployed_commit": "efcbea1c7417761db489d07aef23198e49d8313c",
+  "generated_at": "2026-06-25T18:21:58Z",
+  "deployed_commit": "db1eca18f08d26f6816b2bd88067709d0e57e590",
   "claim_summary": {
     "outcome": "pilot_blocked",
     "bounded_claims": [
@@ -254,7 +254,7 @@
       "claim_impact": [
         "infra_smoke_ready"
       ],
-      "notes": "The active proof slice splits the old rollout blocker into fresh owner journey, production outcomes, and timing proof gates."
+      "notes": "Release v2026.06.25.10 is deployed with public live ok, public ready ready, and internal processing enabled; this still leaves fresh owner journey, production outcomes, and timing proof gates open."
     },
     {
       "id": "product-status-next-slice",
