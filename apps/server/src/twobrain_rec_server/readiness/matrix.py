@@ -29,6 +29,7 @@ SEVERITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 FEATURE_049_ID = "049-meeting-outcomes-mvp"
 FEATURE_050_ID = "050-mvp-launch-proof"
 FEATURE_051_ID = "051-mvp-owner-journey-proof"
+FEATURE_052_ID = "052-mvp-live-ui-proof"
 
 
 def utc_now_iso() -> str:
@@ -577,7 +578,7 @@ def build_default_evidence(
                 ),
             ]
         )
-    if feature in {FEATURE_049_ID, FEATURE_050_ID, FEATURE_051_ID}:
+    if feature in {FEATURE_049_ID, FEATURE_050_ID, FEATURE_051_ID, FEATURE_052_ID}:
         evidence.extend(
             [
                 ReadinessEvidence(
@@ -760,7 +761,7 @@ def build_default_evidence(
                 ),
             ]
         )
-    if feature in {FEATURE_050_ID, FEATURE_051_ID}:
+    if feature in {FEATURE_050_ID, FEATURE_051_ID, FEATURE_052_ID}:
         evidence.extend(
             [
                 ReadinessEvidence(
@@ -984,16 +985,161 @@ def build_default_evidence(
                 ),
             ]
         )
+    if feature == FEATURE_052_ID:
+        evidence.extend(
+            [
+                ReadinessEvidence(
+                    id="feature-052-validation-log",
+                    type="document",
+                    source="specs/052-mvp-live-ui-proof/evidence/validation-log.md",
+                    captured_at=captured_at,
+                    scope=(
+                        "Records 052 Spec Kit gates, production/app proof attempts, "
+                        "UI reference review, and final readiness boundary."
+                    ),
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-052-installed-app-check",
+                    type="document",
+                    source="specs/052-mvp-live-ui-proof/evidence/installed-app-check.md",
+                    captured_at=captured_at,
+                    scope="Metadata-only installed app identity, launch, and code-sign check for the current MVP proof.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                    limitations=["This check proves installed app identity/runtime safety, not a fresh record-to-review journey."],
+                ),
+                ReadinessEvidence(
+                    id="feature-052-owner-journey-probe",
+                    type="endpoint",
+                    source="specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py",
+                    captured_at=captured_at,
+                    scope=(
+                        "Metadata-only production probe for health, owner review state, transcript, "
+                        "speaker timeline, playback, and outcome category counts."
+                    ),
+                    strength="blocked",
+                    forbidden_content_scan="pass",
+                    limitations=["Owner-review proof remains blocked until a redacted production candidate and session are available."],
+                ),
+                ReadinessEvidence(
+                    id="feature-052-browser-runtime",
+                    type="runtime",
+                    source="specs/052-mvp-live-ui-proof/evidence/browser-runtime-check.cjs",
+                    captured_at=captured_at,
+                    scope=(
+                        "Runtime verifier reuses the accepted playback/outcome/speaker timeline checks "
+                        "for web, compact, and embedded review surfaces."
+                    ),
+                    strength="local_runtime",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-052-ui-reference-review",
+                    type="reference_review",
+                    source="specs/052-mvp-live-ui-proof/evidence/ui-reference-review.md",
+                    captured_at=captured_at,
+                    scope="Clean-room KRISP reference and 2brain web/macOS UI review notes.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                    limitations=["Reference review does not prove authenticated live owner detail access."],
+                ),
+                ReadinessEvidence(
+                    id="feature-052-closeout-report",
+                    type="document",
+                    source="specs/052-mvp-live-ui-proof/evidence/mvp-closeout-report.md",
+                    captured_at=captured_at,
+                    scope="Metadata-only gate table for the 052 MVP live owner journey decision.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-052-timing-proof",
+                    type="document",
+                    source="specs/052-mvp-live-ui-proof/evidence/timing-proof.md",
+                    captured_at=captured_at,
+                    scope="Metadata-only processing timing proof against the three-minute-per-hour target.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                    limitations=["Timing target remains unproven until a representative run is recorded."],
+                ),
+                ReadinessEvidence(
+                    id="feature-052-github-issues",
+                    type="github",
+                    source="specs/052-mvp-live-ui-proof/issues.md",
+                    captured_at=captured_at,
+                    scope="Maps 052 Spec Kit tasks to GitHub issues for tracked MVP proof.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-052-readiness-report-json",
+                    type="document",
+                    source="docs/evidence/052-mvp-live-ui-proof/readiness-report.json",
+                    captured_at=captured_at,
+                    scope="Structured 052 readiness report generated from the current evidence matrix.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-052-readiness-report-md",
+                    type="document",
+                    source="docs/evidence/052-mvp-live-ui-proof/readiness-report.md",
+                    captured_at=captured_at,
+                    scope="Reviewer-facing 052 readiness summary with the current bounded claim.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="feature-052-launch-gap-register",
+                    type="document",
+                    source="docs/evidence/052-mvp-live-ui-proof/launch-gap-register.md",
+                    captured_at=captured_at,
+                    scope="052 launch gap register with exact remaining P1 MVP proof gates.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="current-product-status-052",
+                    type="document",
+                    source="docs/current-product-status.md#next-product-slice",
+                    captured_at=captured_at,
+                    scope=(
+                        "Current status records 052 as the proof slice for live owner journey, "
+                        "production outcomes, representative timing, and interface quality."
+                    ),
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+                ReadinessEvidence(
+                    id="changelog-052",
+                    type="document",
+                    source="CHANGELOG.md#unreleased",
+                    captured_at=captured_at,
+                    scope="Changelog records the 052 MVP live owner journey and UI proof slice.",
+                    strength="docs_only",
+                    forbidden_content_scan="pass",
+                ),
+            ]
+        )
     return evidence
 
 
 def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[LaunchGap]:
     is_036 = feature == "036-owner-review-live-polish"
-    has_stored_outcomes = feature in {FEATURE_049_ID, FEATURE_050_ID, FEATURE_051_ID}
+    has_stored_outcomes = feature in {FEATURE_049_ID, FEATURE_050_ID, FEATURE_051_ID, FEATURE_052_ID}
     live_desktop_gap = (
         []
         if feature
-        in {"035-mvp-loop-live-evidence", "036-owner-review-live-polish", FEATURE_049_ID, FEATURE_050_ID, FEATURE_051_ID}
+        in {
+            "035-mvp-loop-live-evidence",
+            "036-owner-review-live-polish",
+            FEATURE_049_ID,
+            FEATURE_050_ID,
+            FEATURE_051_ID,
+            FEATURE_052_ID,
+        }
         else [
             LaunchGap(
                 id="live-desktop-evidence",
@@ -1012,16 +1158,16 @@ def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[L
                 id="fresh-owner-journey-evidence",
                 severity="P1",
                 affected_journey="fresh-owner-journey",
-                current_evidence="050 proved release/deploy, browser runtime, and one production metadata candidate, but not a fresh installed-app journey.",
+                current_evidence="051 proved release/deploy, browser runtime, and one production metadata baseline, but not a fresh installed-app journey.",
                 missing_evidence="Fresh installed-app record, stop, upload, finalization, processing, and review proof on the current production release.",
-                recommended_next_action="Run the installed app owner journey and record metadata-only gate states in the 051 closeout report.",
+                recommended_next_action="Run the installed app owner journey and record metadata-only gate states in the active closeout report.",
                 owner_area="ops",
             ),
             LaunchGap(
                 id="production-stored-outcomes-evidence",
                 severity="P1",
                 affected_journey="stored-outcomes-production",
-                current_evidence="049 stored outcomes are accepted locally; 050 found the current production candidate outcomes missing.",
+                current_evidence="049 stored outcomes are accepted locally; current production outcome proof remains required.",
                 missing_evidence="Stored outcome category states and counts on a current production candidate.",
                 recommended_next_action="Run the production owner journey probe and record outcome category states without private text.",
                 owner_area="web",
@@ -1030,13 +1176,13 @@ def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[L
                 id="processing-time-target-evidence",
                 severity="P1",
                 affected_journey="processing-time-target",
-                current_evidence="050 recorded only short-candidate timing, which cannot prove the three-minute-per-hour target.",
+                current_evidence="051 recorded only short-candidate timing, which cannot prove the three-minute-per-hour target.",
                 missing_evidence="Representative one-hour or near-one-hour production timing evidence.",
                 recommended_next_action="Record queue, workflow, provider, and finalize-to-review timing for a representative run.",
                 owner_area="server",
             ),
         ]
-        if feature == FEATURE_051_ID
+        if feature in {FEATURE_051_ID, FEATURE_052_ID}
         else [
             LaunchGap(
                 id="production-user-rollout-evidence",
@@ -1145,7 +1291,9 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
     is_049 = feature == FEATURE_049_ID
     is_050 = feature == FEATURE_050_ID
     is_051 = feature == FEATURE_051_ID
-    is_050_or_later = is_050 or is_051
+    is_052 = feature == FEATURE_052_ID
+    is_051_or_later = is_051 or is_052
+    is_050_or_later = is_050 or is_051_or_later
     has_stored_outcomes = is_049 or is_050_or_later
     owner_review_polished = is_036 or has_stored_outcomes
     desktop_capture_evidence = [
@@ -1172,6 +1320,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-049-validation-log",
                 *(["feature-050-validation-log"] if is_050_or_later else []),
                 *(["feature-051-validation-log", "feature-051-installed-app-check"] if is_051 else []),
+                *(["feature-052-validation-log", "feature-052-installed-app-check"] if is_052 else []),
             ]
         )
 
@@ -1235,6 +1384,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-049-validation-log",
                 *(["feature-050-validation-log"] if is_050_or_later else []),
                 *(["feature-051-validation-log", "feature-051-owner-journey-probe"] if is_051 else []),
+                *(["feature-052-validation-log", "feature-052-owner-journey-probe"] if is_052 else []),
             ]
         )
         meeting_detail_evidence.extend(
@@ -1246,6 +1396,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-049-validation-log",
                 *(["feature-050-browser-runtime", "feature-050-validation-log"] if is_050_or_later else []),
                 *(["feature-051-browser-runtime", "feature-051-owner-journey-probe"] if is_051 else []),
+                *(["feature-052-browser-runtime", "feature-052-owner-journey-probe"] if is_052 else []),
             ]
         )
         notes_evidence.extend(
@@ -1256,6 +1407,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "feature-049-validation-log",
                 *(["feature-050-closeout-report"] if is_050_or_later else []),
                 *(["feature-051-closeout-report", "feature-051-owner-journey-probe"] if is_051 else []),
+                *(["feature-052-closeout-report", "feature-052-owner-journey-probe"] if is_052 else []),
             ]
         )
         governance_evidence.extend(["feature-036-owner-review-live", "feature-049-privacy-deletion-rls"])
@@ -1275,6 +1427,21 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             ]
             if is_051
             else [
+                "feature-052-validation-log",
+                "feature-052-owner-journey-probe",
+                "feature-052-browser-runtime",
+                "feature-052-ui-reference-review",
+                "feature-052-closeout-report",
+                "feature-052-timing-proof",
+                "feature-052-github-issues",
+                "feature-052-readiness-report-json",
+                "feature-052-readiness-report-md",
+                "feature-052-launch-gap-register",
+                "current-product-status-052",
+                "changelog-052",
+            ]
+            if is_052
+            else [
                 "feature-050-validation-log",
                 "feature-050-github-issues",
                 "feature-050-readiness-report-json",
@@ -1292,6 +1459,94 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 "changelog-049",
             ]
         )
+
+    meeting_list_status = "degraded" if is_035 or is_052 else "ready"
+    meeting_list_gaps = ["web-owner-live-auth-context"] if is_035 else (["fresh-owner-journey-evidence"] if is_052 else [])
+    if is_052:
+        meeting_list_notes = (
+            "Production list route was visible in Chrome, but the same owner session redirected on detail navigation; "
+            "keep live owner review proof open until auth context is stable."
+        )
+    elif owner_review_polished:
+        meeting_list_notes = "Production Chrome owner session proves the list route with metadata-safe counts and state labels."
+    elif is_035:
+        meeting_list_notes = (
+            "Production list/auth polish exists and fixture evidence is safe, but live owner "
+            "list proof remains blocked until a commit-safe owner session is available."
+        )
+    else:
+        meeting_list_notes = (
+            "List route has fixture and local regression evidence with authorized access states; "
+            "live private list evidence is not committed."
+        )
+
+    meeting_detail_status = "degraded" if is_035 or is_052 else "ready"
+    meeting_detail_gaps = (
+        ["web-owner-live-auth-context"]
+        if is_035
+        else (["fresh-owner-journey-evidence", "production-stored-outcomes-evidence"] if is_052 else [])
+    )
+    if is_052:
+        meeting_detail_notes = (
+            "Fixture-backed review has transcript, playback, timestamp seek, speaker lanes, "
+            "and outcome rows, but live production detail redirected to login with missing auth context."
+        )
+    elif has_stored_outcomes:
+        meeting_detail_notes = (
+            "Ready owner review now has transcript, real review playback, timestamp seek, "
+            "and stored outcome evidence in web and embedded routes."
+        )
+    elif is_036:
+        meeting_detail_notes = (
+            "Production Chrome owner session proves one detail route, transcript panel, "
+            "notes/action truth states, and governance surface metadata-safely."
+        )
+    elif is_035:
+        meeting_detail_notes = (
+            "Ready/partial/processing/failed detail states are fixture-backed; live "
+            "private detail and governance proof remains blocked by missing approved owner-session evidence."
+        )
+    else:
+        meeting_detail_notes = (
+            "Ready/partial/processing/failed detail states have local fixture evidence for transcript, "
+            "playback, and provenance."
+        )
+
+    notes_status = "degraded" if is_052 else ("ready" if has_stored_outcomes else "blocked")
+    notes_gaps = ["production-stored-outcomes-evidence"] if is_052 else ([] if has_stored_outcomes else ["notes-action-output"])
+    if is_052:
+        notes_notes = "Stored outcome UI is fixture-backed, but production currently has no stored outcome sets/items for a current owner candidate."
+    elif has_stored_outcomes:
+        notes_notes = "Stored meeting outcomes are available with category truth, transcript evidence, retry safety, and privacy/deletion boundaries."
+    elif is_036:
+        notes_notes = "The interface exposes structured notes/action truth states; launchable generated notes/action output remains unaccepted."
+    else:
+        notes_notes = "The interface shows truthful planned notes/assistant placeholders; launchable notes/action output remains missing."
+
+    embedded_status = "degraded" if is_052 else ("ready" if owner_review_polished else "degraded")
+    embedded_gaps = (
+        ["fresh-owner-journey-evidence"]
+        if is_052
+        else ([] if owner_review_polished else (["desktop-product-surface-polish"] if is_035 else ["live-desktop-evidence"]))
+    )
+    if is_052:
+        embedded_notes = (
+            "Installed macOS shell truth is visible and fixture-backed embedded review passes, "
+            "but live embedded owner review is blocked by expired or missing auth context."
+        )
+    elif has_stored_outcomes:
+        embedded_notes = (
+            "Installed desktop polish remains current, and the server-owned embedded route "
+            "shows the same stored outcome truth as web review."
+        )
+    elif is_035 or owner_review_polished:
+        embedded_notes = (
+            "Installed desktop product polish and final /Applications capture-state "
+            "walkthrough evidence are current; broad launch remains blocked by web, "
+            "notes/action, and production rollout gaps."
+        )
+    else:
+        embedded_notes = "Embedding has synthetic and local regression evidence; fresh metadata-safe live screenshots are still required."
 
     return [
         MvpLoopStage(
@@ -1346,78 +1601,40 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             id="meeting-list",
             label="Meeting list",
             owner_surface="web_cabinet",
-            status="degraded" if is_035 else "ready",
+            status=meeting_list_status,
             evidence_strength="local_runtime",
             evidence_ids=meeting_list_evidence,
-            launch_gap_ids=["web-owner-live-auth-context"] if is_035 else [],
+            launch_gap_ids=meeting_list_gaps,
             claim_impact=["web_review_verified", "mvp_loop_ready"],
-            notes=(
-                "List route has fixture and local regression evidence with authorized access states; live private list evidence is not committed."
-                if not (is_035 or owner_review_polished)
-                else (
-                    "Production Chrome owner session proves the list route with metadata-safe counts and state labels."
-                    if owner_review_polished
-                    else (
-                        "Production list/auth polish exists and fixture evidence is safe, but live owner "
-                        "list proof remains blocked until a commit-safe owner session is available."
-                    )
-                )
-            ),
+            notes=meeting_list_notes,
         ),
         MvpLoopStage(
             id="meeting-detail-transcript-playback",
             label="Meeting detail transcript, playback, and provenance",
             owner_surface="web_cabinet",
-            status="degraded" if is_035 else "ready",
+            status=meeting_detail_status,
             evidence_strength="local_runtime",
             evidence_ids=meeting_detail_evidence,
-            launch_gap_ids=["web-owner-live-auth-context"] if is_035 else [],
+            launch_gap_ids=meeting_detail_gaps,
             claim_impact=["web_review_verified", "mvp_loop_ready"],
-            notes=(
-                "Ready/partial/processing/failed detail states have local fixture evidence for transcript, playback, and provenance."
-                if not (is_035 or owner_review_polished)
-                else (
-                    (
-                        "Ready owner review now has transcript, real review playback, timestamp seek, "
-                        "and stored outcome evidence in web and embedded routes."
-                    )
-                    if has_stored_outcomes
-                    else (
-                        "Production Chrome owner session proves one detail route, transcript panel, "
-                        "notes/action truth states, and governance surface metadata-safely."
-                    )
-                    if is_036
-                    else (
-                        "Ready/partial/processing/failed detail states are fixture-backed; live "
-                        "private detail and governance proof remains blocked by missing approved owner-session evidence."
-                    )
-                )
-            ),
+            notes=meeting_detail_notes,
         ),
         MvpLoopStage(
             id="notes-action-output",
             label="Notes and action output",
             owner_surface="web_cabinet",
-            status="ready" if has_stored_outcomes else "blocked",
+            status=notes_status,
             evidence_strength="local_runtime",
             evidence_ids=notes_evidence,
-            launch_gap_ids=[] if has_stored_outcomes else ["notes-action-output"],
+            launch_gap_ids=notes_gaps,
             claim_impact=["mvp_loop_ready"],
-            notes=(
-                "Stored meeting outcomes are available with category truth, transcript evidence, retry safety, and privacy/deletion boundaries."
-                if has_stored_outcomes
-                else (
-                    "The interface exposes structured notes/action truth states; launchable generated notes/action output remains unaccepted."
-                    if is_036
-                    else "The interface shows truthful planned notes/assistant placeholders; launchable notes/action output remains missing."
-                )
-            ),
+            notes=notes_notes,
         ),
         MvpLoopStage(
             id="desktop-embedded-cabinet",
             label="Desktop embedded cabinet",
             owner_surface="desktop_embedded_web",
-            status="ready" if owner_review_polished else "degraded",
+            status=embedded_status,
             evidence_strength="local_runtime",
             evidence_ids=[
                 "feature-033-desktop-embedding",
@@ -1436,27 +1653,11 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 *(["feature-049-browser-runtime"] if has_stored_outcomes else []),
                 *(["feature-050-browser-runtime"] if is_050_or_later else []),
                 *(["feature-051-browser-runtime"] if is_051 else []),
+                *(["feature-052-browser-runtime"] if is_052 else []),
             ],
-            launch_gap_ids=(
-                [] if owner_review_polished else (["desktop-product-surface-polish"] if is_035 else ["live-desktop-evidence"])
-            ),
+            launch_gap_ids=embedded_gaps,
             claim_impact=["desktop_loop_verified", "mvp_loop_ready"],
-            notes=(
-                "Embedding has synthetic and local regression evidence; fresh metadata-safe live screenshots are still required."
-                if not (is_035 or owner_review_polished)
-                else (
-                    (
-                        "Installed desktop polish remains current, and the server-owned embedded route "
-                        "shows the same stored outcome truth as web review."
-                    )
-                    if has_stored_outcomes
-                    else (
-                        "Installed desktop product polish and final /Applications capture-state "
-                        "walkthrough evidence are current; broad launch remains blocked by web, "
-                        "notes/action, and production rollout gaps."
-                    )
-                )
-            ),
+            notes=embedded_notes,
         ),
         MvpLoopStage(
             id="access-sharing-download-export",
@@ -1506,13 +1707,13 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                     "processing-time-target-evidence",
                     "production-stored-outcomes-evidence",
                 ]
-                if is_051
+                if is_051_or_later
                 else ["production-user-rollout-evidence"]
             ),
             claim_impact=["infra_smoke_ready"],
             notes=(
-                "051 splits the old rollout blocker into fresh owner journey, production outcomes, and timing proof gates."
-                if is_051
+                "The active proof slice splits the old rollout blocker into fresh owner journey, production outcomes, and timing proof gates."
+                if is_051_or_later
                 else "Production evidence proves infra_smoke_ready, not pilot or user rollout readiness."
             ),
         ),
@@ -1529,7 +1730,9 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
                 if not (is_035 or owner_review_polished)
                 else (
                     (
-                        "The 051 readiness truth records exact P1 owner journey proof gates before any pilot claim."
+                        "The 052 readiness truth records exact P1 owner journey, timing, and UI proof gates before any pilot claim."
+                        if is_052
+                        else "The 051 readiness truth records exact P1 owner journey proof gates before any pilot claim."
                         if is_051
                         else "The 050 readiness truth records shipped 049 outcomes and the remaining production rollout proof boundary."
                         if is_050
@@ -1553,7 +1756,9 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
     is_049 = feature == FEATURE_049_ID
     is_050 = feature == FEATURE_050_ID
     is_051 = feature == FEATURE_051_ID
-    is_050_or_later = is_050 or is_051
+    is_052 = feature == FEATURE_052_ID
+    is_051_or_later = is_051 or is_052
+    is_050_or_later = is_050 or is_051_or_later
     has_stored_outcomes = is_049 or is_050_or_later
     owner_review_polished = is_036 or has_stored_outcomes
     checks = [
@@ -1561,6 +1766,14 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
         "No copied Krisp visual expression, brand assets, colors, or icons.",
         "No exact Krisp product copy beyond short category labels.",
     ]
+    if is_052:
+        web_review_result = "needs_polish"
+    elif has_stored_outcomes:
+        web_review_result = "pass"
+    elif is_035 or is_036:
+        web_review_result = "needs_polish"
+    else:
+        web_review_result = "pass"
     return [
         ReferenceComparison(
             id="desktop-first-viewport",
@@ -1610,6 +1823,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 *(["feature-049-browser-runtime", "feature-036-clean-room-reference"] if has_stored_outcomes else []),
                 *(["feature-050-browser-runtime"] if is_050_or_later else []),
                 *(["feature-051-browser-runtime"] if is_051 else []),
+                *(["feature-052-browser-runtime", "feature-052-ui-reference-review"] if is_052 else []),
             ],
         ),
         ReferenceComparison(
@@ -1621,7 +1835,12 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 if not (is_035 or owner_review_polished)
                 else (
                     (
-                        "Stored outcome proof keeps the 036 owner-review truth and adds outcome review coverage "
+                        (
+                            "052 observed the production list route, but detail navigation lost owner auth context; "
+                            "keep the live list/detail proof degraded until the owner session is stable."
+                        )
+                        if is_052
+                        else "Stored outcome proof keeps the 036 owner-review truth and adds outcome review coverage "
                         "without committing private meeting content."
                     )
                     if has_stored_outcomes
@@ -1638,7 +1857,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
             ),
             intentional_differences=["2brain keeps capture creation out of embedded web content."],
             forbidden_similarity_checks=checks,
-            result="needs_polish" if (is_035 or is_036) else "pass",
+            result="needs_polish" if (is_035 or is_036 or is_052) else "pass",
             evidence_ids=[
                 "web-cabinet-regression-tests",
                 "web-meeting-list-blocker-note",
@@ -1656,6 +1875,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 *(["feature-036-owner-review-live", "feature-049-browser-runtime"] if has_stored_outcomes else []),
                 *(["feature-050-browser-runtime"] if is_050_or_later else []),
                 *(["feature-051-browser-runtime"] if is_051 else []),
+                *(["feature-052-browser-runtime", "feature-052-ui-reference-review"] if is_052 else []),
             ],
         ),
         ReferenceComparison(
@@ -1667,9 +1887,14 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 if not (is_035 or owner_review_polished)
                 else (
                     (
-                        "049 adds stored outcome categories, transcript evidence, failure truth, "
+                        (
+                            "052 fixture runtime proves playback, speaker lanes, seek, and outcomes, "
+                            "but live production owner detail remains blocked by missing auth context."
+                        )
+                        if is_052
+                        else "049 adds stored outcome categories, transcript evidence, failure truth, "
                         "privacy/deletion boundaries, and web/embedded parity on top of the "
-                        "server-owned review surface; 051 proves whether the same truth exists on production."
+                        "server-owned review surface."
                     )
                     if has_stored_outcomes
                     else (
@@ -1687,7 +1912,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
             ),
             intentional_differences=["2brain uses its own design language and truthful placeholder policy."],
             forbidden_similarity_checks=checks,
-            result="pass" if has_stored_outcomes else ("needs_polish" if (is_035 or is_036) else "pass"),
+            result=web_review_result,
             evidence_ids=[
                 "feature-016-web-review",
                 "feature-017-access-egress",
@@ -1712,6 +1937,11 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 ),
                 *(["feature-050-browser-runtime", "feature-050-closeout-report"] if is_050_or_later else []),
                 *(["feature-051-browser-runtime", "feature-051-closeout-report"] if is_051 else []),
+                *(
+                    ["feature-052-browser-runtime", "feature-052-ui-reference-review", "feature-052-closeout-report"]
+                    if is_052
+                    else []
+                ),
             ],
         ),
         ReferenceComparison(
@@ -1751,6 +1981,7 @@ def build_default_reference_comparisons(feature: str = "034-mvp-loop-readiness")
                 *(["feature-049-privacy-deletion-rls"] if has_stored_outcomes else []),
                 *(["feature-050-closeout-report"] if is_050_or_later else []),
                 *(["feature-051-closeout-report"] if is_051 else []),
+                *(["feature-052-closeout-report"] if is_052 else []),
             ],
         ),
     ]

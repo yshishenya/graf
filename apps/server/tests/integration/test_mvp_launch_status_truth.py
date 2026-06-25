@@ -82,7 +82,26 @@ def test_current_status_records_051_as_active_owner_journey_proof_slice() -> Non
     assert "fresh owner journey" in status_doc
     assert "production stored" in status_doc
     assert "outcomes" in status_doc
-    assert "representative timing gaps" in status_doc
+    assert "representative timing" in status_doc
     assert "The allowed current claim remains `pilot_blocked`" in status_doc
     assert "internal_pilot_candidate" in status_doc
     assert status_doc.index("Feature `050-mvp-launch-proof`") < status_doc.index("Feature `051-mvp-owner-journey-proof`")
+
+
+def test_current_status_records_052_live_ui_proof_and_autostart_blocker() -> None:
+    status_doc = _status_doc()
+
+    assert "Feature `052-mvp-live-ui-proof` is the active MVP proof slice" in status_doc
+    assert "production API currently" in status_doc
+    assert "`processing=disabled`" in status_doc
+    assert "accepted recordings can remain" in status_doc
+    assert "`not_submitted`" in status_doc
+    assert "upload finalize" in status_doc
+    assert "Current 052 branch fix" in status_doc
+    assert "production `rec-api`" in status_doc
+    assert "processing dispatch" in status_doc
+    assert "live owner-review UI gaps" in status_doc
+    assert "missing auth context" in status_doc
+    assert "The allowed current claim remains `pilot_blocked`" in status_doc
+    assert "internal_pilot_candidate" in status_doc
+    assert status_doc.index("Feature `051-mvp-owner-journey-proof`") < status_doc.index("Feature `052-mvp-live-ui-proof`")

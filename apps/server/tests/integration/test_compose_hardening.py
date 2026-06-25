@@ -158,13 +158,18 @@ def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() ->
     assert temporal["depends_on"]["rec-postgres"]["condition"] == "service_healthy"
 
 
-def test_production_processing_worker_can_read_local_file_secrets() -> None:
+def test_production_api_autostarts_processing_and_worker_can_read_processing_secrets() -> None:
     compose = _compose()
     api = compose["services"]["rec-api"]
     worker = compose["services"]["rec-processing-worker"]
+    api_env = api["environment"]
     api_secret_sources = {secret["source"] for secret in api["secrets"]}
 
-    assert "twobrain_mediascribe_api_key" not in api_secret_sources
+    assert api_env["TWOBRAIN_PROCESSING_ENABLED"] == "true"
+    assert api_env["TWOBRAIN_TEMPORAL_ADDRESS"] == "rec-temporal:7233"
+    assert api_env["TWOBRAIN_MEDIASCRIBE_API_KEY_FILE"] == "/run/secrets/twobrain_mediascribe_api_key"
+    assert api["depends_on"]["rec-temporal"]["condition"] == "service_started"
+    assert "twobrain_mediascribe_api_key" in api_secret_sources
     assert worker["user"] == "root"
     assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
 
