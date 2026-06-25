@@ -167,10 +167,11 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
 
     assert api_env["TWOBRAIN_PROCESSING_ENABLED"] == "true"
     assert api_env["TWOBRAIN_TEMPORAL_ADDRESS"] == "rec-temporal:7233"
-    assert api_env["TWOBRAIN_MEDIASCRIBE_API_KEY_FILE"] == "/run/secrets/twobrain_mediascribe_api_key"
+    assert "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE" not in api_env
     assert api["depends_on"]["rec-temporal"]["condition"] == "service_started"
-    assert "twobrain_mediascribe_api_key" in api_secret_sources
+    assert "twobrain_mediascribe_api_key" not in api_secret_sources
     assert worker["user"] == "root"
+    assert worker["environment"]["TWOBRAIN_MEDIASCRIBE_API_KEY_FILE"] == "/run/secrets/twobrain_mediascribe_api_key"
     assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
 
 

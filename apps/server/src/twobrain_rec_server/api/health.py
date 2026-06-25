@@ -74,7 +74,7 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         mediascribe_status = (
             "configured"
             if settings.mediascribe_base_url is not None and settings.mediascribe_api_key_file is not None
-            else "missing"
+            else "dispatcher_only"
         )
     elif settings.mediascribe_base_url is not None:
         mediascribe_status = "configured"
@@ -89,7 +89,7 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         "mediascribe": mediascribe_status,
         "langfuse": "not_configured" if settings.langfuse_base_url is None else "configured",
     }
-    non_blocking_statuses = {"ok", "configured", "not_required", "not_configured", "disabled", "enabled"}
+    non_blocking_statuses = {"ok", "configured", "dispatcher_only", "not_required", "not_configured", "disabled", "enabled"}
     status = "ready" if all(v in non_blocking_statuses for v in checks.values()) else "not_ready"
     return status, checks
 
