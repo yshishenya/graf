@@ -9,6 +9,10 @@ MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py"
 )
+MEETING_OUTCOMES_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0009_meeting_outcomes_mvp.py"
+)
 
 MEETING_CONTENT_TABLES = {
     "meetings",
@@ -26,6 +30,9 @@ MEETING_CONTENT_TABLES = {
     "diarization_segments",
     "processing_audit_events",
     "processing_dependency_states",
+    "meeting_outcome_sets",
+    "meeting_outcome_items",
+    "meeting_outcome_generation_attempts",
 }
 
 
@@ -41,4 +48,4 @@ def test_meeting_content_migration_enables_and_forces_rls() -> None:
     assert "enable row level security" in migration_text
     assert "force row level security" in migration_text
     for table_name in sorted(MEETING_CONTENT_TABLES):
-        assert table_name in migration_text
+        assert table_name in migration_text or table_name in MEETING_OUTCOMES_MIGRATION.read_text(encoding="utf-8")

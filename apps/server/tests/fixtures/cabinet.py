@@ -106,6 +106,13 @@ def create_summary_reported_meeting(client: TestClient) -> UUID:
     return meeting_id
 
 
+def create_outcome_ready_meeting(
+    client: TestClient,
+    local_recording_id: str = "cabinet-outcome-ready",
+) -> UUID:
+    return _create_ready_meeting(client, local_recording_id, "Итоги встречи")
+
+
 def _create_partial_meeting(client: TestClient, local_recording_id: str, title: str) -> UUID:
     finalized = create_finalized_meeting(client, local_recording_id)
     meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))

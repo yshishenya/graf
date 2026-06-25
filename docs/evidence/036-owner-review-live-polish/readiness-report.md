@@ -12,6 +12,16 @@
 
 infra_smoke_ready is not user rollout readiness, internal pilot readiness, or production readiness.
 
+## Superseded Notes
+
+- This 036 report is historical evidence for the owner-review/live-polish slice.
+  Its `notes-action-output` blocker remains true for 036 itself, but the later
+  `049-meeting-outcomes-mvp` feature closes that blocker with stored meeting
+  outcomes, transcript evidence, web/embedded parity, and privacy/deletion/RLS
+  coverage. Keep this report as the 036 baseline and use
+  `specs/049-meeting-outcomes-mvp/evidence/validation-log.md` for current
+  outcome-readiness evidence.
+
 ## MVP Loop Matrix
 
 | Stage | Surface | Status | Evidence | Gaps | Claim Impact |

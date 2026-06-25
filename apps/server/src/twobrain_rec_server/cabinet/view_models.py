@@ -18,6 +18,9 @@ from twobrain_rec_server.api.schemas import (
     NotesActionCategoryState,
     NotesActionTruthState,
     NotesReviewState,
+    OutcomeItemView,
+    OutcomeProvenanceView,
+    OutcomeSourceReferenceView,
     PlaybackReviewState,
     ProcessingReviewState,
     SharePanelState,
@@ -35,6 +38,8 @@ from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaRevision,
     Meeting,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
@@ -227,11 +232,13 @@ def build_list_item(
     workflow: ProcessingWorkflow | None,
     access: MeetingAccessState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
+    outcome_set: MeetingOutcomeSet | None = None,
+    outcome_items: list[MeetingOutcomeItem] | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
-    notes_truth = notes_action_truth_state(status=status, result=result)
+    notes_truth = notes_action_truth_state(status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or [])
     return MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting),
@@ -462,6 +469,7 @@ def _notes_action_category(
     reason: str,
     readiness_impact: str,
     copy_key: str,
+    items: list[OutcomeItemView] | None = None,
 ) -> NotesActionCategoryState:
     return NotesActionCategoryState(
         state=state,
@@ -469,6 +477,7 @@ def _notes_action_category(
         reason=reason,
         readiness_impact=readiness_impact,
         copy_key=copy_key,
+        items=items or [],
     )
 
 
@@ -476,7 +485,11 @@ def notes_action_truth_state(
     *,
     status: MeetingReviewStatus,
     result: ProcessingResult | None,
+    outcome_set: MeetingOutcomeSet | None = None,
+    outcome_items: list[MeetingOutcomeItem] | None = None,
 ) -> NotesActionTruthState:
+    if outcome_set is not None and status in {"ready", "partial"}:
+        return stored_outcome_truth_state(outcome_set, outcome_items or [])
     if status in {"processing", "submitted", "uploading"}:
         category = _notes_action_category(
             state="processing",
@@ -487,9 +500,13 @@ def notes_action_truth_state(
         )
         return NotesActionTruthState(
             summary=category,
+            key_points=category,
             decisions=category,
             action_items=category,
             followups=category,
+            risks=category,
+            questions=category,
+            evidence=category,
             source_basis="processing_status",
         )
 
@@ -503,9 +520,13 @@ def notes_action_truth_state(
         )
         return NotesActionTruthState(
             summary=category,
+            key_points=category,
             decisions=category,
             action_items=category,
             followups=category,
+            risks=category,
+            questions=category,
+            evidence=category,
             source_basis="processing_status",
         )
 
@@ -527,9 +548,13 @@ def notes_action_truth_state(
             )
             return NotesActionTruthState(
                 summary=summary,
+                key_points=deferred,
                 decisions=deferred,
                 action_items=deferred,
                 followups=deferred,
+                risks=deferred,
+                questions=deferred,
+                evidence=deferred,
                 source_basis="processing_status",
             )
         category = _notes_action_category(
@@ -541,9 +566,13 @@ def notes_action_truth_state(
         )
         return NotesActionTruthState(
             summary=category,
+            key_points=category,
             decisions=category,
             action_items=category,
             followups=category,
+            risks=category,
+            questions=category,
+            evidence=category,
             source_basis="policy_deferral",
         )
 
@@ -556,11 +585,99 @@ def notes_action_truth_state(
     )
     return NotesActionTruthState(
         summary=category,
+        key_points=category,
         decisions=category,
         action_items=category,
         followups=category,
+        risks=category,
+        questions=category,
+        evidence=category,
         source_basis="not_supported",
     )
+
+
+def stored_outcome_truth_state(
+    outcome_set: MeetingOutcomeSet,
+    outcome_items: list[MeetingOutcomeItem],
+) -> NotesActionTruthState:
+    by_category: dict[str, list[OutcomeItemView]] = defaultdict(list)
+    if outcome_set.status in {"available", "partial"}:
+        for item in sorted(outcome_items, key=lambda row: (row.category, row.sequence)):
+            by_category[item.category].append(_outcome_item_view(item))
+
+    def category_state(category: str, label: str) -> NotesActionCategoryState:
+        state = getattr(outcome_set, f"{category}_state")
+        return _notes_action_category(
+            state=state,
+            label=_outcome_state_label(state, label),
+            reason=_outcome_state_reason(state),
+            readiness_impact="closes_gap" if state in {"available", "not_found", "not_inferable"} else "keeps_gap_open",
+            copy_key=f"notes.{category}.{state}",
+            items=by_category.get(category, []),
+        )
+
+    return NotesActionTruthState(
+        summary=category_state("summary", "Итоги готовы"),
+        key_points=category_state("key_points", "Ключевые пункты"),
+        decisions=category_state("decisions", "Решения"),
+        action_items=category_state("action_items", "Действия"),
+        followups=category_state("followups", "Follow-ups"),
+        risks=category_state("risks", "Риски"),
+        questions=category_state("questions", "Вопросы"),
+        evidence=category_state("evidence", "Evidence"),
+        source_basis=_outcome_source_basis(outcome_set),
+        provenance=OutcomeProvenanceView(
+            generator_kind=outcome_set.generator_kind,
+            generator_version=outcome_set.generator_version,
+            generated_at=outcome_set.generated_at,
+            latency_ms=outcome_set.latency_ms,
+        ),
+    )
+
+
+def _outcome_source_basis(outcome_set: MeetingOutcomeSet) -> str:
+    if outcome_set.status in {"queued", "generating"}:
+        return "processing_status"
+    if outcome_set.status in {"blocked", "failed", "unsafe"}:
+        return "blocked"
+    return "stored_output"
+
+
+def _outcome_item_view(item: MeetingOutcomeItem) -> OutcomeItemView:
+    refs = [OutcomeSourceReferenceView(**ref) for ref in item.source_refs_json]
+    return OutcomeItemView(
+        category=item.category,
+        sequence=item.sequence,
+        text=item.text,
+        owner_text=item.owner_text,
+        due_date_text=item.due_date_text,
+        truth_label=item.truth_label,
+        source_refs=refs,
+    )
+
+
+def _outcome_state_label(state: str, available_label: str) -> str:
+    return {
+        "available": available_label,
+        "not_found": "Не найдено",
+        "not_inferable": "Не удалось надежно определить",
+        "processing": "Готовится",
+        "blocked": "Заблокировано",
+        "unsafe": "Нужна проверка",
+        "unavailable": "Недоступно",
+    }.get(state, state)
+
+
+def _outcome_state_reason(state: str) -> str:
+    return {
+        "available": "Сохраненный итог доступен и связан с расшифровкой.",
+        "not_found": "В расшифровке нет надежной опоры для этой категории.",
+        "not_inferable": "Эту категорию нельзя надежно вывести из расшифровки.",
+        "processing": "Итоги еще формируются.",
+        "blocked": "Итоги заблокированы безопасной проверкой.",
+        "unsafe": "Итоги требуют проверки перед показом.",
+        "unavailable": "Итоги недоступны.",
+    }.get(state, "Состояние итогов неизвестно.")
 
 
 def playback_state(
@@ -664,6 +781,8 @@ def build_review_response(
     artifacts: list[ArtifactEgressState] | None = None,
     review_playback: ArtifactEgressState | None = None,
     activity: MeetingActivityResponse | None = None,
+    outcome_set: MeetingOutcomeSet | None = None,
+    outcome_items: list[MeetingOutcomeItem] | None = None,
 ) -> MeetingReviewResponse:
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
@@ -675,7 +794,9 @@ def build_review_response(
         artifacts=artifact_states,
     )
     status = cast(MeetingReviewStatus, item.status)
-    notes_truth = notes_action_truth_state(status=status, result=result)
+    notes_truth = notes_action_truth_state(status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or [])
+    item.notes_available = notes_truth.summary.state == "available"
+    item.notes_action_truth = notes_truth
     playback = playback_state(meeting, status, review_playback)
     return MeetingReviewResponse(
         meeting=item,

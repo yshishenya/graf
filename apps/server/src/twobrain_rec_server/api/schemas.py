@@ -489,15 +489,64 @@ class MeetingFilterState(BaseModel):
     sort: str = "updated_desc"
 
 
-NotesActionAvailabilityState = Literal["available", "processing", "blocked", "unavailable", "deferred"]
+NotesActionAvailabilityState = Literal[
+    "available",
+    "not_found",
+    "not_inferable",
+    "processing",
+    "blocked",
+    "unavailable",
+    "deferred",
+    "unsafe",
+]
 NotesActionSourceBasis = Literal[
     "stored_output",
     "processing_status",
     "transcript_only",
     "policy_deferral",
     "not_supported",
+    "blocked",
 ]
 NotesActionReadinessImpact = Literal["closes_gap", "keeps_gap_open", "non_blocking"]
+OutcomeTruthLabel = Literal["supported", "not_found", "not_inferable", "unsafe", "blocked"]
+OutcomeEvidenceKind = Literal["segment", "timestamp", "category_state", "source_hint"]
+
+
+class OutcomeSourceReferenceView(BaseModel):
+    transcript_segment_id: UUID | None = None
+    sequence: int | None = None
+    start_seconds: float | None = Field(default=None, ge=0)
+    end_seconds: float | None = Field(default=None, ge=0)
+    speaker_label: str | None = None
+    source_role: str | None = None
+    evidence_kind: OutcomeEvidenceKind
+
+
+class OutcomeItemView(BaseModel):
+    category: str
+    sequence: int = Field(ge=0)
+    text: str | None = None
+    owner_text: str | None = None
+    due_date_text: str | None = None
+    truth_label: OutcomeTruthLabel
+    source_refs: list[OutcomeSourceReferenceView] = Field(default_factory=list)
+
+
+class OutcomeProvenanceView(BaseModel):
+    generator_kind: str
+    generator_version: str
+    generated_at: datetime | None = None
+    latency_ms: int | None = Field(default=None, ge=0)
+
+
+def _default_deferred_notes_category() -> "NotesActionCategoryState":
+    return NotesActionCategoryState(
+        state="deferred",
+        label="Outcomes deferred",
+        reason="Generated meeting outcomes are deferred until stored output is available.",
+        readiness_impact="keeps_gap_open",
+        copy_key="notes.outcomes.deferred",
+    )
 
 
 class NotesActionCategoryState(BaseModel):
@@ -506,29 +555,33 @@ class NotesActionCategoryState(BaseModel):
     reason: str
     readiness_impact: NotesActionReadinessImpact
     copy_key: str
+    items: list[OutcomeItemView] = Field(default_factory=list)
 
 
 class NotesActionTruthState(BaseModel):
     summary: NotesActionCategoryState
+    key_points: NotesActionCategoryState = Field(default_factory=_default_deferred_notes_category)
     decisions: NotesActionCategoryState
     action_items: NotesActionCategoryState
     followups: NotesActionCategoryState
+    risks: NotesActionCategoryState = Field(default_factory=_default_deferred_notes_category)
+    questions: NotesActionCategoryState = Field(default_factory=_default_deferred_notes_category)
+    evidence: NotesActionCategoryState = Field(default_factory=_default_deferred_notes_category)
     source_basis: NotesActionSourceBasis
+    provenance: OutcomeProvenanceView | None = None
 
 
 def default_notes_action_truth() -> NotesActionTruthState:
-    category = NotesActionCategoryState(
-        state="deferred",
-        label="Outcomes deferred",
-        reason="Generated meeting outcomes are deferred until stored output is available.",
-        readiness_impact="keeps_gap_open",
-        copy_key="notes.outcomes.deferred",
-    )
+    category = _default_deferred_notes_category()
     return NotesActionTruthState(
         summary=category,
+        key_points=category,
         decisions=category,
         action_items=category,
         followups=category,
+        risks=category,
+        questions=category,
+        evidence=category,
         source_basis="policy_deferral",
     )
 

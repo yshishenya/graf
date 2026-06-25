@@ -188,6 +188,33 @@ def test_036_closes_live_owner_and_visual_polish_gaps_but_keeps_output_gaps() ->
     assert comparisons["desktop-first-viewport"].result == "pass"
 
 
+def test_049_closes_notes_action_output_only_with_stored_outcome_evidence() -> None:
+    report = build_default_readiness_report(feature="049-meeting-outcomes-mvp")
+    stages = {stage.id: stage for stage in report.stages}
+    evidence_ids = {item.id for item in report.evidence}
+    gaps = {gap.id: gap for gap in report.launch_gaps}
+    comparisons = {comparison.id: comparison for comparison in report.reference_comparisons}
+
+    assert report.claim_summary.outcome == "pilot_blocked"
+    assert report.claim_summary.p0_p1_blockers == 1
+    assert "notes-action-output" not in gaps
+    assert "production-user-rollout-evidence" in gaps
+
+    notes_stage = stages["notes-action-output"]
+    assert notes_stage.status == "ready"
+    assert notes_stage.launch_gap_ids == []
+    assert "feature-049-stored-outcomes" in notes_stage.evidence_ids
+    assert "feature-049-browser-runtime" in notes_stage.evidence_ids
+    assert "feature-049-privacy-deletion-rls" in notes_stage.evidence_ids
+    assert "feature-049-stored-outcomes" in evidence_ids
+    assert "feature-049-privacy-deletion-rls" in evidence_ids
+
+    assert stages["meeting-detail-transcript-playback"].status == "ready"
+    assert stages["desktop-embedded-cabinet"].status == "ready"
+    assert "feature-049-browser-runtime" in stages["desktop-embedded-cabinet"].evidence_ids
+    assert comparisons["web-review-workspace"].result == "pass"
+
+
 def test_policy_lifecycle_evidence_is_local_runtime_and_keeps_external_limits_visible() -> None:
     report = build_default_readiness_report()
     stages = {stage.id: stage for stage in report.stages}
