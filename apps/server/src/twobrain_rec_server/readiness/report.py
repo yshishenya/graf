@@ -94,6 +94,8 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-036-clean-room-reference",
                     "feature-049-browser-runtime",
                     "feature-050-browser-runtime",
+                    "feature-051-installed-app-check",
+                    "feature-051-browser-runtime",
                 ],
             ),
             "",
@@ -130,6 +132,11 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-050-validation-log",
                     "feature-050-browser-runtime",
                     "feature-050-closeout-report",
+                    "feature-051-validation-log",
+                    "feature-051-owner-journey-probe",
+                    "feature-051-browser-runtime",
+                    "feature-051-closeout-report",
+                    "feature-051-timing-proof",
                     "reference-comparison-note",
                 ],
             ),
@@ -145,6 +152,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "policy-lifecycle-evidence-note",
                     "feature-049-privacy-deletion-rls",
                     "feature-050-closeout-report",
+                    "feature-051-closeout-report",
                 ],
             ),
             "",
@@ -294,6 +302,12 @@ def _next_slice_recommendation(report: ReadinessReport) -> str:
             "Recommended next action: keep 050 capped at `pilot_blocked`; "
             "049 stored outcomes and playback remain accepted, but MVP launch cannot advance "
             "until the live owner journey and production user-rollout evidence pass."
+        )
+    if report.feature == "051-mvp-owner-journey-proof" and p1_gaps:
+        return (
+            "Recommended next action: keep 051 capped at `pilot_blocked`; "
+            "advance only after fresh owner journey, production stored outcomes, "
+            "and representative timing evidence pass."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."

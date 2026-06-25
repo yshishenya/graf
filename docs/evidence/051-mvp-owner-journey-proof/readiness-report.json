@@ -1,0 +1,1141 @@
+{
+  "feature": "051-mvp-owner-journey-proof",
+  "generated_at": "2026-06-25T15:48:13Z",
+  "deployed_commit": "b07d7a2abd2a6d0add9e919e97261903bf933672",
+  "claim_summary": {
+    "outcome": "pilot_blocked",
+    "bounded_claims": [
+      "infra_smoke_ready"
+    ],
+    "excluded_claims": [
+      "mvp_loop_ready",
+      "internal_pilot_candidate",
+      "user_rollout_ready",
+      "production_ready"
+    ],
+    "p0_p1_blockers": 3
+  },
+  "stages": [
+    {
+      "id": "local-recording-visible-stop",
+      "label": "Local recording and visible stop",
+      "owner_surface": "macos_native",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-025-system-audio",
+        "feature-022-meeting-mute-truth",
+        "desktop-shell-regression-tests",
+        "feature-035-live-evidence-pack",
+        "feature-036-validation-log",
+        "feature-036-installed-app-final-walkthrough",
+        "feature-049-validation-log",
+        "feature-050-validation-log",
+        "feature-051-validation-log",
+        "feature-051-installed-app-check"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "desktop_loop_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Installed /Applications runtime evidence covers Record, Pause, Resume, Stop, latest artifact validation, and visible local capture truth."
+    },
+    {
+      "id": "local-artifact-finalization",
+      "label": "Local artifact finalization and leakage gate",
+      "owner_surface": "macos_native",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-020-finalization"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "desktop_loop_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Finalization truth gate is accepted for dual-track packages."
+    },
+    {
+      "id": "upload-server-ingest",
+      "label": "Upload queue and server ingest",
+      "owner_surface": "server_backend",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-014-desktop-upload"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Desktop upload queue and server-mediated ingest are accepted foundations."
+    },
+    {
+      "id": "mediascribe-processing-import",
+      "label": "MediaScribe processing and result import",
+      "owner_surface": "server_backend",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-015-processing"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Processing pipeline is accepted; desktop clients still do not hold MediaScribe credentials."
+    },
+    {
+      "id": "meeting-list",
+      "label": "Meeting list",
+      "owner_surface": "web_cabinet",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-016-web-review",
+        "feature-017-access-egress",
+        "web-cabinet-regression-tests",
+        "web-meeting-list-blocker-note",
+        "feature-036-owner-review-live",
+        "feature-036-validation-log",
+        "feature-049-validation-log",
+        "feature-050-validation-log",
+        "feature-051-validation-log",
+        "feature-051-owner-journey-probe"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Production Chrome owner session proves the list route with metadata-safe counts and state labels."
+    },
+    {
+      "id": "meeting-detail-transcript-playback",
+      "label": "Meeting detail transcript, playback, and provenance",
+      "owner_surface": "web_cabinet",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-016-web-review",
+        "web-cabinet-regression-tests",
+        "web-meeting-detail-blocker-note",
+        "feature-036-owner-review-live",
+        "feature-036-validation-log",
+        "feature-048-real-playback-availability",
+        "feature-049-browser-runtime",
+        "feature-049-validation-log",
+        "feature-050-browser-runtime",
+        "feature-050-validation-log",
+        "feature-051-browser-runtime",
+        "feature-051-owner-journey-probe"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "web_review_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Ready owner review now has transcript, real review playback, timestamp seek, and stored outcome evidence in web and embedded routes."
+    },
+    {
+      "id": "notes-action-output",
+      "label": "Notes and action output",
+      "owner_surface": "web_cabinet",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "web-cabinet-regression-tests",
+        "web-meeting-detail-blocker-note",
+        "feature-049-stored-outcomes",
+        "feature-049-browser-runtime",
+        "feature-049-privacy-deletion-rls",
+        "feature-049-validation-log",
+        "feature-050-closeout-report",
+        "feature-051-closeout-report",
+        "feature-051-owner-journey-probe"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "mvp_loop_ready"
+      ],
+      "notes": "Stored meeting outcomes are available with category truth, transcript evidence, retry safety, and privacy/deletion boundaries."
+    },
+    {
+      "id": "desktop-embedded-cabinet",
+      "label": "Desktop embedded cabinet",
+      "owner_surface": "desktop_embedded_web",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-033-desktop-embedding",
+        "desktop-shell-regression-tests",
+        "desktop-first-surface-blocker-note",
+        "desktop-embedded-detail-blocker-note",
+        "feature-036-installed-app-visual-polish",
+        "feature-036-installed-app-final-walkthrough",
+        "feature-036-clean-room-reference",
+        "feature-049-browser-runtime",
+        "feature-050-browser-runtime",
+        "feature-051-browser-runtime"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "desktop_loop_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Installed desktop polish remains current, and the server-owned embedded route shows the same stored outcome truth as web review."
+    },
+    {
+      "id": "access-sharing-download-export",
+      "label": "Access, sharing, download, and export",
+      "owner_surface": "web_cabinet",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-017-access-egress",
+        "policy-lifecycle-regression-tests",
+        "policy-lifecycle-evidence-note",
+        "feature-036-owner-review-live",
+        "feature-049-privacy-deletion-rls"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "policy_lifecycle_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Access/egress policy is accepted and locally regressed with bounded artifact actions; 049 keeps outcome text out of list egress and denied states."
+    },
+    {
+      "id": "retention-deletion-local-purge",
+      "label": "Retention, deletion, and local purge truth",
+      "owner_surface": "server_backend",
+      "status": "ready",
+      "evidence_strength": "local_runtime",
+      "evidence_ids": [
+        "feature-018-retention-deletion",
+        "policy-lifecycle-regression-tests",
+        "policy-lifecycle-evidence-note",
+        "feature-049-privacy-deletion-rls"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "policy_lifecycle_verified",
+        "mvp_loop_ready"
+      ],
+      "notes": "Deletion reports, dependency limits, post-egress limits, outcome lifecycle marking, and local purge acknowledgements are locally regressed as metadata-only truth."
+    },
+    {
+      "id": "production-deployment-smoke",
+      "label": "Production deployment and smoke boundary",
+      "owner_surface": "production_infra",
+      "status": "degraded",
+      "evidence_strength": "production_smoke",
+      "evidence_ids": [
+        "production-018-infra-smoke"
+      ],
+      "launch_gap_ids": [
+        "fresh-owner-journey-evidence",
+        "processing-time-target-evidence",
+        "production-stored-outcomes-evidence"
+      ],
+      "claim_impact": [
+        "infra_smoke_ready"
+      ],
+      "notes": "051 splits the old rollout blocker into fresh owner journey, production outcomes, and timing proof gates."
+    },
+    {
+      "id": "product-status-next-slice",
+      "label": "Product status and next-slice truth",
+      "owner_surface": "docs_status",
+      "status": "ready",
+      "evidence_strength": "docs_only",
+      "evidence_ids": [
+        "feature-051-validation-log",
+        "feature-051-owner-journey-probe",
+        "feature-051-browser-runtime",
+        "feature-051-closeout-report",
+        "feature-051-timing-proof",
+        "feature-051-github-issues",
+        "feature-051-readiness-report-json",
+        "feature-051-readiness-report-md",
+        "feature-051-launch-gap-register",
+        "current-product-status-051",
+        "changelog-051"
+      ],
+      "launch_gap_ids": [],
+      "claim_impact": [
+        "partial_readiness"
+      ],
+      "notes": "The 051 readiness truth records exact P1 owner journey proof gates before any pilot claim."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "spec-034",
+      "type": "document",
+      "source": "specs/034-mvp-loop-readiness/spec.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Defines the MVP loop readiness requirements and forbidden evidence boundaries.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "plan-034",
+      "type": "document",
+      "source": "specs/034-mvp-loop-readiness/plan.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Defines the server-side readiness harness and validation strategy.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "tasks-034",
+      "type": "github",
+      "source": "specs/034-mvp-loop-readiness/issues.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Maps Spec Kit tasks to GitHub issues #956-#1014.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-016-web-review",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-016-meeting-dashboard-review",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted server-owned meeting list/detail review cabinet.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Synthetic and fixture evidence cannot prove live private meeting review."
+      ]
+    },
+    {
+      "id": "feature-017-access-egress",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-017-access-sharing-downloads",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted browser/server-owned access, sharing, download, and export layer.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-018-retention-deletion",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-018-retention-deletion-execution",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted retention/deletion execution and local purge truth.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-020-finalization",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-020-speaker-to-mic-leakage",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted finalization truth gate for dual-track recording packages.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-025-system-audio",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-025-system-audio-capture-pivot",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted system-audio-first macOS MVP capture path.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-022-meeting-mute-truth",
+      "type": "document",
+      "source": "specs/022-meeting-mute-truth/evidence/test-results.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted product-owned Pause/Resume mute truth, privacy segment metadata, fail-closed unsupported target handling, and installed /Applications runtime evidence.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-014-desktop-upload",
+      "type": "document",
+      "source": "CHANGELOG.md#unreleased",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted desktop upload queue and server-mediated ingest mapping.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-015-processing",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-015-mediascribe-processing-pipeline",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted server-side MediaScribe processing/import path.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-033-desktop-embedding",
+      "type": "document",
+      "source": "docs/current-product-status.md#feature-033-desktop-cabinet-embedding",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted desktop shell bridge for embedded cabinet routes using synthetic evidence.",
+      "strength": "synthetic",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Fresh live app screenshot evidence is still required for launch claims."
+      ]
+    },
+    {
+      "id": "desktop-shell-regression-tests",
+      "type": "command",
+      "source": "swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinet|DesktopLocalPurge'",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Local macOS regression coverage for workspace-first routing, native capture boundaries, embedded route policy, upload review identity, and local purge truth.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Command evidence does not replace metadata-safe live desktop screenshots."
+      ]
+    },
+    {
+      "id": "desktop-first-surface-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/desktop-first-surface-evidence.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Documents safe first-surface desktop evidence and the remaining live screenshot blocker.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live screenshot is committed."
+      ]
+    },
+    {
+      "id": "desktop-embedded-detail-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/desktop-embedded-detail-evidence.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Documents safe embedded detail evidence and the remaining live screenshot blocker.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live embedded detail screenshot is committed."
+      ]
+    },
+    {
+      "id": "web-cabinet-regression-tests",
+      "type": "command",
+      "source": "uv run --extra dev pytest -q tests/unit/test_cabinet_web_shell.py tests/integration/test_cabinet_meeting_list.py tests/integration/test_cabinet_meeting_detail.py",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Local fixture coverage for web list/detail IA, embedded cabinet boundaries, transcript/playback/provenance, notes placeholders, and governance slots.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Fixture web tests do not prove live private meeting screenshots."
+      ]
+    },
+    {
+      "id": "web-meeting-list-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-list-evidence.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Documents metadata-safe web list evidence and live screenshot boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live browser screenshot is committed."
+      ]
+    },
+    {
+      "id": "web-meeting-detail-blocker-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/screenshots/web-meeting-detail-evidence.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Documents metadata-safe meeting detail evidence and live screenshot boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No live browser screenshot is committed."
+      ]
+    },
+    {
+      "id": "reference-comparison-note",
+      "type": "reference_review",
+      "source": "docs/evidence/034-mvp-loop-readiness/reference-comparison.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Clean-room comparison of allowed IA lessons and forbidden Krisp similarity.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "policy-lifecycle-regression-tests",
+      "type": "command",
+      "source": "uv run --extra dev pytest -q tests/contract/test_access_sharing_downloads_contract.py tests/contract/test_retention_deletion_contract.py tests/unit/test_deletion_report_view_models.py tests/integration/test_local_purge_coordination.py",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Local fixture coverage for login-required sharing, bounded download/export, deletion report partitioning, dependency truth, post-egress limits, and local purge acknowledgements.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "Fixture lifecycle tests do not perform destructive production deletion."
+      ]
+    },
+    {
+      "id": "policy-lifecycle-evidence-note",
+      "type": "document",
+      "source": "docs/evidence/034-mvp-loop-readiness/policy-lifecycle-evidence.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Documents metadata-safe policy, egress, retention, deletion, and local purge evidence boundaries.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "production-018-infra-smoke",
+      "type": "production_smoke",
+      "source": "master deploy/smoke for commit b07d7a2abd2a6d0add9e919e97261903bf933672",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Production deployment reached infra_smoke_ready after 018 merge.",
+      "strength": "production_smoke",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": [
+        "infra_smoke_ready is not user rollout readiness."
+      ]
+    },
+    {
+      "id": "reference-clean-room-contract",
+      "type": "reference_review",
+      "source": "specs/034-mvp-loop-readiness/contracts/reference-comparison-contract.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Defines allowed IA/category reference lessons and forbidden Krisp copy/private content.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "current-product-status-034-next-slice",
+      "type": "document",
+      "source": "docs/current-product-status.md#next-product-slice",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Current status records the 034 readiness outcome and evidence-based next product slice.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-035-live-evidence-pack",
+      "type": "document",
+      "source": "docs/evidence/035-mvp-loop-live-evidence/README.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Accepted installed /Applications desktop loop evidence reused as the recording-control foundation for 049-051 readiness.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-036-owner-review-live",
+      "type": "endpoint",
+      "source": "docs/evidence/036-owner-review-live-polish/screenshots/web-owner-review-evidence.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Production Chrome owner session proves the meeting list, one detail route, notes/transcript state, access/share summary, delete panel, and governance controls with metadata-safe labels and counts only.",
+      "strength": "live",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "No screenshots, cookies, tokens, account identifiers, meeting titles, meeting ids, or transcript text are committed.",
+        "Destructive governance actions were not clicked; only visible disabled/available states were recorded."
+      ]
+    },
+    {
+      "id": "feature-036-validation-log",
+      "type": "document",
+      "source": "docs/evidence/036-owner-review-live-polish/validation-log.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Records 036 command/manual validation evidence and remaining blockers.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-036-installed-app-visual-polish",
+      "type": "screenshot",
+      "source": "docs/evidence/036-owner-review-live-polish/screenshots/installed-app-ui-parity-2026-06-17.png",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Installed app visual parity evidence for native/WebView palette, compact rail, responsive sidebar, and product workspace polish.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "Final capture-state walkthrough is recorded separately as cropped native-inspector evidence."
+      ]
+    },
+    {
+      "id": "feature-036-installed-app-final-walkthrough",
+      "type": "document",
+      "source": "docs/evidence/036-owner-review-live-polish/screenshots/installed-app-final-walkthrough-2026-06-22.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Installed /Applications app idle, active, paused, resumed, stopped, configured, missing-auth, and local-only walkthrough evidence.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "Full-window captures were not committed; only metadata-safe native-inspector crops are linked."
+      ]
+    },
+    {
+      "id": "feature-036-clean-room-reference",
+      "type": "reference_review",
+      "source": "docs/evidence/036-owner-review-live-polish/clean-room-reference.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Records V8 clean-room alignment, accepted runtime polish, and remaining live proof gaps.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-048-real-playback-availability",
+      "type": "document",
+      "source": "specs/048-real-playback-availability/evidence/validation-log.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Records real visible review playback, timestamp seek, range playback, and web/desktop embedded parity after the 048 release.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-049-stored-outcomes",
+      "type": "command",
+      "source": "uv run --extra dev pytest -q tests/unit/test_meeting_outcomes_generator.py tests/integration/test_meeting_outcomes_generation.py tests/integration/test_cabinet_meeting_outcomes.py tests/integration/test_meeting_outcomes_orchestration_benchmark.py",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Focused local runtime coverage proves deterministic stored meeting outcomes, category truth, transcript evidence, idempotent reuse, failure truth, and one-hour orchestration under the processing budget.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-049-browser-runtime",
+      "type": "runtime",
+      "source": "specs/049-meeting-outcomes-mvp/evidence/browser-runtime-check.cjs",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Browser runtime validation covers web, mobile, and desktop embedded outcome review with playback coexistence, timestamp seek, speaker timeline, no overflow, and matching stored outcome states.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-049-privacy-deletion-rls",
+      "type": "command",
+      "source": "uv run --extra dev pytest -q tests/contract/test_rls_tenant_isolation_contract.py tests/contract/test_cabinet_no_secret_content_egress.py tests/integration/test_meeting_outcomes_deletion.py tests/integration/test_deletion_lifecycle_blocks_access.py tests/integration/test_meeting_deletion_workflow.py tests/integration/test_rls_meeting_content_policies.py tests/contract/test_rls_table_inventory_contract.py",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Outcome content follows access denial, list egress, deletion lifecycle, artifact accounting, RLS inventory, and metadata-only evidence boundaries.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "not_applicable",
+      "limitations": []
+    },
+    {
+      "id": "feature-049-validation-log",
+      "type": "document",
+      "source": "specs/049-meeting-outcomes-mvp/evidence/validation-log.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Records 049 RED/GREEN validation evidence and remaining launch boundaries.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-049-github-issues",
+      "type": "github",
+      "source": "specs/049-meeting-outcomes-mvp/issues.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Maps 049 Spec Kit tasks to GitHub issues for tracked implementation and closeout.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "current-product-status-049-outcomes",
+      "type": "document",
+      "source": "docs/current-product-status.md#next-product-slice",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Current status records 049 stored outcomes as closing the notes/action output blocker while keeping production rollout evidence separate.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "changelog-049",
+      "type": "document",
+      "source": "CHANGELOG.md#unreleased",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Changelog records the 049 stored outcomes behavior and remaining rollout boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-050-validation-log",
+      "type": "document",
+      "source": "specs/050-mvp-launch-proof/evidence/validation-log.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Records 050 Spec Kit gates, RED/GREEN readiness checks, UI/runtime proof, release evidence, and remaining launch boundaries.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-050-browser-runtime",
+      "type": "runtime",
+      "source": "specs/050-mvp-launch-proof/evidence/browser-runtime-check.cjs",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Runtime verifier covers web, desktop-embedded, and mobile-width review with active transcript tab, persistent playback, timestamp seek, speaker timeline, stored outcomes, and overflow/console checks.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-050-closeout-report",
+      "type": "document",
+      "source": "specs/050-mvp-launch-proof/evidence/mvp-closeout-report.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Metadata-only gate table for the final 050 MVP claim decision.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-050-github-issues",
+      "type": "github",
+      "source": "specs/050-mvp-launch-proof/issues.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Maps 050 Spec Kit tasks to GitHub issues for tracked launch-proof closeout.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-050-readiness-report-json",
+      "type": "document",
+      "source": "docs/evidence/050-mvp-launch-proof/readiness-report.json",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Structured 050 readiness report generated from the current evidence matrix.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-050-readiness-report-md",
+      "type": "document",
+      "source": "docs/evidence/050-mvp-launch-proof/readiness-report.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Reviewer-facing 050 readiness summary with the current bounded claim.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-050-launch-gap-register",
+      "type": "document",
+      "source": "docs/evidence/050-mvp-launch-proof/launch-gap-register.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "050 launch gap register with the remaining P1 rollout proof boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "current-product-status-050-closeout",
+      "type": "document",
+      "source": "docs/current-product-status.md#next-product-slice",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Current status records 049 as shipped product behavior and 050 as the active MVP launch-proof boundary without inflating pilot or production claims.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "changelog-050",
+      "type": "document",
+      "source": "CHANGELOG.md#unreleased",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Changelog records the 050 MVP proof/status-truth closeout.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-051-validation-log",
+      "type": "document",
+      "source": "specs/051-mvp-owner-journey-proof/evidence/validation-log.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Records 051 Spec Kit gates, production/app proof attempts, runtime validation, and final readiness boundary.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-051-installed-app-check",
+      "type": "document",
+      "source": "specs/051-mvp-owner-journey-proof/evidence/installed-app-check.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Metadata-only installed app identity, launch, and codesign check for the current MVP owner journey.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "This check proves installed app identity/runtime safety, not a fresh record-to-review journey."
+      ]
+    },
+    {
+      "id": "feature-051-owner-journey-probe",
+      "type": "endpoint",
+      "source": "specs/051-mvp-owner-journey-proof/evidence/production-owner-journey-probe.py",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Metadata-only production probe for health, owner review state, transcript, speaker timeline, playback, and outcome category counts.",
+      "strength": "blocked",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "Owner-review proof remains blocked until a redacted production candidate and session are provided."
+      ]
+    },
+    {
+      "id": "feature-051-browser-runtime",
+      "type": "runtime",
+      "source": "specs/051-mvp-owner-journey-proof/evidence/browser-runtime-check.cjs",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Runtime verifier reuses the accepted 050 playback/outcome/speaker timeline checks for web, mobile, and embedded review surfaces.",
+      "strength": "local_runtime",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-051-closeout-report",
+      "type": "document",
+      "source": "specs/051-mvp-owner-journey-proof/evidence/mvp-closeout-report.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Metadata-only gate table for the 051 MVP owner journey decision.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-051-timing-proof",
+      "type": "document",
+      "source": "specs/051-mvp-owner-journey-proof/evidence/timing-proof.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Metadata-only processing timing proof against the three-minute-per-hour target.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": [
+        "Timing target remains unproven until a representative run is recorded."
+      ]
+    },
+    {
+      "id": "feature-051-github-issues",
+      "type": "github",
+      "source": "specs/051-mvp-owner-journey-proof/issues.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Maps 051 Spec Kit tasks to GitHub issues for tracked owner-journey proof.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-051-readiness-report-json",
+      "type": "document",
+      "source": "docs/evidence/051-mvp-owner-journey-proof/readiness-report.json",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Structured 051 readiness report generated from the current evidence matrix.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-051-readiness-report-md",
+      "type": "document",
+      "source": "docs/evidence/051-mvp-owner-journey-proof/readiness-report.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Reviewer-facing 051 readiness summary with the current bounded claim.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "feature-051-launch-gap-register",
+      "type": "document",
+      "source": "docs/evidence/051-mvp-owner-journey-proof/launch-gap-register.md",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "051 launch gap register with exact remaining P1 owner journey proof gates.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "current-product-status-051",
+      "type": "document",
+      "source": "docs/current-product-status.md#next-product-slice",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Current status records 051 as the active proof slice over fresh owner journey, production outcomes, timing, and interface quality.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    },
+    {
+      "id": "changelog-051",
+      "type": "document",
+      "source": "CHANGELOG.md#unreleased",
+      "captured_at": "2026-06-25T15:48:13Z",
+      "scope": "Changelog records the 051 MVP owner journey proof slice.",
+      "strength": "docs_only",
+      "safe_to_commit": true,
+      "forbidden_content_scan": "pass",
+      "limitations": []
+    }
+  ],
+  "launch_gaps": [
+    {
+      "id": "fresh-owner-journey-evidence",
+      "severity": "P1",
+      "affected_journey": "fresh-owner-journey",
+      "current_evidence": "050 proved release/deploy, browser runtime, and one production metadata candidate, but not a fresh installed-app journey.",
+      "missing_evidence": "Fresh installed-app record, stop, upload, finalization, processing, and review proof on the current production release.",
+      "recommended_next_action": "Run the installed app owner journey and record metadata-only gate states in the 051 closeout report.",
+      "owner_area": "ops",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "processing-time-target-evidence",
+      "severity": "P1",
+      "affected_journey": "processing-time-target",
+      "current_evidence": "050 recorded only short-candidate timing, which cannot prove the three-minute-per-hour target.",
+      "missing_evidence": "Representative one-hour or near-one-hour production timing evidence.",
+      "recommended_next_action": "Record queue, workflow, provider, and finalize-to-review timing for a representative run.",
+      "owner_area": "server",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "production-stored-outcomes-evidence",
+      "severity": "P1",
+      "affected_journey": "stored-outcomes-production",
+      "current_evidence": "049 stored outcomes are accepted locally; 050 found the current production candidate outcomes missing.",
+      "missing_evidence": "Stored outcome category states and counts on a current production candidate.",
+      "recommended_next_action": "Run the production owner journey probe and record outcome category states without private text.",
+      "owner_area": "web",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "browser-target-gaps",
+      "severity": "P2",
+      "affected_journey": "capture-target-coverage",
+      "current_evidence": "Yandex Browser remains intentionally skipped/not accepted.",
+      "missing_evidence": "Target matrix decision for browser coverage before pilot promises.",
+      "recommended_next_action": "Keep unsupported targets explicit or run a browser target hardening slice.",
+      "owner_area": "desktop",
+      "deferred": false,
+      "deferral_guardrail": null
+    },
+    {
+      "id": "signed-installer-evidence",
+      "severity": "P2",
+      "affected_journey": "desktop-distribution",
+      "current_evidence": "Local/ad-hoc development package evidence exists.",
+      "missing_evidence": "signed installer evidence for broader pilot distribution.",
+      "recommended_next_action": "Plan installer signing/notarization as a follow-up slice if pilot distribution needs it.",
+      "owner_area": "ops",
+      "deferred": false,
+      "deferral_guardrail": null
+    }
+  ],
+  "reference_comparisons": [
+    {
+      "id": "desktop-first-viewport",
+      "surface": "desktop_home",
+      "allowed_lessons": [
+        "Meeting workspace first",
+        "Native capture authority remains local"
+      ],
+      "implementation_alignment": "036 installed-app screenshots and final walkthrough prove native/WebView visual parity, product-workspace polish, and idle/active/paused/resumed/stopped local control states.",
+      "intentional_differences": [
+        "2brain keeps Record/Stop as native trust controls."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "pass",
+      "evidence_ids": [
+        "feature-033-desktop-embedding",
+        "desktop-shell-regression-tests",
+        "desktop-first-surface-blocker-note",
+        "reference-clean-room-contract",
+        "reference-comparison-note",
+        "feature-049-browser-runtime",
+        "feature-036-clean-room-reference",
+        "feature-050-browser-runtime",
+        "feature-051-browser-runtime"
+      ]
+    },
+    {
+      "id": "web-list-workspace",
+      "surface": "web_list",
+      "allowed_lessons": [
+        "Meeting list, filters, sort, upload slot, and future action slots are discoverable"
+      ],
+      "implementation_alignment": "Stored outcome proof keeps the 036 owner-review truth and adds outcome review coverage without committing private meeting content.",
+      "intentional_differences": [
+        "2brain keeps capture creation out of embedded web content."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "pass",
+      "evidence_ids": [
+        "web-cabinet-regression-tests",
+        "web-meeting-list-blocker-note",
+        "reference-comparison-note",
+        "feature-036-owner-review-live",
+        "feature-049-browser-runtime",
+        "feature-050-browser-runtime",
+        "feature-051-browser-runtime"
+      ]
+    },
+    {
+      "id": "web-review-workspace",
+      "surface": "web_detail",
+      "allowed_lessons": [
+        "Transcript/playback/provenance are discoverable in one review workspace"
+      ],
+      "implementation_alignment": "049 adds stored outcome categories, transcript evidence, failure truth, privacy/deletion boundaries, and web/embedded parity on top of the server-owned review surface; 051 proves whether the same truth exists on production.",
+      "intentional_differences": [
+        "2brain uses its own design language and truthful placeholder policy."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "pass",
+      "evidence_ids": [
+        "feature-016-web-review",
+        "feature-017-access-egress",
+        "web-cabinet-regression-tests",
+        "web-meeting-detail-blocker-note",
+        "reference-comparison-note",
+        "feature-048-real-playback-availability",
+        "feature-049-stored-outcomes",
+        "feature-049-browser-runtime",
+        "feature-049-privacy-deletion-rls",
+        "feature-050-browser-runtime",
+        "feature-050-closeout-report",
+        "feature-051-browser-runtime",
+        "feature-051-closeout-report"
+      ]
+    },
+    {
+      "id": "governance-actions",
+      "surface": "governance",
+      "allowed_lessons": [
+        "Share, export/download, deletion, and lifecycle truth must be visible by policy"
+      ],
+      "implementation_alignment": "017/018 cover policy-owned access, egress, retention, deletion, and purge truth; 049 adds stored outcome denial, deletion, and RLS coverage.",
+      "intentional_differences": [
+        "External public links remain out of scope."
+      ],
+      "forbidden_similarity_checks": [
+        "No committed private Krisp screenshots.",
+        "No copied Krisp visual expression, brand assets, colors, or icons.",
+        "No exact Krisp product copy beyond short category labels."
+      ],
+      "result": "pass",
+      "evidence_ids": [
+        "feature-017-access-egress",
+        "feature-018-retention-deletion",
+        "policy-lifecycle-regression-tests",
+        "policy-lifecycle-evidence-note",
+        "feature-049-privacy-deletion-rls",
+        "feature-050-closeout-report",
+        "feature-051-closeout-report"
+      ]
+    }
+  ],
+  "forbidden_content_scan": {
+    "status": "pass",
+    "commands": [
+      "rg -n -i real private-value patterns specs/051-mvp-owner-journey-proof docs/evidence/051-mvp-owner-journey-proof docs/current-product-status.md CHANGELOG.md",
+      "find docs/evidence/051-mvp-owner-journey-proof/screenshots -type f -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.webp'",
+      "rg -n -i evidence payload-id patterns docs/evidence/051-mvp-owner-journey-proof"
+    ],
+    "matches": []
+  }
+}
