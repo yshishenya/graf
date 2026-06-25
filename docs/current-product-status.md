@@ -436,16 +436,15 @@ and native false-green guards pass, but the three P1 proof gates below remain
 open.
 
 Feature `052-mvp-live-ui-proof` is implemented, merged through PR `#1844`, and
-followed by production fix PR `#1845` after the first deploy exposed a startup
-blocker. It rechecks the real installed app, production cabinet, KRISP-style
+followed by production fix PRs after deploy and cleanup gates exposed real
+blockers. It rechecks the real installed app, production cabinet, KRISP-style
 playback/timeline reference, stored outcomes, and timing before any stronger
-MVP claim. The production dispatch blocker is fixed in release
-`v2026.06.25.10`, deployed at
-`db1eca18f08d26f6816b2bd88067709d0e57e590`: public health returns live `ok`
-and ready `ready`; internal readiness reports `processing=enabled`,
-`temporal=configured`, and `mediascribe=dispatcher_only`. `rec-api` now only
-dispatches Temporal work and does not mount the MediaScribe key; the key stays
-on `rec-processing-worker`.
+MVP claim. The current deployed release is `v2026.06.25.14` at
+`1580988f7c9bf00f9c6d9c74037b145cd902b913`: public health returns live `ok`
+and ready `ready`, production smoke passes, and synthetic timing artifacts were
+cleaned up without residue. Earlier 052 fixes also keep the production dispatch
+boundary intact: `rec-api` dispatches Temporal work without mounting the
+MediaScribe key, and the key stays on `rec-processing-worker`.
 
 The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
 `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
@@ -456,10 +455,10 @@ pass playback, timestamp seek, speaker lanes, and stored outcome rows; the
 installed macOS shell also avoids a false-green cabinet state. A production-safe
 synthetic one-hour candidate processed in 37 seconds created-to-imported, under
 the 180-seconds-per-hour target, with transcript, diarization, playback, speaker
-timeline, and stored outcome counts available. Live
-production owner review remains degraded because detail navigation redirected to
-login with missing auth context, so these local UI checks do not prove MVP
-rollout readiness.
+timeline, and stored outcome counts available. Live production owner review
+remains degraded because installed-app cabinet navigation redirects to login
+with expired session state and queue retry sees missing auth context, so these
+local UI checks do not prove MVP rollout readiness.
 
 Current evidence already accepted before 050:
 
