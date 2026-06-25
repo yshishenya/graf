@@ -71,8 +71,8 @@
 **Independent Test**: Timing report separates audio duration, raw processing, provider processing, queue/wait, finalize-to-review, and target result.
 
 - [X] T023 [P] [US2] Add or update timing proof tests in `apps/server/tests/unit/test_mvp_owner_journey_readiness.py`
-- [ ] T024 [US2] Record representative production timing evidence in `specs/052-mvp-live-ui-proof/evidence/timing-proof.md`
-- [X] T025 [US2] If timing cannot be proven from representative audio, keep `processing-time-target-evidence` open in `docs/evidence/052-mvp-live-ui-proof/launch-gap-register.md`
+- [X] T024 [US2] Record representative production timing evidence in `specs/052-mvp-live-ui-proof/evidence/timing-proof.md`
+- [X] T025 [US2] Reconcile `processing-time-target-evidence` in `docs/evidence/052-mvp-live-ui-proof/launch-gap-register.md` after timing proof
 
 **Checkpoint**: Timing target is pass/fail/unproven with direct evidence, never extrapolated from a short run.
 

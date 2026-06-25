@@ -450,10 +450,13 @@ on `rec-processing-worker`.
 The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
 `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
 `user_rollout_ready`, and `production_ready` remain excluded until the
-fresh owner journey, production stored outcomes, representative timing, and
-live owner-review UI gaps are closed. 052 fixture-backed web/mobile/embedded
-checks pass playback, timestamp seek, speaker lanes, and stored outcome rows;
-the installed macOS shell also avoids a false-green cabinet state. Live
+fresh owner journey, production stored outcomes on that journey, and live
+owner-review UI gaps are closed. 052 fixture-backed web/mobile/embedded checks
+pass playback, timestamp seek, speaker lanes, and stored outcome rows; the
+installed macOS shell also avoids a false-green cabinet state. A production-safe
+synthetic one-hour candidate processed in 37 seconds created-to-imported, under
+the 180-seconds-per-hour target, with transcript, diarization, playback, speaker
+timeline, and stored outcome counts available. Live
 production owner review remains degraded because detail navigation redirected to
 login with missing auth context, so these local UI checks do not prove MVP
 rollout readiness.
@@ -476,11 +479,9 @@ Remaining launch boundary after 052:
 - `fresh-owner-journey-evidence` stays open until a current live owner journey
   proves record/stop/upload/finalize/process/review from the installed app.
 - `production-stored-outcomes-evidence` stays open until a current production
-  candidate shows stored outcome states and counts without private generated
-  text. Current production metadata has `0` outcome sets/items, so this is still
-  an open proof gap.
-- `processing-time-target-evidence` stays open until representative one-hour
-  timing proof shows whether processing meets the three-minute target.
+  installed-app candidate shows stored outcome states and counts without private
+  generated text. Synthetic production-safe outcome counts exist, but they do
+  not replace fresh installed-app proof.
 - Live owner-review UI proof stays degraded until authenticated production
   detail and embedded review can be opened and checked end to end.
 - Signed/notarized installer evidence, Yandex Browser support, real

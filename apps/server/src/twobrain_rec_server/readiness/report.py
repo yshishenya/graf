@@ -323,7 +323,7 @@ def _next_slice_recommendation(report: ReadinessReport) -> str:
         return (
             "Recommended next action: keep 052 capped at `pilot_blocked`; "
             "advance only after fresh owner journey, production stored outcomes, "
-            "representative timing, and web/macOS UI proof pass."
+            "and web/macOS UI proof pass."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."
