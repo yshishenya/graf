@@ -609,7 +609,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert ".timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }" in page
 
 
-def test_051_owner_review_keeps_recording_playback_and_outcomes_separate() -> None:
+def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separate() -> None:
     review = _review()
     review.playback = PlaybackReviewState(
         available=True,
@@ -661,8 +661,10 @@ def test_051_owner_review_keeps_recording_playback_and_outcomes_separate() -> No
     assert 'data-detail-panel="outcomes" hidden' in page
     assert 'data-detail-panel="recording"' in page
     assert 'data-playback-shell' in page
+    assert 'data-source-mode="combined_review_stream"' in page
     assert 'data-speaker-timeline' in page
     assert 'data-outcome-source-basis="stored_output"' in page
+    assert "60%" in page
     assert "window.location.hash === \"#outcomes\"" in page
     assert page.count("data-outcome-category=") == 8
 

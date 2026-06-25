@@ -28,6 +28,9 @@ services:
       TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_PROCESSING_ENABLED: "true"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
     secrets:
       - source: twobrain_postgres_password
         target: twobrain_postgres_password
@@ -39,6 +42,8 @@ services:
         target: twobrain_smoke_credential
       - source: twobrain_postal_api_key
         target: twobrain_postal_api_key
+      - source: twobrain_mediascribe_api_key
+        target: twobrain_mediascribe_api_key
     ports:
       - "127.0.0.1:18081:8080"
     healthcheck:
@@ -67,6 +72,8 @@ services:
         condition: service_healthy
       rec-minio-init:
         condition: service_completed_successfully
+      rec-temporal:
+        condition: service_started
     networks:
       - rec-private
       - postal-network

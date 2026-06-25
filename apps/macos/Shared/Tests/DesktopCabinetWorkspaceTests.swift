@@ -178,6 +178,27 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertFalse(DesktopCabinetState.expiredSession.shouldShowEmbeddedSurface)
     }
 
+    func test052ExpiredOwnerSessionKeepsNativeShellTruthVisible() {
+        let presentation = DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: true,
+            cabinetState: .expiredSession
+        )
+        let invariant = NativeShellInvariant(
+            recordVisible: true,
+            stopVisible: true,
+            uploadTruthVisible: true,
+            focusCanReachStop: true,
+            embeddedSurfaceLoaded: false
+        )
+
+        XCTAssertEqual(presentation.sidebarSubtitle, "Нужен вход")
+        XCTAssertEqual(presentation.menuStatusText, "Нужен вход")
+        XCTAssertEqual(presentation.tileDetail, "Откройте кабинет заново")
+        XCTAssertEqual(presentation.tone, .warning)
+        XCTAssertFalse(DesktopCabinetState.expiredSession.shouldShowEmbeddedSurface)
+        XCTAssertTrue(invariant.satisfiesActiveRecordingSafety(cabinetState: .expiredSession))
+    }
+
     func testDeniedStateDoesNotOfferLoginAsAccessProof() {
         XCTAssertEqual(DesktopCabinetState.accessDenied.unavailableTitle, "Нет доступа к кабинету")
         XCTAssertNil(DesktopCabinetState.accessDenied.recoveryActionTitle)

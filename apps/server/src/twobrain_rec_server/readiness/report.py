@@ -96,6 +96,9 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-050-browser-runtime",
                     "feature-051-installed-app-check",
                     "feature-051-browser-runtime",
+                    "feature-052-installed-app-check",
+                    "feature-052-browser-runtime",
+                    "feature-052-ui-reference-review",
                 ],
             ),
             "",
@@ -137,6 +140,12 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-051-browser-runtime",
                     "feature-051-closeout-report",
                     "feature-051-timing-proof",
+                    "feature-052-validation-log",
+                    "feature-052-owner-journey-probe",
+                    "feature-052-browser-runtime",
+                    "feature-052-ui-reference-review",
+                    "feature-052-closeout-report",
+                    "feature-052-timing-proof",
                     "reference-comparison-note",
                 ],
             ),
@@ -153,6 +162,7 @@ def render_markdown_report(report: ReadinessReport) -> str:
                     "feature-049-privacy-deletion-rls",
                     "feature-050-closeout-report",
                     "feature-051-closeout-report",
+                    "feature-052-closeout-report",
                 ],
             ),
             "",
@@ -308,6 +318,12 @@ def _next_slice_recommendation(report: ReadinessReport) -> str:
             "Recommended next action: keep 051 capped at `pilot_blocked`; "
             "advance only after fresh owner journey, production stored outcomes, "
             "and representative timing evidence pass."
+        )
+    if report.feature == "052-mvp-live-ui-proof" and p1_gaps:
+        return (
+            "Recommended next action: keep 052 capped at `pilot_blocked`; "
+            "advance only after fresh owner journey, production stored outcomes, "
+            "representative timing, and web/macOS UI proof pass."
         )
     if p1_gaps:
         return f"Recommended next action: resolve `{p1_gaps[0].id}` before pilot readiness."

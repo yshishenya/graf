@@ -2,8 +2,8 @@
 
 Date: 2026-06-25
 
-Этот документ коротко фиксирует состояние продукта после MVP owner journey
-proof-slice `051-mvp-owner-journey-proof`. PRD остается базовой продуктовой
+Этот документ коротко фиксирует состояние продукта во время MVP live UI
+proof-slice `052-mvp-live-ui-proof`. PRD остается базовой продуктовой
 линией; feature specs и metadata-only evidence остаются подробной историей
 реализации.
 
@@ -435,11 +435,27 @@ current production health, local web/embedded playback/timeline/outcome runtime,
 and native false-green guards pass, but the three P1 proof gates below remain
 open.
 
+Feature `052-mvp-live-ui-proof` is the active MVP proof slice. It rechecks the
+real installed app, production cabinet, KRISP-style playback/timeline reference,
+stored outcomes, and timing before any stronger MVP claim. Current 052
+production metadata found a normal-path blocker: production API currently
+reports `processing=disabled`, while accepted recordings can remain
+`not_submitted` after upload finalize even when manifest, microphone, and system
+track artifacts are present. Current 052 branch fix: production `rec-api`
+enables processing dispatch, points at Temporal, and can read the required
+MediaScribe Docker secret file; `rec-processing-worker` remains the execution
+worker.
+
 The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
 `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
 `user_rollout_ready`, and `production_ready` remain excluded until the
-fresh owner journey, production stored outcomes, and representative timing gaps
-are closed.
+fresh owner journey, production stored outcomes, representative timing, and
+live owner-review UI gaps are closed. 052 fixture-backed web/mobile/embedded
+checks pass playback, timestamp seek, speaker lanes, and stored outcome rows;
+the installed macOS shell also avoids a false-green cabinet state. Live
+production owner review remains degraded because detail navigation redirected to
+login with missing auth context, so these local UI checks do not prove MVP
+rollout readiness.
 
 Current evidence already accepted before 050:
 
@@ -454,17 +470,18 @@ Current evidence already accepted before 050:
   transcript-backed evidence, category truth, privacy/deletion/RLS coverage, and
   web/embedded review parity.
 
-Remaining launch boundary after 051:
+Remaining launch boundary after 052:
 
 - `fresh-owner-journey-evidence` stays open until a current live owner journey
   proves record/stop/upload/finalize/process/review from the installed app.
 - `production-stored-outcomes-evidence` stays open until a current production
   candidate shows stored outcome states and counts without private generated
-  text. The inspected short candidate predates the accepted 049/050 release
-  train and has no stored outcome rows, so it is evidence of an open proof gap,
-  not proof of a current normal-path code defect.
+  text. Current production metadata has `0` outcome sets/items, so this is still
+  an open proof gap.
 - `processing-time-target-evidence` stays open until representative one-hour
   timing proof shows whether processing meets the three-minute target.
+- Live owner-review UI proof stays degraded until authenticated production
+  detail and embedded review can be opened and checked end to end.
 - Signed/notarized installer evidence, Yandex Browser support, real
   speakerphone echo/noise suppression, compressed share audio, public links,
   waveform polish, transcript editing, and native Swift playback controls remain
