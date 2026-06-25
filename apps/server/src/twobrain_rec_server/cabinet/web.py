@@ -294,8 +294,22 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 18px; align-items: start; }
 .detail-main { min-width: 0; display: grid; gap: 16px; }
 .tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.tab { min-height: 38px; display: inline-flex; align-items: center; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 750; }
+.tab {
+  appearance: none;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 750;
+  padding: 0;
+  cursor: pointer;
+}
 .tab.active { color: #dcd7ff; border-color: var(--accent); }
+.tab-panel[hidden] { display: none; }
 .panel {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
@@ -459,7 +473,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border-radius: 999px;
   background: var(--accent);
 }
-.timeline-lane:nth-child(2n) .timeline-segment { background: var(--red); }
+.timeline-lane:nth-child(6n+1) .timeline-segment { background: #ffd24a; }
+.timeline-lane:nth-child(6n+2) .timeline-segment { background: #ff6b6b; }
+.timeline-lane:nth-child(6n+3) .timeline-segment { background: #2fc9c0; }
+.timeline-lane:nth-child(6n+4) .timeline-segment { background: #7a65ff; }
+.timeline-lane:nth-child(6n+5) .timeline-segment { background: #aaa49a; }
+.timeline-lane:nth-child(6n+6) .timeline-segment { background: #d96aa6; }
 .timeline-share {
   text-align: right;
   color: var(--muted);
@@ -1770,14 +1789,18 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
           <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(_ui_text(review.meeting.status_label))}</span>{_render_access_chip(review.meeting.access)}</div>
           <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
         </div>
-        <div class="tabs">
-          <span class="tab">Итоги</span>
-          <span class="tab active">{recording_tab}</span>
+        <div class="tabs" role="tablist" aria-label="Содержимое встречи">
+          <button type="button" class="tab" role="tab" id="detail-tab-outcomes" aria-selected="false" aria-controls="detail-panel-outcomes" data-detail-tab="outcomes">Итоги</button>
+          <button type="button" class="tab active" role="tab" id="detail-tab-recording" aria-selected="true" aria-controls="detail-panel-recording" data-detail-tab="recording">{recording_tab}</button>
         </div>
         <div class="detail-layout">
           <section class="detail-main">
-            {_render_notes_outcomes(review)}
-            <div class="transcript">{transcript}</div>
+            <section class="tab-panel" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes" hidden>
+              {_render_notes_outcomes(review)}
+            </section>
+            <section class="tab-panel active" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording">
+              <div class="transcript">{transcript}</div>
+            </section>
           </section>
           <aside class="right-panel">
             {_render_revision_status(review)}
@@ -1802,10 +1825,39 @@ def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool 
             <button type="button" disabled>{escape(_ui_text(review.template.label))}</button>
           </aside>
         </div>
+        {_detail_tabs_script()}
         {_render_playback(review)}
       </main>
     """
     return _page_shell(review.meeting.title, content, embedded=embedded)
+
+
+def _detail_tabs_script() -> str:
+    return """
+      <script>
+        (() => {
+          const tabs = Array.from(document.querySelectorAll("[data-detail-tab]"));
+          const panels = Array.from(document.querySelectorAll("[data-detail-panel]"));
+          if (!tabs.length || !panels.length) return;
+          const activate = (name) => {
+            tabs.forEach((tab) => {
+              const selected = tab.dataset.detailTab === name;
+              tab.classList.toggle("active", selected);
+              tab.setAttribute("aria-selected", selected ? "true" : "false");
+            });
+            panels.forEach((panel) => {
+              const selected = panel.dataset.detailPanel === name;
+              panel.classList.toggle("active", selected);
+              panel.hidden = !selected;
+            });
+          };
+          tabs.forEach((tab) => {
+            tab.addEventListener("click", () => activate(tab.dataset.detailTab || "recording"));
+          });
+          if (window.location.hash === "#outcomes") activate("outcomes");
+        })();
+      </script>
+    """
 
 
 def render_deletion_report_page(
@@ -2704,12 +2756,16 @@ def _playback_script() -> str:
               if (!Number.isFinite(delta)) return;
               const max = Number.isFinite(player.duration) ? player.duration : Number.POSITIVE_INFINITY;
               player.currentTime = Math.max(0, Math.min(max, player.currentTime + delta));
+              syncTime();
             });
           });
           if (progress) {
             progress.addEventListener("input", () => {
               const next = Number.parseFloat(progress.value || "0");
-              if (Number.isFinite(next)) player.currentTime = next;
+              if (Number.isFinite(next)) {
+                player.currentTime = next;
+                syncTime();
+              }
             });
           }
           document.querySelectorAll("[data-seek-seconds]").forEach((button) => {
@@ -2717,6 +2773,7 @@ def _playback_script() -> str:
               const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
               if (!Number.isFinite(seekSeconds)) return;
               player.currentTime = seekSeconds;
+              syncTime();
               player.play().catch(() => {});
             });
           });
@@ -2743,19 +2800,22 @@ def _render_playback_speaker_timeline(review: MeetingReviewResponse) -> str:
     duration = max(1, review.playback.duration_seconds)
     lanes = []
     for speaker in review.speakers.speakers:
+        speaker_label = _speaker_display_label(speaker.label)
         segments = []
         for segment in speaker.segments:
             start = max(0.0, float(segment.start_seconds))
             end = min(float(duration), max(start, float(segment.end_seconds)))
             left = min(100.0, max(0.0, start / duration * 100))
             width = min(100.0 - left, max(0.2, (end - start) / duration * 100))
+            segment_label = f"{speaker_label} {_timecode(int(start))}-{_timecode(int(end))}"
             segments.append(
-                f'<span class="timeline-segment" data-lane-segment style="left:{left:.2f}%;width:{width:.2f}%"></span>'
+                f'<span class="timeline-segment" data-lane-segment title="{escape(segment_label)}" '
+                f'aria-label="{escape(segment_label)}" style="left:{left:.2f}%;width:{width:.2f}%"></span>'
             )
         lanes.append(
             f"""
             <div class="timeline-lane" data-speaker-lane="{escape(speaker.speaker_key)}">
-              <span class="timeline-label">{escape(_speaker_display_label(speaker.label))}</span>
+              <span class="timeline-label">{escape(speaker_label)}</span>
               <span class="timeline-track">{"".join(segments)}</span>
               <span class="timeline-share">{speaker.talk_time_percent}%</span>
             </div>

@@ -283,6 +283,12 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
 
     assert "Итоги" in page
     assert "Запись и расшифровка" in page
+    assert 'role="tablist" aria-label="Содержимое встречи"' in page
+    assert 'data-detail-tab="recording"' in page
+    assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
+    assert 'data-detail-panel="outcomes" hidden' in page
+    assert 'data-detail-panel="recording"' in page
+    assert "const activate = (name)" in page
     assert "Транскрипт готовится" in page
     assert "Видимость для команды" in page
     assert "Публичные ссылки" in page
@@ -355,6 +361,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert 'data-seek-seconds="12.5"' in page
     assert 'class="timestamp timestamp-seek"' in page
     assert "currentTime = seekSeconds" in page
+    assert "syncTime();" in page
 
 
 def test_detail_shell_renders_speaker_timeline_segments() -> None:
@@ -397,6 +404,10 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert 'data-speaker-lane="speaker-1"' in page
     assert 'data-speaker-lane="speaker-2"' in page
     assert page.count("data-lane-segment") == 2
+    assert 'title="Спикер 1 00:00-00:12"' in page
+    assert 'aria-label="Спикер 2 00:30-01:30"' in page
+    assert ".timeline-lane:nth-child(6n+1) .timeline-segment" in page
+    assert ".timeline-lane:nth-child(6n+6) .timeline-segment" in page
     assert "left:0.00%" in page
     assert "width:10.00%" in page
     assert "left:25.00%" in page
