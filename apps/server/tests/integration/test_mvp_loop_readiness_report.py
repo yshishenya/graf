@@ -57,7 +57,7 @@ def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() 
     assert "launch-proof closeout slice" in status_doc
     assert "fresh-owner-journey-evidence" in status_doc
     assert "production-stored-outcomes-evidence" in status_doc
-    assert "processing-time-target-evidence" in status_doc
+    assert "synthetic one-hour candidate processed in 37 seconds" in status_doc
     assert "notes/action output blocker is closed" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
     assert "034-mvp-loop-readiness" in status_doc
@@ -205,7 +205,7 @@ def test_035_status_and_changelog_record_current_next_slice() -> None:
     assert "launch-proof closeout slice" in status_doc
     assert "fresh-owner-journey-evidence" in status_doc
     assert "production-stored-outcomes-evidence" in status_doc
-    assert "processing-time-target-evidence" in status_doc
+    assert "synthetic one-hour candidate processed in 37 seconds" in status_doc
     assert "notes/action output blocker is closed" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
     assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc

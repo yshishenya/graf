@@ -38,7 +38,7 @@ def test_current_status_keeps_049_shipped_truth_separate_from_050_launch_gap() -
     assert "The allowed current claim remains `pilot_blocked`" in status_doc
     assert "fresh-owner-journey-evidence" in status_doc
     assert "production-stored-outcomes-evidence" in status_doc
-    assert "processing-time-target-evidence" in status_doc
+    assert "synthetic one-hour candidate processed in 37 seconds" in status_doc
     assert "notes/action output blocker is closed" in status_doc
     assert "production_ready" in status_doc
 
@@ -55,7 +55,7 @@ def test_current_status_records_050_as_the_closed_mvp_launch_proof_boundary() ->
     assert "The allowed current claim remains `pilot_blocked`" in status_doc
     assert "fresh-owner-journey-evidence" in status_doc
     assert "production-stored-outcomes-evidence" in status_doc
-    assert "processing-time-target-evidence" in status_doc
+    assert "synthetic one-hour candidate processed in 37 seconds" in status_doc
     assert "internal_pilot_candidate" in status_doc
     assert "production_ready" in status_doc
     assert "stored outcomes on a production candidate" in status_doc
@@ -82,7 +82,7 @@ def test_current_status_records_051_as_active_owner_journey_proof_slice() -> Non
     assert "fresh owner journey" in status_doc
     assert "production stored" in status_doc
     assert "outcomes" in status_doc
-    assert "representative timing" in status_doc
+    assert "representative\n  one-hour timing proof" in status_doc
     assert "The allowed current claim remains `pilot_blocked`" in status_doc
     assert "internal_pilot_candidate" in status_doc
     assert status_doc.index("Feature `050-mvp-launch-proof`") < status_doc.index("Feature `051-mvp-owner-journey-proof`")
@@ -99,7 +99,7 @@ def test_current_status_records_052_live_ui_proof_and_deployed_dispatch_boundary
     assert "`temporal=configured`" in status_doc
     assert "`mediascribe=dispatcher_only`" in status_doc
     assert "does not mount the MediaScribe key" in status_doc
-    assert "live owner-review UI gaps" in status_doc
+    assert "fresh owner journey, production stored outcomes on that journey, and live\nowner-review UI gaps" in status_doc
     assert "missing auth context" in status_doc
     assert "The allowed current claim remains `pilot_blocked`" in status_doc
     assert "internal_pilot_candidate" in status_doc

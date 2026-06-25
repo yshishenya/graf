@@ -3,12 +3,12 @@
 ## Claim Summary
 
 - Feature: `052-mvp-live-ui-proof`
-- Generated at: `2026-06-25T18:21:58Z`
+- Generated at: `2026-06-25T19:21:34Z`
 - Deployed commit: `db1eca18f08d26f6816b2bd88067709d0e57e590`
 - Outcome: `pilot_blocked`
 - Bounded claims: `infra_smoke_ready`
 - Excluded claims: `mvp_loop_ready`, `internal_pilot_candidate`, `user_rollout_ready`, `production_ready`
-- P0/P1 blockers: `3`
+- P0/P1 blockers: `2`
 
 infra_smoke_ready is not user rollout readiness, internal pilot readiness, or production readiness.
 
@@ -26,7 +26,7 @@ infra_smoke_ready is not user rollout readiness, internal pilot readiness, or pr
 | `desktop-embedded-cabinet` | `desktop_embedded_web` | `degraded` | `local_runtime` `feature-033-desktop-embedding`, `desktop-shell-regression-tests`, `desktop-first-surface-blocker-note`, `desktop-embedded-detail-blocker-note`, `feature-036-installed-app-visual-polish`, `feature-036-installed-app-final-walkthrough`, `feature-036-clean-room-reference`, `feature-049-browser-runtime`, `feature-050-browser-runtime`, `feature-052-browser-runtime` | `fresh-owner-journey-evidence` | `desktop_loop_verified`, `mvp_loop_ready` |
 | `access-sharing-download-export` | `web_cabinet` | `ready` | `local_runtime` `feature-017-access-egress`, `policy-lifecycle-regression-tests`, `policy-lifecycle-evidence-note`, `feature-036-owner-review-live`, `feature-049-privacy-deletion-rls` | `none` | `policy_lifecycle_verified`, `mvp_loop_ready` |
 | `retention-deletion-local-purge` | `server_backend` | `ready` | `local_runtime` `feature-018-retention-deletion`, `policy-lifecycle-regression-tests`, `policy-lifecycle-evidence-note`, `feature-049-privacy-deletion-rls` | `none` | `policy_lifecycle_verified`, `mvp_loop_ready` |
-| `production-deployment-smoke` | `production_infra` | `degraded` | `production_smoke` `production-018-infra-smoke` | `fresh-owner-journey-evidence`, `processing-time-target-evidence`, `production-stored-outcomes-evidence` | `infra_smoke_ready` |
+| `production-deployment-smoke` | `production_infra` | `degraded` | `production_smoke` `production-018-infra-smoke` | `fresh-owner-journey-evidence`, `production-stored-outcomes-evidence` | `infra_smoke_ready` |
 | `product-status-next-slice` | `docs_status` | `ready` | `docs_only` `feature-052-validation-log`, `feature-052-owner-journey-probe`, `feature-052-browser-runtime`, `feature-052-ui-reference-review`, `feature-052-closeout-report`, `feature-052-timing-proof`, `feature-052-github-issues`, `feature-052-readiness-report-json`, `feature-052-readiness-report-md`, `feature-052-launch-gap-register`, `current-product-status-052`, `changelog-052` | `none` | `partial_readiness` |
 
 ## Desktop App Evidence
@@ -68,11 +68,11 @@ Evidence records:
 - `feature-050-browser-runtime`: `local_runtime` from `specs/050-mvp-launch-proof/evidence/browser-runtime-check.cjs`. Scope: Runtime verifier covers web, desktop-embedded, and mobile-width review with active transcript tab, persistent playback, timestamp seek, speaker timeline, stored outcomes, and overflow/console checks. Scan: `pass`. Limitations: none
 - `feature-050-closeout-report`: `docs_only` from `specs/050-mvp-launch-proof/evidence/mvp-closeout-report.md`. Scope: Metadata-only gate table for the final 050 MVP claim decision. Scan: `pass`. Limitations: none
 - `feature-052-validation-log`: `docs_only` from `specs/052-mvp-live-ui-proof/evidence/validation-log.md`. Scope: Records 052 Spec Kit gates, production/app proof attempts, UI reference review, and final readiness boundary. Scan: `pass`. Limitations: none
-- `feature-052-owner-journey-probe`: `blocked` from `specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py`. Scope: Metadata-only production probe for health, owner review state, transcript, speaker timeline, playback, and outcome category counts. Scan: `pass`. Limitations: Owner-review proof remains blocked until a redacted production candidate and session are available.
+- `feature-052-owner-journey-probe`: `production_smoke` from `specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py`. Scope: Metadata-only production probe for health, owner review state, transcript, speaker timeline, playback, and outcome category counts on a synthetic production-safe candidate. Scan: `pass`. Limitations: Synthetic smoke proof does not replace a fresh installed-app owner journey on the current production release.
 - `feature-052-browser-runtime`: `local_runtime` from `specs/052-mvp-live-ui-proof/evidence/browser-runtime-check.cjs`. Scope: Runtime verifier reuses the accepted playback/outcome/speaker timeline checks for web, compact, and embedded review surfaces. Scan: `pass`. Limitations: none
 - `feature-052-ui-reference-review`: `docs_only` from `specs/052-mvp-live-ui-proof/evidence/ui-reference-review.md`. Scope: Clean-room KRISP reference and 2brain web/macOS UI review notes. Scan: `pass`. Limitations: Reference review does not prove authenticated live owner detail access.
 - `feature-052-closeout-report`: `docs_only` from `specs/052-mvp-live-ui-proof/evidence/mvp-closeout-report.md`. Scope: Metadata-only gate table for the 052 MVP live owner journey decision. Scan: `pass`. Limitations: none
-- `feature-052-timing-proof`: `docs_only` from `specs/052-mvp-live-ui-proof/evidence/timing-proof.md`. Scope: Metadata-only processing timing proof against the three-minute-per-hour target. Scan: `pass`. Limitations: Timing target remains unproven until a representative run is recorded.
+- `feature-052-timing-proof`: `docs_only` from `specs/052-mvp-live-ui-proof/evidence/timing-proof.md`. Scope: Metadata-only processing timing proof against the three-minute-per-hour target. Scan: `pass`. Limitations: Synthetic production-safe hour timing passed; fresh installed-app owner journey timing remains a separate gate.
 - `reference-comparison-note`: `docs_only` from `docs/evidence/034-mvp-loop-readiness/reference-comparison.md`. Scope: Clean-room comparison of allowed IA lessons and forbidden Krisp similarity. Scan: `pass`. Limitations: none
 
 ## Access, Egress, Retention, And Deletion Truth
@@ -89,7 +89,7 @@ Evidence records:
 
 ## Production Evidence
 
-- `production-deployment-smoke`: `degraded` / `production_smoke`. Release `v2026.06.25.10` is deployed with public live `ok`, public ready `ready`, and internal `processing=enabled`; this still leaves fresh owner journey, production outcomes, and timing proof gates open.
+- `production-deployment-smoke`: `degraded` / `production_smoke`. The active proof slice keeps fresh owner journey and production outcomes open; production-safe hour timing is recorded separately.
 
 ## Clean-Room Reference Comparison
 
@@ -140,11 +140,10 @@ Evidence records:
 | Gap | Severity | Journey | Missing Evidence | Next Action |
 |-----|----------|---------|------------------|-------------|
 | `fresh-owner-journey-evidence` | `P1` | fresh-owner-journey | Fresh installed-app record, stop, upload, finalization, processing, and review proof on the current production release. | Run the installed app owner journey and record metadata-only gate states in the active closeout report. |
-| `processing-time-target-evidence` | `P1` | processing-time-target | Representative one-hour or near-one-hour production timing evidence. | Record queue, workflow, provider, and finalize-to-review timing for a representative run. |
-| `production-stored-outcomes-evidence` | `P1` | stored-outcomes-production | Stored outcome category states and counts on a current production candidate. | Run the production owner journey probe and record outcome category states without private text. |
+| `production-stored-outcomes-evidence` | `P1` | stored-outcomes-production | Stored outcome category states and counts on a current installed-app production candidate. | Run the production owner journey probe and record outcome category states without private text. |
 | `browser-target-gaps` | `P2` | capture-target-coverage | Target matrix decision for browser coverage before pilot promises. | Keep unsupported targets explicit or run a browser target hardening slice. |
 | `signed-installer-evidence` | `P2` | desktop-distribution | signed installer evidence for broader pilot distribution. | Plan installer signing/notarization as a follow-up slice if pilot distribution needs it. |
 
 ## Next Slice Recommendation
 
-Recommended next action: keep 052 capped at `pilot_blocked`; advance only after fresh owner journey, production stored outcomes, representative timing, and web/macOS UI proof pass.
+Recommended next action: keep 052 capped at `pilot_blocked`; advance only after fresh owner journey, production stored outcomes, and web/macOS UI proof pass.

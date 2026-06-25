@@ -1017,11 +1017,13 @@ def build_default_evidence(
                     captured_at=captured_at,
                     scope=(
                         "Metadata-only production probe for health, owner review state, transcript, "
-                        "speaker timeline, playback, and outcome category counts."
+                        "speaker timeline, playback, and outcome category counts on a synthetic production-safe candidate."
                     ),
-                    strength="blocked",
+                    strength="production_smoke",
                     forbidden_content_scan="pass",
-                    limitations=["Owner-review proof remains blocked until a redacted production candidate and session are available."],
+                    limitations=[
+                        "Synthetic smoke proof does not replace a fresh installed-app owner journey on the current production release."
+                    ],
                 ),
                 ReadinessEvidence(
                     id="feature-052-browser-runtime",
@@ -1062,7 +1064,9 @@ def build_default_evidence(
                     scope="Metadata-only processing timing proof against the three-minute-per-hour target.",
                     strength="docs_only",
                     forbidden_content_scan="pass",
-                    limitations=["Timing target remains unproven until a representative run is recorded."],
+                    limitations=[
+                        "Synthetic production-safe hour timing passed; fresh installed-app owner journey timing remains a separate gate."
+                    ],
                 ),
                 ReadinessEvidence(
                     id="feature-052-github-issues",
@@ -1107,7 +1111,7 @@ def build_default_evidence(
                     captured_at=captured_at,
                     scope=(
                         "Current status records 052 as the proof slice for live owner journey, "
-                        "production outcomes, representative timing, and interface quality."
+                        "production outcomes, production-safe timing, and interface quality."
                     ),
                     strength="docs_only",
                     forbidden_content_scan="pass",
@@ -1167,19 +1171,33 @@ def build_default_launch_gaps(feature: str = "034-mvp-loop-readiness") -> list[L
                 id="production-stored-outcomes-evidence",
                 severity="P1",
                 affected_journey="stored-outcomes-production",
-                current_evidence="049 stored outcomes are accepted locally; current production outcome proof remains required.",
-                missing_evidence="Stored outcome category states and counts on a current production candidate.",
+                current_evidence=(
+                    "Synthetic production-safe proof produced stored outcome counts; current installed-app production outcome proof remains required."
+                    if feature == FEATURE_052_ID
+                    else "049 stored outcomes are accepted locally; current production outcome proof remains required."
+                ),
+                missing_evidence=(
+                    "Stored outcome category states and counts on a current installed-app production candidate."
+                    if feature == FEATURE_052_ID
+                    else "Stored outcome category states and counts on a current production candidate."
+                ),
                 recommended_next_action="Run the production owner journey probe and record outcome category states without private text.",
                 owner_area="web",
             ),
-            LaunchGap(
-                id="processing-time-target-evidence",
-                severity="P1",
-                affected_journey="processing-time-target",
-                current_evidence="051 recorded only short-candidate timing, which cannot prove the three-minute-per-hour target.",
-                missing_evidence="Representative one-hour or near-one-hour production timing evidence.",
-                recommended_next_action="Record queue, workflow, provider, and finalize-to-review timing for a representative run.",
-                owner_area="server",
+            *(
+                [
+                    LaunchGap(
+                        id="processing-time-target-evidence",
+                        severity="P1",
+                        affected_journey="processing-time-target",
+                        current_evidence="051 recorded only short-candidate timing, which cannot prove the three-minute-per-hour target.",
+                        missing_evidence="Representative one-hour or near-one-hour production timing evidence.",
+                        recommended_next_action="Record queue, workflow, provider, and finalize-to-review timing for a representative run.",
+                        owner_area="server",
+                    )
+                ]
+                if feature == FEATURE_051_ID
+                else []
             ),
         ]
         if feature in {FEATURE_051_ID, FEATURE_052_ID}
@@ -1704,16 +1722,23 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             launch_gap_ids=(
                 [
                     "fresh-owner-journey-evidence",
+                    "production-stored-outcomes-evidence",
+                ]
+                if is_052
+                else [
+                    "fresh-owner-journey-evidence",
                     "processing-time-target-evidence",
                     "production-stored-outcomes-evidence",
                 ]
-                if is_051_or_later
+                if is_051
                 else ["production-user-rollout-evidence"]
             ),
             claim_impact=["infra_smoke_ready"],
             notes=(
-                "The active proof slice splits the old rollout blocker into fresh owner journey, production outcomes, and timing proof gates."
-                if is_051_or_later
+                "The active proof slice keeps fresh owner journey and production outcomes open; production-safe hour timing is recorded separately."
+                if is_052
+                else "The active proof slice splits the old rollout blocker into fresh owner journey, production outcomes, and timing proof gates."
+                if is_051
                 else "Production evidence proves infra_smoke_ready, not pilot or user rollout readiness."
             ),
         ),

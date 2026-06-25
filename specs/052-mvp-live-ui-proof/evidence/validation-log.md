@@ -366,3 +366,45 @@ tokens, signed URLs, storage object keys, or private local paths.
     remain open because fresh installed-app record-to-review, authenticated
     production owner-review counts, and representative timing are still
     unproven
+
+## Production-Safe Hour Timing Proof
+
+- 2026-06-25 synthetic production-safe one-hour candidate:
+  - result: `pass`
+  - audio duration: `3600s`
+  - upload_seconds: `3`
+  - workflow_start_to_imported_seconds: `36`
+  - mediascribe_submit_to_ready_seconds: `28`
+  - created_to_imported_seconds: `37`
+  - transcript_segments: `210`
+  - diarization_segments: `210`
+  - outcome_sets: `1`
+  - outcome_items: `5`
+  - summary: non-sensitive synthetic production candidate stayed under the
+    180-seconds-per-hour target and produced transcript, diarization, playback,
+    speaker timeline, and stored outcome counts
+- 2026-06-25 readiness regeneration:
+  - command:
+    `cd apps/server && uv run --extra dev python scripts/generate_mvp_loop_readiness.py --feature 052-mvp-live-ui-proof --output-dir ../../docs/evidence/052-mvp-live-ui-proof --deployed-commit db1eca18f08d26f6816b2bd88067709d0e57e590`
+  - result: `pass`
+  - summary: `processing-time-target-evidence` removed from the 052 P1 launch
+    gap register; T019 and T020 remain open because fresh installed-app
+    record-to-review and stored outcomes on that current candidate are still
+    unproven
+- 2026-06-25 focused validation after timing evidence update:
+  - command:
+    `cd apps/server && uv run --extra dev pytest -q tests/unit/test_mvp_owner_journey_readiness.py tests/contract/test_mvp_owner_journey_proof_contract.py tests/integration/test_mvp_loop_readiness_report.py tests/integration/test_mvp_launch_status_truth.py`
+  - result: `pass`
+  - summary: `25 passed, 1 warning`
+  - command:
+    `cd apps/server && uv run --extra dev pytest -q tests/unit/test_mvp_loop_readiness_matrix.py tests/contract/test_mvp_loop_readiness_contract.py tests/contract/test_mvp_launch_proof_contract.py tests/integration/test_mvp_loop_live_evidence.py`
+  - result: `pass`
+  - summary: `36 passed, 1 warning`
+  - command:
+    `python3 -m json.tool docs/evidence/052-mvp-live-ui-proof/readiness-report.json >/tmp/052-readiness-json-ok && git diff --check`
+  - result: `pass`
+  - command:
+    `rg -n -i 'set-cookie|authorization:|x-amz-|signed_url=|storage_object_key=|/Users/|/home/|/var/folders/' specs/052-mvp-live-ui-proof docs/evidence/052-mvp-live-ui-proof docs/current-product-status.md CHANGELOG.md || true`
+  - result: `pass`
+  - summary: matches were only the documented scan command patterns in
+    `quickstart.md` and this validation log; no live private values found

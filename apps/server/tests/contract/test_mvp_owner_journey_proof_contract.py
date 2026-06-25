@@ -49,7 +49,8 @@ def test_owner_journey_closeout_report_covers_every_gate_safely() -> None:
         if any(status != "pass" for _gate_id, status in rows):
             assert "fresh-owner-journey-evidence" in closeout
             assert "production-stored-outcomes-evidence" in closeout
-            assert "processing-time-target-evidence" in closeout
+            if feature == "051-mvp-owner-journey-proof":
+                assert "processing-time-target-evidence" in closeout
 
         lower = closeout.lower()
         for marker in FORBIDDEN_PRIVATE_MARKERS:
@@ -85,7 +86,8 @@ def test_timing_template_matches_timing_contract_without_private_content() -> No
         ]:
             assert f"- {field}:" in timing
 
-        assert "result: `unproven`" in timing
+        expected_result = "pass" if feature == "052-mvp-live-ui-proof" else "unproven"
+        assert f"result: `{expected_result}`" in timing
         lower = timing.lower()
         for marker in FORBIDDEN_PRIVATE_MARKERS:
             assert marker not in lower
@@ -104,7 +106,10 @@ def test_readiness_report_matches_owner_journey_claim_boundary() -> None:
         assert {
             "fresh-owner-journey-evidence",
             "production-stored-outcomes-evidence",
-            "processing-time-target-evidence",
         } <= gap_ids
+        if feature == "051-mvp-owner-journey-proof":
+            assert "processing-time-target-evidence" in gap_ids
+        else:
+            assert "processing-time-target-evidence" not in gap_ids
         assert "internal_pilot_candidate" in report.claim_summary.excluded_claims
         assert "production_ready" in report.claim_summary.excluded_claims
