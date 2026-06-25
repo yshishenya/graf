@@ -150,9 +150,10 @@ tokens, signed URLs, storage object keys, or private local paths.
 - 2026-06-25 fix:
   - file: `infra/docker-compose.yml`
   - change: production `rec-api` now enables processing, points to
-    `rec-temporal:7233`, can read the MediaScribe Docker secret file required
-    by production config validation, and starts after Temporal is available
-  - worker boundary: `rec-processing-worker` remains the execution worker
+    `rec-temporal:7233`, and starts after Temporal is available
+  - secret boundary: `rec-api` does not mount the MediaScribe key; only
+    `rec-processing-worker` receives it because the worker performs
+    MediaScribe calls
 - 2026-06-25 focused validation:
   - command:
     `cd apps/server && uv run --extra dev pytest -q tests/integration/test_mvp_launch_status_truth.py tests/integration/test_compose_hardening.py tests/integration/test_finalize_processing_autostart.py`
@@ -327,3 +328,41 @@ tokens, signed URLs, storage object keys, or private local paths.
   - result: `pass`
   - summary: Russian PR/release draft records processing dispatch fix, 052 UI
     proof evidence, validation, compatibility, and remaining P1 limitations
+
+## Post-Deploy Release Evidence
+
+- 2026-06-25 production fix PR:
+  - PR: `#1845`
+  - result: `merged`
+  - summary: `rec-api` no longer mounts or reads the MediaScribe API key;
+    `rec-processing-worker` keeps the key because it performs MediaScribe work
+- 2026-06-25 release:
+  - tag: `v2026.06.25.10`
+  - release: `https://github.com/yshishenya/crisp/releases/tag/v2026.06.25.10`
+  - commit: `db1eca18f08d26f6816b2bd88067709d0e57e590`
+- 2026-06-25 production deploy:
+  - command: `infra/scripts/cd-remote.sh --dry-run --branch master`
+  - result: `pass`
+  - summary: `deploy_result=dry_run`
+  - command: `infra/scripts/cd-remote.sh --execute --branch master`
+  - result: `pass`
+  - deployed SHA: `db1eca18f08d26f6816b2bd88067709d0e57e590`
+  - backup reference: `/opt/projects/2brain-rec/backups/20260625T181921Z`
+  - smoke result: `pass`
+  - readiness verdict: `infra_smoke_ready`
+  - upload smoke status: `ingested_pending_processing`
+- 2026-06-25 post-deploy production health:
+  - public live: `ok`
+  - public ready: `ready`
+  - internal checks: `postgres=ok`, `minio=ok`, `processing=enabled`,
+    `temporal=configured`, `mediascribe=dispatcher_only`,
+    `langfuse=configured`
+  - remote SHA: `db1eca18f08d26f6816b2bd88067709d0e57e590`
+  - container state: `rec-api` running and healthy; `rec-processing-worker`
+    running
+- 2026-06-25 task reconciliation after deploy:
+  - result: `pass`
+  - summary: T044 is closed by release/deploy evidence; T019, T020, and T024
+    remain open because fresh installed-app record-to-review, authenticated
+    production owner-review counts, and representative timing are still
+    unproven

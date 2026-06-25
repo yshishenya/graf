@@ -88,18 +88,17 @@ def test_current_status_records_051_as_active_owner_journey_proof_slice() -> Non
     assert status_doc.index("Feature `050-mvp-launch-proof`") < status_doc.index("Feature `051-mvp-owner-journey-proof`")
 
 
-def test_current_status_records_052_live_ui_proof_and_autostart_blocker() -> None:
+def test_current_status_records_052_live_ui_proof_and_deployed_dispatch_boundary() -> None:
     status_doc = _status_doc()
 
-    assert "Feature `052-mvp-live-ui-proof` is the active MVP proof slice" in status_doc
-    assert "production API currently" in status_doc
-    assert "`processing=disabled`" in status_doc
-    assert "accepted recordings can remain" in status_doc
-    assert "`not_submitted`" in status_doc
-    assert "upload finalize" in status_doc
-    assert "Current 052 branch fix" in status_doc
-    assert "production `rec-api`" in status_doc
-    assert "processing dispatch" in status_doc
+    assert "Feature `052-mvp-live-ui-proof` is implemented" in status_doc
+    assert "production fix PR `#1845`" in status_doc
+    assert "`v2026.06.25.10`" in status_doc
+    assert "`db1eca18f08d26f6816b2bd88067709d0e57e590`" in status_doc
+    assert "`processing=enabled`" in status_doc
+    assert "`temporal=configured`" in status_doc
+    assert "`mediascribe=dispatcher_only`" in status_doc
+    assert "does not mount the MediaScribe key" in status_doc
     assert "live owner-review UI gaps" in status_doc
     assert "missing auth context" in status_doc
     assert "The allowed current claim remains `pilot_blocked`" in status_doc
