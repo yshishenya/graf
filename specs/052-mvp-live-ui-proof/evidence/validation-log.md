@@ -408,3 +408,41 @@ tokens, signed URLs, storage object keys, or private local paths.
   - result: `pass`
   - summary: matches were only the documented scan command patterns in
     `quickstart.md` and this validation log; no live private values found
+
+## Current Release And Installed-App Recheck
+
+- 2026-06-25 production release/deploy recheck:
+  - latest release: `v2026.06.25.14`
+  - deployed SHA: `1580988f7c9bf00f9c6d9c74037b145cd902b913`
+  - public live: `ok`
+  - public ready: `ready`
+  - deploy result: `pass`
+  - readiness verdict: `infra_smoke_ready`
+  - smoke cleanup: `pass`
+  - summary: production is current and healthy, but this remains infrastructure
+    smoke readiness, not MVP owner-journey readiness
+- 2026-06-25 synthetic timing cleanup:
+  - result: `pass`
+  - database records removed: `458`
+  - object keys removed: `3`
+  - residue: `none`
+  - summary: the production-safe one-hour timing candidate was removed after
+    cleanup gained meeting outcome dependency coverage
+- 2026-06-25 installed app recheck:
+  - app path: `/Applications/2brain Rec.app`
+  - app version: `2026.06.25.14`
+  - codesign verify: `pass`
+  - process state: `running`
+  - active recording media handles: `0`
+  - queue state: `15 uploaded`, `6 blocked`
+  - current auth blocker: `http_status_401:missing_auth_context`
+  - cabinet state: `expiredSession`
+  - fresh post-deploy recording: `none`
+  - summary: installed app identity is current, but T019/T020 remain open until
+    the user signs in inside the app and creates a fresh recording candidate
+- 2026-06-25 readiness regeneration:
+  - command:
+    `cd apps/server && uv run --extra dev python scripts/generate_mvp_loop_readiness.py --feature 052-mvp-live-ui-proof --output-dir ../../docs/evidence/052-mvp-live-ui-proof --deployed-commit 1580988f7c9bf00f9c6d9c74037b145cd902b913`
+  - result: `pass`
+  - summary: readiness docs now point at the current deployed commit while the
+    outcome remains `pilot_blocked`
