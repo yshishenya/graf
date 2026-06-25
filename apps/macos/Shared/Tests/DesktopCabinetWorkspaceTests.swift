@@ -294,5 +294,24 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 503), .offline)
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 429), .malformedResponse)
     }
+
+    func testOwnerReviewDetailRouteUsesServerOwnedDesktopCabinetOnlyWhenReady() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let route = DesktopCabinetWorkspace.detailRoute(meetingId: "meeting-051", configuration: configuration)
+        let loading = DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: true,
+            cabinetState: .loading
+        )
+        let ready = DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: true,
+            cabinetState: .ready
+        )
+
+        XCTAssertEqual(route.path, "/desktop/meetings/meeting-051")
+        XCTAssertNil(route.fragment)
+        XCTAssertNotEqual(loading.menuStatusText, "Кабинет доступен")
+        XCTAssertEqual(ready.menuStatusText, "Кабинет доступен")
+        XCTAssertEqual(ready.systemImage, "checkmark.circle")
+    }
 }
 #endif

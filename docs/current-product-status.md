@@ -2,8 +2,8 @@
 
 Date: 2026-06-25
 
-Этот документ коротко фиксирует состояние продукта после production closeout
-`050-mvp-launch-proof`. PRD остается базовой продуктовой
+Этот документ коротко фиксирует состояние продукта после MVP owner journey
+proof-slice `051-mvp-owner-journey-proof`. PRD остается базовой продуктовой
 линией; feature specs и metadata-only evidence остаются подробной историей
 реализации.
 
@@ -418,14 +418,26 @@ Date: 2026-06-25
 
 ## Next Product Slice
 
-Feature `050-mvp-launch-proof` is now closed as the MVP launch-proof slice. Its
-job was to decide, with evidence rather than optimism, whether the current
-product can be called an internal pilot candidate.
+Feature `050-mvp-launch-proof` is closed as the MVP launch-proof slice. Its job
+was to decide, with evidence rather than optimism, whether the current product
+can be called an internal pilot candidate.
+
+Feature `051-mvp-owner-journey-proof` is the current proof closeout over the
+fresh owner journey. It did not add a new user feature. It checked the installed
+app, production health, short production processing metadata, stored outcomes,
+playback/timeline runtime, macOS cabinet truth, and readiness docs before any
+MVP claim could be raised.
+
+The 051 result keeps the product at `pilot_blocked`: installed app identity,
+current production health, local web/embedded playback/timeline/outcome runtime,
+and native false-green guards pass, but the three P1 proof gates below remain
+open.
 
 The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
 `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
 `user_rollout_ready`, and `production_ready` remain excluded until the
-`production-user-rollout-evidence` gap is closed.
+fresh owner journey, production stored outcomes, and representative timing gaps
+are closed.
 
 Current evidence already accepted before 050:
 
@@ -440,12 +452,17 @@ Current evidence already accepted before 050:
   transcript-backed evidence, category truth, privacy/deletion/RLS coverage, and
   web/embedded review parity.
 
-Remaining launch boundary after 050:
+Remaining launch boundary after 051:
 
-- `production-user-rollout-evidence` stays open until a current live owner
-  journey proves record/upload/finalize/process/review, transcript and
-  diarization visibility, playback, stored outcomes, interface truth, and the
-  processing-speed target with metadata-only evidence.
+- `fresh-owner-journey-evidence` stays open until a current live owner journey
+  proves record/stop/upload/finalize/process/review from the installed app.
+- `production-stored-outcomes-evidence` stays open until a current production
+  candidate shows stored outcome states and counts without private generated
+  text. The inspected short candidate predates the accepted 049/050 release
+  train and has no stored outcome rows, so it is evidence of an open proof gap,
+  not proof of a current normal-path code defect.
+- `processing-time-target-evidence` stays open until representative one-hour
+  timing proof shows whether processing meets the three-minute target.
 - Signed/notarized installer evidence, Yandex Browser support, real
   speakerphone echo/noise suppression, compressed share audio, public links,
   waveform polish, transcript editing, and native Swift playback controls remain

@@ -609,6 +609,64 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert ".timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }" in page
 
 
+def test_051_owner_review_keeps_recording_playback_and_outcomes_separate() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=180,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="combined_review_stream",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="reserved",
+        degraded_reason=None,
+        speakers=[
+            SpeakerLane(
+                speaker_key="speaker-1",
+                label="Speaker 1",
+                talk_time_percent=60,
+                source_roles=["local_microphone"],
+                segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=8.0)],
+            )
+        ],
+    )
+    category = NotesActionCategoryState(
+        state="available",
+        label="Итоги готовы",
+        reason="Сохраненный итог доступен и связан с расшифровкой.",
+        readiness_impact="closes_gap",
+        copy_key="notes.summary.available",
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        summary=category,
+        key_points=category,
+        decisions=category,
+        action_items=category,
+        followups=category,
+        risks=category,
+        questions=category,
+        evidence=category,
+        source_basis="stored_output",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert 'class="tab active" role="tab" id="detail-tab-recording"' in page
+    assert 'id="detail-tab-outcomes" aria-selected="false"' in page
+    assert 'data-detail-panel="outcomes" hidden' in page
+    assert 'data-detail-panel="recording"' in page
+    assert 'data-playback-shell' in page
+    assert 'data-speaker-timeline' in page
+    assert 'data-outcome-source-basis="stored_output"' in page
+    assert "window.location.hash === \"#outcomes\"" in page
+    assert page.count("data-outcome-category=") == 8
+
+
 def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
     list_page = render_meeting_list_page(
         MeetingListResponse(
