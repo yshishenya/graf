@@ -2,9 +2,10 @@
 
 All issues follow `docs/agent-guidance/github-issue-canon.md` and map back to
 `specs/052-mvp-live-ui-proof/tasks.md`. GitHub state was reconciled on
-2026-06-26: all completed tasks are closed; T019 and T020 remain open because
-the fresh installed-app owner journey and production candidate metadata proof
-are still not complete.
+2026-06-26: all completed tasks are closed; T019 and T020 remain open. A fresh
+installed-app candidate now proves upload/finalize/processing, but it has
+`0` transcript segments, `0` diarization segments, and blocked stored outcomes,
+so the owner review proof is still incomplete.
 
 | Task | Issue | State at sync | Sync | Title |
 |---|---:|---|---|---|
