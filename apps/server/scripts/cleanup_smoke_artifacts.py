@@ -136,6 +136,7 @@ async def cleanup_smoke_artifacts(
                     "diarization_segments",
                     "processing_audit_events",
                     "processing_dependency_states",
+                    "meeting_outcome_generation_attempts",
                     "meeting_outcome_items",
                     "meeting_outcome_sets",
                     "processing_results",
@@ -148,6 +149,16 @@ async def cleanup_smoke_artifacts(
                 ("diarization_segments", "delete from diarization_segments where meeting_id=:meeting_id"),
                 ("processing_audit_events", "delete from processing_audit_events where meeting_id=:meeting_id"),
                 ("processing_dependency_states", "delete from processing_dependency_states where meeting_id=:meeting_id"),
+                (
+                    "meeting_outcome_generation_attempts",
+                    """
+                    delete from meeting_outcome_generation_attempts
+                    where meeting_id=:meeting_id
+                       or outcome_set_id in (
+                           select id from meeting_outcome_sets where meeting_id=:meeting_id
+                       )
+                    """,
+                ),
                 (
                     "meeting_outcome_items",
                     """
