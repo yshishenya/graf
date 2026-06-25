@@ -3,7 +3,6 @@
 Date: 2026-06-25
 
 Этот документ коротко фиксирует состояние продукта после production closeout
-`049-meeting-outcomes-mvp` и начала launch-proof slice
 `050-mvp-launch-proof`. PRD остается базовой продуктовой
 линией; feature specs и metadata-only evidence остаются подробной историей
 реализации.
@@ -262,14 +261,18 @@ Date: 2026-06-25
   blocker is closed for the MVP surface; follow-up work is quality, editing,
   richer controls, and rollout hardening, not basic outcome availability. This
   does not claim production rollout readiness by itself.
-- Feature `050-mvp-launch-proof` is the active MVP launch-proof slice. It
-  verifies that the installed macOS app, production server, web cabinet,
-  embedded review, playback, transcript, diarization, speaker timeline, stored
-  outcomes, product status, and release/deploy truth can support a bounded
-  MVP claim. The allowed current claim remains `pilot_blocked`; `mvp_loop_ready`,
-  `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
-  excluded until production user-rollout evidence and a live owner journey pass
-  with metadata-only evidence.
+- Feature `050-mvp-launch-proof` is implemented, merged through PR `#1753`,
+  released as `v2026.06.25.5`, and deployed to production as the MVP
+  launch-proof closeout slice. It verifies the installed macOS app, production
+  server, web cabinet, embedded review, playback, transcript, diarization,
+  speaker timeline, stored outcomes evidence, product status, release notes,
+  and deploy truth against a bounded MVP claim. The final 050 claim remains
+  `pilot_blocked`: playback, timestamp seek, bottom speaker timeline,
+  web/embedded parity, truthful macOS cabinet state, docs, release, and deploy
+  gates passed; `mvp_loop_ready`, `internal_pilot_candidate`,
+  `user_rollout_ready`, and `production_ready` stay excluded until a fresh live
+  owner journey, stored outcomes on a production candidate, and representative
+  one-hour timing proof pass with metadata-only evidence.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -415,14 +418,14 @@ Date: 2026-06-25
 
 ## Next Product Slice
 
-Feature `050-mvp-launch-proof` is the active MVP launch-proof slice. Its job is
-to decide, with evidence rather than optimism, whether the current product can
-be called an internal pilot candidate.
+Feature `050-mvp-launch-proof` is now closed as the MVP launch-proof slice. Its
+job was to decide, with evidence rather than optimism, whether the current
+product can be called an internal pilot candidate.
 
 The allowed current claim remains `pilot_blocked`. The bounded shipped claim is
 `infra_smoke_ready`; `mvp_loop_ready`, `internal_pilot_candidate`,
-`user_rollout_ready`, and `production_ready` remain excluded until the 050 gate
-table passes.
+`user_rollout_ready`, and `production_ready` remain excluded until the
+`production-user-rollout-evidence` gap is closed.
 
 Current evidence already accepted before 050:
 
@@ -437,7 +440,7 @@ Current evidence already accepted before 050:
   transcript-backed evidence, category truth, privacy/deletion/RLS coverage, and
   web/embedded review parity.
 
-Remaining launch boundary for 050:
+Remaining launch boundary after 050:
 
 - `production-user-rollout-evidence` stays open until a current live owner
   journey proves record/upload/finalize/process/review, transcript and

@@ -21,10 +21,13 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Зафиксирован post-deploy closeout для `050`: PR, release, deployed SHA,
+  production health и итоговый статус `pilot_blocked` записаны в evidence и
+  текущий статус продукта.
 
 ### Операции
-- _Пока нет записей._
+- Production deploy `050` прошел с `deploy_result=pass` и
+  `readiness_verdict=infra_smoke_ready`.
 
 ## [2026.06.25.5] - 2026-06-25
 

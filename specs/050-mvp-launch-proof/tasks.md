@@ -137,7 +137,7 @@
 - [X] T043 Run full `infra/scripts/ci-local.sh` and record `ci_local_result` in `specs/050-mvp-launch-proof/evidence/validation-log.md`
 - [X] T044 Run `infra/scripts/cd-remote.sh --dry-run` and record deploy-readiness evidence in `specs/050-mvp-launch-proof/evidence/validation-log.md`
 - [X] T045 Prepare PR description and release notes draft in simple Russian in `specs/050-mvp-launch-proof/evidence/pr-draft.md`
-- [ ] T046 After merge/release gate, run release and production deploy, then record deployed SHA and public health in `specs/050-mvp-launch-proof/evidence/validation-log.md`
+- [X] T046 After merge/release gate, run release and production deploy, then record deployed SHA and public health in `specs/050-mvp-launch-proof/evidence/validation-log.md`
 
 ---
 

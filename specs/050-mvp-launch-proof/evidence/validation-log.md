@@ -182,3 +182,33 @@ or local private paths.
   - remote host/path: `2brain.dev` / `/opt/projects/2brain-rec`
   - branch: `050-mvp-launch-proof`
   - planned steps: clean worktree, branch sync, pinned SHA, local CI, remote fetch, backup, restore rehearsal, compose secret scan, build/up, runtime secret env scan, production smoke, public health.
+
+## 2026-06-25 - Release And Production Deploy
+
+- PR:
+  - `https://github.com/yshishenya/crisp/pull/1753`
+  - state: merged
+  - merge commit: `cf54c6dc5116bc1e164ab150fe345875b4cc944b`
+- Release:
+  - tag: `v2026.06.25.5`
+  - GitHub Release: `https://github.com/yshishenya/crisp/releases/tag/v2026.06.25.5`
+  - release commit: `bb711e134380442230857989e51c0b366582199c`
+- Production deploy:
+  - command: `infra/scripts/cd-remote.sh --execute`
+  - result: `deploy_result=pass`
+  - branch: `master`
+  - deployed SHA: `bb711e134380442230857989e51c0b366582199c`
+  - backup reference: `/opt/projects/2brain-rec/backups/20260625T025027Z`
+  - restore rehearsal: `pass`
+  - production smoke: `smoke_result=pass`
+  - readiness verdict: `infra_smoke_ready`
+  - RLS validation: `pass` on disposable database
+  - smoke cleanup: `pass`
+- Public health after deploy:
+  - live: `{"status":"ok"}`
+  - ready: `{"status":"ready"}`
+  - production remote branch: `master`
+  - production remote SHA: `bb711e134380442230857989e51c0b366582199c`
+- Final claim:
+  - keep `pilot_blocked`
+  - keep `production-user-rollout-evidence` open until fresh live owner journey, stored outcomes on a production candidate, and representative one-hour timing proof pass.

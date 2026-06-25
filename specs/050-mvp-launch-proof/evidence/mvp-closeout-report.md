@@ -16,7 +16,7 @@ paths.
 
 | Gate ID | Status | Evidence | Notes |
 |---------|--------|----------|-------|
-| `release-deployed` | `pending` | `validation-log.md` | Pre-050 production baseline is healthy at `ef222bc57b4343ceccfaec1c8cc4a677a2a372d6`; final 050 release/deploy proof remains T046. |
+| `release-deployed` | `pass` | `validation-log.md` | PR #1753 merged, `v2026.06.25.5` published, and production deployed SHA `bb711e134380442230857989e51c0b366582199c` with `deploy_result=pass` and `readiness_verdict=infra_smoke_ready`. |
 | `installed-app-current` | `pass` | `installed-app-check.md`, `validation-log.md` | `/Applications/2brain Rec.app` exists, launches, and reports auth-required truth instead of false-ready cabinet state. |
 | `record-stop-upload` | `unproven` | `validation-log.md` | Production has one processed candidate with three stored track roles, but committed evidence does not prove a fresh installed-app record/stop/upload owner journey. |
 | `finalize-processing` | `pass` | `validation-log.md` | Production metadata candidate is finalized, media revision accepted, workflow processed, MediaScribe ready, and result imported. |
@@ -48,7 +48,7 @@ Keep `production-user-rollout-evidence` open as the P1 launch gap:
 - Unproven P1 gates: fresh installed-app record/stop/upload-to-review journey,
   stored outcomes on the current production candidate, and representative
   one-hour processing-speed evidence.
-- Pending operational gate before release closeout: final 050 release/deploy
-  SHA proof.
-- Final 050 claim before release/deploy: keep `pilot_blocked`; do not claim
+- Release/deploy gate: passed for `v2026.06.25.5` at production SHA
+  `bb711e134380442230857989e51c0b366582199c`.
+- Final 050 claim after release/deploy: keep `pilot_blocked`; do not claim
   `internal_pilot_candidate`, `user_rollout_ready`, or `production_ready`.

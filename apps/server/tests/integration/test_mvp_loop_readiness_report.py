@@ -53,7 +53,8 @@ def test_next_slice_recommendation_and_status_doc_do_not_repeat_completed_018() 
     assert "Recommended next feature: `018-retention-deletion-execution`" not in status_doc
     assert "Recommended next feature: `022-meeting-mute-truth`" not in status_doc
     assert "Recommended next feature: validation-only `035-mvp-loop-live-evidence`" not in status_doc
-    assert "Feature `050-mvp-launch-proof` is the active MVP launch-proof slice" in status_doc
+    assert "Feature `050-mvp-launch-proof` is implemented, merged through PR `#1753`" in status_doc
+    assert "launch-proof closeout slice" in status_doc
     assert "production-user-rollout-evidence" in status_doc
     assert "notes/action output blocker is closed" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
@@ -176,7 +177,8 @@ def test_035_status_and_changelog_record_current_next_slice() -> None:
     changelog = (root / "CHANGELOG.md").read_text()
 
     assert "Feature `035-mvp-loop-live-evidence`" in status_doc
-    assert "Feature `050-mvp-launch-proof` is the active MVP launch-proof slice" in status_doc
+    assert "Feature `050-mvp-launch-proof` is implemented, merged through PR `#1753`" in status_doc
+    assert "launch-proof closeout slice" in status_doc
     assert "production-user-rollout-evidence" in status_doc
     assert "notes/action output blocker is closed" in status_doc
     assert "`042-recording-sync-transcription-loop`" in status_doc
