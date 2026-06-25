@@ -185,6 +185,11 @@ public enum DesktopCabinetAccessibilityIdentifier {
     public static let nativeShellRegion = "desktop-native-shell-region"
 }
 
+public enum DesktopCabinetRecoveryTarget: Equatable, Sendable {
+    case embedded(URL)
+    case external(URL)
+}
+
 public enum DesktopCabinetWorkspace {
     public static func defaultRoute(configuration: DesktopCabinetConfiguration) -> URL {
         configuration.meetingsURL()
@@ -202,6 +207,20 @@ public enum DesktopCabinetWorkspace {
 
     public static func detailRoute(meetingId: String, configuration: DesktopCabinetConfiguration) -> URL {
         configuration.meetingDetailURL(meetingId: meetingId)
+    }
+
+    public static func recoveryTarget(
+        for state: DesktopCabinetState,
+        configuration: DesktopCabinetConfiguration
+    ) -> DesktopCabinetRecoveryTarget? {
+        switch state {
+        case .expiredSession:
+            return .embedded(loginRoute(configuration: configuration))
+        case .offline, .timeout:
+            return .external(configuration.baseURL)
+        default:
+            return nil
+        }
     }
 }
 

@@ -69,13 +69,17 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
     }
 
-    func testExpiredSessionRecoveryOpensBrowserLoginForDesktopMeetings() throws {
+    func testExpiredSessionRecoveryUsesEmbeddedLoginForDesktopMeetings() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",
             headers: ["X-Workspace-Id": "workspace-033"]
         ))
 
         let route = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(for: .expiredSession, configuration: configuration),
+            .embedded(route)
+        )
         let components = try XCTUnwrap(URLComponents(url: route, resolvingAgainstBaseURL: false))
         let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
             item.value.map { (item.name, $0) }
@@ -84,6 +88,10 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(route.path, "/login")
         XCTAssertEqual(query["next"], "/desktop/meetings")
         XCTAssertEqual(query["workspace_id"], "workspace-033")
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(for: .offline, configuration: configuration),
+            .external(configuration.baseURL)
+        )
     }
 
     func testShellInvariantKeepsStopReachableDuringActiveRecordingForEveryCabinetState() {

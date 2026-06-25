@@ -128,14 +128,28 @@ public struct DesktopCabinetWorkspaceView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let recoveryActionTitle = activeCabinetState.recoveryActionTitle,
-               let recoveryURL {
-                Link(destination: recoveryURL) {
-                    Label(recoveryActionTitle, systemImage: "arrow.up.right.square")
+               let recoveryTarget {
+                switch recoveryTarget {
+                case let .embedded(url):
+                    Button {
+                        currentRoute = url
+                        activeCabinetStateBinding.wrappedValue = .loading
+                    } label: {
+                        Label(recoveryActionTitle, systemImage: "rectangle.stack.badge.person.crop")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .padding(.top, 4)
+                    .help(recoveryActionTitle)
+                case let .external(url):
+                    Link(destination: url) {
+                        Label(recoveryActionTitle, systemImage: "arrow.up.right.square")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .padding(.top, 4)
+                    .help(recoveryActionTitle)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .padding(.top, 4)
-                .help(recoveryActionTitle)
             }
         }
         .frame(maxWidth: .infinity, minHeight: presentation == .shell ? 360 : 160, alignment: .leading)
@@ -146,16 +160,9 @@ public struct DesktopCabinetWorkspaceView: View {
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.unavailableState)
     }
 
-    private var recoveryURL: URL? {
+    private var recoveryTarget: DesktopCabinetRecoveryTarget? {
         guard let configuration else { return nil }
-        switch activeCabinetState {
-        case .expiredSession:
-            return DesktopCabinetWorkspace.loginRoute(configuration: configuration)
-        case .offline, .timeout:
-            return configuration.baseURL
-        default:
-            return nil
-        }
+        return DesktopCabinetWorkspace.recoveryTarget(for: activeCabinetState, configuration: configuration)
     }
 
     private var statusText: String {
