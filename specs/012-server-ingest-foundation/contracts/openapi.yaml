@@ -4552,6 +4552,7 @@ components:
           type: string
           enum:
           - desktop_recording
+          - video_recording
           - manual_upload
           - unknown
           title: Source
