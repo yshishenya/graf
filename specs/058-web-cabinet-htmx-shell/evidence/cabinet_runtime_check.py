@@ -37,8 +37,7 @@ from twobrain_rec_server.api.schemas import (  # noqa: E402
     SpeakerReviewState,
     TranscriptReviewState,
 )
-from twobrain_rec_server.cabinet.templates import cabinet_html_response  # noqa: E402
-from twobrain_rec_server.cabinet.web import (  # noqa: E402
+from twobrain_rec_server.cabinet.rendering import (  # noqa: E402
     render_deletion_report_fragment,
     render_deletion_report_page,
     render_meeting_detail_fragment,
@@ -46,6 +45,7 @@ from twobrain_rec_server.cabinet.web import (  # noqa: E402
     render_meeting_list_fragment,
     render_meeting_list_page,
 )
+from twobrain_rec_server.cabinet.templates import cabinet_html_response  # noqa: E402
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY  # noqa: E402
 from twobrain_rec_server.domain.statuses import (  # noqa: E402
     DeletionArtifactState,

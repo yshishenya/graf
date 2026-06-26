@@ -32,12 +32,12 @@ from twobrain_rec_server.api.schemas import (
     TranscriptReviewState,
     TranscriptSegmentView,
 )
-from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
-from twobrain_rec_server.cabinet.web import (
+from twobrain_rec_server.cabinet.rendering import (
     render_deletion_report_page,
     render_meeting_detail_page,
     render_meeting_list_page,
 )
+from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.statuses import (
     DeletionArtifactState,
@@ -477,7 +477,7 @@ def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
 
 
 def test_list_delete_script_json_encodes_bounded_copy(monkeypatch) -> None:
-    monkeypatch.setattr("twobrain_rec_server.cabinet.web.BOUNDED_DELETE_COPY", 'Delete "quoted"\ncopy')
+    monkeypatch.setattr("twobrain_rec_server.cabinet.rendering.BOUNDED_DELETE_COPY", 'Delete "quoted"\ncopy')
 
     page = render_meeting_list_page(
         MeetingListResponse(

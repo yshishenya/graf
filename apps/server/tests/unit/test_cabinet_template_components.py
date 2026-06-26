@@ -13,6 +13,7 @@ from twobrain_rec_server.cabinet.templates import (
 SERVER_ROOT = Path(__file__).resolve().parents[2] / "src" / "twobrain_rec_server"
 CABINET_CSS = SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.css"
 CABINET_WEB = SERVER_ROOT / "cabinet" / "web.py"
+CABINET_RENDERING = SERVER_ROOT / "cabinet" / "rendering.py"
 CABINET_TEMPLATES = SERVER_ROOT / "cabinet" / "templates"
 
 
@@ -41,8 +42,12 @@ def test_trusted_component_html_requires_reviewed_source() -> None:
 
 def test_cabinet_html_trust_boundaries_are_guarded() -> None:
     web_source = CABINET_WEB.read_text()
+    rendering_source = CABINET_RENDERING.read_text()
     assert "from markupsafe import Markup" not in web_source
     assert "Markup(" not in web_source
+    assert "def render_meeting_list_page(" not in web_source
+    assert "def _render_meeting_row(" not in web_source
+    assert "def render_meeting_list_page(" in rendering_source
 
     safe_templates = [
         path.relative_to(CABINET_TEMPLATES).as_posix()

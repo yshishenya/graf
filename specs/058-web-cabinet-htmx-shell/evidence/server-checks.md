@@ -33,7 +33,7 @@ PYTHONPATH=src uv run --extra dev pytest -q \
 
 ## Observed Output
 
-- `93 passed, 5 warnings`
+- `99 passed, 5 warnings`
 - Warnings were pytest-asyncio and Starlette TestClient deprecations.
 
 ## Convergence Check For T087-T090
@@ -57,6 +57,8 @@ Observed result:
 Covered convergence checks:
 
 - shared shell composition renders through Jinja templates;
+- `cabinet/web.py` no longer owns page/fragment render helper definitions;
+- `cabinet/rendering.py` owns server-side HTML composition behind the route/data boundary;
 - direct `Markup(...)` is absent from `cabinet/web.py`;
 - Jinja `|safe` remains limited to the reviewed static icon path whitelist;
 - list filter/sort controls use GET plus bounded HTMX region updates;
@@ -104,6 +106,7 @@ present:
 
 - `twobrain_rec_server/cabinet/templates/cabinet/base.html`
 - `twobrain_rec_server/cabinet/templates/cabinet/fragments/deletion_report.html`
+- `twobrain_rec_server/cabinet/rendering.py`
 - `twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
 - `twobrain_rec_server/cabinet/static/cabinet/htmx-2.0.10.min.js`
 
