@@ -279,11 +279,16 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert ":focus-visible" in page
     assert "hero" not in page.lower()
     assert 'data-selection-toolbar' in page
+    assert 'data-selection-toggle' in page
+    assert 'data-clear-selection' not in page
     assert 'data-list-title' in page
     assert "Выбрано 0 / 1" in page
+    assert "Выбрать все видимые записи" in page
+    assert "Снять выбор" in page
     assert "Скачивание появится позже" in page
     assert 'data-tooltip="Скачивание появится позже"' in page
     assert "disabled aria-disabled=\"true\" data-download-disabled" in page
+    assert 'data-icon="check"' in page
     assert 'data-icon="download"' in page
     assert 'data-icon="trash"' in page
     assert 'data-meeting-select' in page
@@ -297,6 +302,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Mark as unread" not in page
     assert "⇩" not in page
     assert "⌫" not in page
+    assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in page
+    assert "const shouldSelectAll = selectedRows().length !== rows.length" in page
 
 
 def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
