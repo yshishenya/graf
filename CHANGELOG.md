@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.26.12] - 2026-06-26
+
+
+### Добавлено
 - Feature `057-local-upload-custody`: desktop upload queue now behaves as
   product custody, not as a user task list. Local recordings remain accounted
   for, retry automatically when safe, and expose calm aggregate native custody
