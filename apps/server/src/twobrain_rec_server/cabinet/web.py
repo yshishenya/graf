@@ -797,29 +797,14 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .meeting-row.cabinet-row:hover { background: #2c2f33; }
 .meeting-row.is-selected { background: #302860; }
 .row-check {
-  appearance: none;
+  accent-color: var(--accent);
   width: 16px;
   height: 16px;
   min-height: 16px;
   margin: 0;
   padding: 0;
-  border: 1px solid #686e78;
-  border-radius: 4px;
-  background: transparent;
+  cursor: pointer;
 }
-.row-check:checked, .row-check:indeterminate {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.row-check:checked::after, .row-check:indeterminate::after {
-  display: grid;
-  place-items: center;
-  color: #17191c;
-  font-size: 12px;
-  font-weight: 900;
-}
-.row-check:checked::after { content: "✓"; }
-.row-check:indeterminate::after { content: "−"; }
 .row-icon { display: grid; place-items: center; width: 22px; height: 22px; color: #a7adb7; font-size: 13px; }
 .row-icon .ui-icon { width: 12px; height: 12px; }
 .meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
