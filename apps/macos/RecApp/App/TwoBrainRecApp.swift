@@ -887,8 +887,17 @@ private struct ContentView: View {
             do {
                 _ = try service.scanAndEnqueueCompletedRecordings()
                 _ = try service.applyRetentionExpiry()
-                let items = try await service.processDueItems()
-                _ = try await service.acknowledgePendingLocalPurgeTasks()
+                var items = try await service.processDueItems()
+                do {
+                    _ = try await service.acknowledgePendingLocalPurgeTasks()
+                    items = try service.loadItems()
+                } catch {
+                    items = (try? service.loadItems()) ?? items
+                    AppLog.writeRaw(
+                        event: AuditEventName.localPurgeAcknowledged.rawValue,
+                        detail: "reason=\(reason) failed=true error=\(error)"
+                    )
+                }
                 await MainActor.run {
                     uploadQueueItems = items
                     uploadQueueRefreshInProgress = false

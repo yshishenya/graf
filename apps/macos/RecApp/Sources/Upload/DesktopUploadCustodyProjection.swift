@@ -764,6 +764,13 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
 
     public var clipboardText: String {
         [
+            "2brain Rec: безопасный отчет о локальной записи",
+            "Что произошло: \(humanProblemText).",
+            "Что делать: \(humanActionText)",
+            "Локальная копия: \(localMediaRetained ? "сохранена на этом Mac" : "не хранится на этом Mac").",
+            "Серверная копия: \(serverIdentityPresent ? "связана с записью на сервере" : "не подтверждена").",
+            "Безопасность: отчет содержит только метаданные, без звука, текста встречи, локальных путей и токенов.",
+            "",
             "2brain Rec custody safe report",
             "schema_version=\(schemaVersion)",
             "safe_recording_identity=\(safeRecordingIdentity)",
@@ -780,6 +787,38 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
             "local_media_retained=\(localMediaRetained)",
             "metadata_safety=\(metadataSafety.rawValue)"
         ].joined(separator: "\n")
+    }
+
+    private var humanProblemText: String {
+        switch lifecycleState {
+        case .terminalUndelivered:
+            return "истек срок автоматической отправки, запись не отправлена"
+        case .retainedAwaitingCondition where owner == .workspaceAdmin:
+            return "нужна проверка доступа или политики рабочего пространства"
+        case .retainedAwaitingCondition:
+            return "отправка остановлена до действия в приложении"
+        case .cannotSend:
+            return "локальную запись нельзя безопасно отправить"
+        case .processing:
+            return "серверная обработка требует проверки"
+        default:
+            return "нужна проверка поддержки"
+        }
+    }
+
+    private var humanActionText: String {
+        switch owner {
+        case .workspaceAdmin:
+            return "отправьте этот отчет администратору рабочего пространства или поддержке."
+        case .support:
+            return "отправьте этот отчет поддержке."
+        case .policyLifecycle:
+            return "отправьте этот отчет поддержке, если запись еще нужна."
+        case .meetingOwner:
+            return "выполните действие в приложении; отчет можно передать поддержке."
+        case .productAutomatic:
+            return "приложение продолжит автоматически; отчет можно передать поддержке."
+        }
     }
 
     private static func safeIncidentAvailable(for projection: DesktopUploadCustodyProjection) -> Bool {
@@ -858,7 +897,7 @@ public enum DesktopUploadCustodyCopy {
         case "custody.needs_workspace":
             return "Нужно выбрать рабочее пространство"
         case "custody.needs_admin":
-            return "Нужна проверка доступа"
+            return "Нужен администратор"
         case "custody.cannot_send":
             return "Не можем отправить запись"
         case "custody.retention_warning":
@@ -885,7 +924,7 @@ public enum DesktopUploadCustodyCopy {
         case "custody.needs_workspace":
             return "Выберите, куда отправить записи. Локальные копии сохранены."
         case "custody.needs_admin":
-            return "Локальные копии сохранены. Можно скопировать безопасный отчет."
+            return "Скопируйте отчет и отправьте администратору или поддержке. Локальные копии сохранены."
         case "custody.cannot_send":
             return "Локальная копия сохранена. Диагностика не содержит аудио и текст встречи."
         case "custody.retention_warning":
@@ -894,7 +933,7 @@ public enum DesktopUploadCustodyCopy {
             }
             return "Локальная копия сохранена до срока политики хранения."
         case "custody.terminal_undelivered":
-            return "Метаданные отчета сохранены; восстановление не обещается."
+            return "Скопируйте отчет для поддержки. Метаданные сохранены; восстановление не обещается."
         case "custody.known_by_server":
             return "Серверный список показывает актуальное состояние."
         default:

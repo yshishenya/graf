@@ -519,7 +519,10 @@ final class CaptureControlTests: XCTestCase {
         let deletedSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [deleted]))
         let authSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [auth]))
 
-        XCTAssertEqual(deletedSummary.detail, "Локальные копии сохранены. Можно скопировать безопасный отчет.")
+        XCTAssertEqual(
+            deletedSummary.detail,
+            "Скопируйте отчет и отправьте администратору или поддержке. Локальные копии сохранены."
+        )
         XCTAssertFalse(deletedSummary.detail.contains("/Users/test"))
         XCTAssertNil(deletedSummary.primaryItem.nextActionLabel)
         XCTAssertEqual(authSummary.detail, "Войдите, чтобы продолжить отправку. Локальные копии сохранены.")

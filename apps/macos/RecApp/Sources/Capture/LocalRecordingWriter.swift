@@ -932,6 +932,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         let recorder = try AVAudioRecorder(url: url, settings: settings)
         recorder.isMeteringEnabled = true
         recorder.prepareToRecord()
+        try LocalCustodyFileProtection.apply(to: url)
         return recorder
     }
 

@@ -393,11 +393,18 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         await reconcileUploadedItemsIfNeeded(client: client, excludingItemIds: [])
         let tasks = try await client.listLocalPurgeTasks()
-        let items = try queue.sync {
+        var items = try queue.sync {
             try loadDocumentOnQueue().items
         }
         var updatedTasks: [DesktopLocalPurgeTask] = []
         for task in tasks where task.state == .pending || task.state == .claimed {
+            let candidates = localPurgeCandidates(for: task, items: items)
+            if !candidates.isEmpty {
+                try purgeLocalArtifacts(for: candidates, task: task)
+                items = try queue.sync {
+                    try loadDocumentOnQueue().items
+                }
+            }
             let verificationState = localPurgeVerificationState(for: task, items: items)
             let acknowledgement = DesktopLocalPurgeAcknowledgement(
                 verificationState: verificationState,
@@ -415,13 +422,52 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return updatedTasks
     }
 
+    private func purgeLocalArtifacts(
+        for items: [DesktopUploadQueueItem],
+        task: DesktopLocalPurgeTask
+    ) throws {
+        let now = clock()
+        for item in items {
+            try Self.deleteLocalArtifacts(for: item)
+        }
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            let ids = Set(items.map(\.id))
+            var changed = false
+            document.items = document.items.map { item in
+                guard ids.contains(item.id), Self.localArtifactsDeleted(for: item) else {
+                    return item
+                }
+                changed = true
+                return item.withTransition(
+                    to: .terminalDeleted,
+                    now: now,
+                    failureCategory: UploadFailureCategory.none,
+                    failureReason: nil,
+                    retryMode: .terminal,
+                    nextRetryAt: nil,
+                    syncConflictState: .serverMeetingDeleted,
+                    retentionDecision: RetentionDecision(
+                        decision: .terminalDeleted,
+                        decidedAt: now,
+                        reason: "local_purge_acknowledged",
+                        localArtifactsRetained: false,
+                        policyReference: "local_purge.\(task.taskType.rawValue)"
+                    )
+                )
+            }
+            if changed {
+                document.updatedAt = now
+                try saveDocumentOnQueue(document)
+            }
+        }
+    }
+
     private func localPurgeVerificationState(
         for task: DesktopLocalPurgeTask,
         items: [DesktopUploadQueueItem]
     ) -> DesktopLocalPurgeVerificationState {
-        let candidates = items.filter { item in
-            item.serverTruth.meetingId == task.meetingId || item.meetingId == task.meetingId
-        }
+        let candidates = localPurgeCandidates(for: task, items: items)
         guard !candidates.isEmpty else {
             return .unverified
         }
@@ -435,6 +481,22 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             return .cryptographicallyUnrecoverable
         }
         return .failed
+    }
+
+    private func localPurgeCandidates(
+        for task: DesktopLocalPurgeTask,
+        items: [DesktopUploadQueueItem]
+    ) -> [DesktopUploadQueueItem] {
+        items.filter { item in
+            item.serverTruth.meetingId == task.meetingId || item.meetingId == task.meetingId
+        }
+    }
+
+    private static func deleteLocalArtifacts(for item: DesktopUploadQueueItem) throws {
+        let paths = Set(localArtifactPaths(for: item).filter { !$0.isEmpty && $0 != "metadata-only" })
+        for path in paths.sorted(by: { $0.count > $1.count }) where FileManager.default.fileExists(atPath: path) {
+            try FileManager.default.removeItem(atPath: path)
+        }
     }
 
     private static func localArtifactsDeleted(for item: DesktopUploadQueueItem) -> Bool {
