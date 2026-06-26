@@ -1,0 +1,50 @@
+<main class="auth-page">
+  <section class="auth-panel" aria-label="Регистрация">
+    <div class="auth-brand-wordmark">2brain Rec</div>
+    <div>
+      <h1>Зарегистрируйтесь бесплатно</h1>
+    </div>
+    {% if error_message %}
+    <div class="auth-alert" role="alert">{{ error_message }}</div>
+    {% endif %}
+    <div class="email-mode">
+      {% if email_mode %}
+      <a class="email-mode-trigger" href="{{ signup_href }}">Продолжить другим способом</a>
+      <div class="auth-divider">или</div>
+      <form class="auth-form signup-email-form" action="/sign-up/email/start" method="post">
+        <label>
+          Рабочая почта
+          <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
+        </label>
+        <input type="hidden" name="next" value="{{ next_path }}">
+        <button class="primary" type="submit">Зарегистрироваться</button>
+      </form>
+      {% else %}
+      <div class="auth-actions">
+        {% if not workspace_configured %}
+        <div class="truth-copy">Кабинет регистрации не настроен. Проверьте серверные настройки.</div>
+        {% elif providers %}
+        {% for provider in providers %}
+        <span class="auth-provider" aria-disabled="true">
+          <span class="provider-mark">{{ provider.mark }}</span>
+          <span>{{ provider.label }}</span>
+          <span class="provider-pill">скоро</span>
+        </span>
+        {% endfor %}
+        {% else %}
+        <span class="chip disabled">OAuth позже</span>
+        {% endif %}
+      </div>
+      <a class="mini-link auth-help" href="#" aria-disabled="true">Зачем 2brain Rec доступ к календарю?</a>
+      <div class="auth-divider">или</div>
+      <a class="email-mode-trigger" href="{{ signup_email_href }}">
+        <span class="provider-mark">@</span><span>Продолжить с email</span>
+      </a>
+      {% endif %}
+    </div>
+    <div class="auth-secondary">
+      <div class="auth-signup">Уже есть аккаунт? <a href="{{ login_href }}">Войти</a></div>
+    </div>
+  </section>
+  <p class="auth-legal">Продолжая, вы соглашаетесь с <a href="#" aria-disabled="true">Условиями использования</a> и <a href="#" aria-disabled="true">Политикой конфиденциальности</a>. Код подтверждения отправляется только на указанную почту.</p>
+</main>

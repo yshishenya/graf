@@ -90,7 +90,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(query["workspace_id"], "workspace-033")
         XCTAssertEqual(
             DesktopCabinetWorkspace.recoveryTarget(for: .offline, configuration: configuration),
-            .external(configuration.baseURL)
+            nil
         )
     }
 
@@ -119,6 +119,67 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             initialRoute: nil,
             configuration: configuration
         ))
+    }
+
+    func testOfflineUnavailableWorkspaceStatesStayNativeWithoutOnlineRecoveryAction() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let unavailableStates: [DesktopCabinetState] = [
+            .notConfigured,
+            .offline,
+            .timeout,
+            .accessDenied,
+            .notFound,
+            .malformedResponse,
+            .blockedRoute
+        ]
+
+        for state in unavailableStates {
+            XCTAssertFalse(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+                for: state,
+                currentRoute: configuration.meetingsURL(),
+                initialRoute: nil,
+                configuration: configuration
+            ), "\(state)")
+            XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration), "\(state)")
+            XCTAssertNil(state.recoveryActionTitle, "\(state)")
+            XCTAssertNotEqual(
+                DesktopMeetingShellCabinetStatusPresentation.resolved(
+                    cabinetConfigured: true,
+                    cabinetState: state
+                ).menuStatusText,
+                "Кабинет доступен",
+                "\(state)"
+            )
+        }
+    }
+
+    func testExpiredSessionCanShowOnlyAuthRecoveryInsideEmbeddedSurface() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: ["X-Workspace-Id": "workspace-033"]
+        ))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .expiredSession,
+            currentRoute: login,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(for: .expiredSession, configuration: configuration),
+            .embedded(login)
+        )
+        XCTAssertNotEqual(
+            DesktopMeetingShellCabinetStatusPresentation.resolved(
+                cabinetConfigured: true,
+                cabinetState: .expiredSession
+            ).menuStatusText,
+            "Кабинет доступен"
+        )
     }
 
     func testShellInvariantKeepsStopReachableDuringActiveRecordingForEveryCabinetState() {

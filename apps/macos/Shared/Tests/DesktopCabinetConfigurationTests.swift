@@ -232,5 +232,28 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
             XCTAssertFalse(state.shouldShowEmbeddedSurface, "\(state)")
         }
     }
+
+    func testLoginRecoveryRouteIsVisibleButNeverCountsAsReadyCabinet() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        let presentation = DesktopMeetingShellCabinetStatusPresentation.resolved(
+            cabinetConfigured: true,
+            cabinetState: EmbeddedCabinetWebView.finishedState(for: .authLogin)
+        )
+
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .expiredSession,
+            currentRoute: login,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
+        XCTAssertNotEqual(presentation.menuStatusText, "Кабинет доступен")
+        XCTAssertNotEqual(presentation.systemImage, "checkmark.circle")
+    }
 }
 #endif

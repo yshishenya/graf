@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from twobrain_rec_server.api.schemas import (
@@ -31,6 +32,7 @@ from twobrain_rec_server.api.schemas import (
     TranscriptReviewState,
     TranscriptSegmentView,
 )
+from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.cabinet.web import (
     render_deletion_report_page,
     render_meeting_detail_page,
@@ -44,6 +46,20 @@ from twobrain_rec_server.domain.statuses import (
     LocalPurgeTaskState,
     LocalPurgeTaskType,
 )
+
+SERVER_ROOT = Path(__file__).resolve().parents[2] / "src" / "twobrain_rec_server"
+CABINET_CSS = SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.css"
+CABINET_JS = SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.js"
+CABINET_WEB = SERVER_ROOT / "cabinet" / "web.py"
+CABINET_AUTH_TEMPLATES = SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "auth"
+
+
+def _cabinet_css() -> str:
+    return CABINET_CSS.read_text()
+
+
+def _cabinet_js() -> str:
+    return CABINET_JS.read_text()
 
 
 def _governance() -> GovernanceActionSummary:
@@ -273,29 +289,33 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Записи встреч" in page
     assert "Новая" in page
     assert "Сначала новые" in page
-    assert "updated_desc" not in page
-    assert "max-width: min(1120px, calc(100vw - 48px))" in page
-    assert "min-height: 46px;" in page
-    assert ".meeting-title { display: block; min-width: 0;" in page
-    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto;" in page
-    assert ":focus-visible" in page
+    assert 'value="updated_desc" selected>Сначала новые</option>' in page
+    css = _cabinet_css()
+    assert "max-width: min(1120px, calc(100vw - 48px))" in css
+    assert "min-height: 46px;" in css
+    assert ".meeting-title { display: block; min-width: 0;" in css
+    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto;" in css
+    assert ":focus-visible" in css
     assert "hero" not in page.lower()
     assert 'data-selection-toolbar' in page
     assert 'data-selection-toggle' in page
+    assert 'class="cabinet-list-controls"' in page
+    assert 'method="get"' in page
+    assert 'data-hx-target="#meeting-list-region"' in page
+    assert 'data-hx-select="#meeting-list-region"' in page
     assert 'data-clear-selection' not in page
     assert 'data-list-title' in page
     assert "Выбрано 0 / 1" in page
     assert "Выбрать все видимые записи" in page
-    assert "Снять выбор" in page
     assert "Скачивание появится позже" in page
     assert 'data-tooltip="Скачивание появится позже"' in page
     assert "disabled aria-disabled=\"true\" data-download-disabled" in page
     assert 'data-icon="check"' in page
-    assert "min-height: 22px;" in page
-    assert "flex: 0 0 22px;" in page
-    assert "padding: 0;" in page
-    assert "width: 12px;" in page
-    assert "stroke-width: 2;" in page
+    assert "min-height: 22px;" in css
+    assert "flex: 0 0 22px;" in css
+    assert "padding: 0;" in css
+    assert "width: 12px;" in css
+    assert "stroke-width: 2;" in css
     assert 'data-icon="audio"' in page
     assert 'data-icon="bookmark"' in page
     assert 'data-icon="download"' in page
@@ -304,6 +324,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-icon="trash"' in page
     assert 'data-meeting-select' in page
     assert 'data-row-delete' in page
+    assert 'data-row-delete-form' in page
+    assert 'data-hx-post="/meetings/' in page
+    assert 'name="confirmation_boundary"' in page
+    assert 'id="delete-feedback-region"' in page
     assert 'data-delete-dialog' in page
     assert "Удалить запись?" in page
     assert "Удалить записи?" in page
@@ -316,8 +340,70 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "↕" not in page
     assert "⇩" not in page
     assert "⌫" not in page
-    assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in page
-    assert "const shouldSelectAll = selectedRows().length !== rows.length" in page
+    script = _cabinet_js()
+    assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in script
+    assert "Снять выбор" in script
+    assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
+
+
+def test_web_shell_uses_base_template_and_static_assets() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in page
+    assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in page
+    assert f'src="{CABINET_STATIC_URL}/cabinet.js"' in page
+    assert '<body data-surface-mode="standalone_browser">' in page
+    assert 'data-icon="audio"' in page
+    assert 'fill="none" stroke="currentColor" stroke-width="2"' in page
+    assert "<style>" not in page
+    assert "max-width: min(1120px, calc(100vw - 48px))" not in page
+    assert ".meeting-row.cabinet-row" not in page
+
+
+def test_legacy_render_helpers_keep_full_page_contract_after_template_refactor() -> None:
+    list_page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+    detail_page = render_meeting_detail_page(_review())
+    deletion_page = render_deletion_report_page("Синтетическая встреча", _deletion_report())
+
+    for page in (list_page, detail_page, deletion_page):
+        assert "<!doctype html>" in page
+        assert '<html lang="ru">' in page
+        assert '<body data-surface-mode="standalone_browser">' in page
+        assert 'class="app-shell" data-cabinet-shell' in page
+        assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in page
+        assert f'src="{CABINET_STATIC_URL}/cabinet.js"' in page
+
+
+def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
+    list_page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        embedded=True,
+    )
+    detail_page = render_meeting_detail_page(_review(), embedded=True)
+
+    for page in (list_page, detail_page):
+        assert "<!doctype html>" in page
+        assert 'class="app-shell desktop-embedded"' in page
+        assert '<body data-surface-mode="desktop_embedded">' in page
+
+    assert "Record live" not in list_page + detail_page
+    assert "Screen Recording" not in list_page + detail_page
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
@@ -384,6 +470,26 @@ def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
     assert "signed_url" not in page
 
 
+def test_list_delete_script_json_encodes_bounded_copy(monkeypatch) -> None:
+    monkeypatch.setattr("twobrain_rec_server.cabinet.web.BOUNDED_DELETE_COPY", 'Delete "quoted"\ncopy')
+
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+    script = _cabinet_js()
+
+    assert 'name="confirmation_boundary"' in page
+    assert "Delete &quot;quoted&quot;" in page
+    assert 'confirmation_boundary: "Delete' not in script
+    assert "new FormData(form)" in script
+    assert "fetch(" not in script
+    assert 'window.htmx.ajax("POST"' in script
+
+
 def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     page = render_meeting_detail_page(_review())
 
@@ -394,7 +500,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
     assert 'data-detail-panel="outcomes" hidden' in page
     assert 'data-detail-panel="recording"' in page
-    assert "const activate = (name)" in page
+    assert "const activateDetailTab = (name)" in _cabinet_js()
     assert "Транскрипт готовится" in page
     assert "Видимость для команды" in page
     assert "Публичные ссылки" in page
@@ -466,8 +572,30 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert 'data-seek-seconds="0.0"' in page
     assert 'data-seek-seconds="12.5"' in page
     assert 'class="timestamp timestamp-seek"' in page
-    assert "currentTime = seekSeconds" in page
-    assert "syncTime();" in page
+    script = _cabinet_js()
+    assert "currentTime = seekSeconds" in script
+    assert "syncTime();" in script
+
+
+def test_cabinet_web_py_no_longer_owns_inline_page_scripts() -> None:
+    source = CABINET_WEB.read_text()
+
+    assert "<script" not in source
+    assert "_meeting_list_script" not in source
+    assert "_detail_tabs_script" not in source
+    assert "_playback_script" not in source
+    assert "_render_code_entry_script" not in source
+    assert "_render_auth_transition_script" not in source
+
+
+def test_auth_page_composition_lives_in_templates() -> None:
+    source = CABINET_WEB.read_text()
+
+    assert 'class="auth-page"' not in source
+    assert 'class="auth-panel"' not in source
+    assert (CABINET_AUTH_TEMPLATES / "login.html").exists()
+    assert (CABINET_AUTH_TEMPLATES / "signup.html").exists()
+    assert (CABINET_AUTH_TEMPLATES / "email_code.html").exists()
 
 
 def test_detail_shell_renders_speaker_timeline_segments() -> None:
@@ -512,8 +640,9 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert page.count("data-lane-segment") == 2
     assert 'title="Спикер 1 00:00-00:12"' in page
     assert 'aria-label="Спикер 2 00:30-01:30"' in page
-    assert ".timeline-lane:nth-child(6n+1) .timeline-segment" in page
-    assert ".timeline-lane:nth-child(6n+6) .timeline-segment" in page
+    css = _cabinet_css()
+    assert ".timeline-lane:nth-child(6n+1) .timeline-segment" in css
+    assert ".timeline-lane:nth-child(6n+6) .timeline-segment" in css
     assert "left:0.00%" in page
     assert "width:10.00%" in page
     assert "left:25.00%" in page
@@ -626,8 +755,9 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
     assert "Синтетический длинный итог встречи" in page
     assert "Источник: 00:12" in page
     assert "Ключевое" in page
-    assert ".notes-outcome-row .outcome-item" in page
-    assert "grid-column: 1 / -1" in page
+    css = _cabinet_css()
+    assert ".notes-outcome-row .outcome-item" in css
+    assert "grid-column: 1 / -1" in css
     assert 'class="playback-bar detail-playback"' in page
 
 
@@ -709,10 +839,11 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert page.count("data-lane-segment") == 1
     assert 'data-outcome-source-basis="stored_output"' in page
     assert page.count("data-outcome-category=") == 8
-    assert "@media (max-width: 980px)" in page
-    assert "@media (max-width: 540px)" in page
-    assert ".detail-page-main { padding-bottom: 172px; }" in page
-    assert ".timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }" in page
+    css = _cabinet_css()
+    assert "@media (max-width: 980px)" in css
+    assert "@media (max-width: 540px)" in css
+    assert ".detail-page-main { padding-bottom: 172px; }" in css
+    assert ".timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }" in css
 
 
 def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separate() -> None:
@@ -771,7 +902,7 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
     assert 'data-speaker-timeline' in page
     assert 'data-outcome-source-basis="stored_output"' in page
     assert "60%" in page
-    assert "window.location.hash === \"#outcomes\"" in page
+    assert 'window.location.hash === "#outcomes"' in _cabinet_js()
     assert page.count("data-outcome-category=") == 8
 
 
@@ -838,7 +969,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page
     assert 'data-seek-seconds="12.5"' in page
-    assert "currentTime = seekSeconds" in page
+    assert "currentTime = seekSeconds" in _cabinet_js()
 
 
 def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:

@@ -6,6 +6,7 @@ from tests.fixtures.cabinet import (
     create_summary_reported_meeting,
     seed_cabinet_meetings,
 )
+from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 
 
 def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance(client) -> None:
@@ -120,6 +121,11 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     processing = client.get(f"/meetings/{seeds.processing_id}", headers=auth_headers())
 
     assert ready.status_code == 200
+    assert 'data-cabinet-shell' in ready.text
+    assert 'data-cabinet-navigation' in ready.text
+    assert 'data-active-nav="meetings"' in ready.text
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in ready.text
+    assert "<style>" not in ready.text
     assert "Итоги" in ready.text
     assert "Запись и расшифровка" in ready.text
     assert SAFE_TRANSCRIPT_TEXT in ready.text
@@ -145,6 +151,18 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
 
 
+def test_cabinet_detail_full_page_fallback_without_hx_header(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    response = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert "<!doctype html>" in response.text
+    assert 'data-cabinet-shell' in response.text
+    assert 'data-cabinet-fragment="meeting-detail"' not in response.text
+    assert response.headers.get("Vary") != "HX-Request"
+
+
 def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_native_capture_copy(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
@@ -152,6 +170,9 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
+    assert 'data-cabinet-shell' in response.text
+    assert 'data-cabinet-navigation' in response.text
+    assert 'data-active-nav="meetings"' in response.text
     assert "Расшифровка" in response.text
     assert "Recording &amp; Transcript" not in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text
@@ -170,6 +191,7 @@ def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) 
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
+    assert 'data-cabinet-navigation' in response.text
     assert 'class="playback-bar detail-playback"' in response.text
     assert 'data-playback-shell' in response.text
     assert 'data-playback-toggle' in response.text

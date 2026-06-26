@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.ingest import get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AccessState,
@@ -28,10 +29,12 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import (
     AUTH_SESSION_COOKIE_NAME,
     get_principal,
     get_web_owner_tenant_scope,
+    require_web_csrf,
 )
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry
@@ -40,7 +43,15 @@ from twobrain_rec_server.auth.sessions import (
     hash_token,
     issue_auth_session,
 )
+from twobrain_rec_server.cabinet import view_models as cabinet_view_models
+from twobrain_rec_server.cabinet.access import decide_meeting_access
 from twobrain_rec_server.cabinet.queries import get_cabinet_meeting_review, list_cabinet_meetings
+from twobrain_rec_server.cabinet.templates import (
+    cabinet_html_response,
+    render_icon,
+    render_template,
+    trusted_component_html,
+)
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
@@ -59,12 +70,14 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_scope,
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
-from twobrain_rec_server.deletion.service import deletion_report_response
+from twobrain_rec_server.deletion.service import deletion_report_response, request_meeting_deletion
 
 router = APIRouter(tags=["cabinet-web"])
 
 WebTenantDependency = Depends(get_web_owner_tenant_scope)
 PrincipalDependency = Depends(get_principal)
+WebCSRFDependency = Depends(require_web_csrf)
+StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
 CabinetStatusQuery = Query(default=None)
 CabinetAccessQuery = Query(default=None)
@@ -81,6 +94,10 @@ LoginWorkspaceForm = Form(default=None)
 LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
 EMAIL_LOGIN_PROVIDER = "email"
 EMAIL_SIGNUP_PROVIDER = "email_signup"
+
+
+def _is_hx_request(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
 
 
 @router.get("/favicon.ico", include_in_schema=False)
@@ -117,872 +134,6 @@ async def get_web_login_db_session(request: Request):
 
 LoginDbDependency = Depends(get_web_login_db_session)
 
-CSS = """
-:root {
-  color-scheme: dark;
-  --bg: #191a1c;
-  --panel: #202224;
-  --surface: #242629;
-  --surface-2: #26282c;
-  --surface-3: #2f3237;
-  --line: #30343a;
-  --line-soft: rgba(255,255,255,.07);
-  --text: #e8eaee;
-  --muted: #a8adb5;
-  --subtle: #7c828b;
-  --accent: #8c73ff;
-  --blue: #2f91ff;
-  --green: #2fc9a6;
-  --amber: #f0a742;
-  --red: #ff6b6b;
-  --pink: #d96aa6;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, ui-sans-serif, sans-serif;
-}
-* { box-sizing: border-box; }
-html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden; }
-body { font-size: 13px; line-height: 1.38; letter-spacing: 0; font-weight: 500; -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
-body.auth-leaving .auth-panel {
-  opacity: 0;
-  transform: translateY(-4px) scale(.992);
-  filter: blur(1px);
-}
-body.auth-leaving .auth-page::before { opacity: .35; }
-a { color: inherit; text-decoration: none; }
-a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, .button:focus-visible {
-  outline: 2px solid #b6aaff;
-  outline-offset: 2px;
-}
-button, .button, input, select {
-  font: inherit;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  color: var(--text);
-  border-radius: 7px;
-  min-height: 32px;
-}
-button, .button {
-  min-width: 0;
-  max-width: 100%;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-button[disabled], .is-disabled { color: var(--muted); cursor: not-allowed; opacity: .72; }
-input, select { padding: 0 10px; width: 100%; min-width: 0; }
-.primary { background: var(--blue); border-color: var(--blue); color: white; font-weight: 700; }
-.quiet { background: transparent; }
-.app-shell { min-height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); }
-.app-shell.desktop-embedded { grid-template-columns: minmax(0, 1fr); }
-.sidebar {
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  padding: 12px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.brand { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; align-items: center; }
-.workspace { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: center; }
-.brand-mark, .avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-}
-.brand-mark { background: #7a2b82; color: white; }
-.avatar { background: #f0f2f5; color: #24272b; width: 28px; height: 28px; border-radius: 7px; }
-.workspace-title { font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-subtitle, .muted { color: var(--muted); font-size: 12px; }
-.nav { display: grid; gap: 4px; }
-.nav a {
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 7px;
-  padding: 0 9px;
-  color: #d6dae1;
-}
-.nav a.active, .nav a:hover { background: var(--surface-3); }
-.nav-count { margin-left: auto; min-width: 20px; min-height: 20px; border-radius: 999px; background: #71347e; display: grid; place-items: center; font-size: 12px; }
-.sidebar-foot { margin-top: auto; display: grid; gap: 8px; }
-.trial { background: #3b3270; border-radius: 7px; padding: 9px 10px; font-weight: 700; }
-.main { min-width: 0; padding: 28px clamp(24px, 7vw, 118px) 92px; }
-.detail-page-main { padding-bottom: 192px; }
-.desktop-embedded .main { padding: 22px clamp(18px, 4vw, 64px) 28px; }
-.desktop-embedded .detail-page-main { padding-bottom: 192px; }
-.topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
-.page-title { display: grid; gap: 2px; min-width: 0; }
-h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weight: 700; }
-.page-subtitle { color: var(--muted); font-weight: 600; }
-.crumbs { display: flex; gap: 9px; align-items: center; min-width: 0; color: var(--muted); flex-wrap: wrap; }
-.crumbs strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(62vw, 760px); }
-.action-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-.metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0 20px; max-width: 980px; }
-.metric {
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: var(--surface);
-  min-height: 86px;
-  padding: 14px;
-  display: grid;
-  gap: 4px;
-}
-.metric strong { font-size: 22px; }
-.metric span { color: var(--muted); }
-.toolbar {
-  max-width: 980px;
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 132px 132px 132px auto;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.section-title { margin: 22px 0 10px; color: #c6cad1; font-size: 12px; font-weight: 700; }
-.upcoming {
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: grid;
-  gap: 10px;
-  border: 1px solid var(--line-soft);
-  max-width: 980px;
-}
-.calendar-row { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; align-items: center; }
-.date-badge { width: 36px; min-height: 38px; border: 1px solid var(--line); border-radius: 7px; display: grid; place-items: center; font-size: 11px; color: #dfe3ea; }
-.list-card { max-width: 980px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #1d1f21; }
-.meeting-row {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) minmax(128px, auto) minmax(112px, auto);
-  gap: 12px;
-  align-items: center;
-  min-height: 58px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
-}
-.meeting-row:last-child { border-bottom: 0; }
-.meeting-row:hover { background: #282c31; }
-.row-icon { color: var(--muted); font-size: 16px; }
-.row-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.row-meta { color: var(--muted); font-size: 12px; display: flex; gap: 9px; flex-wrap: wrap; }
-.row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
-.chip {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  min-height: 24px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  color: #d9dde4;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.chip.ready, .chip.owner, .chip.team, .chip.shared, .chip.available, .chip.completed { color: var(--green); border-color: rgba(47,201,166,.48); background: rgba(47,201,166,.08); }
-.chip.processing, .chip.submitted, .chip.uploading, .chip.partial, .chip.requested { color: var(--accent); border-color: rgba(125,107,255,.48); background: rgba(125,107,255,.08); }
-.chip.local_only, .chip.deferred, .chip.unavailable, .chip.disabled, .chip.missing, .chip.deleted_future { color: var(--subtle); }
-.chip.failed, .chip.blocked, .chip.denied, .chip.policy_blocked, .chip.owner_only, .chip.audit_unavailable { color: var(--red); border-color: rgba(255,107,107,.48); background: rgba(255,107,107,.08); }
-.chip.warning { color: var(--amber); border-color: rgba(240,167,66,.5); background: rgba(240,167,66,.08); }
-.icon-button { width: 30px; height: 30px; border-radius: 7px; padding: 0; color: var(--muted); }
-.detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 18px; align-items: start; }
-.detail-main { min-width: 0; display: grid; gap: 16px; }
-.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.tab {
-  appearance: none;
-  min-height: 38px;
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
-  font-weight: 750;
-  padding: 0;
-  cursor: pointer;
-}
-.tab.active { color: #dcd7ff; border-color: var(--accent); }
-.tab-panel[hidden] { display: none; }
-.panel {
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: var(--surface);
-  padding: 16px;
-  min-width: 0;
-}
-.panel h2, .panel h3, .right-panel h3 { margin: 0; font-size: 15px; letter-spacing: 0; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.revision-status { display: grid; gap: 6px; border-bottom: 1px solid var(--line-soft); padding-bottom: 12px; }
-.revision-status .row-meta { gap: 6px; }
-.notes-outcomes { display: grid; gap: 8px; }
-.notes-outcome-row { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
-.notes-outcome-row:last-child { border-bottom: 0; }
-.notes-outcome-row .outcome-item { grid-column: 1 / -1; display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
-.transcript { display: grid; gap: 14px; }
-.segment { display: grid; grid-template-columns: 76px 112px minmax(0, 1fr); gap: 12px; min-width: 0; }
-.timestamp { color: var(--accent); font-size: 12px; font-weight: 750; }
-.timestamp-seek { appearance: none; border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; }
-.timestamp-seek:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
-.speaker { display: flex; align-items: center; gap: 7px; font-weight: 750; font-size: 12px; color: #d5d8de; min-width: 0; }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
-.text { color: #e6e8ec; overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
-.empty-state {
-  min-height: 260px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  color: var(--muted);
-  padding: 24px;
-}
-.empty-state strong { display: block; color: var(--text); margin-bottom: 6px; }
-.right-panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  display: grid;
-  gap: 14px;
-  position: sticky;
-  top: 24px;
-  min-width: 0;
-}
-.speaker-lane { display: grid; gap: 7px; }
-.lane-track { height: 8px; background: #343941; border-radius: 999px; overflow: hidden; }
-.lane-fill { height: 100%; background: var(--accent); border-radius: inherit; }
-.governance { display: grid; gap: 8px; }
-.governance button { justify-content: flex-start; width: 100%; }
-.state-list { display: grid; gap: 7px; }
-.state-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; min-width: 0; }
-.state-row strong, .state-row span { min-width: 0; overflow-wrap: anywhere; }
-.mini-link { color: #dcd7ff; font-weight: 750; font-size: 12px; }
-.activity-list { display: grid; gap: 8px; }
-.activity-item { border-top: 1px solid var(--line-soft); padding-top: 8px; display: grid; gap: 2px; }
-.truth-copy { color: var(--muted); font-size: 12px; line-height: 1.35; }
-.delete-confirmation { border: 1px solid rgba(255,107,107,.35); border-radius: 8px; padding: 12px; display: grid; gap: 10px; background: rgba(255,107,107,.05); }
-.delete-confirmation strong { color: #ffd6d6; }
-.report-layout { max-width: 980px; display: grid; gap: 18px; padding-bottom: 96px; }
-.report-band { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 16px; display: grid; gap: 12px; }
-.report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.playback-bar {
-  position: fixed;
-  left: 184px;
-  right: 0;
-  bottom: 0;
-  min-height: 132px;
-  border-top: 1px solid var(--line);
-  background: rgba(33,36,40,.98);
-  box-shadow: 0 -18px 44px rgba(0,0,0,.28);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  padding: 14px clamp(18px, 4vw, 56px) 12px;
-  color: var(--muted);
-  z-index: 30;
-}
-.desktop-embedded .playback-bar { left: 0; }
-.playback-bar.is-unavailable {
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.playback-audio { display: none; }
-.playback-controls {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 10px;
-}
-.playback-round {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  padding: 0;
-  background: #2d3035;
-  border-color: #3b4047;
-  color: #eef0f4;
-  font-weight: 850;
-}
-.playback-round.primary-play {
-  width: 42px;
-  height: 42px;
-  background: #f1f3f6;
-  border-color: #f1f3f6;
-  color: #1e2125;
-}
-.playback-speed {
-  min-width: 46px;
-  border: 0;
-  background: transparent;
-  color: #e5e7eb;
-  font-weight: 800;
-}
-.playback-progress-row {
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) 54px;
-  gap: 10px;
-  align-items: center;
-}
-.playback-time {
-  color: #c7cbd2;
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-}
-.playback-time:last-child { text-align: right; }
-.playback-progress {
-  width: 100%;
-  accent-color: var(--accent);
-}
-.speaker-timeline {
-  display: grid;
-  gap: 7px;
-}
-.timeline-lane {
-  display: grid;
-  grid-template-columns: 86px minmax(0, 1fr) 42px;
-  gap: 10px;
-  align-items: center;
-}
-.timeline-label {
-  color: #d9dde4;
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.timeline-track {
-  position: relative;
-  height: 8px;
-  border-radius: 999px;
-  background: #353940;
-  overflow: hidden;
-}
-.timeline-segment {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  min-width: 2px;
-  border-radius: 999px;
-  background: var(--accent);
-}
-.timeline-lane:nth-child(6n+1) .timeline-segment { background: #ffd24a; }
-.timeline-lane:nth-child(6n+2) .timeline-segment { background: #ff6b6b; }
-.timeline-lane:nth-child(6n+3) .timeline-segment { background: #2fc9c0; }
-.timeline-lane:nth-child(6n+4) .timeline-segment { background: #7a65ff; }
-.timeline-lane:nth-child(6n+5) .timeline-segment { background: #aaa49a; }
-.timeline-lane:nth-child(6n+6) .timeline-segment { background: #d96aa6; }
-.timeline-share {
-  text-align: right;
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.auth-page {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  position: relative;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 76% 4%, rgba(105,78,255,.27), transparent 27%),
-    linear-gradient(120deg, #181a1d 0%, #17191c 46%, #211d38 100%);
-}
-.auth-page::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(112deg, rgba(255,255,255,.035) 0 1px, transparent 1px 45%),
-    linear-gradient(292deg, rgba(255,255,255,.025) 0 1px, transparent 1px 45%);
-  opacity: .55;
-  pointer-events: none;
-}
-.auth-panel {
-  width: min(376px, 100%);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(35,37,40,.96);
-  padding: 24px;
-  display: grid;
-  gap: 18px;
-  box-shadow: 0 22px 52px rgba(0,0,0,.42);
-  position: relative;
-  z-index: 1;
-  animation: rec-panel-in .24s cubic-bezier(.2,.8,.2,1) both;
-  transition:
-    opacity .16s cubic-bezier(.2,.8,.2,1),
-    transform .16s cubic-bezier(.2,.8,.2,1),
-    filter .16s cubic-bezier(.2,.8,.2,1);
-}
-.auth-panel h1 { font-size: 20px; text-align: center; }
-.auth-brand-wordmark { text-align: center; font-size: 25px; line-height: 1; font-weight: 850; }
-.auth-subtitle { color: var(--muted); font-size: 12px; line-height: 1.35; text-align: center; }
-.auth-actions { display: grid; gap: 8px; }
-.auth-actions > *, .email-mode > *, .auth-form > * {
-  animation: rec-item-in .22s cubic-bezier(.2,.8,.2,1) both;
-}
-.auth-actions > *:nth-child(2), .email-mode > *:nth-child(2), .auth-form > *:nth-child(2) { animation-delay: .025s; }
-.auth-actions > *:nth-child(3), .email-mode > *:nth-child(3), .auth-form > *:nth-child(3) { animation-delay: .05s; }
-.auth-actions > *:nth-child(4), .email-mode > *:nth-child(4), .auth-form > *:nth-child(4) { animation-delay: .075s; }
-.auth-provider {
-  min-height: 32px;
-  border: 1px solid #4a4e57;
-  border-radius: 7px;
-  background: #24272b;
-  color: #eef0f4;
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  font-weight: 750;
-  font-size: 13px;
-}
-.auth-provider:hover { border-color: #6860a8; background: #2a2d33; }
-.auth-provider[aria-disabled="true"] { color: var(--muted); pointer-events: none; }
-.provider-mark { color: #f7f8fb; font-weight: 850; text-align: center; }
-.provider-pill {
-  min-height: 18px;
-  border-radius: 999px;
-  padding: 0 6px;
-  background: #745df3;
-  color: #f7f5ff;
-  display: inline-flex;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 800;
-}
-.auth-divider {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 11px;
-  color: var(--subtle);
-  font-size: 12px;
-}
-.auth-divider::before, .auth-divider::after { content: ""; height: 1px; background: var(--line); }
-.auth-form { display: grid; gap: 10px; }
-.auth-form label { display: grid; gap: 7px; color: #c5c9d0; font-size: 12px; font-weight: 750; }
-.auth-form input { min-height: 34px; border-color: #555a64; background: #26292e; }
-.auth-form .primary {
-  min-height: 34px;
-  background: #7057ff;
-  border-color: #7057ff;
-}
-.auth-form .primary:hover { background: #7c66ff; border-color: #7c66ff; }
-.auth-secondary {
-  text-align: center;
-  display: grid;
-  gap: 18px;
-  color: #d7d9df;
-}
-.auth-signup { color: #d7d9df; font-size: 13px; }
-.auth-signup a, .auth-legal a { color: #c9c1ff; font-weight: 750; }
-.auth-legal {
-  position: absolute;
-  z-index: 1;
-  left: 24px;
-  right: 24px;
-  bottom: 24px;
-  max-width: 540px;
-  margin: 0 auto;
-  text-align: center;
-  color: #a4a9b2;
-  font-size: 11px;
-  line-height: 1.45;
-}
-.auth-alert { border: 1px solid rgba(255,107,107,.35); border-radius: 8px; padding: 10px 12px; background: rgba(255,107,107,.07); color: #ffd6d6; font-size: 12px; font-weight: 750; }
-.code-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  margin: 12px 0 8px;
-}
-.code-slot {
-  height: 46px;
-  padding: 0;
-  text-align: center;
-  font-size: 22px;
-  font-weight: 800;
-  border-radius: 7px;
-  border-color: #3f444d;
-  background: #1d2024;
-  caret-color: #a89cff;
-}
-.code-slot:focus {
-  border-color: #765fff;
-  box-shadow: 0 0 0 1px #765fff;
-}
-.code-hint { text-align: center; color: var(--muted); font-size: 11px; font-weight: 650; }
-.auth-resend {
-  border: 0;
-  background: transparent;
-  color: #c5bbff;
-  justify-self: center;
-  min-height: 32px;
-  padding: 0;
-  font-weight: 800;
-}
-.auth-resend:hover { color: #ded8ff; }
-.email-mode {
-  display: grid;
-  gap: 14px;
-}
-.email-mode-trigger {
-  min-height: 34px;
-  border-radius: 7px;
-  border: 1px solid #4a4e57;
-  background: #24272b;
-  color: #eef0f4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-weight: 800;
-}
-.email-mode-trigger:hover { color: #fff; background: #2a2d33; border-color: #6860a8; }
-.signup-email-form { display: grid; gap: 12px; }
-.auth-help { text-align: center; color: #a9abb4; text-decoration: underline; text-underline-offset: 2px; }
-.cabinet-main {
-  min-height: 100vh;
-  background: var(--bg);
-  padding: 34px clamp(24px, 5vw, 96px) 92px;
-}
-.desktop-embedded .cabinet-main {
-  min-height: 100vh;
-  padding: 24px clamp(18px, 4vw, 64px) 80px;
-}
-.cabinet-workspace { width: 100%; max-width: 1120px; }
-.desktop-embedded .cabinet-workspace { width: 100%; max-width: min(1120px, calc(100vw - 48px)); margin: 0 auto; }
-.cabinet-topbar {
-  min-height: 30px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-.cabinet-titleline { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--muted); font-weight: 500; }
-.cabinet-titleline strong { color: var(--text); font-weight: 700; }
-.cabinet-card {
-  background: var(--surface);
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  animation: rec-item-in .22s cubic-bezier(.2,.8,.2,1) both;
-}
-.upcoming.cabinet-card {
-  max-width: none;
-  padding: 12px 14px;
-  gap: 9px;
-}
-.cabinet-card .section-title { margin: 0 0 4px; }
-.calendar-day {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 11px;
-  align-items: start;
-}
-.calendar-events { display: grid; gap: 8px; }
-.calendar-event { border-left: 3px solid #9cd9ff; padding-left: 10px; min-height: 28px; }
-.calendar-event strong, .meeting-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
-.meeting-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-  margin: 18px 0 8px;
-  min-height: 28px;
-}
-.meeting-toolbar .section-title { margin: 0; }
-.selection-toolbar {
-  display: flex;
-  justify-content: flex-start;
-  gap: 10px;
-  align-items: center;
-}
-.selection-toolbar[hidden] { display: none; }
-.selection-toggle {
-  width: 22px;
-  height: 22px;
-  min-height: 22px;
-  flex: 0 0 22px;
-  box-sizing: border-box;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: var(--accent);
-  color: #17191c;
-  display: inline-grid;
-  line-height: 0;
-  place-items: center;
-}
-.selection-toggle .ui-icon { width: 12px; height: 12px; }
-.selection-toolbar[data-selection-state="partial"] [data-icon="check"] { display: none; }
-.selection-toolbar[data-selection-state="all"] [data-icon="minus"] { display: none; }
-.selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; }
-.selection-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
-.selection-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
-.danger-button { color: #ffd6d6; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
-.toolbar-icons { display: flex; align-items: center; gap: 8px; }
-.icon-control {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #b5bac3;
-  display: inline-grid;
-  place-items: center;
-}
-.icon-control:hover { background: #2d3034; }
-.icon-control:disabled, .icon-control.is-disabled {
-  color: #8f949d;
-  cursor: not-allowed;
-}
-.icon-control:disabled:hover { background: transparent; }
-.ui-icon {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.tooltip-wrap {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-}
-.tooltip-wrap:hover::after, .tooltip-wrap:focus-visible::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 50%;
-  top: calc(100% + 8px);
-  z-index: 20;
-  width: max-content;
-  max-width: 220px;
-  transform: translateX(-50%);
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #24272a;
-  color: var(--text);
-  box-shadow: 0 12px 28px rgba(0,0,0,.32);
-  font-size: 12px;
-  white-space: normal;
-}
-.new-button {
-  min-height: 28px;
-  min-width: 54px;
-  padding: 0 12px;
-  border-radius: 7px;
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
-}
-.list-card.cabinet-card {
-  max-width: none;
-  min-height: 210px;
-  background: #1d1f21;
-  border-color: var(--line);
-}
-.meeting-row {
-  color: #dfe2e8;
-}
-.meeting-row.cabinet-row {
-  grid-template-columns: 24px 20px minmax(0, 1fr) 32px 64px;
-  min-height: 46px;
-  padding: 4px 12px;
-  gap: 8px;
-}
-.meeting-row.cabinet-row:hover { background: #2c2f33; }
-.meeting-row.is-selected { background: #302860; }
-.meeting-row .row-check {
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  min-height: 16px;
-  padding: 0;
-  border: 1px solid #686e78;
-  border-radius: 4px;
-  background: transparent;
-}
-.meeting-row .row-check:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.meeting-row .row-check:checked::after {
-  content: "✓";
-  display: grid;
-  place-items: center;
-  color: #17191c;
-  font-size: 12px;
-  font-weight: 900;
-}
-.row-icon { display: grid; place-items: center; width: 22px; height: 22px; color: #a7adb7; font-size: 13px; }
-.row-icon .ui-icon { width: 12px; height: 12px; }
-.meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
-.row-delete {
-  width: 24px;
-  height: 24px;
-  font-size: 11px;
-  border-color: transparent;
-  background: transparent;
-  color: #ffc7c7;
-  opacity: 0;
-  display: inline-grid;
-  place-items: center;
-}
-.meeting-row:hover .row-delete, .meeting-row:focus-within .row-delete {
-  opacity: 1;
-}
-.delete-dialog {
-  width: min(440px, calc(100vw - 36px));
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  padding: 22px;
-  box-shadow: 0 24px 70px rgba(0,0,0,.5);
-}
-.delete-dialog::backdrop { background: rgba(0,0,0,.62); }
-.delete-dialog h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.2; }
-.delete-dialog p { margin: 0 0 12px; color: #eef0f4; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
-.dialog-error { color: #ffd6d6; font-size: 12px; margin-top: 12px; }
-.dialog-error[hidden] { display: none; }
-.floating-search {
-  position: fixed;
-  left: 50%;
-  bottom: 16px;
-  width: min(430px, calc(100vw - 320px));
-  transform: translateX(-50%);
-  min-height: 40px;
-  border: 1px solid #42464e;
-  background: var(--surface);
-  color: #aeb4be;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  padding: 0 18px;
-  box-shadow: 0 12px 34px rgba(0,0,0,.26);
-  font-size: 13px;
-}
-.desktop-embedded .floating-search {
-  left: 50%;
-  right: auto;
-  bottom: 16px;
-  width: min(366px, calc(100vw - 48px));
-  transform: translateX(-50%);
-}
-.desktop-embedded .empty-state { min-height: 210px; }
-.desktop-embedded .meeting-row:hover { transform: none; }
-.auth-provider, .email-mode-trigger, .code-slot, .meeting-row, .icon-control, .new-button {
-  transition:
-    background-color .16s cubic-bezier(.2,.8,.2,1),
-    border-color .16s cubic-bezier(.2,.8,.2,1),
-    color .16s cubic-bezier(.2,.8,.2,1),
-    transform .16s cubic-bezier(.2,.8,.2,1),
-    opacity .16s cubic-bezier(.2,.8,.2,1);
-}
-.auth-provider:active, .email-mode-trigger:active, .new-button:active { transform: translateY(1px) scale(.995); }
-.meeting-row:hover { transform: translateX(2px); }
-.code-slot { animation: rec-slot-in .18s cubic-bezier(.2,.8,.2,1) both; }
-.code-slot:nth-child(2) { animation-delay: .02s; }
-.code-slot:nth-child(3) { animation-delay: .04s; }
-.code-slot:nth-child(4) { animation-delay: .06s; }
-.code-slot:nth-child(5) { animation-delay: .08s; }
-.code-slot:nth-child(6) { animation-delay: .1s; }
-@keyframes rec-panel-in {
-  from { opacity: 0; transform: translateY(10px) scale(.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes rec-item-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes rec-slot-in {
-  from { opacity: 0; transform: translateY(5px) scale(.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes rec-fade-in {
-  from { opacity: 0; filter: blur(2px); }
-  to { opacity: 1; filter: blur(0); }
-}
-@keyframes rec-fade-out {
-  from { opacity: 1; filter: blur(0); }
-  to { opacity: 0; filter: blur(1px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: .001ms !important;
-  }
-}
-@media (max-width: 980px) {
-  .app-shell { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .main { width: 100%; max-width: 100vw; overflow-x: hidden; padding: 18px; }
-  .detail-page-main { padding-bottom: 172px; }
-  .cabinet-main { padding: 18px 14px 172px; }
-  .cabinet-workspace { max-width: none; }
-  .topline { flex-direction: column; align-items: stretch; }
-  .action-row { justify-content: flex-start; }
-  .metric-grid { grid-template-columns: 1fr; }
-  .toolbar { grid-template-columns: 1fr 1fr; }
-  .toolbar button { grid-column: span 2; }
-  .detail-layout { grid-template-columns: 1fr; }
-  .right-panel { position: static; }
-  .meeting-row { grid-template-columns: 24px minmax(0, 1fr); padding: 12px; }
-  .meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto; min-height: 48px; }
-  .meeting-row.cabinet-row .meeting-date { grid-column: 5; }
-  .meeting-row.cabinet-row .row-delete { grid-column: 4; opacity: 1; }
-  .meeting-toolbar { align-items: flex-start; flex-wrap: wrap; }
-  .selection-actions { justify-content: flex-start; }
-  .meeting-row > .state-list, .meeting-row > .row-actions { grid-column: 2; justify-self: start; }
-  .segment { display: block; }
-  .segment .speaker, .segment .text { margin-top: 6px; }
-  .report-grid { grid-template-columns: 1fr; }
-  .playback-bar {
-    left: 0;
-    min-height: 118px;
-    gap: 6px;
-    padding: 10px 14px 9px;
-    background: #212428;
-  }
-  .playback-controls { gap: 8px; }
-  .playback-round { width: 30px; height: 30px; font-size: 12px; }
-  .playback-round.primary-play { width: 38px; height: 38px; }
-  .playback-speed { min-width: 38px; font-size: 12px; }
-  .playback-progress-row { grid-template-columns: 48px minmax(0, 1fr) 48px; gap: 8px; }
-  .speaker-timeline { gap: 5px; }
-  .timeline-lane { grid-template-columns: 72px minmax(0, 1fr) 38px; }
-  .timeline-label, .timeline-share { font-size: 11px; }
-  .timeline-track { height: 7px; }
-  .floating-search { left: 14px; right: 14px; width: auto; transform: none; }
-  .auth-legal { position: relative; inset: auto; margin-top: -8px; }
-}
-@media (max-width: 540px) {
-  .toolbar { grid-template-columns: 1fr; }
-  .toolbar button { grid-column: auto; }
-  .playback-bar { padding-inline: 12px; }
-  .timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }
-}
-"""
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
@@ -1407,6 +558,7 @@ async def browser_login_provider_start(
 
 @router.get("/meetings", response_class=HTMLResponse, include_in_schema=False)
 async def meeting_list_page(
+    request: Request,
     q: str | None = CabinetSearchQuery,
     status: MeetingReviewStatus | None = CabinetStatusQuery,
     access: AccessState | None = CabinetAccessQuery,
@@ -1428,11 +580,22 @@ async def meeting_list_page(
         sort=sort,
         limit=limit,
     )
-    return HTMLResponse(render_meeting_list_page(response))
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_meeting_list_fragment(response),
+            hx_request=True,
+        )
+    return cabinet_html_response(
+        render_meeting_list_page(
+            response,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
 
 
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse, include_in_schema=False)
 async def meeting_detail_page(
+    request: Request,
     meeting_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -1448,7 +611,17 @@ async def meeting_detail_page(
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    return HTMLResponse(render_meeting_detail_page(response))
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_meeting_detail_fragment(response),
+            hx_request=True,
+        )
+    return cabinet_html_response(
+        render_meeting_detail_page(
+            response,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
 
 
 @router.get(
@@ -1457,6 +630,7 @@ async def meeting_detail_page(
     include_in_schema=False,
 )
 async def meeting_deletion_report_page(
+    request: Request,
     meeting_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -1471,11 +645,24 @@ async def meeting_deletion_report_page(
         viewer_user_id=principal.user_id,
     )
     report = await deletion_report_response(db, meeting=meeting)
-    return HTMLResponse(render_deletion_report_page(meeting.title or "Deleted meeting", report))
+    meeting_title = meeting.title or "Deleted meeting"
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_deletion_report_fragment(meeting_title, report),
+            hx_request=True,
+        )
+    return cabinet_html_response(
+        render_deletion_report_page(
+            meeting_title,
+            report,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
 
 
 @router.get("/desktop/meetings", response_class=HTMLResponse, include_in_schema=False)
 async def embedded_meeting_list_page(
+    request: Request,
     q: str | None = CabinetSearchQuery,
     status: MeetingReviewStatus | None = CabinetStatusQuery,
     access: AccessState | None = CabinetAccessQuery,
@@ -1497,11 +684,23 @@ async def embedded_meeting_list_page(
         sort=sort,
         limit=limit,
     )
-    return HTMLResponse(render_meeting_list_page(response, embedded=True))
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_meeting_list_fragment(response, embedded=True),
+            hx_request=True,
+        )
+    return cabinet_html_response(
+        render_meeting_list_page(
+            response,
+            embedded=True,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
 
 
 @router.get("/desktop/meetings/{meeting_id}", response_class=HTMLResponse, include_in_schema=False)
 async def embedded_meeting_detail_page(
+    request: Request,
     meeting_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -1517,7 +716,18 @@ async def embedded_meeting_detail_page(
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    return HTMLResponse(render_meeting_detail_page(response, embedded=True))
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_meeting_detail_fragment(response, embedded=True),
+            hx_request=True,
+        )
+    return cabinet_html_response(
+        render_meeting_detail_page(
+            response,
+            embedded=True,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
 
 
 @router.get(
@@ -1526,6 +736,7 @@ async def embedded_meeting_detail_page(
     include_in_schema=False,
 )
 async def embedded_meeting_deletion_report_page(
+    request: Request,
     meeting_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -1540,27 +751,83 @@ async def embedded_meeting_deletion_report_page(
         viewer_user_id=principal.user_id,
     )
     report = await deletion_report_response(db, meeting=meeting)
-    return HTMLResponse(render_deletion_report_page(meeting.title or "Deleted meeting", report, embedded=True))
+    meeting_title = meeting.title or "Deleted meeting"
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_deletion_report_fragment(meeting_title, report, embedded=True),
+            hx_request=True,
+        )
+    return cabinet_html_response(
+        render_deletion_report_page(
+            meeting_title,
+            report,
+            embedded=True,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
 
 
-def _render_login_provider_actions(providers: list, *, next_path: str) -> str:
-    if not providers:
-        return '<span class="chip disabled">OAuth позже</span>'
-    actions: list[str] = []
+@router.post(
+    "/meetings/{meeting_id}/deletion-requests",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+@router.post(
+    "/desktop/meetings/{meeting_id}/deletion-requests",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def meeting_deletion_request_page(
+    request: Request,
+    meeting_id: UUID,
+    confirmation_boundary: str = Form(...),
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    _ensure_lifecycle_manager(decision)
+    response = await request_meeting_deletion(
+        db,
+        meeting=meeting,
+        actor_user_id=principal.user_id,
+        device_id=principal.session_device_id,
+        confirmation_boundary=confirmation_boundary,
+        storage=storage,
+    )
+    await db.commit()
+    embedded = request.url.path.startswith("/desktop/")
+    report_url = f"{_base_path(embedded)}/{response.meeting_id}/deletion-report"
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_template(
+                "cabinet/fragments/deletion_feedback.html",
+                report_url=report_url,
+            ),
+            status_code=202,
+            hx_request=True,
+        )
+    return RedirectResponse(report_url, status_code=303)
+
+
+def _login_provider_actions(providers: list) -> list[dict[str, str]]:
+    actions: list[dict[str, str]] = []
     for provider in providers:
         provider_id = str(getattr(provider, "provider", "") or "").strip()
         label = _login_provider_label(provider_id, str(getattr(provider, "label", "") or provider_id))
         mark = _login_provider_mark(provider_id, label)
-        actions.append(
-            f"""
-            <span class="auth-provider" aria-disabled="true">
-              <span class="provider-mark">{escape(mark)}</span>
-              <span>{escape(label)}</span>
-              <span class="provider-pill">скоро</span>
-            </span>
-            """
-        )
-    return "\n".join(actions)
+        actions.append({"label": label, "mark": mark})
+    return actions
 
 
 def _login_provider_label(provider_id: str, fallback: str) -> str:
@@ -1589,43 +856,15 @@ def render_login_page(
     error: str | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
-    error_html = _render_login_error(error)
-    if workspace_id is None:
-        provider_html = """
-          <div class="truth-copy">Кабинет входа не настроен. Проверьте серверные настройки.</div>
-        """
-    else:
-        provider_html = _render_login_provider_actions(providers, next_path=safe_next)
-    content = f"""
-      <main class="auth-page">
-        <section class="auth-panel" aria-label="Вход в кабинет">
-          <div class="auth-brand-wordmark">2brain Rec</div>
-          <div>
-            <h1>Войти в кабинет</h1>
-            <div class="auth-subtitle">Используйте корпоративный способ входа или получите одноразовый код на рабочую почту.</div>
-          </div>
-          {error_html}
-          <div class="state-list">
-            <div class="muted">Другие способы входа</div>
-            <div class="auth-actions">{provider_html}</div>
-          </div>
-          <div class="auth-divider">или</div>
-          <form class="auth-form" action="/login/email/start" method="post">
-            <label>
-              Рабочая почта
-              <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
-            </label>
-            <input type="hidden" name="next" value="{escape(safe_next)}">
-            <button class="primary" type="submit">Продолжить</button>
-          </form>
-          <div class="auth-secondary">
-            <a class="mini-link" href="/login/sso/start?{urlencode({"next": safe_next})}" aria-disabled="true">Войти через SSO</a>
-            <div class="auth-signup">Нет аккаунта? <a href="/sign-up?{urlencode({"next": safe_next})}">Зарегистрироваться</a></div>
-          </div>
-        </section>
-        <p class="auth-legal">Продолжая, вы соглашаетесь с <a href="#" aria-disabled="true">Условиями использования</a> и <a href="#" aria-disabled="true">Политикой конфиденциальности</a>. Аудио и транскрипты не показываются до успешного входа.</p>
-      </main>
-    """
+    content = render_template(
+        "cabinet/auth/login.html",
+        workspace_configured=workspace_id is not None,
+        providers=_login_provider_actions(providers),
+        next_path=safe_next,
+        login_sso_href=f"/login/sso/start?{urlencode({'next': safe_next})}",
+        signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
+        error_message=_login_error_message(error),
+    )
     return _standalone_page("Вход", content)
 
 
@@ -1639,51 +878,17 @@ def render_signup_page(
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     email_mode = str(mode or "").lower() == "email"
-    error_html = _render_login_error(error)
-    if workspace_id is None:
-        provider_html = """
-          <div class="truth-copy">Кабинет регистрации не настроен. Проверьте серверные настройки.</div>
-        """
-    else:
-        provider_html = _render_login_provider_actions(providers, next_path=safe_next)
-    if email_mode:
-        registration_body = f"""
-          <a class="email-mode-trigger" href="/sign-up?{urlencode({"next": safe_next})}">Продолжить другим способом</a>
-          <div class="auth-divider">или</div>
-          <form class="auth-form signup-email-form" action="/sign-up/email/start" method="post">
-            <label>
-              Рабочая почта
-              <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
-            </label>
-            <input type="hidden" name="next" value="{escape(safe_next)}">
-            <button class="primary" type="submit">Зарегистрироваться</button>
-          </form>
-        """
-    else:
-        registration_body = f"""
-          <div class="auth-actions">{provider_html}</div>
-          <a class="mini-link auth-help" href="#" aria-disabled="true">Зачем 2brain Rec доступ к календарю?</a>
-          <div class="auth-divider">или</div>
-          <a class="email-mode-trigger" href="/sign-up?{urlencode({"next": safe_next, "mode": "email"})}">
-            <span class="provider-mark">@</span><span>Продолжить с email</span>
-          </a>
-        """
-    content = f"""
-      <main class="auth-page">
-        <section class="auth-panel" aria-label="Регистрация">
-          <div class="auth-brand-wordmark">2brain Rec</div>
-          <div>
-            <h1>Зарегистрируйтесь бесплатно</h1>
-          </div>
-          {error_html}
-          <div class="email-mode">{registration_body}</div>
-          <div class="auth-secondary">
-            <div class="auth-signup">Уже есть аккаунт? <a href="/login?{urlencode({"next": safe_next})}">Войти</a></div>
-          </div>
-        </section>
-        <p class="auth-legal">Продолжая, вы соглашаетесь с <a href="#" aria-disabled="true">Условиями использования</a> и <a href="#" aria-disabled="true">Политикой конфиденциальности</a>. Код подтверждения отправляется только на указанную почту.</p>
-      </main>
-    """
+    content = render_template(
+        "cabinet/auth/signup.html",
+        workspace_configured=workspace_id is not None,
+        providers=_login_provider_actions(providers),
+        next_path=safe_next,
+        email_mode=email_mode,
+        error_message=_login_error_message(error),
+        login_href=f"/login?{urlencode({'next': safe_next})}",
+        signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
+        signup_email_href=f"/sign-up?{urlencode({'next': safe_next, 'mode': 'email'})}",
+    )
     return _standalone_page("Регистрация", content)
 
 
@@ -1703,429 +908,151 @@ def render_email_code_page(
     back_path = "/sign-up" if flow == "signup" else "/login"
     page_title = "Подтвердите почту" if flow == "signup" else "Подтвердите вход"
     subtitle = (
-        f"Проверьте {escape(email)}: мы отправили 6-значный код для создания аккаунта."
+        f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
         if flow == "signup"
-        else f"Проверьте {escape(email)}: мы отправили 6-значный код для входа."
+        else f"Проверьте {email}: мы отправили 6-значный код для входа."
     )
-    dev_code_html = ""
-    if dev_code is not None:
-        dev_code_html = f"""
-          <div class="delete-confirmation">
-            <strong>Dev code</strong>
-            <div class="truth-copy">Код для локальной проверки: <strong>{escape(dev_code)}</strong></div>
-          </div>
-        """
-    content = f"""
-      <main class="auth-page">
-        <section class="auth-panel" aria-label="Код входа">
-          <div class="auth-brand-wordmark">2brain Rec</div>
-          <div>
-            <h1>{page_title}</h1>
-            <div class="auth-subtitle">{subtitle}</div>
-          </div>
-          <div class="code-hint">Проверьте почту и введите код ниже.</div>
-          {_render_login_error(error)}
-          {dev_code_html}
-          <form class="auth-form" action="{verify_path}" method="post" data-code-form>
-            <div class="code-grid" role="group" aria-label="6-значный код">
-              {_render_code_slots()}
-            </div>
-            <input data-code-hidden name="code" type="hidden" autocomplete="one-time-code">
-            <input type="hidden" name="email" value="{escape(email)}">
-            <input type="hidden" name="state" value="{escape(state_nonce)}">
-            <input type="hidden" name="next" value="{escape(safe_next)}">
-            <button class="primary" type="submit">Продолжить</button>
-          </form>
-          <form class="auth-form" action="{resend_path}" method="post">
-            <input type="hidden" name="email" value="{escape(email)}">
-            <input type="hidden" name="next" value="{escape(safe_next)}">
-            <button class="auth-resend" type="submit">Отправить код еще раз</button>
-          </form>
-          <div class="auth-secondary">
-            <a class="mini-link" href="{back_path}?{urlencode({"next": safe_next})}">Изменить почту</a>
-          </div>
-        </section>
-        <p class="auth-legal">Код действует ограниченное время. Не пересылайте его другим людям.</p>
-        {_render_code_entry_script()}
-      </main>
-    """
+    content = render_template(
+        "cabinet/auth/email_code.html",
+        page_title=page_title,
+        subtitle=subtitle,
+        verify_path=verify_path,
+        resend_path=resend_path,
+        back_href=f"{back_path}?{urlencode({'next': safe_next})}",
+        email=email,
+        state_nonce=state_nonce,
+        next_path=safe_next,
+        dev_code=dev_code,
+        error_message=_login_error_message(error),
+    )
     return _standalone_page("Код входа", content)
 
 
-def _render_code_slots() -> str:
-    return "\n".join(
-        f'<input class="code-slot" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Цифра {index}" data-code-slot>'
-        for index in range(1, 7)
+def render_meeting_list_page(
+    response: MeetingListResponse,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
+    return _page_shell(
+        "Мои встречи",
+        embedded=embedded,
+        page_template="cabinet/pages/desktop_meetings.html" if embedded else "cabinet/pages/meetings.html",
+        csrf_token=csrf_token,
+        content_template="cabinet/pages/meeting_list_content.html",
+        filter_action=_base_path(embedded),
+        list_region=trusted_component_html(
+            _render_meeting_list_region(response, embedded=embedded, csrf_token=csrf_token),
+            source="meeting_list.region",
+        ),
+        delete_dialog=trusted_component_html(_render_list_delete_dialog(), source="meeting_list.delete_dialog"),
+        sort_label=_sort_label(response.filters.sort),
+        query_value=response.filters.q or "",
+        status_value=response.filters.status or "",
+        access_value=response.filters.access or "",
+        sort_value=response.filters.sort,
+        visible_total=len(response.items),
     )
 
 
-def _render_code_entry_script() -> str:
-    return """
-        <script>
-        (() => {
-          const form = document.querySelector("[data-code-form]");
-          if (!form) return;
-          const slots = Array.from(form.querySelectorAll("[data-code-slot]"));
-          const hidden = form.querySelector("[data-code-hidden]");
-          const sync = () => { hidden.value = slots.map((slot) => slot.value).join(""); };
-          slots.forEach((slot, index) => {
-            slot.addEventListener("input", () => {
-              slot.value = slot.value.replace(/\\D/g, "").slice(0, 1);
-              sync();
-              if (slot.value && slots[index + 1]) slots[index + 1].focus();
-            });
-            slot.addEventListener("keydown", (event) => {
-              if (event.key === "Backspace" && !slot.value && slots[index - 1]) {
-                slots[index - 1].focus();
-              }
-            });
-            slot.addEventListener("paste", (event) => {
-              const text = (event.clipboardData || window.clipboardData).getData("text").replace(/\\D/g, "").slice(0, 6);
-              if (!text) return;
-              event.preventDefault();
-              slots.forEach((target, offset) => { target.value = text[offset] || ""; });
-              sync();
-              const next = slots[Math.min(text.length, slots.length) - 1];
-              if (next) next.focus();
-            });
-          });
-          form.addEventListener("submit", sync);
-          slots[0]?.focus();
-        })();
-        </script>
-    """
+def render_meeting_list_fragment(response: MeetingListResponse, *, embedded: bool = False) -> str:
+    return _render_meeting_list_region(response, embedded=embedded)
 
 
-def _render_auth_transition_script() -> str:
-    return """
-        <script>
-        (() => {
-          const page = document.querySelector(".auth-page");
-          if (!page || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-          page.addEventListener("click", (event) => {
-            const link = event.target.closest("a[href]");
-            if (!link) return;
-            if (link.getAttribute("aria-disabled") === "true") return;
-            if (link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            const url = new URL(link.href, window.location.href);
-            if (url.origin !== window.location.origin) return;
-            event.preventDefault();
-            document.body.classList.add("auth-leaving");
-            window.setTimeout(() => { window.location.href = url.href; }, 130);
-          });
-        })();
-        </script>
-    """
-
-
-def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = False) -> str:
+def _render_meeting_list_region(
+    response: MeetingListResponse,
+    *,
+    embedded: bool,
+    csrf_token: str | None = None,
+) -> str:
     rows = "\n".join(
-        _render_meeting_row(item, embedded=embedded)
+        _render_meeting_row(item, embedded=embedded, csrf_token=csrf_token)
         for item in response.items
     )
     if not rows:
         rows = '<div class="empty-state">Нет встреч для выбранного фильтра.</div>'
-    new_control = '<button class="new-button" type="button" aria-disabled="true">Новая</button>'
     content = f"""
-      <main class="cabinet-main">
-        <div class="cabinet-workspace">
-          <div class="cabinet-topbar">
-            <div class="cabinet-titleline"><strong>Мои встречи</strong><span>{escape(_sort_label(response.filters.sort))}</span></div>
-            <div class="toolbar-icons">
-              <button class="icon-control" type="button" aria-label="Сохраненные" aria-disabled="true">{_ui_icon("bookmark")}</button>
-              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">{_ui_icon("filter")}</button>
-              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">{_ui_icon("sort")}</button>
-              {new_control}
-            </div>
-          </div>
-          <section class="upcoming cabinet-card" aria-label="Ближайшие встречи">
-            <div class="section-title">Ближайшие</div>
-            <div class="calendar-day">
-              <div class="date-badge">Сегодня<br>17</div>
-              <div class="calendar-events">
-                <div class="calendar-event"><strong>Командный синк</strong><div class="muted">11:30 - 13:00</div></div>
-                <div class="calendar-event"><strong>Ревью релиза</strong><div class="muted">12:00 - 13:00</div></div>
-              </div>
-            </div>
-            <div class="calendar-day">
-              <div class="date-badge">19<br>июн</div>
-              <div class="calendar-events">
-                <div class="calendar-event"><strong>Планирование запуска</strong><div class="muted">15:00 - 16:00</div></div>
-              </div>
-            </div>
-          </section>
-          <div class="meeting-toolbar">
-            <div class="section-title" data-list-title>Записи встреч</div>
-            <div class="selection-toolbar" data-selection-toolbar hidden data-visible-total="{len(response.items)}">
-              <button class="selection-toggle" type="button" data-selection-toggle aria-label="Выбрать все видимые записи">{_ui_icon("minus")}{_ui_icon("check")}</button>
-              <div class="selection-count" data-selection-count>Выбрано 0 / {len(response.items)}</div>
-              <div class="selection-actions">
-                <span class="tooltip-wrap" tabindex="0" data-tooltip="Скачивание появится позже" aria-label="Скачивание появится позже">
-                  <button class="icon-control is-disabled" type="button" disabled aria-disabled="true" data-download-disabled aria-label="Скачать выбранные записи">{_ui_icon("download")}</button>
-                </span>
-                <span class="selection-divider" aria-hidden="true"></span>
-                <button class="icon-control danger-button" type="button" aria-label="Удалить выбранные записи" data-selection-delete>{_ui_icon("trash")}</button>
-              </div>
-            </div>
-            <div class="toolbar-icons">
-              <button class="icon-control" type="button" aria-label="Сохранить" aria-disabled="true">{_ui_icon("bookmark")}</button>
-              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">{_ui_icon("filter")}</button>
-              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">{_ui_icon("sort")}</button>
-              <button class="new-button" type="button" aria-disabled="true">Новая</button>
-            </div>
-          </div>
-          <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list>
-            {rows}
-          </section>
-          {_render_list_delete_dialog()}
-        </div>
-        <div class="floating-search">Спросите что-нибудь...</div>
-      </main>
-      {_meeting_list_script()}
+      <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list>
+        {rows}
+      </section>
     """
-    return _page_shell("Мои встречи", content, embedded=embedded)
+    return render_template(
+        "cabinet/fragments/meeting_list.html",
+        content=trusted_component_html(content, source="meeting_list.rows"),
+    )
 
 
-def _meeting_list_script() -> str:
-    script = """
-      <script>
-      (() => {
-        const list = document.querySelector("[data-meeting-list]");
-        const toolbar = document.querySelector("[data-selection-toolbar]");
-        const listTitle = document.querySelector("[data-list-title]");
-        const countLabel = document.querySelector("[data-selection-count]");
-        const deleteSelected = document.querySelector("[data-selection-delete]");
-        const selectionToggle = document.querySelector("[data-selection-toggle]");
-        const dialog = document.querySelector("[data-delete-dialog]");
-        if (!list || !toolbar || !countLabel || !deleteSelected || !dialog) return;
-
-        const title = dialog.querySelector("[data-delete-title]");
-        const count = dialog.querySelector("[data-delete-count]");
-        const cancel = dialog.querySelector("[data-delete-cancel]");
-        const confirm = dialog.querySelector("[data-delete-confirm]");
-        const error = dialog.querySelector("[data-delete-error]");
-        let pendingRows = [];
-
-        const allRows = () => Array.from(list.querySelectorAll("[data-meeting-row]"));
-        const selectedRows = () => Array.from(list.querySelectorAll("[data-meeting-row]"))
-          .filter((row) => row.querySelector("[data-meeting-select]")?.checked);
-
-        const plural = (value, one, few, many) => {
-          const mod10 = value % 10;
-          const mod100 = value % 100;
-          if (mod10 === 1 && mod100 !== 11) return one;
-          if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-          return many;
-        };
-
-        const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
-        const totalRows = () => list.querySelectorAll("[data-meeting-row]").length;
-
-        const updateSelection = () => {
-          const rows = selectedRows();
-          const total = totalRows();
-          const allSelected = total > 0 && rows.length === total;
-          countLabel.textContent = `Выбрано ${rows.length} / ${total}`;
-          toolbar.hidden = rows.length === 0;
-          toolbar.dataset.selectionState = allSelected ? "all" : "partial";
-          if (selectionToggle) selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
-          if (listTitle) listTitle.hidden = rows.length > 0;
-          list.querySelectorAll("[data-meeting-row]").forEach((row) => {
-            row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);
-          });
-        };
-
-        const openDeleteDialog = (rows) => {
-          pendingRows = rows.filter(Boolean);
-          if (!pendingRows.length) return;
-          if (error) error.hidden = true;
-          if (title) title.textContent = pendingRows.length === 1 ? dialog.dataset.titleOne : dialog.dataset.titleMany;
-          if (count) count.textContent = deletingLabel(pendingRows.length);
-          if (typeof dialog.showModal === "function") {
-            dialog.showModal();
-          } else {
-            dialog.setAttribute("open", "");
-          }
-        };
-
-        const closeDeleteDialog = () => {
-          pendingRows = [];
-          if (typeof dialog.close === "function") {
-            dialog.close();
-          } else {
-            dialog.removeAttribute("open");
-          }
-        };
-
-        const showEmptyStateIfNeeded = () => {
-          if (!list.querySelector("[data-meeting-row]")) {
-            list.innerHTML = '<div class="empty-state">Записей больше нет.</div>';
-          }
-        };
-
-        list.addEventListener("change", (event) => {
-          if (event.target.closest("[data-meeting-select]")) updateSelection();
-        });
-
-        list.addEventListener("click", (event) => {
-          const deleteButton = event.target.closest("[data-row-delete]");
-          if (deleteButton) {
-            openDeleteDialog([deleteButton.closest("[data-meeting-row]")]);
-            return;
-          }
-          const row = event.target.closest("[data-meeting-row]");
-          if (!row || event.target.closest("a,button,input")) return;
-          const checkbox = row.querySelector("[data-meeting-select]");
-          if (!checkbox) return;
-          checkbox.checked = !checkbox.checked;
-          updateSelection();
-        });
-
-        deleteSelected.addEventListener("click", () => openDeleteDialog(selectedRows()));
-        cancel?.addEventListener("click", closeDeleteDialog);
-        selectionToggle?.addEventListener("click", () => {
-          const rows = allRows();
-          const shouldSelectAll = selectedRows().length !== rows.length;
-          rows.forEach((row) => {
-            row.querySelector("[data-meeting-select]").checked = shouldSelectAll;
-          });
-          updateSelection();
-        });
-
-        confirm?.addEventListener("click", async () => {
-          if (!pendingRows.length) return;
-          confirm.disabled = true;
-          confirm.textContent = "Удаляем...";
-          let failures = 0;
-          for (const row of pendingRows) {
-            const meetingId = row.dataset.meetingId;
-            try {
-              const response = await fetch(`/api/v1/cabinet/meetings/${meetingId}/deletion-requests`, {
-                method: "POST",
-                credentials: "same-origin",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({confirmation_boundary: "__BOUNDARY__"})
-              });
-              if (!response.ok) {
-                failures += 1;
-                row.querySelector("[data-meeting-select]").checked = false;
-              } else {
-                row.remove();
-              }
-            } catch (_err) {
-              failures += 1;
-            }
-          }
-          confirm.disabled = false;
-          confirm.textContent = "Удалить";
-          updateSelection();
-          showEmptyStateIfNeeded();
-          if (failures && error) {
-            error.textContent = failures === 1 ? "Не удалось удалить одну запись. Попробуйте еще раз." : `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте еще раз.`;
-            error.hidden = false;
-            pendingRows = [];
-            return;
-          }
-          closeDeleteDialog();
-        });
-
-        updateSelection();
-      })();
-      </script>
-    """
-    return script.replace("__BOUNDARY__", BOUNDED_DELETE_COPY)
+def render_meeting_detail_page(
+    review: MeetingReviewResponse,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
+    content = _render_meeting_detail_content(review, embedded=embedded)
+    return _page_shell(
+        review.meeting.title,
+        content,
+        embedded=embedded,
+        page_template="cabinet/pages/meeting_detail.html",
+        csrf_token=csrf_token,
+        content_source="meeting_detail.content",
+    )
 
 
-def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool = False) -> str:
-    transcript = _render_transcript(review.transcript.segments)
+def render_meeting_detail_fragment(review: MeetingReviewResponse, *, embedded: bool = False) -> str:
+    return render_template(
+        "cabinet/fragments/meeting_detail.html",
+        content=trusted_component_html(
+            _render_meeting_detail_content(review, embedded=embedded),
+            source="meeting_detail.content",
+        ),
+    )
+
+
+def _render_meeting_detail_content(review: MeetingReviewResponse, *, embedded: bool) -> str:
+    transcript = trusted_component_html(_render_transcript(review.transcript.segments), source="meeting_detail.transcript")
     if not review.transcript.available:
-        transcript = f"""
-          <div class="empty-state">
-            <div>
-              <strong>{_empty_title(review)}</strong>
-              <div class="muted">{_empty_body(review)}</div>
+        transcript = trusted_component_html(
+            f"""
+            <div class="empty-state">
+              <div>
+                <strong>{escape(_empty_title(review))}</strong>
+                <div class="muted">{escape(_empty_body(review))}</div>
+              </div>
             </div>
-          </div>
-        """
+            """,
+            source="meeting_detail.empty_transcript",
+        )
     recording_tab = "Расшифровка" if embedded else "Запись и расшифровка"
-    speaker_lanes = _render_speaker_lanes(review)
-    media_revision_id = escape(str(review.provenance.media_revision_id or ""))
-    local_media_revision_id = escape(review.provenance.local_media_revision_id or "")
-    content = f"""
-      <main class="main detail-page-main" data-media-revision-id="{media_revision_id}" data-local-media-revision-id="{local_media_revision_id}">
-        <div class="topline">
-          <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(review.meeting.title)}</strong><span>{escape(_ui_text(review.meeting.status_label))}</span>{_render_access_chip(review.meeting.access)}</div>
-          <div class="action-row">{_render_top_actions(review, embedded=embedded)}</div>
-        </div>
-        <div class="tabs" role="tablist" aria-label="Содержимое встречи">
-          <button type="button" class="tab" role="tab" id="detail-tab-outcomes" aria-selected="false" aria-controls="detail-panel-outcomes" data-detail-tab="outcomes">Итоги</button>
-          <button type="button" class="tab active" role="tab" id="detail-tab-recording" aria-selected="true" aria-controls="detail-panel-recording" data-detail-tab="recording">{recording_tab}</button>
-        </div>
-        <div class="detail-layout">
-          <section class="detail-main">
-            <section class="tab-panel" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes" hidden>
-              {_render_notes_outcomes(review)}
-            </section>
-            <section class="tab-panel active" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording">
-              <div class="transcript">{transcript}</div>
-            </section>
-          </section>
-          <aside class="right-panel">
-            {_render_revision_status(review)}
-            <h3>Доступ</h3>
-            {_render_access_summary(review)}
-            <h3>Поделиться</h3>
-            {_render_share_panel(review)}
-            <h3>Файлы</h3>
-            {_render_artifacts(review)}
-            <div class="truth-copy" data-boundary-copy="{escape(review.deletion_truth_copy or "")}">{escape(_ui_text(review.deletion_truth_copy or ""))}</div>
-            <h3>Удаление</h3>
-            {_render_delete_confirmation(review, embedded=embedded)}
-            <h3>Спикеры</h3>
-            {speaker_lanes}
-            <h3>Управление</h3>
-            <div class="governance">{_render_governance(review)}</div>
-            <h3>Активность</h3>
-            {_render_activity(review)}
-            <h3>Ассистент</h3>
-            <button type="button" disabled>{escape(_ui_text(review.assistant.label))}</button>
-            <h3>Шаблон</h3>
-            <button type="button" disabled>{escape(_ui_text(review.template.label))}</button>
-          </aside>
-        </div>
-        {_detail_tabs_script()}
-        {_render_playback(review)}
-      </main>
-    """
-    return _page_shell(review.meeting.title, content, embedded=embedded)
-
-
-def _detail_tabs_script() -> str:
-    return """
-      <script>
-        (() => {
-          const tabs = Array.from(document.querySelectorAll("[data-detail-tab]"));
-          const panels = Array.from(document.querySelectorAll("[data-detail-panel]"));
-          if (!tabs.length || !panels.length) return;
-          const activate = (name) => {
-            tabs.forEach((tab) => {
-              const selected = tab.dataset.detailTab === name;
-              tab.classList.toggle("active", selected);
-              tab.setAttribute("aria-selected", selected ? "true" : "false");
-            });
-            panels.forEach((panel) => {
-              const selected = panel.dataset.detailPanel === name;
-              panel.classList.toggle("active", selected);
-              panel.hidden = !selected;
-            });
-          };
-          tabs.forEach((tab) => {
-            tab.addEventListener("click", () => activate(tab.dataset.detailTab || "recording"));
-          });
-          if (window.location.hash === "#outcomes") activate("outcomes");
-        })();
-      </script>
-    """
+    return render_template(
+        "cabinet/pages/meeting_detail_content.html",
+        base_path=_base_path(embedded),
+        meeting_title=review.meeting.title,
+        status_label=_ui_text(review.meeting.status_label),
+        media_revision_id=str(review.provenance.media_revision_id or ""),
+        local_media_revision_id=review.provenance.local_media_revision_id or "",
+        recording_tab=recording_tab,
+        access_chip=trusted_component_html(_render_access_chip(review.meeting.access), source="meeting_detail.access_chip"),
+        top_actions=trusted_component_html(_render_top_actions(review, embedded=embedded), source="meeting_detail.top_actions"),
+        outcomes=trusted_component_html(_render_notes_outcomes(review), source="meeting_detail.outcomes"),
+        transcript=transcript,
+        revision_status=trusted_component_html(_render_revision_status(review), source="meeting_detail.revision_status"),
+        access_summary=trusted_component_html(_render_access_summary(review), source="meeting_detail.access_summary"),
+        share_panel=trusted_component_html(_render_share_panel(review), source="meeting_detail.share_panel"),
+        artifacts=trusted_component_html(_render_artifacts(review), source="meeting_detail.artifacts"),
+        deletion_truth_copy=review.deletion_truth_copy or "",
+        deletion_truth_text=_ui_text(review.deletion_truth_copy or ""),
+        delete_confirmation=trusted_component_html(
+            _render_delete_confirmation(review, embedded=embedded),
+            source="meeting_detail.delete_confirmation",
+        ),
+        speaker_lanes=trusted_component_html(_render_speaker_lanes(review), source="meeting_detail.speaker_lanes"),
+        governance=trusted_component_html(_render_governance(review), source="meeting_detail.governance"),
+        activity=trusted_component_html(_render_activity(review), source="meeting_detail.activity"),
+        assistant_label=_ui_text(review.assistant.label),
+        template_label=_ui_text(review.template.label),
+        playback=trusted_component_html(_render_playback(review), source="meeting_detail.playback"),
+    )
 
 
 def render_deletion_report_page(
@@ -2133,72 +1060,116 @@ def render_deletion_report_page(
     report: DeletionVerificationReport,
     *,
     embedded: bool = False,
+    csrf_token: str | None = None,
 ) -> str:
-    content = f"""
-      <main class="main">
-        <div class="topline">
-          <div class="crumbs"><a href="{_base_path(embedded)}">Мои встречи</a><span>/</span><strong>{escape(meeting_title)}</strong><span>Отчет удаления</span></div>
-          <div class="action-row"><a class="button" href="{_base_path(embedded)}">Назад</a></div>
-        </div>
-        <section class="report-layout" aria-label="Отчет удаления">
-          <div class="report-band">
-            <h3>Жизненный цикл</h3>
-            <div class="state-row"><strong>{escape(_ui_text(report.overall_state.value))}</strong><span class="chip deleted_future">только метаданные</span></div>
-            <div class="truth-copy" data-boundary-copy="{escape(report.bounded_copy)}">{escape(_ui_text(report.bounded_copy))}</div>
-          </div>
-          <div class="report-grid">
-            {_render_report_band("Файлы под контролем 2brain Rec", report.artifact_states)}
-            {_render_report_band("Резервные копии", [report.backup])}
-            {_render_report_band("Внешние зависимости", report.dependencies)}
-            {_render_report_band("Ограничения после выгрузки", report.post_egress_limits)}
-          </div>
-          <div class="report-band">
-            <h3>Очистка на устройстве</h3>
-            {_render_local_purge_tasks(report.local_purge)}
-          </div>
-          <div class="report-band">
-            <h3>События удаления</h3>
-            {_render_lifecycle_activity(report.activity)}
-          </div>
-        </section>
-      </main>
-    """
-    return _page_shell("Отчет удаления", content, embedded=embedded)
+    content = _render_deletion_report_content(meeting_title, report, embedded=embedded)
+    return _page_shell(
+        "Отчет удаления",
+        content,
+        embedded=embedded,
+        page_template="cabinet/pages/meeting_detail.html",
+        csrf_token=csrf_token,
+        content_source="deletion_report.content",
+    )
 
 
-def _page_shell(title: str, content: str, *, embedded: bool) -> str:
-    class_name = "app-shell desktop-embedded" if embedded else "app-shell"
-    return f"""<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(title)} - 2brain Rec</title>
-  <style>{CSS}</style>
-</head>
-<body>
-  <div class="{class_name}">
-    {'' if embedded else _sidebar()}
-    {content}
-  </div>
-</body>
-</html>"""
+def render_deletion_report_fragment(
+    meeting_title: str,
+    report: DeletionVerificationReport,
+    *,
+    embedded: bool = False,
+) -> str:
+    return render_template(
+        "cabinet/fragments/deletion_report.html",
+        content=trusted_component_html(
+            _render_deletion_report_content(meeting_title, report, embedded=embedded),
+            source="deletion_report.content",
+        ),
+    )
 
 
-def _standalone_page(title: str, content: str) -> str:
-    return f"""<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(title)} - 2brain Rec</title>
-  <style>{CSS}</style>
-</head>
-<body>
-  {content}
-  {_render_auth_transition_script()}
-</body>
-</html>"""
+def _render_deletion_report_content(
+    meeting_title: str,
+    report: DeletionVerificationReport,
+    *,
+    embedded: bool,
+) -> str:
+    return render_template(
+        "cabinet/pages/deletion_report_content.html",
+        base_path=_base_path(embedded),
+        meeting_title=meeting_title,
+        overall_state_label=_ui_text(report.overall_state.value),
+        bounded_copy=report.bounded_copy,
+        bounded_copy_text=_ui_text(report.bounded_copy),
+        artifact_band=trusted_component_html(
+            _render_report_band("Файлы под контролем 2brain Rec", report.artifact_states),
+            source="deletion_report.band",
+        ),
+        backup_band=trusted_component_html(
+            _render_report_band("Резервные копии", [report.backup]),
+            source="deletion_report.band",
+        ),
+        dependencies_band=trusted_component_html(
+            _render_report_band("Внешние зависимости", report.dependencies),
+            source="deletion_report.band",
+        ),
+        egress_limits_band=trusted_component_html(
+            _render_report_band("Ограничения после выгрузки", report.post_egress_limits),
+            source="deletion_report.band",
+        ),
+        local_purge=trusted_component_html(_render_local_purge_tasks(report.local_purge), source="deletion_report.local_purge"),
+        activity=trusted_component_html(_render_lifecycle_activity(report.activity), source="deletion_report.activity"),
+    )
+
+
+def _page_shell(
+    title: str,
+    content: str | None = None,
+    *,
+    embedded: bool,
+    page_template: str = "cabinet/pages/meetings.html",
+    csrf_token: str | None = None,
+    content_source: str = "cabinet.shell",
+    **context,
+) -> str:
+    if content is not None:
+        context["content"] = trusted_component_html(content, source=content_source)
+    shell = render_template(
+        page_template,
+        embedded=embedded,
+        navigation=cabinet_view_models.cabinet_navigation(active="meetings"),
+        **context,
+    )
+    return render_template(
+        "cabinet/base.html",
+        title=title,
+        surface_mode="desktop_embedded" if embedded else "standalone_browser",
+        csrf_token=csrf_token,
+        content=trusted_component_html(shell, source="cabinet.shell"),
+    )
+
+
+def _standalone_page(title: str, content: str, *, csrf_token: str | None = None) -> str:
+    return render_template(
+        "cabinet/base.html",
+        title=title,
+        surface_mode="auth",
+        csrf_token=csrf_token,
+        content=trusted_component_html(content, source="auth.shell"),
+    )
+
+
+def _csrf_token_for_principal(request: Request, principal: AuthenticatedPrincipal) -> str | None:
+    if not principal.auth_via_session or principal.session_id is None:
+        return None
+    secret = getattr(request.app.state, "web_csrf_secret", None)
+    if not secret:
+        raise ProblemDetail(
+            status=503,
+            code="csrf_secret_unavailable",
+            title="CSRF protection unavailable",
+        )
+    return issue_csrf_token(session_id=principal.session_id, secret=str(secret))
 
 
 async def _load_browser_login_providers(db: AsyncSession, workspace_id: UUID) -> list:
@@ -2704,9 +1675,9 @@ def _safe_browser_next_path(value: str | None) -> str:
     return stripped
 
 
-def _render_login_error(error: str | None) -> str:
+def _login_error_message(error: str | None) -> str | None:
     if not error:
-        return ""
+        return None
     messages = {
         "missing_auth_context": "Нужен вход, чтобы открыть кабинет встреч.",
         "auth_session_invalid": "Сессия не найдена. Войдите снова.",
@@ -2723,26 +1694,7 @@ def _render_login_error(error: str | None) -> str:
         "email_code_invalid": "Код не подошел. Проверьте письмо и попробуйте еще раз.",
         "email_code_expired": "Код истек. Запросите новый код.",
     }
-    message = messages.get(error, "Не удалось открыть сессию кабинета. Попробуйте войти снова.")
-    return f'<div class="delete-confirmation"><strong>{escape(message)}</strong></div>'
-def _sidebar() -> str:
-    return """
-    <aside class="sidebar">
-      <div class="workspace"><div class="avatar">2</div><div><div class="workspace-title">Личный</div><div class="workspace-subtitle">Бесплатный план</div></div></div>
-      <button class="primary" type="button" disabled>Пригласить</button>
-      <nav class="nav" aria-label="Кабинет">
-        <a href="#" aria-disabled="true">⌕ Поиск</a>
-        <a href="/meetings" class="active">▤ Мои встречи</a>
-        <a href="#" aria-disabled="true">♢ Общие</a>
-        <a href="#" aria-disabled="true">○ Действия <span class="nav-count">6</span></a>
-        <a href="#" aria-disabled="true">⌁ Активность</a>
-        <a href="#" aria-disabled="true">⚙ Настройки</a>
-      </nav>
-      <div class="sidebar-foot"><div class="trial">Пробный период 7 дней</div><div class="muted">2brain Rec</div></div>
-    </aside>
-    """
-
-
+    return messages.get(error, "Не удалось открыть сессию кабинета. Попробуйте войти снова.")
 UI_TEXT: dict[str, str] = {
     "Access": "Доступ",
     "Access state is unavailable.": "Статус доступа недоступен.",
@@ -2908,28 +1860,22 @@ def _notes_title(title: str) -> str:
 
 
 def _ui_icon(name: str) -> str:
-    # Lucide path data keeps shared icons on the same 24px stroke system.
-    paths = {
-        "audio": '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path>',
-        "bookmark": '<path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"></path>',
-        "check": '<path d="M20 6 9 17l-5-5"></path>',
-        "download": '<path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path>',
-        "filter": '<path d="M2 5h20"></path><path d="M6 12h12"></path><path d="M9 19h6"></path>',
-        "minus": '<path d="M5 12h14"></path>',
-        "sort": '<path d="m21 16-4 4-4-4"></path><path d="M17 20V4"></path><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path>',
-        "transcript": '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path>',
-        "trash": '<path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>',
-        "upload": '<path d="M12 3v12"></path><path d="m17 8-5-5-5 5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>',
-        "video": '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"></path><rect x="2" y="6" width="14" height="12" rx="2"></rect>',
-    }
-    return f'<svg class="ui-icon" data-icon="{name}" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>'
+    return render_icon(name)
 
 
-def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool = False) -> str:
+def _render_meeting_row(
+    item: MeetingListItem,
+    *,
+    embedded: bool,
+    selected: bool = False,
+    csrf_token: str | None = None,
+) -> str:
     href = f"{_base_path(embedded)}/{item.meeting_id}"
+    delete_action = f"{href}/deletion-requests"
     selected_class = " is-selected" if selected else ""
     source_icon, source_label = _meeting_media_icon(item)
     title = escape(item.title)
+    csrf_field = f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">' if csrf_token else ""
     return f"""
       <article class="meeting-row cabinet-row{selected_class}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
         <input class="row-check" type="checkbox" data-meeting-select aria-label="Выбрать запись {title}">
@@ -2938,24 +1884,24 @@ def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta"><span>{escape(_ui_text(item.status_label))}</span></span>
         </a>
-        <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
+        <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form
+          data-hx-post="{delete_action}"
+          data-hx-target="#delete-feedback-region"
+          data-hx-select="[data-cabinet-fragment='deletion-feedback']"
+          data-hx-swap="innerHTML">
+          {csrf_field}
+          <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
+          <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
+          <noscript><button class="row-delete-noscript" type="submit">Удалить</button></noscript>
+        </form>
         <span class="meeting-date">{_date_label(item)}</span>
       </article>
     """
 
 
 def _meeting_media_icon(item: MeetingListItem) -> tuple[str, str]:
-    if item.source == "manual_upload":
-        return _ui_icon("upload"), "upload"
-    if item.source == "video_recording":
-        return _ui_icon("video"), "видео"
-    has_audio = any(artifact.artifact_class == "audio" and artifact.state == "available" for artifact in item.artifacts)
-    has_transcript = item.transcript_available or any(
-        artifact.artifact_class == "transcript" and artifact.state == "available" for artifact in item.artifacts
-    )
-    if has_transcript and not has_audio:
-        return _ui_icon("transcript"), "транскрипт"
-    return _ui_icon("audio"), "аудио"
+    kind = cabinet_view_models.meeting_media_kind(item)
+    return _ui_icon(kind), cabinet_view_models.meeting_media_label(item)
 
 
 def _render_list_delete_dialog() -> str:
@@ -3015,97 +1961,12 @@ def _render_playback(review: MeetingReviewResponse) -> str:
             </div>
             {_render_playback_speaker_timeline(review)}
           </section>
-          {_playback_script()}
         """
     return f"""
       <section class="playback-bar detail-playback is-unavailable" data-source-mode="{escape(review.playback.source_mode)}">
         <span>{escape(review.playback.policy_label)}</span>
         <span>{_duration(review.playback.duration_seconds)}</span>
       </section>
-    """
-
-
-def _playback_script() -> str:
-    return """
-      <script>
-        (() => {
-          const player = document.querySelector("[data-playback-player]");
-          if (!player) return;
-          const toggle = document.querySelector("[data-playback-toggle]");
-          const current = document.querySelector("[data-playback-current]");
-          const duration = document.querySelector("[data-playback-duration]");
-          const progress = document.querySelector("[data-playback-progress]");
-          const speedToggle = document.querySelector("[data-playback-speed-toggle]");
-          const formatTime = (seconds) => {
-            if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
-            const rounded = Math.floor(seconds);
-            const minutes = Math.floor(rounded / 60);
-            const rest = String(rounded % 60).padStart(2, "0");
-            return `${String(minutes).padStart(2, "0")}:${rest}`;
-          };
-          const syncTime = () => {
-            if (current) current.textContent = formatTime(player.currentTime);
-            if (progress) progress.value = String(player.currentTime || 0);
-            if (duration && Number.isFinite(player.duration)) duration.textContent = formatTime(player.duration);
-          };
-          player.addEventListener("loadedmetadata", () => {
-            if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration);
-            syncTime();
-          });
-          player.addEventListener("timeupdate", syncTime);
-          player.addEventListener("play", () => {
-            if (toggle) toggle.textContent = "Pause";
-          });
-          player.addEventListener("pause", () => {
-            if (toggle) toggle.textContent = "Play";
-          });
-          if (toggle) {
-            toggle.addEventListener("click", () => {
-              if (player.paused) player.play().catch(() => {});
-              else player.pause();
-            });
-          }
-          document.querySelectorAll("[data-playback-skip]").forEach((button) => {
-            button.addEventListener("click", () => {
-              const delta = Number.parseFloat(button.dataset.playbackSkip || "0");
-              if (!Number.isFinite(delta)) return;
-              const max = Number.isFinite(player.duration) ? player.duration : Number.POSITIVE_INFINITY;
-              player.currentTime = Math.max(0, Math.min(max, player.currentTime + delta));
-              syncTime();
-            });
-          });
-          if (progress) {
-            progress.addEventListener("input", () => {
-              const next = Number.parseFloat(progress.value || "0");
-              if (Number.isFinite(next)) {
-                player.currentTime = next;
-                syncTime();
-              }
-            });
-          }
-          document.querySelectorAll("[data-seek-seconds]").forEach((button) => {
-            button.addEventListener("click", () => {
-              const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
-              if (!Number.isFinite(seekSeconds)) return;
-              player.currentTime = seekSeconds;
-              syncTime();
-              player.play().catch(() => {});
-            });
-          });
-          if (speedToggle) {
-            const speeds = (speedToggle.dataset.speedOptions || "1").split(",")
-              .map((value) => Number.parseFloat(value))
-              .filter((value) => Number.isFinite(value) && value > 0);
-            speedToggle.addEventListener("click", () => {
-              const currentSpeed = player.playbackRate || 1;
-              const index = speeds.findIndex((speed) => Math.abs(speed - currentSpeed) < 0.001);
-              const nextSpeed = speeds[(index + 1) % speeds.length] || 1;
-              player.playbackRate = nextSpeed;
-              speedToggle.textContent = `${nextSpeed}x`;
-            });
-          }
-        })();
-      </script>
     """
 
 
@@ -3407,6 +2268,37 @@ def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str
     """
 
 
+async def _authorized_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    viewer_user_id: UUID,
+):
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    decision = await decide_meeting_access(
+        db,
+        meeting,
+        workspace_id=workspace_id,
+        viewer_user_id=viewer_user_id,
+    )
+    if not decision.can_view:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return meeting, decision
+
+
+def _ensure_lifecycle_manager(decision) -> None:
+    if decision.state != "owner" and decision.role not in {"owner", "admin"}:
+        raise ProblemDetail(status=403, code="deletion_forbidden", title="Deletion is not available")
+
+
 async def _authorized_lifecycle_meeting(
     db: AsyncSession,
     *,
@@ -3459,32 +2351,15 @@ def _timecode(seconds: int) -> str:
 
 
 def _duration(seconds: int) -> str:
-    minutes, second = divmod(max(0, seconds), 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours}h {minutes}m"
-    if minutes:
-        return f"{minutes}m"
-    return f"{second}s"
+    return cabinet_view_models.format_duration(seconds)
 
 
 def _date_label(item: MeetingListItem) -> str:
-    if item.started_at is None:
-        return "Без даты"
-    months = {
-        1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
-        7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек",
-    }
-    return f"{item.started_at.day} {months[item.started_at.month]}"
+    return cabinet_view_models.date_label(item)
 
 
 def _sort_label(sort: str) -> str:
-    return {
-        "updated_desc": "Сначала новые",
-        "updated_asc": "Сначала старые",
-        "duration_desc": "Сначала длинные",
-        "duration_asc": "Сначала короткие",
-    }.get(sort, "Сначала новые")
+    return cabinet_view_models.sort_label(sort)
 
 
 def _base_path(embedded: bool) -> str:

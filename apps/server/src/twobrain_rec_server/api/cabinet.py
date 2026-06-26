@@ -36,6 +36,7 @@ from twobrain_rec_server.auth.dependencies import (
     get_device_context,
     get_principal,
     get_tenant_scope,
+    require_web_csrf,
 )
 from twobrain_rec_server.cabinet.access import (
     create_share_grant,
@@ -59,6 +60,7 @@ from twobrain_rec_server.cabinet.queries import (
     latest_processing_result,
     list_cabinet_meetings,
 )
+from twobrain_rec_server.cabinet.templates import cabinet_html_response, render_template
 from twobrain_rec_server.db.models import Meeting, WorkspaceMembership
 from twobrain_rec_server.deletion.local_purge import (
     acknowledge_local_purge_task,
@@ -78,6 +80,7 @@ router = APIRouter(prefix="/api/v1", tags=["cabinet"])
 TenantDependency = Depends(get_tenant_scope)
 PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
+WebCSRFDependency = Depends(require_web_csrf)
 DbDependency = Depends(get_request_db_session)
 StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
@@ -85,6 +88,10 @@ CabinetStatusQuery = Query(default=None)
 CabinetAccessQuery = Query(default=None)
 CabinetSortQuery = Query(default="updated_desc")
 CabinetLimitQuery = Query(default=50, ge=1, le=100)
+
+
+def _is_hx_request(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
 
 
 @router.get(
@@ -177,9 +184,10 @@ async def get_meeting_access_state_route(
     response_model=DeletionRequestResponse,
     status_code=202,
     operation_id="createMeetingDeletionRequest",
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def create_meeting_deletion_request_route(
+    request: Request,
     meeting_id: UUID,
     payload: CreateDeletionRequest,
     tenant_scope: TenantScope = TenantDependency,
@@ -207,6 +215,15 @@ async def create_meeting_deletion_request_route(
         storage=storage,
     )
     await db.commit()
+    if _is_hx_request(request):
+        return cabinet_html_response(
+            render_template(
+                "cabinet/fragments/deletion_feedback.html",
+                report_url=response.report_url,
+            ),
+            status_code=202,
+            hx_request=True,
+        )
     return response
 
 
@@ -261,7 +278,7 @@ async def get_meeting_lifecycle_state_route(
     response_model=DeletionRequestResponse,
     status_code=202,
     operation_id="retryMeetingDeletion",
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def retry_meeting_deletion_route(
     meeting_id: UUID,
@@ -319,7 +336,7 @@ async def list_meeting_activity_route(
     response_model=ShareGrantResponse,
     status_code=201,
     operation_id="createMeetingShareGrant",
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def create_meeting_share_grant_route(
     meeting_id: UUID,
@@ -356,7 +373,7 @@ async def create_meeting_share_grant_route(
     "/cabinet/meetings/{meeting_id}/shares/{grant_id}",
     status_code=204,
     operation_id="revokeMeetingShareGrant",
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def revoke_meeting_share_grant_route(
     meeting_id: UUID,
@@ -501,7 +518,7 @@ async def download_meeting_artifact_route(
     response_model=ExportPackageResponse,
     status_code=202,
     operation_id="createMeetingExportPackage",
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def create_meeting_export_package_route(
     meeting_id: UUID,
@@ -575,7 +592,7 @@ async def download_meeting_export_package_route(
     response_model=RetentionRunResponse,
     status_code=202,
     operation_id="runRetentionScan",
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def run_retention_scan_route(
     request: Request,
@@ -624,7 +641,7 @@ async def list_desktop_local_purge_tasks_route(
     "/desktop/local-purge-tasks/{task_id}/ack",
     response_model=LocalPurgeTask,
     operation_id="acknowledgeDesktopLocalPurgeTask",
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def acknowledge_desktop_local_purge_task_route(
     task_id: UUID,

@@ -1,0 +1,105 @@
+{% import "cabinet/components/icons.html" as icons %}
+{% import "cabinet/components/primitives.html" as ui %}
+
+{% macro sidebar_navigation(items, active="meetings") -%}
+<nav class="cabinet-sidebar-nav" aria-label="Навигация кабинета">
+  {%- for item in items -%}
+  {%- set enabled = item.enabled|default(true) -%}
+  <a class="cabinet-sidebar-nav__item{% if item.id == active %} is-selected{% endif %}{% if not enabled %} is-disabled{% endif %}" href="{{ item.href }}" data-state="{{ 'selected' if item.id == active else 'disabled' if not enabled else 'normal' }}"{% if not enabled %} aria-disabled="true"{% endif %}>
+    {{ icons.icon(item.icon) }}
+    <span>{{ item.label }}</span>
+    {%- if item.count is defined and item.count is not none -%}<span class="cabinet-sidebar-nav__count">{{ item.count }}</span>{%- endif -%}
+  </a>
+  {%- endfor -%}
+</nav>
+{%- endmacro %}
+
+{% macro workspace_header(name, subtitle, initials="2B") -%}
+<header class="cabinet-workspace-header">
+  <span class="cabinet-workspace-header__avatar" aria-hidden="true">{{ initials }}</span>
+  <span class="cabinet-workspace-header__text">
+    <strong>{{ name }}</strong>
+    <span>{{ subtitle }}</span>
+  </span>
+</header>
+{%- endmacro %}
+
+{% macro meeting_row(title, href, status_label, media_kind="audio", date_label="", selected=False, disabled=False) -%}
+<article class="cabinet-meeting-row{% if selected %} is-selected{% endif %}" data-state="{{ 'disabled' if disabled else 'selected' if selected else 'normal' }}">
+  {{ ui.checkbox("meeting", "Выбрать запись " ~ title, checked=selected, disabled=disabled) }}
+  <span class="cabinet-meeting-row__icon" data-media-kind="{{ media_kind }}">{{ icons.icon(media_kind) }}</span>
+  <a class="cabinet-meeting-row__title" href="{{ href }}">{{ title }}</a>
+  {{ ui.status_label(status_label, "disabled" if disabled else "normal") }}
+  <span class="cabinet-meeting-row__date">{{ date_label }}</span>
+</article>
+{%- endmacro %}
+
+{% macro selection_toolbar(count=0, total=0, destructive_enabled=False) -%}
+<div class="cabinet-selection-toolbar" role="toolbar" aria-label="Выбор записей" data-state="{{ 'selected' if count else 'empty' }}">
+  <span>{{ count }} / {{ total }} выбрано</span>
+  {{ ui.button("Снять выбор", variant="quiet", disabled=(count == 0)) }}
+  {{ ui.icon_button("download", "Скачать выбранные записи", disabled=True) }}
+  {{ ui.icon_button("trash", "Удалить выбранные записи", destructive=True, disabled=(not destructive_enabled)) }}
+</div>
+{%- endmacro %}
+
+{% macro playback_controls(label="Запись", available=True, duration="00:00") -%}
+<section class="cabinet-playback-controls" aria-label="{{ label }}" data-state="{{ 'normal' if available else 'unavailable' }}">
+  {{ ui.icon_button("audio", "Воспроизвести", disabled=(not available)) }}
+  <span class="cabinet-playback-controls__timeline" aria-hidden="true"></span>
+  <span class="cabinet-playback-controls__duration">{{ duration }}</span>
+</section>
+{%- endmacro %}
+
+{% macro detail_side_panel(title, body, state="normal") -%}
+<aside class="cabinet-detail-panel" data-state="{{ state }}">
+  <h2>{{ title }}</h2>
+  <p>{{ body }}</p>
+</aside>
+{%- endmacro %}
+
+{% macro confirmation_dialog(title, body, confirm_label="Подтвердить", cancel_label="Отмена", destructive=True) -%}
+<section class="cabinet-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="cabinet-confirmation-title" data-state="{{ 'destructive' if destructive else 'normal' }}">
+  <h2 id="cabinet-confirmation-title">{{ title }}</h2>
+  <p>{{ body }}</p>
+  <div class="cabinet-confirmation-dialog__actions">
+    {{ ui.button(cancel_label, variant="quiet") }}
+    {{ ui.button(confirm_label, variant="danger", destructive=destructive) }}
+  </div>
+</section>
+{%- endmacro %}
+
+{% macro status_banner(title, body, state="info") -%}
+<section class="cabinet-banner cabinet-banner--{{ state }}" role="status" data-state="{{ state }}">
+  <h2>{{ title }}</h2>
+  <p>{{ body }}</p>
+</section>
+{%- endmacro %}
+
+{% macro empty_state(title, body) -%}
+<section class="cabinet-empty" data-state="empty">
+  <h2>{{ title }}</h2>
+  <p>{{ body }}</p>
+</section>
+{%- endmacro %}
+
+{% macro unavailable_state(title, body) -%}
+<section class="cabinet-unavailable" role="status" data-state="unavailable">
+  <h2>{{ title }}</h2>
+  <p>{{ body }}</p>
+</section>
+{%- endmacro %}
+
+{% macro csrf_field(csrf_token=None) -%}
+{%- if csrf_token -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+{%- endif -%}
+{%- endmacro %}
+
+{% macro auth_form(title, action, email_label="Email", submit_label="Продолжить", error=None) -%}
+<form class="cabinet-auth-form" action="{{ action }}" method="post" data-state="{{ 'error' if error else 'normal' }}">
+  <h1>{{ title }}</h1>
+  {{ ui.input("email", email_label, type="email", error=error) }}
+  {{ ui.button(submit_label, type="submit") }}
+</form>
+{%- endmacro %}

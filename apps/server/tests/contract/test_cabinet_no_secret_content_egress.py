@@ -13,7 +13,9 @@ from tests.fixtures.cabinet import (
     seed_cabinet_meetings,
 )
 from tests.fixtures.cabinet_access import replace_retained_audio_with_test_wav
+from tests.fixtures.cabinet_components import COMPONENT_FORBIDDEN_MARKERS, COMPONENT_SAFE_FIXTURE
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
+from twobrain_rec_server.cabinet.templates import get_cabinet_templates
 from twobrain_rec_server.db.models import MeetingOutcomeItem
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_meeting
 
@@ -35,6 +37,46 @@ def test_cabinet_list_does_not_egress_transcript_or_dependency_secrets(client) -
     assert "storage_object_key" not in body
     assert "sha256" not in body
     assert "private-run-id" not in body
+
+
+def test_cabinet_component_fixtures_are_metadata_safe() -> None:
+    template = get_cabinet_templates().from_string(
+        """
+        {% import "cabinet/components/sections.html" as sections %}
+        {{ sections.workspace_header(fixture.workspace_name, fixture.workspace_subtitle, "2B") }}
+        {{ sections.meeting_row(fixture.meeting_title, "/meetings/synthetic", fixture.status_label, "audio", "26 июн") }}
+        {{ sections.selection_toolbar(fixture.count, fixture.total) }}
+        """
+    )
+
+    rendered = template.render(fixture=COMPONENT_SAFE_FIXTURE)
+    evidence = _dump_json({"fixture": COMPONENT_SAFE_FIXTURE, "rendered": rendered})
+
+    for marker in COMPONENT_FORBIDDEN_MARKERS:
+        assert marker not in evidence
+
+
+def test_rendered_cabinet_pages_do_not_include_storage_or_dependency_identifiers(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    forbidden = {
+        PRIVATE_EXTERNAL_JOB_ID,
+        "storage_object_key",
+        "share_token_hash",
+        "signed_url",
+        "X-Amz",
+        "/Users/",
+        "mediascribe_api_key",
+        "private-run-id",
+    }
+
+    list_response = client.get("/meetings", headers=auth_headers())
+    detail_response = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    body = list_response.text + detail_response.text
+    for marker in forbidden:
+        assert marker not in body
 
 
 def test_cabinet_ready_detail_keeps_dependency_and_storage_identifiers_private(client) -> None:

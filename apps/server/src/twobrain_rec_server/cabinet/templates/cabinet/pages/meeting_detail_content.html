@@ -1,0 +1,49 @@
+<main class="main detail-page-main" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}">
+  <div class="topline">
+    <div class="crumbs">
+      <a href="{{ base_path }}">Мои встречи</a>
+      <span>/</span>
+      <strong>{{ meeting_title }}</strong>
+      <span>{{ status_label }}</span>
+      {{ access_chip }}
+    </div>
+    <div class="action-row">{{ top_actions }}</div>
+  </div>
+  <div class="tabs" role="tablist" aria-label="Содержимое встречи">
+    <button type="button" class="tab" role="tab" id="detail-tab-outcomes" aria-selected="false" aria-controls="detail-panel-outcomes" data-detail-tab="outcomes">Итоги</button>
+    <button type="button" class="tab active" role="tab" id="detail-tab-recording" aria-selected="true" aria-controls="detail-panel-recording" data-detail-tab="recording">{{ recording_tab }}</button>
+  </div>
+  <div class="detail-layout">
+    <section class="detail-main">
+      <section class="tab-panel" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes" hidden>
+        {{ outcomes }}
+      </section>
+      <section class="tab-panel active" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording">
+        <div class="transcript">{{ transcript }}</div>
+      </section>
+    </section>
+    <aside class="right-panel">
+      {{ revision_status }}
+      <h3>Доступ</h3>
+      {{ access_summary }}
+      <h3>Поделиться</h3>
+      {{ share_panel }}
+      <h3>Файлы</h3>
+      {{ artifacts }}
+      <div class="truth-copy" data-boundary-copy="{{ deletion_truth_copy }}">{{ deletion_truth_text }}</div>
+      <h3>Удаление</h3>
+      {{ delete_confirmation }}
+      <h3>Спикеры</h3>
+      {{ speaker_lanes }}
+      <h3>Управление</h3>
+      <div class="governance">{{ governance }}</div>
+      <h3>Активность</h3>
+      {{ activity }}
+      <h3>Ассистент</h3>
+      <button type="button" disabled>{{ assistant_label }}</button>
+      <h3>Шаблон</h3>
+      <button type="button" disabled>{{ template_label }}</button>
+    </aside>
+  </div>
+  {{ playback }}
+</main>

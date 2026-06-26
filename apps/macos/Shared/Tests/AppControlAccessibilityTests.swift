@@ -84,6 +84,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Очередь"])
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 1120)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
+        XCTAssertFalse(DesktopMeetingShellChrome.showsNativeProductSidebar)
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 36)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 44)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
