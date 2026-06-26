@@ -294,6 +294,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "min-height: 22px;" in page
     assert "flex: 0 0 22px;" in page
     assert "padding: 0;" in page
+    assert "width: 12px;" in page
+    assert "stroke-width: 2;" in page
     assert 'data-icon="audio"' in page
     assert 'data-icon="bookmark"' in page
     assert 'data-icon="download"' in page

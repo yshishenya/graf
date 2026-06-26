@@ -725,7 +725,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   line-height: 0;
   place-items: center;
 }
-.selection-toggle .ui-icon { width: 16px; height: 16px; }
+.selection-toggle .ui-icon { width: 12px; height: 12px; }
 .selection-toolbar[data-selection-state="partial"] [data-icon="check"] { display: none; }
 .selection-toolbar[data-selection-state="all"] [data-icon="minus"] { display: none; }
 .selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; }
@@ -750,11 +750,11 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .icon-control:disabled:hover { background: transparent; }
 .ui-icon {
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.4;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -832,7 +832,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   font-weight: 900;
 }
 .row-icon { display: grid; place-items: center; width: 22px; height: 22px; color: #a7adb7; font-size: 13px; }
-.row-icon .ui-icon { width: 18px; height: 18px; }
+.row-icon .ui-icon { width: 12px; height: 12px; }
 .meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
 .row-delete {
   width: 24px;
