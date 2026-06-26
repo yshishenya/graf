@@ -408,6 +408,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 do {
                     let purgeableCandidates = try await reconcileLocalPurgeCandidates(
                         candidates,
+                        task: task,
                         client: client
                     )
                     if purgeableCandidates.count != candidates.count {
@@ -418,7 +419,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                         candidateIdsToFinalize = Set(purgeableCandidates.map(\.id))
                     }
                 } catch {
-                    verificationOverride = .failed
+                    switch localPurgeVerificationState(for: task, items: items) {
+                    case .deleted, .tombstoned, .cryptographicallyUnrecoverable:
+                        break
+                    case .failed, .unverified:
+                        verificationOverride = .failed
+                    }
                 }
                 items = try queue.sync {
                     try loadDocumentOnQueue().items
@@ -454,16 +460,16 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func reconcileLocalPurgeCandidates(
         _ items: [DesktopUploadQueueItem],
+        task: DesktopLocalPurgeTask,
         client: DesktopUploadClientProtocol
     ) async throws -> [DesktopUploadQueueItem] {
         var purgeable: [DesktopUploadQueueItem] = []
         for item in items {
             guard let reconciliation = try await client.reconcile(item) else {
-                purgeable.append(item)
                 continue
             }
             let reconciled = try applyLocalPurgeReconciliation(itemId: item.id, reconciliation: reconciliation)
-            if Self.localPurgeReconciliationAllowsBufferDelete(reconciliation, item: reconciled) {
+            if Self.localPurgeReconciliationAllowsBufferDelete(reconciliation, item: reconciled, task: task) {
                 purgeable.append(reconciled)
             }
         }
@@ -496,8 +502,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private static func localPurgeReconciliationAllowsBufferDelete(
         _ reconciliation: DesktopUploadReconciliation,
-        item: DesktopUploadQueueItem
+        item: DesktopUploadQueueItem,
+        task: DesktopLocalPurgeTask
     ) -> Bool {
+        guard reconciliation.serverTruth.meetingId == task.meetingId else {
+            return false
+        }
         if reconciliation.conflictState == .serverMeetingDeleted {
             return true
         }

@@ -147,7 +147,15 @@ final class DesktopUploadQueueTests: XCTestCase {
             .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
             .write(to: queueURL, options: [.atomic])
         let task = try makeLocalPurgeTask(meetingId: meetingId)
-        let client = LocalPurgeOnlyClient(tasks: [task])
+        let client = LocalPurgeOnlyClient(
+            tasks: [task],
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: meetingId,
+                    serverStatus: "ingested_pending_processing"
+                )
+            )
+        )
         let service = DesktopUploadQueueService(
             queueURL: queueURL,
             recordingsRootURL: root,
@@ -164,6 +172,136 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(saved.state, .terminalDeleted)
         XCTAssertEqual(saved.retentionDecision.decision, .terminalDeleted)
         XCTAssertFalse(saved.retentionDecision.localArtifactsRetained)
+    }
+
+    func testLocalPurgeUnknownSyncStateDoesNotDeleteRecordingBuffers() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "unknown-sync-directory",
+            sessionId: "unknown-sync-session"
+        )
+        let meetingId = "72000000-0000-0000-0000-000000000006"
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        item.meetingId = meetingId
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let task = try makeLocalPurgeTask(meetingId: meetingId)
+        let client = LocalPurgeOnlyClient(tasks: [task])
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        _ = try await service.acknowledgePendingLocalPurgeTasks()
+
+        XCTAssertEqual(client.reconciledItems.map(\.id), [item.id])
+        XCTAssertEqual(client.acknowledgements.first?.state, .failed)
+        XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_purge_failed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.directoryURL.path))
+        XCTAssertNotEqual(try XCTUnwrap(service.loadItems().first).state, .terminalDeleted)
+    }
+
+    func testLocalPurgeReconciledMeetingMismatchDoesNotDeleteRecordingBuffers() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "meeting-mismatch-directory",
+            sessionId: "meeting-mismatch-session"
+        )
+        let taskMeetingId = "72000000-0000-0000-0000-000000000007"
+        let currentMeetingId = "72000000-0000-0000-0000-000000000008"
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        item.meetingId = taskMeetingId
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let task = try makeLocalPurgeTask(meetingId: taskMeetingId)
+        let client = LocalPurgeOnlyClient(
+            tasks: [task],
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: currentMeetingId,
+                    serverStatus: "ingested_pending_processing"
+                )
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        _ = try await service.acknowledgePendingLocalPurgeTasks()
+
+        XCTAssertEqual(client.reconciledItems.map(\.id), [item.id])
+        XCTAssertEqual(client.acknowledgements.first?.state, .failed)
+        XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_purge_failed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.directoryURL.path))
+        let saved = try XCTUnwrap(service.loadItems().first)
+        XCTAssertEqual(saved.meetingId, currentMeetingId)
+        XCTAssertNotEqual(saved.state, .terminalDeleted)
+    }
+
+    func testLocalPurgeReconciliationErrorPreservesAlreadyDeletedTruth() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "already-deleted-directory",
+            sessionId: "already-deleted-session"
+        )
+        let meetingId = "72000000-0000-0000-0000-000000000009"
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        item.meetingId = meetingId
+        try FileManager.default.removeItem(at: package.directoryURL)
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let task = try makeLocalPurgeTask(meetingId: meetingId)
+        let client = LocalPurgeOnlyClient(
+            tasks: [task],
+            reconciliationError: DesktopUploadClientError.invalidResponse
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        _ = try await service.acknowledgePendingLocalPurgeTasks()
+
+        XCTAssertEqual(client.acknowledgements.first?.state, .acknowledged)
+        XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_artifacts_deleted")
+        XCTAssertEqual(try XCTUnwrap(service.loadItems().first).state, .terminalDeleted)
     }
 
     func testLocalPurgeExportTaskDoesNotDeleteRecordingBuffers() async throws {
@@ -240,7 +378,15 @@ final class DesktopUploadQueueTests: XCTestCase {
             .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
             .write(to: queueURL, options: [.atomic])
         let task = try makeLocalPurgeTask(meetingId: meetingId)
-        let client = LocalPurgeOnlyClient(tasks: [task])
+        let client = LocalPurgeOnlyClient(
+            tasks: [task],
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: meetingId,
+                    serverStatus: "ingested_pending_processing"
+                )
+            )
+        )
         let service = DesktopUploadQueueService(
             queueURL: queueURL,
             recordingsRootURL: root,
@@ -332,6 +478,9 @@ final class DesktopUploadQueueTests: XCTestCase {
         let task = try makeLocalPurgeTask(meetingId: meetingId)
         let client = LocalPurgeOnlyClient(
             tasks: [task],
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(meetingId: meetingId)
+            ),
             acknowledgementError: DesktopUploadClientError.invalidResponse
         )
         let service = DesktopUploadQueueService(
@@ -1694,6 +1843,7 @@ final class DesktopUploadQueueTests: XCTestCase {
 
         private let tasks: [DesktopLocalPurgeTask]
         private let reconciliation: DesktopUploadReconciliation?
+        private let reconciliationError: Error?
         private let acknowledgementError: Error?
         private(set) var reconciledItems: [DesktopUploadQueueItem] = []
         private(set) var acknowledgements: [Acknowledgement] = []
@@ -1701,15 +1851,20 @@ final class DesktopUploadQueueTests: XCTestCase {
         init(
             tasks: [DesktopLocalPurgeTask],
             reconciliation: DesktopUploadReconciliation? = nil,
+            reconciliationError: Error? = nil,
             acknowledgementError: Error? = nil
         ) {
             self.tasks = tasks
             self.reconciliation = reconciliation
+            self.reconciliationError = reconciliationError
             self.acknowledgementError = acknowledgementError
         }
 
         func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
             reconciledItems.append(item)
+            if let reconciliationError {
+                throw reconciliationError
+            }
             return reconciliation
         }
 
