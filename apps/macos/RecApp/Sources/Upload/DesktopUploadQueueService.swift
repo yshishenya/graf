@@ -233,6 +233,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 merged.serverTruth = existing.serverTruth
                 merged.retryRecords = existing.retryRecords
                 merged.createdAt = existing.createdAt
+                merged.recordingMetadata = existing.recordingMetadata ?? merged.recordingMetadata
                 document.items[index] = merged
                 savedItem = merged
             } else {
@@ -968,6 +969,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             value: policy.retentionDays,
             to: manifest.stoppedAt
         ) ?? now
+        let recordingMetadata = manifest.recordingMetadata ?? RecordingMetadataResolver(clock: clock).resolve(
+            startedAt: manifest.startedAt,
+            stoppedAt: manifest.stoppedAt,
+            directoryId: manifest.directoryId,
+            sessionId: manifest.sessionId,
+            approvedAppName: manifest.scopeApproval?.sourceDisplayName
+        )
         return DesktopUploadQueueItem(
             id: DesktopUploadQueueItem.deterministicId(
                 directoryId: manifest.directoryId,
@@ -991,6 +999,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             retentionDeadline: retentionDeadline,
             createdAt: now,
             updatedAt: now,
+            recordingMetadata: recordingMetadata,
             artifactProfile: profile,
             retentionDecision: RetentionDecision(
                 decision: .retain,
@@ -1019,6 +1028,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.serverTruth = existing.serverTruth
         merged.retryRecords = existing.retryRecords
         merged.createdAt = existing.createdAt
+        merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
         if refreshed.artifactProfile.isUploadable && existing.syncConflictState == .localFilesMissing {
             merged.syncConflictState = .none
         }

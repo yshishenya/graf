@@ -15,6 +15,9 @@ def test_rejects_oversized_and_control_character_meeting_fields(client) -> None:
 
     assert oversized.status_code == 422
     assert control.status_code == 422
+    assert oversized.json()["code"] == "request_validation_error"
+    assert control.json()["code"] == "request_validation_error"
+    assert "bad\\nid" not in control.text
 
 
 def test_request_id_is_bounded_and_sanitized(client) -> None:

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -67,13 +67,15 @@ def _governance() -> GovernanceActionSummary:
 def _list_item(
     *,
     source: str = "desktop_recording",
+    title: str = "Synthetic meeting",
+    started_at: datetime | None = datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
     transcript_available: bool = False,
     artifacts: list[ArtifactEgressState] | None = None,
 ) -> MeetingListItem:
     return MeetingListItem(
         meeting_id=uuid4(),
-        title="Synthetic meeting",
-        started_at=datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
+        title=title,
+        started_at=started_at,
         ended_at=None,
         duration_seconds=65,
         source=source,
@@ -116,7 +118,50 @@ def test_common_display_helpers_for_meeting_rows() -> None:
     assert view_models.format_duration(65) == "1m"
     assert view_models.date_label(audio) == "16 июн"
     assert view_models.sort_label("duration_asc") == "Сначала короткие"
-    assert view_models.sort_label("unknown") == "Сначала новые"
+    assert view_models.sort_label("unknown") == "Недавно обновленные"
+
+
+def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
+    recorded = _list_item(started_at=datetime(2026, 6, 26, 23, 30, tzinfo=UTC))
+    timezone_shifted = _list_item(started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3))))
+    legacy = _list_item(title="legacy-no-recording-date", started_at=None)
+
+    assert view_models.date_label(recorded) == "26 июн"
+    assert view_models.date_label(timezone_shifted) == "27 июн"
+    assert view_models.date_label(legacy) == "Без даты"
+    assert view_models.sort_label("started_desc") == "Новые по дате записи"
+    assert view_models.sort_label("started_asc") == "Старые по дате записи"
+
+
+def test_safe_title_uses_legacy_local_recording_fallback_without_control_characters() -> None:
+    meeting = _meeting()
+    meeting.title = "\x00"
+    meeting.local_recording_id = "legacy-no-title"
+
+    assert view_models.safe_title(meeting) == "legacy-no-title"
+
+
+def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
+    meeting = _meeting()
+    meeting.title = "https://meet.example.com/private john@example.com"
+    meeting.local_recording_id = "legacy-unsafe-title"
+
+    assert view_models.safe_title(meeting) == "legacy-unsafe-title"
+
+
+def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
+    meeting = _meeting()
+    meeting.title = "meet.google.com/abc-defg-hij"
+    meeting.local_recording_id = "legacy-bare-link-title"
+
+    assert view_models.safe_title(meeting) == "legacy-bare-link-title"
+
+
+def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> None:
+    meeting = _meeting()
+    meeting.title = "Risk-review"
+
+    assert view_models.safe_title(meeting) == "Risk-review"
 
 
 def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:

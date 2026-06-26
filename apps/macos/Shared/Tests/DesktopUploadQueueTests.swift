@@ -527,6 +527,79 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(secondScan.first?.artifactProfile.isUploadable == true)
     }
 
+    func testScanPersistsRecordingMetadataFromManifestStartStopAndScopeTitle() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "package-1", sessionId: "session-1")
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let savedDocument = try JSONDecoder.uploadQueueTestDecoder.decode(
+            DesktopUploadQueueDocument.self,
+            from: Data(contentsOf: queueURL)
+        )
+        let savedItem = try XCTUnwrap(savedDocument.items.first)
+        let displayLabel = localMinuteLabel(Date(timeIntervalSince1970: 10), separator: " ")
+        let basenameLabel = localMinuteLabel(Date(timeIntervalSince1970: 10), separator: "_")
+            .replacingOccurrences(of: ":", with: "-")
+        let slugLabel = displayLabel
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+
+        XCTAssertEqual(item.recordingStartedAt, Date(timeIntervalSince1970: 10))
+        XCTAssertEqual(item.recordingStoppedAt, Date(timeIntervalSince1970: 20))
+        XCTAssertEqual(item.recordingMetadata?.title, "Display - \(displayLabel)")
+        XCTAssertEqual(item.recordingMetadata?.titleSource, .appContext)
+        XCTAssertEqual(item.recordingMetadata?.titleConfidence, .high)
+        XCTAssertTrue(
+            item.recordingMetadata?.safeFileBasename.hasPrefix("\(basenameLabel)_display-\(slugLabel)_") == true
+        )
+        XCTAssertEqual(savedItem.recordingMetadata, item.recordingMetadata)
+    }
+
+    func testRefreshPreservesPersistedRecordingMetadataAndStableIdentityWhenScopeChanges() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "package-1",
+            sessionId: "session-1",
+            scopeApproval: captureScope(sourceDisplayName: "Zoom")
+        )
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let first = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let changedManifest = makeManifest(
+            directoryId: "package-1",
+            sessionId: "session-1",
+            scopeApproval: captureScope(sourceDisplayName: "Slack")
+        )
+        try LocalRecordingManifestService().write(changedManifest, to: package.manifestURL)
+
+        let refreshed = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(refreshed.recordingMetadata, first.recordingMetadata)
+        XCTAssertEqual(refreshed.recordingStartedAt, first.recordingStartedAt)
+        XCTAssertEqual(refreshed.recordingStoppedAt, first.recordingStoppedAt)
+        XCTAssertEqual(refreshed.localMediaRevisionId, first.localMediaRevisionId)
+        XCTAssertEqual(
+            DesktopUploadClient.idempotencyKey(item: refreshed, scope: "meeting"),
+            DesktopUploadClient.idempotencyKey(item: first, scope: "meeting")
+        )
+    }
+
     func testQualityLeakageStateDoesNotBlockStructurallyValidPackageUpload() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1538,6 +1611,26 @@ final class DesktopUploadQueueTests: XCTestCase {
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("desktop-upload-queue-tests-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    private func localMinuteLabel(_ date: Date, separator: String) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd\(separator)HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func captureScope(sourceDisplayName: String) -> CaptureScopeApproval {
+        CaptureScopeApproval(
+            scopeApprovalId: "scope-\(sourceDisplayName)",
+            scopeKind: .display,
+            sourceDisplayName: sourceDisplayName,
+            approvedAt: Date(timeIntervalSince1970: 10),
+            approvalMode: .userConfirmedSuggestedScope,
+            eligibleReason: .manualMeetingScope
+        )
     }
 
     private func makeLocalPurgeTask(
