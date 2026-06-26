@@ -713,11 +713,16 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .selection-toggle {
   width: 22px;
   height: 22px;
+  min-height: 22px;
+  flex: 0 0 22px;
+  box-sizing: border-box;
+  padding: 0;
   border: 0;
   border-radius: 5px;
   background: var(--accent);
   color: #17191c;
   display: inline-grid;
+  line-height: 0;
   place-items: center;
 }
 .selection-toggle .ui-icon { width: 16px; height: 16px; }

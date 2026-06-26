@@ -291,6 +291,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-tooltip="Скачивание появится позже"' in page
     assert "disabled aria-disabled=\"true\" data-download-disabled" in page
     assert 'data-icon="check"' in page
+    assert "min-height: 22px;" in page
+    assert "flex: 0 0 22px;" in page
+    assert "padding: 0;" in page
     assert 'data-icon="download"' in page
     assert 'data-icon="trash"' in page
     assert 'data-meeting-select' in page
