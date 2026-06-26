@@ -10,6 +10,13 @@
 
 -
 
+## Risk / validation lane
+
+- Lane:
+- Что запускалось:
+- Более широкие gate не запускались, потому что:
+- Release/deploy gate:
+
 ## Issues
 
 Используй `Fixes #...`, `Closes #...` или `Resolves #...` только для issues,
@@ -37,6 +44,7 @@
 - [ ] Описание PR написано на русском и понятно не только инженеру.
 - [ ] Все полностью закрываемые issues перечислены через closing keywords.
 - [ ] Частичные или связанные issues перечислены через `Refs` / `Part of`.
+- [ ] Risk / validation lane выбран и обоснован.
 - [ ] Validation evidence записан в PR.
 - [ ] Для каждого закрываемого issue после проверки будет добавлен подробный
       русский closure comment.
