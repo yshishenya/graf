@@ -294,6 +294,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "min-height: 22px;" in page
     assert "flex: 0 0 22px;" in page
     assert "padding: 0;" in page
+    assert 'data-icon="audio"' in page
     assert 'data-icon="download"' in page
     assert 'data-icon="trash"' in page
     assert 'data-meeting-select' in page
@@ -309,6 +310,52 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "⌫" not in page
     assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in page
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in page
+
+
+def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
+    audio = _item()
+    audio.artifacts = [
+        ArtifactEgressState(
+            artifact_class="audio",
+            state="available",
+            label="Audio",
+            reason=None,
+            action="download",
+        )
+    ]
+    video = _item()
+    video.source = "video_recording"
+    text = _item()
+    text.transcript_available = True
+    text.artifacts = [
+        ArtifactEgressState(
+            artifact_class="transcript",
+            state="available",
+            label="Transcript",
+            reason=None,
+            action="download",
+        )
+    ]
+    upload = _item()
+    upload.source = "manual_upload"
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[audio, video, text, upload],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert 'data-icon="audio"' in page
+    assert 'data-icon="video"' in page
+    assert 'data-icon="transcript"' in page
+    assert 'data-icon="upload"' in page
+    assert 'data-media-kind="аудио"' in page
+    assert 'data-media-kind="видео"' in page
+    assert 'data-media-kind="транскрипт"' in page
+    assert 'data-media-kind="upload"' in page
+    assert "▣" not in page
+    assert "◁" not in page
 
 
 def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:

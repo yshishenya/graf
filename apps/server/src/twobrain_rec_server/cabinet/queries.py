@@ -90,6 +90,7 @@ async def list_cabinet_meetings(
         artifacts = await artifact_egress_states(db, meeting=meeting, access=decision, result=result)
         item = build_list_item(
             meeting,
+            media_revision=media_revision,
             result=result,
             workflow=workflow,
             access=decision.to_schema(),

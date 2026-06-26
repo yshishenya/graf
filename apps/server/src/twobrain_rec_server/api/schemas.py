@@ -336,7 +336,7 @@ MeetingReviewStatus = Literal[
     "unavailable",
     "deleted_future",
 ]
-MeetingSource = Literal["desktop_recording", "manual_upload", "unknown"]
+MeetingSource = Literal["desktop_recording", "video_recording", "manual_upload", "unknown"]
 PrimaryAction = Literal["open", "wait", "retry_future", "open_status", "unavailable"]
 SourceRoleView = Literal["local_microphone", "incoming_system", "unknown"]
 PlaybackUnavailableReason = Literal[

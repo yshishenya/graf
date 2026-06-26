@@ -2908,10 +2908,14 @@ def _notes_title(title: str) -> str:
 
 def _ui_icon(name: str) -> str:
     paths = {
+        "audio": '<path d="M11 5 6 9H3v6h3l5 4V5z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path>',
         "check": '<path d="M20 6 9 17l-5-5"></path>',
         "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path>',
         "minus": '<path d="M5 12h14"></path>',
+        "transcript": '<rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 8h6"></path><path d="M9 12h6"></path><path d="M9 16h4"></path>',
         "trash": '<path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
+        "upload": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M17 8l-5-5-5 5"></path><path d="M12 3v12"></path>',
+        "video": '<rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m10 9 5 3-5 3V9z"></path>',
     }
     return f'<svg class="ui-icon" data-icon="{name}" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>'
 
@@ -2919,12 +2923,12 @@ def _ui_icon(name: str) -> str:
 def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool = False) -> str:
     href = f"{_base_path(embedded)}/{item.meeting_id}"
     selected_class = " is-selected" if selected else ""
-    source_icon = "▣" if item.source == "screen_recording" else "◁"
+    source_icon, source_label = _meeting_media_icon(item)
     title = escape(item.title)
     return f"""
       <article class="meeting-row cabinet-row{selected_class}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
         <input class="row-check" type="checkbox" data-meeting-select aria-label="Выбрать запись {title}">
-        <span class="row-icon">{source_icon}</span>
+        <span class="row-icon" data-media-kind="{source_label}" aria-label="{source_label}" title="{source_label}">{source_icon}</span>
         <a class="meeting-title" href="{href}">
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta"><span>{escape(_ui_text(item.status_label))}</span></span>
@@ -2933,6 +2937,20 @@ def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool
         <span class="meeting-date">{_date_label(item)}</span>
       </article>
     """
+
+
+def _meeting_media_icon(item: MeetingListItem) -> tuple[str, str]:
+    if item.source == "manual_upload":
+        return _ui_icon("upload"), "upload"
+    if item.source == "video_recording":
+        return _ui_icon("video"), "видео"
+    has_audio = any(artifact.artifact_class == "audio" and artifact.state == "available" for artifact in item.artifacts)
+    has_transcript = item.transcript_available or any(
+        artifact.artifact_class == "transcript" and artifact.state == "available" for artifact in item.artifacts
+    )
+    if has_transcript and not has_audio:
+        return _ui_icon("transcript"), "транскрипт"
+    return _ui_icon("audio"), "аудио"
 
 
 def _render_list_delete_dialog() -> str:
