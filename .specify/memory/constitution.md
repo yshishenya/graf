@@ -1,19 +1,21 @@
 <!--
 Sync Impact Report
-Version change: 2.0.0 -> 2.0.1
+Version change: 2.0.1 -> 2.0.2
 Modified principles:
-- Product And Platform Constraints: corrected public Rec URL from
-  https://rec.2brain.dev to https://rec.2brain.pro while keeping deployment
-  host 2brain.dev.
+- Spec-Driven Delivery With Testable Gates: clarified risk-lane selection so
+  low-risk direct changes can use scoped validation while significant and
+  high-risk work keeps full Spec Kit gates.
 Added sections:
 - None.
 Removed sections:
 - None.
 Templates requiring updates:
-- ✅ reviewed .specify/templates/plan-template.md; no URL-specific wording.
-- ✅ reviewed .specify/templates/spec-template.md; no URL-specific wording.
-- ✅ reviewed .specify/templates/tasks-template.md; no URL-specific wording.
-- ✅ updated docs/agent-guidance/product-gates.md public URL guidance.
+- ✅ updated .specify/templates/plan-template.md risk/validation lane fields.
+- ✅ reviewed .specify/templates/spec-template.md; no structural change needed.
+- ✅ updated .specify/templates/tasks-template.md validation-lane closeout task.
+- ✅ updated AGENTS.md operating router.
+- ✅ updated docs/agent-guidance/spec-kit-flow.md risk-lane process.
+- ✅ updated docs/agent-guidance/release-and-validation.md validation lanes.
 Follow-up items:
 - None.
 -->
@@ -99,17 +101,22 @@ Precise status is safer than broad claims that the system cannot prove.
 
 ### V. Spec-Driven Delivery With Testable Gates
 
-All significant work MUST follow Spec Kit: constitution, specify, clarify, plan,
-checklist when risk warrants it, tasks, analyze, then implement. Specifications
-MUST be user-value focused and testable. Plans MUST pass the constitution check
-before Phase 0 research and again after Phase 1 design. Tasks MUST be grouped by
-independently testable user stories and include exact file paths.
+All work MUST start by selecting an explicit risk/validation lane. Significant
+work MUST follow Spec Kit: constitution, specify, clarify, plan, checklist when
+risk warrants it, tasks, analyze, then implement. Low-risk direct changes MAY
+skip new Spec Kit artifacts only when they do not touch high-risk areas and the
+scoped validation is recorded in the final response or pull request.
+Specifications MUST be user-value focused and testable. Plans MUST pass the
+constitution check before Phase 0 research and again after Phase 1 design. Tasks
+MUST be grouped by independently testable user stories and include exact file
+paths.
 
 High-risk features MUST run `$speckit-clarify`, `$speckit-checklist`, and
 `$speckit-analyze` before implementation. High-risk includes driver/audio,
 recording start behavior, privacy, auth, secrets, MediaScribe, Langfuse, MinIO,
 Postgres, Temporal, Docker, retention, deletion, diagnostics, tray/widget,
-onboarding, admin, and brand-distance UX.
+onboarding, admin, and brand-distance UX. If lane selection is unclear, choose
+the stricter lane.
 
 Rationale: this product has privacy, driver, and data-lifecycle risk. The work
 must be decomposed into reviewable artifacts before code.
@@ -144,7 +151,7 @@ must be decomposed into reviewable artifacts before code.
 
 ## Development Workflow And Quality Gates
 
-Required sequence for product/code work:
+Required sequence for significant product/code work:
 
 1. `$speckit-constitution` when governance changes are needed.
 2. `$speckit-specify` for each feature or architectural slice.
@@ -155,8 +162,19 @@ Required sequence for product/code work:
 7. `$speckit-analyze` to detect cross-artifact issues before implementation.
 8. `$speckit-implement` only after blockers are resolved.
 
+Low-risk direct lanes are allowed for read-only investigation, mechanical
+documentation, and tiny code changes only when applicable product gates are
+unchanged. They still require the smallest relevant validation, and they MUST
+escalate to the full sequence if they touch a high-risk domain or shared
+behavior. Process/governance surfaces such as `AGENTS.md`, constitution,
+`docs/agent-guidance/`, Spec Kit templates, PR templates, release policy, and
+bootstrap/extension tooling are not docs-only unless the edit is strictly
+typo/link-only.
+
 Required quality gates:
 
+- Every implementation records the selected validation lane and why it is
+  sufficient.
 - No implementation starts with unresolved critical Spec Kit analyze findings.
 - No implementation starts with unresolved constitution violations.
 - Capture features require permission, system-audio, microphone, track
@@ -171,6 +189,7 @@ Required quality gates:
   brand-distance gates.
 - Deployment features require Docker secrets, health checks, backups, restore,
   rollback, log redaction, and disk-full behavior.
+- Production deployment runs only when a release/deploy gate is explicitly met.
 
 ## Governance
 
@@ -193,4 +212,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 2.0.1 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-06-25
+**Version**: 2.0.2 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-06-26
