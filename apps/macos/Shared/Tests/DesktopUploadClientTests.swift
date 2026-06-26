@@ -33,6 +33,44 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(descriptors.first { $0.transportRole == .microphone }?.sampleRateHz, 16_000)
     }
 
+    func testCreateMeetingPayloadUsesPersistedRecordingTimes() {
+        let startedAt = Date(timeIntervalSince1970: 1_782_470_600)
+        let stoppedAt = Date(timeIntervalSince1970: 1_782_474_200)
+        let item = makeQueueItem(recordingMetadata: RecordingDisplayMetadata(
+            recordingStartedAt: startedAt,
+            recordingStoppedAt: stoppedAt,
+            title: "Zoom - 2026-06-26 11:30",
+            titleStatus: .generated,
+            titleSource: .appContext,
+            titleConfidence: .high,
+            titleGeneratedAt: Date(timeIntervalSince1970: 1_782_470_601),
+            safeFileBasename: "2026-06-26_11-30_zoom-2026-06-26-11-30_ab12cd",
+            stableSuffix: "ab12cd"
+        ))
+
+        let payload = DesktopUploadClient.createMeetingPayload(for: item)
+
+        XCTAssertEqual(payload.started_at, startedAt)
+        XCTAssertEqual(payload.ended_at, stoppedAt)
+        XCTAssertEqual(payload.duration_seconds, 60)
+    }
+
+    func testCreateMeetingPayloadUsesPersistedGeneratedTitle() {
+        let item = makeQueueItem(recordingMetadata: RecordingDisplayMetadata(
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingStoppedAt: Date(timeIntervalSince1970: 2),
+            title: "Meeting - 1970-01-01 00:00",
+            titleStatus: .generated,
+            titleSource: .generic,
+            titleConfidence: .medium,
+            titleGeneratedAt: Date(timeIntervalSince1970: 3),
+            safeFileBasename: "1970-01-01_00-00_meeting-1970-01-01-00-00_ab12cd",
+            stableSuffix: "ab12cd"
+        ))
+
+        XCTAssertEqual(DesktopUploadClient.createMeetingPayload(for: item).title, "Meeting - 1970-01-01 00:00")
+    }
+
     func testConfiguredHeadersIncludeBearerTokenWithoutPersistingSecrets() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
             "TWO_BRAIN_REC_CLIENT_VERSION": "smoke-014",
@@ -124,7 +162,7 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
-    private func makeQueueItem() -> DesktopUploadQueueItem {
+    private func makeQueueItem(recordingMetadata: RecordingDisplayMetadata? = nil) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
             manifestPresent: true,
@@ -153,6 +191,7 @@ final class DesktopUploadClientTests: XCTestCase {
             retentionDeadline: Date(timeIntervalSince1970: 1_000),
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 1),
+            recordingMetadata: recordingMetadata,
             artifactProfile: profile,
             retentionDecision: RetentionDecision(
                 decision: .retain,

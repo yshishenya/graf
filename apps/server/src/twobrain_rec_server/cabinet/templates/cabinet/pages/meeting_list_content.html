@@ -31,7 +31,9 @@
         <label class="sr-only" for="meeting-sort">Сортировка</label>
         <span class="cabinet-list-control-icon" aria-hidden="true">{{ icons.icon("sort") }}</span>
         <select id="meeting-sort" name="sort" aria-label="Сортировка">
-          <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Сначала новые</option>
+          <option value="started_desc"{% if sort_value == "started_desc" %} selected{% endif %}>Новые по дате записи</option>
+          <option value="started_asc"{% if sort_value == "started_asc" %} selected{% endif %}>Старые по дате записи</option>
+          <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Недавно обновленные</option>
           <option value="duration_asc"{% if sort_value == "duration_asc" %} selected{% endif %}>Сначала короткие</option>
           <option value="duration_desc"{% if sort_value == "duration_desc" %} selected{% endif %}>Сначала длинные</option>
           <option value="title_asc"{% if sort_value == "title_asc" %} selected{% endif %}>По названию</option>

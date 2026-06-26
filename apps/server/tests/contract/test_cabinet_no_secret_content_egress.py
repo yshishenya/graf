@@ -56,6 +56,71 @@ def test_cabinet_component_fixtures_are_metadata_safe() -> None:
         assert marker not in evidence
 
 
+def test_create_meeting_rejects_unsafe_title_without_echoing_raw_input(client) -> None:
+    unsafe_url = "https" + "://meet." + "example" + ".com/private"
+    unsafe_email = "john" + "@example" + ".com"
+    unsafe_token = "token" + "=secret"
+    unsafe_title = f"{unsafe_url} {unsafe_email} {unsafe_token}"
+
+    response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "unsafe-title-input",
+            "title": unsafe_title,
+            "duration_seconds": 60,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "unsafe_meeting_title"
+    assert unsafe_url not in response.text
+    assert unsafe_email not in response.text
+    assert unsafe_token not in response.text
+
+    unsafe_control_title = "Safe" + chr(0) + "Title"
+    control_response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "unsafe-control-title",
+            "title": unsafe_control_title,
+            "duration_seconds": 60,
+        },
+    )
+
+    assert control_response.status_code in {400, 422}
+    assert control_response.json()["code"] in {"unsafe_meeting_title", "request_validation_error"}
+    assert "\\u0000" not in control_response.text
+
+    bare_link = "meet.google.com/abc-defg-hij"
+    bare_link_response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "unsafe-bare-link-title",
+            "title": bare_link,
+            "duration_seconds": 60,
+        },
+    )
+
+    assert bare_link_response.status_code == 400
+    assert bare_link_response.json()["code"] == "unsafe_meeting_title"
+    assert bare_link not in bare_link_response.text
+
+    ordinary_response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "ordinary-sk-dash-title",
+            "title": "Risk-review",
+            "duration_seconds": 60,
+        },
+    )
+
+    assert ordinary_response.status_code == 200
+
+
 def test_rendered_cabinet_pages_do_not_include_storage_or_dependency_identifiers(client) -> None:
     seeds = seed_cabinet_meetings(client)
     forbidden = {

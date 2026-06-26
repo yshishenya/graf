@@ -13,6 +13,9 @@
   web/desktop кабинета, reusable cabinet component catalog, локальный
   `htmx-2.0.10`, bounded HTMX fragments для списка/detail/delete feedback,
   deletion-report и metadata-safe runtime checker.
+- Feature `059-recording-date-title`: новые записи получают дату фактической
+  записи из local manifest и минимальное безопасное название из уже
+  разрешенного app/platform context или generic date fallback.
 
 ### Изменено
 - Список и detail кабинета теперь рендерятся через общий server-owned shell,
@@ -20,6 +23,9 @@
 - Desktop WebView получает online cabinet navigation, а native Record/Stop,
   active capture, upload truth, permission recovery и local diagnostics
   остаются native-only.
+- Create-meeting payload теперь передает persisted `title`, `started_at` и
+  `ended_at`, а список кабинета может сортировать записи по времени записи,
+  а не по времени загрузки или обновления.
 
 ### Исправлено
 - Deletion-report web routes теперь возвращают bounded HTMX fragment при
@@ -36,13 +42,24 @@
   POST/PATCH/DELETE действия не обходили web-session защиту.
 - Private cabinet shell теперь просит поисковые роботы не индексировать кабинет
   и отключает HTMX eval/script-tag handling для authenticated surface.
+- Feature `059` не собирает календарь, window/browser title, transcript-derived
+  title или raw contextual candidates; diagnostics остаются metadata-only, а
+  unsafe title-like values подавляются локально и отклоняются server ingest.
+- Request validation errors теперь возвращают metadata-only problem response и
+  не эхоят raw invalid input вроде control-character title.
 
 ### Документы
 - Зафиксированы architecture/component/HTMX/WebView boundary decisions,
   rollback rules и validation evidence для feature `058`.
+- Зафиксированы scope/evidence для feature `059`: календарная интеграция
+  перенесена в `060`, window-title collection оставлен отдельной будущей
+  privacy-sensitive slice.
 
 ### Операции
-- _Пока нет записей._
+- Feature `059` прошел локальный gate `infra/scripts/ci-local.sh` с
+  `ci_local_result=pass`, а полный macOS SwiftPM suite прошел
+  `653 tests, 0 failures`; production RLS/deploy truth остается отдельным
+  release/deploy evidence.
 
 ## [2026.06.26.12] - 2026-06-26
 

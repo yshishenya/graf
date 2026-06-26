@@ -273,8 +273,9 @@ proof-slice `052-mvp-live-ui-proof`. PRD остается базовой про�
   `user_rollout_ready`, and `production_ready` stay excluded until a fresh live
   owner journey, stored outcomes on a production candidate, and representative
   one-hour timing proof pass with metadata-only evidence.
-- Feature `058-web-cabinet-htmx-shell` is implemented in the current feature
-  branch as a local architecture refactor for the server-owned cabinet shell.
+- Feature `058-web-cabinet-htmx-shell` is implemented and merged into
+  `origin/master` through PR `#2096` and PR `#2234` as a local architecture
+  refactor for the server-owned cabinet shell.
   It fixes the frontend foundation as Jinja templates, reusable cabinet
   component macros, one static CSS/token layer, centralized Lucide-style inline
   SVG icons, and locally vendored HTMX `2.0.10`; Tailwind, ready UI kits, SPA
@@ -290,8 +291,33 @@ proof-slice `052-mvp-live-ui-proof`. PRD остается базовой про�
   `result=pass` across `8` synthetic surfaces and `12` checks; desktop cabinet
   checks passed `63 tests, 0 failures`; static source guard passed; full local
   CI passed `685 passed, 4 skipped, 94 warnings` with `ci_local_result=pass`.
-  This branch has no database migration or machine-readable JSON contract
-  change and is not merged, released, deployed, or production-smoked yet.
+  This slice has no database migration or machine-readable JSON contract
+  change and is not released, deployed, or production-smoked yet.
+- Feature `059-recording-date-title` is implemented locally on branch
+  `codex/059-recording-date-title` after fast-forwarding to `origin/master`
+  at `586691f`, which includes the merged 057 custody baseline and 058 cabinet
+  shell baseline. New recordings now carry persisted recording metadata from
+  the local manifest start/stop instants plus a minimal safe title from
+  already-approved app/platform context or a generic date fallback. The desktop
+  create-meeting payload sends persisted `title`, `started_at`, and `ended_at`;
+  server ingest persists safe values and rejects unsafe title-like values; the
+  cabinet list/detail/search/sort surfaces use recording start time with
+  truthful legacy fallback. Safe filename basename is metadata only and does
+  not rename required local package files, upload idempotency keys, media
+  revision identity, or storage object keys. Focused local evidence on
+  2026-06-27 passed Swift filters for manifest, resolver, queue, client, and
+  diagnostics (`22 + 6 + 43 + 13 + 20` tests), focused server pytest
+  (`25 passed, 1 warning`), focused Ruff, full SwiftPM
+  (`653 tests, 0 failures`), and full local CI (`ci_local_result=pass`; server
+  tests `712 passed, 4 skipped, 103 warnings`; deployment evidence scan
+  `pass files=7`). The local CI RLS boundary reported
+  `rls_validation_result=blocked` because production enforcement was not
+  inspected from the local `postgres_test` boundary, so this is not production
+  RLS evidence. Feature 059 remains local implementation readiness until PR
+  review, merge, release, deploy, and app bundle evidence complete. It
+  deliberately does not implement calendar integration, window/browser title
+  collection, rename UI/API, download/export, transcript-derived titles, or
+  new app/window observers.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -495,8 +521,8 @@ states, and fails closed on local purge acknowledgement unless deletion,
 tombstone, or unrecoverability is verified. Focused local evidence passed the
 057 Swift custody/purge/projection suites and focused server custody/purge
 read-model suites on 2026-06-26. This is merged/released local implementation
-readiness, not production-smoked evidence, and feature `058` still owns server
-cabinet presentation refactor work.
+readiness, not production-smoked evidence; feature `058` has since landed the
+server cabinet presentation refactor baseline.
 
 Current evidence already accepted before 050:
 

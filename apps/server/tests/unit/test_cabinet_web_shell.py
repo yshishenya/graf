@@ -288,8 +288,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Ближайшие" in page
     assert "Записи встреч" in page
     assert "Новая" in page
-    assert "Сначала новые" in page
-    assert 'value="updated_desc" selected>Сначала новые</option>' in page
+    assert "Недавно обновленные" in page
+    assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
     css = _cabinet_css()
     assert "max-width: min(1120px, calc(100vw - 48px))" in css
     assert "min-height: 46px;" in css

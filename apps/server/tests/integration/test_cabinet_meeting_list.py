@@ -21,10 +21,18 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
 
 def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     seed_cabinet_meetings(client)
+    legacy = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "sort-legacy-no-date", "duration_seconds": 60},
+    )
+    assert legacy.status_code == 200
 
     search = client.get("/api/v1/cabinet/meetings?q=релиза", headers=auth_headers())
     ready = client.get("/api/v1/cabinet/meetings?status=ready", headers=auth_headers())
     shortest = client.get("/api/v1/cabinet/meetings?sort=duration_asc&limit=2", headers=auth_headers())
+    recording_newest = client.get("/api/v1/cabinet/meetings?sort=started_desc", headers=auth_headers())
+    recording_oldest = client.get("/api/v1/cabinet/meetings?sort=started_asc", headers=auth_headers())
 
     assert search.status_code == 200
     assert [item["title"] for item in search.json()["items"]] == ["Планирование релиза"]
@@ -34,6 +42,40 @@ def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     durations = [item["duration_seconds"] for item in shortest.json()["items"]]
     assert durations == sorted(durations)
     assert len(durations) == 2
+    assert recording_newest.status_code == 200
+    newest_dates = [item["started_at"] for item in recording_newest.json()["items"]]
+    newest_recorded_dates = [value for value in newest_dates if value is not None]
+    assert newest_dates[-1] is None
+    assert newest_recorded_dates == sorted(newest_recorded_dates, reverse=True)
+    assert recording_oldest.status_code == 200
+    oldest_dates = [item["started_at"] for item in recording_oldest.json()["items"]]
+    oldest_recorded_dates = [value for value in oldest_dates if value is not None]
+    assert oldest_dates[-1] is None
+    assert oldest_recorded_dates == sorted(oldest_recorded_dates)
+
+
+def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    legacy = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "legacy-no-recording-date", "duration_seconds": 60},
+    )
+    assert legacy.status_code == 200
+
+    detail = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
+    legacy_list = client.get("/api/v1/cabinet/meetings?q=legacy-no-recording-date", headers=auth_headers())
+    legacy_web = client.get("/meetings?q=legacy-no-recording-date", headers=auth_headers())
+
+    assert detail.status_code == 200
+    assert detail.json()["meeting"]["started_at"].startswith("2026-06-16T08:00:00")
+    assert legacy_list.status_code == 200
+    legacy_item = legacy_list.json()["items"][0]
+    assert legacy_item["title"] == "legacy-no-recording-date"
+    assert legacy_item["started_at"] is None
+    assert legacy_web.status_code == 200
+    assert "legacy-no-recording-date" in legacy_web.text
+    assert "Без даты" in legacy_web.text
 
 
 def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> None:
@@ -48,6 +90,9 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Новая" in response.text
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
+    assert 'value="started_desc"' in response.text
+    assert 'value="started_asc"' in response.text
+    assert "Новые по дате записи" in response.text
     assert "Проектный синк" in response.text
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
