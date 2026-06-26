@@ -1,0 +1,15 @@
+{% import "cabinet/components/sections.html" as sections %}
+
+<div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-cabinet-shell data-active-nav="{{ navigation.active }}">
+  <aside class="sidebar" data-cabinet-navigation>
+    {{ sections.workspace_header(navigation.workspace_title, navigation.workspace_subtitle, "2") }}
+    <button class="primary" type="button" disabled>Пригласить</button>
+    {{ sections.sidebar_navigation(navigation.items, active=navigation.active) }}
+    <div class="sidebar-foot"><div class="trial">Пробный период 7 дней</div><div class="muted">2brain Rec</div></div>
+  </aside>
+  {% if content_template is defined %}
+  {% include content_template %}
+  {% else %}
+  {{ content }}
+  {% endif %}
+</div>

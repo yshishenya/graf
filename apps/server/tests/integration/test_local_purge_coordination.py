@@ -66,6 +66,30 @@ def test_local_purge_acknowledgement_rejects_private_local_path_payloads(client)
     assert "local_path" not in ack.text.lower()
 
 
+def test_local_purge_acknowledgement_rejects_unverified_success(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    delete_response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_COPY},
+    )
+    assert delete_response.status_code == 202
+
+    task = client.get("/api/v1/desktop/local-purge-tasks", headers=auth_headers()).json()["tasks"][0]
+    ack = client.post(
+        task["ack_url"],
+        headers=auth_headers(),
+        json={
+            "state": "acknowledged",
+            "reason_code": "local_purge_unverified",
+            "client_version": "local-macos-test",
+        },
+    )
+
+    assert ack.status_code == 422
+    assert ack.json()["code"] == "local_purge_unverified_ack"
+
+
 def test_failed_local_purge_acknowledgement_updates_report_without_private_payload(client) -> None:
     seeds = seed_cabinet_meetings(client)
     delete_response = client.post(
@@ -101,3 +125,37 @@ def test_failed_local_purge_acknowledgement_updates_report_without_private_paylo
     serialized = report.text.lower()
     assert "/users/" not in serialized
     assert "storage_object_key" not in serialized
+
+
+def test_unverified_local_purge_acknowledgement_updates_report_as_safe_failure(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    delete_response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_COPY},
+    )
+    assert delete_response.status_code == 202
+
+    task = client.get("/api/v1/desktop/local-purge-tasks", headers=auth_headers()).json()["tasks"][0]
+    ack = client.post(
+        task["ack_url"],
+        headers=auth_headers(),
+        json={
+            "state": "failed",
+            "reason_code": "local_purge_unverified",
+            "client_version": "local-macos-test",
+        },
+    )
+
+    assert ack.status_code == 200
+    assert ack.json()["state"] == "failed"
+    assert ack.json()["safe_reason"] == "local_purge_unverified"
+
+    report = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-report",
+        headers=auth_headers(),
+    )
+    assert report.status_code == 200
+    local_artifact = next(row for row in report.json()["artifact_states"] if row["artifact_class"] == "local_desktop_buffer")
+    assert local_artifact["state"] == "retryable_failed"
+    assert "/users/" not in report.text.lower()

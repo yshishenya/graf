@@ -218,6 +218,7 @@ public struct DiagnosticRedactor: Sendable {
         "uploadFailureCategory",
         "uploadQueue",
         "uploadQueueItems",
+        "custodyIncident",
         "uploadAttempt",
         "localMediaRevisionId",
         "mediaRevisionId",

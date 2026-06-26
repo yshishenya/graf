@@ -5,13 +5,16 @@ export COPYFILE_DISABLE=1
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 INSTALLER_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 MACOS_DIR=$(CDPATH= cd -- "$INSTALLER_DIR/.." && pwd)
+REPO_ROOT=$(git -C "$MACOS_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+if [ -z "$REPO_ROOT" ]; then
+  REPO_ROOT=$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)
+fi
 BUILD_DIR="${TWO_BRAIN_REC_INSTALLER_BUILD_DIR:-"$MACOS_DIR/.build/installer"}"
 STAGE_DIR="$BUILD_DIR/stage"
 COMPONENT_DIR="$BUILD_DIR/components"
 SCRIPTS_DIR="$BUILD_DIR/scripts"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/2brain Rec.app"
 OUTPUT_PKG="${1:-"$BUILD_DIR/2brain-rec-local.pkg"}"
-VERSION="${TWO_BRAIN_REC_VERSION:-0.1.0}"
 APP_SIGN_IDENTITY="${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}"
 ALLOW_ADHOC_APP_SIGNING="${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}"
 INCLUDE_DRIVER_COMPONENT="${TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT:-0}"
@@ -20,6 +23,50 @@ DEVELOPER_TOOLS_ENABLED=0
 case "$DEVELOPER_TOOLS_STATUS" in
   *"currently enabled"*) DEVELOPER_TOOLS_ENABLED=1 ;;
 esac
+
+default_product_version() {
+  today=$(date +%Y.%m.%d)
+  today_pattern=$(printf '%s\n' "$today" | sed 's/\./\\./g')
+  changelog="$REPO_ROOT/CHANGELOG.md"
+  changelog_counters=""
+  tag_counters=""
+  if [ -f "$changelog" ]; then
+    changelog_counters=$(sed -n "s/^## \[$today_pattern\.\([0-9][0-9]*\)\].*/\1/p" "$changelog")
+  fi
+  tag_counters=$(git -C "$REPO_ROOT" tag --list "v$today.*" 2>/dev/null |
+    sed -n "s/^v$today_pattern\.\([0-9][0-9]*\)$/\1/p")
+  latest_counter=$(
+    {
+      printf '%s\n' "$changelog_counters"
+      printf '%s\n' "$tag_counters"
+    } | awk 'NF { if ($1 + 0 > max) max = $1 + 0 } END { if (max > 0) print max }'
+  )
+  if [ -n "$latest_counter" ]; then
+    printf '%s.%s\n' "$today" "$((latest_counter + 1))"
+  else
+    printf '%s.1\n' "$today"
+  fi
+}
+
+VERSION="${TWO_BRAIN_REC_VERSION:-$(default_product_version)}"
+case "$VERSION" in
+  [0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*)
+    ;;
+  *)
+    cat >&2 <<EOF
+Invalid 2brain Rec product version: $VERSION
+
+macOS bundle and package fields use the numeric CalVer release train without
+the git tag prefix. Use:
+
+  TWO_BRAIN_REC_VERSION=YYYY.MM.DD.N sh apps/macos/Installer/Scripts/build-local-installer.sh
+
+The matching git tag/GitHub Release adds the leading v: vYYYY.MM.DD.N.
+EOF
+    exit 1
+    ;;
+esac
+echo "Building 2brain Rec version $VERSION" >&2
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"

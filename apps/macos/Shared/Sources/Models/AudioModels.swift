@@ -1848,14 +1848,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     }
 
     public var nextActionLabel: String? {
-        switch retryMode {
-        case .automatic:
-            return state == .retrying ? "Остановить повтор" : nil
-        case .manualOnly:
-            return "Повторить"
-        case .terminal:
-            return nil
-        }
+        nil
     }
 
     public func withTransition(

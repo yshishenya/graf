@@ -381,15 +381,16 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertEqual(track.state, .capturing)
     }
 
-    func testUploadSummaryPrefersRetryingItem() {
+    func testUploadSummaryUsesCustodyCopyForAutomaticWait() {
         let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
-        let retrying = uploadItem(id: "retrying", state: .retrying, updatedAt: Date(timeIntervalSince1970: 10))
+        let retrying = uploadItem(id: "retrying", state: .retrying, updatedAt: Date(timeIntervalSince1970: 30))
 
         let summary = CaptureControlView.uploadSummary(for: [queued, retrying])
 
         XCTAssertEqual(summary?.primaryItem.id, "retrying")
         XCTAssertEqual(summary?.pendingCount, 2)
-        XCTAssertEqual(summary?.title, "Повторяем загрузку + ещё 1")
+        XCTAssertEqual(summary?.title, "Записи сохранены")
+        XCTAssertEqual(summary?.detail, "Отправим автоматически, когда сервер будет доступен.")
     }
 
     func testQueuedLocalOnlyUploadCopyDoesNotClaimServerReviewExists() throws {
@@ -398,8 +399,8 @@ final class CaptureControlTests: XCTestCase {
 
         let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [queued]))
 
-        XCTAssertEqual(summary.title, "Ожидает загрузки")
-        XCTAssertEqual(summary.detail, "локальная копия сохранена, отправим при сети")
+        XCTAssertEqual(summary.title, "Запись сохранена")
+        XCTAssertEqual(summary.detail, "Отправим автоматически, когда сервер будет доступен.")
         XCTAssertNil(CaptureControlView.uploadReviewLink(for: queued, configuration: configuration))
     }
 
@@ -414,9 +415,87 @@ final class CaptureControlTests: XCTestCase {
 
         let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
 
-        XCTAssertEqual(summary.title, "Нужна проверка")
-        XCTAssertEqual(summary.detail, "звук динамиков попал в микрофон; отправим как есть")
-        XCTAssertEqual(summary.primaryItem.nextActionLabel, "Повторить")
+        XCTAssertEqual(summary.title, "Запись сохранена")
+        XCTAssertEqual(summary.detail, "Отправим автоматически, когда сервер будет доступен.")
+        XCTAssertNil(summary.primaryItem.nextActionLabel)
+    }
+
+    func testUploadStatusDoesNotExposeRetryControlsToNormalUser() throws {
+        let manual = uploadItem(
+            id: "manual-blocked",
+            state: .blocked,
+            updatedAt: Date(timeIntervalSince1970: 20),
+            failureReason: "local_recording_package_not_uploadable",
+            retryMode: .manualOnly
+        )
+        let automatic = uploadItem(
+            id: "automatic-retrying",
+            state: .retrying,
+            updatedAt: Date(timeIntervalSince1970: 21),
+            retryMode: .automatic
+        )
+
+        let manualSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [manual]))
+        let automaticSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [automatic]))
+
+        XCTAssertNil(manualSummary.primaryItem.nextActionLabel)
+        XCTAssertNil(automaticSummary.primaryItem.nextActionLabel)
+    }
+
+    func testUploadSummaryProgressOnlyAppearsForActiveUpload() throws {
+        let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
+        let uploading = uploadItem(
+            id: "uploading",
+            state: .uploading,
+            updatedAt: Date(timeIntervalSince1970: 21),
+            serverTruth: ServerTruthFingerprint(acceptedBytesByTrack: ["microphone": 64])
+        )
+
+        let queuedSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [queued]))
+        let uploadingSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [uploading]))
+
+        XCTAssertFalse(queuedSummary.showsProgress)
+        XCTAssertTrue(uploadingSummary.showsProgress)
+        XCTAssertGreaterThan(uploadingSummary.progressFraction, 0)
+        XCTAssertEqual(uploadingSummary.title, "Отправляем запись")
+    }
+
+    func testUploadSummaryAccessibilityUsesCustodyLanguage() throws {
+        let auth = uploadItem(
+            id: "auth-required",
+            state: .blocked,
+            updatedAt: Date(timeIntervalSince1970: 20),
+            failureReason: "auth_required",
+            retryMode: .manualOnly,
+            syncConflictState: .authRequired
+        )
+
+        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [auth]))
+
+        XCTAssertTrue(summary.accessibilityLabel.contains("Доверие записи"))
+        XCTAssertTrue(summary.accessibilityLabel.contains("Нужен вход"))
+        XCTAssertTrue(summary.accessibilityLabel.contains("Владелец встречи"))
+        XCTAssertFalse(summary.accessibilityLabel.localizedCaseInsensitiveContains("очеред"))
+        XCTAssertFalse(summary.accessibilityLabel.localizedCaseInsensitiveContains("retry"))
+        XCTAssertFalse(summary.accessibilityLabel.localizedCaseInsensitiveContains("повтор"))
+    }
+
+    func testUploadSummaryExposesSafeReportForSupportAction() throws {
+        let blocked = uploadItem(
+            id: "support-blocked",
+            state: .blocked,
+            updatedAt: Date(timeIntervalSince1970: 20),
+            failureReason: "/Users/private/recording.wav Bearer leaked-token",
+            retryMode: .manualOnly,
+            syncConflictState: .serverMeetingDeleted
+        )
+
+        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
+        let report = try XCTUnwrap(summary.safeReport)
+
+        XCTAssertEqual(report.normalUserAction, .copySafeReport)
+        XCTAssertFalse(report.clipboardText.contains("/Users/private"))
+        XCTAssertFalse(report.clipboardText.contains("Bearer"))
     }
 
     func testConflictStateCopyIsSafeAndActionable() throws {
@@ -440,11 +519,14 @@ final class CaptureControlTests: XCTestCase {
         let deletedSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [deleted]))
         let authSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [auth]))
 
-        XCTAssertEqual(deletedSummary.detail, "запись удалена на сервере, нужна проверка")
+        XCTAssertEqual(
+            deletedSummary.detail,
+            "Скопируйте отчет и отправьте администратору или поддержке. Локальные копии сохранены."
+        )
         XCTAssertFalse(deletedSummary.detail.contains("/Users/test"))
-        XCTAssertEqual(deletedSummary.primaryItem.nextActionLabel, "Повторить")
-        XCTAssertEqual(authSummary.detail, "нужно заново войти или проверить доступ")
-        XCTAssertEqual(authSummary.primaryItem.nextActionLabel, "Повторить")
+        XCTAssertNil(deletedSummary.primaryItem.nextActionLabel)
+        XCTAssertEqual(authSummary.detail, "Войдите, чтобы продолжить отправку. Локальные копии сохранены.")
+        XCTAssertNil(authSummary.primaryItem.nextActionLabel)
     }
 
     func testUploadReviewActionIsAvailableOnlyForUploadedServerIdentifiedItem() throws {
@@ -455,7 +537,8 @@ final class CaptureControlTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 30),
             serverTruth: ServerTruthFingerprint(
                 meetingId: "server-meeting-033",
-                mediaRevisionId: "server-media-revision-033"
+                mediaRevisionId: "server-media-revision-033",
+                processingStatus: "processed"
             )
         )
         let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
@@ -502,7 +585,7 @@ final class CaptureControlTests: XCTestCase {
             state: state,
             failureReason: failureReason,
             retryMode: retryMode,
-            retentionDeadline: Date(timeIntervalSince1970: 100),
+            retentionDeadline: Date(timeIntervalSince1970: 1_800_000_000),
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: updatedAt,
             syncConflictState: syncConflictState,

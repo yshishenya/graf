@@ -9,10 +9,60 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `058-web-cabinet-htmx-shell`: добавлен серверный Jinja shell для
+  web/desktop кабинета, reusable cabinet component catalog, локальный
+  `htmx-2.0.10`, bounded HTMX fragments для списка/detail/delete feedback,
+  deletion-report и metadata-safe runtime checker.
 
 ### Изменено
+- Список и detail кабинета теперь рендерятся через общий server-owned shell,
+  чтобы будущие online-страницы не дублировали продуктовое меню в macOS shell.
+- Desktop WebView получает online cabinet navigation, а native Record/Stop,
+  active capture, upload truth, permission recovery и local diagnostics
+  остаются native-only.
+
+### Исправлено
+- Deletion-report web routes теперь возвращают bounded HTMX fragment при
+  `HX-Request`, а не полный shell.
+- MacOS WebView boundary tests теперь закрепляют текущую online/local границу:
+  online cabinet rows остаются web-owned, а local/offline custody rows остаются
+  native-only.
+
+### Безопасность
+- Unsafe cookie-authenticated cabinet actions защищены CSRF proof, HTMX-запросы
+  передают `X-CSRF-Token`, а template tests закрепляют autoescape/trusted HTML
+  guard и отсутствие private evidence markers.
+- CSRF contract отдельно закрепляет все unsafe cabinet API routes, чтобы новые
+  POST/PATCH/DELETE действия не обходили web-session защиту.
+- Private cabinet shell теперь просит поисковые роботы не индексировать кабинет
+  и отключает HTMX eval/script-tag handling для authenticated surface.
+
+### Документы
+- Зафиксированы architecture/component/HTMX/WebView boundary decisions,
+  rollback rules и validation evidence для feature `058`.
+
+### Операции
 - _Пока нет записей._
+
+## [2026.06.26.12] - 2026-06-26
+
+
+### Добавлено
+- Feature `057-local-upload-custody`: desktop upload queue now behaves as
+  product custody, not as a user task list. Local recordings remain accounted
+  for, retry automatically when safe, and expose calm aggregate native custody
+  status outside the server-owned WebView meeting list.
+- Structured custody read-model fields for feature `058`: server-known
+  recordings expose machine-readable custody, upload, processing, owner,
+  retry-class, action, copy-key, review availability, and metadata-safety truth.
+
+### Изменено
+- Normal users no longer get transport-level Retry or Stop retry controls for
+  local recording upload. The UI shows only meaningful actions such as sign-in,
+  safe report, diagnostics, review when available, or explicit local deletion.
+- Local upload, server processing, server deletion, and local purge truth are
+  separated so an uploaded recording with failed processing is not shown as a
+  failed local upload.
 
 ### Исправлено
 - _Пока нет записей._
@@ -116,10 +166,18 @@
   `транскрипт` и `upload` на базе консистентных Lucide SVG.
 
 ### Безопасность
-- _Пока нет записей._
+- Local custody ledger/artifacts are written with stronger local file
+  protection where this slice touches them, malformed queue documents are
+  quarantined metadata-safely, and safe incident reports exclude audio,
+  transcript text, private paths, tokens, and signed URLs.
+- Local purge acknowledgements now fail closed: desktop sends successful
+  acknowledgement only after verified local deletion, tombstone, or
+  cryptographic unrecoverability; unverified purge is reported as a safe
+  failure.
 
 ### Документы
-- _Пока нет записей._
+- Added feature `057` specification, contracts, quickstart, validation notes,
+  and explicit `057`/`058` boundary guidance.
 
 ### Операции
 - _Пока нет записей._

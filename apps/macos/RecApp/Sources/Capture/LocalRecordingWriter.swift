@@ -366,7 +366,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             microphone?.isMeteringEnabled = true
             microphone?.record()
         } else if microphoneSampleSource == nil {
-            FileManager.default.createFile(atPath: directory.localMicURL.path, contents: nil)
+            try LocalCustodyFileProtection.createEmptyFile(at: directory.localMicURL)
         }
 
         let remoteWriter = try PCM16MonoWAVFileWriter(
@@ -932,6 +932,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         let recorder = try AVAudioRecorder(url: url, settings: settings)
         recorder.isMeteringEnabled = true
         recorder.prepareToRecord()
+        try LocalCustodyFileProtection.apply(to: url)
         return recorder
     }
 
@@ -1134,7 +1135,7 @@ private final class PCM16MonoWAVFileWriter {
 
     init(url: URL, inputChannelCount: Int = 1) throws {
         self.inputChannelCount = max(1, inputChannelCount)
-        FileManager.default.createFile(atPath: url.path, contents: nil)
+        try LocalCustodyFileProtection.createEmptyFile(at: url)
         handle = try FileHandle(forWritingTo: url)
         try handle.write(contentsOf: Data(repeating: 0, count: 44))
     }

@@ -1,6 +1,8 @@
+import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from twobrain_rec_server.api.auth import router as auth_router
 from twobrain_rec_server.api.cabinet import router as cabinet_api_router
@@ -8,6 +10,7 @@ from twobrain_rec_server.api.health import router as health_router
 from twobrain_rec_server.api.ingest import router as ingest_router
 from twobrain_rec_server.api.problems import ProblemDetail, problem_exception_handler
 from twobrain_rec_server.api.processing import router as processing_router
+from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_dir
 from twobrain_rec_server.cabinet.web import router as cabinet_web_router
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
@@ -45,8 +48,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db_engine = engine
     app.state.db_sessionmaker = create_sessionmaker(engine)
     app.state.storage = storage
+    # ponytail: per-process secret; use a shared secret if multiple replicas need stable CSRF tokens.
+    app.state.web_csrf_secret = secrets.token_urlsafe(32)
     app.middleware("http")(request_logging_middleware)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)
+    app.mount(CABINET_STATIC_URL, StaticFiles(directory=cabinet_static_dir()), name="cabinet_static")
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(ingest_router)

@@ -1,5 +1,6 @@
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 
 
 def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None:
@@ -48,6 +49,29 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
     assert "Проектный синк" in response.text
+    assert 'data-cabinet-shell' in response.text
+    assert 'data-cabinet-navigation' in response.text
+    assert 'data-active-nav="meetings"' in response.text
+    assert 'id="meeting-list-region"' in response.text
+    assert 'class="cabinet-list-controls"' in response.text
+    assert 'method="get"' in response.text
+    assert 'data-hx-target="#meeting-list-region"' in response.text
+    assert 'data-hx-select="#meeting-list-region"' in response.text
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in response.text
+    assert "<!doctype html>" in response.text
+    assert "<style>" not in response.text
+
+
+def test_cabinet_list_full_page_fallback_without_hx_header(client) -> None:
+    seed_cabinet_meetings(client)
+
+    response = client.get("/meetings?sort=duration_asc", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert "<!doctype html>" in response.text
+    assert 'data-cabinet-shell' in response.text
+    assert 'data-cabinet-fragment="meeting-list"' in response.text
+    assert response.headers.get("Vary") != "HX-Request"
 
 
 def test_cabinet_list_api_exposes_governance_future_slots_and_artifact_truth(client) -> None:
@@ -72,16 +96,13 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
+    assert 'data-cabinet-shell' in response.text
+    assert 'data-cabinet-navigation' in response.text
+    assert 'data-active-nav="meetings"' in response.text
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in response.text
     assert "Записи встреч" in response.text
     assert "Проектный синк" in response.text
-    assert "--bg: #191a1c" in response.text
-    assert "--panel: #202224" in response.text
-    assert 'font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text"' in response.text
-    assert ".new-button {" in response.text
-    assert "font-weight: 700;" in response.text
-    assert "max-width: min(1120px, calc(100vw - 48px))" in response.text
-    assert "min-height: 46px;" in response.text
-    assert ".desktop-embedded .empty-state { min-height: 210px; }" in response.text
+    assert "<style>" not in response.text
     assert "Upload file" not in response.text
     assert "Record live" not in response.text
     assert "Screen Recording" not in response.text

@@ -144,7 +144,7 @@ public struct LocalRecordingManifestService: Sendable {
 
     public func write(_ manifest: LocalRecordingManifest, to url: URL) throws {
         let data = try encoder.encode(manifest)
-        try data.write(to: url, options: [.atomic])
+        try LocalCustodyFileProtection.write(data, to: url)
     }
 
     public func read(from url: URL) throws -> LocalRecordingManifest {

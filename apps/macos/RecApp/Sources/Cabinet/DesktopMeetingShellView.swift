@@ -24,8 +24,9 @@ public enum DesktopMeetingShellChrome {
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
     public static let recordingStripHeight: CGFloat = 36
     public static let idleShowsNativeTopBar = false
+    public static let showsNativeProductSidebar = false
     public static let fontStackDescription = "SF Pro Text / system"
-    public static let compactRailLabels = ["Запись", "Очередь"]
+    public static let compactRailLabels = ["Запись", "Сохранность"]
     public static let webEmbeddedBackgroundNSColor = NSColor(
         srgbRed: 0.098,
         green: 0.102,
@@ -203,16 +204,7 @@ public enum DesktopMeetingShellLocalQueuePolicy {
         _ items: [DesktopUploadQueueItem],
         limit: Int = 12
     ) -> [DesktopUploadQueueItem] {
-        Array(
-            items
-                .filter { item in
-                    item.state != .terminalDeleted &&
-                        item.meetingId == nil &&
-                        item.serverTruth.meetingId == nil
-                }
-                .sortedForNativeLocalDisplay()
-                .prefix(limit)
-        )
+        []
     }
 
     public static func allRowsForLocalMode(
@@ -257,6 +249,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let diagnosticsContent: DiagnosticsContent
     @State private var inspectorExpanded = false
     @State private var selectedSidebarItem = DesktopMeetingShellSidebarItem.meetings
+    @State private var copiedCustodySafeReportItemID: String?
 
     public init(
         session: CaptureSession?,
@@ -292,14 +285,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     public var body: some View {
         GeometryReader { geometry in
-            let sidebarWidth = DesktopMeetingShellChrome.sidebarWidth(
-                pendingUploadCount: pendingUploadCount,
-                availableWindowWidth: geometry.size.width
-            )
             HStack(spacing: 0) {
-                sidebar
-                    .frame(width: sidebarWidth)
-                Divider()
+                if DesktopMeetingShellChrome.showsNativeProductSidebar {
+                    let sidebarWidth = DesktopMeetingShellChrome.sidebarWidth(
+                        pendingUploadCount: meetingOwnerCustodyActionCount,
+                        availableWindowWidth: geometry.size.width
+                    )
+                    sidebar
+                        .frame(width: sidebarWidth)
+                    Divider()
+                }
                 VStack(spacing: 0) {
                     if let recordingStripSession {
                         recordingStrip(for: recordingStripSession)
@@ -350,7 +345,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     navRow(
                         item,
                         selected: selectedSidebarItem == item,
-                        badge: item == .actions ? pendingUploadCount : 0
+                        badge: item == .actions ? meetingOwnerCustodyActionCount : 0
                     )
                 }
             }
@@ -635,7 +630,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 localTodayTile(
                     date: "Сейчас",
                     title: captureStatusText,
-                    detail: pendingUploadCount > 0 ? "Загрузка ожидает" : "Готово",
+                    detail: custodySummary?.title ?? "Готово",
                     icon: captureStatusIcon,
                     color: captureStatusColor
                 )
@@ -718,6 +713,25 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             return DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility(uploadQueueItems)
         }
         return DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode(uploadQueueItems)
+    }
+
+    private var custodySummary: DesktopUploadCustodySummary? {
+        DesktopUploadCustodySummary.summary(for: uploadQueueItems)
+    }
+
+    private var custodyDetailSummaries: [DesktopUploadCustodySummary] {
+        DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
+    }
+
+    private var meetingOwnerCustodyActionCount: Int {
+        DesktopUploadCustodySummary.meetingOwnerActionCount(for: uploadQueueItems)
+    }
+
+    private var showsLocalDeleteConfirmationCopy: Bool {
+        custodyDetailSummaries.contains { summary in
+            summary.primaryProjection.custodyState == .cannotSend ||
+                summary.primaryProjection.custodyState == .terminalUndelivered
+        }
     }
 
     private var localQueueCompactPanel: some View {
@@ -814,11 +828,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             return "Сохранена локально, повторим отправку"
         }
         if item.state == .blocked {
-            return DesktopUploadQueueSummary(
-                primaryItem: item,
-                pendingCount: 1,
-                totalCount: 1
-            ).detail
+            let projection = DesktopUploadCustodyProjection(item: item)
+            return DesktopUploadCustodyCopy.detail(
+                copyKey: projection.copyKey,
+                count: 1,
+                deadline: projection.retentionDeadline
+            )
         }
         return item.state.displayName
     }
@@ -911,8 +926,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             )
             .help(DesktopMeetingShellChrome.compactRailLabels[0])
 
-            if pendingUploadCount > 0 {
-                Text("\(pendingUploadCount)")
+            if meetingOwnerCustodyActionCount > 0 {
+                Text("\(meetingOwnerCustodyActionCount)")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white)
                     .frame(width: 30, height: 24)
@@ -920,7 +935,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         RoundedRectangle(cornerRadius: 7)
                             .fill(Color.orange.opacity(0.82))
                     )
-                    .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): \(pendingUploadCount)")
+                    .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется действие")
+            } else if let custodySummary {
+                railIcon(
+                    "internaldrive",
+                    selected: false,
+                    color: .secondary
+                )
+                .help(custodySummary.accessibilityLabel)
             }
 
             Spacer()
@@ -1004,6 +1026,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     .fill(DesktopMeetingShellChrome.shellSurfaceColor)
             )
 
+            if !custodyDetailSummaries.isEmpty {
+                custodyDetailsDisclosure
+            }
+
             DisclosureGroup {
                 diagnosticsContent
                     .padding(.top, 8)
@@ -1021,6 +1047,117 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
         .padding(14)
         .background(DesktopMeetingShellChrome.shellRailColor)
+    }
+
+    private var custodyDetailsDisclosure: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(custodyDetailSummaries.enumerated()), id: \.offset) { _, summary in
+                    custodyDetailRow(summary)
+                }
+
+                if showsLocalDeleteConfirmationCopy {
+                    Text("Удаление локальной копии доступно только после отдельного подтверждения: «Удалить локальную копию на этом Mac. Серверные данные не изменятся.»")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Удаление локальной копии доступно только после отдельного подтверждения. Серверные данные не изменятся.")
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            Label("Локальная сохранность", systemImage: "internaldrive")
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+        )
+    }
+
+    private func custodyDetailRow(_ summary: DesktopUploadCustodySummary) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: custodyDetailIcon(for: summary.primaryProjection))
+                    .font(.caption)
+                    .foregroundStyle(custodyDetailColor(for: summary.primaryProjection))
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(summary.title)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                    Text(summary.detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Text(summary.pendingCount > 1 ? "\(summary.pendingCount)" : summary.ownerLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+
+            if let safeReport = summary.safeReport {
+                Button {
+                    copyCustodySafeReport(safeReport, itemID: summary.primaryItem.id)
+                } label: {
+                    Label(
+                        copiedCustodySafeReportItemID == summary.primaryItem.id ? "Скопировано" : "Скопировать отчет",
+                        systemImage: "doc.on.doc"
+                    )
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.leading, 22)
+                .help("Метаданные для администратора или поддержки без аудио, текста встречи, локальных путей, токенов и ссылок.")
+            }
+        }
+        .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
+        .accessibilityLabel("\(summary.title). \(summary.detail). Ответственный: \(summary.ownerLabel).")
+    }
+
+    private func copyCustodySafeReport(_ report: DesktopUploadCustodySafeReport, itemID: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report.clipboardText, forType: .string)
+        copiedCustodySafeReportItemID = itemID
+    }
+
+    private func custodyDetailIcon(for projection: DesktopUploadCustodyProjection) -> String {
+        switch projection.custodyState {
+        case .delivered, .finalized, .processing:
+            return "checkmark.icloud"
+        case .partialUploaded, .uploadSessionCreated:
+            return "icloud.and.arrow.up"
+        case .serverUnknownLocalSaved, .serverRegistered:
+            return "internaldrive"
+        case .retainedAwaitingCondition, .cannotSend:
+            return "exclamationmark.triangle"
+        case .terminalUndelivered:
+            return "xmark.icloud"
+        }
+    }
+
+    private func custodyDetailColor(for projection: DesktopUploadCustodyProjection) -> Color {
+        switch projection.custodyState {
+        case .delivered, .finalized:
+            return .green
+        case .processing:
+            return projection.copyKey == "custody.unknown_blocked" ? .orange : .green
+        case .partialUploaded, .uploadSessionCreated, .serverRegistered:
+            return .blue
+        case .serverUnknownLocalSaved:
+            return .secondary
+        case .retainedAwaitingCondition:
+            return .orange
+        case .cannotSend, .terminalUndelivered:
+            return .red
+        }
     }
 
     private func statusChip(title: String, icon: String, color: Color) -> some View {
