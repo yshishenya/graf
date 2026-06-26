@@ -708,27 +708,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   justify-content: flex-start;
   gap: 10px;
   align-items: center;
-  padding-left: 19px;
+  padding-left: 13px;
 }
 .selection-toolbar[hidden] { display: none; }
 .selection-toggle {
-  width: 16px;
-  height: 16px;
-  min-height: 16px;
   flex: 0 0 16px;
-  box-sizing: border-box;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #17191c;
-  display: inline-grid;
-  line-height: 0;
-  place-items: center;
 }
-.selection-toggle .ui-icon { width: 12px; height: 12px; }
-.selection-toolbar[data-selection-state="partial"] [data-icon="check"] { display: none; }
-.selection-toolbar[data-selection-state="all"] [data-icon="minus"] { display: none; }
 .selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; line-height: 28px; }
 .selection-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .selection-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
@@ -811,28 +796,30 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .meeting-row.cabinet-row:hover { background: #2c2f33; }
 .meeting-row.is-selected { background: #302860; }
-.meeting-row .row-check {
+.row-check {
   appearance: none;
   width: 16px;
   height: 16px;
   min-height: 16px;
+  margin: 0;
   padding: 0;
   border: 1px solid #686e78;
   border-radius: 4px;
   background: transparent;
 }
-.meeting-row .row-check:checked {
+.row-check:checked, .row-check:indeterminate {
   background: var(--accent);
   border-color: var(--accent);
 }
-.meeting-row .row-check:checked::after {
-  content: "✓";
+.row-check:checked::after, .row-check:indeterminate::after {
   display: grid;
   place-items: center;
   color: #17191c;
   font-size: 12px;
   font-weight: 900;
 }
+.row-check:checked::after { content: "✓"; }
+.row-check:indeterminate::after { content: "−"; }
 .row-icon { display: grid; place-items: center; width: 22px; height: 22px; color: #a7adb7; font-size: 13px; }
 .row-icon .ui-icon { width: 12px; height: 12px; }
 .meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
@@ -1859,7 +1846,7 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
           <div class="meeting-toolbar">
             <div class="section-title" data-list-title>Записи встреч</div>
             <div class="selection-toolbar" data-selection-toolbar hidden data-visible-total="{len(response.items)}">
-              <button class="selection-toggle" type="button" data-selection-toggle aria-label="Выбрать все видимые записи">{_ui_icon("minus")}{_ui_icon("check")}</button>
+              <input class="row-check selection-toggle" type="checkbox" data-selection-toggle aria-label="Выбрать все видимые записи">
               <div class="selection-count" data-selection-count>Выбрано 0 / {len(response.items)}</div>
               <div class="selection-actions">
                 <span class="tooltip-wrap" tabindex="0" data-tooltip="Скачивание появится позже" aria-label="Скачивание появится позже">
@@ -1930,7 +1917,11 @@ def _meeting_list_script() -> str:
           countLabel.textContent = `Выбрано ${rows.length} / ${total}`;
           toolbar.hidden = rows.length === 0;
           toolbar.dataset.selectionState = allSelected ? "all" : "partial";
-          if (selectionToggle) selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
+          if (selectionToggle) {
+            selectionToggle.checked = allSelected;
+            selectionToggle.indeterminate = rows.length > 0 && !allSelected;
+            selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
+          }
           if (listTitle) listTitle.hidden = rows.length > 0;
           list.querySelectorAll("[data-meeting-row]").forEach((row) => {
             row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);

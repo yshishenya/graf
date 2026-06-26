@@ -290,9 +290,12 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Скачивание появится позже" in page
     assert 'data-tooltip="Скачивание появится позже"' in page
     assert "disabled aria-disabled=\"true\" data-download-disabled" in page
-    assert 'data-icon="check"' in page
-    assert "padding-left: 19px;" in page
-    assert ".selection-toggle {\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  flex: 0 0 16px;" in page
+    assert '<input class="row-check selection-toggle" type="checkbox" data-selection-toggle' in page
+    assert "padding-left: 13px;" in page
+    assert ".selection-toggle {\n  flex: 0 0 16px;" in page
+    assert ".row-check {\n  appearance: none;\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  margin: 0;" in page
+    assert ".row-check:indeterminate::after { content: \"−\"; }" in page
+    assert "selectionToggle.indeterminate = rows.length > 0 && !allSelected" in page
     assert "border-radius: 4px;" in page
     assert "line-height: 28px;" in page
     assert ".icon-control {\n  width: 28px;\n  height: 28px;\n  min-height: 28px;" in page
