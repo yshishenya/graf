@@ -6,7 +6,7 @@ public struct DesktopCabinetWorkspaceView: View {
     public static let unavailableTitle = "Кабинет встреч"
     public static let embeddedSurfaceHeight: CGFloat = 420
     public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
-    public static let embeddedWorkspaceMaxWidth: CGFloat = 820
+    public static let embeddedWorkspaceMaxWidth: CGFloat = 1120
 
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?

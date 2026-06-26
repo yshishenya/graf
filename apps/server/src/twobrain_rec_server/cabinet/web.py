@@ -655,14 +655,14 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .cabinet-main {
   min-height: 100vh;
   background: var(--bg);
-  padding: 34px clamp(28px, 8vw, 154px) 92px;
+  padding: 34px clamp(24px, 5vw, 96px) 92px;
 }
 .desktop-embedded .cabinet-main {
   min-height: 100vh;
-  padding: 24px clamp(24px, 7vw, 112px) 80px;
+  padding: 24px clamp(18px, 4vw, 64px) 80px;
 }
-.cabinet-workspace { max-width: 860px; }
-.desktop-embedded .cabinet-workspace { max-width: min(820px, calc(100vw - 72px)); margin: 0 auto; }
+.cabinet-workspace { width: 100%; max-width: 1120px; }
+.desktop-embedded .cabinet-workspace { width: 100%; max-width: min(1120px, calc(100vw - 48px)); margin: 0 auto; }
 .cabinet-topbar {
   min-height: 30px;
   display: flex;
@@ -793,9 +793,9 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .meeting-row.cabinet-row {
   grid-template-columns: 24px 20px minmax(0, 1fr) 32px 64px;
-  min-height: 38px;
-  padding: 0 12px;
-  gap: 9px;
+  min-height: 46px;
+  padding: 4px 12px;
+  gap: 8px;
 }
 .meeting-row.cabinet-row:hover { background: #2c2f33; }
 .meeting-row.is-selected { background: #302860; }
@@ -852,12 +852,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .dialog-error { color: #ffd6d6; font-size: 12px; margin-top: 12px; }
 .dialog-error[hidden] { display: none; }
-}
 .floating-search {
   position: fixed;
-  left: max(204px, calc(50% - 250px));
+  left: 50%;
   bottom: 16px;
-  width: min(430px, calc(100vw - 260px));
+  width: min(430px, calc(100vw - 320px));
+  transform: translateX(-50%);
   min-height: 40px;
   border: 1px solid #42464e;
   background: var(--surface);
@@ -873,7 +873,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   left: 50%;
   right: auto;
   bottom: 16px;
-  width: min(366px, calc(100vw - 72px));
+  width: min(366px, calc(100vw - 48px));
   transform: translateX(-50%);
 }
 .desktop-embedded .empty-state { min-height: 210px; }
@@ -962,7 +962,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .timeline-lane { grid-template-columns: 72px minmax(0, 1fr) 38px; }
   .timeline-label, .timeline-share { font-size: 11px; }
   .timeline-track { height: 7px; }
-  .floating-search { left: 14px; right: 14px; width: auto; }
+  .floating-search { left: 14px; right: 14px; width: auto; transform: none; }
   .auth-legal { position: relative; inset: auto; margin-top: -8px; }
 }
 @media (max-width: 540px) {
