@@ -22,6 +22,22 @@ final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
         }
     }
 
+    func testReloadsDeletionReportNavigationWithDesktopHeaders() throws {
+        let policy = try makePolicy()
+        let reportURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033/deletion-report"))
+        let request = URLRequest(url: reportURL)
+
+        switch policy.decision(forNavigationRequest: request, isForMainFrame: true) {
+        case let .reload(reloaded):
+            XCTAssertEqual(reloaded.url, reportURL)
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Client-Version"), "local-macos")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
+        case .allow:
+            XCTFail("Expected deletion report navigation to be reloaded with desktop headers")
+        }
+    }
+
     func testAllowsMeetingDetailNavigationWhenHeadersAreAlreadyPresent() throws {
         let policy = try makePolicy()
         let detailURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033"))

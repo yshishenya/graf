@@ -2,6 +2,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+from twobrain_rec_server.api.schemas import (
+    ArtifactEgressState,
+    GovernanceActionState,
+    GovernanceActionSummary,
+    MeetingAccessState,
+    MeetingListItem,
+    SlotState,
+)
 from twobrain_rec_server.cabinet import view_models
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -30,6 +38,85 @@ def _meeting(processing_status: ProcessingStatus = ProcessingStatus.PROCESSED) -
         status="ingested_pending_processing",
         processing_status=processing_status.value,
     )
+
+
+def _owner_access() -> MeetingAccessState:
+    return MeetingAccessState(
+        state="owner",
+        label="Owner",
+        reason="Synthetic owner access.",
+        can_view=True,
+        can_share=True,
+        can_manage_team_visibility=True,
+        can_download=True,
+        can_export=True,
+    )
+
+
+def _governance() -> GovernanceActionSummary:
+    disabled = GovernanceActionState(state="disabled", label="Disabled", reason="Synthetic.", destructive=False)
+    return GovernanceActionSummary(
+        share=disabled,
+        export=disabled,
+        download=disabled,
+        retention=disabled,
+        delete=GovernanceActionState(state="planned", label="Delete", reason="Synthetic.", destructive=True),
+    )
+
+
+def _list_item(
+    *,
+    source: str = "desktop_recording",
+    transcript_available: bool = False,
+    artifacts: list[ArtifactEgressState] | None = None,
+) -> MeetingListItem:
+    return MeetingListItem(
+        meeting_id=uuid4(),
+        title="Synthetic meeting",
+        started_at=datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=65,
+        source=source,
+        status="ready",
+        status_label="Ready",
+        status_reason=None,
+        primary_action="open",
+        transcript_available=transcript_available,
+        diarization_available=False,
+        notes_available=False,
+        updated_at=None,
+        access=_owner_access(),
+        artifacts=artifacts or [],
+        governance=_governance(),
+        future_slots=[SlotState(state="planned", label="Star", reason="Synthetic.")],
+    )
+
+
+def test_common_display_helpers_for_meeting_rows() -> None:
+    audio = _list_item(
+        artifacts=[
+            ArtifactEgressState(
+                artifact_class="audio",
+                state="available",
+                label="Audio",
+                reason=None,
+                action="download",
+            )
+        ]
+    )
+    transcript = _list_item(transcript_available=True)
+    video = _list_item(source="video_recording")
+    upload = _list_item(source="manual_upload")
+
+    assert view_models.meeting_media_kind(audio) == "audio"
+    assert view_models.meeting_media_label(audio) == "аудио"
+    assert view_models.meeting_media_kind(transcript) == "transcript"
+    assert view_models.meeting_media_label(video) == "видео"
+    assert view_models.meeting_media_kind(upload) == "upload"
+    assert view_models.format_duration(65) == "1m"
+    assert view_models.date_label(audio) == "16 июн"
+    assert view_models.sort_label("duration_asc") == "Сначала короткие"
+    assert view_models.sort_label("unknown") == "Сначала новые"
 
 
 def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:

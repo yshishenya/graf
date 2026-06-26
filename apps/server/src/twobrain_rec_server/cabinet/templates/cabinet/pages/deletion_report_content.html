@@ -1,0 +1,32 @@
+<main class="main">
+  <div class="topline">
+    <div class="crumbs">
+      <a href="{{ base_path }}">Мои встречи</a>
+      <span>/</span>
+      <strong>{{ meeting_title }}</strong>
+      <span>Отчет удаления</span>
+    </div>
+    <div class="action-row"><a class="button" href="{{ base_path }}">Назад</a></div>
+  </div>
+  <section class="report-layout" aria-label="Отчет удаления">
+    <div class="report-band">
+      <h3>Жизненный цикл</h3>
+      <div class="state-row"><strong>{{ overall_state_label }}</strong><span class="chip deleted_future">только метаданные</span></div>
+      <div class="truth-copy" data-boundary-copy="{{ bounded_copy }}">{{ bounded_copy_text }}</div>
+    </div>
+    <div class="report-grid">
+      {{ artifact_band }}
+      {{ backup_band }}
+      {{ dependencies_band }}
+      {{ egress_limits_band }}
+    </div>
+    <div class="report-band">
+      <h3>Очистка на устройстве</h3>
+      {{ local_purge }}
+    </div>
+    <div class="report-band">
+      <h3>События удаления</h3>
+      {{ activity }}
+    </div>
+  </section>
+</main>

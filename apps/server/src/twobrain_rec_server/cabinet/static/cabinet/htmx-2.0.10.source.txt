@@ -1,0 +1,7 @@
+name: htmx.org
+version: 2.0.10
+source: https://unpkg.com/htmx.org@2.0.10/dist/htmx.min.js
+package: https://www.npmjs.com/package/htmx.org/v/2.0.10
+license: 0BSD
+vendored_at: 2026-06-26
+policy: local vendored asset only; no CDN runtime dependency

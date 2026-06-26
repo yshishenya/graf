@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -39,3 +40,12 @@ def test_validation_error_schema_matches_current_toolchain(client) -> None:
 
     required = {"loc", "msg", "type"}
     assert required.issubset(validation_error)
+
+
+def test_cabinet_csrf_guard_does_not_change_public_openapi_contract(client) -> None:
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"]["/api/v1/cabinet/meetings/{meeting_id}/deletion-requests"]["post"]
+
+    assert operation["operationId"] == "createMeetingDeletionRequest"
+    assert "CreateDeletionRequest" in json.dumps(operation, sort_keys=True)
+    assert "X-CSRF-Token" not in json.dumps(operation, sort_keys=True)

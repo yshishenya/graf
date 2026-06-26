@@ -9,19 +9,32 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `058-web-cabinet-htmx-shell`: добавлен серверный Jinja shell для
+  web/desktop кабинета, reusable cabinet component catalog, локальный
+  `htmx-2.0.10`, bounded HTMX fragments для списка/detail/delete feedback,
+  deletion-report и metadata-safe runtime checker.
 
 ### Изменено
-- _Пока нет записей._
+- Список и detail кабинета теперь рендерятся через общий server-owned shell,
+  чтобы будущие online-страницы не дублировали продуктовое меню в macOS shell.
+- Desktop WebView получает online cabinet navigation, а native Record/Stop,
+  active capture, upload truth, permission recovery и local diagnostics
+  остаются native-only.
 
 ### Исправлено
-- _Пока нет записей._
+- Deletion-report web routes теперь возвращают bounded HTMX fragment при
+  `HX-Request`, а не полный shell.
 
 ### Безопасность
-- _Пока нет записей._
+- Unsafe cookie-authenticated cabinet actions защищены CSRF proof, HTMX-запросы
+  передают `X-CSRF-Token`, а template tests закрепляют autoescape/trusted HTML
+  guard и отсутствие private evidence markers.
+- CSRF contract отдельно закрепляет все unsafe cabinet API routes, чтобы новые
+  POST/PATCH/DELETE действия не обходили web-session защиту.
 
 ### Документы
-- _Пока нет записей._
+- Зафиксированы architecture/component/HTMX/WebView boundary decisions,
+  rollback rules и validation evidence для feature `058`.
 
 ### Операции
 - _Пока нет записей._

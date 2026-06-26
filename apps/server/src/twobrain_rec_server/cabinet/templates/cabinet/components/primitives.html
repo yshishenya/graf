@@ -1,0 +1,82 @@
+{% import "cabinet/components/icons.html" as icons %}
+
+{% macro button(label, variant="primary", disabled=False, loading=False, selected=False, destructive=False, type="button") -%}
+{%- set state = "disabled" if disabled else "loading" if loading else "selected" if selected else "destructive" if destructive else "normal" -%}
+<button class="cabinet-button cabinet-button--{{ variant }}{% if destructive %} is-destructive{% endif %}" type="{{ type }}" data-state="{{ state }}"{% if disabled or loading %} disabled aria-disabled="true"{% endif %}>
+  {%- if loading -%}<span class="cabinet-loader cabinet-loader--inline" aria-hidden="true"></span>{%- endif -%}
+  <span class="cabinet-button__label">{{ label }}</span>
+</button>
+{%- endmacro %}
+
+{% macro icon_button(icon_name, label, variant="quiet", disabled=False, loading=False, destructive=False) -%}
+{%- set state = "disabled" if disabled else "loading" if loading else "destructive" if destructive else "normal" -%}
+<button class="cabinet-icon-button cabinet-button--{{ variant }}{% if destructive %} is-destructive{% endif %}" type="button" aria-label="{{ label }}" data-state="{{ state }}"{% if disabled or loading %} disabled aria-disabled="true"{% endif %}>
+  {%- if loading -%}<span class="cabinet-loader cabinet-loader--inline" aria-hidden="true"></span>{%- else -%}{{ icons.icon(icon_name) }}{%- endif -%}
+</button>
+{%- endmacro %}
+
+{% macro link(label, href, variant="quiet", disabled=False) -%}
+{%- if disabled -%}
+<span class="cabinet-link cabinet-link--{{ variant }} is-disabled" aria-disabled="true" data-state="disabled">{{ label }}</span>
+{%- else -%}
+<a class="cabinet-link cabinet-link--{{ variant }}" href="{{ href }}" data-state="normal">{{ label }}</a>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro input(name, label, value="", type="text", placeholder="", disabled=False, error=None) -%}
+{%- set state = "disabled" if disabled else "error" if error else "normal" -%}
+<label class="cabinet-field" data-state="{{ state }}">
+  <span class="cabinet-field__label">{{ label }}</span>
+  <input name="{{ name }}" type="{{ type }}" value="{{ value }}" placeholder="{{ placeholder }}"{% if disabled %} disabled aria-disabled="true"{% endif %}{% if error %} aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}>
+  {%- if error -%}<span class="cabinet-field__error" id="{{ name }}-error">{{ error }}</span>{%- endif -%}
+</label>
+{%- endmacro %}
+
+{% macro select(name, label, options, value="", disabled=False) -%}
+<label class="cabinet-field" data-state="{{ 'disabled' if disabled else 'normal' }}">
+  <span class="cabinet-field__label">{{ label }}</span>
+  <select name="{{ name }}"{% if disabled %} disabled aria-disabled="true"{% endif %}>
+    {%- for option in options -%}
+    <option value="{{ option[0] }}"{% if option[0] == value %} selected{% endif %}>{{ option[1] }}</option>
+    {%- endfor -%}
+  </select>
+</label>
+{%- endmacro %}
+
+{% macro checkbox(name, label, checked=False, disabled=False) -%}
+<label class="cabinet-checkbox" data-state="{{ 'disabled' if disabled else 'selected' if checked else 'normal' }}">
+  <input name="{{ name }}" type="checkbox"{% if checked %} checked{% endif %}{% if disabled %} disabled aria-disabled="true"{% endif %}>
+  <span>{{ label }}</span>
+</label>
+{%- endmacro %}
+
+{% macro chip(label, state="normal") -%}
+<span class="cabinet-chip cabinet-chip--{{ state }}" data-state="{{ state }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro badge(label, state="normal") -%}
+<span class="cabinet-badge cabinet-badge--{{ state }}" data-state="{{ state }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro tab(label, target, selected=False, disabled=False) -%}
+<button class="cabinet-tab{% if selected %} is-selected{% endif %}" type="button" role="tab" aria-selected="{{ 'true' if selected else 'false' }}" aria-controls="{{ target }}" data-state="{{ 'disabled' if disabled else 'selected' if selected else 'normal' }}"{% if disabled %} disabled aria-disabled="true"{% endif %}>{{ label }}</button>
+{%- endmacro %}
+
+{% macro tooltip(label, body) -%}
+<span class="cabinet-tooltip" data-state="normal">
+  <span class="cabinet-tooltip__anchor" tabindex="0">{{ label }}</span>
+  <span class="cabinet-tooltip__body" role="tooltip">{{ body }}</span>
+</span>
+{%- endmacro %}
+
+{% macro loader(label="Загрузка") -%}
+<span class="cabinet-loader" role="status" aria-label="{{ label }}" data-state="loading"></span>
+{%- endmacro %}
+
+{% macro text(value, tone="body", overflow=False) -%}
+<p class="cabinet-text cabinet-text--{{ tone }}{% if overflow %} cabinet-text--overflow{% endif %}"{% if overflow %} title="{{ value }}"{% endif %} data-state="{{ 'overflow_text' if overflow else 'normal' }}">{{ value }}</p>
+{%- endmacro %}
+
+{% macro status_label(label, state="normal") -%}
+<span class="cabinet-status cabinet-status--{{ state }}" data-state="{{ state }}">{{ label }}</span>
+{%- endmacro %}

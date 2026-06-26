@@ -24,6 +24,7 @@ public enum DesktopMeetingShellChrome {
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
     public static let recordingStripHeight: CGFloat = 36
     public static let idleShowsNativeTopBar = false
+    public static let showsNativeProductSidebar = false
     public static let fontStackDescription = "SF Pro Text / system"
     public static let compactRailLabels = ["Запись", "Сохранность"]
     public static let webEmbeddedBackgroundNSColor = NSColor(
@@ -283,15 +284,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     public var body: some View {
         GeometryReader { geometry in
-            let actionBadgeCount = meetingOwnerCustodyActionCount
-            let sidebarWidth = DesktopMeetingShellChrome.sidebarWidth(
-                pendingUploadCount: actionBadgeCount,
-                availableWindowWidth: geometry.size.width
-            )
             HStack(spacing: 0) {
-                sidebar
-                    .frame(width: sidebarWidth)
-                Divider()
+                if DesktopMeetingShellChrome.showsNativeProductSidebar {
+                    let sidebarWidth = DesktopMeetingShellChrome.sidebarWidth(
+                        pendingUploadCount: meetingOwnerCustodyActionCount,
+                        availableWindowWidth: geometry.size.width
+                    )
+                    sidebar
+                        .frame(width: sidebarWidth)
+                    Divider()
+                }
                 VStack(spacing: 0) {
                     if let recordingStripSession {
                         recordingStrip(for: recordingStripSession)

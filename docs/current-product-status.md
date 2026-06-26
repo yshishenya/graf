@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-06-25
+Date: 2026-06-26
 
 Этот документ коротко фиксирует состояние продукта во время MVP live UI
 proof-slice `052-mvp-live-ui-proof`. PRD остается базовой продуктовой
@@ -273,6 +273,25 @@ proof-slice `052-mvp-live-ui-proof`. PRD остается базовой про�
   `user_rollout_ready`, and `production_ready` stay excluded until a fresh live
   owner journey, stored outcomes on a production candidate, and representative
   one-hour timing proof pass with metadata-only evidence.
+- Feature `058-web-cabinet-htmx-shell` is implemented in the current feature
+  branch as a local architecture refactor for the server-owned cabinet shell.
+  It fixes the frontend foundation as Jinja templates, reusable cabinet
+  component macros, one static CSS/token layer, centralized Lucide-style inline
+  SVG icons, and locally vendored HTMX `2.0.10`; Tailwind, ready UI kits, SPA
+  frameworks, CDN UI assets, frontend build pipelines, component preview apps,
+  and separate design-system packages remain out of scope. Browser and desktop
+  embedded cabinet list/detail routes share one online shell, HTMX updates are
+  bounded fragments with full-page fallback, unsafe cookie-authenticated
+  cabinet actions require CSRF proof, and desktop route policy uses exact
+  approved route kinds including deletion reports. Native Record/Stop, active
+  capture, upload truth, permission recovery, diagnostics, and offline recovery
+  remain outside WebView ownership. Local evidence on 2026-06-26: targeted
+  server checks passed `93 passed, 5 warnings`; runtime checker passed
+  `result=pass` across `8` synthetic surfaces and `12` checks; desktop cabinet
+  checks passed `63 tests, 0 failures`; static source guard passed; full local
+  CI passed `685 passed, 4 skipped, 94 warnings` with `ci_local_result=pass`.
+  This branch has no database migration or machine-readable JSON contract
+  change and is not merged, released, deployed, or production-smoked yet.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -465,8 +484,9 @@ upload, finalization, and processing, but imported `0` transcript segments and
 speaker-timeline, or stored-outcome proof, so these local and production checks
 still do not prove MVP rollout readiness.
 
-Feature `057-local-upload-custody` is implemented locally in the current
-feature branch as the product-owned custody layer for local desktop recordings.
+Feature `057-local-upload-custody` is implemented, merged through PR `#2052`,
+and released as `v2026.06.26.12` as the product-owned custody layer for local
+desktop recordings.
 It keeps the server WebView meeting list authoritative, removes normal-user
 transport retry controls, preserves local recordings with automatic custody
 processing, exposes compact native aggregate status, emits metadata-safe
@@ -474,9 +494,9 @@ admin/support incident truth, separates upload/processing/deletion/local purge
 states, and fails closed on local purge acknowledgement unless deletion,
 tombstone, or unrecoverability is verified. Focused local evidence passed the
 057 Swift custody/purge/projection suites and focused server custody/purge
-read-model suites on 2026-06-26. This is not yet merged, released, deployed, or
-production-smoked evidence, and feature `058` still owns server cabinet
-presentation refactor work.
+read-model suites on 2026-06-26. This is merged/released local implementation
+readiness, not production-smoked evidence, and feature `058` still owns server
+cabinet presentation refactor work.
 
 Current evidence already accepted before 050:
 

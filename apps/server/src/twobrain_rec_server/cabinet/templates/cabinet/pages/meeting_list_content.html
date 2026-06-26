@@ -1,0 +1,82 @@
+{% import "cabinet/components/icons.html" as icons %}
+
+<main class="cabinet-main">
+  <div class="cabinet-workspace">
+    <div class="cabinet-topbar">
+      <div class="cabinet-titleline"><strong>Мои встречи</strong><span>{{ sort_label }}</span></div>
+      <form class="cabinet-list-controls" method="get" action="{{ filter_action }}"
+        data-hx-get="{{ filter_action }}"
+        data-hx-target="#meeting-list-region"
+        data-hx-select="#meeting-list-region"
+        data-hx-swap="outerHTML"
+        data-hx-push-url="true"
+        data-hx-trigger="change delay:150ms, submit">
+        <label class="sr-only" for="meeting-search">Фильтры</label>
+        <input id="meeting-search" name="q" type="search" value="{{ query_value }}" placeholder="Поиск">
+        <label class="sr-only" for="meeting-status">Статус</label>
+        <select id="meeting-status" name="status" aria-label="Фильтры по статусу">
+          <option value=""{% if not status_value %} selected{% endif %}>Все статусы</option>
+          <option value="ready"{% if status_value == "ready" %} selected{% endif %}>Готово</option>
+          <option value="processing"{% if status_value == "processing" %} selected{% endif %}>В обработке</option>
+          <option value="partial"{% if status_value == "partial" %} selected{% endif %}>Частично</option>
+          <option value="failed"{% if status_value == "failed" %} selected{% endif %}>Сбой</option>
+        </select>
+        <label class="sr-only" for="meeting-access">Доступ</label>
+        <select id="meeting-access" name="access" aria-label="Фильтры по доступу">
+          <option value=""{% if not access_value %} selected{% endif %}>Любой доступ</option>
+          <option value="owner"{% if access_value == "owner" %} selected{% endif %}>Владелец</option>
+          <option value="team"{% if access_value == "team" %} selected{% endif %}>Команда</option>
+          <option value="shared"{% if access_value == "shared" %} selected{% endif %}>Поделились</option>
+        </select>
+        <label class="sr-only" for="meeting-sort">Сортировка</label>
+        <span class="cabinet-list-control-icon" aria-hidden="true">{{ icons.icon("sort") }}</span>
+        <select id="meeting-sort" name="sort" aria-label="Сортировка">
+          <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Сначала новые</option>
+          <option value="duration_asc"{% if sort_value == "duration_asc" %} selected{% endif %}>Сначала короткие</option>
+          <option value="duration_desc"{% if sort_value == "duration_desc" %} selected{% endif %}>Сначала длинные</option>
+          <option value="title_asc"{% if sort_value == "title_asc" %} selected{% endif %}>По названию</option>
+        </select>
+        <button class="icon-control" type="submit" aria-label="Применить фильтры">{{ icons.icon("filter") }}</button>
+        <button class="icon-control" type="button" aria-label="Сохраненные" aria-disabled="true">{{ icons.icon("bookmark") }}</button>
+        <button class="new-button" type="button" aria-disabled="true">Новая</button>
+      </form>
+    </div>
+    <section class="upcoming cabinet-card" aria-label="Ближайшие встречи">
+      <div class="section-title">Ближайшие</div>
+      <div class="calendar-day">
+        <div class="date-badge">Сегодня<br>17</div>
+        <div class="calendar-events">
+          <div class="calendar-event"><strong>Командный синк</strong><div class="muted">11:30 - 13:00</div></div>
+          <div class="calendar-event"><strong>Ревью релиза</strong><div class="muted">12:00 - 13:00</div></div>
+        </div>
+      </div>
+      <div class="calendar-day">
+        <div class="date-badge">19<br>июн</div>
+        <div class="calendar-events">
+          <div class="calendar-event"><strong>Планирование запуска</strong><div class="muted">15:00 - 16:00</div></div>
+        </div>
+      </div>
+    </section>
+    <div class="meeting-toolbar">
+      <div class="section-title" data-list-title>Записи встреч</div>
+      <div class="selection-toolbar" data-selection-toolbar hidden data-visible-total="{{ visible_total }}">
+        <input class="row-check selection-toggle" type="checkbox" data-selection-toggle aria-label="Выбрать все видимые записи">
+        <div class="selection-count" data-selection-count>Выбрано 0 / {{ visible_total }}</div>
+        <div class="selection-actions">
+          <span class="tooltip-wrap" tabindex="0" data-tooltip="Скачивание появится позже" aria-label="Скачивание появится позже">
+            <button class="icon-control is-disabled" type="button" disabled aria-disabled="true" data-download-disabled aria-label="Скачать выбранные записи">{{ icons.icon("download") }}</button>
+          </span>
+          <span class="selection-divider" aria-hidden="true"></span>
+          <button class="icon-control danger-button" type="button" aria-label="Удалить выбранные записи" data-selection-delete>{{ icons.icon("trash") }}</button>
+        </div>
+      </div>
+      <div class="toolbar-icons" aria-hidden="true">
+        {{ icons.icon("filter") }}{{ icons.icon("sort") }}
+      </div>
+    </div>
+    {{ list_region }}
+    <div id="delete-feedback-region" class="delete-feedback-region" aria-live="polite"></div>
+    {{ delete_dialog }}
+  </div>
+  <div class="floating-search">Спросите что-нибудь...</div>
+</main>

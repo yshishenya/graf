@@ -1,0 +1,40 @@
+<main class="auth-page">
+  <section class="auth-panel" aria-label="Код входа">
+    <div class="auth-brand-wordmark">2brain Rec</div>
+    <div>
+      <h1>{{ page_title }}</h1>
+      <div class="auth-subtitle">{{ subtitle }}</div>
+    </div>
+    <div class="code-hint">Проверьте почту и введите код ниже.</div>
+    {% if error_message %}
+    <div class="auth-alert" role="alert">{{ error_message }}</div>
+    {% endif %}
+    {% if dev_code is not none %}
+    <div class="delete-confirmation">
+      <strong>Dev code</strong>
+      <div class="truth-copy">Код для локальной проверки: <strong>{{ dev_code }}</strong></div>
+    </div>
+    {% endif %}
+    <form class="auth-form" action="{{ verify_path }}" method="post" data-code-form>
+      <div class="code-grid" role="group" aria-label="6-значный код">
+        {% for index in range(1, 7) %}
+        <input class="code-slot" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Цифра {{ index }}" data-code-slot>
+        {% endfor %}
+      </div>
+      <input data-code-hidden name="code" type="hidden" autocomplete="one-time-code">
+      <input type="hidden" name="email" value="{{ email }}">
+      <input type="hidden" name="state" value="{{ state_nonce }}">
+      <input type="hidden" name="next" value="{{ next_path }}">
+      <button class="primary" type="submit">Продолжить</button>
+    </form>
+    <form class="auth-form" action="{{ resend_path }}" method="post">
+      <input type="hidden" name="email" value="{{ email }}">
+      <input type="hidden" name="next" value="{{ next_path }}">
+      <button class="auth-resend" type="submit">Отправить код еще раз</button>
+    </form>
+    <div class="auth-secondary">
+      <a class="mini-link" href="{{ back_href }}">Изменить почту</a>
+    </div>
+  </section>
+  <p class="auth-legal">Код действует ограниченное время. Не пересылайте его другим людям.</p>
+</main>

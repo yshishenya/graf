@@ -81,8 +81,6 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .expiredSession:
             return "Войти в кабинет"
-        case .offline, .timeout:
-            return "Открыть кабинет"
         default:
             return nil
         }
@@ -216,8 +214,6 @@ public enum DesktopCabinetWorkspace {
         switch state {
         case .expiredSession:
             return .embedded(loginRoute(configuration: configuration))
-        case .offline, .timeout:
-            return .external(configuration.baseURL)
         default:
             return nil
         }

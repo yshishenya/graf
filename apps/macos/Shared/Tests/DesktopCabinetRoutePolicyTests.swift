@@ -14,6 +14,12 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(detail.route.kind, .meetingDetail)
         XCTAssertEqual(detail.route.meetingId, "meeting-033")
 
+        let deletionReport = policy.decision(for: try url("/desktop/meetings/meeting-033/deletion-report"))
+        XCTAssertEqual(deletionReport.decision, .allow)
+        XCTAssertEqual(deletionReport.route.kind, .meetingDeletionReport)
+        XCTAssertEqual(deletionReport.route.meetingId, "meeting-033")
+        XCTAssertEqual(deletionReport.reason, .allowedMeetingDeletionReport)
+
         let login = policy.decision(for: try url("/login?next=/desktop/meetings"))
         XCTAssertEqual(login.decision, .allow)
         XCTAssertEqual(login.route.kind, .authLogin)
@@ -36,9 +42,20 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/share")).decision, .blockWithMessage)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/download")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/delete")).reason, .blockedFutureGovernance)
+        XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/deletion")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/retention")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/capture/record")).reason, .blockedNativeCaptureControl)
         XCTAssertEqual(policy.decision(for: try url("/desktop/diagnostics/bundle")).reason, .blockedLocalFileOrDiagnostic)
+    }
+
+    func testRoutePolicyDoesNotUseBroadSubstringMatchingForSafeMeetingIds() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+
+        let detail = policy.decision(for: try url("/desktop/meetings/delete-retention-notes"))
+
+        XCTAssertEqual(detail.decision, .allow)
+        XCTAssertEqual(detail.route.kind, .meetingDetail)
+        XCTAssertEqual(detail.route.meetingId, "delete-retention-notes")
     }
 
     func testBlocksLocalUploadDeviceAndPermissionRoutes() throws {

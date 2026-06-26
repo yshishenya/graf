@@ -3,6 +3,7 @@ import Foundation
 public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingList
     case meetingDetail
+    case meetingDeletionReport
     case authLogin
     case authSignup
     case unsupported
@@ -31,6 +32,7 @@ public enum DesktopCabinetRouteAction: String, Equatable, Sendable {
 public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingList = "allowed_meeting_list"
     case allowedMeetingDetail = "allowed_meeting_detail"
+    case allowedMeetingDeletionReport = "allowed_meeting_deletion_report"
     case allowedAuthLogin = "allowed_auth_login"
     case allowedAuthSignup = "allowed_auth_signup"
     case blockedFutureGovernance = "blocked_future_governance"
@@ -113,13 +115,25 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Meeting detail"
             )
         }
-        if containsAny(path, ["share", "export", "download", "delete", "retention", "settings", "billing", "admin"]) {
+        if components.count == 4,
+           components[0] == "desktop",
+           components[1] == "meetings",
+           isSafeMeetingId(components[2]),
+           components[3] == "deletion-report" {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, meetingId: components[2], kind: .meetingDeletionReport),
+                decision: .allow,
+                reason: .allowedMeetingDeletionReport,
+                userMessage: "Meeting deletion report"
+            )
+        }
+        if isFutureGovernanceRoute(components) {
             return block(path: path, kind: .unsupported, reason: .blockedFutureGovernance, message: "This action opens in a future browser-owned release.")
         }
-        if containsAny(path, ["capture", "record", "stop", "microphone", "speaker", "device", "permission", "driver", "system-audio"]) {
+        if isNativeCaptureControlRoute(components) {
             return block(path: path, kind: .forbiddenAction, reason: .blockedNativeCaptureControl, message: "This local control stays in the app shell.")
         }
-        if containsAny(path, ["diagnostic", "bundle", "file", "picker", "purge", "local", "upload"]) {
+        if isLocalFileOrDiagnosticRoute(components) {
             return block(path: path, kind: .forbiddenAction, reason: .blockedLocalFileOrDiagnostic, message: "This local diagnostic stays in the app shell.")
         }
         return block(path: path, kind: .unsupported, reason: .blockedUnknownRoute, message: "This meeting route is not available in the desktop workspace.")
@@ -189,17 +203,70 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         !value.isEmpty && value.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil
     }
 
-    private func containsAny(_ path: String, _ needles: [String]) -> Bool {
-        let lowered = path.lowercased()
-        return needles.contains { lowered.contains($0) }
-    }
-
     private func isLoginRoute(_ components: [String]) -> Bool {
         components.first == "login"
     }
 
     private func isSignupRoute(_ components: [String]) -> Bool {
         components.first == "sign-up"
+    }
+
+    private func isFutureGovernanceRoute(_ components: [String]) -> Bool {
+        hasAnySegment(
+            components,
+            [
+                "admin",
+                "billing",
+                "delete",
+                "deletion",
+                "download",
+                "export",
+                "retention",
+                "settings",
+                "share"
+            ]
+        )
+    }
+
+    private func isNativeCaptureControlRoute(_ components: [String]) -> Bool {
+        hasAnySegment(
+            components,
+            [
+                "audio-devices",
+                "capture",
+                "device",
+                "devices",
+                "driver",
+                "microphone",
+                "permission",
+                "permissions",
+                "record",
+                "speaker",
+                "stop",
+                "system-audio"
+            ]
+        )
+    }
+
+    private func isLocalFileOrDiagnosticRoute(_ components: [String]) -> Bool {
+        hasAnySegment(
+            components,
+            [
+                "bundle",
+                "diagnostic",
+                "diagnostics",
+                "file",
+                "files",
+                "local",
+                "picker",
+                "purge",
+                "upload"
+            ]
+        )
+    }
+
+    private func hasAnySegment(_ components: [String], _ blockedSegments: Set<String>) -> Bool {
+        components.contains { blockedSegments.contains($0.lowercased()) }
     }
 
     private func defaultPort(for scheme: String?) -> Int? {

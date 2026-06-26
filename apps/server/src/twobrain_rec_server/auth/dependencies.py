@@ -6,6 +6,7 @@ from sqlalchemy import and_, select
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
+from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, CSRF_HEADER_NAME, require_csrf_token
 from twobrain_rec_server.auth.sessions import decode_session_token, is_session_token_valid
 from twobrain_rec_server.db.models import (
     AuthSession,
@@ -209,6 +210,33 @@ async def get_device_context(
 
 PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
+
+
+async def get_web_csrf_secret(request: Request) -> str:
+    secret = getattr(request.app.state, "web_csrf_secret", None)
+    if not secret:
+        raise ProblemDetail(
+            status=503,
+            code="csrf_secret_unavailable",
+            title="CSRF protection unavailable",
+        )
+    return str(secret)
+
+
+async def require_web_csrf(
+    request: Request,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    x_csrf_token: str | None = Header(default=None, alias=CSRF_HEADER_NAME, include_in_schema=False),
+    csrf_secret: str = Depends(get_web_csrf_secret),
+) -> None:
+    if not principal.auth_via_session:
+        return
+    form_token: str | None = None
+    if x_csrf_token is None and request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+        form = await request.form()
+        value = form.get(CSRF_FORM_FIELD_NAME)
+        form_token = str(value) if value is not None else None
+    require_csrf_token(x_csrf_token or form_token, session_id=principal.session_id, secret=csrf_secret)
 
 
 async def get_tenant_scope(

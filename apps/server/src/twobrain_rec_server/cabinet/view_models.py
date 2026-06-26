@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import cast
 
@@ -68,6 +69,13 @@ STATUS_LABELS: dict[str, str] = {
     "deleted_future": "Delete planned",
 }
 
+SORT_LABELS: dict[str, str] = {
+    "updated_desc": "Сначала новые",
+    "updated_asc": "Сначала старые",
+    "duration_desc": "Сначала длинные",
+    "duration_asc": "Сначала короткие",
+}
+
 PROCESSING_STATUSES = {
     ProcessingStatus.PENDING_PROCESSING.value,
     ProcessingStatus.STARTING.value,
@@ -77,6 +85,38 @@ PROCESSING_STATUSES = {
     ProcessingStatus.POLLING.value,
     ProcessingStatus.IMPORTING.value,
 }
+
+
+@dataclass(frozen=True)
+class CabinetNavigationItem:
+    id: str
+    label: str
+    href: str
+    icon: str
+    enabled: bool = True
+    count: int | None = None
+
+
+@dataclass(frozen=True)
+class CabinetNavigationModel:
+    active: str
+    items: tuple[CabinetNavigationItem, ...]
+    workspace_title: str = "Личный"
+    workspace_subtitle: str = "Бесплатный план"
+
+
+def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6) -> CabinetNavigationModel:
+    return CabinetNavigationModel(
+        active=active,
+        items=(
+            CabinetNavigationItem("search", "Поиск", "#", "filter", enabled=False),
+            CabinetNavigationItem("meetings", "Мои встречи", "/meetings", "audio"),
+            CabinetNavigationItem("shared", "Общие", "#", "bookmark", enabled=False),
+            CabinetNavigationItem("actions", "Действия", "#", "check", enabled=False, count=pending_actions),
+            CabinetNavigationItem("activity", "Активность", "#", "sort", enabled=False),
+            CabinetNavigationItem("settings", "Настройки", "#", "filter", enabled=False),
+        ),
+    )
 
 
 def source_role_label(source_role: str | None) -> SourceRoleView:
@@ -95,6 +135,63 @@ def format_timestamp(seconds: Decimal | float | int) -> str:
     if hours:
         return f"{hours:02d}:{minutes:02d}:{second:02d}"
     return f"{minutes:02d}:{second:02d}"
+
+
+def format_duration(seconds: int) -> str:
+    minutes, second = divmod(max(0, seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m"
+    return f"{second}s"
+
+
+def date_label(item: MeetingListItem) -> str:
+    if item.started_at is None:
+        return "Без даты"
+    months = {
+        1: "янв",
+        2: "фев",
+        3: "мар",
+        4: "апр",
+        5: "май",
+        6: "июн",
+        7: "июл",
+        8: "авг",
+        9: "сен",
+        10: "окт",
+        11: "ноя",
+        12: "дек",
+    }
+    return f"{item.started_at.day} {months[item.started_at.month]}"
+
+
+def sort_label(sort: str) -> str:
+    return SORT_LABELS.get(sort, "Сначала новые")
+
+
+def meeting_media_kind(item: MeetingListItem) -> str:
+    if item.source == "manual_upload":
+        return "upload"
+    if item.source == "video_recording":
+        return "video"
+    has_audio = any(artifact.artifact_class == "audio" and artifact.state == "available" for artifact in item.artifacts)
+    has_transcript = item.transcript_available or any(
+        artifact.artifact_class == "transcript" and artifact.state == "available" for artifact in item.artifacts
+    )
+    if has_transcript and not has_audio:
+        return "transcript"
+    return "audio"
+
+
+def meeting_media_label(item: MeetingListItem) -> str:
+    return {
+        "audio": "аудио",
+        "video": "видео",
+        "transcript": "транскрипт",
+        "upload": "upload",
+    }[meeting_media_kind(item)]
 
 
 def safe_title(meeting: Meeting) -> str:
