@@ -176,16 +176,24 @@ public struct UploadReviewLink: Equatable, Sendable {
         self.itemId = item.id
         self.meetingId = meetingId
         self.state = item.state
+        let projection = DesktopUploadCustodyProjection(item: item)
         if meetingId != nil, item.syncConflictState.blocksReviewDestination {
             self.destination = nil
             self.availability = .unavailable
             self.reason = item.syncConflictState.rawValue
-        } else if let meetingId, item.state == .uploaded {
-            self.destination = configuration.meetingDetailURL(meetingId: meetingId)
-            self.availability = .available
-            self.reason = "server_meeting_available"
-        } else if let meetingId, item.state.canAutomaticallyRetry || item.state == .uploading {
-            self.destination = configuration.meetingDetailURL(meetingId: meetingId)
+        } else if let meetingId, projection.reviewAvailable {
+            let destination = configuration.meetingDetailURL(meetingId: meetingId)
+            let routeDecision = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).reviewDecision(
+                for: destination,
+                reviewAvailableMeetingIds: [meetingId]
+            )
+            self.destination = routeDecision.decision == .allow ? destination : nil
+            self.availability = routeDecision.decision == .allow ? .available : .unavailable
+            self.reason = routeDecision.decision == .allow
+                ? "server_meeting_available"
+                : routeDecision.reason.rawValue
+        } else if meetingId != nil, item.state != .terminalDeleted {
+            self.destination = nil
             self.availability = .processingOnly
             self.reason = "server_meeting_processing"
         } else if meetingId != nil {

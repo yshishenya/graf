@@ -5,6 +5,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from twobrain_rec_server.domain.statuses import (
+    CustodyMetadataSafety,
+    CustodyNormalUserAction,
+    CustodyOwner,
+    CustodyProcessingState,
+    CustodyRetryClass,
+    CustodyState,
+    CustodyUploadState,
     DeletionArtifactState,
     DeletionControlScope,
     DeletionReasonCode,
@@ -35,6 +42,13 @@ class ReadyDetailResponse(BaseModel):
     checks: dict[str, str]
 
 
+class ProblemCustodyExtension(BaseModel):
+    owner: CustodyOwner
+    retry_class: CustodyRetryClass
+    normal_user_action: CustodyNormalUserAction
+    metadata_safety: CustodyMetadataSafety = CustodyMetadataSafety.METADATA_ONLY
+
+
 class Problem(BaseModel):
     type: str = "about:blank"
     title: str
@@ -42,6 +56,11 @@ class Problem(BaseModel):
     code: str
     detail: str | None = None
     request_id: str | None = None
+    custody_owner: CustodyOwner | None = None
+    retry_class: CustodyRetryClass | None = None
+    normal_user_action: CustodyNormalUserAction | None = None
+    metadata_safety: CustodyMetadataSafety | None = None
+    custody: ProblemCustodyExtension | None = None
 
 
 class TrackDescriptor(BaseModel):
@@ -154,6 +173,38 @@ class DesktopSyncConflict(BaseModel):
     next_action: str = "continue_upload"
 
 
+class CustodyIncidentReadModel(BaseModel):
+    safe_recording_identity: Annotated[SafeClientText, Field(max_length=180)]
+    reason_category: Annotated[SafeClientText, Field(max_length=120)]
+    problem_code: Annotated[SafeClientText, Field(max_length=120)]
+    owner: CustodyOwner
+    retry_class: CustodyRetryClass
+    normal_user_action: CustodyNormalUserAction
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    lifecycle_state: CustodyState
+    retention_deadline: datetime | None = None
+    server_identity_present: bool
+    metadata_safety: CustodyMetadataSafety = CustodyMetadataSafety.METADATA_ONLY
+
+
+class CustodyReadModel(BaseModel):
+    state: CustodyState
+    upload_state: CustodyUploadState
+    processing_state: CustodyProcessingState
+    owner: CustodyOwner
+    retry_class: CustodyRetryClass
+    normal_user_action: CustodyNormalUserAction
+    display_priority: int = Field(ge=0)
+    review_available: bool = False
+    review_desktop_url: str | None = None
+    safe_incident_available: bool = False
+    incident: CustodyIncidentReadModel | None = None
+    retention_deadline: datetime | None = None
+    copy_key: Annotated[str, Field(pattern=r"^custody\.[a-z0-9_]+$")]
+    metadata_safety: CustodyMetadataSafety = CustodyMetadataSafety.METADATA_ONLY
+
+
 class DesktopRecordingSyncStateResponse(BaseModel):
     local_recording_id: str
     local_media_revision_id: str
@@ -163,6 +214,7 @@ class DesktopRecordingSyncStateResponse(BaseModel):
     processing: DesktopSyncProcessingState
     review: DesktopSyncReviewState
     conflict: DesktopSyncConflict = Field(default_factory=DesktopSyncConflict)
+    custody: CustodyReadModel | None = None
 
 
 class UploadPartResponse(BaseModel):
@@ -605,6 +657,7 @@ class MeetingListItem(BaseModel):
     access: MeetingAccessState | None = None
     artifacts: list[ArtifactEgressState] = Field(default_factory=list)
     governance: GovernanceActionSummary
+    custody: CustodyReadModel | None = None
     future_slots: list[SlotState] = Field(default_factory=list)
 
 

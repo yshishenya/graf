@@ -1,5 +1,6 @@
 import CoreAudio
 import AppKit
+import Network
 import SwiftUI
 import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -154,6 +155,8 @@ private struct ContentView: View {
     @State private var levelsPollInProgress = false
     @State private var uploadQueueRefreshInProgress = false
     @State private var uploadQueueFollowUpScheduled = false
+    @State private var uploadQueueNetworkMonitor: NWPathMonitor?
+    @State private var uploadQueueNetworkWasSatisfied = false
     @State private var terminationCleanupInProgress = false
     @State private var recordingStartInProgress = false
     @State private var recordingStopInProgress = false
@@ -225,12 +228,6 @@ private struct ContentView: View {
                     recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
                         selectedInputDeviceId: inputDeviceId
                     )
-                },
-                onUploadRetry: { itemId in
-                    retryUpload(itemId: itemId)
-                },
-                onUploadStopRetry: { itemId in
-                    stopUploadRetry(itemId: itemId)
                 },
                 onUploadReview: { route in
                     selectedCabinetRoute = route
@@ -320,6 +317,7 @@ private struct ContentView: View {
                 }
             }
             refreshUploadQueueAndProcess(reason: "app_appeared")
+            startUploadQueueNetworkMonitorIfNeeded()
         }
         .task(id: localRecordingActive) {
             guard localRecordingActive else { return }
@@ -340,6 +338,12 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
             refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshUploadQueueAndProcess(reason: "app_became_active")
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            refreshUploadQueueAndProcess(reason: "system_wake")
         }
         .onDisappear {
             guard !terminationCleanupInProgress else { return }
@@ -884,6 +888,7 @@ private struct ContentView: View {
                 _ = try service.scanAndEnqueueCompletedRecordings()
                 _ = try service.applyRetentionExpiry()
                 let items = try await service.processDueItems()
+                _ = try await service.acknowledgePendingLocalPurgeTasks()
                 await MainActor.run {
                     uploadQueueItems = items
                     uploadQueueRefreshInProgress = false
@@ -911,13 +916,41 @@ private struct ContentView: View {
         reason: String
     ) {
         guard !uploadQueueFollowUpScheduled else { return }
-        guard items.contains(where: { DesktopUploadQueueService.needsProcessingFollowUp($0) }) else { return }
+        let now = Date()
+        let needsProcessingFollowUp = items.contains(where: { DesktopUploadQueueService.needsProcessingFollowUp($0, now: now) })
+        let nextRetryDate = DesktopUploadQueueService.nextScheduledRetryDate(for: items, now: now)
+        guard needsProcessingFollowUp || nextRetryDate != nil else { return }
         uploadQueueFollowUpScheduled = true
-        let followUpReason = reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+        let followUpReason: String
+        let delay: TimeInterval
+        if needsProcessingFollowUp {
+            followUpReason = reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
+            delay = 10
+        } else {
+            followUpReason = "scheduled_retry_after_\(reason)"
+            delay = max(1, min(nextRetryDate?.timeIntervalSince(now) ?? 10, 60 * 60))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             uploadQueueFollowUpScheduled = false
             refreshUploadQueueAndProcess(reason: followUpReason)
         }
+    }
+
+    @MainActor
+    private func startUploadQueueNetworkMonitorIfNeeded() {
+        guard uploadQueueNetworkMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "pro.2brain.rec.upload-network-monitor", qos: .utility)
+        monitor.pathUpdateHandler = { path in
+            Task { @MainActor in
+                let isSatisfied = path.status == .satisfied
+                defer { uploadQueueNetworkWasSatisfied = isSatisfied }
+                guard isSatisfied, !uploadQueueNetworkWasSatisfied else { return }
+                refreshUploadQueueAndProcess(reason: "network_recovered")
+            }
+        }
+        uploadQueueNetworkMonitor = monitor
+        monitor.start(queue: queue)
     }
 
     @MainActor
@@ -955,41 +988,6 @@ private struct ContentView: View {
             AppLog.writeRaw(
                 event: AuditEventName.uploadFailed.rawValue,
                 detail: "reason=enqueue_\(reason) sessionId=\(manifest.sessionId) directoryId=\(manifest.directoryId) error=\(error)"
-            )
-        }
-    }
-
-    @MainActor
-    private func retryUpload(itemId: String) {
-        do {
-            _ = try desktopUploadQueueService.retry(itemId: itemId)
-            uploadQueueItems = try desktopUploadQueueService.loadItems()
-            AppLog.writeRaw(
-                event: AuditEventName.uploadRetrying.rawValue,
-                detail: "queueId=\(itemId) reason=manual_retry_requested"
-            )
-            refreshUploadQueueAndProcess(reason: "manual_retry")
-        } catch {
-            AppLog.writeRaw(
-                event: AuditEventName.uploadFailed.rawValue,
-                detail: "queueId=\(itemId) reason=manual_retry_failed error=\(error)"
-            )
-        }
-    }
-
-    @MainActor
-    private func stopUploadRetry(itemId: String) {
-        do {
-            let item = try desktopUploadQueueService.stopRetry(itemId: itemId)
-            uploadQueueItems = try desktopUploadQueueService.loadItems()
-            AppLog.writeRaw(
-                event: AuditEventName.uploadBlocked.rawValue,
-                detail: "queueId=\(itemId) state=\(item.state.rawValue) reason=automatic_retry_stopped"
-            )
-        } catch {
-            AppLog.writeRaw(
-                event: AuditEventName.uploadFailed.rawValue,
-                detail: "queueId=\(itemId) reason=stop_retry_failed error=\(error)"
             )
         }
     }
@@ -1875,10 +1873,29 @@ private enum AppLog {
     }
 
     static func writeRaw(event: String, detail: String) {
-        let sanitized = detail
+        writeLine("\(timestamp()) event=\(event) detail=\(sanitize(detail))\n")
+    }
+
+    private static func sanitize(_ detail: String) -> String {
+        detail
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
-        writeLine("\(timestamp()) event=\(event) detail=\(sanitized)\n")
+            .split(separator: " ")
+            .map { token in
+                let value = String(token)
+                let lowered = value.lowercased()
+                if value.hasPrefix("/") || value.contains("=/") || value.contains("file://") {
+                    return "<redacted-path>"
+                }
+                if lowered.hasPrefix("authorization=") ||
+                    lowered.hasPrefix("cookie=") ||
+                    lowered.hasPrefix("token=") ||
+                    lowered.contains("bearer ") {
+                    return "<redacted-secret>"
+                }
+                return value
+            }
+            .joined(separator: " ")
     }
 
     private static func writeLine(_ line: String) {

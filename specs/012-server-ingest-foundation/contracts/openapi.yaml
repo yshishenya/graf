@@ -3614,6 +3614,195 @@ components:
           title: Manifest Sha256
       type: object
       title: CreateUploadSessionRequest
+    CustodyIncidentReadModel:
+      properties:
+        safe_recording_identity:
+          type: string
+          maxLength: 180
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Safe Recording Identity
+        reason_category:
+          type: string
+          maxLength: 120
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Reason Category
+        problem_code:
+          type: string
+          maxLength: 120
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Problem Code
+        owner:
+          $ref: '#/components/schemas/CustodyOwner'
+        retry_class:
+          $ref: '#/components/schemas/CustodyRetryClass'
+        normal_user_action:
+          $ref: '#/components/schemas/CustodyNormalUserAction'
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Created At
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        lifecycle_state:
+          $ref: '#/components/schemas/CustodyState'
+        retention_deadline:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Retention Deadline
+        server_identity_present:
+          type: boolean
+          title: Server Identity Present
+        metadata_safety:
+          $ref: '#/components/schemas/CustodyMetadataSafety'
+          default: metadata_only
+      type: object
+      required:
+      - safe_recording_identity
+      - reason_category
+      - problem_code
+      - owner
+      - retry_class
+      - normal_user_action
+      - lifecycle_state
+      - server_identity_present
+      title: CustodyIncidentReadModel
+    CustodyMetadataSafety:
+      type: string
+      enum:
+      - metadata_only
+      title: CustodyMetadataSafety
+    CustodyNormalUserAction:
+      type: string
+      enum:
+      - none
+      - sign_in
+      - choose_workspace
+      - grant_permission
+      - open_review
+      - open_diagnostics
+      - copy_safe_report
+      - delete_local_copy
+      title: CustodyNormalUserAction
+    CustodyOwner:
+      type: string
+      enum:
+      - product_automatic
+      - meeting_owner
+      - workspace_admin
+      - support
+      - policy_lifecycle
+      title: CustodyOwner
+    CustodyProcessingState:
+      type: string
+      enum:
+      - not_submitted
+      - pending_processing
+      - processing
+      - processed
+      - blocked
+      - failed_retryable
+      - failed_terminal
+      - canceled
+      title: CustodyProcessingState
+    CustodyReadModel:
+      properties:
+        state:
+          $ref: '#/components/schemas/CustodyState'
+        upload_state:
+          $ref: '#/components/schemas/CustodyUploadState'
+        processing_state:
+          $ref: '#/components/schemas/CustodyProcessingState'
+        owner:
+          $ref: '#/components/schemas/CustodyOwner'
+        retry_class:
+          $ref: '#/components/schemas/CustodyRetryClass'
+        normal_user_action:
+          $ref: '#/components/schemas/CustodyNormalUserAction'
+        display_priority:
+          type: integer
+          minimum: 0.0
+          title: Display Priority
+        review_available:
+          type: boolean
+          title: Review Available
+          default: false
+        review_desktop_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Desktop Url
+        safe_incident_available:
+          type: boolean
+          title: Safe Incident Available
+          default: false
+        incident:
+          anyOf:
+          - $ref: '#/components/schemas/CustodyIncidentReadModel'
+          - type: 'null'
+        retention_deadline:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Retention Deadline
+        copy_key:
+          type: string
+          pattern: ^custody\.[a-z0-9_]+$
+          title: Copy Key
+        metadata_safety:
+          $ref: '#/components/schemas/CustodyMetadataSafety'
+          default: metadata_only
+      type: object
+      required:
+      - state
+      - upload_state
+      - processing_state
+      - owner
+      - retry_class
+      - normal_user_action
+      - display_priority
+      - copy_key
+      title: CustodyReadModel
+    CustodyRetryClass:
+      type: string
+      enum:
+      - automatic
+      - paused_until_user_action
+      - paused_until_admin_action
+      - not_retryable
+      - terminal
+      title: CustodyRetryClass
+    CustodyState:
+      type: string
+      enum:
+      - server_registered
+      - upload_session_created
+      - partial_uploaded
+      - finalized
+      - processing
+      - delivered
+      - retained_awaiting_condition
+      - cannot_send
+      - terminal_undelivered
+      title: CustodyState
+    CustodyUploadState:
+      type: string
+      enum:
+      - not_started
+      - session_created
+      - partial_uploaded
+      - finalized
+      - blocked
+      - terminal
+      title: CustodyUploadState
     DeletionArtifactState:
       type: string
       enum:
@@ -3791,6 +3980,10 @@ components:
           $ref: '#/components/schemas/DesktopSyncReviewState'
         conflict:
           $ref: '#/components/schemas/DesktopSyncConflict'
+        custody:
+          anyOf:
+          - $ref: '#/components/schemas/CustodyReadModel'
+          - type: 'null'
       type: object
       required:
       - local_recording_id
@@ -4618,6 +4811,10 @@ components:
           title: Artifacts
         governance:
           $ref: '#/components/schemas/GovernanceActionSummary'
+        custody:
+          anyOf:
+          - $ref: '#/components/schemas/CustodyReadModel'
+          - type: 'null'
         future_slots:
           items:
             $ref: '#/components/schemas/SlotState'
@@ -5153,12 +5350,49 @@ components:
           - type: string
           - type: 'null'
           title: Request Id
+        custody_owner:
+          anyOf:
+          - $ref: '#/components/schemas/CustodyOwner'
+          - type: 'null'
+        retry_class:
+          anyOf:
+          - $ref: '#/components/schemas/CustodyRetryClass'
+          - type: 'null'
+        normal_user_action:
+          anyOf:
+          - $ref: '#/components/schemas/CustodyNormalUserAction'
+          - type: 'null'
+        metadata_safety:
+          anyOf:
+          - $ref: '#/components/schemas/CustodyMetadataSafety'
+          - type: 'null'
+        custody:
+          anyOf:
+          - $ref: '#/components/schemas/ProblemCustodyExtension'
+          - type: 'null'
       type: object
       required:
       - title
       - status
       - code
       title: Problem
+    ProblemCustodyExtension:
+      properties:
+        owner:
+          $ref: '#/components/schemas/CustodyOwner'
+        retry_class:
+          $ref: '#/components/schemas/CustodyRetryClass'
+        normal_user_action:
+          $ref: '#/components/schemas/CustodyNormalUserAction'
+        metadata_safety:
+          $ref: '#/components/schemas/CustodyMetadataSafety'
+          default: metadata_only
+      type: object
+      required:
+      - owner
+      - retry_class
+      - normal_user_action
+      title: ProblemCustodyExtension
     ProcessingPickupRequest:
       properties:
         meeting_id:

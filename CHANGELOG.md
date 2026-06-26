@@ -9,10 +9,21 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `057-local-upload-custody`: desktop upload queue now behaves as
+  product custody, not as a user task list. Local recordings remain accounted
+  for, retry automatically when safe, and expose calm aggregate native custody
+  status outside the server-owned WebView meeting list.
+- Structured custody read-model fields for feature `058`: server-known
+  recordings expose machine-readable custody, upload, processing, owner,
+  retry-class, action, copy-key, review availability, and metadata-safety truth.
 
 ### Изменено
-- _Пока нет записей._
+- Normal users no longer get transport-level Retry or Stop retry controls for
+  local recording upload. The UI shows only meaningful actions such as sign-in,
+  safe report, diagnostics, review when available, or explicit local deletion.
+- Local upload, server processing, server deletion, and local purge truth are
+  separated so an uploaded recording with failed processing is not shown as a
+  failed local upload.
 
 ### Исправлено
 - Кнопка раскрытия/сворачивания правой панели desktop shell снова закреплена
@@ -21,10 +32,18 @@
   удаления в одну колонку.
 
 ### Безопасность
-- _Пока нет записей._
+- Local custody ledger/artifacts are written with stronger local file
+  protection where this slice touches them, malformed queue documents are
+  quarantined metadata-safely, and safe incident reports exclude audio,
+  transcript text, private paths, tokens, and signed URLs.
+- Local purge acknowledgements now fail closed: desktop sends successful
+  acknowledgement only after verified local deletion, tombstone, or
+  cryptographic unrecoverability; unverified purge is reported as a safe
+  failure.
 
 ### Документы
-- _Пока нет записей._
+- Added feature `057` specification, contracts, quickstart, validation notes,
+  and explicit `057`/`058` boundary guidance.
 
 ### Операции
 - _Пока нет записей._
