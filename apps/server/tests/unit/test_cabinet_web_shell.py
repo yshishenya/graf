@@ -293,10 +293,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert '<input class="row-check selection-toggle" type="checkbox" data-selection-toggle' in page
     assert "padding-left: 13px;" in page
     assert ".selection-toggle {\n  flex: 0 0 16px;" in page
-    assert ".row-check {\n  appearance: none;\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  margin: 0;" in page
-    assert ".row-check:indeterminate::after { content: \"−\"; }" in page
+    assert ".row-check {\n  accent-color: var(--accent);\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  margin: 0;" in page
     assert "selectionToggle.indeterminate = rows.length > 0 && !allSelected" in page
-    assert "border-radius: 4px;" in page
+    assert ".row-check {\n  appearance: none;" not in page
+    assert ".row-check:checked::after" not in page
     assert "line-height: 28px;" in page
     assert ".icon-control {\n  width: 28px;\n  height: 28px;\n  min-height: 28px;" in page
     assert "padding: 0;" in page
