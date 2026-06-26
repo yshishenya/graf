@@ -353,6 +353,21 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return try loadItems()
     }
 
+    public static func nextScheduledRetryDate(
+        for items: [DesktopUploadQueueItem],
+        now: Date = Date()
+    ) -> Date? {
+        items
+            .filter {
+                !$0.state.isTerminal &&
+                    $0.retryMode == .automatic &&
+                    $0.artifactProfile.isUploadable &&
+                    ($0.nextRetryAt ?? now) > now
+            }
+            .compactMap(\.nextRetryAt)
+            .min()
+    }
+
     public static func needsProcessingFollowUp(
         _ item: DesktopUploadQueueItem,
         now: Date = Date()
@@ -376,18 +391,85 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         guard let client else {
             return []
         }
+        await reconcileUploadedItemsIfNeeded(client: client, excludingItemIds: [])
         let tasks = try await client.listLocalPurgeTasks()
-        var acknowledged: [DesktopLocalPurgeTask] = []
+        let items = try queue.sync {
+            try loadDocumentOnQueue().items
+        }
+        var updatedTasks: [DesktopLocalPurgeTask] = []
         for task in tasks where task.state == .pending || task.state == .claimed {
-            let updated = try await client.acknowledgeLocalPurgeTask(
-                task,
-                state: .acknowledged,
-                reasonCode: "local_buffers_purged",
+            let verificationState = localPurgeVerificationState(for: task, items: items)
+            let acknowledgement = DesktopLocalPurgeAcknowledgement(
+                verificationState: verificationState,
+                clientVersion: nil,
                 completedAt: clock()
             )
-            acknowledged.append(updated)
+            let updated = try await client.acknowledgeLocalPurgeTask(
+                task,
+                state: acknowledgement.state,
+                reasonCode: acknowledgement.reasonCode,
+                completedAt: acknowledgement.completedAt
+            )
+            updatedTasks.append(updated)
         }
-        return acknowledged
+        return updatedTasks
+    }
+
+    private func localPurgeVerificationState(
+        for task: DesktopLocalPurgeTask,
+        items: [DesktopUploadQueueItem]
+    ) -> DesktopLocalPurgeVerificationState {
+        let candidates = items.filter { item in
+            item.serverTruth.meetingId == task.meetingId || item.meetingId == task.meetingId
+        }
+        guard !candidates.isEmpty else {
+            return .unverified
+        }
+        if candidates.allSatisfy(Self.localArtifactsDeleted) {
+            return .deleted
+        }
+        if candidates.allSatisfy(Self.localArtifactsTombstoned) {
+            return .tombstoned
+        }
+        if candidates.allSatisfy(Self.localArtifactsCryptographicallyUnrecoverable) {
+            return .cryptographicallyUnrecoverable
+        }
+        return .failed
+    }
+
+    private static func localArtifactsDeleted(for item: DesktopUploadQueueItem) -> Bool {
+        let paths = localArtifactPaths(for: item)
+        guard !paths.isEmpty else { return false }
+        return paths.allSatisfy { !FileManager.default.fileExists(atPath: $0) }
+    }
+
+    private static func localArtifactsTombstoned(for item: DesktopUploadQueueItem) -> Bool {
+        guard !localArtifactFiles(for: item).contains(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            return false
+        }
+        return localPurgeTombstonePaths(for: item).contains { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    private static func localArtifactsCryptographicallyUnrecoverable(for item: DesktopUploadQueueItem) -> Bool {
+        item.retentionDecision.decision == .terminalDeleted &&
+            !item.retentionDecision.localArtifactsRetained &&
+            !localArtifactFiles(for: item).contains(where: { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    private static func localArtifactPaths(for item: DesktopUploadQueueItem) -> [String] {
+        [item.directoryPath] + localArtifactFiles(for: item)
+    }
+
+    private static func localArtifactFiles(for item: DesktopUploadQueueItem) -> [String] {
+        [item.manifestPath, item.microphonePath, item.systemAudioPath].filter { !$0.isEmpty && $0 != "metadata-only" }
+    }
+
+    private static func localPurgeTombstonePaths(for item: DesktopUploadQueueItem) -> [String] {
+        let directoryURL = URL(fileURLWithPath: item.directoryPath)
+        return [
+            directoryURL.appendingPathComponent(".2brain-local-purge-tombstone.json").path,
+            directoryURL.deletingLastPathComponent().appendingPathComponent("\(directoryURL.lastPathComponent).purged").path
+        ]
     }
 
     public static func visibleSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadQueueSummary? {
@@ -398,6 +480,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             pendingCount: sorted.filter { !$0.state.isTerminal }.count,
             totalCount: sorted.count
         )
+    }
+
+    public static func custodyProjections(
+        for items: [DesktopUploadQueueItem],
+        now: Date = Date()
+    ) -> [DesktopUploadCustodyProjection] {
+        items.sortedForDisplay().map { DesktopUploadCustodyProjection(item: $0, now: now) }
     }
 
     private func upload(
@@ -429,6 +518,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         do {
             let reconciled = try await reconcileBeforeUpload(started, client: client)
             guard reconciled.syncConflictState == .none else {
+                return
+            }
+            guard reconciled.state != .uploaded else {
                 return
             }
             let result = try await client.upload(reconciled)
@@ -527,6 +619,22 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             next.lastReconciledAt = now
             next.syncGeneration += 1
             if reconciliation.canContinueUpload {
+                if Self.reconciliationShowsServerFinalized(reconciliation.serverTruth) {
+                    next.state = .uploaded
+                    next.retryMode = .terminal
+                    next.nextRetryAt = nil
+                    next.failureCategory = .none
+                    next.failureReason = nil
+                    next.syncConflictState = .none
+                    next.retentionDecision = RetentionDecision(
+                        decision: .terminalUploaded,
+                        decidedAt: now,
+                        reason: "server_reconciliation_finalized",
+                        localArtifactsRetained: true,
+                        policyReference: "server_truth.reconciliation"
+                    )
+                    return next
+                }
                 next.syncConflictState = .none
                 return next
             }
@@ -595,6 +703,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private static func normalizedProcessingStatus(_ status: String?) -> String? {
         let normalized = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized?.isEmpty == false ? normalized : nil
+    }
+
+    private static func reconciliationShowsServerFinalized(_ serverTruth: ServerTruthFingerprint) -> Bool {
+        let status = serverTruth.serverStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return status == "ingested_pending_processing" ||
+            status == "degraded" ||
+            serverTruth.finalizedAt != nil
     }
 
     private func applyUploadedReconciliation(
@@ -887,7 +1002,21 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             return empty
         }
         let data = try Data(contentsOf: queueURL)
-        var loaded = try JSONDecoder.uploadQueueDecoder.decode(DesktopUploadQueueDocument.self, from: data)
+        let loadedDocument: DesktopUploadQueueDocument
+        do {
+            loadedDocument = try JSONDecoder.uploadQueueDecoder.decode(DesktopUploadQueueDocument.self, from: data)
+        } catch {
+            let now = clock()
+            try quarantineMalformedQueueDocument(data: data, now: now)
+            let quarantined = DesktopUploadQueueDocument(
+                updatedAt: now,
+                items: [malformedQueueDocumentItem(now: now)]
+            )
+            try saveDocumentOnQueue(quarantined)
+            document = quarantined
+            return quarantined
+        }
+        var loaded = loadedDocument
         let needsSchemaMigration = loaded.schemaVersion != DesktopUploadQueueDocument.schemaVersion
         if needsSchemaMigration {
             loaded.schemaVersion = DesktopUploadQueueDocument.schemaVersion
@@ -902,13 +1031,67 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private func saveDocumentOnQueue(_ document: DesktopUploadQueueDocument) throws {
-        try FileManager.default.createDirectory(
-            at: queueURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         let data = try JSONEncoder.uploadQueueEncoder.encode(document)
-        try data.write(to: queueURL, options: [.atomic])
+        try LocalCustodyFileProtection.write(data, to: queueURL)
         self.document = document
+    }
+
+    private func quarantineMalformedQueueDocument(data: Data, now: Date) throws {
+        let quarantineDirectory = queueURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("Quarantine", isDirectory: true)
+        let timestamp = Int(now.timeIntervalSince1970)
+        let quarantineURL = quarantineDirectory
+            .appendingPathComponent("upload-queue.\(timestamp).malformed.json")
+        try LocalCustodyFileProtection.write(data, to: quarantineURL)
+        try? FileManager.default.removeItem(at: queueURL)
+    }
+
+    private func malformedQueueDocumentItem(now: Date) -> DesktopUploadQueueItem {
+        let profile = ArtifactCompletenessProfile(
+            schemaVersion: LocalRecordingManifest.schemaVersion,
+            manifestPresent: false,
+            microphonePresent: false,
+            systemAudioPresent: false,
+            manifestSha256: nil,
+            microphoneSha256: nil,
+            systemAudioSha256: nil,
+            manifestSizeBytes: 0,
+            microphoneSizeBytes: 0,
+            systemAudioSizeBytes: 0,
+            durationSeconds: 1,
+            trackCompleteness: [],
+            isUploadable: false
+        )
+        return DesktopUploadQueueItem(
+            id: DesktopUploadQueueItem.deterministicId(
+                directoryId: "queue-document-malformed",
+                sessionId: "local-custody"
+            ),
+            sessionId: "local-custody",
+            directoryId: "queue-document-malformed",
+            localMediaRevisionId: "queue-document-malformed--metadata",
+            directoryPath: "metadata-only",
+            manifestPath: "metadata-only",
+            microphonePath: "metadata-only",
+            systemAudioPath: "metadata-only",
+            state: .blocked,
+            failureCategory: .schemaIncompatibility,
+            failureReason: "queue_document_malformed",
+            retryMode: .manualOnly,
+            retentionDeadline: Calendar.current.date(byAdding: .day, value: policy.retentionDays, to: now) ?? now,
+            createdAt: now,
+            updatedAt: now,
+            syncConflictState: .queueDocumentMalformed,
+            artifactProfile: profile,
+            retentionDecision: RetentionDecision(
+                decision: .manualOnly,
+                decidedAt: now,
+                reason: "queue_document_malformed",
+                localArtifactsRetained: true,
+                policyReference: "local_upload_custody.queue_document"
+            )
+        )
     }
 
     private static func fileSize(_ url: URL) -> Int64 {

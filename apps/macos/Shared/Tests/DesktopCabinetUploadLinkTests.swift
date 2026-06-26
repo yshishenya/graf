@@ -13,7 +13,8 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
             meetingId: nil,
             serverTruth: ServerTruthFingerprint(
                 meetingId: "server-meeting-033",
-                mediaRevisionId: "server-media-revision-033"
+                mediaRevisionId: "server-media-revision-033",
+                processingStatus: "processed"
             )
         )
 
@@ -32,7 +33,8 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
             meetingId: nil,
             serverTruth: ServerTruthFingerprint(
                 meetingId: "server-meeting-045",
-                mediaRevisionId: "server-media-revision-045"
+                mediaRevisionId: "server-media-revision-045",
+                processingStatus: "processed"
             )
         )
 
@@ -72,7 +74,53 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
 
         XCTAssertEqual(link.availability, .processingOnly)
         XCTAssertEqual(link.reason, "server_meeting_processing")
-        XCTAssertEqual(link.destination?.absoluteString, "https://rec.2brain.dev/desktop/meetings/server-meeting-033")
+        XCTAssertNil(link.destination)
+    }
+
+    func testUploadedServerKnownItemWithoutProcessedReviewDoesNotOpenDestination() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let item = uploadItem(
+            state: .uploaded,
+            meetingId: nil,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-processing",
+                mediaRevisionId: "server-media-revision-processing",
+                processingStatus: "pending_processing"
+            )
+        )
+
+        let link = configuration.reviewLink(for: item)
+
+        XCTAssertEqual(link.availability, .processingOnly)
+        XCTAssertNil(link.destination)
+        XCTAssertEqual(link.reason, "server_meeting_processing")
+    }
+
+    func testCabinetModeDoesNotCreateNativeRowsForLocalCustody() {
+        let localQueued = uploadItem(state: .queued, meetingId: nil, serverTruth: ServerTruthFingerprint())
+        let localBlocked = uploadItem(state: .blocked, meetingId: nil, serverTruth: ServerTruthFingerprint())
+        let serverKnown = uploadItem(
+            state: .uploaded,
+            meetingId: nil,
+            serverTruth: ServerTruthFingerprint(meetingId: "server-meeting-known", processingStatus: "processed")
+        )
+
+        let rows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
+            localQueued,
+            localBlocked,
+            serverKnown
+        ])
+
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testLocalModeStillCanListLocalCustodyRows() {
+        let newer = uploadItem(state: .blocked, meetingId: nil, serverTruth: ServerTruthFingerprint())
+        let older = uploadItem(state: .queued, meetingId: nil, serverTruth: ServerTruthFingerprint())
+
+        let rows = DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode([older, newer])
+
+        XCTAssertEqual(rows.count, 2)
     }
 
     func testUploadedItemWithReviewBlockingConflictDoesNotOpenReviewDestination() throws {

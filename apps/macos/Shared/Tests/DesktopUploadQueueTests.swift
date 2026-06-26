@@ -27,8 +27,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         let manual = makeQueueItem(state: .blocked, retryMode: .manualOnly)
         let automatic = makeQueueItem(state: .retrying, retryMode: .automatic)
 
-        XCTAssertEqual(manual.nextActionLabel, "Повторить")
-        XCTAssertEqual(automatic.nextActionLabel, "Остановить повтор")
+        XCTAssertNil(manual.nextActionLabel)
+        XCTAssertNil(automatic.nextActionLabel)
 
         let manualSummary = DesktopUploadQueueSummary(
             primaryItem: makeQueueItem(
@@ -77,8 +77,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(unmeasuredSummary.detail, "не удалось проверить утечку динамиков; отправим как есть")
     }
 
-    func testNativeMeetingListKeepsBlockedLocalRecordingsVisibleUntilServerSeesThem() {
-        let visibleBlocked = makeQueueItem(
+    func testCabinetMeetingListDoesNotRenderLocalCustodyRows() {
+        let blockedLocal = makeQueueItem(
             id: "blocked-local",
             state: .blocked,
             retryMode: .manualOnly,
@@ -95,13 +95,13 @@ final class DesktopUploadQueueTests: XCTestCase {
 
         let rows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
             uploadedServerVisible,
-            visibleBlocked
+            blockedLocal
         ])
 
-        XCTAssertEqual(rows.map(\.id), ["blocked-local"])
+        XCTAssertTrue(rows.isEmpty)
     }
 
-    func testNativeMeetingListPrioritizesNewestLocalOnlyRecording() {
+    func testLocalModeMeetingListPrioritizesNewestLocalOnlyRecording() {
         let olderQueued = makeQueueItem(
             id: "older-queued",
             state: .queued,
@@ -117,7 +117,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 100)
         )
 
-        let rows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
+        let rows = DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode([
             olderQueued,
             newestBlocked
         ])
@@ -355,6 +355,53 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.remoteSpeakerURL.path))
     }
 
+    func testMalformedQueueDocumentIsQuarantinedAsBlockedCustodyTruth() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        try Data("{ broken queue".utf8).write(to: queueURL)
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.loadItems().first)
+        let quarantineURLs = try FileManager.default.contentsOfDirectory(
+            at: root.appendingPathComponent("Quarantine", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )
+
+        XCTAssertEqual(item.state, .blocked)
+        XCTAssertEqual(item.retryMode, .manualOnly)
+        XCTAssertEqual(item.syncConflictState, .queueDocumentMalformed)
+        XCTAssertEqual(item.failureReason, "queue_document_malformed")
+        XCTAssertEqual(item.directoryPath, "metadata-only")
+        XCTAssertTrue(item.retentionDecision.localArtifactsRetained)
+        XCTAssertEqual(quarantineURLs.count, 1)
+        XCTAssertTrue(LocalCustodyFileProtection.isProtected(queueURL))
+        XCTAssertTrue(LocalCustodyFileProtection.isProtected(try XCTUnwrap(quarantineURLs.first)))
+    }
+
+    func testQueueDocumentUsesCompleteFileProtectionAndUserOnlyPermissions() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "protected-package", sessionId: "protected-session")
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        _ = try service.scanAndEnqueueCompletedRecordings()
+
+        XCTAssertTrue(LocalCustodyFileProtection.isProtected(queueURL))
+    }
+
     func testScanRefreshesExistingNonTerminalItemWhenLocalArtifactProfileChanges() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -582,6 +629,49 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(savedItem.syncGeneration, 2)
     }
 
+    func testProcessDueItemsTreatsServerFinalizedReconciliationAsUploadedWithoutDuplicateUpload() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "finalized-response-loss", sessionId: "finalized-session")
+        let queueURL = root.appendingPathComponent("queue.json")
+        let client = ReconcileThenUploadClient(
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "server-meeting-finalized",
+                    mediaRevisionId: "server-media-finalized",
+                    uploadSessionId: "server-session-finalized",
+                    serverStatus: "ingested_pending_processing",
+                    processingStatus: "pending_processing",
+                    acceptedBytesByTrack: ["microphone": 128, "system": 128, "manifest": 64],
+                    desktopTruthRule: "server_ranges_authoritative"
+                )
+            ),
+            result: DesktopUploadResult(
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(meetingId: "should-not-upload")
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        _ = try service.scanAndEnqueueCompletedRecordings()
+        let items = try await service.processDueItems()
+
+        let savedItem = try XCTUnwrap(items.first)
+        XCTAssertTrue(client.uploadedItems.isEmpty)
+        XCTAssertEqual(savedItem.state, .uploaded)
+        XCTAssertEqual(savedItem.retryMode, .terminal)
+        XCTAssertEqual(savedItem.meetingId, "server-meeting-finalized")
+        XCTAssertEqual(savedItem.mediaRevisionId, "server-media-finalized")
+        XCTAssertEqual(savedItem.uploadSessionId, "server-session-finalized")
+        XCTAssertEqual(savedItem.retentionDecision.decision, .terminalUploaded)
+        XCTAssertTrue(savedItem.retentionDecision.localArtifactsRetained)
+    }
+
     func testProcessDueItemsRefreshesUploadedProcessingStatusWithoutReuploading() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -723,6 +813,38 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(serverDeleted.detail.contains("/Users/test"))
         XCTAssertEqual(dependencyFailure.detail, "сервер временно недоступен, повторим позже")
         XCTAssertFalse(dependencyFailure.detail.contains("/Users/test"))
+    }
+
+    func testCustodySafeReportRedactionKeepsIncidentMetadataOnly() throws {
+        let item = makeQueueItem(
+            state: .blocked,
+            retryMode: .manualOnly,
+            failureReason: "/Users/test/private/recordings/package/mic.wav Bearer leaked-token",
+            syncConflictState: .serverMeetingDeleted,
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let projection = DesktopUploadCustodyProjection(
+            item: item,
+            now: Date(timeIntervalSince1970: 900)
+        )
+        let report = try XCTUnwrap(DesktopUploadCustodySafeReport(item: item, projection: projection))
+
+        let result = DiagnosticRedactor().redact(report.diagnosticManifest)
+        let incident = try XCTUnwrap(result.manifest["custodyIncident"])
+
+        XCTAssertEqual(result.status, .redacted)
+        guard case .object(let fields) = incident else {
+            return XCTFail("custodyIncident must be an object")
+        }
+        XCTAssertEqual(fields["owner"], .string("workspace_admin"))
+        XCTAssertEqual(fields["problemCode"], .string("server_meeting_deleted"))
+        XCTAssertEqual(fields["metadataSafety"], .string("metadata_only"))
+        XCTAssertNil(fields["privateLocalPath"])
+        XCTAssertNil(fields["signedUrl"])
+        XCTAssertFalse(report.clipboardText.contains("/Users/test"))
+        XCTAssertFalse(report.clipboardText.contains("Bearer"))
+        XCTAssertFalse(report.clipboardText.localizedCaseInsensitiveContains("transcript"))
+        XCTAssertFalse(report.clipboardText.localizedCaseInsensitiveContains("audio"))
     }
 
     func testRetentionExpiryMarksRecoverableConflictWithoutDeletingArtifacts() throws {
@@ -943,6 +1065,25 @@ final class DesktopUploadQueueTests: XCTestCase {
 
         XCTAssertEqual(fixture.localMediaRevisionId, "recording-sync-001--initial")
         XCTAssertEqual(DesktopUploadQueueDocument.schemaVersion, fixture.schemaVersion)
+    }
+
+    func testNextScheduledRetryDateSelectsEarliestFutureAutomaticRetry() {
+        let now = Date(timeIntervalSince1970: 100)
+        var dueNow = makeQueueItem(id: "due-now", state: .queued, retryMode: .automatic)
+        dueNow.nextRetryAt = now
+        var later = makeQueueItem(id: "later", state: .retrying, retryMode: .automatic)
+        later.nextRetryAt = Date(timeIntervalSince1970: 160)
+        var sooner = makeQueueItem(id: "sooner", state: .retrying, retryMode: .automatic)
+        sooner.nextRetryAt = Date(timeIntervalSince1970: 130)
+        var manual = makeQueueItem(id: "manual", state: .blocked, retryMode: .manualOnly)
+        manual.nextRetryAt = Date(timeIntervalSince1970: 120)
+
+        let next = DesktopUploadQueueService.nextScheduledRetryDate(
+            for: [dueNow, later, sooner, manual],
+            now: now
+        )
+
+        XCTAssertEqual(next, Date(timeIntervalSince1970: 130))
     }
 
     private func makeQueueItem(

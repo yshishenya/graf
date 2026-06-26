@@ -132,7 +132,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/054-desktop-ui-polish/plan.md
+at specs/057-local-upload-custody/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues

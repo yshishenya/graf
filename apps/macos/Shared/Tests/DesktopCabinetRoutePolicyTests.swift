@@ -57,6 +57,24 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings"))).decision, .blockWithMessage)
     }
 
+    func testReviewRouteRequiresReviewAvailableServerMeeting() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+
+        let unavailable = policy.reviewDecision(
+            for: try url("/desktop/meetings/meeting-processing"),
+            reviewAvailableMeetingIds: []
+        )
+        XCTAssertEqual(unavailable.decision, .blockWithMessage)
+        XCTAssertEqual(unavailable.reason, .blockedReviewUnavailable)
+
+        let available = policy.reviewDecision(
+            for: try url("/desktop/meetings/meeting-ready"),
+            reviewAvailableMeetingIds: ["meeting-ready"]
+        )
+        XCTAssertEqual(available.decision, .allow)
+        XCTAssertEqual(available.reason, .allowedMeetingDetail)
+    }
+
     func testForbiddenControlCopyRemainsOutOfEmbeddedPolicyMessages() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
         let decision = policy.decision(for: try url("/desktop/capture/record"))

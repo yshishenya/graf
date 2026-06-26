@@ -81,7 +81,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#8c73ff")
         XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
         XCTAssertEqual(DesktopMeetingShellChrome.fontStackDescription, "SF Pro Text / system")
-        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Очередь"])
+        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 1120)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 36)

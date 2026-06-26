@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TwoBrainRecShared
 
@@ -25,8 +26,6 @@ public struct CaptureControlView: View {
     private let onPause: () -> Void
     private let onResume: () -> Void
     private let onSelectRecordingMicrophone: (String?) -> Void
-    private let onUploadRetry: (String) -> Void
-    private let onUploadStopRetry: (String) -> Void
     private let onUploadReview: (URL) -> Void
 
     public init(
@@ -51,8 +50,6 @@ public struct CaptureControlView: View {
         onPause: @escaping () -> Void = {},
         onResume: @escaping () -> Void = {},
         onSelectRecordingMicrophone: @escaping (String?) -> Void = { _ in },
-        onUploadRetry: @escaping (String) -> Void = { _ in },
-        onUploadStopRetry: @escaping (String) -> Void = { _ in },
         onUploadReview: @escaping (URL) -> Void = { _ in }
     ) {
         self.session = session
@@ -76,8 +73,6 @@ public struct CaptureControlView: View {
         self.onPause = onPause
         self.onResume = onResume
         self.onSelectRecordingMicrophone = onSelectRecordingMicrophone
-        self.onUploadRetry = onUploadRetry
-        self.onUploadStopRetry = onUploadStopRetry
         self.onUploadReview = onUploadReview
     }
 
@@ -222,8 +217,6 @@ public struct CaptureControlView: View {
                 UploadQueueStatusView(
                     summary: summary,
                     reviewLink: Self.uploadReviewLink(for: summary.primaryItem, configuration: cabinetConfiguration),
-                    onRetry: onUploadRetry,
-                    onStopRetry: onUploadStopRetry,
                     onReview: onUploadReview
                 )
             }
@@ -252,8 +245,8 @@ public struct CaptureControlView: View {
         shouldShowRecordButton(for: session) && !recordDisabled
     }
 
-    public static func uploadSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadQueueSummary? {
-        DesktopUploadQueueService.visibleSummary(for: items)
+    public static func uploadSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadCustodySummary? {
+        DesktopUploadCustodySummary.summary(for: items)
     }
 
     public static func uploadReviewLink(
@@ -668,10 +661,8 @@ private struct StatusNoteView: View {
 }
 
 private struct UploadQueueStatusView: View {
-    let summary: DesktopUploadQueueSummary
+    let summary: DesktopUploadCustodySummary
     let reviewLink: UploadReviewLink?
-    let onRetry: (String) -> Void
-    let onStopRetry: (String) -> Void
     let onReview: (URL) -> Void
 
     var body: some View {
@@ -688,13 +679,15 @@ private struct UploadQueueStatusView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 Spacer()
-                Text("\(Int((summary.primaryItem.progressFraction * 100).rounded()))%")
-                    .font(.caption.monospacedDigit())
+                Text(summary.pendingCount > 1 ? "\(summary.pendingCount)" : summary.ownerLabel)
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
-            ProgressView(value: summary.primaryItem.progressFraction)
-                .progressViewStyle(.linear)
+            if summary.showsProgress {
+                ProgressView(value: summary.progressFraction)
+                    .progressViewStyle(.linear)
+            }
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(summary.detail)
@@ -713,19 +706,16 @@ private struct UploadQueueStatusView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
-                if let actionLabel = summary.primaryItem.nextActionLabel {
+                if let safeReport = summary.safeReport {
                     Button {
-                        if summary.primaryItem.retryMode == .automatic {
-                            onStopRetry(summary.primaryItem.id)
-                        } else {
-                            onRetry(summary.primaryItem.id)
-                        }
+                        copySafeReport(safeReport)
                     } label: {
-                        Label(actionLabel, systemImage: actionIcon(for: actionLabel))
+                        Label(safeReportCopied ? "Скопировано" : "Скопировать отчет", systemImage: "doc.on.doc")
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .help("Метаданные для поддержки без аудио, текста встречи, локальных путей, токенов и ссылок.")
                 }
             }
         }
@@ -739,46 +729,54 @@ private struct UploadQueueStatusView: View {
                 .stroke(statusColor.opacity(0.18), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Очередь загрузки: \(summary.title), \(summary.detail)")
+        .accessibilityLabel(summary.accessibilityLabel)
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.uploadTruthRegion)
     }
 
+    @State private var safeReportCopied = false
+
+    private func copySafeReport(_ report: DesktopUploadCustodySafeReport) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report.clipboardText, forType: .string)
+        safeReportCopied = true
+    }
+
     private var iconName: String {
-        switch summary.primaryItem.state {
-        case .uploaded:
-            return "checkmark.icloud.fill"
-        case .uploading:
-            return "icloud.and.arrow.up"
-        case .retrying:
-            return "arrow.clockwise.icloud"
-        case .blocked, .failed, .degraded:
+        if summary.copyKey == "custody.unknown_blocked" {
             return "exclamationmark.icloud.fill"
-        case .queued:
+        }
+        switch summary.primaryProjection.custodyState {
+        case .delivered, .finalized, .processing:
+            return "checkmark.icloud.fill"
+        case .partialUploaded, .uploadSessionCreated:
+            return "icloud.and.arrow.up"
+        case .retainedAwaitingCondition, .cannotSend:
+            return "exclamationmark.icloud.fill"
+        case .serverUnknownLocalSaved, .serverRegistered:
             return "tray.and.arrow.up"
-        case .terminalDeleted:
+        case .terminalUndelivered:
             return "xmark.icloud"
         }
     }
 
     private var statusColor: Color {
-        switch summary.primaryItem.state {
-        case .uploaded:
-            return .green
-        case .uploading, .queued:
-            return .blue
-        case .retrying, .degraded, .blocked:
+        if summary.copyKey == "custody.unknown_blocked" {
             return .orange
-        case .failed, .terminalDeleted:
+        }
+        switch summary.primaryProjection.custodyState {
+        case .delivered, .finalized, .processing:
+            return .green
+        case .partialUploaded, .uploadSessionCreated, .serverRegistered:
+            return .blue
+        case .serverUnknownLocalSaved:
+            return .secondary
+        case .retainedAwaitingCondition:
+            return .orange
+        case .cannotSend, .terminalUndelivered:
             return .red
         }
     }
 
-    private func actionIcon(for label: String) -> String {
-        label.localizedCaseInsensitiveContains("stop") ||
-            label.localizedCaseInsensitiveContains("останов")
-            ? "pause.circle"
-            : "arrow.clockwise"
-    }
 }
 
 private struct LiveRecordingMetersView: View {
