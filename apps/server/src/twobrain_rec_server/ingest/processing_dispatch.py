@@ -48,7 +48,7 @@ async def dispatch_processing_after_finalize(
     if stored_meeting is not None:
         meeting.processing_status = ProcessingStatus(stored_meeting.processing_status)
         session.processing_status = meeting.processing_status
-        await persist_upload_session(db, session)
+        await persist_upload_session(db, session, commit=False)
 
     return FinalizeProcessingDispatchResult(
         workflow_started=result.started_count > 0 or result.reused_count > 0,

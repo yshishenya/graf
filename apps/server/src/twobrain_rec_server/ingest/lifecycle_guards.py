@@ -1,9 +1,17 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
-from twobrain_rec_server.domain.statuses import MeetingStatus, UploadSessionStatus
+from twobrain_rec_server.db.models import Meeting as MeetingModel
+from twobrain_rec_server.domain.statuses import (
+    DeletionState,
+    MediaRevisionStatus,
+    MeetingStatus,
+    UploadSessionStatus,
+)
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.state_machine import is_terminal_upload_status
@@ -21,6 +29,21 @@ def _utc_aware(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+async def ensure_meeting_accepts_uploads(
+    *,
+    db: AsyncSession | None,
+    meeting_id: UUID,
+    media_revision_status: MediaRevisionStatus | None = None,
+) -> None:
+    if media_revision_status == MediaRevisionStatus.DELETED:
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+    if db is None:
+        return
+    deletion_state = await db.scalar(select(MeetingModel.deletion_state).where(MeetingModel.id == meeting_id))
+    if (deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+
+
 async def ensure_upload_session_mutable(
     *,
     db: AsyncSession | None,
@@ -31,6 +54,7 @@ async def ensure_upload_session_mutable(
         raise ProblemDetail(status=409, code="session_expired", title="Upload session is expired")
     if is_terminal_upload_status(session.status):
         raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal")
+    await ensure_meeting_accepts_uploads(db=db, meeting_id=session.meeting_id)
     if _utc_aware(session.expires_at) <= datetime.now(UTC):
         meeting = store_module.store.meetings[session.meeting_id]
         session.status = UploadSessionStatus.EXPIRED

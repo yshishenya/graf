@@ -10,6 +10,8 @@ from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 from twobrain_rec_server.db.models import Meeting, UploadSession
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
 
+BOUNDED_DELETE_COPY = "Delete this meeting everywhere 2brain Rec controls."
+
 
 def _create_meeting(client, local_recording_id: str = "lifecycle") -> dict:
     response = client.post(
@@ -90,6 +92,73 @@ def test_create_upload_session_persists_meeting_uploading_status(client) -> None
     import asyncio
 
     assert asyncio.run(persisted_status()) == "uploading"
+
+
+def test_create_upload_session_rejects_deleting_meeting(client) -> None:
+    meeting = _create_meeting(client, "lifecycle-deleting-meeting")
+    deletion = client.post(
+        f"/api/v1/cabinet/meetings/{meeting['meeting_id']}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_DELETE_COPY},
+    )
+    assert deletion.status_code == 202
+
+    response = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 8, "microphone": 9, "system": 10}},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "meeting_deletion_active"
+
+
+def test_upload_part_rejects_session_after_meeting_deletion_starts(client) -> None:
+    meeting = _create_meeting(client, "lifecycle-active-session-then-delete")
+    session = _create_upload_session(client, meeting["meeting_id"])
+    deletion = client.post(
+        f"/api/v1/cabinet/meetings/{meeting['meeting_id']}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_DELETE_COPY},
+    )
+    assert deletion.status_code == 202
+    data = deterministic_wav_bytes(4)
+    digest = sha256(data).hexdigest()
+
+    response = client.put(
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+        content=data,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "meeting_deletion_active"
+
+
+def test_upload_part_reloads_terminal_session_status_from_db(client) -> None:
+    meeting = _create_meeting(client, "lifecycle-db-terminal-session")
+    session = _create_upload_session(client, meeting["meeting_id"])
+
+    async def mark_terminal_in_db() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            model = await db.get(UploadSession, UUID(session["session_id"]))
+            assert model is not None
+            model.status = "finalized"
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(mark_terminal_in_db())
+    data = deterministic_wav_bytes(4)
+    digest = sha256(data).hexdigest()
+    response = client.put(
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+        content=data,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "session_terminal"
 
 
 def test_conflicting_meeting_create_is_rejected(client) -> None:

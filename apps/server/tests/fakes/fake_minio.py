@@ -30,3 +30,6 @@ class FakeMinioStorage:
 
     def get_bytes(self, object_key: str) -> bytes:
         return self.objects[object_key]
+
+    def delete_object(self, object_key: str) -> None:
+        self.objects.pop(object_key, None)

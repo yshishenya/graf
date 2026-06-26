@@ -115,6 +115,22 @@ def test_auth_fails_closed_without_persistent_context(client) -> None:
     assert response.json()["code"] == "auth_context_unavailable"
 
 
+def test_production_rejects_legacy_header_auth_without_session(client) -> None:
+    original_env = client.app.state.settings.env
+    client.app.state.settings.env = "production"
+    try:
+        response = client.post(
+            "/api/v1/meetings",
+            headers=auth_headers(),
+            json={"local_recording_id": "production-legacy-auth", "duration_seconds": 60},
+        )
+    finally:
+        client.app.state.settings.env = original_env
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "legacy_header_auth_disabled"
+
+
 def test_inactive_membership_is_denied(client) -> None:
     async def seed_inactive_membership() -> None:
         async with client.app_state["sessionmaker"]() as db:

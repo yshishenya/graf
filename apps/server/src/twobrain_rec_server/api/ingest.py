@@ -85,6 +85,11 @@ DbDependency = Depends(get_request_db_session)
 StorageDependency = Depends(get_request_storage)
 
 
+async def commit_if_available(db: AsyncSession | None) -> None:
+    if db is not None:
+        await db.commit()
+
+
 def meeting_response(meeting: object) -> MeetingResponse:
     media_revision = MediaRevisionSummary(
         media_revision_id=meeting.media_revision_id,
@@ -152,6 +157,7 @@ async def create_meeting(
             title="Ingest limit exceeded",
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
+    await commit_if_available(db)
     return meeting_response(meeting)
 
 
@@ -196,6 +202,7 @@ async def create_session(
         expected_track_sizes=payload.expected_track_sizes,
         idempotency_key=idempotency_key,
     )
+    await commit_if_available(db)
     return session_response(session)
 
 
@@ -233,6 +240,7 @@ async def put_part(
         content_sha256=x_content_sha256,
         data=data,
     )
+    await commit_if_available(db)
     return UploadPartResponse(
         session_id=session_id,
         track_role=part.track_role,
@@ -293,9 +301,9 @@ async def abort_session(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> UploadSessionResponse:
-    return session_response(
-        await abort_upload_session(tenant_scope=tenant_scope, db=db, session_id=session_id, reason=payload.reason)
-    )
+    session = await abort_upload_session(tenant_scope=tenant_scope, db=db, session_id=session_id, reason=payload.reason)
+    await commit_if_available(db)
+    return session_response(session)
 
 
 @router.post(
@@ -309,6 +317,7 @@ async def finalize_session(
     request: Request,
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
+    storage: object = StorageDependency,
 ) -> FinalizeUploadResponse:
     meeting, session = await finalize_upload(
         tenant_scope=tenant_scope,
@@ -316,6 +325,7 @@ async def finalize_session(
         session_id=session_id,
         manifest_sha256=payload.manifest_sha256,
         tracks=payload.tracks,
+        storage=storage,
     )
     processing = await dispatch_processing_after_finalize(
         db=db,
@@ -325,6 +335,7 @@ async def finalize_session(
         session=session,
         temporal_client=getattr(request.app.state, "temporal_client", None),
     )
+    await commit_if_available(db)
     return FinalizeUploadResponse(
         meeting=meeting_response(meeting),
         upload_session=session_response(session),

@@ -8,6 +8,7 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import TrackRole
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
+from twobrain_rec_server.ingest.lifecycle_guards import ensure_meeting_accepts_uploads
 from twobrain_rec_server.ingest.store import (
     UploadSessionRecord,
     load_active_upload_session_for_meeting,
@@ -39,13 +40,18 @@ async def create_upload_session(
             code="unexpected_expected_track_size_role",
             title="Expected track size provided for a role that is not expected",
         )
-    meeting = store_module.store.meetings.get(meeting_id)
+    meeting = await load_meeting_record(db, meeting_id=meeting_id)
     if meeting is None:
-        meeting = await load_meeting_record(db, meeting_id=meeting_id)
+        meeting = store_module.store.meetings.get(meeting_id)
     if meeting is None or meeting.workspace_id != tenant_scope.workspace_id:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     if meeting.created_by_user_id != tenant_scope.user_id or meeting.device_id != tenant_scope.device_id:
         raise ProblemDetail(status=403, code="meeting_scope_denied", title="Meeting scope denied")
+    await ensure_meeting_accepts_uploads(
+        db=db,
+        meeting_id=meeting.id,
+        media_revision_status=meeting.media_revision_status,
+    )
     active_session = await load_active_upload_session_for_meeting(db, meeting.id)
     if active_session is not None:
         if idempotency_key and active_session.idempotency_key == idempotency_key:
@@ -67,7 +73,7 @@ async def create_upload_session(
         expected_track_sizes=expected_track_sizes,
         idempotency_key=idempotency_key,
     )
-    await persist_meeting(db, meeting)
+    await persist_meeting(db, meeting, commit=False)
     event = record_audit_event(
         event_type="session_created",
         workspace_id=tenant_scope.workspace_id,
@@ -76,6 +82,6 @@ async def create_upload_session(
         actor_user_id=tenant_scope.user_id,
         device_id=tenant_scope.device_id,
     )
-    await persist_upload_session(db, session, settings)
-    await persist_audit_event(db, event)
+    await persist_upload_session(db, session, settings, commit=False)
+    await persist_audit_event(db, event, commit=False)
     return session

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,16 +15,23 @@ from twobrain_rec_server.api.schemas import (
     LocalPurgeTask,
 )
 from twobrain_rec_server.db.models import (
-    LocalPurgeTask as LocalPurgeTaskModel,
-)
-from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     Meeting,
     MeetingDeletionArtifactState,
     MeetingDeletionReport,
     MeetingDeletionRequest,
     MeetingEgressAuditEvent,
     MeetingLifecycleAuditEvent,
+    MeetingOutcomeItem,
     MeetingOutcomeSet,
+    ProcessingResult,
+    TemporaryUploadObject,
+    TrackArtifact,
+    TranscriptSegment,
+    UploadSession,
+)
+from twobrain_rec_server.db.models import (
+    LocalPurgeTask as LocalPurgeTaskModel,
 )
 from twobrain_rec_server.deletion.audit import build_lifecycle_audit_metadata
 from twobrain_rec_server.deletion.local_purge import create_local_purge_tasks_for_request
@@ -77,6 +84,7 @@ async def request_meeting_deletion(
     reason_code: DeletionReasonCode = DeletionReasonCode.USER_REQUEST,
     policy_snapshot_id: UUID | None = None,
     backup_expiry_days: int | None = DEFAULT_BACKUP_EXPIRY_DAYS,
+    storage: object | None = None,
 ) -> DeletionRequestResponse:
     if confirmation_boundary != BOUNDED_DELETE_COPY:
         raise ProblemDetail(status=422, code="invalid_deletion_confirmation", title="Invalid deletion confirmation")
@@ -143,6 +151,7 @@ async def request_meeting_deletion(
     )
     outcomes_materialized = await _mark_outcomes_deleting(db, meeting=meeting)
     post_egress_safe_reason = await _post_egress_safe_reason(db, meeting=meeting)
+    purged_artifact_classes = await _purge_server_controlled_content(db, meeting=meeting, storage=storage)
     artifact_states = _initial_artifact_states(
         meeting,
         deletion_request.id,
@@ -150,6 +159,7 @@ async def request_meeting_deletion(
         backup_expiry_days=backup_expiry_days,
         post_egress_safe_reason=post_egress_safe_reason,
         outcomes_materialized=outcomes_materialized,
+        purged_artifact_classes=purged_artifact_classes,
     )
     report = MeetingDeletionReport(
         workspace_id=meeting.workspace_id,
@@ -273,6 +283,140 @@ async def _flush_or_fail_closed(db: AsyncSession) -> None:
         ) from exc
 
 
+async def _purge_server_controlled_content(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    storage: object | None,
+) -> set[DeletionArtifactClass]:
+    purged: set[DeletionArtifactClass] = set()
+
+    artifacts = (
+        await db.scalars(
+            select(TrackArtifact)
+            .where(TrackArtifact.workspace_id == meeting.workspace_id)
+            .where(TrackArtifact.meeting_id == meeting.id)
+        )
+    ).all()
+    for artifact in artifacts:
+        await _delete_storage_object(storage, artifact.storage_object_key)
+        artifact.status = "purged"
+    if artifacts:
+        purged.add(DeletionArtifactClass.AUDIO_OBJECT)
+
+    temporary_objects = (
+        await db.scalars(
+            select(TemporaryUploadObject)
+            .join(UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id)
+            .where(TemporaryUploadObject.workspace_id == meeting.workspace_id)
+            .where(UploadSession.workspace_id == meeting.workspace_id)
+            .where(UploadSession.meeting_id == meeting.id)
+        )
+    ).all()
+    for temporary_object in temporary_objects:
+        await _delete_storage_object(storage, temporary_object.storage_object_key)
+        temporary_object.cleanup_status = "purged"
+        temporary_object.failure_reason = None
+        temporary_object.last_error = None
+    if temporary_objects:
+        purged.add(DeletionArtifactClass.UPLOAD_TEMP)
+
+    transcript_delete = await db.execute(
+        delete(TranscriptSegment)
+        .where(TranscriptSegment.workspace_id == meeting.workspace_id)
+        .where(TranscriptSegment.meeting_id == meeting.id)
+    )
+    if transcript_delete.rowcount:
+        purged.add(DeletionArtifactClass.TRANSCRIPT)
+
+    diarization_delete = await db.execute(
+        delete(DiarizationSegment)
+        .where(DiarizationSegment.workspace_id == meeting.workspace_id)
+        .where(DiarizationSegment.meeting_id == meeting.id)
+    )
+    if diarization_delete.rowcount:
+        purged.add(DeletionArtifactClass.DIARIZATION)
+
+    processing_results = (
+        await db.scalars(
+            select(ProcessingResult)
+            .where(ProcessingResult.workspace_id == meeting.workspace_id)
+            .where(ProcessingResult.meeting_id == meeting.id)
+        )
+    ).all()
+    for result in processing_results:
+        if DeletionArtifactClass.TRANSCRIPT in purged:
+            result.transcript_status = "purged"
+            result.segment_count = 0
+        if DeletionArtifactClass.DIARIZATION in purged:
+            result.diarization_status = "purged"
+            result.diarization_segment_count = 0
+
+    outcome_sets = (
+        await db.scalars(
+            select(MeetingOutcomeSet)
+            .where(MeetingOutcomeSet.workspace_id == meeting.workspace_id)
+            .where(MeetingOutcomeSet.meeting_id == meeting.id)
+        )
+    ).all()
+    if outcome_sets:
+        await _purge_meeting_outcomes(db, meeting=meeting)
+        purged.add(DeletionArtifactClass.NOTES_SUMMARY)
+
+    return purged
+
+
+async def _delete_storage_object(storage: object | None, object_key: str) -> None:
+    if storage is None:
+        raise ProblemDetail(
+            status=503,
+            code="deletion_storage_unavailable",
+            title="Deletion storage unavailable",
+            detail="Deletion failed closed because server-owned media could not be purged.",
+        )
+    delete_object_async = getattr(storage, "delete_object_async", None)
+    if delete_object_async is not None:
+        await delete_object_async(object_key)
+        return
+    delete_object = getattr(storage, "delete_object", None)
+    if delete_object is None:
+        raise ProblemDetail(
+            status=503,
+            code="deletion_storage_unavailable",
+            title="Deletion storage unavailable",
+            detail="Deletion failed closed because server-owned media could not be purged.",
+        )
+    delete_object(object_key)
+
+
+async def _purge_meeting_outcomes(db: AsyncSession, *, meeting: Meeting) -> None:
+    outcome_sets = (
+        await db.scalars(
+            select(MeetingOutcomeSet)
+            .where(MeetingOutcomeSet.workspace_id == meeting.workspace_id)
+            .where(MeetingOutcomeSet.meeting_id == meeting.id)
+        )
+    ).all()
+    for outcome_set in outcome_sets:
+        outcome_set.lifecycle_state = OutcomeLifecycleState.DELETED.value
+        outcome_set.failure_reason = "meeting_deleted"
+        outcome_set.content_hash = None
+
+    outcome_items = (
+        await db.scalars(
+            select(MeetingOutcomeItem)
+            .where(MeetingOutcomeItem.workspace_id == meeting.workspace_id)
+            .where(MeetingOutcomeItem.meeting_id == meeting.id)
+        )
+    ).all()
+    for item in outcome_items:
+        item.state = "purged"
+        item.text = None
+        item.owner_text = None
+        item.due_date_text = None
+        item.source_refs_json = []
+
+
 def _initial_artifact_states(
     meeting: Meeting,
     deletion_request_id: UUID,
@@ -281,7 +425,9 @@ def _initial_artifact_states(
     backup_expiry_days: int | None = DEFAULT_BACKUP_EXPIRY_DAYS,
     post_egress_safe_reason: str = "Delivered copies are outside 2brain Rec control",
     outcomes_materialized: bool = False,
+    purged_artifact_classes: set[DeletionArtifactClass] | None = None,
 ) -> list[MeetingDeletionArtifactState]:
+    purged_artifact_classes = purged_artifact_classes or set()
     local_purge_state = (
         DeletionArtifactState.LOCAL_PENDING
         if local_purge_requested
@@ -293,18 +439,30 @@ def _initial_artifact_states(
         if backup_expiry_days is not None
         else "backup_expiry_policy_missing"
     )
-    outcomes_state = DeletionArtifactState.PURGE_REQUESTED if outcomes_materialized else DeletionArtifactState.NOT_APPLICABLE
-    outcomes_reason = "Meeting outcomes purge requested" if outcomes_materialized else "Meeting outcomes not materialized"
+    outcomes_state = (
+        DeletionArtifactState.PURGED
+        if DeletionArtifactClass.NOTES_SUMMARY in purged_artifact_classes
+        else DeletionArtifactState.PURGE_REQUESTED
+        if outcomes_materialized
+        else DeletionArtifactState.NOT_APPLICABLE
+    )
+    outcomes_reason = (
+        "Meeting outcomes purged"
+        if DeletionArtifactClass.NOTES_SUMMARY in purged_artifact_classes
+        else "Meeting outcomes purge requested"
+        if outcomes_materialized
+        else "Meeting outcomes not materialized"
+    )
     rows = [
         (DeletionArtifactClass.MEETING_ROW, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, "Meeting row retained as deletion report metadata"),
         (DeletionArtifactClass.MEDIA_REVISION, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, MEDIA_REVISION_DELETION_SAFE_REASON),
-        (DeletionArtifactClass.AUDIO_OBJECT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Server audio purge requested"),
-        (DeletionArtifactClass.TRANSCRIPT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Transcript purge requested"),
-        (DeletionArtifactClass.DIARIZATION, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Diarization purge requested"),
+        (DeletionArtifactClass.AUDIO_OBJECT, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.AUDIO_OBJECT, purged_artifact_classes), _purge_reason("Server audio", DeletionArtifactClass.AUDIO_OBJECT, purged_artifact_classes)),
+        (DeletionArtifactClass.TRANSCRIPT, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes), _purge_reason("Transcript", DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes)),
+        (DeletionArtifactClass.DIARIZATION, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.DIARIZATION, purged_artifact_classes), _purge_reason("Diarization", DeletionArtifactClass.DIARIZATION, purged_artifact_classes)),
         (DeletionArtifactClass.NOTES_SUMMARY, DeletionControlScope.CONTROLLED, outcomes_state, outcomes_reason),
         (DeletionArtifactClass.EXPORT_PACKAGE, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Export package purge requested"),
         (DeletionArtifactClass.SHARE_GRANT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Share grants disabled for this meeting"),
-        (DeletionArtifactClass.UPLOAD_TEMP, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Temporary upload purge requested"),
+        (DeletionArtifactClass.UPLOAD_TEMP, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.UPLOAD_TEMP, purged_artifact_classes), _purge_reason("Temporary upload", DeletionArtifactClass.UPLOAD_TEMP, purged_artifact_classes)),
         (DeletionArtifactClass.PROCESSING_WORKFLOW, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, "Workflow metadata retained without content"),
         (DeletionArtifactClass.MEDIASCRIBE, DeletionControlScope.EXTERNAL, DeletionArtifactState.UNKNOWN, "External deletion support is not confirmed"),
         (DeletionArtifactClass.LANGFUSE, DeletionControlScope.EXTERNAL, DeletionArtifactState.METADATA_RETAINED, "Langfuse is metadata-only by default"),
@@ -332,6 +490,25 @@ def _initial_artifact_states(
         )
         for artifact_class, control_scope, state, label in rows
     ]
+
+
+def _purge_state(
+    artifact_class: DeletionArtifactClass,
+    purged_artifact_classes: set[DeletionArtifactClass],
+) -> DeletionArtifactState:
+    if artifact_class in purged_artifact_classes:
+        return DeletionArtifactState.PURGED
+    return DeletionArtifactState.PURGE_REQUESTED
+
+
+def _purge_reason(
+    label: str,
+    artifact_class: DeletionArtifactClass,
+    purged_artifact_classes: set[DeletionArtifactClass],
+) -> str:
+    if artifact_class in purged_artifact_classes:
+        return f"{label} purged"
+    return f"{label} purge requested"
 
 
 def _artifact_state_json(row: MeetingDeletionArtifactState) -> dict[str, str | int | bool | None]:

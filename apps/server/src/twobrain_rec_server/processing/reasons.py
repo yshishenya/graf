@@ -4,6 +4,7 @@ BLOCKED_MEDIASCRIBE_UNAVAILABLE = "blocked_mediascribe_unavailable"
 BLOCKED_MISSING_ARTIFACTS = "blocked_missing_artifacts"
 BLOCKED_INVALID_MEETING_STATE = "blocked_invalid_meeting_state"
 BLOCKED_UNAUTHORIZED = "blocked_unauthorized"
+BLOCKED_AUDIO_TOO_LARGE = "blocked_audio_too_large"
 
 MEDIASCRIBE_AUTH_FAILED = "mediascribe_auth_failed"
 MEDIASCRIBE_VALIDATION_FAILED = "mediascribe_validation_failed"

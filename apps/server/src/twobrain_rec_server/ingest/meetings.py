@@ -61,6 +61,6 @@ async def create_or_get_meeting(
         device_id=tenant_scope.device_id,
         metadata={"local_recording_id": local_recording_id},
     )
-    await persist_meeting(db, meeting)
-    await persist_audit_event(db, event)
+    await persist_meeting(db, meeting, commit=False)
+    await persist_audit_event(db, event, commit=False)
     return meeting

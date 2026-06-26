@@ -32,9 +32,9 @@ async def get_session_for_tenant(
     tenant_scope: TenantScope,
     db: AsyncSession | None = None,
 ) -> UploadSessionRecord:
-    session = store_module.store.sessions.get(session_id)
+    session = await load_upload_session_record(db, session_id)
     if session is None:
-        session = await load_upload_session_record(db, session_id)
+        session = store_module.store.sessions.get(session_id)
     if session is None or session.workspace_id != tenant_scope.workspace_id:
         raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
     if session.device_id != tenant_scope.device_id:
@@ -187,7 +187,7 @@ async def accept_part(
     )
     session.parts[part_key] = part
     session.status = UploadSessionStatus.UPLOADING
-    await persist_temporary_upload_object(db, session, part, object_role="accepted_part")
+    await persist_temporary_upload_object(db, session, part, object_role="accepted_part", commit=False)
     event = record_audit_event(
         event_type="part_accepted",
         workspace_id=tenant_scope.workspace_id,
@@ -198,8 +198,8 @@ async def accept_part(
         metadata={"track_role": track_role.value, "part_number": part_number, "byte_length": byte_length},
     )
     try:
-        await persist_upload_session(db, session, settings)
-        await persist_upload_part(db, session, part)
+        await persist_upload_session(db, session, settings, commit=False)
+        await persist_upload_part(db, session, part, commit=False)
     except Exception as exc:
         await mark_temporary_upload_object_cleanup_status(
             db,
@@ -211,6 +211,6 @@ async def accept_part(
         )
         close_upload_stream()
         raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
-    await persist_audit_event(db, event)
+    await persist_audit_event(db, event, commit=False)
     close_upload_stream()
     return part

@@ -63,6 +63,26 @@ def _extract_session_token(
     return None
 
 
+def _legacy_header_auth_allowed(request: Request) -> bool:
+    settings = getattr(request.app.state, "settings", None)
+    if settings is None:
+        return True
+    if getattr(settings, "env", "development").lower() != "production":
+        return True
+    return bool(getattr(settings, "legacy_header_auth_enabled", False))
+
+
+def _ensure_legacy_header_auth_allowed(request: Request) -> None:
+    if _legacy_header_auth_allowed(request):
+        return
+    raise ProblemDetail(
+        status=401,
+        code="legacy_header_auth_disabled",
+        title="Legacy header authentication is disabled",
+        detail="Use a validated auth session token in production.",
+    )
+
+
 async def _principal_from_session_token(request: Request, token: str) -> AuthenticatedPrincipal | None:
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
@@ -128,6 +148,7 @@ async def get_principal(
     if session_token is not None:
         return await _principal_from_session_token(request, session_token)
 
+    _ensure_legacy_header_auth_allowed(request)
     user_id = _parse_uuid(x_user_id, "X-User-Id")
     organization_id = _parse_uuid(x_organization_id, "X-Organization-Id")
     workspace_id = _parse_uuid(x_workspace_id, "X-Workspace-Id")
@@ -151,18 +172,17 @@ async def get_device_context(
     x_device_registration_state: str | None = Header(default=None, alias="X-Device-Registration-State", include_in_schema=False),
     x_device_trust_state: str | None = Header(default=None, alias="X-Device-Trust-State", include_in_schema=False),
 ) -> DeviceContext:
-    if x_device_id and x_workspace_id:
-        return DeviceContext(
-            device_id=_parse_uuid(x_device_id, "X-Device-Id"),
-            workspace_id=_parse_uuid(x_workspace_id, "X-Workspace-Id"),
-            client_version=x_client_version,
-            registration_state=x_device_registration_state,
-            trust_state=x_device_trust_state,
-        )
-
     session_token = _extract_session_token(authorization, x_auth_session, auth_session_cookie)
     if session_token is not None:
         principal = await _principal_from_session_token(request, session_token)
+        if x_device_id and x_workspace_id:
+            return DeviceContext(
+                device_id=_parse_uuid(x_device_id, "X-Device-Id"),
+                workspace_id=_parse_uuid(x_workspace_id, "X-Workspace-Id"),
+                client_version=x_client_version,
+                registration_state=x_device_registration_state,
+                trust_state=x_device_trust_state,
+            )
         if principal is not None and principal.session_device_id is not None and principal.session_workspace_id is not None:
             return DeviceContext(
                 device_id=principal.session_device_id,
@@ -177,6 +197,7 @@ async def get_device_context(
             title="Auth session context does not match workspace context",
         )
 
+    _ensure_legacy_header_auth_allowed(request)
     return DeviceContext(
         device_id=_parse_uuid(x_device_id, "X-Device-Id"),
         workspace_id=_parse_uuid(x_workspace_id, "X-Workspace-Id"),

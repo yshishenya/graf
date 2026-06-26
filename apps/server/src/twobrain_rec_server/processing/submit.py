@@ -16,6 +16,7 @@ from twobrain_rec_server.mediascribe.import_results import (
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.reasons import (
+    BLOCKED_AUDIO_TOO_LARGE,
     BLOCKED_MISSING_ARTIFACTS,
     MEDIASCRIBE_MALFORMED_RESPONSE,
 )
@@ -65,6 +66,17 @@ async def submit_to_mediascribe(
             terminal=True,
         )
         raise RuntimeError(BLOCKED_MISSING_ARTIFACTS)
+
+    audio_bytes = mic.byte_length + incoming.byte_length
+    if audio_bytes > settings.processing_max_in_memory_audio_bytes:
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.BLOCKED,
+            reason_code=BLOCKED_AUDIO_TOO_LARGE,
+            terminal=True,
+        )
+        raise RuntimeError(BLOCKED_AUDIO_TOO_LARGE)
 
     job = await store.upsert_mediascribe_job(
         db,

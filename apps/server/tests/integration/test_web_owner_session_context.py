@@ -12,6 +12,7 @@ from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.db.models import (
+    AuthCallbackState,
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
@@ -230,6 +231,46 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert meetings.status_code == 200
     assert "Проектный синк" in meetings.text
     assert "missing_auth_context" not in meetings.text
+
+
+def test_browser_email_login_wrong_code_consumes_state(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    assert start.status_code == 200
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+    state = state_match.group(1)
+    code = code_match.group(1)
+    wrong_code = "000000" if code != "000000" else "999999"
+
+    wrong = client.post(
+        "/login/email/verify",
+        data={"email": BROWSER_OWNER_EMAIL, "code": wrong_code, "state": state, "next": "/meetings"},
+        follow_redirects=False,
+    )
+    replay = client.post(
+        "/login/email/verify",
+        data={"email": BROWSER_OWNER_EMAIL, "code": code, "state": state, "next": "/meetings"},
+        follow_redirects=False,
+    )
+
+    assert wrong.status_code == 400
+    assert replay.status_code == 400
+    assert replay.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+
+    async def state_result() -> tuple[str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            state_row = await db.scalar(select(AuthCallbackState).where(AuthCallbackState.state_nonce == state))
+            assert state_row is not None
+            return state_row.result, state_row.error_code
+
+    assert client.portal.call(state_result) == ("failed", "email_code_invalid")
 
 
 def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> None:

@@ -67,6 +67,7 @@ async def mark_media_revision_accepted(
     media_revision_id: UUID | None,
     manifest_sha256: str,
     tracks: Iterable[object],
+    commit: bool = True,
 ) -> None:
     if db is None or media_revision_id is None:
         return
@@ -86,4 +87,7 @@ async def mark_media_revision_accepted(
     revision.track_sha256_by_role = new_track_sha256_by_role
     revision.immutable = True
     revision.accepted_at = revision.accepted_at or datetime.now(UTC)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()

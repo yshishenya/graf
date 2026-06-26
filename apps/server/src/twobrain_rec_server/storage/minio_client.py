@@ -3,6 +3,7 @@ from typing import BinaryIO
 
 from anyio import to_thread
 from minio import Minio
+from minio.error import S3Error
 
 from twobrain_rec_server.config import Settings, get_settings
 
@@ -51,6 +52,16 @@ class MinioStorage:
 
     async def get_bytes_async(self, object_key: str) -> bytes:
         return await to_thread.run_sync(self.get_bytes, object_key)
+
+    def delete_object(self, object_key: str) -> None:
+        try:
+            self.client.remove_object(self.settings.minio_bucket, object_key)
+        except S3Error as exc:
+            if exc.code not in {"NoSuchKey", "NoSuchObject"}:
+                raise
+
+    async def delete_object_async(self, object_key: str) -> None:
+        await to_thread.run_sync(self.delete_object, object_key)
 
 
 def get_storage(settings: Settings | None = None) -> MinioStorage:

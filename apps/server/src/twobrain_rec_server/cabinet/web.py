@@ -2316,6 +2316,8 @@ async def _consume_email_login_code(
             flow=flow,
         )
     if state.expected_state != hash_token(_normalize_email_code(code)):
+        state.result = "failed"
+        state.used_at = now
         state.error_code = "email_code_invalid"
         await _record_email_login_audit(
             db,
