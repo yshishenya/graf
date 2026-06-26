@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added a `Risk / validation lane` section to the reusable pull request template so
+  PRs record the selected validation scope, why it is sufficient, and which
+  broader gates were not run.
+- Updated the issue canon to require PR descriptions to include the selected
+  validation lane alongside validation evidence and issue links.
+
 ## [0.2.1] - 2026-06-18
 
 ### Added
