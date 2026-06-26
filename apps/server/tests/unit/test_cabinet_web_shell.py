@@ -276,6 +276,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "updated_desc" not in page
     assert "max-width: min(1120px, calc(100vw - 48px))" in page
     assert "min-height: 46px;" in page
+    assert ".meeting-title { display: block; min-width: 0;" in page
+    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto;" in page
     assert ":focus-visible" in page
     assert "hero" not in page.lower()
     assert 'data-selection-toolbar' in page

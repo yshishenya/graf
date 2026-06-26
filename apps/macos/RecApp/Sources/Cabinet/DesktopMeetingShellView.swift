@@ -305,10 +305,17 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         recordingStrip(for: recordingStripSession)
                         Divider()
                     }
-                    HStack(spacing: 0) {
+                    HStack(alignment: .top, spacing: 0) {
                         meetingsSurface
                         Divider()
                         inspectorContainer
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        InspectorDisclosureButton(isExpanded: expandedInspectorVisible) {
+                            inspectorExpanded = !expandedInspectorVisible
+                        }
+                        .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
+                        .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
                     }
                 }
             }
@@ -937,13 +944,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .background(DesktopMeetingShellChrome.shellRailColor)
-        .overlay(alignment: .topTrailing) {
-            InspectorDisclosureButton(isExpanded: false) {
-                inspectorExpanded = true
-            }
-            .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
-            .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
-        }
     }
 
     private func railIcon(_ icon: String, selected: Bool, color: Color = .secondary) -> some View {
@@ -1021,13 +1021,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
         .padding(14)
         .background(DesktopMeetingShellChrome.shellRailColor)
-        .overlay(alignment: .topTrailing) {
-            InspectorDisclosureButton(isExpanded: true) {
-                inspectorExpanded = false
-            }
-            .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
-            .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
-        }
     }
 
     private func statusChip(title: String, icon: String, color: Color) -> some View {
