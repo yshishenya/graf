@@ -1,0 +1,502 @@
+openapi: 3.1.0
+info:
+  title: 2brain Rec Calendar Context API
+  version: 0.1.0
+  description: Read-only calendar ingestion and recording-time context contract for feature 060.
+paths:
+  /api/v1/calendar/providers:
+    get:
+      tags: [calendar]
+      summary: List supported calendar provider presets and capabilities.
+      responses:
+        "200":
+          description: Provider presets and capability states.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarProviderListResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+  /api/v1/calendar/sources:
+    get:
+      tags: [calendar]
+      summary: List connected calendar sources for the authenticated workspace user.
+      responses:
+        "200":
+          description: Calendar source summaries with no credential material.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSourceListResponse"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+    post:
+      tags: [calendar]
+      summary: Connect a read-only calendar source.
+      description: Raw credential input is accepted only in request handling memory and is never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectCalendarSourceRequest"
+      responses:
+        "201":
+          description: Calendar source created in read-only mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSourceResponse"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /api/v1/calendar/sources/{source_id}:
+    get:
+      tags: [calendar]
+      summary: Read calendar source state and selected calendars.
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSourceResponse"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /api/v1/calendar/sources/{source_id}/selected-calendars:
+    patch:
+      tags: [calendar]
+      summary: Select readable calendars for future-only ingestion.
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectCalendarsRequest"
+      responses:
+        "200":
+          description: Updated source state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSourceResponse"
+  /api/v1/calendar/sources/{source_id}/sync:
+    post:
+      tags: [calendar]
+      summary: Start or request a bounded future sync.
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "202":
+          description: Sync accepted or already running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSyncResponse"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /api/v1/calendar/sources/{source_id}/disconnect:
+    post:
+      tags: [calendar]
+      summary: Disconnect a calendar source and purge credentials plus unmatched/future cache.
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Disconnect lifecycle result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarDisconnectResponse"
+  /api/v1/calendar/events/upcoming:
+    get:
+      tags: [calendar]
+      summary: List authorized upcoming events from selected calendars.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Upcoming event summaries safe for the authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpcomingCalendarEventsResponse"
+  /api/v1/desktop/calendar/upcoming:
+    get:
+      tags: [calendar, desktop]
+      summary: Desktop upcoming context for local join and record prompts.
+      parameters:
+        - name: before_minutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1440
+            default: 15
+        - name: after_minutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1440
+            default: 60
+      responses:
+        "200":
+          description: Events and prompt states for the authenticated desktop device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesktopCalendarPromptResponse"
+  /api/v1/meetings/{meeting_id}/calendar-context:
+    put:
+      tags: [calendar, meetings]
+      summary: Link a meeting to a current or explicitly selected future calendar event.
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutMeetingCalendarContextRequest"
+      responses:
+        "200":
+          description: Calendar context link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingCalendarContextResponse"
+    delete:
+      tags: [calendar, meetings]
+      summary: Remove the calendar context link from a meeting.
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: Calendar context unlinked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingCalendarContextResponse"
+components:
+  parameters:
+    SourceId:
+      name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MeetingId:
+      name: meeting_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Problem:
+      description: Problem response using the repository Problem schema.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: object
+      required: [title, status, code]
+      properties:
+        type:
+          type: string
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: [string, "null"]
+        request_id:
+          type: [string, "null"]
+    CalendarProviderListResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarProviderPreset"
+    CalendarProviderPreset:
+      type: object
+      required: [provider_family, label, adapter_family, supported]
+      properties:
+        provider_family:
+          type: string
+        label:
+          type: string
+        adapter_family:
+          enum: [caldav, rich_api, ews]
+        supported:
+          type: boolean
+        capability_state:
+          type: object
+          additionalProperties:
+            type: string
+    ConnectCalendarSourceRequest:
+      type: object
+      required: [provider_family, auth_mode]
+      additionalProperties: false
+      properties:
+        provider_family:
+          type: string
+        auth_mode:
+          enum: [oauth, app_password, manual_url]
+        display_label:
+          type: [string, "null"]
+          maxLength: 160
+        caldav_url:
+          type: [string, "null"]
+          maxLength: 1000
+        username:
+          type: [string, "null"]
+          maxLength: 240
+        credential_input:
+          type: [string, "null"]
+          description: Write-only credential; never returned or logged.
+        selected_provider_calendar_ids:
+          type: array
+          items:
+            type: string
+          default: []
+    SelectCalendarsRequest:
+      type: object
+      required: [selected_provider_calendar_ids]
+      additionalProperties: false
+      properties:
+        selected_provider_calendar_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            maxLength: 500
+    CalendarSourceListResponse:
+      type: object
+      required: [sources]
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarSourceSummary"
+    CalendarSourceResponse:
+      type: object
+      required: [source, calendars]
+      properties:
+        source:
+          $ref: "#/components/schemas/CalendarSourceSummary"
+        calendars:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalCalendarSummary"
+    CalendarSourceSummary:
+      type: object
+      required: [source_id, provider_family, connection_state, credential_state, sync_state]
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        provider_family:
+          type: string
+        provider_label:
+          type: string
+        connection_state:
+          type: string
+        credential_state:
+          type: string
+        sync_state:
+          type: string
+        selected_calendar_count:
+          type: integer
+          minimum: 0
+        sync_horizon_end:
+          type: [string, "null"]
+          format: date-time
+        last_successful_sync_at:
+          type: [string, "null"]
+          format: date-time
+        safe_error_code:
+          type: [string, "null"]
+    ExternalCalendarSummary:
+      type: object
+      required: [calendar_id, display_label, selected]
+      properties:
+        calendar_id:
+          type: string
+        display_label:
+          type: string
+        selected:
+          type: boolean
+        color:
+          type: [string, "null"]
+        visibility:
+          type: string
+    CalendarSyncResponse:
+      type: object
+      required: [source_id, sync_state, accepted]
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        sync_state:
+          type: string
+        accepted:
+          type: boolean
+        event_count:
+          type: integer
+          minimum: 0
+        safe_error_code:
+          type: [string, "null"]
+    CalendarDisconnectResponse:
+      type: object
+      required: [source_id, connection_state, credentials_purged, unmatched_future_cache_purged]
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        connection_state:
+          enum: [disconnected]
+        credentials_purged:
+          type: boolean
+        unmatched_future_cache_purged:
+          type: boolean
+        matched_context_retention:
+          enum: [meeting_retention_policy]
+    UpcomingCalendarEventsResponse:
+      type: object
+      required: [events, truncated]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarEventSummary"
+        truncated:
+          type: boolean
+    DesktopCalendarPromptResponse:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/DesktopCalendarPromptEvent"
+    CalendarEventSummary:
+      type: object
+      required: [event_id, starts_at, ends_at, title_state, provider_family]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        provider_family:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        title:
+          type: [string, "null"]
+        title_state:
+          enum: [available, private_redacted, free_busy_only, policy_hidden]
+        meeting_link_present:
+          type: boolean
+        attendee_count:
+          type: integer
+          minimum: 0
+        privacy_class:
+          type: string
+    DesktopCalendarPromptEvent:
+      allOf:
+        - $ref: "#/components/schemas/CalendarEventSummary"
+        - type: object
+          required: [join_prompt_state, record_prompt_state]
+          properties:
+            join_prompt_due_at:
+              type: [string, "null"]
+              format: date-time
+            record_prompt_due_at:
+              type: [string, "null"]
+              format: date-time
+            join_prompt_state:
+              type: string
+            record_prompt_state:
+              type: string
+            open_meeting_url:
+              type: [string, "null"]
+              description: Returned only when authorized; never logged.
+    PutMeetingCalendarContextRequest:
+      type: object
+      required: [event_id, context_reason]
+      additionalProperties: false
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        context_reason:
+          enum: [manual_selection, current_event_prompt, event_start_prompt]
+    MeetingCalendarContextResponse:
+      type: object
+      required: [meeting_id, context_state]
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        event_id:
+          type: [string, "null"]
+          format: uuid
+        context_state:
+          enum: [linked, unlinked, no_context]
+        context_confidence:
+          type: [string, "null"]
+        title_source:
+          type: [string, "null"]
