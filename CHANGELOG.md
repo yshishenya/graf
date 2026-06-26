@@ -24,6 +24,9 @@
 ### Исправлено
 - Deletion-report web routes теперь возвращают bounded HTMX fragment при
   `HX-Request`, а не полный shell.
+- MacOS WebView boundary tests теперь закрепляют текущую online/local границу:
+  online cabinet rows остаются web-owned, а local/offline custody rows остаются
+  native-only.
 
 ### Безопасность
 - Unsafe cookie-authenticated cabinet actions защищены CSRF proof, HTMX-запросы
@@ -31,6 +34,8 @@
   guard и отсутствие private evidence markers.
 - CSRF contract отдельно закрепляет все unsafe cabinet API routes, чтобы новые
   POST/PATCH/DELETE действия не обходили web-session защиту.
+- Private cabinet shell теперь просит поисковые роботы не индексировать кабинет
+  и отключает HTMX eval/script-tag handling для authenticated surface.
 
 ### Документы
 - Зафиксированы architecture/component/HTMX/WebView boundary decisions,

@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- No entries yet.
+
+## [0.2.2] - 2026-06-26
+
 ### Added
 
 - Added a `Risk / validation lane` section to the reusable pull request template so
