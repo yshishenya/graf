@@ -702,6 +702,18 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   margin: 18px 0 8px;
 }
 .meeting-toolbar .section-title { margin: 0; }
+.selection-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin: 18px 0 8px;
+}
+.selection-toolbar[hidden] { display: none; }
+.selection-count { font-weight: 800; color: #f0edff; }
+.selection-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.selection-feedback { color: var(--muted); font-size: 12px; }
+.danger-button { color: #ffd6d6; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
 .toolbar-icons { display: flex; align-items: center; gap: 8px; }
 .icon-control {
   width: 28px;
@@ -733,33 +745,64 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   color: #dfe2e8;
 }
 .meeting-row.cabinet-row {
-  grid-template-columns: 24px 20px minmax(0, 1fr) auto 64px;
+  grid-template-columns: 24px 20px minmax(0, 1fr) 32px 64px;
   min-height: 38px;
   padding: 0 12px;
   gap: 9px;
 }
 .meeting-row.cabinet-row:hover { background: #2c2f33; }
-.meeting-row.is-selected { background: #303337; }
+.meeting-row.is-selected { background: #302860; }
 .meeting-row .row-check {
-  width: 14px;
-  height: 14px;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
   border: 1px solid #686e78;
   border-radius: 4px;
+  background: transparent;
+}
+.meeting-row .row-check:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.meeting-row .row-check:checked::after {
+  content: "✓";
+  display: grid;
+  place-items: center;
+  color: #17191c;
+  font-size: 12px;
+  font-weight: 900;
 }
 .row-icon { display: grid; place-items: center; color: #a7adb7; font-size: 13px; }
 .meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
-.future-actions {
-  display: flex;
-  gap: 4px;
-  opacity: .85;
-  justify-content: flex-end;
-}
-.future-actions .icon-button {
+.row-delete {
   width: 24px;
   height: 24px;
   font-size: 11px;
   border-color: transparent;
   background: transparent;
+  color: #ffc7c7;
+  opacity: 0;
+}
+.meeting-row:hover .row-delete, .meeting-row:focus-within .row-delete {
+  opacity: 1;
+}
+.delete-dialog {
+  width: min(440px, calc(100vw - 36px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 22px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.5);
+}
+.delete-dialog::backdrop { background: rgba(0,0,0,.62); }
+.delete-dialog h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.2; }
+.delete-dialog p { margin: 0 0 12px; color: #eef0f4; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.dialog-error { color: #ffd6d6; font-size: 12px; margin-top: 12px; }
+.dialog-error[hidden] { display: none; }
 }
 .floating-search {
   position: fixed;
@@ -845,9 +888,11 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .detail-layout { grid-template-columns: 1fr; }
   .right-panel { position: static; }
   .meeting-row { grid-template-columns: 24px minmax(0, 1fr); padding: 12px; }
-  .meeting-row.cabinet-row { grid-template-columns: 20px minmax(0, 1fr) auto; min-height: 48px; }
-  .meeting-row.cabinet-row .row-check, .meeting-row.cabinet-row .future-actions { display: none; }
+  .meeting-row.cabinet-row { grid-template-columns: 20px minmax(0, 1fr) 28px auto; min-height: 48px; }
   .meeting-row.cabinet-row .meeting-date { grid-column: 3; }
+  .meeting-row.cabinet-row .row-delete { grid-column: 4; opacity: 1; }
+  .selection-toolbar { align-items: stretch; flex-direction: column; }
+  .selection-actions { justify-content: flex-start; }
   .meeting-row > .state-list, .meeting-row > .row-actions { grid-column: 2; justify-self: start; }
   .segment { display: block; }
   .segment .speaker, .segment .text { margin-top: 6px; }
@@ -1715,8 +1760,8 @@ def _render_auth_transition_script() -> str:
 
 def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = False) -> str:
     rows = "\n".join(
-        _render_meeting_row(item, embedded=embedded, selected=index == 0)
-        for index, item in enumerate(response.items)
+        _render_meeting_row(item, embedded=embedded)
+        for item in response.items
     )
     if not rows:
         rows = '<div class="empty-state">Нет встреч для выбранного фильтра.</div>'
@@ -1758,14 +1803,163 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
               <button class="new-button" type="button" aria-disabled="true">Новая</button>
             </div>
           </div>
-          <section class="list-card cabinet-card" aria-label="Записи встреч">
+          <div class="selection-toolbar" data-selection-toolbar hidden>
+            <div class="selection-count" data-selection-count>Выбрано 0 записей</div>
+            <div class="selection-actions">
+              <button class="icon-control is-disabled" type="button" aria-disabled="true" data-download-disabled title="Скачивание появится позже">⇩</button>
+              <button class="icon-control danger-button" type="button" aria-label="Удалить выбранные записи" data-selection-delete>⌫</button>
+              <span class="selection-feedback" data-download-feedback hidden>Скачивание появится позже.</span>
+            </div>
+          </div>
+          <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list>
             {rows}
           </section>
+          {_render_list_delete_dialog()}
         </div>
         <div class="floating-search">Спросите что-нибудь...</div>
       </main>
+      {_meeting_list_script()}
     """
     return _page_shell("Мои встречи", content, embedded=embedded)
+
+
+def _meeting_list_script() -> str:
+    script = """
+      <script>
+      (() => {
+        const list = document.querySelector("[data-meeting-list]");
+        const toolbar = document.querySelector("[data-selection-toolbar]");
+        const countLabel = document.querySelector("[data-selection-count]");
+        const deleteSelected = document.querySelector("[data-selection-delete]");
+        const downloadDisabled = document.querySelector("[data-download-disabled]");
+        const downloadFeedback = document.querySelector("[data-download-feedback]");
+        const dialog = document.querySelector("[data-delete-dialog]");
+        if (!list || !toolbar || !countLabel || !deleteSelected || !dialog) return;
+
+        const title = dialog.querySelector("[data-delete-title]");
+        const count = dialog.querySelector("[data-delete-count]");
+        const cancel = dialog.querySelector("[data-delete-cancel]");
+        const confirm = dialog.querySelector("[data-delete-confirm]");
+        const error = dialog.querySelector("[data-delete-error]");
+        let pendingRows = [];
+
+        const selectedRows = () => Array.from(list.querySelectorAll("[data-meeting-row]"))
+          .filter((row) => row.querySelector("[data-meeting-select]")?.checked);
+
+        const plural = (value, one, few, many) => {
+          const mod10 = value % 10;
+          const mod100 = value % 100;
+          if (mod10 === 1 && mod100 !== 11) return one;
+          if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+          return many;
+        };
+
+        const selectedLabel = (value) => `Выбрано ${value} ${plural(value, "запись", "записи", "записей")}`;
+        const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
+
+        const updateSelection = () => {
+          const rows = selectedRows();
+          countLabel.textContent = selectedLabel(rows.length);
+          toolbar.hidden = rows.length === 0;
+          list.querySelectorAll("[data-meeting-row]").forEach((row) => {
+            row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);
+          });
+        };
+
+        const openDeleteDialog = (rows) => {
+          pendingRows = rows.filter(Boolean);
+          if (!pendingRows.length) return;
+          if (error) error.hidden = true;
+          if (title) title.textContent = pendingRows.length === 1 ? dialog.dataset.titleOne : dialog.dataset.titleMany;
+          if (count) count.textContent = deletingLabel(pendingRows.length);
+          if (typeof dialog.showModal === "function") {
+            dialog.showModal();
+          } else {
+            dialog.setAttribute("open", "");
+          }
+        };
+
+        const closeDeleteDialog = () => {
+          pendingRows = [];
+          if (typeof dialog.close === "function") {
+            dialog.close();
+          } else {
+            dialog.removeAttribute("open");
+          }
+        };
+
+        const showEmptyStateIfNeeded = () => {
+          if (!list.querySelector("[data-meeting-row]")) {
+            list.innerHTML = '<div class="empty-state">Записей больше нет.</div>';
+          }
+        };
+
+        list.addEventListener("change", (event) => {
+          if (event.target.closest("[data-meeting-select]")) updateSelection();
+        });
+
+        list.addEventListener("click", (event) => {
+          const deleteButton = event.target.closest("[data-row-delete]");
+          if (deleteButton) {
+            openDeleteDialog([deleteButton.closest("[data-meeting-row]")]);
+            return;
+          }
+          const row = event.target.closest("[data-meeting-row]");
+          if (!row || event.target.closest("a,button,input")) return;
+          const checkbox = row.querySelector("[data-meeting-select]");
+          if (!checkbox) return;
+          checkbox.checked = !checkbox.checked;
+          updateSelection();
+        });
+
+        deleteSelected.addEventListener("click", () => openDeleteDialog(selectedRows()));
+        cancel?.addEventListener("click", closeDeleteDialog);
+        downloadDisabled?.addEventListener("click", () => {
+          if (downloadFeedback) downloadFeedback.hidden = false;
+        });
+
+        confirm?.addEventListener("click", async () => {
+          if (!pendingRows.length) return;
+          confirm.disabled = true;
+          confirm.textContent = "Удаляем...";
+          let failures = 0;
+          for (const row of pendingRows) {
+            const meetingId = row.dataset.meetingId;
+            try {
+              const response = await fetch(`/api/v1/cabinet/meetings/${meetingId}/deletion-requests`, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({confirmation_boundary: "__BOUNDARY__"})
+              });
+              if (!response.ok) {
+                failures += 1;
+                row.querySelector("[data-meeting-select]").checked = false;
+              } else {
+                row.remove();
+              }
+            } catch (_err) {
+              failures += 1;
+            }
+          }
+          confirm.disabled = false;
+          confirm.textContent = "Удалить";
+          updateSelection();
+          showEmptyStateIfNeeded();
+          if (failures && error) {
+            error.textContent = failures === 1 ? "Не удалось удалить одну запись. Попробуйте еще раз." : `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте еще раз.`;
+            error.hidden = false;
+            pendingRows = [];
+            return;
+          }
+          closeDeleteDialog();
+        });
+
+        updateSelection();
+      })();
+      </script>
+    """
+    return script.replace("__BOUNDARY__", BOUNDED_DELETE_COPY)
 
 
 def render_meeting_detail_page(review: MeetingReviewResponse, *, embedded: bool = False) -> str:
@@ -2639,23 +2833,36 @@ def _notes_title(title: str) -> str:
 
 def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool = False) -> str:
     href = f"{_base_path(embedded)}/{item.meeting_id}"
-    future = "".join(
-        f'<button class="icon-button" type="button" disabled aria-label="{escape(_ui_text(slot.label))}">{escape(_ui_text(slot.label)[:1])}</button>'
-        for slot in item.future_slots[:4]
-    )
     selected_class = " is-selected" if selected else ""
     source_icon = "▣" if item.source == "screen_recording" else "◁"
+    title = escape(item.title)
     return f"""
-      <a class="meeting-row cabinet-row{selected_class}" href="{href}">
-        <span class="row-check" aria-hidden="true"></span>
+      <article class="meeting-row cabinet-row{selected_class}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
+        <input class="row-check" type="checkbox" data-meeting-select aria-label="Выбрать запись {title}">
         <span class="row-icon">{source_icon}</span>
-        <span class="meeting-title">
-          <span class="row-title">{escape(item.title)} <span class="muted">{_duration(item.duration_seconds)}</span></span>
+        <a class="meeting-title" href="{href}">
+          <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta"><span>{escape(_ui_text(item.status_label))}</span></span>
-        </span>
-        <span class="future-actions">{future}</span>
+        </a>
+        <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить запись {title}" title="Удалить">⌫</button>
         <span class="meeting-date">{_date_label(item)}</span>
-      </a>
+      </article>
+    """
+
+
+def _render_list_delete_dialog() -> str:
+    bounded_copy = "Запись будет удалена везде, где ее контролирует 2brain Rec. Уже скачанные или экспортированные копии могут оставаться вне контроля 2brain Rec."
+    return f"""
+      <dialog class="delete-dialog" data-delete-dialog data-title-one="Удалить запись?" data-title-many="Удалить записи?">
+        <h2 data-delete-title>Удалить запись?</h2>
+        <p><span data-delete-count>Вы удаляете 1 запись.</span> Это действие нельзя отменить.</p>
+        <p class="truth-copy" data-bounded-delete-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(bounded_copy)}</p>
+        <div class="dialog-actions">
+          <button type="button" class="quiet" data-delete-cancel>Отмена</button>
+          <button type="button" class="danger-button" data-delete-confirm>Удалить</button>
+        </div>
+        <div class="dialog-error" data-delete-error hidden>Не удалось удалить запись. Попробуйте еще раз.</div>
+      </dialog>
     """
 
 
