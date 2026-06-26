@@ -831,7 +831,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   font-size: 12px;
   font-weight: 900;
 }
-.row-icon { display: grid; place-items: center; color: #a7adb7; font-size: 13px; }
+.row-icon { display: grid; place-items: center; width: 22px; height: 22px; color: #a7adb7; font-size: 13px; }
+.row-icon .ui-icon { width: 18px; height: 18px; }
 .meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
 .row-delete {
   width: 24px;
@@ -1831,9 +1832,9 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
           <div class="cabinet-topbar">
             <div class="cabinet-titleline"><strong>Мои встречи</strong><span>{escape(_sort_label(response.filters.sort))}</span></div>
             <div class="toolbar-icons">
-              <button class="icon-control" type="button" aria-label="Сохраненные" aria-disabled="true">□</button>
-              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">≡</button>
-              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">↕</button>
+              <button class="icon-control" type="button" aria-label="Сохраненные" aria-disabled="true">{_ui_icon("bookmark")}</button>
+              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">{_ui_icon("filter")}</button>
+              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">{_ui_icon("sort")}</button>
               {new_control}
             </div>
           </div>
@@ -1867,9 +1868,9 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
               </div>
             </div>
             <div class="toolbar-icons">
-              <button class="icon-control" type="button" aria-label="Сохранить" aria-disabled="true">□</button>
-              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">≡</button>
-              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">↕</button>
+              <button class="icon-control" type="button" aria-label="Сохранить" aria-disabled="true">{_ui_icon("bookmark")}</button>
+              <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">{_ui_icon("filter")}</button>
+              <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">{_ui_icon("sort")}</button>
               <button class="new-button" type="button" aria-disabled="true">Новая</button>
             </div>
           </div>
@@ -2907,15 +2908,19 @@ def _notes_title(title: str) -> str:
 
 
 def _ui_icon(name: str) -> str:
+    # Lucide path data keeps shared icons on the same 24px stroke system.
     paths = {
-        "audio": '<path d="M11 5 6 9H3v6h3l5 4V5z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path>',
+        "audio": '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path>',
+        "bookmark": '<path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"></path>',
         "check": '<path d="M20 6 9 17l-5-5"></path>',
-        "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path>',
+        "download": '<path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path>',
+        "filter": '<path d="M2 5h20"></path><path d="M6 12h12"></path><path d="M9 19h6"></path>',
         "minus": '<path d="M5 12h14"></path>',
-        "transcript": '<rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 8h6"></path><path d="M9 12h6"></path><path d="M9 16h4"></path>',
-        "trash": '<path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
-        "upload": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M17 8l-5-5-5 5"></path><path d="M12 3v12"></path>',
-        "video": '<rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m10 9 5 3-5 3V9z"></path>',
+        "sort": '<path d="m21 16-4 4-4-4"></path><path d="M17 20V4"></path><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path>',
+        "transcript": '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path>',
+        "trash": '<path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>',
+        "upload": '<path d="M12 3v12"></path><path d="m17 8-5-5-5 5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>',
+        "video": '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"></path><rect x="2" y="6" width="14" height="12" rx="2"></rect>',
     }
     return f'<svg class="ui-icon" data-icon="{name}" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>'
 

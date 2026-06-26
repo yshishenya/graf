@@ -295,7 +295,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "flex: 0 0 22px;" in page
     assert "padding: 0;" in page
     assert 'data-icon="audio"' in page
+    assert 'data-icon="bookmark"' in page
     assert 'data-icon="download"' in page
+    assert 'data-icon="filter"' in page
+    assert 'data-icon="sort"' in page
     assert 'data-icon="trash"' in page
     assert 'data-meeting-select' in page
     assert 'data-row-delete' in page
@@ -306,6 +309,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Удалить" in page
     assert "Пометить непрочитанной" not in page
     assert "Mark as unread" not in page
+    assert "□" not in page
+    assert "≡" not in page
+    assert "↕" not in page
     assert "⇩" not in page
     assert "⌫" not in page
     assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in page
