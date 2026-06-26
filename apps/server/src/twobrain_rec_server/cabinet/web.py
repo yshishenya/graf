@@ -693,7 +693,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .calendar-events { display: grid; gap: 8px; }
 .calendar-event { border-left: 3px solid #9cd9ff; padding-left: 10px; min-height: 28px; }
-.calendar-event strong, .meeting-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.calendar-event strong, .meeting-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .meeting-toolbar {
   display: flex;
   justify-content: space-between;
@@ -942,8 +942,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .detail-layout { grid-template-columns: 1fr; }
   .right-panel { position: static; }
   .meeting-row { grid-template-columns: 24px minmax(0, 1fr); padding: 12px; }
-  .meeting-row.cabinet-row { grid-template-columns: 20px minmax(0, 1fr) 28px auto; min-height: 48px; }
-  .meeting-row.cabinet-row .meeting-date { grid-column: 3; }
+  .meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto; min-height: 48px; }
+  .meeting-row.cabinet-row .meeting-date { grid-column: 5; }
   .meeting-row.cabinet-row .row-delete { grid-column: 4; opacity: 1; }
   .meeting-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .selection-actions { justify-content: flex-start; }
