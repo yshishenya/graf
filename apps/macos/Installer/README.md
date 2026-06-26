@@ -29,6 +29,19 @@ By default, the script builds:
 - a desktop-app component package;
 - an interactive product installer at `apps/macos/.build/installer/2brain-rec-local.pkg`.
 
+The app bundle and package version use the product CalVer release train without
+the git tag prefix: `YYYY.MM.DD.N`. When `TWO_BRAIN_REC_VERSION` is not set, the
+script selects the next same-day CalVer counter from `CHANGELOG.md`. For a
+deliberate release candidate, pass the exact version explicitly:
+
+```sh
+TWO_BRAIN_REC_VERSION=YYYY.MM.DD.N \
+  sh apps/macos/Installer/Scripts/build-local-installer.sh
+```
+
+The matching git tag and GitHub Release add the leading `v`, for example
+`vYYYY.MM.DD.N`.
+
 The default package does not include the proof HAL driver component and does not
 restart `coreaudiod`. This is intentional for the system-audio MVP pivot.
 

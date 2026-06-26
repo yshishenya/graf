@@ -249,6 +249,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let diagnosticsContent: DiagnosticsContent
     @State private var inspectorExpanded = false
     @State private var selectedSidebarItem = DesktopMeetingShellSidebarItem.meetings
+    @State private var copiedCustodySafeReportItemID: String?
 
     public init(
         session: CaptureSession?,
@@ -1076,31 +1077,55 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private func custodyDetailRow(_ summary: DesktopUploadCustodySummary) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: custodyDetailIcon(for: summary.primaryProjection))
-                .font(.caption)
-                .foregroundStyle(custodyDetailColor(for: summary.primaryProjection))
-                .frame(width: 14)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(summary.title)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: custodyDetailIcon(for: summary.primaryProjection))
                     .font(.caption)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                Text(summary.detail)
-                    .font(.caption2)
+                    .foregroundStyle(custodyDetailColor(for: summary.primaryProjection))
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(summary.title)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                    Text(summary.detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Text(summary.pendingCount > 1 ? "\(summary.pendingCount)" : summary.ownerLabel)
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
             }
-            Spacer(minLength: 8)
-            Text(summary.pendingCount > 1 ? "\(summary.pendingCount)" : summary.ownerLabel)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
+
+            if let safeReport = summary.safeReport {
+                Button {
+                    copyCustodySafeReport(safeReport, itemID: summary.primaryItem.id)
+                } label: {
+                    Label(
+                        copiedCustodySafeReportItemID == summary.primaryItem.id ? "Скопировано" : "Скопировать отчет",
+                        systemImage: "doc.on.doc"
+                    )
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.leading, 22)
+                .help("Метаданные для администратора или поддержки без аудио, текста встречи, локальных путей, токенов и ссылок.")
+            }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
         .accessibilityLabel("\(summary.title). \(summary.detail). Ответственный: \(summary.ownerLabel).")
+    }
+
+    private func copyCustodySafeReport(_ report: DesktopUploadCustodySafeReport, itemID: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report.clipboardText, forType: .string)
+        copiedCustodySafeReportItemID = itemID
     }
 
     private func custodyDetailIcon(for projection: DesktopUploadCustodyProjection) -> String {
