@@ -276,6 +276,36 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "updated_desc" not in page
     assert ":focus-visible" in page
     assert "hero" not in page.lower()
+    assert 'data-selection-toolbar' in page
+    assert "Выбрано 0 записей" in page
+    assert "Скачивание появится позже" in page
+    assert 'data-meeting-select' in page
+    assert 'data-row-delete' in page
+    assert 'data-delete-dialog' in page
+    assert "Удалить запись?" in page
+    assert "Удалить записи?" in page
+    assert "Отмена" in page
+    assert "Удалить" in page
+    assert "Пометить непрочитанной" not in page
+    assert "Mark as unread" not in page
+
+
+def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert "2brain Rec" in page
+    assert "везде, где ее контролирует 2brain Rec" in page
+    assert "Это действие нельзя отменить" in page
+    assert "Обсудили запуск кабинета встреч" not in page
+    assert "fixture-mediascribe-private-job-id" not in page
+    assert "storage_object_key" not in page
+    assert "signed_url" not in page
 
 
 def test_detail_shell_renders_tabs_and_gated_actions() -> None:

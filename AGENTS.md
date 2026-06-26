@@ -122,7 +122,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/052-mvp-live-ui-proof/plan.md
+at specs/053-recording-selection-delete/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues
@@ -245,3 +245,17 @@ infra/scripts/ci-local.sh
 - Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй подробный понятный closure comment: что закрыто, почему важно, как проверено, что не входит, какой PR и task закрыты.
 - Если GitHub issue закрыт, но `tasks.md` еще открыт, сначала проверь реализацию и evidence, а не отмечай задачу выполненной молча.
 <!-- SPECKIT GITHUB ISSUE END -->
+
+<!-- SPECKIT PONYTAIL START -->
+## Ponytail в Spec Kit
+
+- Ponytail управляет формой реализации: меньше кода, меньше новых зависимостей, reuse/stdlib/native-first, минимальный рабочий diff.
+- Ponytail не сокращает Spec Kit процесс: specs, plan, checklists, tasks, analyze, taskstoissues, GitHub issues, PR evidence, release notes и closeout остаются обязательными.
+- Реальное поведение Ponytail приходит из установленного Codex plugin; этот блок описывает только границы применения внутри Spec Kit.
+- Upstream Ponytail `AGENTS.md` fallback обновляется в `docs/agent-guidance/ponytail-upstream.md`; не копируй его в корневой `AGENTS.md` вручную.
+- Если plugin hooks недоступны, используй upstream fallback-файл как справку по Ponytail, но приоритет корневого `AGENTS.md` и Spec Kit managed-блоков выше.
+- На этапе реализации применяй Ponytail ladder после чтения реального потока: не строить лишнее, искать существующий helper/pattern, использовать stdlib/native, писать минимум кода, но сохранять security, accessibility, trust-boundary validation и проверки.
+- Для сложного diff перед PR/merge запускай `@ponytail-review` и убирай найденное переусложнение, если это не ломает требования и evidence.
+- Если оставляешь намеренное упрощение, помечай его `ponytail:` comment с потолком решения и trigger/upgrade path; периодически собирай такие места через `@ponytail-debt`.
+- Если пользователь просит `@ponytail off`, `normal mode` или явно настаивает на полной версии, выполняй это без спора.
+<!-- SPECKIT PONYTAIL END -->
