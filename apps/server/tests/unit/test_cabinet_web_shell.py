@@ -291,8 +291,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-tooltip="Скачивание появится позже"' in page
     assert "disabled aria-disabled=\"true\" data-download-disabled" in page
     assert 'data-icon="check"' in page
-    assert "min-height: 22px;" in page
-    assert "flex: 0 0 22px;" in page
+    assert "padding-left: 19px;" in page
+    assert ".selection-toggle {\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  flex: 0 0 16px;" in page
+    assert "border-radius: 4px;" in page
+    assert "line-height: 28px;" in page
+    assert ".icon-control {\n  width: 28px;\n  height: 28px;\n  min-height: 28px;" in page
     assert "padding: 0;" in page
     assert "width: 12px;" in page
     assert "stroke-width: 2;" in page

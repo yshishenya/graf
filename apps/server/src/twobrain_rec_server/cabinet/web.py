@@ -708,17 +708,18 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   justify-content: flex-start;
   gap: 10px;
   align-items: center;
+  padding-left: 19px;
 }
 .selection-toolbar[hidden] { display: none; }
 .selection-toggle {
-  width: 22px;
-  height: 22px;
-  min-height: 22px;
-  flex: 0 0 22px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  flex: 0 0 16px;
   box-sizing: border-box;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--accent);
   color: #17191c;
   display: inline-grid;
@@ -728,7 +729,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .selection-toggle .ui-icon { width: 12px; height: 12px; }
 .selection-toolbar[data-selection-state="partial"] [data-icon="check"] { display: none; }
 .selection-toolbar[data-selection-state="all"] [data-icon="minus"] { display: none; }
-.selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; }
+.selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; line-height: 28px; }
 .selection-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .selection-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
 .danger-button { color: #ffd6d6; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
@@ -736,6 +737,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .icon-control {
   width: 28px;
   height: 28px;
+  min-height: 28px;
   padding: 0;
   border: 0;
   background: transparent;
