@@ -64,7 +64,6 @@ class Settings(BaseSettings):
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None
-    mediascribe_credential_file: Path | None = None
     mediascribe_api_key_file: Path | None = None
     mediascribe_request_timeout_seconds: PositiveInt = Field(default=30)
     mediascribe_diarize: bool = True
@@ -76,6 +75,7 @@ class Settings(BaseSettings):
     processing_enabled: bool = False
     processing_poll_interval_seconds: PositiveInt = Field(default=5)
     processing_max_poll_attempts: PositiveInt = Field(default=120)
+    processing_max_in_memory_audio_bytes: PositiveInt = Field(default=536_870_912)
     temporal_address: str | None = None
     temporal_namespace: str = "default"
     temporal_task_queue: str = "twobrain-rec-processing"
@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
     auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
     auth_callback_state_ttl_seconds: PositiveInt = Field(default=900)
+    legacy_header_auth_enabled: bool = False
     retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
     retention_backup_expiry_days: PositiveInt | None = Field(default=30)
     retention_local_buffer_expiry_days: PositiveInt | None = Field(default=7)

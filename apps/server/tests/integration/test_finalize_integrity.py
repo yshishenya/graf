@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
-from twobrain_rec_server.db.models import IngestAuditEvent, Meeting, UploadSession
+from twobrain_rec_server.db.models import IngestAuditEvent, Meeting, TrackArtifact, UploadSession
 
 
 def _create_session_with_parts(
@@ -97,6 +97,68 @@ def test_finalize_validation_failure_persists_degraded_state_and_audit(client: T
         "reason_code": "manifest_checksum_mismatch",
         "reason": "Manifest checksum mismatch",
     }
+
+
+def test_finalize_accepts_contiguous_multipart_track(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-multipart-track", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+    ).json()
+    session_id = session["session_id"]
+
+    manifest = b"m123"
+    microphone = b"u123"
+    system_head = b"s123"
+    system_tail = b"s456"
+    uploads = [
+        ("manifest", 0, 0, manifest),
+        ("microphone", 0, 0, microphone),
+        ("system", 1, 4, system_tail),
+        ("system", 0, 0, system_head),
+    ]
+    for role, part_number, offset, data in uploads:
+        response = client.put(
+            f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
+            headers=auth_headers() | {"X-Byte-Offset": str(offset), "X-Content-SHA256": sha256(data).hexdigest()},
+            content=data,
+        )
+        assert response.status_code == 200
+
+    system = system_head + system_tail
+    tracks = [
+        track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
+        track_descriptor("microphone", len(microphone))
+        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
+        track_descriptor("system", len(system)) | {"sha256": sha256(system).hexdigest(), "byte_length": len(system)},
+    ]
+
+    response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
+
+    assert response.status_code == 200
+
+    async def persisted_system_artifact() -> TrackArtifact:
+        async with client.app_state["sessionmaker"]() as db:
+            artifact = await db.scalar(
+                select(TrackArtifact).where(
+                    TrackArtifact.meeting_id == UUID(meeting["meeting_id"]),
+                    TrackArtifact.track_role == "system",
+                )
+            )
+            assert artifact is not None
+            return artifact
+
+    import asyncio
+
+    artifact = asyncio.run(persisted_system_artifact())
+    assert artifact.byte_length == len(system)
+    assert artifact.sha256 == sha256(system).hexdigest()
+    assert client.app_state["storage"].objects[artifact.storage_object_key] == system
 
 
 def test_finalize_rejects_mismatched_track_sha(client: TestClient) -> None:

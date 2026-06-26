@@ -178,7 +178,14 @@ class InMemoryIngestStore:
 store = InMemoryIngestStore()
 
 
-async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord) -> None:
+async def _finish_write(db: AsyncSession, *, commit: bool) -> None:
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
+
+
+async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, commit: bool = True) -> None:
     if db is None:
         return
     existing = await db.get(Meeting, meeting.id)
@@ -260,7 +267,7 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord) -> No
         if placeholder is not None:
             placeholder.status = meeting.processing_status.value
             placeholder.meeting_status = meeting.status.value
-    await db.commit()
+    await _finish_write(db, commit=commit)
 
 
 async def load_meeting_record(
@@ -333,6 +340,8 @@ async def persist_upload_session(
     db: AsyncSession | None,
     session: UploadSessionRecord,
     settings: Settings | None = None,
+    *,
+    commit: bool = True,
 ) -> None:
     if db is None:
         return
@@ -367,7 +376,7 @@ async def persist_upload_session(
         existing.expected_track_roles = expected_roles
         existing.expected_track_sizes = expected_sizes
         existing.finalized_at = session.finalized_at
-    await db.commit()
+    await _finish_write(db, commit=commit)
 
 
 async def load_upload_session_record(
@@ -446,7 +455,13 @@ async def load_active_upload_session_for_meeting(
     return await load_upload_session_record(db, model.id)
 
 
-async def persist_upload_part(db: AsyncSession | None, session: UploadSessionRecord, part: UploadPartRecord) -> None:
+async def persist_upload_part(
+    db: AsyncSession | None,
+    session: UploadSessionRecord,
+    part: UploadPartRecord,
+    *,
+    commit: bool = True,
+) -> None:
     if db is None:
         return
     existing = await db.scalar(
@@ -469,7 +484,7 @@ async def persist_upload_part(db: AsyncSession | None, session: UploadSessionRec
                 status="accepted",
             )
         )
-    await db.commit()
+    await _finish_write(db, commit=commit)
 
 
 async def persist_temporary_upload_object(
@@ -480,6 +495,7 @@ async def persist_temporary_upload_object(
     object_role: str = "accepted_part",
     failure_reason: str | None = None,
     last_error: str | None = None,
+    commit: bool = True,
 ) -> None:
     if db is None:
         return
@@ -508,7 +524,7 @@ async def persist_temporary_upload_object(
         existing.object_role = object_role
         existing.failure_reason = failure_reason
         existing.last_error = last_error
-    await db.commit()
+    await _finish_write(db, commit=commit)
 
 
 async def mark_temporary_upload_object_cleanup_status(
@@ -518,6 +534,7 @@ async def mark_temporary_upload_object_cleanup_status(
     cleanup_status: str,
     failure_reason: str | None = None,
     last_error: str | None = None,
+    commit: bool = True,
 ) -> None:
     if db is None:
         return
@@ -531,10 +548,10 @@ async def mark_temporary_upload_object_cleanup_status(
         existing.cleanup_status = cleanup_status
         existing.failure_reason = failure_reason
         existing.last_error = last_error
-        await db.commit()
+        await _finish_write(db, commit=commit)
 
 
-async def persist_audit_event(db: AsyncSession | None, event: AuditEvent) -> None:
+async def persist_audit_event(db: AsyncSession | None, event: AuditEvent, *, commit: bool = True) -> None:
     if db is None:
         return
     db.add(
@@ -550,7 +567,7 @@ async def persist_audit_event(db: AsyncSession | None, event: AuditEvent) -> Non
             created_at=event.created_at,
         )
     )
-    await db.commit()
+    await _finish_write(db, commit=commit)
 
 
 async def persist_latest_audit_event(db: AsyncSession | None) -> None:
@@ -564,16 +581,22 @@ async def persist_finalized_tracks(
     session: UploadSessionRecord,
     tracks: list[TrackDescriptor],
     manifest_sha256: str,
+    track_object_keys: dict[TrackRole, str] | None = None,
+    *,
+    commit: bool = True,
 ) -> None:
     if db is None:
         return
+    track_object_keys = track_object_keys or {}
     for track in tracks:
-        part = session.parts[(track.track_role, 0)]
+        storage_object_key = track_object_keys.get(track.track_role)
+        if storage_object_key is None:
+            storage_object_key = session.parts[(track.track_role, 0)].object_key
         existing = await db.scalar(
             select(TrackArtifact).where(
                 TrackArtifact.meeting_id == meeting.id,
                 TrackArtifact.track_role == track.track_role.value,
-                TrackArtifact.storage_object_key == part.object_key,
+                TrackArtifact.storage_object_key == storage_object_key,
             )
         )
         if existing is None:
@@ -589,7 +612,7 @@ async def persist_finalized_tracks(
                     duration_seconds=track.duration_seconds,
                     byte_length=track.byte_length,
                     sha256=track.sha256,
-                    storage_object_key=part.object_key,
+                    storage_object_key=storage_object_key,
                     status="stored",
                 )
             )
@@ -607,4 +630,4 @@ async def persist_finalized_tracks(
                 },
             )
         )
-    await db.commit()
+    await _finish_write(db, commit=commit)

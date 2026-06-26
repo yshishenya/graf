@@ -63,9 +63,9 @@ async def abort_upload_session(
         device_id=tenant_scope.device_id,
         metadata={"reason": reason or "user_aborted", "temporary_object_count": len(session.parts)},
     )
-    await persist_meeting(db, meeting)
-    await persist_upload_session(db, session)
-    await persist_audit_event(db, event)
+    await persist_meeting(db, meeting, commit=False)
+    await persist_upload_session(db, session, commit=False)
+    await persist_audit_event(db, event, commit=False)
     return session
 
 

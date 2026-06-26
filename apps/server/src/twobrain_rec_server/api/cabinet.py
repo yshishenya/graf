@@ -185,6 +185,7 @@ async def create_meeting_deletion_request_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
+    storage: object = StorageDependency,
     db: AsyncSession | None = DbDependency,
 ) -> DeletionRequestResponse:
     if db is None:
@@ -203,6 +204,7 @@ async def create_meeting_deletion_request_route(
         device_id=device.device_id,
         confirmation_boundary=payload.confirmation_boundary,
         reason_code=payload.reason_code,
+        storage=storage,
     )
     await db.commit()
     return response
@@ -579,6 +581,7 @@ async def run_retention_scan_route(
     request: Request,
     payload: RetentionRunRequest | None = None,
     tenant_scope: TenantScope = TenantDependency,
+    storage: object = StorageDependency,
     db: AsyncSession | None = DbDependency,
 ) -> RetentionRunResponse:
     if db is None:
@@ -590,6 +593,7 @@ async def run_retention_scan_route(
         workspace_id=tenant_scope.workspace_id,
         limit=retention_payload.limit,
         dry_run=retention_payload.dry_run,
+        storage=storage,
     )
     await db.commit()
     return response

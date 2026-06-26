@@ -25,13 +25,15 @@ def test_deletion_report_accounts_for_stored_outcomes_without_content(client) ->
     )
     report = client.get(f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report", headers=auth_headers())
     lifecycle_state = asyncio.run(_outcome_lifecycle_state(client, meeting_id))
+    content_count = asyncio.run(_stored_outcome_content_count(client, meeting_id))
 
     assert delete_response.status_code == 202
     assert report.status_code == 200
     notes_row = next(row for row in report.json()["artifact_states"] if row["artifact_class"] == "notes_summary")
     assert notes_row["control_scope"] == "controlled"
-    assert notes_row["state"] == "purge_requested"
-    assert lifecycle_state == "deleting"
+    assert notes_row["state"] == "purged"
+    assert lifecycle_state == "deleted"
+    assert content_count == 0
     assert outcome_text not in report.text
     assert "source_refs_json" not in report.text
 
@@ -55,3 +57,11 @@ async def _outcome_lifecycle_state(client, meeting_id) -> str:
         )
         assert state is not None
         return state
+
+
+async def _stored_outcome_content_count(client, meeting_id) -> int:
+    async with client.app_state["sessionmaker"]() as db:
+        items = (
+            await db.scalars(select(MeetingOutcomeItem).where(MeetingOutcomeItem.meeting_id == meeting_id))
+        ).all()
+        return sum(1 for item in items if item.text or item.owner_text or item.due_date_text or item.source_refs_json)

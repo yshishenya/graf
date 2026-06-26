@@ -13,6 +13,8 @@ from twobrain_rec_server.db.models import (
     MeetingDeletionReport,
     MeetingDeletionRequest,
     MeetingLifecycleAuditEvent,
+    TemporaryUploadObject,
+    TrackArtifact,
 )
 
 BOUNDED_COPY = "Delete this meeting everywhere 2brain Rec controls."
@@ -44,6 +46,51 @@ def test_manual_deletion_persists_request_audit_report_and_meeting_lifecycle(cli
         "backup",
         "post_egress_copy",
     }
+
+
+def test_manual_deletion_purges_server_audio_objects_and_upload_temps(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    async def purge_targets() -> tuple[list[str], list[str]]:
+        async with client.app_state["sessionmaker"]() as db:
+            artifacts = (
+                await db.scalars(
+                    select(TrackArtifact).where(TrackArtifact.meeting_id == seeds.ready_id).order_by(TrackArtifact.track_role)
+                )
+            ).all()
+            temps = (
+                await db.scalars(
+                    select(TemporaryUploadObject)
+                    .where(TemporaryUploadObject.media_revision_id == artifacts[0].media_revision_id)
+                    .order_by(TemporaryUploadObject.storage_object_key)
+                )
+            ).all()
+            return [artifact.storage_object_key for artifact in artifacts], [temp.storage_object_key for temp in temps]
+
+    artifact_keys, temp_keys = asyncio.run(purge_targets())
+    storage = client.app_state["storage"]
+    assert all(key in storage.objects for key in artifact_keys + temp_keys)
+
+    response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_COPY},
+    )
+
+    assert response.status_code == 202
+    assert all(key not in storage.objects for key in artifact_keys + temp_keys)
+
+    async def purge_states() -> tuple[set[str], set[str]]:
+        async with client.app_state["sessionmaker"]() as db:
+            artifacts = (await db.scalars(select(TrackArtifact).where(TrackArtifact.meeting_id == seeds.ready_id))).all()
+            temps = (
+                await db.scalars(
+                    select(TemporaryUploadObject).where(TemporaryUploadObject.storage_object_key.in_(temp_keys))
+                )
+            ).all()
+            return {artifact.status for artifact in artifacts}, {temp.cleanup_status for temp in temps}
+
+    assert asyncio.run(purge_states()) == ({"purged"}, {"purged"})
 
 
 def test_deletion_report_includes_safe_post_egress_limits_from_download_and_export_audit(client) -> None:

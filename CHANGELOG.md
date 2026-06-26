@@ -26,6 +26,39 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.06.26.6] - 2026-06-26
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Успешные ingest write routes теперь фиксируют изменения одной транзакцией на
+  границе API, вместо промежуточных commit внутри helper-функций.
+
+### Исправлено
+- Неверный email login code теперь сжигает callback state, поэтому одноразовый
+  код нельзя переиспользовать после failed attempt.
+- Deletion request теперь реально удаляет server-owned audio objects,
+  temporary upload objects и stored outcome content, а отчёт показывает
+  `purged` для очищенных controlled artifacts.
+- Upload create/part/finalize больше не полагаются на устаревший in-memory
+  snapshot, когда БД уже пометила meeting deleting или session terminal.
+- Finalize принимает contiguous multipart tracks, собирает их в финальный
+  track artifact и проверяет aggregate checksum/length.
+- Processing submit блокирует слишком крупную пару аудиодорожек до чтения
+  object bytes в память.
+
+### Безопасность
+- В production отключен legacy header-only auth без session token; session-bound
+  device headers продолжают проходить через проверку trusted binding.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
 ## [2026.06.26.5] - 2026-06-26
 
 

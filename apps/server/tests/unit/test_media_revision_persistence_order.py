@@ -48,3 +48,28 @@ def test_new_meeting_persistence_flushes_parent_before_revision() -> None:
         f"add:{ProcessingPlaceholder.__name__}",
         "commit",
     ]
+
+
+def test_new_meeting_persistence_can_defer_commit_to_route_boundary() -> None:
+    session = RecordingAsyncSession()
+    meeting = MeetingRecord(
+        id=uuid4(),
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        created_by_user_id=uuid4(),
+        device_id=uuid4(),
+        local_recording_id="postgres-fk-order-deferred",
+        duration_seconds=60,
+        title=None,
+    )
+
+    asyncio.run(persist_meeting(session, meeting, commit=False))
+
+    assert session.calls == [
+        f"get:{Meeting.__name__}",
+        f"add:{Meeting.__name__}",
+        "flush",
+        f"add:{MediaRevision.__name__}",
+        f"add:{ProcessingPlaceholder.__name__}",
+        "flush",
+    ]
