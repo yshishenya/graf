@@ -15,6 +15,12 @@ swift test --package-path apps/macos --filter DesktopCabinet
 ## Observed Output
 
 - `Executed 63 tests, with 0 failures`
+- Post-`origin/master` sync focused boundary check:
+  `swift test --package-path apps/macos --disable-swift-testing --scratch-path /tmp/twobrain-rec-swiftpm-058 --filter 'DesktopCabinet|CaptureControl|DesktopUpload'`
+  executed `158 tests, with 0 failures`.
+- The default local `.build` XCTest launch was blocked by macOS system policy on
+  the generated test bundle signature; the clean scratch build avoided that
+  local cache/signing condition and produced the passing test result above.
 
 ## Covered Boundaries
 

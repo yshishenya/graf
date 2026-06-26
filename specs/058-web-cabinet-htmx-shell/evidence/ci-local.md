@@ -14,7 +14,7 @@ infra/scripts/ci-local.sh
 
 ## Observed Output
 
-- Server tests: `691 passed, 4 skipped, 94 warnings`
+- Server tests after syncing `origin/master`: `704 passed, 4 skipped, 103 warnings`
 - Server lint: `All checks passed`
 - Python compile: passed
 - RLS hardening validation boundary: `rls_validation_result=blocked` because the destructive/test database proof environment was not provided; this remains a bounded validation boundary, not a feature failure.
