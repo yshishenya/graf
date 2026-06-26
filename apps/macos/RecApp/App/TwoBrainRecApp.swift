@@ -888,10 +888,12 @@ private struct ContentView: View {
                 _ = try service.scanAndEnqueueCompletedRecordings()
                 _ = try service.applyRetentionExpiry()
                 var items = try await service.processDueItems()
+                var shouldRetryLocalPurgeAcknowledgement = false
                 do {
                     _ = try await service.acknowledgePendingLocalPurgeTasks()
                     items = try service.loadItems()
                 } catch {
+                    shouldRetryLocalPurgeAcknowledgement = true
                     items = (try? service.loadItems()) ?? items
                     AppLog.writeRaw(
                         event: AuditEventName.localPurgeAcknowledged.rawValue,
@@ -901,7 +903,11 @@ private struct ContentView: View {
                 await MainActor.run {
                     uploadQueueItems = items
                     uploadQueueRefreshInProgress = false
-                    scheduleUploadQueueFollowUpIfNeeded(items: items, reason: reason)
+                    scheduleUploadQueueFollowUpIfNeeded(
+                        items: items,
+                        reason: reason,
+                        shouldRetryLocalPurgeAcknowledgement: shouldRetryLocalPurgeAcknowledgement
+                    )
                     AppLog.writeRaw(
                         event: "upload.queue_refreshed",
                         detail: "reason=\(reason) total=\(items.count) pending=\(items.filter { !$0.state.isTerminal }.count)"
@@ -922,17 +928,21 @@ private struct ContentView: View {
     @MainActor
     private func scheduleUploadQueueFollowUpIfNeeded(
         items: [DesktopUploadQueueItem],
-        reason: String
+        reason: String,
+        shouldRetryLocalPurgeAcknowledgement: Bool = false
     ) {
         guard !uploadQueueFollowUpScheduled else { return }
         let now = Date()
         let needsProcessingFollowUp = items.contains(where: { DesktopUploadQueueService.needsProcessingFollowUp($0, now: now) })
         let nextRetryDate = DesktopUploadQueueService.nextScheduledRetryDate(for: items, now: now)
-        guard needsProcessingFollowUp || nextRetryDate != nil else { return }
+        guard needsProcessingFollowUp || nextRetryDate != nil || shouldRetryLocalPurgeAcknowledgement else { return }
         uploadQueueFollowUpScheduled = true
         let followUpReason: String
         let delay: TimeInterval
-        if needsProcessingFollowUp {
+        if shouldRetryLocalPurgeAcknowledgement {
+            followUpReason = "local_purge_ack_retry_after_\(reason)"
+            delay = 60
+        } else if needsProcessingFollowUp {
             followUpReason = reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
             delay = 10
         } else {

@@ -5,6 +5,7 @@ import TwoBrainRecShared
 public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Sendable {
     case manifestMissing(URL)
     case packageNotFound(String)
+    case localArtifactOutsideRecordingsRoot(String)
 
     public var description: String {
         switch self {
@@ -12,6 +13,8 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
             return "manifest_missing:\(url.lastPathComponent)"
         case .packageNotFound(let id):
             return "package_not_found:\(id)"
+        case .localArtifactOutsideRecordingsRoot(let path):
+            return "local_artifact_outside_recordings_root:\(URL(fileURLWithPath: path).lastPathComponent)"
         }
     }
 }
@@ -398,14 +401,32 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         var updatedTasks: [DesktopLocalPurgeTask] = []
         for task in tasks where task.state == .pending || task.state == .claimed {
+            var candidateIdsToFinalize = Set<String>()
+            var verificationOverride: DesktopLocalPurgeVerificationState?
             let candidates = localPurgeCandidates(for: task, items: items)
-            if !candidates.isEmpty {
-                try purgeLocalArtifacts(for: candidates, task: task)
+            if task.taskType == .purgeLocalBuffers, !candidates.isEmpty {
+                do {
+                    let purgeableCandidates = try await reconcileLocalPurgeCandidates(
+                        candidates,
+                        client: client
+                    )
+                    if purgeableCandidates.count != candidates.count {
+                        verificationOverride = .failed
+                    }
+                    if !purgeableCandidates.isEmpty {
+                        try deleteLocalArtifacts(for: purgeableCandidates)
+                        candidateIdsToFinalize = Set(purgeableCandidates.map(\.id))
+                    }
+                } catch {
+                    verificationOverride = .failed
+                }
                 items = try queue.sync {
                     try loadDocumentOnQueue().items
                 }
+            } else if task.taskType != .purgeLocalBuffers, !candidates.isEmpty {
+                verificationOverride = .unverified
             }
-            let verificationState = localPurgeVerificationState(for: task, items: items)
+            let verificationState = verificationOverride ?? localPurgeVerificationState(for: task, items: items)
             let acknowledgement = DesktopLocalPurgeAcknowledgement(
                 verificationState: verificationState,
                 clientVersion: nil,
@@ -418,24 +439,88 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 completedAt: acknowledgement.completedAt
             )
             updatedTasks.append(updated)
+            if acknowledgement.state == .acknowledged {
+                try markLocalPurgeAcknowledged(
+                    itemIds: candidateIdsToFinalize.isEmpty ? Set(candidates.map(\.id)) : candidateIdsToFinalize,
+                    task: task
+                )
+                items = try queue.sync {
+                    try loadDocumentOnQueue().items
+                }
+            }
         }
         return updatedTasks
     }
 
-    private func purgeLocalArtifacts(
-        for items: [DesktopUploadQueueItem],
+    private func reconcileLocalPurgeCandidates(
+        _ items: [DesktopUploadQueueItem],
+        client: DesktopUploadClientProtocol
+    ) async throws -> [DesktopUploadQueueItem] {
+        var purgeable: [DesktopUploadQueueItem] = []
+        for item in items {
+            guard let reconciliation = try await client.reconcile(item) else {
+                purgeable.append(item)
+                continue
+            }
+            let reconciled = try applyLocalPurgeReconciliation(itemId: item.id, reconciliation: reconciliation)
+            if Self.localPurgeReconciliationAllowsBufferDelete(reconciliation, item: reconciled) {
+                purgeable.append(reconciled)
+            }
+        }
+        return purgeable
+    }
+
+    private func applyLocalPurgeReconciliation(
+        itemId: String,
+        reconciliation: DesktopUploadReconciliation
+    ) throws -> DesktopUploadQueueItem {
+        try updateItem(itemId: itemId) { current, now in
+            var next = current
+            next.serverTruth = reconciliation.serverTruth
+            next.meetingId = reconciliation.serverTruth.meetingId ?? next.meetingId
+            next.mediaRevisionId = reconciliation.serverTruth.mediaRevisionId ?? next.mediaRevisionId
+            next.uploadSessionId = reconciliation.serverTruth.uploadSessionId ?? next.uploadSessionId
+            next.lastReconciledAt = now
+            next.syncGeneration += 1
+            next.syncConflictState = reconciliation.conflictState
+            if reconciliation.conflictState == .none || reconciliation.conflictState == .serverMeetingDeleted {
+                next.failureCategory = .none
+                next.failureReason = nil
+            } else {
+                next.failureCategory = .serverValidation
+                next.failureReason = reconciliation.conflictReason ?? reconciliation.conflictState.rawValue
+            }
+            return next
+        }
+    }
+
+    private static func localPurgeReconciliationAllowsBufferDelete(
+        _ reconciliation: DesktopUploadReconciliation,
+        item: DesktopUploadQueueItem
+    ) -> Bool {
+        if reconciliation.conflictState == .serverMeetingDeleted {
+            return true
+        }
+        if item.state == .uploaded && reconciliation.conflictState == .none {
+            return true
+        }
+        return reconciliation.canContinueUpload &&
+            reconciliationShowsServerFinalized(reconciliation.serverTruth)
+    }
+
+    private func markLocalPurgeAcknowledged(
+        itemIds: Set<String>,
         task: DesktopLocalPurgeTask
     ) throws {
-        let now = clock()
-        for item in items {
-            try Self.deleteLocalArtifacts(for: item)
+        guard task.taskType == .purgeLocalBuffers, !itemIds.isEmpty else {
+            return
         }
+        let now = clock()
         try queue.sync {
             var document = try loadDocumentOnQueue()
-            let ids = Set(items.map(\.id))
             var changed = false
             document.items = document.items.map { item in
-                guard ids.contains(item.id), Self.localArtifactsDeleted(for: item) else {
+                guard itemIds.contains(item.id), Self.localArtifactsDeleted(for: item) else {
                     return item
                 }
                 changed = true
@@ -467,6 +552,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         for task: DesktopLocalPurgeTask,
         items: [DesktopUploadQueueItem]
     ) -> DesktopLocalPurgeVerificationState {
+        guard task.taskType == .purgeLocalBuffers else {
+            return .unverified
+        }
         let candidates = localPurgeCandidates(for: task, items: items)
         guard !candidates.isEmpty else {
             return .unverified
@@ -492,11 +580,34 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
-    private static func deleteLocalArtifacts(for item: DesktopUploadQueueItem) throws {
-        let paths = Set(localArtifactPaths(for: item).filter { !$0.isEmpty && $0 != "metadata-only" })
+    private func deleteLocalArtifacts(for items: [DesktopUploadQueueItem]) throws {
+        let paths = try Set(items.flatMap(localArtifactPathsInsideRecordingsRoot))
         for path in paths.sorted(by: { $0.count > $1.count }) where FileManager.default.fileExists(atPath: path) {
             try FileManager.default.removeItem(atPath: path)
         }
+    }
+
+    private func localArtifactPathsInsideRecordingsRoot(for item: DesktopUploadQueueItem) throws -> [String] {
+        try Self.localArtifactPaths(for: item)
+            .filter { !$0.isEmpty && $0 != "metadata-only" }
+            .map { path in
+                guard isInsideRecordingsRoot(path) else {
+                    throw DesktopUploadQueueServiceError.localArtifactOutsideRecordingsRoot(path)
+                }
+                return path
+            }
+    }
+
+    private func isInsideRecordingsRoot(_ path: String) -> Bool {
+        let rootPath = recordingsRootURL
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        let candidatePath = URL(fileURLWithPath: path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        return candidatePath.hasPrefix(rootPath + "/")
     }
 
     private static func localArtifactsDeleted(for item: DesktopUploadQueueItem) -> Bool {

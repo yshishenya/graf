@@ -366,8 +366,8 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(report.retentionDeadline, Date(timeIntervalSince1970: 10))
         XCTAssertTrue(report.localMediaRetained)
         XCTAssertTrue(report.clipboardText.contains("Что произошло: истек срок автоматической отправки, запись не отправлена."))
-        XCTAssertTrue(report.clipboardText.contains("Локальная копия: сохранена на этом Mac."))
-        XCTAssertTrue(report.clipboardText.contains("Серверная копия: не подтверждена."))
+        XCTAssertTrue(report.clipboardText.contains("Локальное хранение: политика считает локальные данные удерживаемыми на этом Mac."))
+        XCTAssertTrue(report.clipboardText.contains("Связь с сервером: серверная запись не подтверждена."))
         XCTAssertFalse(report.clipboardText.localizedCaseInsensitiveContains("recovery"))
         XCTAssertFalse(report.clipboardText.localizedCaseInsensitiveContains("восстанов"))
     }
