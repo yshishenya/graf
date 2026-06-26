@@ -277,8 +277,13 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert ":focus-visible" in page
     assert "hero" not in page.lower()
     assert 'data-selection-toolbar' in page
-    assert "Выбрано 0 записей" in page
+    assert 'data-list-title' in page
+    assert "Выбрано 0 / 1" in page
     assert "Скачивание появится позже" in page
+    assert 'data-tooltip="Скачивание появится позже"' in page
+    assert "disabled aria-disabled=\"true\" data-download-disabled" in page
+    assert 'data-icon="download"' in page
+    assert 'data-icon="trash"' in page
     assert 'data-meeting-select' in page
     assert 'data-row-delete' in page
     assert 'data-delete-dialog' in page
@@ -288,6 +293,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Удалить" in page
     assert "Пометить непрочитанной" not in page
     assert "Mark as unread" not in page
+    assert "⇩" not in page
+    assert "⌫" not in page
 
 
 def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
