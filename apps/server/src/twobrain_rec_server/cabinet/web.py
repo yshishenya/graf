@@ -717,7 +717,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border-radius: 5px;
   background: var(--accent);
   color: #17191c;
+  display: inline-grid;
+  place-items: center;
 }
+.selection-toggle .ui-icon { width: 16px; height: 16px; }
+.selection-toolbar[data-selection-state="partial"] [data-icon="check"] { display: none; }
+.selection-toolbar[data-selection-state="all"] [data-icon="minus"] { display: none; }
 .selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; }
 .selection-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .selection-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
@@ -1846,7 +1851,7 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
           <div class="meeting-toolbar">
             <div class="section-title" data-list-title>Записи встреч</div>
             <div class="selection-toolbar" data-selection-toolbar hidden data-visible-total="{len(response.items)}">
-              <button class="selection-toggle" type="button" data-clear-selection aria-label="Снять выбор">{_ui_icon("minus")}</button>
+              <button class="selection-toggle" type="button" data-selection-toggle aria-label="Выбрать все видимые записи">{_ui_icon("minus")}{_ui_icon("check")}</button>
               <div class="selection-count" data-selection-count>Выбрано 0 / {len(response.items)}</div>
               <div class="selection-actions">
                 <span class="tooltip-wrap" tabindex="0" data-tooltip="Скачивание появится позже" aria-label="Скачивание появится позже">
@@ -1884,7 +1889,7 @@ def _meeting_list_script() -> str:
         const listTitle = document.querySelector("[data-list-title]");
         const countLabel = document.querySelector("[data-selection-count]");
         const deleteSelected = document.querySelector("[data-selection-delete]");
-        const clearSelection = document.querySelector("[data-clear-selection]");
+        const selectionToggle = document.querySelector("[data-selection-toggle]");
         const dialog = document.querySelector("[data-delete-dialog]");
         if (!list || !toolbar || !countLabel || !deleteSelected || !dialog) return;
 
@@ -1895,6 +1900,7 @@ def _meeting_list_script() -> str:
         const error = dialog.querySelector("[data-delete-error]");
         let pendingRows = [];
 
+        const allRows = () => Array.from(list.querySelectorAll("[data-meeting-row]"));
         const selectedRows = () => Array.from(list.querySelectorAll("[data-meeting-row]"))
           .filter((row) => row.querySelector("[data-meeting-select]")?.checked);
 
@@ -1911,8 +1917,12 @@ def _meeting_list_script() -> str:
 
         const updateSelection = () => {
           const rows = selectedRows();
-          countLabel.textContent = `Выбрано ${rows.length} / ${totalRows()}`;
+          const total = totalRows();
+          const allSelected = total > 0 && rows.length === total;
+          countLabel.textContent = `Выбрано ${rows.length} / ${total}`;
           toolbar.hidden = rows.length === 0;
+          toolbar.dataset.selectionState = allSelected ? "all" : "partial";
+          if (selectionToggle) selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
           if (listTitle) listTitle.hidden = rows.length > 0;
           list.querySelectorAll("[data-meeting-row]").forEach((row) => {
             row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);
@@ -1967,9 +1977,11 @@ def _meeting_list_script() -> str:
 
         deleteSelected.addEventListener("click", () => openDeleteDialog(selectedRows()));
         cancel?.addEventListener("click", closeDeleteDialog);
-        clearSelection?.addEventListener("click", () => {
-          selectedRows().forEach((row) => {
-            row.querySelector("[data-meeting-select]").checked = false;
+        selectionToggle?.addEventListener("click", () => {
+          const rows = allRows();
+          const shouldSelectAll = selectedRows().length !== rows.length;
+          rows.forEach((row) => {
+            row.querySelector("[data-meeting-select]").checked = shouldSelectAll;
           });
           updateSelection();
         });
@@ -2891,6 +2903,7 @@ def _notes_title(title: str) -> str:
 
 def _ui_icon(name: str) -> str:
     paths = {
+        "check": '<path d="M20 6 9 17l-5-5"></path>',
         "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path>',
         "minus": '<path d="M5 12h14"></path>',
         "trash": '<path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
