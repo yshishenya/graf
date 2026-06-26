@@ -48,6 +48,13 @@ PRIVATE_ACK_VALUE_FRAGMENTS = (
     "transcript",
 )
 
+VERIFIED_LOCAL_PURGE_ACK_REASONS = {
+    "local_buffers_purged",
+    "local_artifacts_deleted",
+    "local_tombstone_verified",
+    "cryptographically_unrecoverable",
+}
+
 
 async def create_local_purge_tasks_for_request(
     db: AsyncSession,
@@ -116,6 +123,7 @@ async def acknowledge_local_purge_task(
     payload: LocalPurgeAckRequest,
 ) -> LocalPurgeTask:
     _assert_metadata_only_ack(payload)
+    _assert_verified_ack_state(payload)
     task = await db.scalar(
         select(LocalPurgeTaskModel)
         .where(LocalPurgeTaskModel.workspace_id == workspace_id)
@@ -166,6 +174,18 @@ def _assert_metadata_only_ack(payload: LocalPurgeAckRequest) -> None:
                 code="local_purge_private_payload",
                 title="Local purge acknowledgement must be metadata-only",
             )
+
+
+def _assert_verified_ack_state(payload: LocalPurgeAckRequest) -> None:
+    if payload.state != LocalPurgeTaskState.ACKNOWLEDGED:
+        return
+    if payload.reason_code in VERIFIED_LOCAL_PURGE_ACK_REASONS:
+        return
+    raise ProblemDetail(
+        status=422,
+        code="local_purge_unverified_ack",
+        title="Local purge acknowledgement requires verified local deletion truth",
+    )
 
 
 async def _refresh_local_purge_report_state(db: AsyncSession, *, task: LocalPurgeTaskModel) -> None:

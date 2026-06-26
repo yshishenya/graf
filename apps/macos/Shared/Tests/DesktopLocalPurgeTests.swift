@@ -87,6 +87,51 @@ final class DesktopLocalPurgeTests: XCTestCase {
         XCTAssertFalse(json.localizedCaseInsensitiveContains("transcript"))
     }
 
+    func testVerifiedLocalPurgeAcknowledgementsEncodeSuccessReasonsOnly() throws {
+        let cases: [(DesktopLocalPurgeVerificationState, String)] = [
+            (.deleted, "local_artifacts_deleted"),
+            (.tombstoned, "local_tombstone_verified"),
+            (.cryptographicallyUnrecoverable, "cryptographically_unrecoverable")
+        ]
+
+        for (verificationState, reason) in cases {
+            let ack = DesktopLocalPurgeAcknowledgement(
+                verificationState: verificationState,
+                clientVersion: "local-macos-test",
+                completedAt: Date(timeIntervalSince1970: 1_781_654_400)
+            )
+
+            XCTAssertEqual(ack.state, .acknowledged)
+            XCTAssertEqual(ack.reasonCode, reason)
+            let json = String(decoding: try localPurgeEncoder.encode(ack), as: UTF8.self)
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("/Users/"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("private.wav"))
+            XCTAssertFalse(json.localizedCaseInsensitiveContains("token"))
+        }
+    }
+
+    func testUnverifiedLocalPurgeAcknowledgementIsSentAsSafeFailure() {
+        let ack = DesktopLocalPurgeAcknowledgement(
+            verificationState: .unverified,
+            clientVersion: "local-macos-test",
+            completedAt: Date(timeIntervalSince1970: 1_781_654_400)
+        )
+
+        XCTAssertEqual(ack.state, .failed)
+        XCTAssertEqual(ack.reasonCode, "local_purge_unverified")
+    }
+
+    func testFailedLocalPurgeAcknowledgementDoesNotClaimDeletion() {
+        let ack = DesktopLocalPurgeAcknowledgement(
+            verificationState: .failed,
+            clientVersion: "local-macos-test",
+            completedAt: Date(timeIntervalSince1970: 1_781_654_400)
+        )
+
+        XCTAssertEqual(ack.state, .failed)
+        XCTAssertEqual(ack.reasonCode, "local_purge_failed")
+    }
+
     private var localPurgeDecoder: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

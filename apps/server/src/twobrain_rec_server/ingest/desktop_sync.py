@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
+    CustodyIncidentReadModel,
+    CustodyReadModel,
     DesktopRecordingSyncStateResponse,
     DesktopSyncConflict,
     DesktopSyncMeetingState,
@@ -18,6 +20,13 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.db.models import ProcessingResult, ProcessingWorkflow
 from twobrain_rec_server.domain.statuses import (
+    CustodyMetadataSafety,
+    CustodyNormalUserAction,
+    CustodyOwner,
+    CustodyProcessingState,
+    CustodyRetryClass,
+    CustodyState,
+    CustodyUploadState,
     DeletionState,
     MediaRevisionStatus,
     MeetingStatus,
@@ -277,6 +286,270 @@ def _review_available(conflict: DesktopSyncConflict, processing_status: Processi
     return processing_status != ProcessingStatus.CANCELED
 
 
+def _custody_processing_state(status: ProcessingStatus) -> CustodyProcessingState:
+    if status in {
+        ProcessingStatus.PENDING_PROCESSING,
+        ProcessingStatus.STARTING,
+        ProcessingStatus.WORKFLOW_STARTED,
+        ProcessingStatus.SUBMITTING,
+        ProcessingStatus.SUBMITTED,
+    }:
+        return CustodyProcessingState.PENDING_PROCESSING
+    if status in {ProcessingStatus.POLLING, ProcessingStatus.IMPORTING}:
+        return CustodyProcessingState.PROCESSING
+    if status == ProcessingStatus.PROCESSED:
+        return CustodyProcessingState.PROCESSED
+    if status == ProcessingStatus.BLOCKED:
+        return CustodyProcessingState.BLOCKED
+    if status == ProcessingStatus.FAILED_RETRYABLE:
+        return CustodyProcessingState.FAILED_RETRYABLE
+    if status == ProcessingStatus.FAILED_TERMINAL:
+        return CustodyProcessingState.FAILED_TERMINAL
+    if status == ProcessingStatus.CANCELED:
+        return CustodyProcessingState.CANCELED
+    return CustodyProcessingState.NOT_SUBMITTED
+
+
+def _custody_upload_state(
+    *,
+    meeting: object,
+    session: UploadSessionRecord | None,
+    accepted_bytes_by_track: dict[str, int],
+    conflict: DesktopSyncConflict,
+) -> CustodyUploadState:
+    if conflict.state in {
+        SyncConflictState.LOCAL_FILES_MISSING,
+        SyncConflictState.LOCAL_CHECKSUM_CHANGED,
+        SyncConflictState.QUEUE_DOCUMENT_MALFORMED,
+        SyncConflictState.QUEUE_SCHEMA_MIGRATION_BLOCKED,
+        SyncConflictState.RETENTION_EXPIRED,
+    }:
+        return CustodyUploadState.TERMINAL
+    if session is not None and session.status == UploadSessionStatus.FINALIZED:
+        return CustodyUploadState.FINALIZED
+    if _status_value(meeting.status) in {MeetingStatus.INGESTED_PENDING_PROCESSING.value, MeetingStatus.DEGRADED.value}:
+        return CustodyUploadState.FINALIZED
+    if accepted_bytes_by_track:
+        return CustodyUploadState.PARTIAL_UPLOADED
+    if session is not None:
+        return CustodyUploadState.SESSION_CREATED
+    if conflict.state != SyncConflictState.NONE:
+        return CustodyUploadState.BLOCKED
+    return CustodyUploadState.NOT_STARTED
+
+
+def _custody_state(
+    *,
+    upload_state: CustodyUploadState,
+    processing_state: CustodyProcessingState,
+    review_available: bool,
+    conflict: DesktopSyncConflict,
+) -> CustodyState:
+    if review_available:
+        return CustodyState.DELIVERED
+    if conflict.state in {
+        SyncConflictState.LOCAL_FILES_MISSING,
+        SyncConflictState.LOCAL_CHECKSUM_CHANGED,
+        SyncConflictState.QUEUE_DOCUMENT_MALFORMED,
+        SyncConflictState.QUEUE_SCHEMA_MIGRATION_BLOCKED,
+        SyncConflictState.RETENTION_EXPIRED,
+    }:
+        return CustodyState.TERMINAL_UNDELIVERED
+    if conflict.state in {SyncConflictState.PROCESSING_FAILED, SyncConflictState.PROCESSING_BLOCKED}:
+        return CustodyState.PROCESSING
+    if conflict.state != SyncConflictState.NONE:
+        return CustodyState.RETAINED_AWAITING_CONDITION
+    if processing_state in {
+        CustodyProcessingState.PENDING_PROCESSING,
+        CustodyProcessingState.PROCESSING,
+        CustodyProcessingState.BLOCKED,
+        CustodyProcessingState.FAILED_RETRYABLE,
+        CustodyProcessingState.FAILED_TERMINAL,
+    }:
+        return CustodyState.PROCESSING
+    if upload_state == CustodyUploadState.FINALIZED:
+        return CustodyState.FINALIZED
+    if upload_state == CustodyUploadState.PARTIAL_UPLOADED:
+        return CustodyState.PARTIAL_UPLOADED
+    if upload_state == CustodyUploadState.SESSION_CREATED:
+        return CustodyState.UPLOAD_SESSION_CREATED
+    return CustodyState.SERVER_REGISTERED
+
+
+def _custody_owner_action_retry(
+    conflict: DesktopSyncConflict,
+    *,
+    review_available: bool,
+) -> tuple[CustodyOwner, CustodyNormalUserAction, CustodyRetryClass, str, bool]:
+    if review_available:
+        return (
+            CustodyOwner.PRODUCT_AUTOMATIC,
+            CustodyNormalUserAction.OPEN_REVIEW,
+            CustodyRetryClass.TERMINAL,
+            "custody.known_by_server",
+            False,
+        )
+    if conflict.state == SyncConflictState.AUTH_REQUIRED:
+        return (
+            CustodyOwner.MEETING_OWNER,
+            CustodyNormalUserAction.SIGN_IN,
+            CustodyRetryClass.PAUSED_UNTIL_USER_ACTION,
+            "custody.needs_sign_in",
+            True,
+        )
+    if conflict.state in {SyncConflictState.ACCESS_REVOKED, SyncConflictState.STALE_DEVICE_IDENTITY}:
+        return (
+            CustodyOwner.WORKSPACE_ADMIN,
+            CustodyNormalUserAction.COPY_SAFE_REPORT,
+            CustodyRetryClass.PAUSED_UNTIL_ADMIN_ACTION,
+            "custody.needs_admin",
+            True,
+        )
+    if conflict.state in {
+        SyncConflictState.SERVER_MEETING_DELETED,
+        SyncConflictState.SERVER_EXPECTED_METADATA_MISMATCH,
+        SyncConflictState.SERVER_RANGES_INCONSISTENT,
+    }:
+        return (
+            CustodyOwner.WORKSPACE_ADMIN,
+            CustodyNormalUserAction.COPY_SAFE_REPORT,
+            CustodyRetryClass.PAUSED_UNTIL_ADMIN_ACTION,
+            "custody.needs_admin",
+            True,
+        )
+    if conflict.state in {
+        SyncConflictState.LOCAL_FILES_MISSING,
+        SyncConflictState.LOCAL_CHECKSUM_CHANGED,
+        SyncConflictState.QUEUE_DOCUMENT_MALFORMED,
+        SyncConflictState.QUEUE_SCHEMA_MIGRATION_BLOCKED,
+        SyncConflictState.PROCESSING_FAILED,
+        SyncConflictState.PROCESSING_BLOCKED,
+        SyncConflictState.DEPENDENCY_UNAVAILABLE,
+    }:
+        return (
+            CustodyOwner.SUPPORT,
+            CustodyNormalUserAction.COPY_SAFE_REPORT,
+            CustodyRetryClass.NOT_RETRYABLE,
+            "custody.unknown_blocked",
+            True,
+        )
+    if conflict.state == SyncConflictState.RETENTION_EXPIRED:
+        return (
+            CustodyOwner.POLICY_LIFECYCLE,
+            CustodyNormalUserAction.COPY_SAFE_REPORT,
+            CustodyRetryClass.TERMINAL,
+            "custody.terminal_undelivered",
+            True,
+        )
+    return (
+        CustodyOwner.PRODUCT_AUTOMATIC,
+        CustodyNormalUserAction.NONE,
+        CustodyRetryClass.AUTOMATIC,
+        "custody.uploading",
+        False,
+    )
+
+
+def _custody_safe_recording_identity(meeting: object) -> str:
+    identity = getattr(meeting, "id", None) or getattr(meeting, "meeting_id", None)
+    if identity is None:
+        return "server:unknown"
+    return f"server:{identity}"
+
+
+def _custody_incident_read_model(
+    *,
+    meeting: object,
+    conflict: DesktopSyncConflict,
+    state: CustodyState,
+    owner: CustodyOwner,
+    action: CustodyNormalUserAction,
+    retry_class: CustodyRetryClass,
+) -> CustodyIncidentReadModel | None:
+    if conflict.state == SyncConflictState.NONE:
+        return None
+    problem_code = conflict.state.value
+    reason_category = conflict.reason or problem_code
+    server_identity_present = (getattr(meeting, "id", None) or getattr(meeting, "meeting_id", None)) is not None
+    return CustodyIncidentReadModel(
+        safe_recording_identity=_custody_safe_recording_identity(meeting),
+        reason_category=reason_category,
+        problem_code=problem_code,
+        owner=owner,
+        retry_class=retry_class,
+        normal_user_action=action,
+        created_at=getattr(meeting, "created_at", None),
+        updated_at=getattr(meeting, "updated_at", None),
+        lifecycle_state=state,
+        retention_deadline=None,
+        server_identity_present=server_identity_present,
+        metadata_safety=CustodyMetadataSafety.METADATA_ONLY,
+    )
+
+
+def _custody_read_model(
+    *,
+    meeting: object,
+    session: UploadSessionRecord | None,
+    accepted_bytes_by_track: dict[str, int],
+    processing_status: ProcessingStatus,
+    conflict: DesktopSyncConflict,
+    review_available: bool,
+    review_desktop_url: str | None,
+) -> CustodyReadModel:
+    processing_state = _custody_processing_state(processing_status)
+    upload_state = _custody_upload_state(
+        meeting=meeting,
+        session=session,
+        accepted_bytes_by_track=accepted_bytes_by_track,
+        conflict=conflict,
+    )
+    state = _custody_state(
+        upload_state=upload_state,
+        processing_state=processing_state,
+        review_available=review_available,
+        conflict=conflict,
+    )
+    owner, action, retry_class, copy_key, safe_incident_available = _custody_owner_action_retry(
+        conflict,
+        review_available=review_available,
+    )
+    if conflict.state == SyncConflictState.NONE and state in {
+        CustodyState.FINALIZED,
+        CustodyState.PROCESSING,
+        CustodyState.DELIVERED,
+    }:
+        copy_key = "custody.known_by_server"
+    elif state == CustodyState.PARTIAL_UPLOADED:
+        copy_key = "custody.uploading"
+
+    return CustodyReadModel(
+        state=state,
+        upload_state=upload_state,
+        processing_state=processing_state,
+        owner=owner,
+        retry_class=retry_class,
+        normal_user_action=action,
+        display_priority=9 if review_available else 5,
+        review_available=review_available,
+        review_desktop_url=review_desktop_url if review_available else None,
+        safe_incident_available=safe_incident_available,
+        incident=_custody_incident_read_model(
+            meeting=meeting,
+            conflict=conflict,
+            state=state,
+            owner=owner,
+            action=action,
+            retry_class=retry_class,
+        )
+        if safe_incident_available
+        else None,
+        retention_deadline=None,
+        copy_key=copy_key,
+        metadata_safety=CustodyMetadataSafety.METADATA_ONLY,
+    )
+
+
 async def _mark_expired_if_needed(
     *,
     db: AsyncSession | None,
@@ -317,7 +590,15 @@ async def get_desktop_recording_sync_state(
         local_recording_id=local_recording_id,
     )
     if meeting is None:
-        raise ProblemDetail(status=404, code="recording_not_found", title="Recording not found")
+        raise ProblemDetail(
+            status=404,
+            code="recording_not_found",
+            title="Recording not found",
+            custody_owner=CustodyOwner.PRODUCT_AUTOMATIC.value,
+            retry_class=CustodyRetryClass.AUTOMATIC.value,
+            normal_user_action=CustodyNormalUserAction.NONE.value,
+            metadata_safety=CustodyMetadataSafety.METADATA_ONLY.value,
+        )
     expected_revision_id = normalize_initial_local_media_revision_id(local_recording_id, local_media_revision_id)
     deletion_state = await _load_deletion_state(db, meeting.id)
     access_state, access_conflict = _access_conflict(tenant_scope=tenant_scope, meeting=meeting)
@@ -371,6 +652,12 @@ async def get_desktop_recording_sync_state(
         dependency_conflict,
         session_conflict,
     )
+    accepted_bytes_by_track = _accepted_bytes_by_track(session)
+    missing_ranges_by_track = _missing_ranges_by_track(session)
+    review_available = _review_available(conflict, effective_processing_status)
+    custody_review_available = review_available and effective_processing_status == ProcessingStatus.PROCESSED
+    review_desktop_url = f"/desktop/meetings/{meeting.id}" if review_available else None
+    custody_review_desktop_url = f"/desktop/meetings/{meeting.id}" if custody_review_available else None
     return DesktopRecordingSyncStateResponse(
         local_recording_id=meeting.local_recording_id,
         local_media_revision_id=meeting.local_media_revision_id or expected_revision_id,
@@ -391,8 +678,8 @@ async def get_desktop_recording_sync_state(
         upload_session=DesktopSyncUploadSessionState(
             session_id=session.id if session is not None else None,
             status=session.status if session is not None else None,
-            accepted_bytes_by_track=_accepted_bytes_by_track(session),
-            missing_ranges_by_track=_missing_ranges_by_track(session),
+            accepted_bytes_by_track=accepted_bytes_by_track,
+            missing_ranges_by_track=missing_ranges_by_track,
         ),
         processing=DesktopSyncProcessingState(
             status=effective_processing_status,
@@ -400,14 +687,23 @@ async def get_desktop_recording_sync_state(
             reason_code=review_workflow.last_reason_code if review_workflow is not None else processing_conflict.reason,
         ),
         review=DesktopSyncReviewState(
-            available=_review_available(conflict, effective_processing_status),
+            available=review_available,
             status=review_status,
             media_revision_id=meeting.media_revision_id,
             transcript_available=transcript_ready,
             diarization_available=diarization_ready,
             content_available=transcript_ready or diarization_ready,
-            web_url=f"/meetings/{meeting.id}" if _review_available(conflict, effective_processing_status) else None,
-            desktop_url=f"/desktop/meetings/{meeting.id}" if _review_available(conflict, effective_processing_status) else None,
+            web_url=f"/meetings/{meeting.id}" if review_available else None,
+            desktop_url=review_desktop_url,
         ),
         conflict=conflict,
+        custody=_custody_read_model(
+            meeting=meeting,
+            session=session,
+            accepted_bytes_by_track=accepted_bytes_by_track,
+            processing_status=effective_processing_status,
+            conflict=conflict,
+            review_available=custody_review_available,
+            review_desktop_url=custody_review_desktop_url,
+        ),
     )

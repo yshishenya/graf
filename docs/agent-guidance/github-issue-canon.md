@@ -120,8 +120,10 @@ Required label families for Spec Kit issues:
 ## Pull Request Rules
 
 - Use a pull request template when the repository has one.
-- The PR description must include a Russian summary, validation evidence, and
-  issue links.
+- The PR description must include a Russian summary, selected risk/validation
+  lane, validation evidence, and issue links.
+- When a PR uses a low-risk lane, explain why broader repository or deployment
+  gates were not required.
 - Use `Fixes #123`, `Closes #123`, or `Resolves #123` only when the PR fully
   satisfies every acceptance criterion for that issue.
 - Use `Refs #123` or `Part of #123` when the PR is partial, preparatory, or

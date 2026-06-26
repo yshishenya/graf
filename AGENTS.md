@@ -1,8 +1,10 @@
 # Agent Operating Guide
 
-This repository uses GitHub Spec Kit for spec-driven development. All product
-and implementation work must follow the Spec Kit flow unless the user explicitly
-asks for a one-off investigation or emergency fix.
+This repository uses GitHub Spec Kit for spec-driven development. Classify the
+risk and validation lane before changing files. Significant or high-risk product
+and implementation work must follow the Spec Kit flow; low-risk direct lanes are
+allowed only when `docs/agent-guidance/spec-kit-flow.md` says the scoped
+validation is enough.
 
 Codex reads `AGENTS.md` automatically. Keep this file as the short operating
 router; put long-lived details in `docs/agent-guidance/`. Do not add a parallel
@@ -85,7 +87,14 @@ The upstream Spec Kit docs often show slash commands such as
 
 ## Required Development Flow
 
-For every feature, architectural slice, or significant change, follow:
+Start by choosing the work lane from
+`docs/agent-guidance/spec-kit-flow.md`: read-only investigation, docs-only,
+tiny low-risk code, active Spec Kit slice, significant/high-risk feature, or
+release/deploy. Record the selected risk/validation lane in the final response
+or PR.
+
+For every new feature, architectural slice, significant change, or high-risk
+change, follow:
 
 ```text
 $speckit-constitution
@@ -101,8 +110,9 @@ $speckit-implement
 
 Run `$speckit-constitution` when governance changes are needed. For normal
 feature work, start at `$speckit-specify`, then clarify, plan, checklist, tasks,
-analyze, GitHub issue sync, and implement. Small documentation-only edits may
-be direct when the user explicitly asks for that.
+analyze, GitHub issue sync, and implement. Small documentation-only edits and
+tiny low-risk code changes may be direct when they avoid high-risk areas and
+use the scoped validation lane.
 
 Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 
@@ -180,7 +190,7 @@ Default validation anchors:
 - local CI: `infra/scripts/ci-local.sh`
 - production deploy/smoke: `infra/scripts/cd-remote.sh --dry-run` then
   `infra/scripts/cd-remote.sh --execute` when the release gate is met
-- release prep: `./scripts/prepare-release.sh patch|minor|major`
+- release prep: `./scripts/prepare-release.sh YYYY.MM.DD.N`
 
 Implementation commits require explicit user approval after validation. Spec Kit
 documentation auto-commits may run only through user-approved Spec Kit hooks.
@@ -250,7 +260,7 @@ infra/scripts/ci-local.sh
 ## Ponytail в Spec Kit
 
 - Ponytail управляет формой реализации: меньше кода, меньше новых зависимостей, reuse/stdlib/native-first, минимальный рабочий diff.
-- Ponytail не сокращает Spec Kit процесс: specs, plan, checklists, tasks, analyze, taskstoissues, GitHub issues, PR evidence, release notes и closeout остаются обязательными.
+- Ponytail не снижает выбранный risk/validation lane: low-risk lanes остаются scoped, а significant/high-risk lanes сохраняют specs, plan, checklists, tasks, analyze, taskstoissues, GitHub issues, PR evidence, release notes и closeout.
 - Реальное поведение Ponytail приходит из установленного Codex plugin; этот блок описывает только границы применения внутри Spec Kit.
 - Upstream Ponytail `AGENTS.md` fallback обновляется в `docs/agent-guidance/ponytail-upstream.md`; не копируй его в корневой `AGENTS.md` вручную.
 - Если plugin hooks недоступны, используй upstream fallback-файл как справку по Ponytail, но приоритет корневого `AGENTS.md` и Spec Kit managed-блоков выше.

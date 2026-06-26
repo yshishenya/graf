@@ -39,6 +39,108 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.06.26.12] - 2026-06-26
+
+
+### Добавлено
+- Feature `057-local-upload-custody`: desktop upload queue now behaves as
+  product custody, not as a user task list. Local recordings remain accounted
+  for, retry automatically when safe, and expose calm aggregate native custody
+  status outside the server-owned WebView meeting list.
+- Structured custody read-model fields for feature `058`: server-known
+  recordings expose machine-readable custody, upload, processing, owner,
+  retry-class, action, copy-key, review availability, and metadata-safety truth.
+
+### Изменено
+- Normal users no longer get transport-level Retry or Stop retry controls for
+  local recording upload. The UI shows only meaningful actions such as sign-in,
+  safe report, diagnostics, review when available, or explicit local deletion.
+- Local upload, server processing, server deletion, and local purge truth are
+  separated so an uploaded recording with failed processing is not shown as a
+  failed local upload.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.26.11] - 2026-06-26
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Чекбоксы выбора записей больше не рисуют галочку и частичный выбор вручную:
+  верхний контрол и строки используют нативный checkbox с единым системным
+  стилем.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.26.10] - 2026-06-26
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Верхний элемент выбора записей теперь использует тот же checkbox-контрол,
+  что и строки списка, поэтому его размер и позиция совпадают с чекбоксами.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Уточнен рабочий процесс Spec Kit: каждая правка выбирает risk/validation
+  lane, маленькие low-risk изменения проходят scoped-проверки, а high-risk и
+  релизные изменения сохраняют полный набор gate.
+
+### Операции
+- PR template теперь требует указать risk/validation lane, выполненные проверки
+  и почему более широкие gate не запускались.
+
+## [2026.06.26.9] - 2026-06-26
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Кнопка выбора записей в верхней панели теперь такого же размера, как
+  чекбоксы строк, и выровнена с ними по левому краю.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
 ## [2026.06.26.8] - 2026-06-26
 
 
@@ -59,10 +161,18 @@
   `транскрипт` и `upload` на базе консистентных Lucide SVG.
 
 ### Безопасность
-- _Пока нет записей._
+- Local custody ledger/artifacts are written with stronger local file
+  protection where this slice touches them, malformed queue documents are
+  quarantined metadata-safely, and safe incident reports exclude audio,
+  transcript text, private paths, tokens, and signed URLs.
+- Local purge acknowledgements now fail closed: desktop sends successful
+  acknowledgement only after verified local deletion, tombstone, or
+  cryptographic unrecoverability; unverified purge is reported as a safe
+  failure.
 
 ### Документы
-- _Пока нет записей._
+- Added feature `057` specification, contracts, quickstart, validation notes,
+  and explicit `057`/`058` boundary guidance.
 
 ### Операции
 - _Пока нет записей._

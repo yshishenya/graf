@@ -38,6 +38,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case blockedFutureGovernance = "blocked_future_governance"
     case blockedNativeCaptureControl = "blocked_native_capture_control"
     case blockedLocalFileOrDiagnostic = "blocked_local_file_or_diagnostic"
+    case blockedReviewUnavailable = "blocked_review_unavailable"
     case blockedUnknownRoute = "blocked_unknown_route"
     case openExternalSafeLink = "open_external_safe_link"
     case invalidURL = "invalid_url"
@@ -136,6 +137,28 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             return block(path: path, kind: .forbiddenAction, reason: .blockedLocalFileOrDiagnostic, message: "This local diagnostic stays in the app shell.")
         }
         return block(path: path, kind: .unsupported, reason: .blockedUnknownRoute, message: "This meeting route is not available in the desktop workspace.")
+    }
+
+    public func reviewDecision(
+        for url: URL,
+        reviewAvailableMeetingIds: Set<String>
+    ) -> DesktopCabinetRouteDecision {
+        let decision = decision(for: url)
+        guard decision.decision == .allow,
+              decision.route.kind == .meetingDetail,
+              let meetingId = decision.route.meetingId
+        else {
+            return decision
+        }
+        guard reviewAvailableMeetingIds.contains(meetingId) else {
+            return DesktopCabinetRouteDecision(
+                route: decision.route,
+                decision: .blockWithMessage,
+                reason: .blockedReviewUnavailable,
+                userMessage: "This meeting review is not available yet."
+            )
+        }
+        return decision
     }
 
     private func sameOrigin(_ url: URL) -> Bool {

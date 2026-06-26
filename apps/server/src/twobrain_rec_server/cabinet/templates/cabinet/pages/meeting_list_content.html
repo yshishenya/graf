@@ -60,7 +60,7 @@
     <div class="meeting-toolbar">
       <div class="section-title" data-list-title>Записи встреч</div>
       <div class="selection-toolbar" data-selection-toolbar hidden data-visible-total="{{ visible_total }}">
-        <button class="selection-toggle" type="button" data-selection-toggle aria-label="Выбрать все видимые записи">{{ icons.icon("minus") }}{{ icons.icon("check") }}</button>
+        <input class="row-check selection-toggle" type="checkbox" data-selection-toggle aria-label="Выбрать все видимые записи">
         <div class="selection-count" data-selection-count>Выбрано 0 / {{ visible_total }}</div>
         <div class="selection-actions">
           <span class="tooltip-wrap" tabindex="0" data-tooltip="Скачивание появится позже" aria-label="Скачивание появится позже">

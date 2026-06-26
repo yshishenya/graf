@@ -484,6 +484,20 @@ upload, finalization, and processing, but imported `0` transcript segments and
 speaker-timeline, or stored-outcome proof, so these local and production checks
 still do not prove MVP rollout readiness.
 
+Feature `057-local-upload-custody` is implemented, merged through PR `#2052`,
+and released as `v2026.06.26.12` as the product-owned custody layer for local
+desktop recordings.
+It keeps the server WebView meeting list authoritative, removes normal-user
+transport retry controls, preserves local recordings with automatic custody
+processing, exposes compact native aggregate status, emits metadata-safe
+admin/support incident truth, separates upload/processing/deletion/local purge
+states, and fails closed on local purge acknowledgement unless deletion,
+tombstone, or unrecoverability is verified. Focused local evidence passed the
+057 Swift custody/purge/projection suites and focused server custody/purge
+read-model suites on 2026-06-26. This is merged/released local implementation
+readiness, not production-smoked evidence, and feature `058` still owns server
+cabinet presentation refactor work.
+
 Current evidence already accepted before 050:
 
 - `045` lets structurally valid recordings proceed to upload/transcription even

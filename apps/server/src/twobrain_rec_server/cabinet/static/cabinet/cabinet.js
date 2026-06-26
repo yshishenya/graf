@@ -30,7 +30,11 @@
     countLabel.textContent = `Выбрано ${rows.length} / ${total}`;
     toolbar.hidden = rows.length === 0;
     toolbar.dataset.selectionState = allSelected ? "all" : "partial";
-    if (selectionToggle) selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
+    if (selectionToggle) {
+      selectionToggle.checked = allSelected;
+      selectionToggle.indeterminate = rows.length > 0 && !allSelected;
+      selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
+    }
     if (listTitle) listTitle.hidden = rows.length > 0;
     allRows().forEach((row) => {
       row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);

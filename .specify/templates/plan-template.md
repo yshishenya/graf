@@ -26,6 +26,10 @@
 
 **Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
 
+**Risk / Validation Lane**: [read-only / docs-only / tiny-low-risk-code / active-spec-slice / significant-feature / high-risk-feature / release-deploy, with rationale]
+
+**Release Gate**: [no deploy / cd dry-run / cd execute, with rationale]
+
 **Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
 
 **Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
@@ -41,6 +45,12 @@
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 [Gates determined based on constitution file]
+
+## Validation Plan
+
+[Name the focused checks, quickstart scenarios, repository gate, and deploy gate
+required by the selected lane. Explain why broader gates are not required when
+the lane is low risk.]
 
 ## Project Structure
 

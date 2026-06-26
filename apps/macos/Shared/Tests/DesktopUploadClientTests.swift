@@ -99,6 +99,31 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(DesktopUploadClient.defaultPartSizeBytes, 1024 * 1024 * 1024)
     }
 
+    func testOnlyRecordingNotFoundMeansServerUnknownLocalCustody() {
+        XCTAssertTrue(DesktopUploadClient.isServerUnknownRecording(status: 404, code: "recording_not_found"))
+        XCTAssertFalse(DesktopUploadClient.isServerUnknownRecording(status: 404, code: "meeting_not_found"))
+        XCTAssertFalse(DesktopUploadClient.isServerUnknownRecording(status: 403, code: "recording_not_found"))
+    }
+
+    func testProblemCodesDriveUploadFailureCategoryBeforeHTTPStatus() {
+        XCTAssertEqual(
+            DesktopUploadClientError.failureCategory(forHTTPStatus: 409, code: "session_expired"),
+            .authSession
+        )
+        XCTAssertEqual(
+            DesktopUploadClientError.failureCategory(forHTTPStatus: 400, code: "recording_duration_exceeded"),
+            .storageQuota
+        )
+        XCTAssertEqual(
+            DesktopUploadClientError.failureCategory(forHTTPStatus: 409, code: "range_conflict"),
+            .serverValidation
+        )
+        XCTAssertEqual(
+            DesktopUploadClientError.failureCategory(forHTTPStatus: 409, code: "storage_unavailable"),
+            .network
+        )
+    }
+
     private func makeQueueItem() -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,

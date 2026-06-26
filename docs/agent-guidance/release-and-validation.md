@@ -14,7 +14,31 @@ when closing a feature or preparing a deploy.
 
 Use targeted tests during development, but do not replace the feature
 quickstart or canonical local gate with a narrow command when the change touches
-shared behavior, privacy, auth, storage, infrastructure, or user-facing flows.
+shared behavior, privacy, auth, storage, infrastructure, user-facing flows,
+UX/QA expectations, operations, release readiness, or shared code paths.
+
+## Validation Lanes
+
+Every change must record one risk/validation lane in the final response or PR.
+
+- **Read-only investigation**: no tests required; report inspected sources and
+  limits.
+- **Docs-only / mechanical**: review the rendered wording or template diff; run
+  a focused markdown/template check when one exists.
+- **Tiny low-risk code**: run the focused test or lint command for the touched
+  path. Add one small runnable check when the change adds non-trivial logic.
+- **Active Spec Kit slice**: use `quickstart.md` and focused tests during
+  development. Run `infra/scripts/ci-local.sh` once at closeout when behavior,
+  shared surfaces, UX/QA expectations, operations, release readiness, or code
+  paths changed.
+- **Significant or high-risk feature**: run the feature quickstart and
+  `infra/scripts/ci-local.sh` before closeout/PR.
+- **Release / deploy**: run the CD dry-run and execute only after the release
+  gate is met and approved.
+
+Do not rerun full local CI after every small edit inside a slice. Accumulate
+focused checks while developing, then run the repository gate at the closeout
+boundary required by the lane.
 
 ## Production Deployment And Smoke
 

@@ -70,6 +70,14 @@ public enum DesktopLocalPurgeTaskState: String, Codable, Sendable {
     case localExpiryReliedUpon = "local_expiry_relied_upon"
 }
 
+public enum DesktopLocalPurgeVerificationState: String, Codable, CaseIterable, Sendable {
+    case deleted
+    case tombstoned
+    case cryptographicallyUnrecoverable = "cryptographically_unrecoverable"
+    case failed
+    case unverified
+}
+
 public struct DesktopLocalPurgeTask: Decodable, Equatable, Sendable {
     public let taskId: String
     public let meetingId: String
@@ -106,6 +114,37 @@ public struct DesktopLocalPurgeAcknowledgement: Encodable, Equatable, Sendable {
         self.reasonCode = reasonCode
         self.clientVersion = clientVersion
         self.completedAt = completedAt
+    }
+
+    public init(
+        verificationState: DesktopLocalPurgeVerificationState,
+        clientVersion: String? = nil,
+        completedAt: Date? = nil
+    ) {
+        let mapped = Self.stateAndReason(for: verificationState)
+        self.init(
+            state: mapped.state,
+            reasonCode: mapped.reasonCode,
+            clientVersion: clientVersion,
+            completedAt: completedAt
+        )
+    }
+
+    public static func stateAndReason(
+        for verificationState: DesktopLocalPurgeVerificationState
+    ) -> (state: DesktopLocalPurgeTaskState, reasonCode: String) {
+        switch verificationState {
+        case .deleted:
+            return (.acknowledged, "local_artifacts_deleted")
+        case .tombstoned:
+            return (.acknowledged, "local_tombstone_verified")
+        case .cryptographicallyUnrecoverable:
+            return (.acknowledged, "cryptographically_unrecoverable")
+        case .failed:
+            return (.failed, "local_purge_failed")
+        case .unverified:
+            return (.failed, "local_purge_unverified")
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -146,7 +185,29 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
             return .localResource
         case .serverStillMissingRanges:
             return .serverValidation
-        case .httpStatus(let status, _):
+        case .httpStatus(let status, let code):
+            return Self.failureCategory(forHTTPStatus: status, code: code)
+        }
+    }
+
+    public static func failureCategory(forHTTPStatus status: Int, code: String) -> UploadFailureCategory {
+        switch code {
+        case "auth_required", "session_expired", "tenant_context_missing", "tenant_scope_denied",
+             "meeting_scope_denied", "device_scope_denied":
+            return .authSession
+        case "upload_part_bytes_exceeded", "track_bytes_exceeded", "package_bytes_exceeded",
+             "recording_duration_exceeded":
+            return .storageQuota
+        case "network_unavailable", "storage_unavailable", "persistence_unavailable",
+             "processing_store_unavailable", "cabinet_store_unavailable":
+            return .network
+        case "checksum_mismatch", "checksum_conflict", "range_conflict", "range_overlap",
+             "expected_track_size_exceeded", "invalid_expected_track_size",
+             "unexpected_expected_track_size_role", "invalid_part_number", "invalid_byte_offset",
+             "idempotency_conflict", "active_upload_session_exists", "media_revision_conflict",
+             "session_terminal", "meeting_deletion_active":
+            return .serverValidation
+        default:
             if status == 401 || status == 403 {
                 return .authSession
             }
@@ -407,7 +468,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 conflictReason: response.conflict.reason,
                 nextAction: response.conflict.next_action
             )
-        } catch DesktopUploadClientError.httpStatus(404, _) {
+        } catch DesktopUploadClientError.httpStatus(let status, let code)
+            where Self.isServerUnknownRecording(status: status, code: code) {
             return nil
         }
     }
@@ -453,6 +515,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     public static func partNumber(forByteOffset byteOffset: Int64, partSizeBytes: Int) -> Int {
         max(0, Int(max(0, byteOffset) / Int64(max(1, partSizeBytes))))
+    }
+
+    public static func isServerUnknownRecording(status: Int, code: String) -> Bool {
+        status == 404 && code == "recording_not_found"
     }
 
     public static func uploadFileDescriptors(for item: DesktopUploadQueueItem) -> [DesktopUploadFileDescriptor] {

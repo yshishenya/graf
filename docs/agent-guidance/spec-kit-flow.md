@@ -1,7 +1,43 @@
 # Spec Kit Flow
 
-All product and implementation work follows Spec Kit unless the user explicitly
-asks for a one-off investigation or emergency fix.
+Classify the risk and validation lane before changing files. Significant and
+high-risk product/code work follows Spec Kit. Low-risk direct work is allowed
+only when the lane rules below say scoped validation is enough.
+
+## Risk And Validation Lanes
+
+Use the first lane that fully fits the work. If classification is uncertain,
+move down to the stricter lane.
+
+| Lane | Fits When | Required Process | Minimum Validation |
+|------|-----------|------------------|--------------------|
+| Read-only investigation | No file changes, no external state changes | No Spec Kit artifacts | Report inspected sources and confidence/limits |
+| Docs-only / mechanical | Comments, typos, links, docs wording, or template text with no product/runtime behavior change | Direct edit; no new spec or issue unless part of an active slice | Markdown/template review; run a focused check if one exists |
+| Tiny low-risk code | Narrow code edit with no shared behavior, no data contract change, and no high-risk domain | Direct edit; record lane and rationale | Focused test/lint for touched path; add one small check for non-trivial logic |
+| Active Spec Kit slice | Work belongs to an existing `specs/<feature>/` and `tasks.md` | Use the existing spec, plan, quickstart, and tasks; do not create a duplicate slice | Focused quickstart/tests during development; repository gate at closeout when behavior, shared surface, UX/QA expectation, operations, release readiness, or code path changed |
+| Significant feature / architecture | New feature, architecture, cross-module contract, or user-visible workflow | Full Spec Kit sequence below | Quickstart plus `infra/scripts/ci-local.sh` before closeout/PR when behavior, shared surface, UX/QA expectation, operations, release readiness, or code path changed |
+| High-risk product area | Capture, auth, privacy, storage, AI, deletion, diagnostics, deployment, high-risk UX, or brand-distance work | Full Spec Kit with mandatory clarify/checklist/analyze | Domain gates plus quickstart; repository gate before closeout; deploy gate only for release |
+| Release / production deploy | Version, release, production rollout, smoke, rollback, or deployment evidence | Release guidance and explicit user approval | `cd-remote.sh --dry-run`; `--execute` only when release gate is met |
+
+Direct lanes never bypass product gates. Escalate to a full Spec Kit lane when
+the change touches:
+
+- recording start/stop, system audio, microphone, routing, buffering, or upload
+  retry behavior;
+- auth, sessions, devices, permissions, audit, retention, deletion, privacy, or
+  secrets;
+- MediaScribe, Langfuse, MinIO, Postgres, Temporal, Docker, deployment, backup,
+  restore, rollback, or public health checks;
+- tray, widget, onboarding, delete, admin, accessibility, localization,
+  unavailable/degraded states, or brand-distance UX;
+- public API contracts, migrations, shared helpers, security boundaries, or
+  behavior used by multiple feature slices;
+- process and governance surfaces such as `AGENTS.md`, constitution,
+  `docs/agent-guidance/`, Spec Kit templates, PR templates, release policy, or
+  bootstrap/extension tooling, unless the edit is strictly typo/link-only.
+
+For pull requests, record the lane, what was checked, and why broader gates were
+not required.
 
 ## Command Sequence
 
@@ -32,8 +68,9 @@ constitution first.
 
 ## 1. Specify
 
-Use `$speckit-specify` for every feature, architectural slice, or significant
-change.
+Use `$speckit-specify` for every new feature, architectural slice, significant
+change, or high-risk change. Do not create a duplicate spec for direct low-risk
+work or for implementation that already belongs to an active Spec Kit slice.
 
 The spec must describe what and why, not implementation details. It should
 include:
@@ -75,6 +112,7 @@ Use `$speckit-plan` after the spec is clear.
 The plan must:
 
 - run the constitution check;
+- record the selected risk/validation lane and release gate;
 - resolve technical unknowns in `research.md`;
 - define the implementation approach in `plan.md`;
 - create `data-model.md` where data is involved;
@@ -128,6 +166,7 @@ Rules:
 - `[P]` is used only for tasks that touch different files and have no dependency
   on incomplete work;
 - each user story has independent validation criteria;
+- final validation tasks must name the lane from `plan.md`/`quickstart.md`;
 - task descriptions include concrete paths.
 
 ## 6. Analyze
@@ -164,6 +203,9 @@ planning and analysis when:
 - `tasks.md` exists with executable tasks;
 - implementation is not explicitly skipped by the user.
 
+Do not create GitHub issues for read-only, docs-only, or tiny low-risk direct
+lanes unless the user explicitly asks for tracking.
+
 Never create issues in a repository that does not match the configured git
 remote. Follow `docs/agent-guidance/tracker-policy.md` and
 `docs/agent-guidance/github-issue-canon.md`.
@@ -172,7 +214,8 @@ remote. Follow `docs/agent-guidance/tracker-policy.md` and
 
 Use `$speckit-implement` only after:
 
-- checklists are complete or the user explicitly accepts the risk of proceeding;
+- high-risk checklists are complete; non-high-risk checklist gaps may proceed
+  only with recorded user risk acceptance;
 - analyze has no critical blockers;
 - tasks are generated and reviewed;
 - GitHub issue sync is complete when implementation is in scope.
@@ -185,6 +228,7 @@ Implementation rules:
 - mark completed tasks as `[X]` only after implementation and validation;
 - respect dependencies and `[P]` markers;
 - run validation from `quickstart.md` and any tests introduced by the plan;
+- record the selected risk/validation lane and evidence before calling work done;
 - do not silently broaden scope beyond the active spec.
 
 Implementation closeout rules:

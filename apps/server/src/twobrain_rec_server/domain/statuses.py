@@ -60,6 +60,69 @@ class SyncConflictState(StrEnum):
     DEPENDENCY_UNAVAILABLE = "dependency_unavailable"
 
 
+class CustodyState(StrEnum):
+    SERVER_REGISTERED = "server_registered"
+    UPLOAD_SESSION_CREATED = "upload_session_created"
+    PARTIAL_UPLOADED = "partial_uploaded"
+    FINALIZED = "finalized"
+    PROCESSING = "processing"
+    DELIVERED = "delivered"
+    RETAINED_AWAITING_CONDITION = "retained_awaiting_condition"
+    CANNOT_SEND = "cannot_send"
+    TERMINAL_UNDELIVERED = "terminal_undelivered"
+
+
+class CustodyUploadState(StrEnum):
+    NOT_STARTED = "not_started"
+    SESSION_CREATED = "session_created"
+    PARTIAL_UPLOADED = "partial_uploaded"
+    FINALIZED = "finalized"
+    BLOCKED = "blocked"
+    TERMINAL = "terminal"
+
+
+class CustodyProcessingState(StrEnum):
+    NOT_SUBMITTED = "not_submitted"
+    PENDING_PROCESSING = "pending_processing"
+    PROCESSING = "processing"
+    PROCESSED = "processed"
+    BLOCKED = "blocked"
+    FAILED_RETRYABLE = "failed_retryable"
+    FAILED_TERMINAL = "failed_terminal"
+    CANCELED = "canceled"
+
+
+class CustodyOwner(StrEnum):
+    PRODUCT_AUTOMATIC = "product_automatic"
+    MEETING_OWNER = "meeting_owner"
+    WORKSPACE_ADMIN = "workspace_admin"
+    SUPPORT = "support"
+    POLICY_LIFECYCLE = "policy_lifecycle"
+
+
+class CustodyRetryClass(StrEnum):
+    AUTOMATIC = "automatic"
+    PAUSED_UNTIL_USER_ACTION = "paused_until_user_action"
+    PAUSED_UNTIL_ADMIN_ACTION = "paused_until_admin_action"
+    NOT_RETRYABLE = "not_retryable"
+    TERMINAL = "terminal"
+
+
+class CustodyNormalUserAction(StrEnum):
+    NONE = "none"
+    SIGN_IN = "sign_in"
+    CHOOSE_WORKSPACE = "choose_workspace"
+    GRANT_PERMISSION = "grant_permission"
+    OPEN_REVIEW = "open_review"
+    OPEN_DIAGNOSTICS = "open_diagnostics"
+    COPY_SAFE_REPORT = "copy_safe_report"
+    DELETE_LOCAL_COPY = "delete_local_copy"
+
+
+class CustodyMetadataSafety(StrEnum):
+    METADATA_ONLY = "metadata_only"
+
+
 class ProcessingStatus(StrEnum):
     NOT_SUBMITTED = "not_submitted"
     PENDING_PROCESSING = "pending_processing"
