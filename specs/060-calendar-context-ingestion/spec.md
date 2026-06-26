@@ -115,13 +115,13 @@ As a security or workspace owner, I need calendar context to obey the same priva
 
 ---
 
-### User Story 6 - Provide Upcoming Meeting Context Without Starting Capture (Priority: P2)
+### User Story 6 - Provide Upcoming Meeting Context Without Starting Capture (Priority: P1)
 
 As a user, I want 2brain Rec to show upcoming and current calendar meetings so that I can start or prepare recordings manually from the right context.
 
 **Why this priority**: Products like Fireflies, Fathom, and Otter use calendars to surface upcoming meetings. For 2brain Rec, the safe first version is context, a one-minute join prompt, an event-start recording prompt, and visible user control, not bot auto-join or invisible capture.
 
-**Independent Test**: Sync current and upcoming meetings with conference links and verify that the desktop/web surface can list the safe event title, time, provider, and status, show a join prompt one minute before start, show a recording prompt at start time, and avoid starting recording automatically in 060.
+**Independent Test**: Sync current and upcoming meetings with conference links and verify that the desktop surface can list the safe event title, time, provider, and status, show a join prompt one minute before start, show a recording prompt at start time, and avoid starting recording automatically in 060.
 
 **Acceptance Scenarios**:
 
@@ -213,7 +213,7 @@ As the product owner, I want participant emails to be prepared for a later shari
 ### Measurable Outcomes
 
 - **SC-001**: A test workspace can connect and sync at least one generic CalDAV calendar source and ingest selected calendars on a rolling 12-month future horizon with no past events, connection state, event count, sync time, and safe failure state visible.
-- **SC-002**: Provider research and validation cover Yandex Calendar, Mail.ru Calendar, VK WorkSpace-compatible calendar surfaces, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Bitrix24, Google Calendar, Microsoft Graph/Exchange, and at least one generic CalDAV/custom URL source.
+- **SC-002**: Provider research and validation cover Yandex Calendar, Mail.ru Calendar, VK WorkSpace-compatible calendar surfaces, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Nextcloud/SOGo-like CalDAV, Bitrix24, Google Calendar, Microsoft Graph/Exchange, and at least one generic CalDAV/custom URL source.
 - **SC-003**: For fixture events containing all supported normalized fields, 100% of available identity, schedule, context, participant, recurrence, status, privacy, and provider-version fields are stored or explicitly marked as unavailable/unsupported.
 - **SC-004**: For private/free-busy-only events, unauthorized contexts and evidence outputs expose 0 private titles, descriptions, attendee emails, meeting URLs, passcodes, attachment links, or agenda text.
 - **SC-005**: Recording-time calendar context validation covers high-confidence selected event, ambiguous current events, no-context, manually selected future event, recurring-instance, cancelled-event, duplicate-calendar, and stale-sync cases with deterministic confidence and fallback outcomes.

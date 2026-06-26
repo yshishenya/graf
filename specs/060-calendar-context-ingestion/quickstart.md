@@ -18,10 +18,15 @@ Validate that calendar integration ingests future calendar context safely and us
 ```sh
 cd apps/server
 PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_calendar_credentials.py \
   tests/unit/test_calendar_normalization.py \
   tests/unit/test_calendar_conference_links.py \
-  tests/unit/test_calendar_credentials.py \
-  tests/unit/test_calendar_disconnect_lifecycle.py
+  tests/unit/test_calendar_provider_fixtures.py \
+  tests/unit/test_calendar_recording_context.py \
+  tests/unit/test_calendar_participants.py \
+  tests/unit/test_cabinet_view_models.py \
+  tests/unit/test_redaction.py \
+  tests/unit/test_calendar_recipient_candidates.py
 ```
 
 Expected outcome:
@@ -30,7 +35,7 @@ Expected outcome:
 - Private/free-busy events do not fabricate title, attendees, organizer, or links.
 - Conference links are classified without logging full URLs/passcodes.
 - Credential envelope tests prove raw secrets are not returned or logged.
-- Disconnect purges credentials and unmatched/future cache while preserving matched meeting context under meeting retention/deletion policy.
+- Recording-time context selection, roster separation, redaction, and recipient-candidate boundaries stay deterministic and metadata-safe.
 
 ## 2. API Contract Checks
 
@@ -39,6 +44,7 @@ cd apps/server
 PYTHONPATH=src uv run --extra dev pytest -q \
   tests/contract/test_calendar_context_contract.py \
   tests/contract/test_calendar_no_secret_content_egress.py \
+  tests/contract/test_calendar_rls_contract.py \
   tests/contract/test_openapi_contract_drift.py
 ```
 
@@ -53,21 +59,29 @@ Expected outcome:
 ```sh
 docker compose -f infra/docker-compose.dev.yml up -d rec-postgres rec-minio rec-minio-init rec-migrate
 cd apps/server
-PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_calendar_persistence.py
+PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/integration/test_calendar_persistence.py \
+  tests/integration/test_calendar_disconnect_lifecycle.py \
+  tests/integration/test_calendar_deletion_lifecycle.py \
+  tests/integration/test_calendar_access_policy.py \
+  tests/integration/test_calendar_provider_failures.py \
+  tests/integration/test_meeting_share_links.py
 ```
 
 Expected outcome:
 
 - Calendar sources, selected calendars, event snapshots, participants, conference links, context links, reminder states, and audit events persist with workspace scoping.
 - Rolling 12-month future horizon excludes past events.
+- Disconnect purges credentials and unmatched/future cache while preserving matched meeting context under meeting retention/deletion policy.
 - Deleting a meeting retention-accounts linked calendar context.
 - Provider downtime leaves meeting review/upload available with `calendar_context_unavailable`.
+- Calendar attendees do not create meeting access or share grants.
 
 ## 4. Desktop Reminder Checks
 
 ```sh
 swift test --package-path apps/macos --disable-swift-testing --filter DesktopCalendarReminder
-swift test --package-path apps/macos --disable-swift-testing --filter 'CaptureControl|AppControlAccessibility'
+swift test --package-path apps/macos --disable-swift-testing --filter 'CaptureControl|AppControlAccessibility|DesktopUploadClient'
 ```
 
 Expected outcome:

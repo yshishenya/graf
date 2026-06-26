@@ -14,7 +14,7 @@ The implementation approach is server-owned and provider-neutral: add a calendar
 
 **Language/Version**: Python 3.13 backend; Swift Package macOS app.
 
-**Primary Dependencies**: Existing FastAPI, Pydantic v2, SQLAlchemy asyncio, Alembic, httpx, structlog, pytest, ruff; Swift Foundation/AppKit/UserNotifications for local prompts; add `cryptography` for server-side calendar credential envelope encryption.
+**Primary Dependencies**: Existing FastAPI, Pydantic v2, SQLAlchemy asyncio, Alembic, httpx, structlog, pytest, ruff; Swift Foundation/AppKit for local in-app prompts; add `cryptography` for server-side calendar credential envelope encryption.
 
 **Storage**: Existing Postgres/Alembic for calendar source, selected calendar, event snapshot, roster, context link, reminder state, and audit/lifecycle records. MinIO is not used for calendar content in 060.
 
@@ -28,7 +28,7 @@ The implementation approach is server-owned and provider-neutral: add a calendar
 
 **Project Type**: Web service plus macOS desktop app.
 
-**Performance Goals**: Calendar sync must not block upload, processing, playback, or review. A sync run is bounded to selected calendars, a rolling 12-month future horizon, provider pagination/rate limits, and safe timeout/failure states. Upcoming prompt lookup must be fast enough for desktop polling/local scheduling and must fail closed without starting recording.
+**Performance Goals**: Calendar sync must not block upload, processing, playback, or review. A sync run is bounded to selected calendars, a rolling 12-month future horizon, provider pagination/rate limits, and safe timeout/failure states. Upcoming prompt lookup uses stored future-event snapshots, honors request limits, and must fail closed without starting recording.
 
 **Constraints**: Read-only provider access; server owns credentials; desktop never stores provider app passwords/OAuth refresh tokens; logs/evidence never include provider secrets, private event text, attendee dumps, passcodes, signed links, or live credential paths; no retrospective matching of past recordings; no auto-record in 060; active capture visibility and one-action Stop remain mandatory for any later auto-record feature.
 
@@ -61,8 +61,8 @@ Focused validation during implementation:
 - Server unit tests for provider-neutral event normalization, iCalendar field extraction, conference-link detection, capability mapping, sensitive-field redaction, lifecycle/disconnect behavior, and credential-envelope boundaries.
 - Server contract tests for `/api/v1/calendar` OpenAPI additions and desktop upcoming-context responses.
 - Server integration tests for Postgres persistence, tenant scoping/RLS readiness where applicable, disconnect purge behavior, and deletion accounting.
-- Fixture tests for Yandex/Mail.ru-style CalDAV, generic CalDAV, private/free-busy-only events, recurrence exceptions, attendee-heavy events, duplicate event copies, Bitrix24 payloads, Google Meet conference data, Microsoft Teams onlineMeeting data, and Exchange EWS-style recurrence exceptions.
-- macOS focused tests for one-minute join prompt state, event-start record prompt state, no auto-record, visible Record/Stop authority, and metadata-safe reminder copy.
+- Fixture tests for Yandex/Mail.ru-style CalDAV, generic CalDAV, Nextcloud/SOGo-like CalDAV, private/free-busy-only events, recurrence exceptions, attendee-heavy events, duplicate event copies, Bitrix24 payloads, Google Meet conference data, Microsoft Teams onlineMeeting data, and Exchange EWS-style recurrence exceptions.
+- macOS focused tests for one-minute join prompt state, event-start record prompt state, no auto-record, visible Record/Stop authority, metadata-safe reminder copy, accessibility, localization, and brand-distance evidence.
 - Forbidden-content scans covering logs, diagnostics, committed docs/evidence, and API/cabinet surfaces.
 
 Closeout validation:
@@ -88,6 +88,7 @@ specs/060-calendar-context-ingestion/
 ├── data-model.md
 ├── quickstart.md
 ├── checklists/
+│   ├── calendar-integration.md
 │   └── requirements.md
 └── contracts/
     ├── calendar-context.openapi.yaml
@@ -124,18 +125,25 @@ apps/server/tests/
 ├── fixtures/
 │   └── calendar.py
 ├── integration/
-│   └── test_calendar_persistence.py
+│   ├── test_calendar_persistence.py
+│   ├── test_calendar_disconnect_lifecycle.py
+│   ├── test_calendar_deletion_lifecycle.py
+│   ├── test_calendar_access_policy.py
+│   └── test_calendar_provider_failures.py
 └── unit/
     ├── test_calendar_normalization.py
     ├── test_calendar_conference_links.py
-    ├── test_calendar_disconnect_lifecycle.py
-    └── test_calendar_credentials.py
+    ├── test_calendar_credentials.py
+    ├── test_calendar_participants.py
+    └── test_calendar_recipient_candidates.py
 
 apps/macos/
 ├── RecApp/Sources/Calendar/      # new lightweight desktop context/reminder code
 └── Shared/Tests/
     └── DesktopCalendarReminderTests.swift
 ```
+
+The tree shows the new calendar-owned surface. Existing integration points touched by tasks stay authoritative in `tasks.md`: ingest, cabinet/access, meeting lifecycle, desktop upload, prompt UI, app wiring, shared models, lockfile, changelog, and current product status.
 
 **Structure Decision**: Use the existing FastAPI/SQLAlchemy/Pydantic backend and Swift Package macOS app. Add one calendar domain package instead of scattering provider logic through ingest/cabinet. Keep desktop work to reminder/context display and existing Record/Stop handoff; provider credentials and sync stay server-side.
 
