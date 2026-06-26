@@ -3,11 +3,11 @@ import SwiftUI
 import TwoBrainRecShared
 
 public enum DesktopMeetingShellChrome {
-    public static let sidebarMinimumWidth: CGFloat = 152
-    public static let sidebarMaximumWidth: CGFloat = 208
+    public static let sidebarMinimumWidth: CGFloat = 176
+    public static let sidebarMaximumWidth: CGFloat = 224
     public static let sidebarWidth = sidebarMinimumWidth
-    public static let collapsedInspectorWidth: CGFloat = 56
-    public static let expandedInspectorWidth: CGFloat = 300
+    public static let collapsedInspectorWidth: CGFloat = 52
+    public static let expandedInspectorWidth: CGFloat = 288
     public static let shellBackgroundHex = "#191a1c"
     public static let shellSidebarHex = "#202224"
     public static let shellRailHex = shellSidebarHex
@@ -25,7 +25,7 @@ public enum DesktopMeetingShellChrome {
     public static let recordingStripHeight: CGFloat = 36
     public static let idleShowsNativeTopBar = false
     public static let fontStackDescription = "SF Pro Text / system"
-    public static let compactRailLabels = ["Микр.", "Сист.", "Шум", "Оч."]
+    public static let compactRailLabels = ["Запись", "Очередь"]
     public static let webEmbeddedBackgroundNSColor = NSColor(
         srgbRed: 0.098,
         green: 0.102,
@@ -34,6 +34,8 @@ public enum DesktopMeetingShellChrome {
     )
     public static let inspectorToggleHitSize: CGFloat = 44
     public static let inspectorToggleCornerRadius: CGFloat = 10
+    public static let inspectorToggleTopInset: CGFloat = 10
+    public static let inspectorToggleTrailingInset: CGFloat = 4
     public static let inspectorToggleCollapsedSymbol = "chevron.left.2"
     public static let inspectorToggleExpandedSymbol = "chevron.right.2"
     public static let inspectorToggleCollapsedLabel = "Показать панель управления"
@@ -888,78 +890,60 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var compactInspector: some View {
-        VStack(spacing: 11) {
-            InspectorDisclosureButton(isExpanded: false) {
-                inspectorExpanded = true
-            }
+        VStack(spacing: 12) {
+            Color.clear
+                .frame(
+                    width: DesktopMeetingShellChrome.inspectorToggleHitSize,
+                    height: DesktopMeetingShellChrome.inspectorToggleHitSize
+                )
 
-            VStack(spacing: 0) {
-                railIcon("list.bullet.rectangle", selected: false)
-                compactRailDivider
-                railIcon(captureStatusIcon, selected: true, color: DesktopMeetingShellChrome.shellAccentColor)
-                compactRailDivider
-                railIcon("video", selected: false)
-                Text("Off")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(height: 24)
-            }
-            .padding(.vertical, 5)
-            .frame(width: 34)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(DesktopMeetingShellChrome.shellSurfaceColor.opacity(0.62))
+            railIcon(
+                captureStatusIcon,
+                selected: session != nil,
+                color: captureStatusColor
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
-            )
+            .help(DesktopMeetingShellChrome.compactRailLabels[0])
 
-            VStack(spacing: 10) {
-                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[0], isOn: session != nil, color: DesktopMeetingShellChrome.shellAccentColor)
-                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[1], isOn: session != nil, color: DesktopMeetingShellChrome.shellAccentColor)
-                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[2], isOn: true, color: DesktopMeetingShellChrome.shellAccentColor)
-                compactToggle(title: DesktopMeetingShellChrome.compactRailLabels[3], isOn: pendingUploadCount > 0, color: .orange)
-            }
             if pendingUploadCount > 0 {
                 Text("\(pendingUploadCount)")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.orange)
-                    .help("Ожидают проверки или загрузки: \(pendingUploadCount)")
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(Color.orange.opacity(0.82))
+                    )
+                    .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): \(pendingUploadCount)")
             }
 
             Spacer()
 
-            VStack(spacing: 8) {
-                railIcon("mic", selected: false)
-                railIcon("speaker.wave.2", selected: false)
-                Button(action: onRefresh) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(DesktopMeetingShellChrome.shellSurfaceColor.opacity(0.62))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7)
-                                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .help("Обновить состояние")
+            Button(action: onRefresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(DesktopMeetingShellChrome.shellSurfaceColor.opacity(0.62))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                    )
             }
+            .buttonStyle(.plain)
+            .help("Обновить состояние")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .background(DesktopMeetingShellChrome.shellRailColor)
-    }
-
-    private var compactRailDivider: some View {
-        Rectangle()
-            .fill(DesktopMeetingShellChrome.shellStrokeColor)
-            .frame(height: 1)
-            .padding(.horizontal, 6)
+        .overlay(alignment: .topTrailing) {
+            InspectorDisclosureButton(isExpanded: false) {
+                inspectorExpanded = true
+            }
+            .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
+            .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
+        }
     }
 
     private func railIcon(_ icon: String, selected: Bool, color: Color = .secondary) -> some View {
@@ -977,26 +961,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             )
     }
 
-    private func compactToggle(title: String, isOn: Bool, color: Color) -> some View {
-        VStack(spacing: 5) {
-            Capsule()
-                .fill(isOn ? color.opacity(0.84) : Color.secondary.opacity(0.22))
-                .frame(width: 28, height: 14)
-                .overlay(alignment: isOn ? .trailing : .leading) {
-                    Circle()
-                        .fill(Color.white.opacity(0.92))
-                        .frame(width: 10, height: 10)
-                        .padding(.horizontal, 2)
-                }
-            Text(title)
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.62)
-                .frame(width: 44)
-        }
-    }
-
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center) {
@@ -1008,10 +972,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                InspectorDisclosureButton(isExpanded: true) {
-                    inspectorExpanded = false
-                }
             }
+            .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleHitSize)
 
             captureControls
                 .background(
@@ -1059,6 +1021,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
         .padding(14)
         .background(DesktopMeetingShellChrome.shellRailColor)
+        .overlay(alignment: .topTrailing) {
+            InspectorDisclosureButton(isExpanded: true) {
+                inspectorExpanded = false
+            }
+            .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
+            .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
+        }
     }
 
     private func statusChip(title: String, icon: String, color: Color) -> some View {

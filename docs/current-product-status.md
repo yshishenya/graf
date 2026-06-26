@@ -489,7 +489,9 @@ Remaining launch boundary after 052:
   latest fresh candidate has a blocked outcome set, but neither replaces a
   fresh candidate with reviewable transcript content.
 - Live owner-review UI proof stays degraded until authenticated production
-  detail and embedded review can be opened and checked end to end.
+  detail and embedded review can be opened and checked end to end; the
+  historical production blocker remains recorded as `missing auth context`
+  where the live route cannot prove owner context.
 - Signed/notarized installer evidence, Yandex Browser support, real
   speakerphone echo/noise suppression, compressed share audio, public links,
   waveform polish, transcript editing, and native Swift playback controls remain

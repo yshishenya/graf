@@ -56,9 +56,9 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedSurfaceHeight, 420)
         XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
-        XCTAssertEqual(DesktopMeetingShellChrome.sidebarMinimumWidth, 152)
+        XCTAssertEqual(DesktopMeetingShellChrome.sidebarMinimumWidth, 176)
         XCTAssertEqual(DesktopMeetingShellChrome.sidebarWidth, DesktopMeetingShellChrome.sidebarMinimumWidth)
-        XCTAssertEqual(DesktopMeetingShellChrome.sidebarMaximumWidth, 208)
+        XCTAssertEqual(DesktopMeetingShellChrome.sidebarMaximumWidth, 224)
         XCTAssertEqual(
             DesktopMeetingShellChrome.sidebarWidth(pendingUploadCount: 11, availableWindowWidth: 720),
             DesktopMeetingShellChrome.sidebarMinimumWidth
@@ -71,8 +71,8 @@ final class AppControlAccessibilityTests: XCTestCase {
             DesktopMeetingShellChrome.sidebarWidth(pendingUploadCount: 11, availableWindowWidth: 1_400),
             DesktopMeetingShellChrome.sidebarMaximumWidth
         )
-        XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 56)
-        XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 300)
+        XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
+        XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 288)
         XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#191a1c")
         XCTAssertEqual(DesktopMeetingShellChrome.shellSidebarHex, "#202224")
         XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, DesktopMeetingShellChrome.shellSidebarHex)
@@ -81,13 +81,15 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#8c73ff")
         XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
         XCTAssertEqual(DesktopMeetingShellChrome.fontStackDescription, "SF Pro Text / system")
-        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Микр.", "Сист.", "Шум", "Оч."])
-        XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 820)
+        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Очередь"])
+        XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 1120)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 36)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 44)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCornerRadius, 10)
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleTopInset, 10)
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleTrailingInset, 4)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCollapsedSymbol, "chevron.left.2")
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleExpandedSymbol, "chevron.right.2")
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCollapsedLabel, "Показать панель управления")

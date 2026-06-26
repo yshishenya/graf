@@ -79,7 +79,8 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert 'font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text"' in response.text
     assert ".new-button {" in response.text
     assert "font-weight: 700;" in response.text
-    assert "max-width: min(820px, calc(100vw - 72px))" in response.text
+    assert "max-width: min(1120px, calc(100vw - 48px))" in response.text
+    assert "min-height: 46px;" in response.text
     assert ".desktop-embedded .empty-state { min-height: 210px; }" in response.text
     assert "Upload file" not in response.text
     assert "Record live" not in response.text
