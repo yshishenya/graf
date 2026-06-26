@@ -700,19 +700,27 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   gap: 10px;
   align-items: center;
   margin: 18px 0 8px;
+  min-height: 28px;
 }
 .meeting-toolbar .section-title { margin: 0; }
 .selection-toolbar {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 10px;
   align-items: center;
-  margin: 18px 0 8px;
 }
 .selection-toolbar[hidden] { display: none; }
-.selection-count { font-weight: 800; color: #f0edff; }
-.selection-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.selection-feedback { color: var(--muted); font-size: 12px; }
+.selection-toggle {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #17191c;
+}
+.selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; }
+.selection-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
+.selection-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
 .danger-button { color: #ffd6d6; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
 .toolbar-icons { display: flex; align-items: center; gap: 8px; }
 .icon-control {
@@ -722,8 +730,47 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border: 0;
   background: transparent;
   color: #b5bac3;
+  display: inline-grid;
+  place-items: center;
 }
 .icon-control:hover { background: #2d3034; }
+.icon-control:disabled, .icon-control.is-disabled {
+  color: #8f949d;
+  cursor: not-allowed;
+}
+.icon-control:disabled:hover { background: transparent; }
+.ui-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tooltip-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.tooltip-wrap:hover::after, .tooltip-wrap:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  z-index: 20;
+  width: max-content;
+  max-width: 220px;
+  transform: translateX(-50%);
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #24272a;
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(0,0,0,.32);
+  font-size: 12px;
+  white-space: normal;
+}
 .new-button {
   min-height: 28px;
   min-width: 54px;
@@ -784,6 +831,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   background: transparent;
   color: #ffc7c7;
   opacity: 0;
+  display: inline-grid;
+  place-items: center;
 }
 .meeting-row:hover .row-delete, .meeting-row:focus-within .row-delete {
   opacity: 1;
@@ -891,7 +940,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .meeting-row.cabinet-row { grid-template-columns: 20px minmax(0, 1fr) 28px auto; min-height: 48px; }
   .meeting-row.cabinet-row .meeting-date { grid-column: 3; }
   .meeting-row.cabinet-row .row-delete { grid-column: 4; opacity: 1; }
-  .selection-toolbar { align-items: stretch; flex-direction: column; }
+  .meeting-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .selection-actions { justify-content: flex-start; }
   .meeting-row > .state-list, .meeting-row > .row-actions { grid-column: 2; justify-self: start; }
   .segment { display: block; }
@@ -1795,20 +1844,23 @@ def render_meeting_list_page(response: MeetingListResponse, *, embedded: bool = 
             </div>
           </section>
           <div class="meeting-toolbar">
-            <div class="section-title">Записи встреч</div>
+            <div class="section-title" data-list-title>Записи встреч</div>
+            <div class="selection-toolbar" data-selection-toolbar hidden data-visible-total="{len(response.items)}">
+              <button class="selection-toggle" type="button" data-clear-selection aria-label="Снять выбор">{_ui_icon("minus")}</button>
+              <div class="selection-count" data-selection-count>Выбрано 0 / {len(response.items)}</div>
+              <div class="selection-actions">
+                <span class="tooltip-wrap" tabindex="0" data-tooltip="Скачивание появится позже" aria-label="Скачивание появится позже">
+                  <button class="icon-control is-disabled" type="button" disabled aria-disabled="true" data-download-disabled aria-label="Скачать выбранные записи">{_ui_icon("download")}</button>
+                </span>
+                <span class="selection-divider" aria-hidden="true"></span>
+                <button class="icon-control danger-button" type="button" aria-label="Удалить выбранные записи" data-selection-delete>{_ui_icon("trash")}</button>
+              </div>
+            </div>
             <div class="toolbar-icons">
               <button class="icon-control" type="button" aria-label="Сохранить" aria-disabled="true">□</button>
               <button class="icon-control" type="button" aria-label="Фильтры" aria-disabled="true">≡</button>
               <button class="icon-control" type="button" aria-label="Сортировка" aria-disabled="true">↕</button>
               <button class="new-button" type="button" aria-disabled="true">Новая</button>
-            </div>
-          </div>
-          <div class="selection-toolbar" data-selection-toolbar hidden>
-            <div class="selection-count" data-selection-count>Выбрано 0 записей</div>
-            <div class="selection-actions">
-              <button class="icon-control is-disabled" type="button" aria-disabled="true" data-download-disabled title="Скачивание появится позже">⇩</button>
-              <button class="icon-control danger-button" type="button" aria-label="Удалить выбранные записи" data-selection-delete>⌫</button>
-              <span class="selection-feedback" data-download-feedback hidden>Скачивание появится позже.</span>
             </div>
           </div>
           <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list>
@@ -1829,10 +1881,10 @@ def _meeting_list_script() -> str:
       (() => {
         const list = document.querySelector("[data-meeting-list]");
         const toolbar = document.querySelector("[data-selection-toolbar]");
+        const listTitle = document.querySelector("[data-list-title]");
         const countLabel = document.querySelector("[data-selection-count]");
         const deleteSelected = document.querySelector("[data-selection-delete]");
-        const downloadDisabled = document.querySelector("[data-download-disabled]");
-        const downloadFeedback = document.querySelector("[data-download-feedback]");
+        const clearSelection = document.querySelector("[data-clear-selection]");
         const dialog = document.querySelector("[data-delete-dialog]");
         if (!list || !toolbar || !countLabel || !deleteSelected || !dialog) return;
 
@@ -1854,13 +1906,14 @@ def _meeting_list_script() -> str:
           return many;
         };
 
-        const selectedLabel = (value) => `Выбрано ${value} ${plural(value, "запись", "записи", "записей")}`;
         const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
+        const totalRows = () => list.querySelectorAll("[data-meeting-row]").length;
 
         const updateSelection = () => {
           const rows = selectedRows();
-          countLabel.textContent = selectedLabel(rows.length);
+          countLabel.textContent = `Выбрано ${rows.length} / ${totalRows()}`;
           toolbar.hidden = rows.length === 0;
+          if (listTitle) listTitle.hidden = rows.length > 0;
           list.querySelectorAll("[data-meeting-row]").forEach((row) => {
             row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);
           });
@@ -1914,8 +1967,11 @@ def _meeting_list_script() -> str:
 
         deleteSelected.addEventListener("click", () => openDeleteDialog(selectedRows()));
         cancel?.addEventListener("click", closeDeleteDialog);
-        downloadDisabled?.addEventListener("click", () => {
-          if (downloadFeedback) downloadFeedback.hidden = false;
+        clearSelection?.addEventListener("click", () => {
+          selectedRows().forEach((row) => {
+            row.querySelector("[data-meeting-select]").checked = false;
+          });
+          updateSelection();
         });
 
         confirm?.addEventListener("click", async () => {
@@ -2831,6 +2887,15 @@ def _notes_title(title: str) -> str:
     }.get(title, _ui_text(title))
 
 
+def _ui_icon(name: str) -> str:
+    paths = {
+        "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path>',
+        "minus": '<path d="M5 12h14"></path>',
+        "trash": '<path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
+    }
+    return f'<svg class="ui-icon" data-icon="{name}" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>'
+
+
 def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool = False) -> str:
     href = f"{_base_path(embedded)}/{item.meeting_id}"
     selected_class = " is-selected" if selected else ""
@@ -2844,7 +2909,7 @@ def _render_meeting_row(item: MeetingListItem, *, embedded: bool, selected: bool
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta"><span>{escape(_ui_text(item.status_label))}</span></span>
         </a>
-        <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить запись {title}" title="Удалить">⌫</button>
+        <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
         <span class="meeting-date">{_date_label(item)}</span>
       </article>
     """
