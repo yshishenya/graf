@@ -47,6 +47,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
+    MediaRevisionSourceKind,
     MeetingStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
@@ -228,6 +229,7 @@ def slot_state(label: str) -> SlotState:
 def build_list_item(
     meeting: Meeting,
     *,
+    media_revision: MediaRevision | None = None,
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
     access: MeetingAccessState | None = None,
@@ -245,7 +247,7 @@ def build_list_item(
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
         duration_seconds=max(0, meeting.duration_seconds),
-        source="desktop_recording",
+        source=_meeting_source(media_revision),
         status=status,
         status_label=STATUS_LABELS[status],
         status_reason=workflow.last_reason_code if workflow is not None and status in {"blocked", "failed"} else None,
@@ -272,6 +274,12 @@ def primary_action_for_status(status: MeetingReviewStatus) -> str:
     if status == "failed":
         return "retry_future"
     return "unavailable"
+
+
+def _meeting_source(media_revision: MediaRevision | None) -> str:
+    if media_revision is not None and media_revision.source_kind == MediaRevisionSourceKind.VIDEO_CAPTURE.value:
+        return "video_recording"
+    return "desktop_recording"
 
 
 def processing_state(
@@ -788,6 +796,7 @@ def build_review_response(
     artifact_states = artifacts or []
     item = build_list_item(
         meeting,
+        media_revision=media_revision,
         result=result,
         workflow=workflow,
         access=access_state,
