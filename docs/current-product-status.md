@@ -314,8 +314,9 @@ metadata-only evidence остаются подробной историей ре
   production RLS evidence. It deliberately does not implement calendar
   integration, window/browser title collection, rename UI/API, download/export,
   transcript-derived titles, or new app/window observers.
-- Feature `060-calendar-context-ingestion` is merged into `origin/master`
-  through PR `#2286` as the first calendar context layer. It adds server-owned
+- Feature `060-calendar-context-ingestion` is implemented, merged through PR
+  `#2286`, released as `v2026.06.27.2`, and deployed to production as the first
+  calendar context layer. It adds server-owned
   read-only calendar source connection state, credential sealing, selected
   calendar sync state, normalized future event snapshots, participants,
   conference-link metadata, recording-time calendar context links, desktop
@@ -339,8 +340,14 @@ metadata-only evidence остаются подробной историей ре
   recording-metadata checks passed `155 tests`, full macOS suite passed
   `666 tests, 0 failures`, the forbidden-content scan found no matches, and
   full local CI passed `782 passed, 4 skipped, 103 warnings` with
-  `ci_local_result=pass`. PR review is complete; release, deploy, production
-  smoke, and desktop installer/app build are still pending.
+  `ci_local_result=pass`. Release closeout on 2026-06-27: GitHub Release
+  `v2026.06.27.2` published, production deploy passed with deployed SHA
+  `02ee0a87f5f48036e514481495e7d26d02333dc2`, backup reference
+  `/opt/projects/2brain-rec/backups/20260627T013238Z`, production smoke
+  `smoke_result=pass`, readiness `infra_smoke_ready`, and local macOS installer
+  build passed for app/package version `2026.06.27.2`. The local installer is
+  not Developer ID signed or notarized; external distribution still needs a
+  separate signing/notarization gate.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed

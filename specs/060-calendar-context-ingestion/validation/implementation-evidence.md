@@ -264,3 +264,23 @@
   - `gh issue list --search "[060]" --state open --json number,title,url --limit 200` returned only T136 (`#2233`) before this final closeout entry and task checkbox update.
   - `tasks.md` status after this closeout entry: 136 of 136 tasks complete.
   - Release-note state: 060 remains in `[Unreleased]` with behavior, security, validation, compatibility, and known limitation notes. A production release, deploy, production smoke, and desktop installer/app build remain a separate release/deploy layer.
+
+## Release, Deploy, And Desktop Build Evidence
+
+- Release prep PR: #2288, merged into `master` on 2026-06-27 with merge commit `02ee0a87f5f48036e514481495e7d26d02333dc2`.
+- Release tag and GitHub Release: `v2026.06.27.2`, `https://github.com/yshishenya/crisp/releases/tag/v2026.06.27.2`.
+- CD dry-run:
+  `infra/scripts/cd-remote.sh --dry-run`
+  - Result: `deploy_result=dry_run`, branch `master`, local CI required, planned steps included clean worktree, SHA pin, backup, restore rehearsal, compose/secret scans, deploy, production smoke, and public health.
+- Production deploy:
+  `infra/scripts/cd-remote.sh --execute`
+  - Local CI inside the release clone: pass, `ci_local_result=pass`; server tests `784 passed, 4 skipped, 103 warnings`; lint, compile, compose config, and deployment evidence scan passed.
+  - Remote backup: `backup_result=pass`, backup reference `/opt/projects/2brain-rec/backups/20260627T013238Z`.
+  - Restore rehearsal: `restore_rehearsal_result=pass`.
+  - Migration verification: `migration_verification_result=pass`; current head `0010_calendar_context_ingestion`.
+  - Production smoke: `smoke_result=pass`, run id `smoke-20260627-013258`, readiness `infra_smoke_ready`.
+  - Deploy result: `deploy_result=pass`, branch `master`, deployed SHA `02ee0a87f5f48036e514481495e7d26d02333dc2`.
+- Desktop app/installer build:
+  `TWO_BRAIN_REC_VERSION=2026.06.27.2 TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh`
+  - Result: pass. Built `TwoBrainRecApp`, app bundle version `2026.06.27.2`, and local package `apps/macos/.build/installer/2brain-rec-local.pkg`.
+  - Packaging boundary: local package is unsigned and app bundle is ad-hoc signed for local validation only. Developer ID signing and notarization remain a separate distribution gate.

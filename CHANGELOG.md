@@ -24,7 +24,10 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Зафиксирован post-deploy closeout для `060-calendar-context-ingestion`:
+  release `v2026.06.27.2`, GitHub Release, production deploy
+  `deploy_result=pass`, production smoke `smoke_result=pass`, readiness
+  `infra_smoke_ready`, и local macOS installer build версии `2026.06.27.2`.
 
 ## [2026.06.27.3] - 2026-06-27
 
@@ -60,7 +63,6 @@
   чтобы production upgrade шел одной линейной Alembic-цепочкой.
 
 ## [2026.06.27.2] - 2026-06-27
-
 
 ### Добавлено
 - Feature `060-calendar-context-ingestion`: добавлен первый слой календарного
