@@ -85,6 +85,26 @@ def test_meeting_start_and_end_times_are_persisted(client) -> None:
     assert ended_at.isoformat().startswith("2026-06-04T10:01:00")
 
 
+def test_meeting_response_reports_title_source_for_user_and_generic_titles(client) -> None:
+    titled = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "persistent-user-title", "duration_seconds": 60, "title": "Manual title"},
+    )
+    generic = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "persistent-generic-title", "duration_seconds": 60},
+    )
+
+    assert titled.status_code == 200
+    assert titled.json()["title"] == "Manual title"
+    assert titled.json()["title_source"] == "user"
+    assert generic.status_code == 200
+    assert generic.json()["title"] is None
+    assert generic.json()["title_source"] == "generic"
+
+
 def test_upload_session_persists_expected_roles_separately_from_expected_sizes(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",

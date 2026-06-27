@@ -120,6 +120,37 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertNil(client.sanitizedHeaderPreview["Authorization"])
     }
 
+    func testDesktopCalendarUpcomingUsesReadOnlyCalendarEndpoint() {
+        XCTAssertEqual(
+            DesktopUploadClient.desktopCalendarUpcomingPath,
+            "/api/v1/desktop/calendar/upcoming"
+        )
+    }
+
+    func testQueueItemPreservesOptionalCalendarContextEventId() throws {
+        var item = makeQueueItem()
+        item.calendarContextEventId = "00000000-0000-0000-0000-000000000060"
+
+        let encoded = try JSONEncoder().encode(item)
+        let decoded = try JSONDecoder().decode(DesktopUploadQueueItem.self, from: encoded)
+
+        XCTAssertEqual(decoded.calendarContextEventId, "00000000-0000-0000-0000-000000000060")
+    }
+
+    func testCalendarContextLinkRequestDoesNotCarryProviderCredentials() throws {
+        let request = DesktopCalendarContextLinkRequest(
+            eventId: "00000000-0000-0000-0000-000000000060",
+            contextReason: "manual_selection"
+        )
+        let json = String(data: try JSONEncoder().encode(request), encoding: .utf8) ?? ""
+
+        XCTAssertTrue(json.contains("\"event_id\":\"00000000-0000-0000-0000-000000000060\""))
+        XCTAssertTrue(json.contains("\"context_reason\":\"manual_selection\""))
+        XCTAssertFalse(json.contains("credential"))
+        XCTAssertFalse(json.contains("provider"))
+        XCTAssertFalse(json.contains("token"))
+    }
+
     func testPartNumberUsesZeroBasedServerConvention() {
         XCTAssertEqual(
             DesktopUploadClient.partNumber(forByteOffset: 0, partSizeBytes: 128),

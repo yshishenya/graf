@@ -63,6 +63,128 @@ class Problem(BaseModel):
     custody: ProblemCustodyExtension | None = None
 
 
+class CalendarProviderPreset(BaseModel):
+    provider_family: str
+    label: str
+    adapter_family: Literal["caldav", "rich_api", "ews"]
+    supported: bool
+    capability_state: dict[str, str] = Field(default_factory=dict)
+
+
+class CalendarProviderListResponse(BaseModel):
+    providers: list[CalendarProviderPreset] = Field(default_factory=list)
+
+
+class ConnectCalendarSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_family: str
+    auth_mode: Literal["oauth", "app_password", "manual_url"]
+    display_label: str | None = Field(default=None, max_length=160)
+    caldav_url: str | None = Field(default=None, max_length=1000)
+    username: str | None = Field(default=None, max_length=240)
+    credential_input: str | None = None
+    selected_provider_calendar_ids: list[str] = Field(default_factory=list)
+
+
+class SelectCalendarsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selected_provider_calendar_ids: list[str] = Field(min_length=1)
+
+
+class CalendarSourceSummary(BaseModel):
+    source_id: UUID | None = None
+    provider_family: str | None = None
+    provider_label: str | None = None
+    connection_state: str | None = None
+    credential_state: str | None = None
+    sync_state: str | None = None
+    selected_calendar_count: int = 0
+    sync_horizon_end: datetime | None = None
+    last_successful_sync_at: datetime | None = None
+    safe_error_code: str | None = None
+
+
+class ExternalCalendarSummary(BaseModel):
+    calendar_id: str
+    display_label: str
+    selected: bool
+    color: str | None = None
+    visibility: str = "available"
+
+
+class CalendarSourceListResponse(BaseModel):
+    sources: list[CalendarSourceSummary] = Field(default_factory=list)
+
+
+class CalendarSourceResponse(BaseModel):
+    source: CalendarSourceSummary
+    calendars: list[ExternalCalendarSummary] = Field(default_factory=list)
+
+
+class CalendarSyncResponse(BaseModel):
+    source_id: UUID
+    sync_state: str
+    accepted: bool
+    event_count: int = 0
+    safe_error_code: str | None = None
+
+
+class CalendarDisconnectResponse(BaseModel):
+    source_id: UUID
+    connection_state: Literal["disconnected"]
+    credentials_purged: bool
+    unmatched_future_cache_purged: bool
+    matched_context_retention: Literal["meeting_retention_policy"] = "meeting_retention_policy"
+
+
+class CalendarEventSummary(BaseModel):
+    event_id: UUID
+    provider_family: str
+    starts_at: datetime
+    ends_at: datetime
+    title: str | None = None
+    title_state: Literal["available", "private_redacted", "free_busy_only", "policy_hidden"]
+    meeting_link_present: bool = False
+    attendee_count: int = 0
+    roster_state: str = "not_available"
+    recipient_candidate_count: int = 0
+    privacy_class: str = "unknown"
+
+
+class UpcomingCalendarEventsResponse(BaseModel):
+    events: list[CalendarEventSummary] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class DesktopCalendarPromptEvent(CalendarEventSummary):
+    join_prompt_due_at: datetime | None = None
+    record_prompt_due_at: datetime | None = None
+    join_prompt_state: str
+    record_prompt_state: str
+    open_meeting_url: str | None = None
+
+
+class DesktopCalendarPromptResponse(BaseModel):
+    events: list[DesktopCalendarPromptEvent] = Field(default_factory=list)
+
+
+class PutMeetingCalendarContextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    context_reason: Literal["manual_selection", "current_event_prompt", "event_start_prompt"]
+
+
+class MeetingCalendarContextResponse(BaseModel):
+    meeting_id: UUID
+    event_id: UUID | None = None
+    context_state: Literal["linked", "unlinked", "no_context"]
+    context_confidence: str | None = None
+    title_source: str | None = None
+
+
 class TrackDescriptor(BaseModel):
     track_role: TrackRole
     codec: str
@@ -101,6 +223,8 @@ class MeetingResponse(BaseModel):
     workspace_id: UUID
     local_recording_id: str
     local_media_revision_id: str | None = None
+    title: str | None = None
+    title_source: str = "generic"
     media_revision: MediaRevisionSummary | None = None
     status: MeetingStatus
     processing_status: ProcessingStatus
@@ -734,6 +858,23 @@ class SpeakerReviewState(BaseModel):
     speakers: list[SpeakerLane] = Field(default_factory=list)
 
 
+class CalendarRosterParticipantView(BaseModel):
+    participant_kind: str
+    response_status: str
+    display_name: str | None = None
+    email_present: bool = False
+    workspace_relation: str = "unknown"
+    recipient_candidate_class: str = "unknown"
+
+
+class CalendarRosterReviewState(BaseModel):
+    available: bool = False
+    roster_state: str = "not_available"
+    participant_count: int = 0
+    source: Literal["calendar", "none"] = "none"
+    participants: list[CalendarRosterParticipantView] = Field(default_factory=list)
+
+
 class NotesReviewState(BaseModel):
     available: bool
     sections: list[dict] = Field(default_factory=list)
@@ -764,6 +905,7 @@ class MeetingReviewResponse(BaseModel):
     processing: ProcessingReviewState
     transcript: TranscriptReviewState
     speakers: SpeakerReviewState
+    calendar_roster: CalendarRosterReviewState | None = None
     notes: NotesReviewState
     notes_action_truth: NotesActionTruthState = Field(default_factory=default_notes_action_truth)
     playback: PlaybackReviewState

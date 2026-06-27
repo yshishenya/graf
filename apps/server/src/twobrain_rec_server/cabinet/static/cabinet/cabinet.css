@@ -69,6 +69,11 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); }
 .app-shell.desktop-embedded { grid-template-columns: 184px minmax(0, 1fr); }
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow: hidden;
   background: var(--panel);
   border-right: 1px solid var(--line);
   padding: 12px 10px;

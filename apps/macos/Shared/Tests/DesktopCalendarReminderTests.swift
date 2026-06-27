@@ -1,0 +1,189 @@
+import Foundation
+import TwoBrainRecAppCore
+import TwoBrainRecShared
+
+#if canImport(XCTest)
+import XCTest
+
+@MainActor
+final class DesktopCalendarReminderTests: XCTestCase {
+    func testJoinPromptIsDueOneMinuteBeforeStart() throws {
+        let event = makeEvent(
+            startsAt: date(120),
+            endsAt: date(300),
+            title: "Product sync",
+            titleState: .available,
+            meetingLinkPresent: true,
+            joinPromptDueAt: date(60),
+            openMeetingURL: try XCTUnwrap(URL(string: "https://meet.example.test/room"))
+        )
+
+        XCTAssertNil(DesktopCalendarReminderService.activePrompt(from: [event], now: date(59), isRecordingActive: false))
+
+        let prompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: [event], now: date(60), isRecordingActive: false)
+        )
+        XCTAssertEqual(prompt.kind, .join)
+        XCTAssertEqual(prompt.eventId, event.eventId)
+        XCTAssertEqual(prompt.title, "Product sync")
+        XCTAssertEqual(prompt.openMeetingURL?.absoluteString, "https://meet.example.test/room")
+    }
+
+    func testRecordPromptAtEventStartDoesNotAutoRecord() throws {
+        let event = makeEvent(startsAt: date(120), endsAt: date(300), recordPromptDueAt: date(120))
+        var recordStarts = 0
+        var dismissedPromptID: String?
+
+        let prompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: [event], now: date(120), isRecordingActive: false)
+        )
+
+        XCTAssertEqual(prompt.kind, .record)
+        XCTAssertEqual(recordStarts, 0)
+
+        let actions = DesktopCalendarPromptActions(
+            openURL: { _ in XCTFail("Record prompt must not open a meeting URL") },
+            startRecording: { recordStarts += 1 },
+            dismiss: { dismissedPromptID = $0.id }
+        )
+        actions.performPrimaryAction(for: prompt)
+
+        XCTAssertEqual(recordStarts, 1)
+        XCTAssertEqual(dismissedPromptID, prompt.id)
+    }
+
+    func testActiveRecordingSuppressesRecordPrompt() {
+        let event = makeEvent(startsAt: date(120), endsAt: date(300), recordPromptDueAt: date(120))
+
+        XCTAssertNil(
+            DesktopCalendarReminderService.activePrompt(from: [event], now: date(121), isRecordingActive: true)
+        )
+    }
+
+    func testPrivateAndUnsafeTitlesUseGenericCopy() throws {
+        let privateEvent = makeEvent(
+            startsAt: date(120),
+            endsAt: date(300),
+            title: "Board plan",
+            titleState: .privateRedacted,
+            recordPromptDueAt: date(120)
+        )
+        let unsafeEvent = makeEvent(
+            eventId: "unsafe",
+            startsAt: date(500),
+            endsAt: date(700),
+            title: "alice@example.test passcode 123",
+            titleState: .available,
+            recordPromptDueAt: date(500)
+        )
+
+        let privatePrompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: [privateEvent], now: date(121), isRecordingActive: false)
+        )
+        let unsafePrompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: [unsafeEvent], now: date(501), isRecordingActive: false)
+        )
+
+        XCTAssertEqual(privatePrompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
+        XCTAssertEqual(unsafePrompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
+        XCTAssertFalse(unsafePrompt.accessibilityLabel.contains("alice@example.test"))
+        XCTAssertFalse(unsafePrompt.accessibilityLabel.localizedCaseInsensitiveContains("passcode"))
+    }
+
+    func testOverlappingCurrentEventsFallBackToGenericRecordPrompt() throws {
+        let events = [
+            makeEvent(eventId: "first", startsAt: date(120), endsAt: date(300), title: "First", recordPromptDueAt: date(120)),
+            makeEvent(eventId: "second", startsAt: date(150), endsAt: date(330), title: "Second", recordPromptDueAt: date(150))
+        ]
+
+        let prompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: events, now: date(160), isRecordingActive: false)
+        )
+
+        XCTAssertEqual(prompt.kind, .record)
+        XCTAssertNil(prompt.eventId)
+        XCTAssertEqual(prompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
+        XCTAssertEqual(prompt.message, SystemAudioStatusLabels.calendarOverlapPromptMessage)
+    }
+
+    func testDismissedPromptDoesNotReturn() throws {
+        var service = DesktopCalendarReminderService()
+        let event = makeEvent(startsAt: date(120), endsAt: date(300), recordPromptDueAt: date(120))
+        let prompt = try XCTUnwrap(service.activePrompt(from: [event], now: date(120), isRecordingActive: false))
+
+        service.dismiss(prompt)
+
+        XCTAssertNil(service.activePrompt(from: [event], now: date(121), isRecordingActive: false))
+    }
+
+    func testDesktopUpcomingResponseDecodesEndpointShape() throws {
+        let json = """
+        {
+          "events": [{
+            "event_id": "00000000-0000-0000-0000-000000000060",
+            "provider_family": "caldav_yandex",
+            "starts_at": "2026-06-27T10:00:00Z",
+            "ends_at": "2026-06-27T11:00:00Z",
+            "title": null,
+            "title_state": "free_busy_only",
+            "meeting_link_present": true,
+            "attendee_count": 3,
+            "privacy_class": "private",
+            "join_prompt_due_at": "2026-06-27T09:59:00Z",
+            "record_prompt_due_at": "2026-06-27T10:00:00Z",
+            "join_prompt_state": "not_due",
+            "record_prompt_state": "not_due",
+            "open_meeting_url": "https://meet.example.test/authorized"
+          }]
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let response = try decoder.decode(DesktopCalendarPromptResponse.self, from: Data(json.utf8))
+
+        XCTAssertEqual(response.events.count, 1)
+        XCTAssertEqual(response.events[0].titleState, .freeBusyOnly)
+        XCTAssertEqual(response.events[0].openMeetingURL?.host, "meet.example.test")
+    }
+
+    func testPromptAccessibilityCopyNamesManualAction() throws {
+        let event = makeEvent(startsAt: date(120), endsAt: date(300), recordPromptDueAt: date(120))
+        let prompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: [event], now: date(120), isRecordingActive: false)
+        )
+
+        XCTAssertTrue(prompt.accessibilityLabel.contains(SystemAudioStatusLabels.calendarPromptRecordActionTitle))
+        XCTAssertTrue(prompt.accessibilityLabel.contains("Запись не начинается автоматически"))
+        XCTAssertEqual(SystemAudioAccessibilityIdentifier.calendarPrompt, "systemAudio.calendar.prompt")
+    }
+
+    private func makeEvent(
+        eventId: String = "event",
+        startsAt: Date,
+        endsAt: Date,
+        title: String? = "Calendar meeting",
+        titleState: CalendarEventTitleState = .available,
+        meetingLinkPresent: Bool = false,
+        joinPromptDueAt: Date? = nil,
+        recordPromptDueAt: Date? = nil,
+        openMeetingURL: URL? = nil
+    ) -> DesktopCalendarPromptEvent {
+        DesktopCalendarPromptEvent(
+            eventId: eventId,
+            startsAt: startsAt,
+            endsAt: endsAt,
+            title: title,
+            titleState: titleState,
+            meetingLinkPresent: meetingLinkPresent,
+            joinPromptDueAt: joinPromptDueAt,
+            recordPromptDueAt: recordPromptDueAt,
+            openMeetingURL: openMeetingURL
+        )
+    }
+
+    private func date(_ seconds: TimeInterval) -> Date {
+        Date(timeIntervalSince1970: seconds)
+    }
+}
+#endif

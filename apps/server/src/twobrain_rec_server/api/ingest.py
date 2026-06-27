@@ -103,6 +103,8 @@ def meeting_response(meeting: object) -> MeetingResponse:
         workspace_id=meeting.workspace_id,
         local_recording_id=meeting.local_recording_id,
         local_media_revision_id=meeting.local_media_revision_id,
+        title=meeting.title,
+        title_source=getattr(meeting, "title_source", None) or ("user" if meeting.title else "generic"),
         media_revision=media_revision,
         status=meeting.status,
         processing_status=meeting.processing_status,

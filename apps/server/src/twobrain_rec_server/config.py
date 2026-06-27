@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     minio_access_key_file: Path | None = None
     minio_secret_key_file: Path | None = None
     smoke_credential_file: Path | None = None
+    calendar_credential_key_file: Path | None = None
 
     smoke_identity_class: str | None = None
     smoke_organization_id: UUID | None = None
@@ -114,7 +115,7 @@ class Settings(BaseSettings):
         "x-content-sha256",
     )
 
-    @field_validator("web_login_workspace_id", "postal_host_header", mode="before")
+    @field_validator("web_login_workspace_id", "postal_host_header", "calendar_credential_key_file", mode="before")
     @classmethod
     def empty_optional_string_is_unset(cls, value: object) -> object:
         if isinstance(value, str) and value.strip() == "":
@@ -131,6 +132,7 @@ class Settings(BaseSettings):
             "minio_secret_key_file": self.minio_secret_key_file,
             "smoke_credential_file": self.smoke_credential_file,
             "mediascribe_api_key_file": self.mediascribe_api_key_file,
+            "calendar_credential_key_file": self.calendar_credential_key_file,
         }
         for field_name, path in required_secret_files.items():
             if path is None:
@@ -149,6 +151,11 @@ class Settings(BaseSettings):
             and self.mediascribe_api_key_file.read_text(encoding="utf-8").strip() == ""
         ):
             raise ValueError("production MediaScribe API key file must be non-empty")
+        if (
+            self.calendar_credential_key_file is not None
+            and self.calendar_credential_key_file.read_text(encoding="utf-8").strip() == ""
+        ):
+            raise ValueError("production calendar credential key file must be non-empty")
         if self.email_login_delivery_enabled:
             if self.web_login_workspace_id is None:
                 raise ValueError("production email login delivery requires web_login_workspace_id")

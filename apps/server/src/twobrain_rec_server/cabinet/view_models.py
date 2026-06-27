@@ -10,6 +10,8 @@ from typing import cast
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
+    CalendarRosterParticipantView,
+    CalendarRosterReviewState,
     GovernanceActionState,
     GovernanceActionSummary,
     MeetingAccessState,
@@ -38,6 +40,7 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.db.models import (
+    CalendarParticipant,
     DiarizationSegment,
     MediaRevision,
     Meeting,
@@ -115,12 +118,13 @@ class CabinetNavigationModel:
     workspace_subtitle: str = "Бесплатный план"
 
 
-def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6) -> CabinetNavigationModel:
+def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, embedded: bool = False) -> CabinetNavigationModel:
+    meetings_href = "/desktop/meetings" if embedded else "/meetings"
     return CabinetNavigationModel(
         active=active,
         items=(
             CabinetNavigationItem("search", "Поиск", "#", "filter", enabled=False),
-            CabinetNavigationItem("meetings", "Мои встречи", "/meetings", "audio"),
+            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "audio"),
             CabinetNavigationItem("shared", "Общие", "#", "bookmark", enabled=False),
             CabinetNavigationItem("actions", "Действия", "#", "check", enabled=False, count=pending_actions),
             CabinetNavigationItem("activity", "Активность", "#", "sort", enabled=False),
@@ -580,6 +584,27 @@ def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> Speaker
     return SpeakerReviewState(available=True, assignment_state="reserved", degraded_reason=None, speakers=speakers)
 
 
+def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> CalendarRosterReviewState:
+    views = [
+        CalendarRosterParticipantView(
+            participant_kind=participant.participant_kind,
+            response_status=participant.response_status,
+            display_name=participant.display_name,
+            email_present=bool(participant.email_hash or participant.email),
+            workspace_relation=participant.workspace_relation,
+            recipient_candidate_class=participant.recipient_candidate_class,
+        )
+        for participant in participants
+    ]
+    return CalendarRosterReviewState(
+        available=bool(views),
+        roster_state="available" if views else "not_available",
+        participant_count=len(views),
+        source="calendar" if views else "none",
+        participants=views,
+    )
+
+
 def notes_state(status: MeetingReviewStatus) -> NotesReviewState:
     if status in {"ready", "partial"}:
         return NotesReviewState(available=False, sections=[], unavailable_reason="generation_future")
@@ -906,6 +931,7 @@ def build_review_response(
     share: SharePanelState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
     review_playback: ArtifactEgressState | None = None,
+    calendar_roster: CalendarRosterReviewState | None = None,
     activity: MeetingActivityResponse | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
@@ -943,6 +969,7 @@ def build_review_response(
             playback_duration_seconds=playback.duration_seconds,
         ),
         speakers=speaker_state(diarization_segments),
+        calendar_roster=calendar_roster,
         notes=notes_state(status),
         notes_action_truth=notes_truth,
         playback=playback,

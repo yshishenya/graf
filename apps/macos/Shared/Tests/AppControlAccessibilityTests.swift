@@ -1,4 +1,5 @@
 import TwoBrainRecAppCore
+import TwoBrainRecShared
 
 #if canImport(XCTest)
 import Foundation
@@ -152,6 +153,20 @@ final class AppControlAccessibilityTests: XCTestCase {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("@"))
             XCTAssertFalse(text.localizedCaseInsensitiveContains("/Users/"))
         }
+    }
+
+    func testCalendarPromptAccessibilityCopyPreservesManualRecordingBoundary() {
+        let label = SystemAudioStatusLabels.calendarPromptAccessibilityLabel(
+            title: SystemAudioStatusLabels.calendarGenericMeetingTitle,
+            action: SystemAudioStatusLabels.calendarPromptRecordActionTitle
+        )
+
+        XCTAssertEqual(SystemAudioAccessibilityIdentifier.calendarPrompt, "systemAudio.calendar.prompt")
+        XCTAssertEqual(SystemAudioAccessibilityIdentifier.calendarPromptPrimaryButton, "systemAudio.calendar.prompt.primary")
+        XCTAssertEqual(SystemAudioAccessibilityIdentifier.calendarPromptDismissButton, "systemAudio.calendar.prompt.dismiss")
+        XCTAssertTrue(label.contains("Запись не начинается автоматически"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("@"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("http"))
     }
 
     func testDesktopAppInstallsStandardEditMenuCommandsForEmbeddedCabinetFields() throws {

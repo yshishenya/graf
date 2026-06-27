@@ -211,6 +211,8 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
     assert 'data-active-nav="meetings"' in response.text
+    assert 'href="/desktop/meetings"' in response.text
+    assert 'href="/meetings"' not in response.text
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in response.text
     assert "Записи встреч" in response.text
     assert "Проектный синк" in response.text

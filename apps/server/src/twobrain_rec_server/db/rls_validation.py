@@ -54,6 +54,15 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "meeting_outcome_sets",
         "meeting_outcome_items",
         "meeting_outcome_generation_attempts",
+        "calendar_sources",
+        "calendar_credential_envelopes",
+        "external_calendars",
+        "calendar_event_snapshots",
+        "calendar_participants",
+        "conference_link_candidates",
+        "recording_calendar_context_links",
+        "calendar_reminder_states",
+        "calendar_audit_events",
     }
 )
 

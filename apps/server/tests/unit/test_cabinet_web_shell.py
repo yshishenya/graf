@@ -407,9 +407,17 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
         assert "<!doctype html>" in page
         assert 'class="app-shell desktop-embedded"' in page
         assert '<body data-surface-mode="desktop_embedded">' in page
+        assert 'href="/desktop/meetings"' in page
 
     assert "Record live" not in list_page + detail_page
     assert "Screen Recording" not in list_page + detail_page
+
+
+def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
+    css = _cabinet_css()
+
+    assert ".sidebar {\n  position: sticky;" in css
+    assert "  height: 100vh;\n  overflow: hidden;" in css
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:

@@ -28,6 +28,10 @@ MEETING_OUTCOMES_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0009_meeting_outcomes_mvp.py"
 )
+CALENDAR_CONTEXT_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0010_calendar_context_ingestion.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -63,6 +67,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         MEETING_OUTCOMES_MIGRATION,
         "meeting_outcomes_mvp_migration",
     )
+    calendar_context_migration = _load_migration_module(
+        CALENDAR_CONTEXT_MIGRATION,
+        "calendar_context_ingestion_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -73,6 +81,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(retention_deletion_migration.CONTENT_WORKSPACE_POLICIES)
         | set(recording_sync_migration.CONTENT_WORKSPACE_POLICIES)
         | set(meeting_outcomes_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(calendar_context_migration.CONTENT_WORKSPACE_POLICIES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

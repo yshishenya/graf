@@ -26,6 +26,56 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.06.27.2] - 2026-06-27
+
+
+### Добавлено
+- Feature `060-calendar-context-ingestion`: добавлен первый слой календарного
+  контекста. Сервер хранит read-only подключения календарей, выбранные
+  календари, будущие события, участников, conference-link metadata,
+  recording-time context links и safe recipient-candidate counts; macOS
+  получает one-minute join prompt и event-start record prompt без
+  auto-record/auto-join.
+
+### Изменено
+- Названия новых записей теперь могут получать `calendar` title source только
+  при явной recording-time связи с текущим/выбранным событием; пользовательское
+  название остается главным, а прошлые события не подтягиваются задним числом.
+
+### Исправлено
+- Desktop WebView больше не блокирует переход "Мои встречи" из web-sidebar:
+  embedded cabinet navigation теперь ведет на `/desktop/meetings`, а не на
+  browser route `/meetings`.
+- Левый web-sidebar кабинета закреплен на высоту окна и больше не получает
+  собственный скроллбар при прокрутке списка встреч.
+
+### Безопасность
+- Календарные credentials остаются server-owned и sealed; committed fixtures,
+  logs и evidence не содержат raw provider payloads, refresh tokens, app
+  passwords, attendee email dumps, passcodes, signed links или private event
+  text. Calendar attendees не создают share/access grants и не становятся
+  получателями сообщений в 060.
+- В production credential-bearing calendar connect требует устойчивый Fernet key
+  через `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`; без него API fail-closed до
+  принятия app passwords/OAuth-refresh-like материала.
+
+### Документы
+- Зафиксированы provider deep dive, quickstart, metadata-only evidence,
+  supported provider families, known limitations и явная граница: отправка
+  summary/transcript/report будет отдельным слоем после 060.
+
+### Операции
+- Local validation для 060 на 2026-06-27: focused backend
+  calendar/cabinet/ingest checks passed `134 passed`; macOS prompt/upload/
+  recording-metadata checks passed `155 tests`; full macOS suite passed
+  `666 tests, 0 failures`; forbidden-content scan returned no matches; after
+  refreshing from `origin/master` `94ffcb6`, final `infra/scripts/ci-local.sh`
+  passed with server `782 passed, 4 skipped, 103 warnings`, Ruff, compile,
+  production compose config, deployment evidence scan, and
+  `ci_local_result=pass`. PR #2286 и closeout PR #2287 смержены в `master`;
+  production deploy/smoke и desktop installer/app build остаются release
+  execution gates, а не implementation evidence 060.
+
 ## [2026.06.27.1] - 2026-06-27
 
 
