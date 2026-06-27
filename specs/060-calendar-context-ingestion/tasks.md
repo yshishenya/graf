@@ -288,7 +288,7 @@
 - [X] T133 Run `infra/scripts/ci-local.sh` and record final local CI evidence in `specs/060-calendar-context-ingestion/validation/implementation-evidence.md`.
 - [X] T134 Run a Ponytail complexity review for the feature diff and record accepted simplifications or intentional `ponytail:` notes in `specs/060-calendar-context-ingestion/validation/implementation-evidence.md`.
 - [X] T135 Re-run `specs/060-calendar-context-ingestion/checklists/calendar-integration.md` against the final implementation and mark each item complete or document a blocker in `specs/060-calendar-context-ingestion/validation/implementation-evidence.md`.
-- [ ] T136 Verify `tasks.md` completion, GitHub issue closure evidence, and final PR/release notes in `specs/060-calendar-context-ingestion/validation/implementation-evidence.md`.
+- [X] T136 Verify `tasks.md` completion, GitHub issue closure evidence, and final PR/release notes in `specs/060-calendar-context-ingestion/validation/implementation-evidence.md`.
 
 ---
 

@@ -314,8 +314,8 @@ metadata-only evidence остаются подробной историей ре
   production RLS evidence. It deliberately does not implement calendar
   integration, window/browser title collection, rename UI/API, download/export,
   transcript-derived titles, or new app/window observers.
-- Feature `060-calendar-context-ingestion` is implemented in the current
-  feature branch as the first calendar context layer. It adds server-owned
+- Feature `060-calendar-context-ingestion` is merged into `origin/master`
+  through PR `#2286` as the first calendar context layer. It adds server-owned
   read-only calendar source connection state, credential sealing, selected
   calendar sync state, normalized future event snapshots, participants,
   conference-link metadata, recording-time calendar context links, desktop
@@ -339,8 +339,8 @@ metadata-only evidence остаются подробной историей ре
   recording-metadata checks passed `155 tests`, full macOS suite passed
   `666 tests, 0 failures`, the forbidden-content scan found no matches, and
   full local CI passed `782 passed, 4 skipped, 103 warnings` with
-  `ci_local_result=pass`. PR review, release, deploy, and production smoke are
-  still pending.
+  `ci_local_result=pass`. PR review is complete; release, deploy, production
+  smoke, and desktop installer/app build are still pending.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
