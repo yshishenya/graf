@@ -14,9 +14,15 @@
 </nav>
 {%- endmacro %}
 
-{% macro workspace_header(name, subtitle, initials="2B") -%}
+{% macro workspace_header(name, subtitle, initials="2B", logo_src=None) -%}
 <header class="cabinet-workspace-header">
-  <span class="cabinet-workspace-header__avatar" aria-hidden="true">{{ initials }}</span>
+  <span class="cabinet-workspace-header__avatar" aria-hidden="true">
+    {%- if logo_src -%}
+    <img class="brand-logo" src="{{ logo_src }}" alt="">
+    {%- else -%}
+    {{ initials }}
+    {%- endif -%}
+  </span>
   <span class="cabinet-workspace-header__text">
     <strong>{{ name }}</strong>
     <span>{{ subtitle }}</span>

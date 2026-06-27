@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Graf favicon light</title>
+  <desc id="desc">Light favicon for Graf with graphite phi-inspired audio mark.</desc>
+  <rect width="512" height="512" fill="#FFFFFF"/>
+  <circle cx="256" cy="256" r="150" fill="#FFFFFF" stroke="#111820" stroke-width="64"/>
+  <rect x="224" y="58" width="64" height="76" rx="8" fill="#111820"/>
+  <rect x="224" y="378" width="64" height="76" rx="8" fill="#111820"/>
+  <rect x="204" y="218" width="34" height="104" rx="12" fill="#7C3AED"/>
+  <rect x="239" y="182" width="34" height="140" rx="12" fill="#7C3AED"/>
+  <rect x="274" y="238" width="34" height="84" rx="12" fill="#7C3AED"/>
+</svg>

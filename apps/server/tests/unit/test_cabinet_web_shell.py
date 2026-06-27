@@ -556,8 +556,8 @@ def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
         )
     )
 
-    assert "2brain Rec" in page
-    assert "везде, где ее контролирует 2brain Rec" in page
+    assert "GRAF" in page
+    assert "везде, где ее контролирует GRAF" in page
     assert "Это действие нельзя отменить" in page
     assert "Обсудили запуск кабинета встреч" not in page
     assert "fixture-mediascribe-private-job-id" not in page
@@ -601,7 +601,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Публичные ссылки" in page
     assert "Уже скачанные или экспортированные файлы" in page
     assert 'data-boundary-copy="Files already downloaded' in page
-    assert "Удалить встречу в системах 2brain Rec" in page
+    assert "Удалить встречу в системах GRAF" in page
     assert "Request deletion" not in page
     assert "Запросить удаление" in page
 
@@ -1071,7 +1071,7 @@ def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:
     page = render_deletion_report_page("Sensitive customer sync", _deletion_report())
 
     assert "Отчет удаления" in page
-    assert "Файлы под контролем 2brain Rec" in page
+    assert "Файлы под контролем GRAF" in page
     assert "Внешние зависимости" in page
     assert "Ограничения после выгрузки" in page
     assert "Очистка на устройстве" in page

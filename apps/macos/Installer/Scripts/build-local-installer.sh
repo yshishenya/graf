@@ -14,6 +14,7 @@ STAGE_DIR="$BUILD_DIR/stage"
 COMPONENT_DIR="$BUILD_DIR/components"
 SCRIPTS_DIR="$BUILD_DIR/scripts"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/2brain Rec.app"
+APP_ICON="$MACOS_DIR/RecApp/Resources/AppIcon.icns"
 OUTPUT_PKG="${1:-"$BUILD_DIR/2brain-rec-local.pkg"}"
 APP_SIGN_IDENTITY="${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}"
 ALLOW_ADHOC_APP_SIGNING="${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}"
@@ -54,7 +55,7 @@ case "$VERSION" in
     ;;
   *)
     cat >&2 <<EOF
-Invalid 2brain Rec product version: $VERSION
+Invalid GRAF product version: $VERSION
 
 macOS bundle and package fields use the numeric CalVer release train without
 the git tag prefix. Use:
@@ -66,7 +67,7 @@ EOF
     exit 1
     ;;
 esac
-echo "Building 2brain Rec version $VERSION" >&2
+echo "Building GRAF version $VERSION" >&2
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"
@@ -89,6 +90,10 @@ if [ ! -x "$APP_EXECUTABLE" ]; then
   echo "Missing app executable at $APP_EXECUTABLE" >&2
   exit 1
 fi
+if [ ! -f "$APP_ICON" ]; then
+  echo "Missing app icon at $APP_ICON" >&2
+  exit 1
+fi
 
 if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ] && [ ! -d "$DRIVER_BUNDLE" ]; then
   echo "Missing proof driver bundle at $DRIVER_BUNDLE" >&2
@@ -99,6 +104,7 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/2brain Rec"
+cp "$APP_ICON" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -108,12 +114,16 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <string>en</string>
   <key>CFBundleExecutable</key>
   <string>2brain Rec</string>
+  <key>CFBundleDisplayName</key>
+  <string>GRAF</string>
   <key>CFBundleIdentifier</key>
   <string>pro.2brain.rec</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>2brain Rec</string>
+  <string>GRAF</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -129,9 +139,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <key>NSQuitAlwaysKeepsWindows</key>
   <false/>
   <key>NSMicrophoneUsageDescription</key>
-  <string>2brain Rec needs microphone access to verify and capture meeting audio.</string>
+  <string>GRAF использует доступ к микрофону, чтобы проверить и записать звук встречи.</string>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>2brain Rec needs Screen/System Audio access to capture incoming meeting audio into a local recording.</string>
+  <string>GRAF использует доступ к записи экрана и системного звука, чтобы сохранить входящий звук встречи локально.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>
@@ -229,7 +239,7 @@ pkgbuild \
 if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
   DRIVER_CHOICE_LINE='      <line choice="audio-driver"/>'
   DRIVER_DEFAULT_REF='    <pkg-ref id="pro.2brain.rec.audio-driver"/>'
-  DRIVER_CHOICE_BLOCK='  <choice id="audio-driver" title="2brain Rec Audio Driver" start_selected="true" start_enabled="false">
+  DRIVER_CHOICE_BLOCK='  <choice id="audio-driver" title="GRAF Audio Driver" start_selected="true" start_enabled="false">
     <pkg-ref id="pro.2brain.rec.audio-driver"/>
   </choice>'
   DRIVER_PKG_REF="  <pkg-ref id=\"pro.2brain.rec.audio-driver\" version=\"$VERSION\" auth=\"Root\">2brain-rec-audio-driver.pkg</pkg-ref>"
@@ -243,7 +253,7 @@ fi
 cat > "$BUILD_DIR/distribution.xml" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>2brain Rec</title>
+  <title>GRAF</title>
   <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
   <installation-check script="InstallationCheck()"/>
@@ -252,7 +262,7 @@ function InstallationCheck() {
   if(system.compareVersions(system.version.ProductVersion, "14.5") &lt; 0) {
     my.result.type = "Fatal";
     my.result.title = "Unsupported macOS";
-    my.result.message = "2brain Rec requires macOS 14.5 or later.";
+    my.result.message = "GRAF requires macOS 14.5 or later.";
     return false;
   }
   return true;
@@ -264,12 +274,12 @@ $DRIVER_CHOICE_LINE
       <line choice="desktop-app"/>
     </line>
   </choices-outline>
-  <choice id="default" title="2brain Rec" start_selected="true" start_enabled="false" start_visible="false">
+  <choice id="default" title="GRAF" start_selected="true" start_enabled="false" start_visible="false">
 $DRIVER_DEFAULT_REF
     <pkg-ref id="pro.2brain.rec.desktop-app"/>
   </choice>
 $DRIVER_CHOICE_BLOCK
-  <choice id="desktop-app" title="2brain Rec Desktop App" start_selected="true" start_enabled="false">
+  <choice id="desktop-app" title="GRAF Desktop App" start_selected="true" start_enabled="false">
     <pkg-ref id="pro.2brain.rec.desktop-app"/>
   </choice>
 $DRIVER_PKG_REF

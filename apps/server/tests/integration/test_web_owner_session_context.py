@@ -104,8 +104,8 @@ def test_browser_icon_probe_routes_do_not_pollute_cabinet_with_404(client) -> No
     for path in ("/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"):
         response = client.get(path)
 
-        assert response.status_code == 204
-        assert response.content == b""
+        assert response.status_code == 200
+        assert response.content
 
 
 def test_meetings_page_accepts_owner_session_cookie_without_legacy_headers(client) -> None:

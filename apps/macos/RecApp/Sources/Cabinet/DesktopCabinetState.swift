@@ -15,7 +15,7 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     public var userMessage: String {
         switch self {
         case .notConfigured:
-            return "Подключите рабочее пространство 2brain Rec, чтобы просматривать встречи здесь. Локальная запись остается доступной."
+            return "Подключите рабочее пространство GRAF, чтобы просматривать встречи здесь. Локальная запись остается доступной."
         case .loading:
             return "Загружаем рабочее пространство встреч. Управление записью остается в приложении."
         case .ready:

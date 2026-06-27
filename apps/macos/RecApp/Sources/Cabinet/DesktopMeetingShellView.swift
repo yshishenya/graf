@@ -66,7 +66,7 @@ public enum DesktopMeetingShellChrome {
         "Оставить отзыв",
         "Сообщество Slack",
         "Выйти",
-        "Закрыть 2brain Rec полностью"
+        "Закрыть GRAF полностью"
     ]
 
     private static func measuredSidebarWidth(pendingUploadCount: Int) -> CGFloat {
@@ -104,7 +104,7 @@ public enum DesktopMeetingShellChrome {
             + 34
             + 10
             + max(
-                textWidth("2brain Rec", font: NSFont.systemFont(ofSize: 13, weight: .semibold)),
+                textWidth("GRAF", font: NSFont.systemFont(ofSize: 13, weight: .semibold)),
                 textWidth("Рабочее место", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
                 textWidth("Локальный режим", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
                 textWidth("Сервер недоступен", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
@@ -117,7 +117,7 @@ public enum DesktopMeetingShellChrome {
             + 28
             + 8
             + max(
-                textWidth("2brain Rec", font: NSFont.systemFont(ofSize: 12, weight: .semibold)),
+                textWidth("GRAF", font: NSFont.systemFont(ofSize: 12, weight: .semibold)),
                 textWidth("Кабинет не подключен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
                 textWidth("Кабинет доступен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
                 textWidth("Проверяем кабинет", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
@@ -212,6 +212,25 @@ public enum DesktopMeetingShellLocalQueuePolicy {
         limit: Int = 12
     ) -> [DesktopUploadQueueItem] {
         Array(items.sortedForNativeLocalDisplay().prefix(limit))
+    }
+}
+
+private struct GrafLogoMark: View {
+    var body: some View {
+        if let icon = NSImage(named: "AppIcon") {
+            Image(nsImage: icon)
+                .resizable()
+                .scaledToFit()
+                .accessibilityHidden(true)
+        } else {
+            Text("Г")
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.067, green: 0.094, blue: 0.125))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .accessibilityHidden(true)
+        }
     }
 }
 
@@ -327,15 +346,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.18))
-                    Image(systemName: "waveform.badge.mic")
-                        .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
-                }
-                .frame(width: 34, height: 34)
+                GrafLogoMark()
+                    .frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("2brain Rec")
+                    Text("GRAF")
                         .font(.system(size: 13, weight: .semibold))
                     Text(cabinetStatusPresentation.sidebarSubtitle)
                         .font(.system(size: 11, weight: .medium))
@@ -404,13 +418,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var profileMenu: some View {
         Menu {
-            Button("2brain Rec") {}
+            Button("GRAF") {}
                 .disabled(true)
             Button(cabinetStatusPresentation.menuStatusText) {}
                 .disabled(true)
             Divider()
             ForEach(DesktopMeetingShellChrome.profileMenuLabels, id: \.self) { label in
-                if label == "Закрыть 2brain Rec полностью" {
+                if label == "Закрыть GRAF полностью" {
                     Button(role: .destructive) {
                         NSApplication.shared.terminate(nil)
                     } label: {
@@ -427,17 +441,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             }
         } label: {
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(Color.blue.opacity(0.84))
-                    Text("2")
-                        .font(.system(size: 12, weight: .bold))
-                        .fontWeight(.bold)
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 28, height: 28)
+                GrafLogoMark()
+                    .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("2brain Rec")
+                    Text("GRAF")
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.86)

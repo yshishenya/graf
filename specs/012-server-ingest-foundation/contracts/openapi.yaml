@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: 2brain Rec Server Ingest API
+  title: GRAF Server Ingest API
   description: Backend ingest foundation for finalized local recording artifacts.
   version: 0.1.0
 paths:

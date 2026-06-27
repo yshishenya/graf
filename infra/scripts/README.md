@@ -1,6 +1,6 @@
 # Deployment Helper Scripts
 
-Scripts in this directory are operator helpers for 2brain Rec deployment
+Scripts in this directory are operator helpers for GRAF deployment
 readiness. They should fail closed, avoid printing secret values, and emit
 metadata-only evidence suitable for `docs/deployments/2brain-rec/`.
 
