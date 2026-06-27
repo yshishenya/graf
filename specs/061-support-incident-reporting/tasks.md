@@ -31,7 +31,7 @@
 **Critical**: No user story work should begin until this phase is complete.
 
 - [ ] T004 Add support incident GitHub config fields, timeout config, and production safety validation in `apps/server/src/twobrain_rec_server/config.py` and `apps/server/.env.example`
-- [ ] T005 Create the `SupportIncident` and `SupportIncidentRateLimitBucket` SQLAlchemy models with tenant scope, GitHub linkage, redacted JSON, affected count, dedupe fields, and durable rate-limit fields in `apps/server/src/twobrain_rec_server/db/models/support.py`
+- [X] T005 Create the `SupportIncident` and `SupportIncidentRateLimitBucket` SQLAlchemy models with tenant scope, GitHub linkage, redacted JSON, affected count, dedupe fields, and durable rate-limit fields in `apps/server/src/twobrain_rec_server/db/models/support.py`
 - [ ] T006 Add Alembic migration `0010_support_incidents.py` for support incidents, durable rate-limit buckets, indexes, uniqueness, and RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0010_support_incidents.py`
 - [ ] T007 Export the `SupportIncident` and `SupportIncidentRateLimitBucket` models in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
 - [ ] T008 Add support incident request, response, safe metadata, and failure schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
