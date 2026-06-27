@@ -21,6 +21,9 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     response = client.get("/admin", headers=auth_headers())
 
     assert response.status_code == 200
+    assert "/static/cabinet/cabinet.css" in response.text
+    assert "app-shell admin-app-shell" in response.text
+    assert "sidebar admin-sidebar" in response.text
     assert "Администрирование" in response.text
     assert "Пользователи" in response.text
     assert "Баланс" in response.text
