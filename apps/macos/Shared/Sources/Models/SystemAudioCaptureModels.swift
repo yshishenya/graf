@@ -2277,6 +2277,16 @@ public enum SystemAudioStatusLabels {
     public static let waitingForRecordingAudio = "Ожидаем старт записи"
     public static let localAudioRouteActiveNotRecording =
         "Локальный аудиомаршрут активен; запись начинается только вручную"
+    public static let calendarGenericMeetingTitle = "Встреча из календаря"
+    public static let calendarJoinPromptMessage =
+        "Скоро начало. Можно открыть встречу; запись начнется только вручную."
+    public static let calendarRecordPromptMessage =
+        "Встреча началась. Нажмите «Начать запись», когда будете готовы."
+    public static let calendarOverlapPromptMessage =
+        "Сейчас несколько событий календаря. Начните запись вручную без привязки к событию."
+    public static let calendarPromptJoinActionTitle = "Войти во встречу"
+    public static let calendarPromptRecordActionTitle = "Начать запись"
+    public static let calendarPromptDismissActionTitle = "Скрыть"
     public static let recordingMeterFreshnessWindowSeconds: TimeInterval = 1.5
 
     public static func liveSummary(
@@ -2324,6 +2334,10 @@ public enum SystemAudioStatusLabels {
     public static func localRecordingLocationAccessibilityLabel(_ path: String) -> String {
         "Путь локальной записи: \(path)"
     }
+
+    public static func calendarPromptAccessibilityLabel(title: String, action: String) -> String {
+        "\(title). \(action). Запись не начинается автоматически."
+    }
 }
 
 public enum SystemAudioAccessibilityIdentifier {
@@ -2344,6 +2358,9 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let webRTCAEC3FallbackStatus = "systemAudio.webRTCAEC3.fallback.status"
     public static let webRTCAEC3RollbackStatus = "systemAudio.webRTCAEC3.rollback.status"
     public static let localRecordingLocation = "systemAudio.localRecording.location"
+    public static let calendarPrompt = "systemAudio.calendar.prompt"
+    public static let calendarPromptPrimaryButton = "systemAudio.calendar.prompt.primary"
+    public static let calendarPromptDismissButton = "systemAudio.calendar.prompt.dismiss"
     public static let meters = "systemAudio.meters"
     public static let microphoneMeter = "systemAudio.meter.microphone"
     public static let incomingMeter = "systemAudio.meter.incoming"

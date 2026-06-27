@@ -1,11 +1,10 @@
 # Текущий статус продукта
 
-Date: 2026-06-26
+Date: 2026-06-27
 
-Этот документ коротко фиксирует состояние продукта во время MVP live UI
-proof-slice `052-mvp-live-ui-proof`. PRD остается базовой продуктовой
-линией; feature specs и metadata-only evidence остаются подробной историей
-реализации.
+Этот документ коротко фиксирует состояние продукта на текущей ветке
+реализации. PRD остается базовой продуктовой линией; feature specs и
+metadata-only evidence остаются подробной историей реализации.
 
 ## Accepted Now
 
@@ -292,6 +291,28 @@ proof-slice `052-mvp-live-ui-proof`. PRD остается базовой про�
   CI passed `685 passed, 4 skipped, 94 warnings` with `ci_local_result=pass`.
   This branch has no database migration or machine-readable JSON contract
   change and is not merged, released, deployed, or production-smoked yet.
+- Feature `060-calendar-context-ingestion` is implemented in the current
+  feature branch as the first calendar context layer. It adds server-owned
+  read-only calendar source connection state, credential sealing, selected
+  calendar sync state, normalized future event snapshots, participants,
+  conference-link metadata, recording-time calendar context links, desktop
+  one-minute join prompts, event-start record prompts, safe roster context in
+  authorized meeting review, and future recipient-candidate counts without
+  sending anything. Provider coverage is represented through Yandex/Mail.ru
+  CalDAV presets, custom CalDAV/iCalendar for Russian and on-prem providers
+  such as VK WorkSpace-compatible tenants, Mailion/MyOffice, R7-Office,
+  CommuniGate Pro, RuPost, Nextcloud/SOGo-like deployments, plus native
+  normalization adapters for Google Calendar, Microsoft Graph, Exchange EWS,
+  and Bitrix24. The slice deliberately does not auto-join, auto-record, mutate
+  calendars, send summaries/transcripts/reports, create attendee share grants,
+  fetch attachments, perform retrospective matching, or use live provider
+  credentials in committed evidence. Focused local evidence on 2026-06-27:
+  Ruff passed, backend focused calendar/cabinet/ingest checks passed
+  `91 passed`, macOS calendar/upload/capture prompt checks passed
+  `8 + 54` tests, the forbidden-content scan found no matches, and full local
+  CI passed `771 passed, 4 skipped, 103 warnings` with
+  `ci_local_result=pass`. PR review, release, deploy, and production smoke are
+  still pending.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed

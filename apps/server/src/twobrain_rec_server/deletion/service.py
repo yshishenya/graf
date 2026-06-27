@@ -14,6 +14,7 @@ from twobrain_rec_server.api.schemas import (
     DeletionVerificationReport,
     LocalPurgeTask,
 )
+from twobrain_rec_server.calendar.lifecycle import account_meeting_calendar_context_deletion
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     Meeting,
@@ -144,6 +145,13 @@ async def request_meeting_deletion(
 
     meeting.deletion_state = DeletionState.DELETING.value
     meeting.deletion_requested_at = now
+    await account_meeting_calendar_context_deletion(
+        db,
+        meeting=meeting,
+        actor_user_id=actor_user_id,
+        device_id=device_id,
+        accounted_at=now,
+    )
     local_purge_tasks = await create_local_purge_tasks_for_request(
         db,
         meeting=meeting,

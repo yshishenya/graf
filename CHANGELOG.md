@@ -13,6 +13,12 @@
   web/desktop кабинета, reusable cabinet component catalog, локальный
   `htmx-2.0.10`, bounded HTMX fragments для списка/detail/delete feedback,
   deletion-report и metadata-safe runtime checker.
+- Feature `060-calendar-context-ingestion`: добавлен первый слой календарного
+  контекста. Сервер хранит read-only подключения календарей, выбранные
+  календари, будущие события, участников, conference-link metadata,
+  recording-time context links и safe recipient-candidate counts; macOS
+  получает one-minute join prompt и event-start record prompt без
+  auto-record/auto-join.
 
 ### Изменено
 - Список и detail кабинета теперь рендерятся через общий server-owned shell,
@@ -20,6 +26,9 @@
 - Desktop WebView получает online cabinet navigation, а native Record/Stop,
   active capture, upload truth, permission recovery и local diagnostics
   остаются native-only.
+- Названия новых записей теперь могут получать `calendar` title source только
+  при явной recording-time связи с текущим/выбранным событием; пользовательское
+  название остается главным, а прошлые события не подтягиваются задним числом.
 
 ### Исправлено
 - Deletion-report web routes теперь возвращают bounded HTMX fragment при
@@ -36,13 +45,27 @@
   POST/PATCH/DELETE действия не обходили web-session защиту.
 - Private cabinet shell теперь просит поисковые роботы не индексировать кабинет
   и отключает HTMX eval/script-tag handling для authenticated surface.
+- Календарные credentials остаются server-owned и sealed; committed fixtures,
+  logs и evidence не содержат raw provider payloads, refresh tokens, app
+  passwords, attendee email dumps, passcodes, signed links или private event
+  text. Calendar attendees не создают share/access grants и не становятся
+  получателями сообщений в 060.
 
 ### Документы
 - Зафиксированы architecture/component/HTMX/WebView boundary decisions,
   rollback rules и validation evidence для feature `058`.
+- Зафиксированы provider deep dive, quickstart, metadata-only evidence,
+  supported provider families, known limitations и явная граница: отправка
+  summary/transcript/report будет отдельным слоем после 060.
 
 ### Операции
-- _Пока нет записей._
+- Local validation для 060 на 2026-06-27: focused backend
+  calendar/cabinet/ingest checks passed `91 passed`; macOS prompt/upload
+  checks passed `8 + 54` tests; forbidden-content scan returned no matches;
+  final `infra/scripts/ci-local.sh` passed with server `771 passed, 4 skipped,
+  103 warnings`, Ruff, compile, production compose config, deployment evidence
+  scan, and `ci_local_result=pass`. PR review, release, deploy и production
+  smoke еще не закрыты.
 
 ## [2026.06.26.12] - 2026-06-26
 

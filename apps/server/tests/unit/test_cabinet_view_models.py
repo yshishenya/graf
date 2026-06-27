@@ -11,6 +11,7 @@ from twobrain_rec_server.api.schemas import (
     SlotState,
 )
 from twobrain_rec_server.cabinet import view_models
+from twobrain_rec_server.calendar.normalize import normalize_calendar_participants
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     Meeting,
@@ -344,6 +345,35 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
         ("Speaker 1", 50),
         ("Speaker 2", 50),
     ]
+
+
+def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -> None:
+    roster = normalize_calendar_participants(
+        [{"participant_kind": "required_attendee", "email": "speaker@example.test", "display_name": "Calendar Name"}]
+    )
+    result_id = uuid4()
+    meeting = _meeting()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0"),
+            end_seconds=Decimal("10"),
+            text="hello",
+            speaker_label="Speaker 1",
+            source_role="mic",
+        )
+    ]
+
+    state = view_models.speaker_state(diarization)
+
+    assert roster[0]["display_name"] == "Calendar Name"
+    assert state.speakers[0].label == "Speaker 1"
+    assert "access_grant" not in roster[0]
+    assert "share_grant" not in roster[0]
 
 
 def test_governance_states_are_non_mutating_and_truthful() -> None:

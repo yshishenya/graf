@@ -65,7 +65,8 @@ PYTHONPATH=src uv run --extra dev pytest -q \
   tests/integration/test_calendar_deletion_lifecycle.py \
   tests/integration/test_calendar_access_policy.py \
   tests/integration/test_calendar_provider_failures.py \
-  tests/integration/test_meeting_share_links.py
+  tests/integration/test_meeting_share_links.py \
+  tests/integration/test_persistent_ingest_storage.py
 ```
 
 Expected outcome:
@@ -76,6 +77,8 @@ Expected outcome:
 - Deleting a meeting retention-accounts linked calendar context.
 - Provider downtime leaves meeting review/upload available with `calendar_context_unavailable`.
 - Calendar attendees do not create meeting access or share grants.
+- Meeting create responses expose `title` and `title_source` so calendar-based
+  names remain distinguishable from user and generic titles.
 
 ## 4. Desktop Reminder Checks
 
@@ -119,8 +122,16 @@ Fixture coverage must include:
 ## 6. Forbidden Content Scan
 
 ```sh
-rg -n "refresh_token|app_password|passcode|signed_url|Authorization:|Bearer |attendee_email_dump|raw_event_payload" \
-  specs/060-calendar-context-ingestion apps/server/tests apps/server/src apps/macos/Shared/Tests
+rg -n "\b(refresh_token|app_password|signed_url|attendee_email_dump|raw_event_payload)\s*[:=]|Authorization\s*:|Bearer [A-Za-z0-9._~+/-]+|\bpasscode\s*[:=]" \
+  specs/060-calendar-context-ingestion apps/server/tests/fixtures apps/server/src/twobrain_rec_server apps/macos \
+  --glob 'specs/060-calendar-context-ingestion/**' \
+  --glob 'apps/server/tests/fixtures/calendar.py' \
+  --glob 'apps/server/src/twobrain_rec_server/calendar/**' \
+  --glob 'apps/server/src/twobrain_rec_server/api/calendar.py' \
+  --glob 'apps/macos/RecApp/Sources/Calendar/**' \
+  --glob 'apps/macos/Shared/Sources/Models/CalendarContextModels.swift' \
+  --glob '!specs/060-calendar-context-ingestion/quickstart.md' \
+  --glob '!specs/060-calendar-context-ingestion/validation/forbidden-content-notes.md'
 ```
 
 Expected outcome:

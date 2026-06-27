@@ -1774,6 +1774,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var meetingId: String?
     public var mediaRevisionId: String?
     public var uploadSessionId: String?
+    public var calendarContextEventId: String?
     public var syncGeneration: Int
     public var lastReconciledAt: Date?
     public var syncConflictState: DesktopSyncConflictState
@@ -1803,6 +1804,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         meetingId: String? = nil,
         mediaRevisionId: String? = nil,
         uploadSessionId: String? = nil,
+        calendarContextEventId: String? = nil,
         syncGeneration: Int = 0,
         lastReconciledAt: Date? = nil,
         syncConflictState: DesktopSyncConflictState = .none,
@@ -1831,6 +1833,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.meetingId = meetingId
         self.mediaRevisionId = mediaRevisionId ?? serverTruth.mediaRevisionId
         self.uploadSessionId = uploadSessionId
+        self.calendarContextEventId = calendarContextEventId
         self.syncGeneration = max(0, syncGeneration)
         self.lastReconciledAt = lastReconciledAt
         self.syncConflictState = syncConflictState
@@ -1925,6 +1928,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case meetingId
         case mediaRevisionId
         case uploadSessionId
+        case calendarContextEventId
         case syncGeneration
         case lastReconciledAt
         case syncConflictState
@@ -1959,6 +1963,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             meetingId: try container.decodeIfPresent(String.self, forKey: .meetingId),
             mediaRevisionId: try container.decodeIfPresent(String.self, forKey: .mediaRevisionId),
             uploadSessionId: try container.decodeIfPresent(String.self, forKey: .uploadSessionId),
+            calendarContextEventId: try container.decodeIfPresent(String.self, forKey: .calendarContextEventId),
             syncGeneration: try container.decodeIfPresent(Int.self, forKey: .syncGeneration) ?? 0,
             lastReconciledAt: try container.decodeIfPresent(Date.self, forKey: .lastReconciledAt),
             syncConflictState: try container.decodeIfPresent(DesktopSyncConflictState.self, forKey: .syncConflictState) ?? .none,

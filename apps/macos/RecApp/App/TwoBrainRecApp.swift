@@ -150,6 +150,9 @@ private struct ContentView: View {
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
     @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
+    @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
+    @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
+    @State private var desktopCalendarRefreshInProgress = false
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
@@ -207,6 +210,7 @@ private struct ContentView: View {
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
                 uploadQueueItems: uploadQueueItems,
                 cabinetConfiguration: desktopCabinetConfiguration,
+                calendarPrompt: desktopCalendarPrompt,
                 routeSignalLevels: liveRouteSignalLevels,
                 recordDisabled: recordingStartInProgress || recordingStopInProgress,
                 stopDisabled: recordingStartInProgress || recordingStopInProgress,
@@ -231,6 +235,12 @@ private struct ContentView: View {
                 },
                 onUploadReview: { route in
                     selectedCabinetRoute = route
+                },
+                onCalendarPromptPrimary: { prompt in
+                    handleCalendarPromptPrimary(prompt)
+                },
+                onCalendarPromptDismiss: { prompt in
+                    dismissCalendarPrompt(prompt)
                 }
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
@@ -319,6 +329,12 @@ private struct ContentView: View {
             refreshUploadQueueAndProcess(reason: "app_appeared")
             startUploadQueueNetworkMonitorIfNeeded()
         }
+        .task {
+            while !Task.isCancelled {
+                await refreshCalendarReminder(reason: "calendar_poll")
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
         .task(id: localRecordingActive) {
             guard localRecordingActive else { return }
             while !Task.isCancelled {
@@ -338,17 +354,78 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
             refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
+            Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshUploadQueueAndProcess(reason: "app_became_active")
+            Task { await refreshCalendarReminder(reason: "app_became_active") }
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
             refreshUploadQueueAndProcess(reason: "system_wake")
+            Task { await refreshCalendarReminder(reason: "system_wake") }
         }
         .onDisappear {
             guard !terminationCleanupInProgress else { return }
             Task { await releaseCaptureResourcesForAppExit() }
         }
+    }
+
+    @MainActor
+    private func refreshCalendarReminder(reason: String) async {
+        guard !desktopCalendarRefreshInProgress else { return }
+        guard let client = DesktopUploadClient.configuredFromEnvironment() else {
+            desktopCalendarPrompt = nil
+            return
+        }
+
+        desktopCalendarRefreshInProgress = true
+        defer { desktopCalendarRefreshInProgress = false }
+
+        do {
+            let response = try await client.listDesktopCalendarUpcoming()
+            desktopCalendarPrompt = desktopCalendarReminderService.activePrompt(
+                from: response.events,
+                now: Date(),
+                isRecordingActive: calendarPromptRecordingIsActive
+            )
+        } catch {
+            desktopCalendarPrompt = nil
+            AppLog.writeRaw(
+                event: "calendar.prompt_unavailable",
+                detail: "reason=\(reason) error=calendar_unavailable"
+            )
+        }
+    }
+
+    @MainActor
+    private func handleCalendarPromptPrimary(_ prompt: DesktopCalendarPrompt) {
+        let actions = DesktopCalendarPromptActions(
+            openURL: { url in
+                NSWorkspace.shared.open(url)
+            },
+            startRecording: {
+                Task { await startManualRecording() }
+            },
+            dismiss: { dismissed in
+                dismissCalendarPrompt(dismissed)
+            }
+        )
+        actions.performPrimaryAction(for: prompt)
+    }
+
+    @MainActor
+    private func dismissCalendarPrompt(_ prompt: DesktopCalendarPrompt) {
+        desktopCalendarReminderService.dismiss(prompt)
+        if desktopCalendarPrompt?.id == prompt.id {
+            desktopCalendarPrompt = nil
+        }
+    }
+
+    private var calendarPromptRecordingIsActive: Bool {
+        localRecordingActive ||
+            recordingStartInProgress ||
+            recordingStopInProgress ||
+            captureSession.map { CaptureStatusItem.showsStopButton(for: $0) } == true
     }
 
     @MainActor

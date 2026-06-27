@@ -21,6 +21,7 @@ from twobrain_rec_server.cabinet.egress import (
 )
 from twobrain_rec_server.cabinet.view_models import build_list_item, build_review_response
 from twobrain_rec_server.db.models import (
+    CalendarParticipant,
     DiarizationSegment,
     MediaRevision,
     Meeting,
@@ -28,6 +29,7 @@ from twobrain_rec_server.db.models import (
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
+    RecordingCalendarContextLink,
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import DeletionState
@@ -198,6 +200,7 @@ async def get_cabinet_meeting_review(
         share=await share_panel_state(db, meeting, decision),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
         review_playback=await review_playback_state(db, meeting=meeting, access=decision, result=result),
+        calendar_roster=await _calendar_roster_state(db, workspace_id=workspace_id, meeting_id=meeting_id),
         activity=await activity_response(
             db,
             workspace_id=workspace_id,
@@ -207,6 +210,34 @@ async def get_cabinet_meeting_review(
         outcome_set=outcome_set,
         outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
     )
+
+
+async def _calendar_roster_state(db: AsyncSession, *, workspace_id: UUID, meeting_id: UUID):
+    link = await db.scalar(
+        select(RecordingCalendarContextLink).where(
+            RecordingCalendarContextLink.workspace_id == workspace_id,
+            RecordingCalendarContextLink.meeting_id == meeting_id,
+            RecordingCalendarContextLink.unlinked_at.is_(None),
+        )
+    )
+    if link is None:
+        return None
+    participants = (
+        await db.scalars(
+            select(CalendarParticipant)
+            .where(
+                CalendarParticipant.workspace_id == workspace_id,
+                CalendarParticipant.calendar_event_snapshot_id == link.calendar_event_snapshot_id,
+            )
+            .order_by(
+                CalendarParticipant.participant_kind.asc(),
+                CalendarParticipant.display_name.asc(),
+            )
+        )
+    ).all()
+    from twobrain_rec_server.cabinet.view_models import calendar_roster_state
+
+    return calendar_roster_state(participants)
 
 
 def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meeting]]:

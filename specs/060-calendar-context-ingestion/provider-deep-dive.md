@@ -31,6 +31,27 @@ recipient candidates for a later, policy-gated sharing layer.
 The 060 sync horizon is a rolling 12 months ahead from selected calendars, with
 no past-event ingestion or retrospective matching of older recordings.
 
+## Implementation Notes From Feature 060
+
+- Implementation evidence uses synthetic provider fixtures, not live provider
+  accounts. This keeps committed proof metadata-only and avoids storing real
+  provider credentials, raw event payloads, passcodes, attendee dumps, or
+  private meeting content.
+- Generic CalDAV/iCalendar normalization covers Yandex, Mail.ru, custom
+  Russian/on-prem provider presets, private/free-busy limitations, recurrence
+  movement/cancellation, attendees/resources, and conference-link extraction.
+- Native provider mappers now exist for Google Calendar event resources,
+  Microsoft Graph events, Exchange EWS-style payloads, and Bitrix24 calendar
+  events. They map into the common normalized event contract instead of keeping
+  raw provider payloads.
+- Rich provider adapters in 060 are read/normalize boundaries only. OAuth
+  consent, live discovery, tenant-admin service access, delta polling against
+  real providers, and provider-specific retry/backoff tuning need separate
+  live-provider approval and metadata-only evidence before production rollout.
+- Russian/on-prem providers without a stable public rich API remain supported
+  through custom CalDAV/iCalendar configuration and capability labels, not by
+  claiming unverified vendor-specific REST access.
+
 ## Common Event Contract
 
 Every provider maps into the same 2brain Rec contract. If a provider cannot

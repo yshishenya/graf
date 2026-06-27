@@ -81,6 +81,10 @@ def _custody_defaults(problem: ProblemDetail) -> dict[str, str]:
         "persistence_unavailable",
         "processing_store_unavailable",
         "cabinet_store_unavailable",
+        "calendar_provider_timeout",
+        "calendar_provider_unavailable",
+        "calendar_rate_limited",
+        "calendar_sync_stale",
     }:
         return _custody_default(
             owner=CustodyOwner.PRODUCT_AUTOMATIC,

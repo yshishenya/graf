@@ -398,3 +398,41 @@ class DeviceStatus(StrEnum):
 class UserStatus(StrEnum):
     ACTIVE = "active"
     DISABLED = "disabled"
+
+
+class CalendarCredentialState(StrEnum):
+    PENDING = "pending"
+    SEALED = "sealed"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+    PURGED = "purged"
+    INVALID = "invalid"
+
+
+class CalendarConnectionState(StrEnum):
+    ACTIVE = "active"
+    DEGRADED = "degraded"
+    NEEDS_REAUTH = "needs_reauth"
+    DISABLED_BY_POLICY = "disabled_by_policy"
+    DISCONNECTING = "disconnecting"
+    DISCONNECTED = "disconnected"
+
+
+class CalendarSyncState(StrEnum):
+    NEVER_SYNCED = "never_synced"
+    SYNCING = "syncing"
+    SYNCED = "synced"
+    PARTIAL = "partial"
+    RATE_LIMITED = "rate_limited"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    FAILED_CLOSED = "failed_closed"
+
+
+class CalendarLimitationState(StrEnum):
+    SUPPORTED = "supported"
+    UNSUPPORTED = "unsupported"
+    NOT_RETURNED = "not_returned"
+    PRIVATE_REDACTED = "private_redacted"
+    FREE_BUSY_ONLY = "free_busy_only"
+    ADMIN_POLICY_DEPENDENT = "admin_policy_dependent"
+    UNKNOWN = "unknown"

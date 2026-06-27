@@ -66,6 +66,7 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
         "artifacts",
         "activity",
         "deletion_truth_copy",
+        "calendar_roster",
         "assistant",
         "template",
     } == set(payload)
@@ -85,6 +86,7 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
     assert payload["access"]["state"] == "owner"
     assert payload["share"]["public_link_state"] == "disabled_by_default"
     assert payload["activity"]["redaction_state"] == "metadata_only"
+    assert payload["calendar_roster"] is None
 
 
 def test_cabinet_detail_includes_media_revision_provenance(client) -> None:

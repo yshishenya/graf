@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from twobrain_rec_server.api.auth import router as auth_router
 from twobrain_rec_server.api.cabinet import router as cabinet_api_router
+from twobrain_rec_server.api.calendar import router as calendar_router
 from twobrain_rec_server.api.health import router as health_router
 from twobrain_rec_server.api.ingest import router as ingest_router
 from twobrain_rec_server.api.problems import ProblemDetail, problem_exception_handler
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(ingest_router)
     app.include_router(processing_router)
+    app.include_router(calendar_router)
     app.include_router(cabinet_api_router)
     app.include_router(cabinet_web_router)
     return app
