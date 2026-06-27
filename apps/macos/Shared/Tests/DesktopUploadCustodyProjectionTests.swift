@@ -322,8 +322,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
                 deviceFingerprint: "dev_fpr_5afe",
                 safeDeviceIdentifier: "device:dev_fpr_5afe"
             ),
-            affectedItems: summary.affectedItems,
-            now: Date(timeIntervalSince1970: 30)
+            affectedItems: summary.affectedItems
         ))
 
         XCTAssertEqual(summary.pendingCount, 6)
@@ -453,8 +452,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         let report = try XCTUnwrap(DesktopSupportIncidentReport(
             item: item,
             projection: projection,
-            context: context,
-            now: Date(timeIntervalSince1970: 20)
+            context: context
         ))
         let json = String(data: try JSONEncoder().encode(report), encoding: .utf8) ?? ""
 

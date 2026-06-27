@@ -13,7 +13,9 @@ SUPPORT_INCIDENT_GITHUB_REPO = "yshishenya/crisp"
 class SupportIncident(Base):
     __tablename__ = "support_incidents"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "dedupe_key", name="uq_support_incidents_workspace_dedupe"),
+        UniqueConstraint(
+            "workspace_id", "dedupe_key", name="uq_support_incidents_workspace_dedupe"
+        ),
         Index("ix_support_incidents_workspace_status", "workspace_id", "status"),
         Index("ix_support_incidents_github_issue", "github_repo", "github_issue_number"),
     )
@@ -33,13 +35,18 @@ class SupportIncident(Base):
     latest_safe_report_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     latest_safe_report_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
     last_idempotency_key_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    last_idempotency_report_fingerprint: Mapped[str | None] = mapped_column(String(128))
     first_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_duplicate_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     redaction_result: Mapped[str] = mapped_column(String(64), nullable=False)
-    github_repo: Mapped[str] = mapped_column(String(240), nullable=False, default=SUPPORT_INCIDENT_GITHUB_REPO)
+    github_repo: Mapped[str] = mapped_column(
+        String(240), nullable=False, default=SUPPORT_INCIDENT_GITHUB_REPO
+    )
     github_issue_number: Mapped[int | None] = mapped_column(Integer)
     github_issue_url: Mapped[str | None] = mapped_column(String(500))
     github_issue_state: Mapped[str | None] = mapped_column(String(32))

@@ -63,6 +63,7 @@ def upgrade() -> None:
         sa.Column("latest_safe_report_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
         sa.Column("latest_safe_report_fingerprint", sa.String(length=128), nullable=False),
         sa.Column("last_idempotency_key_fingerprint", sa.String(length=128)),
+        sa.Column("last_idempotency_report_fingerprint", sa.String(length=128)),
         sa.Column("first_received_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_received_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_duplicate_received_at", sa.DateTime(timezone=True)),

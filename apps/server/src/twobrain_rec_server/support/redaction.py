@@ -100,7 +100,12 @@ BOOL_FIELDS = {
     "server_copy_known",
     "upload_session_present",
 }
-INT_FIELDS = {"upload_attempt_count", "expected_parts_count", "uploaded_parts_count", "affected_count"}
+INT_FIELDS = {
+    "upload_attempt_count",
+    "expected_parts_count",
+    "uploaded_parts_count",
+    "affected_count",
+}
 
 UNSAFE_KEY_PARTS = (
     "authorization",
@@ -144,7 +149,9 @@ BLOCKING_UNKNOWN_KEY_PARTS = (
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 BEARER_RE = re.compile(r"\bbearer\s+[a-z0-9._~+/-]+=*", re.IGNORECASE)
 SECRET_RE = re.compile(r"\b(api[_-]?key|token|password|secret)\s*[:=]", re.IGNORECASE)
-SIGNED_URL_RE = re.compile(r"https?://[^\s]+(X-Amz-Signature=|[?&](token|signature|sig)=)", re.IGNORECASE)
+SIGNED_URL_RE = re.compile(
+    r"https?://[^\s]+(X-Amz-Signature=|[?&](token|signature|sig)=)", re.IGNORECASE
+)
 RAW_PATH_RE = re.compile(r"(^|[\s=:])(/Users/|/private/|/var/folders/|file://|[A-Za-z]:\\)")
 SAFE_TEXT_RE = re.compile(r"^[A-Za-z0-9 ._:/+@-]{1,256}$")
 SAFE_FINGERPRINT_RE = re.compile(r"^(?:fpr|[a-z0-9]+_fpr)_[a-f0-9]{2,64}$")
@@ -158,6 +165,12 @@ FINGERPRINT_FIELDS = {
     "server_meeting_fingerprint",
     "server_media_revision_fingerprint",
     "upload_session_fingerprint",
+}
+REPORT_FINGERPRINT_EXCLUDED_FIELDS = {
+    "received_at",
+    "safe_report_fingerprint",
+    "dedupe_key",
+    "affected_identity_fingerprint",
 }
 
 
@@ -192,8 +205,7 @@ def build_server_redacted_report(
     report["redaction_result"] = "accepted_with_redactions" if forbidden_count else "accepted"
     report["forbidden_field_count"] = forbidden_count
 
-    fingerprint_source = canonical_report_json(report)
-    report["safe_report_fingerprint"] = _fingerprint("report_fpr", fingerprint_source)
+    report["safe_report_fingerprint"] = stable_report_fingerprint(report)
     report["dedupe_key"] = derive_dedupe_key(report)
     report["affected_identity_fingerprint"] = derive_affected_identity(report)
     return report
@@ -201,6 +213,13 @@ def build_server_redacted_report(
 
 def canonical_report_json(report: Mapping[str, Any]) -> str:
     return json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def stable_report_fingerprint(report: Mapping[str, Any]) -> str:
+    stable_report = {
+        key: value for key, value in report.items() if key not in REPORT_FINGERPRINT_EXCLUDED_FIELDS
+    }
+    return _fingerprint("report_fpr", canonical_report_json(stable_report))
 
 
 def count_forbidden_content(value: Any) -> int:
@@ -224,7 +243,9 @@ def blocking_unsafe_unknown_fields(payload: Mapping[str, Any]) -> tuple[str, ...
         if key in ALLOWED_REPORT_FIELDS:
             continue
         lowered = str(key).lower()
-        if any(part in lowered for part in BLOCKING_UNKNOWN_KEY_PARTS) or count_forbidden_content(value):
+        if any(part in lowered for part in BLOCKING_UNKNOWN_KEY_PARTS) or count_forbidden_content(
+            value
+        ):
             blocked.append(str(key))
     return tuple(sorted(blocked))
 
@@ -334,18 +355,27 @@ def _redact_safe_identity(
         return REDACTED_METADATA, 1
     if value in SAFE_SENTINELS or SAFE_FINGERPRINT_RE.match(value):
         return value, 0
-    if allow_device_prefix and value.startswith("device:") and _is_safe_fingerprint(value.removeprefix("device:")):
+    if (
+        allow_device_prefix
+        and value.startswith("device:")
+        and _is_safe_fingerprint(value.removeprefix("device:"))
+    ):
         return value, 0
-    if allow_recording_prefix and (
-        value.startswith("local:")
-        or value.startswith("server:")
-    ) and _is_safe_fingerprint(value.split(":", 1)[1]):
+    if (
+        allow_recording_prefix
+        and (value.startswith("local:") or value.startswith("server:"))
+        and _is_safe_fingerprint(value.split(":", 1)[1])
+    ):
         return value, 0
     return REDACTED_METADATA, 1
 
 
 def _is_safe_text(value: Any) -> bool:
-    return isinstance(value, str) and not _is_unsafe_string(value) and SAFE_TEXT_RE.match(value) is not None
+    return (
+        isinstance(value, str)
+        and not _is_unsafe_string(value)
+        and SAFE_TEXT_RE.match(value) is not None
+    )
 
 
 def _is_safe_fingerprint(value: str) -> bool:

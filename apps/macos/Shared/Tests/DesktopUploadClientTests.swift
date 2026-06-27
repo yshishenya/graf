@@ -295,8 +295,7 @@ final class DesktopUploadClientTests: XCTestCase {
                 userFingerprint: "usr_fpr_7e57",
                 deviceFingerprint: "dev_fpr_7e57",
                 safeDeviceIdentifier: "device:dev_fpr_7e57"
-            ),
-            now: Date(timeIntervalSince1970: 20)
+            )
         )
     }
 

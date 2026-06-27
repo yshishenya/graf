@@ -988,8 +988,7 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         item: DesktopUploadQueueItem,
         projection: DesktopUploadCustodyProjection,
         context: DesktopSupportIncidentReportContext = .unknown,
-        affectedItems: [DesktopUploadQueueItem] = [],
-        now _: Date = Date()
+        affectedItems: [DesktopUploadQueueItem] = []
     ) {
         guard Self.reportAvailable(for: projection) else { return nil }
         let boundedAffectedItems = Self.affectedItems(primary: item, affectedItems: affectedItems)
@@ -1323,8 +1322,7 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
 
     public init?(
         item: DesktopUploadQueueItem,
-        projection: DesktopUploadCustodyProjection,
-        now _: Date = Date()
+        projection: DesktopUploadCustodyProjection
     ) {
         guard Self.safeIncidentAvailable(for: projection) else { return nil }
         self.schemaVersion = Self.schemaVersion

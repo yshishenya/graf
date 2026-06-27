@@ -1118,8 +1118,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 item: item,
                 projection: projection,
                 context: context,
-                affectedItems: affectedItems,
-                now: now
+                affectedItems: affectedItems
             ) else {
                 var next = item
                 next.updatedAt = now
@@ -1378,13 +1377,32 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             return quarantined
         }
         var loaded = loadedDocument
+        let now = clock()
         let needsSchemaMigration = loaded.schemaVersion != DesktopUploadQueueDocument.schemaVersion
         if needsSchemaMigration {
             loaded.schemaVersion = DesktopUploadQueueDocument.schemaVersion
         }
-        loaded.items = loaded.items.sortedForDisplay()
-        if needsSchemaMigration {
-            loaded.updatedAt = clock()
+        var needsSave = needsSchemaMigration
+        loaded.items = loaded.items.map { item in
+            guard let submission = item.supportIncidentSubmission,
+                  submission.state == .sending
+            else {
+                return item
+            }
+            var next = item
+            next.updatedAt = now
+            next.supportIncidentSubmission = .failedWithCopyFallback(
+                reportFingerprint: submission.localReportFingerprint ?? "unknown",
+                dedupeKey: submission.dedupeKey ?? "unknown",
+                attemptedAt: now,
+                failureCategory: UploadFailureCategory.network.rawValue,
+                failureCode: "support_incident.interrupted"
+            )
+            needsSave = true
+            return next
+        }.sortedForDisplay()
+        if needsSave {
+            loaded.updatedAt = now
             try saveDocumentOnQueue(loaded)
         }
         document = loaded

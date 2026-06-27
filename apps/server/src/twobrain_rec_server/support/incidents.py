@@ -24,6 +24,9 @@ from twobrain_rec_server.support.github_issues import (
 from twobrain_rec_server.support.redaction import (
     SupportIncidentRedactionError,
     build_server_redacted_report,
+    derive_affected_identity,
+    derive_dedupe_key,
+    stable_report_fingerprint,
 )
 
 
@@ -67,30 +70,47 @@ async def submit_support_incident(
         report = build_server_redacted_report(payload, received_at=now)
     except SupportIncidentRedactionError as exc:
         raise _redaction_error(exc) from exc
+    report = _apply_server_scope(report, tenant_scope)
 
     idempotency_fingerprint = _idempotency_fingerprint(idempotency_key)
+    idempotency_report_fingerprint = (
+        str(report["safe_report_fingerprint"]) if idempotency_fingerprint else None
+    )
     idempotent_incident = await _load_idempotent_incident(
         tenant_scope=tenant_scope,
         db=db,
         idempotency_fingerprint=idempotency_fingerprint,
     )
     if idempotent_incident is not None:
-        if idempotent_incident.dedupe_key != str(report["dedupe_key"]):
+        stored_report_fingerprint = idempotent_incident.last_idempotency_report_fingerprint
+        if (
+            stored_report_fingerprint is not None
+            and stored_report_fingerprint != idempotency_report_fingerprint
+        ) or (
+            stored_report_fingerprint is None
+            and idempotent_incident.dedupe_key != str(report["dedupe_key"])
+        ):
             raise SupportIncidentSubmissionError(
                 status=409,
                 code="support_incident.idempotency_conflict",
                 title="Idempotency key conflict",
             )
-        if idempotent_incident.github_issue_number is not None and idempotent_incident.incident_number is not None:
+        if (
+            idempotent_incident.github_issue_number is not None
+            and idempotent_incident.incident_number is not None
+        ):
             return _result_from_incident(idempotent_incident, dedupe_status="updated")
 
-    await _touch_rate_limit(settings=settings, tenant_scope=tenant_scope, db=db, report=report, now=now)
+    await _touch_rate_limit(
+        settings=settings, tenant_scope=tenant_scope, db=db, report=report, now=now
+    )
     incident, dedupe_status = await _upsert_incident(
         tenant_scope=tenant_scope,
         db=db,
         report=report,
         now=now,
         idempotency_fingerprint=idempotency_fingerprint,
+        idempotency_report_fingerprint=idempotency_report_fingerprint,
     )
     owner = settings.support_incident_github_owner
     repo = settings.support_incident_github_repo
@@ -159,7 +179,11 @@ async def _touch_rate_limit(
         )
     )
     window = timedelta(seconds=int(settings.support_incident_rate_limit_window_seconds))
-    blocked_until = _aware(bucket.blocked_until) if bucket is not None and bucket.blocked_until is not None else None
+    blocked_until = (
+        _aware(bucket.blocked_until)
+        if bucket is not None and bucket.blocked_until is not None
+        else None
+    )
     if blocked_until is not None and blocked_until > now:
         raise _rate_limited()
     if bucket is None:
@@ -201,6 +225,23 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def _apply_server_scope(report: Mapping[str, Any], tenant_scope: TenantScope) -> dict[str, Any]:
+    scoped = dict(report)
+    device_fingerprint = _scope_fingerprint(tenant_scope.device_id, prefix="dev_fpr")
+    scoped["workspace_fingerprint"] = _scope_fingerprint(tenant_scope.workspace_id, prefix="ws_fpr")
+    scoped["user_fingerprint"] = _scope_fingerprint(tenant_scope.user_id, prefix="usr_fpr")
+    scoped["device_fingerprint"] = device_fingerprint
+    scoped["safe_device_identifier"] = f"device:{device_fingerprint}"
+    scoped["safe_report_fingerprint"] = stable_report_fingerprint(scoped)
+    scoped["dedupe_key"] = derive_dedupe_key(scoped)
+    scoped["affected_identity_fingerprint"] = derive_affected_identity(scoped)
+    return scoped
+
+
+def _scope_fingerprint(value: object, *, prefix: str) -> str:
+    return prefix + "_" + sha256(str(value).encode("utf-8")).hexdigest()[:12]
+
+
 async def _upsert_incident(
     *,
     tenant_scope: TenantScope,
@@ -208,6 +249,7 @@ async def _upsert_incident(
     report: Mapping[str, Any],
     now: datetime,
     idempotency_fingerprint: str | None,
+    idempotency_report_fingerprint: str | None,
 ) -> tuple[SupportIncident, str]:
     dedupe_key = str(report["dedupe_key"])
     incident = await db.scalar(
@@ -235,6 +277,7 @@ async def _upsert_incident(
             latest_safe_report_json=dict(report),
             latest_safe_report_fingerprint=str(report["safe_report_fingerprint"]),
             last_idempotency_key_fingerprint=idempotency_fingerprint,
+            last_idempotency_report_fingerprint=idempotency_report_fingerprint,
             first_received_at=now,
             last_received_at=now,
             redaction_result=str(report.get("redaction_result") or "accepted"),
@@ -247,6 +290,10 @@ async def _upsert_incident(
     is_replay = (
         idempotency_fingerprint is not None
         and incident.last_idempotency_key_fingerprint == idempotency_fingerprint
+        and (
+            incident.last_idempotency_report_fingerprint is None
+            or incident.last_idempotency_report_fingerprint == idempotency_report_fingerprint
+        )
     )
     if not is_replay:
         incident.affected_count += affected_count
@@ -257,7 +304,12 @@ async def _upsert_incident(
     incident.safe_affected_identities = identities
     incident.latest_safe_report_json = dict(report)
     incident.latest_safe_report_fingerprint = str(report["safe_report_fingerprint"])
-    incident.last_idempotency_key_fingerprint = idempotency_fingerprint or incident.last_idempotency_key_fingerprint
+    incident.last_idempotency_key_fingerprint = (
+        idempotency_fingerprint or incident.last_idempotency_key_fingerprint
+    )
+    incident.last_idempotency_report_fingerprint = (
+        idempotency_report_fingerprint or incident.last_idempotency_report_fingerprint
+    )
     incident.last_received_at = now
     if not is_replay:
         incident.last_duplicate_received_at = now
@@ -300,7 +352,9 @@ def _reported_safe_identities(report: Mapping[str, Any]) -> list[str]:
     return identities
 
 
-def _result_from_incident(incident: SupportIncident, *, dedupe_status: str) -> SupportIncidentSubmissionResult:
+def _result_from_incident(
+    incident: SupportIncident, *, dedupe_status: str
+) -> SupportIncidentSubmissionResult:
     if incident.incident_number is None or incident.github_issue_number is None:
         raise RuntimeError("Support incident is missing a synced GitHub issue")
     return SupportIncidentSubmissionResult(
@@ -335,7 +389,9 @@ async def _create_or_update_issue(
         github_issue_number=incident.github_issue_number,
     )
     if dedupe_status == "updated" and incident.github_issue_number is not None:
-        existing = await github_client.get_issue(owner=owner, repo=repo, issue_number=incident.github_issue_number)
+        existing = await github_client.get_issue(
+            owner=owner, repo=repo, issue_number=incident.github_issue_number
+        )
         body = updated_deduped_issue_body(
             str(existing.get("body") or ""),
             report,

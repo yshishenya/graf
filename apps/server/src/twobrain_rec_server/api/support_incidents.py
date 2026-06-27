@@ -10,11 +10,7 @@ from twobrain_rec_server.api.schemas import (
     SupportIncidentResponse,
 )
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.auth.dependencies import (
-    get_device_context,
-    get_principal,
-    get_tenant_scope,
-)
+from twobrain_rec_server.auth.dependencies import get_tenant_scope
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.support.github_issues import GitHubIssueClient
 from twobrain_rec_server.support.incidents import (
@@ -35,8 +31,6 @@ PROBLEM_RESPONSES = {
 router = APIRouter(prefix="/api/v1", tags=["support-incidents"], responses=PROBLEM_RESPONSES)
 
 TenantDependency = Depends(get_tenant_scope)
-PrincipalDependency = Depends(get_principal)
-DeviceDependency = Depends(get_device_context)
 
 
 async def get_request_db_session(
@@ -86,7 +80,9 @@ def get_github_issue_client(request: Request) -> object:
             code="support_incident.configuration_invalid",
             title="Support incident GitHub token unavailable",
         )
-    return GitHubIssueClient(token=token, timeout_seconds=float(settings.support_incident_github_timeout_seconds))
+    return GitHubIssueClient(
+        token=token, timeout_seconds=float(settings.support_incident_github_timeout_seconds)
+    )
 
 
 GitHubClientDependency = Depends(get_github_issue_client)
@@ -96,7 +92,6 @@ GitHubClientDependency = Depends(get_github_issue_client)
     "/desktop/support-incidents",
     status_code=201,
     response_model=SupportIncidentResponse,
-    dependencies=[PrincipalDependency, DeviceDependency],
 )
 async def create_support_incident(
     payload: SupportIncidentReportRequest,

@@ -41,6 +41,7 @@ def test_support_incident_model_has_safe_dedupe_storage_contract() -> None:
         "latest_safe_report_json",
         "latest_safe_report_fingerprint",
         "last_idempotency_key_fingerprint",
+        "last_idempotency_report_fingerprint",
         "github_repo",
         "github_issue_number",
         "github_issue_url",
@@ -56,8 +57,17 @@ def test_support_incident_model_has_safe_dedupe_storage_contract() -> None:
     assert not table.c.dedupe_key.nullable
     assert table.c.incident_number.nullable
     assert table.c.last_idempotency_key_fingerprint.nullable
+    assert table.c.last_idempotency_report_fingerprint.nullable
 
-    unsafe_name_parts = {"audio", "email", "meeting_title", "raw_path", "signed_url", "token", "transcript"}
+    unsafe_name_parts = {
+        "audio",
+        "email",
+        "meeting_title",
+        "raw_path",
+        "signed_url",
+        "token",
+        "transcript",
+    }
     assert not any(
         unsafe_name_part in column.name
         for column in table.c
@@ -78,8 +88,12 @@ def test_support_incident_rate_limit_bucket_has_durable_scope() -> None:
         "last_attempt_at",
         "blocked_until",
     }.issubset(table.c.keys())
-    assert "uq_support_incident_rate_limit_scope" in _constraint_names(SupportIncidentRateLimitBucket)
-    assert "ix_support_incident_rate_limit_blocked_until" in _index_names(SupportIncidentRateLimitBucket)
+    assert "uq_support_incident_rate_limit_scope" in _constraint_names(
+        SupportIncidentRateLimitBucket
+    )
+    assert "ix_support_incident_rate_limit_blocked_until" in _index_names(
+        SupportIncidentRateLimitBucket
+    )
     assert not table.c.workspace_id.nullable
     assert not table.c.reporter_user_id.nullable
     assert not table.c.device_id.nullable
@@ -93,6 +107,7 @@ def test_support_incident_migration_declares_tables_indexes_and_rls() -> None:
         "support_incidents",
         "support_incident_rate_limit_buckets",
         "last_idempotency_key_fingerprint",
+        "last_idempotency_report_fingerprint",
         "uq_support_incidents_workspace_dedupe",
         "uq_support_incident_rate_limit_scope",
         "enable row level security",

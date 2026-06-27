@@ -100,6 +100,20 @@ def test_redacts_to_deterministic_metadata_only_report() -> None:
     assert canonical_report_json(report) == canonical_report_json(dict(reversed(report.items())))
 
 
+def test_safe_report_fingerprint_is_stable_across_received_at() -> None:
+    first = build_server_redacted_report(
+        safe_report_payload(),
+        received_at=datetime(2026, 6, 26, 11, 0, tzinfo=UTC),
+    )
+    second = build_server_redacted_report(
+        safe_report_payload(),
+        received_at=datetime(2026, 6, 26, 11, 5, tzinfo=UTC),
+    )
+
+    assert first["received_at"] != second["received_at"]
+    assert first["safe_report_fingerprint"] == second["safe_report_fingerprint"]
+
+
 def test_redacts_forbidden_values_and_never_keeps_content() -> None:
     payload = safe_report_payload()
     payload["last_safe_problem_code"] = "token=abc123"

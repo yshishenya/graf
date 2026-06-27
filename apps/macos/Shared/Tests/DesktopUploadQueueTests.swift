@@ -1662,6 +1662,37 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
     }
 
+    func testInterruptedSupportIncidentSubmissionRecoversCopyFallbackOnRestart() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        var item = makeSupportIncidentItem(id: "support-interrupted")
+        item.supportIncidentSubmission = .sending(
+            reportFingerprint: "report_fpr_1234abcd",
+            dedupeKey: "support_dedupe_1234abcd",
+            attemptedAt: Date(timeIntervalSince1970: 100)
+        )
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: SupportIncidentOnlyClient(),
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        let saved = try XCTUnwrap(service.loadItems().first)
+
+        XCTAssertEqual(saved.supportIncidentSubmission?.state, .failedWithCopyFallback)
+        XCTAssertEqual(saved.supportIncidentSubmission?.localReportFingerprint, "report_fpr_1234abcd")
+        XCTAssertEqual(saved.supportIncidentSubmission?.dedupeKey, "support_dedupe_1234abcd")
+        XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCategory, UploadFailureCategory.network.rawValue)
+        XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCode, "support_incident.interrupted")
+        XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
+    }
+
     func testQueueDocumentUsesRevisionReadyV2Schema() {
         let fixture = makeQueueV2Fixture(directoryId: "recording-sync-001")
 
