@@ -5,9 +5,9 @@
 <nav class="cabinet-sidebar-nav" aria-label="Навигация кабинета">
   {%- for item in items -%}
   {%- set enabled = item.enabled|default(true) -%}
-  <a class="cabinet-sidebar-nav__item{% if item.id == active %} is-selected{% endif %}{% if not enabled %} is-disabled{% endif %}" href="{{ item.href }}" data-state="{{ 'selected' if item.id == active else 'disabled' if not enabled else 'normal' }}"{% if not enabled %} aria-disabled="true"{% endif %}>
+  <a class="cabinet-sidebar-nav__item{% if item.id == active %} is-selected{% endif %}{% if not enabled %} is-disabled{% endif %}" href="{{ item.href }}" data-state="{{ 'selected' if item.id == active else 'disabled' if not enabled else 'normal' }}"{% if item.id == active %} aria-current="page"{% endif %}{% if not enabled %} aria-disabled="true" tabindex="-1"{% endif %}>
     {{ icons.icon(item.icon) }}
-    <span>{{ item.label }}</span>
+    <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
     {%- if item.count is defined and item.count is not none -%}<span class="cabinet-sidebar-nav__count">{{ item.count }}</span>{%- endif -%}
   </a>
   {%- endfor -%}

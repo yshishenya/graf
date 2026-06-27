@@ -1,7 +1,9 @@
 {% import "cabinet/components/sections.html" as sections %}
+{% import "cabinet/components/icons.html" as icons %}
 
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-cabinet-shell data-active-nav="{{ navigation.active }}">
-  <aside class="sidebar" data-cabinet-navigation>
+  <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
+    <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Развернуть меню" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
     {{ sections.workspace_header(navigation.workspace_title, navigation.workspace_subtitle, "2") }}
     <button class="primary" type="button" disabled>Пригласить</button>
     {{ sections.sidebar_navigation(navigation.items, active=navigation.active) }}

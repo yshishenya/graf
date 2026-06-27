@@ -438,15 +438,48 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
 
 
-def test_embedded_window_breakpoint_does_not_keep_hidden_sidebar_column() -> None:
+def test_embedded_window_breakpoint_keeps_compact_rail_visible() -> None:
     css = _cabinet_css()
 
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
-        "  .app-shell.desktop-embedded { grid-template-columns: 1fr; }\n"
-        "  .sidebar { display: none; }"
+        "  .app-shell.desktop-embedded { grid-template-columns: 52px minmax(0, 1fr); }"
     ) in css
+    assert ".desktop-embedded .sidebar {\n    display: flex;" in css
+    assert "    width: 52px;" in css
+    assert ".desktop-embedded .sidebar:hover," in css
+    assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
+    assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
+
+
+def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        embedded=True,
+    )
+
+    assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in page
+    assert 'data-cabinet-rail-toggle' in page
+    assert 'aria-controls="cabinet-sidebar"' in page
+    assert 'aria-expanded="false"' in page
+    assert 'data-icon="panel-left-open"' in page
+    assert 'aria-current="page"' in page
+    for icon in ("search", "calendar-days", "users-round", "list-checks", "activity", "settings"):
+        assert f'data-icon="{icon}"' in page
+
+
+def test_cabinet_rail_toggle_js_contract() -> None:
+    js = _cabinet_js()
+
+    assert "data-cabinet-rail-toggle" in js
+    assert "is-rail-pinned" in js
+    assert 'event.key === "Escape"' in js
+    assert 'toggle.setAttribute("aria-expanded"' in js
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:

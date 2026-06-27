@@ -123,12 +123,12 @@ def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, em
     return CabinetNavigationModel(
         active=active,
         items=(
-            CabinetNavigationItem("search", "Поиск", "#", "filter", enabled=False),
-            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "audio"),
-            CabinetNavigationItem("shared", "Общие", "#", "bookmark", enabled=False),
-            CabinetNavigationItem("actions", "Действия", "#", "check", enabled=False, count=pending_actions),
-            CabinetNavigationItem("activity", "Активность", "#", "sort", enabled=False),
-            CabinetNavigationItem("settings", "Настройки", "#", "filter", enabled=False),
+            CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
+            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
+            CabinetNavigationItem("shared", "Общие", "#", "users-round", enabled=False),
+            CabinetNavigationItem("actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions),
+            CabinetNavigationItem("activity", "Активность", "#", "activity", enabled=False),
+            CabinetNavigationItem("settings", "Настройки", "#", "settings", enabled=False),
         ),
     )
 

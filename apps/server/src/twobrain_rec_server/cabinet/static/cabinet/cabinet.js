@@ -326,8 +326,36 @@
     });
   };
 
+  const setRailPinned = (shell, toggle, pinned) => {
+    shell.classList.toggle("is-rail-pinned", pinned);
+    toggle.setAttribute("aria-expanded", pinned ? "true" : "false");
+    toggle.setAttribute("aria-label", pinned ? "Свернуть меню" : "Развернуть меню");
+  };
+
+  const initCabinetRail = () => {
+    const shell = document.querySelector("[data-cabinet-shell].desktop-embedded");
+    const sidebar = shell?.querySelector("[data-cabinet-navigation]");
+    const toggle = shell?.querySelector("[data-cabinet-rail-toggle]");
+    if (!shell || !sidebar || !toggle || shell.dataset.railReady === "true") return;
+    shell.dataset.railReady = "true";
+    toggle.addEventListener("click", () => {
+      setRailPinned(shell, toggle, !shell.classList.contains("is-rail-pinned"));
+    });
+    sidebar.querySelectorAll("a[href]").forEach((link) => {
+      link.addEventListener("click", () => setRailPinned(shell, toggle, false));
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") setRailPinned(shell, toggle, false);
+    });
+    document.addEventListener("click", (event) => {
+      if (!shell.classList.contains("is-rail-pinned") || !(event.target instanceof Element)) return;
+      if (!event.target.closest("[data-cabinet-navigation]")) setRailPinned(shell, toggle, false);
+    });
+  };
+
   const initCabinet = () => {
     initAuthTransition();
+    initCabinetRail();
     initCodeForms();
     initMeetingList();
     initDetailTabs();
