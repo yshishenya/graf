@@ -22,6 +22,7 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
 
     assert response.status_code == 200
     assert "/static/cabinet/cabinet.css" in response.text
+    assert 'aria-label="GRAF">GRAF</div>' in response.text
     assert "app-shell admin-app-shell" in response.text
     assert "sidebar admin-sidebar" in response.text
     assert "Администрирование" in response.text
