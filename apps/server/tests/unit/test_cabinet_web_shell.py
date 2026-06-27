@@ -438,6 +438,17 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
 
 
+def test_embedded_window_breakpoint_does_not_keep_hidden_sidebar_column() -> None:
+    css = _cabinet_css()
+
+    assert (
+        "@media (max-width: 980px) {\n"
+        "  .app-shell { grid-template-columns: 1fr; }\n"
+        "  .app-shell.desktop-embedded { grid-template-columns: 1fr; }\n"
+        "  .sidebar { display: none; }"
+    ) in css
+
+
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
     audio = _item()
     audio.artifacts = [
