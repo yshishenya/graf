@@ -48,6 +48,9 @@ async def test_postal_email_login_client_sends_code_with_server_api_key() -> Non
     assert "Подтвердите вход в GRAF" in payload["plain_body"]
     assert "Подтвердите вход" in payload["html_body"]
     assert "кабинету GRAF" in payload["html_body"]
+    assert "letter-spacing:0" in payload["html_body"]
+    assert "background:#111820" not in payload["html_body"]
+    assert "Made by GRAF" not in payload["html_body"]
     assert ">2</div>" not in payload["html_body"]
     assert "background:#f0f0f2" in payload["html_body"]
 
