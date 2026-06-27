@@ -537,8 +537,10 @@ async def start_provider_flow(
     )
     callback_url = build_provider_callback_url(request, normalized_provider)
     settings = request.app.state.settings
+    credentials = _provider_credentials(settings, normalized_provider, callback_url)
     authorization_url = adapter.build_authorization_url(
-        client_id=_provider_client_id(settings, normalized_provider),
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
         redirect_uri=callback_url,
         state=state.state_nonce,
         return_url=payload.workspace_return_url,

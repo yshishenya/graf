@@ -163,6 +163,10 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
     assert "Продолжить через VK ID" in response.text
     assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+    assert "Продолжить через Mail.ru" in response.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=mail_ru" in response.text
+    assert "Продолжить через Одноклассники" in response.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=ok_ru" in response.text
     assert "Продолжить через Telegram" in response.text
     assert "скоро" in response.text
     assert "Workspace ID" not in response.text
@@ -179,6 +183,8 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert "Продолжить через Яндекс ID" in first_step.text
     assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in first_step.text
     assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in first_step.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=mail_ru" in first_step.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=ok_ru" in first_step.text
     assert "Продолжить с email" in first_step.text
     assert "Workspace ID" not in first_step.text
     assert 'name="workspace_id"' not in first_step.text
@@ -207,10 +213,28 @@ def test_browser_vk_login_start_redirects_to_provider(client) -> None:
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith("https://id.vk.com/authorize?")
+    assert response.headers["location"].startswith("https://id.vk.ru/authorize?")
     assert "client_id=twobrain-vk-client-id" in response.headers["location"]
     assert "state=" in response.headers["location"]
+    assert "scope=email+phone" in response.headers["location"]
+    assert "code_challenge_method=S256" in response.headers["location"]
     assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fvk" in response.headers["location"]
+
+
+def test_browser_vk_login_start_supports_mail_and_ok_provider_hints(client) -> None:
+    mail = client.get(
+        "/login/vk/start?next=/meetings&auth_provider=mail_ru",
+        follow_redirects=False,
+    )
+    ok = client.get(
+        "/login/vk/start?next=/meetings&auth_provider=ok_ru",
+        follow_redirects=False,
+    )
+
+    assert mail.status_code == 303
+    assert "provider=mail_ru" in mail.headers["location"]
+    assert ok.status_code == 303
+    assert "provider=ok_ru" in ok.headers["location"]
 
 
 def test_browser_telegram_provider_login_route_remains_stub(client) -> None:

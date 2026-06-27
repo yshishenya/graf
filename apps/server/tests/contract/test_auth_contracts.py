@@ -40,6 +40,26 @@ class FakeProviderHttpClient:
     ) -> dict[str, Any]:
         _ = headers
         self.calls.append(("POST", url, data))
+        if "id.vk.ru/oauth2/auth" in url:
+            if data["code"] != "VALID-VK-CODE":
+                return {"error": "invalid_grant"}
+            return {
+                "access_token": "verified-vk-token",
+                "user_id": "VK-USER-42",
+                "state": data["state"],
+                "scope": "email phone",
+            }
+        if "id.vk.ru/oauth2/user_info" in url:
+            assert data["access_token"] == "verified-vk-token"
+            return {
+                "user": {
+                    "user_id": "VK-USER-42",
+                    "first_name": "Verified",
+                    "last_name": "VK",
+                    "email": "verified-vk@example.ru",
+                    "phone": "+79990001111",
+                }
+            }
         if data["code"] != "VALID-YANDEX-CODE":
             return {"error": "invalid_grant"}
         return {"access_token": "verified-yandex-token", "token_type": "bearer"}
@@ -459,6 +479,9 @@ def test_vk_provider_start_uses_public_auth_base_url_and_vk_client_id(client: Te
     query = parse_qs(urlparse(start.json()["authorization_url"]).query)
     assert query["client_id"] == ["twobrain-vk-client-id"]
     assert query["redirect_uri"] == ["https://rec.2brain.pro/api/v1/auth/callback/vk"]
+    assert query["scope"] == ["email phone"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert len(query["code_challenge"][0]) >= 43
 
 
 def test_vk_callback_uses_verified_profile_not_raw_code(monkeypatch, tmp_path, client: TestClient) -> None:
@@ -475,7 +498,7 @@ def test_vk_callback_uses_verified_profile_not_raw_code(monkeypatch, tmp_path, c
 
     response = client.get(
         "/api/v1/auth/callback/vk",
-        params={"state": start.json()["state_nonce"], "code": "VALID-VK-CODE"},
+        params={"state": start.json()["state_nonce"], "code": "VALID-VK-CODE", "device_id": "VK-DEVICE"},
     )
 
     assert response.status_code == 200
@@ -483,16 +506,23 @@ def test_vk_callback_uses_verified_profile_not_raw_code(monkeypatch, tmp_path, c
     assert payload["provider_subject"] == "vk-user-42"
     assert payload["provider_subject"] != "valid-vk-code"
     assert fake_http.calls[0] == (
-        "GET",
-        "https://oauth.vk.com/access_token",
+        "POST",
+        "https://id.vk.ru/oauth2/auth",
         {
+            "grant_type": "authorization_code",
             "client_id": "twobrain-vk-client-id",
-            "client_secret": "vk-secret",
+            "code_verifier": fake_http.calls[0][2]["code_verifier"],
+            "device_id": "VK-DEVICE",
             "redirect_uri": "http://testserver/api/v1/auth/callback/vk",
             "code": "VALID-VK-CODE",
+            "state": start.json()["state_nonce"],
         },
     )
-    assert fake_http.calls[1][0:2] == ("GET", "https://api.vk.com/method/users.get")
+    assert fake_http.calls[1] == (
+        "POST",
+        "https://id.vk.ru/oauth2/user_info",
+        {"client_id": "twobrain-vk-client-id", "access_token": "verified-vk-token"},
+    )
 
 
 def test_telegram_callback_rejects_forged_signature(tmp_path, client: TestClient) -> None:

@@ -11,6 +11,9 @@
 ### Добавлено
 - Feature `066-vk-id-web-login`: web-cabinet показывает активный вход через
   VK ID и ведет `/login/vk/start` в существующий provider flow.
+- Feature `066-vk-id-web-login`: web-cabinet добавляет вход через Mail.ru и
+  Одноклассники как VK ID provider hints, без отдельных backend OAuth
+  провайдеров.
 
 ### Изменено
 - _Пока нет записей._
@@ -19,7 +22,8 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `066-vk-id-web-login`: VK callback обновлен на OAuth VK ID 2.1 с
+  PKCE, `device_id` и серверной проверкой `state` при обмене кода.
 
 ### Документы
 - _Пока нет записей._
