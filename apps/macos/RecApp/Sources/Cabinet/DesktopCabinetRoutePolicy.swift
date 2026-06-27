@@ -4,6 +4,7 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingList
     case meetingDetail
     case meetingDeletionReport
+    case admin
     case authLogin
     case authSignup
     case unsupported
@@ -41,6 +42,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case blockedReviewUnavailable = "blocked_review_unavailable"
     case blockedUnknownRoute = "blocked_unknown_route"
     case openExternalSafeLink = "open_external_safe_link"
+    case openBrowserOwnedAdmin = "open_browser_owned_admin"
     case invalidURL = "invalid_url"
 }
 
@@ -125,6 +127,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedMeetingDeletionReport,
                 userMessage: "Meeting deletion report"
+            )
+        }
+        if isAdminRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .admin),
+                decision: .openExternally,
+                reason: .openBrowserOwnedAdmin,
+                userMessage: "Open workspace admin in your browser."
             )
         }
         if isFutureGovernanceRoute(components) {
@@ -226,6 +236,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 "share"
             ]
         )
+    }
+
+    private func isAdminRoute(_ components: [String]) -> Bool {
+        components.first?.lowercased() == "admin"
     }
 
     private func isNativeCaptureControlRoute(_ components: [String]) -> Bool {

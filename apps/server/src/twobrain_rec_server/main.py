@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 
+from twobrain_rec_server.admin.templates import ADMIN_STATIC_URL, admin_static_dir
+from twobrain_rec_server.admin.web import router as admin_web_router
+from twobrain_rec_server.api.admin import router as admin_api_router
 from twobrain_rec_server.api.auth import router as auth_router
 from twobrain_rec_server.api.cabinet import router as cabinet_api_router
 from twobrain_rec_server.api.calendar import router as calendar_router
@@ -60,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.middleware("http")(request_logging_middleware)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+    app.mount(ADMIN_STATIC_URL, StaticFiles(directory=admin_static_dir()), name="admin_static")
     app.mount(CABINET_STATIC_URL, StaticFiles(directory=cabinet_static_dir()), name="cabinet_static")
     app.include_router(health_router)
     app.include_router(auth_router)
@@ -67,6 +71,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(processing_router)
     app.include_router(calendar_router)
     app.include_router(support_incidents_router)
+    app.include_router(admin_api_router)
     app.include_router(cabinet_api_router)
+    app.include_router(admin_web_router)
     app.include_router(cabinet_web_router)
     return app

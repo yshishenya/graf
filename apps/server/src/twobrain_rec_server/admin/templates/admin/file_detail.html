@@ -1,0 +1,91 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-panel">
+    <h2>Файл встречи</h2>
+    <dl class="admin-metrics">
+      <div><dt>Встреча</dt><dd>{{ view.file.meeting_id }}</dd></div>
+      <div><dt>Владелец</dt><dd>{{ view.file.owner_user_id }}</dd></div>
+      <div><dt>Название</dt><dd>{{ view.file.title or "Без названия" }}</dd></div>
+      <div><dt>Длительность, сек</dt><dd>{{ view.file.duration_seconds }}</dd></div>
+      <div><dt>Размер, байт</dt><dd>{{ view.file.total_size_bytes }}</dd></div>
+      <div><dt>Обработка</dt><dd>{{ view.file.processing_state }}</dd></div>
+      <div><dt>Удаление</dt><dd>{{ view.file.deletion_state }}</dd></div>
+      <div><dt>Доступ</dt><dd>{{ view.file.access.outcome }}</dd></div>
+    </dl>
+  </section>
+  <section class="admin-panel">
+    <h2>Действия</h2>
+    <div class="admin-actions">
+      {% if view.file.actions.review %}
+        <form method="post" action="/admin/files/{{ view.file.meeting_id }}/review-access">
+          <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">
+          <button type="submit">Открыть review</button>
+        </form>
+      {% else %}
+        <button type="button" disabled>Review недоступен</button>
+      {% endif %}
+      {% for state in view.file.egress %}
+        {% if state.action == "download" and state.state == "available" %}
+          <a class="admin-button" href="/api/v1/admin/files/{{ view.file.meeting_id }}/downloads/{{ state.artifact_class }}">Скачать {{ state.artifact_class }}</a>
+        {% endif %}
+      {% endfor %}
+      {% if view.file.actions.export %}
+        <form method="post" action="/admin/files/{{ view.file.meeting_id }}/exports">
+          <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">
+          {% for state in view.file.egress %}
+            {% if state.action == "download" and state.state == "available" %}
+              <input type="hidden" name="artifact_classes" value="{{ state.artifact_class }}">
+            {% endif %}
+          {% endfor %}
+          <button type="submit">Создать export</button>
+        </form>
+      {% else %}
+        <button type="button" disabled>Export недоступен</button>
+      {% endif %}
+    </div>
+  </section>
+  <section class="admin-panel">
+    <h2>Удаление</h2>
+    <p class="admin-empty">Удаление касается только данных, которыми управляет 2brain Rec.</p>
+    {% if view.file.actions.delete %}
+      <form class="admin-form admin-form--inline" method="post" action="/admin/files/{{ view.file.meeting_id }}/deletion-requests">
+        <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">
+        <label>Причина
+          <select name="reason_code" required>
+            <option value="user_request">user_request</option>
+            <option value="retention_expired">retention_expired</option>
+            <option value="policy_blocked">policy_blocked</option>
+          </select>
+        </label>
+        <label class="admin-checkbox">
+          <input type="checkbox" name="confirm" value="true" required>
+          Подтверждаю удаление в границах 2brain Rec
+        </label>
+        <button type="submit">Запросить удаление</button>
+      </form>
+    {% else %}
+      <p class="admin-empty">Удаление уже активно или недоступно для этой встречи.</p>
+    {% endif %}
+  </section>
+  <section class="admin-panel">
+    <h2>Состояния артефактов</h2>
+    <table class="admin-table">
+      <thead><tr><th>Артефакт</th><th>Состояние</th><th>Действие</th><th>Причина</th></tr></thead>
+      <tbody>
+        {% for state in view.file.egress %}
+          <tr>
+            <td>{{ state.artifact_class }}</td>
+            <td>{{ state.state }}</td>
+            <td>{{ state.action }}</td>
+            <td>{{ state.reason or "" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-panel">
+    <h2>Журнал аудита</h2>
+    <form class="admin-toolbar" method="get" action="/admin/audit">
+      <label>С даты
+        <input name="date_from" type="date" value="{{ view.filters.date_from or '' }}">
+      </label>
+      <label>По дату
+        <input name="date_to" type="date" value="{{ view.filters.date_to or '' }}">
+      </label>
+      <label>Пользователь
+        <input name="user_id" type="text" value="{{ view.filters.user_id or '' }}">
+      </label>
+      <label>Действие
+        <input name="action" type="text" value="{{ view.filters.action or '' }}">
+      </label>
+      <label>Объект
+        <input name="object_kind" type="text" value="{{ view.filters.object_kind or '' }}">
+      </label>
+      <label>Результат
+        <input name="outcome" type="text" value="{{ view.filters.outcome or '' }}">
+      </label>
+      <button type="submit">Применить</button>
+    </form>
+    {% if view.audit.entries %}
+      <table class="admin-table">
+        <thead><tr><th>Источник</th><th>Действие</th><th>Объект</th><th>Результат</th></tr></thead>
+        <tbody>
+          {% for entry in view.audit.entries %}
+            <tr>
+              <td>{{ entry.source }}</td>
+              <td>{{ entry.action }}</td>
+              <td>{{ entry.object_kind }}</td>
+              <td>{{ entry.outcome }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="admin-empty">Пока нет событий аудита.</p>
+    {% endif %}
+  </section>
+{% endblock %}

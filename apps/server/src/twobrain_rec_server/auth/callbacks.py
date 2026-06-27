@@ -9,6 +9,11 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.admin.invitations import (
+    complete_matching_invitation_after_login,
+    find_matching_pending_invitation,
+    matching_invitation_contacts,
+)
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.policy import (
     is_provider_enabled_in_policy,
@@ -176,6 +181,7 @@ async def _create_scoped_user(
     provider: str,
     provider_subject: str,
     profile: dict[str, str | None],
+    role: str = "member",
 ) -> UserIdentity:
     try:
         async with db.begin_nested():
@@ -199,7 +205,7 @@ async def _create_scoped_user(
                 WorkspaceMembership(
                     workspace_id=workspace_id,
                     user_id=user.id,
-                    role="member",
+                    role=role,
                     status="active",
                 )
             )
@@ -306,6 +312,12 @@ async def _get_or_create_user_from_provider_claims(
     display_name: str | None,
     allow_provider_self_enrollment: bool,
 ) -> UserIdentity:
+    invitation_contacts = matching_invitation_contacts(
+        provider_subject=provider_subject,
+        provider_username=provider_username,
+        email=email,
+        phone=phone,
+    )
     user = await _user_by_external_identity(
         db,
         organization_id=organization_id,
@@ -332,18 +344,41 @@ async def _get_or_create_user_from_provider_claims(
         )
         if membership is None:
             if not allow_provider_self_enrollment:
-                raise CallbackFlowError(
-                    "workspace_enrollment_required",
-                    "workspace policy requires invite or pre-existing membership",
-                    workspace_id=workspace_id,
-                )
-            db.add(
-                WorkspaceMembership(
+                invitation = await complete_matching_invitation_after_login(
+                    db,
                     workspace_id=workspace_id,
                     user_id=user.id,
-                    role="member",
-                    status="active",
+                    provider=provider,
+                    provider_subject=provider_subject,
+                    provider_username=provider_username,
+                    email=email,
+                    phone=phone,
                 )
+                if invitation is None:
+                    raise CallbackFlowError(
+                        "workspace_enrollment_required",
+                        "workspace policy requires invite or pre-existing membership",
+                        workspace_id=workspace_id,
+                    )
+            else:
+                db.add(
+                    WorkspaceMembership(
+                        workspace_id=workspace_id,
+                        user_id=user.id,
+                        role="member",
+                        status="active",
+                    )
+                )
+        else:
+            await complete_matching_invitation_after_login(
+                db,
+                workspace_id=workspace_id,
+                user_id=user.id,
+                provider=provider,
+                provider_subject=provider_subject,
+                provider_username=provider_username,
+                email=email,
+                phone=phone,
             )
         return user
 
@@ -368,11 +403,38 @@ async def _get_or_create_user_from_provider_claims(
         "display_name": display_name,
     }
     if not allow_provider_self_enrollment:
-        raise CallbackFlowError(
-            "workspace_enrollment_required",
-            "workspace policy requires invite or pre-existing membership",
+        invitation = await find_matching_pending_invitation(
+            db,
             workspace_id=workspace_id,
+            provider=provider,
+            contacts=invitation_contacts,
         )
+        if invitation is None:
+            raise CallbackFlowError(
+                "workspace_enrollment_required",
+                "workspace policy requires invite or pre-existing membership",
+                workspace_id=workspace_id,
+            )
+        user = await _create_scoped_user(
+            db,
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            provider=provider,
+            provider_subject=provider_subject,
+            profile=profile,
+            role=invitation.invited_role,
+        )
+        await complete_matching_invitation_after_login(
+            db,
+            workspace_id=workspace_id,
+            user_id=user.id,
+            provider=provider,
+            provider_subject=provider_subject,
+            provider_username=provider_username,
+            email=email,
+            phone=phone,
+        )
+        return user
     return await _create_scoped_user(
         db,
         organization_id=organization_id,

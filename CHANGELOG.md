@@ -9,22 +9,42 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `064-workspace-admin-panel`: добавлена browser-owned workspace
+  admin-панель без support/Analyst/billing ролей: обзор, пользователи и
+  приглашения, файлы/встречи, read-only баланс/usage/quotas, продуктовые
+  метрики и metadata-only audit journal.
+- Feature `064-workspace-admin-panel`: добавлены admin API routes под
+  `/api/v1/admin` и отдельный server-rendered `/admin` shell, не завязанный на
+  `cabinet/web.py`.
 
 ### Изменено
-- _Пока нет записей._
+- Desktop cabinet route policy открывает `/admin` во внешнем браузере и не
+  встраивает админку в native recorder shell.
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `064-workspace-admin-panel`: исправлены admin deletion source/audit
+  path, invite completion RLS для audit event, truthful file unavailable states,
+  file type filtering и role/reason controls в browser admin UI.
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `064-workspace-admin-panel`: добавлены RLS-покрытые таблицы
+  `workspace_invitations`, `workspace_quota_policies`,
+  `workspace_usage_daily`, `user_usage_daily`, `admin_audit_events`; Owner/Admin
+  доступ проверяется поверх активного workspace membership.
+- Feature `064-workspace-admin-panel`: sensitive admin actions пишут
+  metadata-only audit evidence; API/HTML тесты запрещают storage keys, signed
+  URLs, transcript/raw audio/private content и secret markers.
+- Feature `064-workspace-admin-panel`: last active Owner нельзя downgrade,
+  block, revoke, deactivate или убрать; Admin может управлять только Members.
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Feature `064-workspace-admin-panel`: добавлены focused unit/contract/
+  integration проверки для admin permissions, invitations, RLS inventory,
+  browser UX, workspace access, file governance, usage/quota, metrics/audit и
+  desktop handoff policy.
 
 ## [2026.06.27.11] - 2026-06-27
 

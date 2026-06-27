@@ -1,0 +1,44 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-panel">
+    <h2>Фильтры</h2>
+    <form class="admin-toolbar" method="get" action="/admin/metrics">
+      <label>Группа
+        <select name="family">
+          <option value="">Все</option>
+          {% for family in ["adoption", "usage", "funnel", "reliability", "governance"] %}
+            <option value="{{ family }}"{% if view.filters.family == family %} selected{% endif %}>{{ family }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>С даты
+        <input name="date_from" type="date" value="{{ view.filters.date_from or '' }}">
+      </label>
+      <label>По дату
+        <input name="date_to" type="date" value="{{ view.filters.date_to or '' }}">
+      </label>
+      <button type="submit">Применить</button>
+    </form>
+  </section>
+  <section class="admin-grid" aria-label="Метрики продукта">
+    {% for metric in view.metrics.metrics %}
+      <article class="admin-panel">
+        <h2>{{ metric.label }}</h2>
+        <p class="admin-empty">{{ metric.definition }}</p>
+        <dl class="admin-metrics">
+          <div><dt>Значение</dt><dd>{{ metric.value }}</dd></div>
+          <div><dt>Знаменатель</dt><dd>{{ metric.denominator }}</dd></div>
+          <div><dt>Источник</dt><dd>{{ metric.source_category }}</dd></div>
+          <div><dt>Свежесть</dt><dd>{{ metric.freshness }}</dd></div>
+          <div><dt>Окно</dt><dd>{{ metric.date_window['from'] or "нет данных" }} - {{ metric.date_window['to'] or "нет данных" }}</dd></div>
+          <div><dt>Детали</dt><dd><a href="{{ metric.drill_down_path }}">Открыть</a></dd></div>
+        </dl>
+      </article>
+    {% endfor %}
+  </section>
+{% endblock %}
