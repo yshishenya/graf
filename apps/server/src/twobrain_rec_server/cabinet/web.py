@@ -46,6 +46,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_detail_page,
     render_meeting_list_fragment,
     render_meeting_list_page,
+    render_settings_page,
     render_signup_page,
 )
 from twobrain_rec_server.cabinet.templates import (
@@ -622,6 +623,19 @@ async def meeting_detail_page(
     )
 
 
+@router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
+async def settings_page(
+    request: Request,
+    _tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+) -> HTMLResponse:
+    return cabinet_html_response(
+        render_settings_page(
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
+
+
 @router.get(
     "/meetings/{meeting_id}/deletion-report",
     response_class=HTMLResponse,
@@ -722,6 +736,20 @@ async def embedded_meeting_detail_page(
     return cabinet_html_response(
         render_meeting_detail_page(
             response,
+            embedded=True,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
+
+
+@router.get("/desktop/settings", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_settings_page(
+    request: Request,
+    _tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+) -> HTMLResponse:
+    return cabinet_html_response(
+        render_settings_page(
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
         )

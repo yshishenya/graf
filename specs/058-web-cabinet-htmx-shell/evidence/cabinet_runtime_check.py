@@ -44,6 +44,7 @@ from twobrain_rec_server.cabinet.rendering import (  # noqa: E402
     render_meeting_detail_page,
     render_meeting_list_fragment,
     render_meeting_list_page,
+    render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import cabinet_html_response  # noqa: E402
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY  # noqa: E402
@@ -284,6 +285,8 @@ def run_checks() -> dict[str, Any]:
     embedded_list_page = render_meeting_list_page(list_response, embedded=True)
     detail_page = render_meeting_detail_page(review)
     embedded_detail_page = render_meeting_detail_page(review, embedded=True)
+    settings_page = render_settings_page()
+    embedded_settings_page = render_settings_page(embedded=True)
     deletion_report_page = render_deletion_report_page("Синтетическая встреча", _deletion_report())
     list_fragment = render_meeting_list_fragment(list_response)
     detail_fragment = render_meeting_detail_fragment(review)
@@ -297,6 +300,8 @@ def run_checks() -> dict[str, Any]:
         "embedded_list": embedded_list_page,
         "standalone_detail": detail_page,
         "embedded_detail": embedded_detail_page,
+        "standalone_settings": settings_page,
+        "embedded_settings": embedded_settings_page,
         "deletion_report": deletion_report_page,
         "list_fragment": list_fragment,
         "detail_fragment": detail_fragment,
@@ -307,6 +312,7 @@ def run_checks() -> dict[str, Any]:
 
     _add_check(checks, "standalone_shell", "<!doctype html>" in list_page and 'data-surface-mode="standalone_browser"' in list_page, "full browser shell is rendered")
     _add_check(checks, "embedded_shell", 'class="app-shell desktop-embedded"' in embedded_list_page, "desktop WebView uses embedded shell mode")
+    _add_check(checks, "settings_shell", 'id="calendar-connections"' in settings_page and 'data-active-nav="settings"' in settings_page, "settings shell exposes calendar connections")
     _add_check(checks, "native_controls_absent_from_webview", "Record live" not in embedded_detail_page and "Screen Recording" not in embedded_detail_page, "native capture copy stays outside WebView")
     _add_check(checks, "list_fragment_bounded", "<!doctype html>" not in list_fragment and 'data-cabinet-fragment="meeting-list"' in list_fragment, "list HTMX response is a bounded fragment")
     _add_check(checks, "detail_fragment_bounded", "<!doctype html>" not in detail_fragment and 'data-cabinet-fragment="meeting-detail"' in detail_fragment, "detail HTMX response is a bounded fragment")
