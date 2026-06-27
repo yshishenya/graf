@@ -2,6 +2,7 @@ import hashlib
 import hmac
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -413,6 +414,19 @@ def test_yandex_callback_uses_verified_profile_not_raw_code(monkeypatch, tmp_pat
         },
     )
     assert fake_http.calls[1][0:2] == ("GET", "https://login.yandex.ru/info")
+
+
+def test_provider_start_uses_public_auth_base_url_for_redirect_uri(client: TestClient) -> None:
+    client.app.state.settings.auth_base_url = "https://rec.2brain.pro"
+
+    start = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "/meetings"},
+    )
+
+    assert start.status_code == 200
+    query = parse_qs(urlparse(start.json()["authorization_url"]).query)
+    assert query["redirect_uri"] == ["https://rec.2brain.pro/api/v1/auth/callback/yandex"]
 
 
 def test_telegram_callback_rejects_forged_signature(tmp_path, client: TestClient) -> None:

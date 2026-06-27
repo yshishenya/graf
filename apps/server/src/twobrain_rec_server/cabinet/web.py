@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.auth import build_provider_callback_url
 from twobrain_rec_server.api.ingest import get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
@@ -26,9 +27,10 @@ from twobrain_rec_server.auth.dependencies import (
     require_web_csrf,
 )
 from twobrain_rec_server.auth.policy import read_auth_providers
-from twobrain_rec_server.auth.providers import build_provider_registry
+from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.sessions import (
     callback_expiry,
+    create_callback_state,
     hash_token,
     issue_auth_session,
 )
@@ -524,8 +526,7 @@ async def browser_login_provider_start(
     workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
     db: AsyncSession | None = LoginDbDependency,
-) -> HTMLResponse:
-    _ = provider
+) -> HTMLResponse | RedirectResponse:
     safe_next = _safe_browser_next_path(next_path)
     resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
     if resolved_workspace_id is None:
@@ -538,21 +539,103 @@ async def browser_login_provider_start(
             ),
             status_code=400,
         )
+    normalized_provider = provider.strip().lower()
+    if normalized_provider != "yandex":
+        providers = []
+        if db is not None:
+            try:
+                providers = await _load_browser_login_providers(db, resolved_workspace_id)
+            except ProblemDetail:
+                providers = []
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=providers,
+                next_path=safe_next,
+                error="provider_future",
+            ),
+            status_code=501,
+        )
+    if db is None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="auth_dependency_unavailable",
+            ),
+            status_code=503,
+        )
     providers = []
-    if db is not None:
-        try:
-            providers = await _load_browser_login_providers(db, resolved_workspace_id)
-        except ProblemDetail:
-            providers = []
-    return HTMLResponse(
-        render_login_page(
-            workspace_id=resolved_workspace_id,
-            providers=providers,
-            next_path=safe_next,
-            error="provider_future",
-        ),
-        status_code=501,
+    try:
+        await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=resolved_workspace_id))
+        adapter = get_provider_adapter(normalized_provider)
+        snapshot = await read_auth_providers(
+            db,
+            resolved_workspace_id,
+            adapters=build_provider_registry(),
+            persist_defaults=True,
+        )
+        providers = list(snapshot.providers)
+        provider_policy = next((entry for entry in snapshot.providers if entry.provider == normalized_provider), None)
+        if provider_policy is None or not provider_policy.enabled:
+            await write_auth_audit_event(
+                db,
+                workspace_id=resolved_workspace_id,
+                event_type="provider_auth_started",
+                actor_ip=request.client.host if request.client else None,
+                provider=normalized_provider,
+                outcome="failure",
+                metadata={"error_code": "provider_disabled"},
+                request_id=getattr(request.state, "request_id", None),
+            )
+            await db.commit()
+            return HTMLResponse(
+                render_login_page(
+                    workspace_id=resolved_workspace_id,
+                    providers=providers,
+                    next_path=safe_next,
+                    error="provider_disabled",
+                ),
+                status_code=403,
+            )
+    except ValueError:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=providers,
+                next_path=safe_next,
+                error="provider_missing",
+            ),
+            status_code=403,
+        )
+    state = create_callback_state(
+        db,
+        provider=normalized_provider,
+        workspace_id=resolved_workspace_id,
+        requested_redirect=safe_next,
+        ttl_seconds=request.app.state.settings.auth_callback_state_ttl_seconds,
     )
+    settings = request.app.state.settings
+    callback_url = build_provider_callback_url(request, normalized_provider)
+    authorization_url = adapter.build_authorization_url(
+        client_id=settings.yandex_client_id,
+        redirect_uri=callback_url,
+        state=state.state_nonce,
+        return_url=safe_next,
+        workspace_id=str(resolved_workspace_id),
+    )
+    await write_auth_audit_event(
+        db,
+        workspace_id=resolved_workspace_id,
+        event_type="provider_auth_started",
+        actor_ip=request.client.host if request.client else None,
+        provider=normalized_provider,
+        metadata={"state_nonce": state.state_nonce},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await db.commit()
+    return RedirectResponse(authorization_url, status_code=303)
 
 
 @router.get("/meetings", response_class=HTMLResponse, include_in_schema=False)

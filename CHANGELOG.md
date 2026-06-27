@@ -9,7 +9,9 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `065-yandex-id-web-login`: web-cabinet теперь показывает активный
+  вход через Яндекс ID и ведет `/login/yandex/start` в реальный provider flow,
+  а не в заглушку `скоро`.
 
 ### Изменено
 - _Пока нет записей._
@@ -18,13 +20,20 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `065-yandex-id-web-login`: callback `redirect_uri` для провайдеров
+  использует публичный `TWOBRAIN_AUTH_BASE_URL`, когда он настроен, чтобы
+  self-hosted reverse proxy не подставлял внутренний host в OAuth-flow.
+- Feature `065-yandex-id-web-login`: production compose передает Yandex
+  `client_secret` только через Docker secret file и падает на пустом
+  provider-secret файле.
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Feature `065-yandex-id-web-login`: production compose прокидывает
+  `TWOBRAIN_YANDEX_CLIENT_ID` и монтирует
+  `twobrain_yandex_client_secret` только в `rec-api`.
 
 ## [2026.06.27.6] - 2026-06-27
 

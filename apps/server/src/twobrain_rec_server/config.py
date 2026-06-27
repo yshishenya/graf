@@ -201,12 +201,18 @@ class Settings(BaseSettings):
             self.minio_access_key = self.minio_access_key_file.read_text(encoding="utf-8").strip()
         if self.minio_secret_key_file is not None:
             self.minio_secret_key = self.minio_secret_key_file.read_text(encoding="utf-8").strip()
-        if self.yandex_client_secret_file is not None:
-            _ = self.yandex_client_secret_file.read_text(encoding="utf-8").strip()
-        if self.vk_client_secret_file is not None:
-            _ = self.vk_client_secret_file.read_text(encoding="utf-8").strip()
-        if self.telegram_client_secret_file is not None:
-            _ = self.telegram_client_secret_file.read_text(encoding="utf-8").strip()
+        provider_secret_files = {
+            "yandex_client_secret_file": self.yandex_client_secret_file,
+            "vk_client_secret_file": self.vk_client_secret_file,
+            "telegram_client_secret_file": self.telegram_client_secret_file,
+        }
+        for field_name, path in provider_secret_files.items():
+            if path is None:
+                continue
+            if not path.is_file():
+                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}")
+            if path.read_text(encoding="utf-8").strip() == "":
+                raise ValueError(f"production auth provider secret file must be non-empty: {field_name}")
         placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
         insecure_client_ids = {
             self.yandex_client_id.lower(),

@@ -108,6 +108,14 @@ def test_production_rejects_empty_support_incident_github_token_file(tmp_path) -
         _production_settings(support_incident_github_token_file=token_file)
 
 
+def test_production_rejects_empty_yandex_client_secret_file(tmp_path) -> None:
+    secret_file = tmp_path / "yandex-client-secret"
+    secret_file.write_text("")
+
+    with pytest.raises(ValidationError, match="yandex_client_secret_file"):
+        _production_settings(yandex_client_secret_file=secret_file)
+
+
 def test_production_reads_runtime_credentials_from_secret_files(tmp_path) -> None:
     postgres_password = tmp_path / "postgres-password"
     minio_access_key = tmp_path / "minio-access-key"

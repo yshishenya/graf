@@ -15,11 +15,18 @@
         <div class="truth-copy">Кабинет входа не настроен. Проверьте серверные настройки.</div>
         {% elif providers %}
         {% for provider in providers %}
+        {% if provider.active %}
+        <a class="auth-provider" href="{{ provider.href }}">
+          <span class="provider-mark">{{ provider.mark }}</span>
+          <span>{{ provider.label }}</span>
+        </a>
+        {% else %}
         <span class="auth-provider" aria-disabled="true">
           <span class="provider-mark">{{ provider.mark }}</span>
           <span>{{ provider.label }}</span>
           <span class="provider-pill">скоро</span>
         </span>
+        {% endif %}
         {% endfor %}
         {% else %}
         <span class="chip disabled">OAuth позже</span>
