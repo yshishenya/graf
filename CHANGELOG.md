@@ -51,8 +51,8 @@
   refreshing from `origin/master` `94ffcb6`, final `infra/scripts/ci-local.sh`
   passed with server `782 passed, 4 skipped, 103 warnings`, Ruff, compile,
   production compose config, deployment evidence scan, and
-  `ci_local_result=pass`. PR review, release, deploy и production smoke еще не
-  закрыты.
+  `ci_local_result=pass`. PR #2286 смержен в `master`; release, deploy,
+  production smoke и desktop installer/app build еще не закрыты.
 
 ## [2026.06.27.1] - 2026-06-27
 

@@ -256,3 +256,11 @@
   - `gh issue list --state all --search "060 calendar" --limit 100` found open feature `060` GitHub issues, including T133, T134, T135, and T136 tracker issues.
   - `gh pr list --state all --search "060-calendar-context-ingestion" --limit 20` found no PR for this branch.
   - No GitHub issues were closed in this implementation pass because issue closure requires the matching task to be `[X]`, PR/review evidence, and a clear Russian closure comment. PR/release notes remain the next closeout layer after commit/push/PR creation.
+- T136 final closeout verification after PR merge:
+  - Feature PR: #2286, `https://github.com/yshishenya/crisp/pull/2286`.
+  - Merge evidence: PR #2286 merged into `master` on 2026-06-27 at `2026-06-27T01:10:48Z`; merge commit `76b5b313e252213a0ba6a8ff55768063b5acd1c2`.
+  - Final feature commits in the merged PR: `89d92dd Implement calendar context ingestion`, `1afd04b Merge remote-tracking branch 'origin/master' into codex/060-calendar-context-ingestion`, and `5bcb5bd fix(calendar): require stable credential key for production`.
+  - GitHub issue closure evidence: tasks T001-T135 had matching open GitHub task issues, each received the required Russian closure comment, and each was closed as `completed`.
+  - `gh issue list --search "[060]" --state open --json number,title,url --limit 200` returned only T136 (`#2233`) before this final closeout entry and task checkbox update.
+  - `tasks.md` status after this closeout entry: 136 of 136 tasks complete.
+  - Release-note state: 060 remains in `[Unreleased]` with behavior, security, validation, compatibility, and known limitation notes. A production release, deploy, production smoke, and desktop installer/app build remain a separate release/deploy layer.
