@@ -45,6 +45,9 @@ services:
         target: twobrain_postal_api_key
       - source: twobrain_yandex_client_secret
         target: twobrain_yandex_client_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
     ports:
       - "127.0.0.1:18081:8080"
     healthcheck:
