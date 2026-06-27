@@ -164,8 +164,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border: 1px solid var(--line-soft);
   max-width: 980px;
 }
-.calendar-row { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; align-items: center; }
-.date-badge { width: 36px; min-height: 38px; border: 1px solid var(--line); border-radius: 7px; display: grid; place-items: center; font-size: 11px; color: #dfe3ea; }
 .list-card { max-width: 980px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #1d1f21; }
 .meeting-row {
   display: grid;
@@ -200,7 +198,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .chip.local_only, .chip.deferred, .chip.unavailable, .chip.disabled, .chip.missing, .chip.deleted_future { color: var(--subtle); }
 .chip.failed, .chip.blocked, .chip.denied, .chip.policy_blocked, .chip.owner_only, .chip.audit_unavailable { color: var(--red); border-color: rgba(255,107,107,.48); background: rgba(255,107,107,.08); }
 .chip.warning { color: var(--amber); border-color: rgba(240,167,66,.5); background: rgba(240,167,66,.08); }
-.icon-button { width: 30px; height: 30px; border-radius: 7px; padding: 0; color: var(--muted); }
+.icon-button { width: 32px; height: 32px; min-height: 32px; border-radius: 7px; padding: 0; color: var(--muted); }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 18px; align-items: start; }
 .detail-main { min-width: 0; display: grid; gap: 16px; }
 .tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
@@ -584,13 +582,13 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .cabinet-titleline strong { color: var(--text); font-weight: 700; }
 .cabinet-list-controls {
   display: grid;
-  grid-template-columns: minmax(156px, 1.2fr) minmax(118px, .8fr) minmax(118px, .8fr) 14px minmax(136px, .9fr) 28px 28px auto;
+  grid-template-columns: minmax(156px, 1.2fr) minmax(118px, .8fr) minmax(118px, .8fr) 16px minmax(136px, .9fr) 32px 32px auto;
   gap: 8px;
   align-items: center;
   min-width: min(760px, 100%);
 }
 .cabinet-list-controls input,
-.cabinet-list-controls select { min-height: 28px; }
+.cabinet-list-controls select { min-height: 32px; }
 .cabinet-list-control-icon {
   display: grid;
   place-items: center;
@@ -608,22 +606,36 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   gap: 9px;
 }
 .cabinet-card .section-title { margin: 0 0 4px; }
-.calendar-day {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 11px;
-  align-items: start;
+.calendar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.calendar-events { display: grid; gap: 8px; }
-.calendar-event { border-left: 3px solid #9cd9ff; padding-left: 10px; min-height: 28px; }
-.calendar-event strong, .meeting-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.calendar-connect-link {
+  min-height: 32px;
+  white-space: nowrap;
+}
+.settings-page { display: grid; gap: 14px; }
+.settings-section {
+  max-width: 720px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+.settings-section p { margin: 0; }
+.settings-actions { display: flex; justify-content: flex-end; }
+.meeting-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .meeting-toolbar {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   align-items: center;
   margin: 18px 0 8px;
-  min-height: 28px;
+  min-height: 32px;
 }
 .meeting-toolbar .section-title { margin: 0; }
 .selection-toolbar {
@@ -637,15 +649,15 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .selection-toggle {
   flex: 0 0 16px;
 }
-.selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; line-height: 28px; }
+.selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; line-height: 32px; }
 .selection-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .selection-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
 .danger-button { color: #ffd6d6; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
 .toolbar-icons { display: flex; align-items: center; gap: 8px; }
 .icon-control {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -660,8 +672,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .icon-control:disabled:hover { background: transparent; }
 .ui-icon {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -692,7 +704,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   white-space: normal;
 }
 .new-button {
-  min-height: 28px;
+  min-height: 32px;
   min-width: 54px;
   padding: 0 12px;
   border-radius: 7px;
@@ -712,7 +724,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   color: #dfe2e8;
 }
 .meeting-row.cabinet-row {
-  grid-template-columns: 24px 20px minmax(0, 1fr) 32px 64px;
+  grid-template-columns: 24px 24px minmax(0, 1fr) 32px 64px;
   min-height: 46px;
   padding: 4px 12px;
   gap: 8px;
@@ -733,12 +745,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   padding: 0;
   cursor: pointer;
 }
-.row-icon { display: grid; place-items: center; width: 22px; height: 22px; color: #a7adb7; font-size: 13px; }
-.row-icon .ui-icon { width: 12px; height: 12px; }
+.row-icon { display: grid; place-items: center; width: 24px; height: 24px; color: #a7adb7; font-size: 13px; }
+.row-icon .ui-icon { width: 14px; height: 14px; }
 .meeting-date { color: #c1c6cf; font-size: 12px; text-align: right; white-space: nowrap; }
 .row-delete {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   font-size: 11px;
   border-color: transparent;
   background: transparent;
@@ -751,7 +763,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   opacity: 1;
 }
 .row-delete-noscript {
-  min-height: 24px;
+  min-height: 32px;
   padding: 0 8px;
   font-size: 11px;
 }
@@ -785,30 +797,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .dialog-error { color: #ffd6d6; font-size: 12px; margin-top: 12px; }
 .dialog-error[hidden] { display: none; }
-.floating-search {
-  position: fixed;
-  left: 50%;
-  bottom: 16px;
-  width: min(430px, calc(100vw - 320px));
-  transform: translateX(-50%);
-  min-height: 40px;
-  border: 1px solid #42464e;
-  background: var(--surface);
-  color: #aeb4be;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  padding: 0 18px;
-  box-shadow: 0 12px 34px rgba(0,0,0,.26);
-  font-size: 13px;
-}
-.desktop-embedded .floating-search {
-  left: 50%;
-  right: auto;
-  bottom: 16px;
-  width: min(366px, calc(100vw - 48px));
-  transform: translateX(-50%);
-}
 .desktop-embedded .empty-state { min-height: 210px; }
 .desktop-embedded .meeting-row:hover { transform: none; }
 .auth-provider, .email-mode-trigger, .code-slot, .meeting-row, .icon-control, .new-button {
@@ -993,10 +981,29 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .cabinet-workspace { max-width: none; }
   .desktop-embedded .cabinet-workspace { max-width: none; }
   .cabinet-topbar { align-items: stretch; flex-direction: column; }
-  .cabinet-list-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 28px auto; min-width: 0; }
+  .cabinet-list-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px auto; min-width: 0; }
   .cabinet-list-controls input,
   .cabinet-list-controls select { grid-column: span 2; }
   .cabinet-list-control-icon { display: none; }
+  .desktop-embedded .cabinet-list-controls {
+    grid-template-columns: minmax(0, 1fr) 32px;
+    gap: 8px;
+  }
+  .desktop-embedded .cabinet-list-controls input {
+    grid-column: 1;
+    min-height: 32px;
+  }
+  .desktop-embedded .cabinet-list-controls select,
+  .desktop-embedded .cabinet-list-controls .cabinet-list-control-icon,
+  .desktop-embedded .cabinet-list-controls .icon-control[aria-label="Сохраненные"],
+  .desktop-embedded .cabinet-list-controls .new-button {
+    display: none;
+  }
+  .desktop-embedded .cabinet-list-controls .icon-control[type="submit"] {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+  }
   .topline { flex-direction: column; align-items: stretch; }
   .action-row { justify-content: flex-start; }
   .metric-grid { grid-template-columns: 1fr; }
@@ -1005,11 +1012,13 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .detail-layout { grid-template-columns: 1fr; }
   .right-panel { position: static; }
   .meeting-row { grid-template-columns: 24px minmax(0, 1fr); padding: 12px; }
-  .meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto; min-height: 48px; }
+  .meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto; min-height: 48px; }
   .meeting-row.cabinet-row .meeting-date { grid-column: 5; }
   .meeting-row.cabinet-row .row-delete-form { grid-column: 4; }
   .meeting-row.cabinet-row .row-delete { opacity: 1; }
   .meeting-toolbar { align-items: flex-start; flex-wrap: wrap; }
+  .settings-section { grid-template-columns: 1fr; }
+  .settings-actions { justify-content: flex-start; }
   .selection-actions { justify-content: flex-start; }
   .meeting-row > .state-list, .meeting-row > .row-actions { grid-column: 2; justify-self: start; }
   .segment { display: block; }
@@ -1031,7 +1040,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .timeline-lane { grid-template-columns: 72px minmax(0, 1fr) 38px; }
   .timeline-label, .timeline-share { font-size: 11px; }
   .timeline-track { height: 7px; }
-  .floating-search { left: 14px; right: 14px; width: auto; transform: none; }
   .auth-legal { position: relative; inset: auto; margin-top: -8px; }
 }
 @media (max-width: 540px) {

@@ -120,6 +120,7 @@ class CabinetNavigationModel:
 
 def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, embedded: bool = False) -> CabinetNavigationModel:
     meetings_href = "/desktop/meetings" if embedded else "/meetings"
+    settings_href = "/desktop/settings#calendar-connections" if embedded else "/settings#calendar-connections"
     return CabinetNavigationModel(
         active=active,
         items=(
@@ -128,7 +129,7 @@ def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, em
             CabinetNavigationItem("shared", "Общие", "#", "users-round", enabled=False),
             CabinetNavigationItem("actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions),
             CabinetNavigationItem("activity", "Активность", "#", "activity", enabled=False),
-            CabinetNavigationItem("settings", "Настройки", "#", "settings", enabled=False),
+            CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
         ),
     )
 

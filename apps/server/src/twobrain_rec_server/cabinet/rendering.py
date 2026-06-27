@@ -155,7 +155,18 @@ def render_meeting_list_page(
         status_value=response.filters.status or "",
         access_value=response.filters.access or "",
         sort_value=response.filters.sort,
+        calendar_settings_href=_settings_path(embedded),
         visible_total=len(response.items),
+    )
+
+
+def render_settings_page(*, embedded: bool = False, csrf_token: str | None = None) -> str:
+    return _page_shell(
+        "Настройки",
+        embedded=embedded,
+        active="settings",
+        csrf_token=csrf_token,
+        content_template="cabinet/pages/settings_content.html",
     )
 
 
@@ -338,6 +349,7 @@ def _page_shell(
     content: str | None = None,
     *,
     embedded: bool,
+    active: str = "meetings",
     page_template: str = "cabinet/pages/meetings.html",
     csrf_token: str | None = None,
     content_source: str = "cabinet.shell",
@@ -348,7 +360,7 @@ def _page_shell(
     shell = render_template(
         page_template,
         embedded=embedded,
-        navigation=cabinet_view_models.cabinet_navigation(active="meetings", embedded=embedded),
+        navigation=cabinet_view_models.cabinet_navigation(active=active, embedded=embedded),
         **context,
     )
     return render_template(
@@ -1011,3 +1023,7 @@ def _sort_label(sort: str) -> str:
 
 def _base_path(embedded: bool) -> str:
     return "/desktop/meetings" if embedded else "/meetings"
+
+
+def _settings_path(embedded: bool) -> str:
+    return "/desktop/settings#calendar-connections" if embedded else "/settings#calendar-connections"

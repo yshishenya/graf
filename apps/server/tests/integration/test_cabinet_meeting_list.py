@@ -153,6 +153,10 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert response.status_code == 200
     assert "Мои встречи" in response.text
     assert "Ближайшие" in response.text
+    assert "Ближайшие встречи появятся после подключения календаря." in response.text
+    assert 'href="/settings#calendar-connections"' in response.text
+    assert "Подключить календари" in response.text
+    assert "Командный синк" not in response.text
     assert "Записи встреч" in response.text
     assert "Новая" in response.text
     assert "Фильтры" in response.text
@@ -220,3 +224,17 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert "Upload file" not in response.text
     assert "Record live" not in response.text
     assert "Screen Recording" not in response.text
+
+
+def test_cabinet_settings_calendar_anchor_renders_in_web_and_embedded(client) -> None:
+    web = client.get("/settings", headers=auth_headers())
+    embedded = client.get("/desktop/settings", headers=auth_headers())
+
+    assert web.status_code == 200
+    assert embedded.status_code == 200
+    assert 'data-active-nav="settings"' in web.text
+    assert 'id="calendar-connections"' in web.text
+    assert 'href="/settings#calendar-connections"' in web.text
+    assert "Подключить календари" in web.text
+    assert "desktop-embedded" in embedded.text
+    assert 'href="/desktop/settings#calendar-connections"' in embedded.text

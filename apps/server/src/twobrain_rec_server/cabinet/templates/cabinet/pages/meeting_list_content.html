@@ -45,18 +45,9 @@
     </div>
     <section class="upcoming cabinet-card" aria-label="Ближайшие встречи">
       <div class="section-title">Ближайшие</div>
-      <div class="calendar-day">
-        <div class="date-badge">Сегодня<br>17</div>
-        <div class="calendar-events">
-          <div class="calendar-event"><strong>Командный синк</strong><div class="muted">11:30 - 13:00</div></div>
-          <div class="calendar-event"><strong>Ревью релиза</strong><div class="muted">12:00 - 13:00</div></div>
-        </div>
-      </div>
-      <div class="calendar-day">
-        <div class="date-badge">19<br>июн</div>
-        <div class="calendar-events">
-          <div class="calendar-event"><strong>Планирование запуска</strong><div class="muted">15:00 - 16:00</div></div>
-        </div>
+      <div class="calendar-empty">
+        <div class="muted">Ближайшие встречи появятся после подключения календаря.</div>
+        <a class="button quiet calendar-connect-link" href="{{ calendar_settings_href }}">Подключить календари</a>
       </div>
     </section>
     <div class="meeting-toolbar">
@@ -80,5 +71,4 @@
     <div id="delete-feedback-region" class="delete-feedback-region" aria-live="polite"></div>
     {{ delete_dialog }}
   </div>
-  <div class="floating-search">Спросите что-нибудь...</div>
 </main>

@@ -36,6 +36,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_deletion_report_page,
     render_meeting_detail_page,
     render_meeting_list_page,
+    render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
@@ -286,6 +287,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
 
     assert "Мои встречи" in page
     assert "Ближайшие" in page
+    assert "Ближайшие встречи появятся после подключения календаря." in page
+    assert 'href="/settings#calendar-connections"' in page
+    assert "Подключить календари" in page
+    assert "Командный синк" not in page
     assert "Записи встреч" in page
     assert "Новая" in page
     assert "Недавно обновленные" in page
@@ -294,7 +299,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "max-width: min(1120px, calc(100vw - 48px))" in css
     assert "min-height: 46px;" in css
     assert ".meeting-title { display: block; min-width: 0;" in css
-    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto;" in css
+    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;" in css
+    assert ".desktop-embedded .cabinet-list-controls {" in css
+    assert "grid-template-columns: minmax(0, 1fr) 32px;" in css
     assert ":focus-visible" in css
     assert "hero" not in page.lower()
     assert 'data-selection-toolbar' in page
@@ -317,10 +324,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "selectionToggle.indeterminate = rows.length > 0 && !allSelected" in _cabinet_js()
     assert ".row-check {\n  appearance: none;" not in css
     assert ".row-check:checked::after" not in css
-    assert "line-height: 28px;" in css
-    assert ".icon-control {\n  width: 28px;\n  height: 28px;\n  min-height: 28px;" in css
+    assert "line-height: 32px;" in css
+    assert ".icon-control {\n  width: 32px;\n  height: 32px;\n  min-height: 32px;" in css
     assert "padding: 0;" in css
-    assert "width: 12px;" in css
+    assert ".ui-icon {\n  width: 16px;\n  height: 16px;" in css
+    assert ".row-icon .ui-icon { width: 14px; height: 14px; }" in css
     assert "stroke-width: 2;" in css
     assert 'data-icon="audio"' in page
     assert 'data-icon="bookmark"' in page
@@ -469,8 +477,19 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     assert 'aria-expanded="false"' in page
     assert 'data-icon="panel-left-open"' in page
     assert 'aria-current="page"' in page
+    assert 'href="/desktop/settings#calendar-connections"' in page
     for icon in ("search", "calendar-days", "users-round", "list-checks", "activity", "settings"):
         assert f'data-icon="{icon}"' in page
+
+
+def test_settings_shell_renders_calendar_connection_anchor() -> None:
+    page = render_settings_page()
+
+    assert 'data-active-nav="settings"' in page
+    assert 'id="calendar-connections"' in page
+    assert "Подключить календари" in page
+    assert 'href="/settings#calendar-connections"' in page
+    assert 'href="/desktop/settings#calendar-connections"' not in page
 
 
 def test_cabinet_rail_toggle_js_contract() -> None:
