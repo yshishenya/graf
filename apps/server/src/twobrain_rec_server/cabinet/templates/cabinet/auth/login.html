@@ -8,9 +8,9 @@
     {% if error_message %}
     <div class="auth-alert" role="alert">{{ error_message }}</div>
     {% endif %}
-    <div class="state-list">
-      <div class="muted">Другие способы входа</div>
-      <div class="auth-actions">
+    <div class="auth-methods">
+      <div class="auth-method-title">Способ входа</div>
+      <div class="auth-actions{% if providers %} auth-provider-grid{% endif %}">
         {% if not workspace_configured %}
         <div class="truth-copy">Кабинет входа не настроен. Проверьте серверные настройки.</div>
         {% elif providers %}
@@ -40,7 +40,7 @@
         <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
       </label>
       <input type="hidden" name="next" value="{{ next_path }}">
-      <button class="primary" type="submit">Продолжить</button>
+      <button class="primary" type="submit">Войти</button>
     </form>
     <div class="auth-secondary">
       <a class="mini-link" href="{{ login_sso_href }}" aria-disabled="true">Войти через SSO</a>

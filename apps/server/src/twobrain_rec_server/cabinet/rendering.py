@@ -23,62 +23,74 @@ from twobrain_rec_server.cabinet.templates import (
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
+_PLANNED_LOGIN_PROVIDER_ACTIONS: tuple[dict[str, str | bool], ...] = (
+    {"provider": "tbank", "label": "T-Банк ID", "mark": "T", "active": False},
+    {"provider": "sber", "label": "Sber ID", "mark": "S", "active": False},
+    {"provider": "gosuslugi", "label": "Госуслуги", "mark": "Г", "active": False},
+    {"provider": "alfa", "label": "Alfa ID", "mark": "A", "active": False},
+)
+
 
 def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str, str | bool]]:
-    actions: list[dict[str, str | bool]] = []
+    active_actions: dict[str, dict[str, str | bool]] = {}
     safe_next = _safe_browser_next_path(next_path)
     for provider in providers:
         provider_id = str(getattr(provider, "provider", "") or "").strip()
         if not provider_id or not bool(getattr(provider, "enabled", True)):
             continue
+        if provider_id == "telegram":
+            continue
         label = _login_provider_label(provider_id, str(getattr(provider, "label", "") or provider_id))
         mark = _login_provider_mark(provider_id, label)
         active = provider_id in {"yandex", "vk"}
+        if not active:
+            continue
         action: dict[str, str | bool] = {
             "provider": provider_id,
             "label": label,
             "mark": mark,
             "active": active,
+            "href": f"/login/{provider_id}/start?{urlencode({'next': safe_next})}",
         }
-        if active:
-            action["href"] = f"/login/{provider_id}/start?{urlencode({'next': safe_next})}"
-        actions.append(action)
-        if provider_id == "vk":
-            actions.extend(
-                [
-                    {
-                        "provider": "mail_ru",
-                        "label": "Продолжить через Mail.ru",
-                        "mark": "@",
-                        "active": True,
-                        "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'mail_ru'})}",
-                    },
-                    {
-                        "provider": "ok_ru",
-                        "label": "Продолжить через Одноклассники",
-                        "mark": "OK",
-                        "active": True,
-                        "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'ok_ru'})}",
-                    },
-                ]
-            )
+        active_actions[provider_id] = action
+
+    actions = [active_actions[provider_id] for provider_id in ("yandex", "vk") if provider_id in active_actions]
+    actions.extend(dict(action) for action in _PLANNED_LOGIN_PROVIDER_ACTIONS[:2])
+    if "vk" in active_actions:
+        actions.extend(
+            [
+                {
+                    "provider": "mail_ru",
+                    "label": "Mail.ru",
+                    "mark": "@",
+                    "active": True,
+                    "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'mail_ru'})}",
+                },
+                {
+                    "provider": "ok_ru",
+                    "label": "Одноклассники",
+                    "mark": "OK",
+                    "active": True,
+                    "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'ok_ru'})}",
+                },
+            ]
+        )
+    actions.extend(dict(action) for action in _PLANNED_LOGIN_PROVIDER_ACTIONS[2:])
     return actions
 
 
 def _login_provider_label(provider_id: str, fallback: str) -> str:
     labels = {
-        "yandex": "Продолжить через Яндекс ID",
-        "vk": "Продолжить через VK ID",
-        "telegram": "Продолжить через Telegram",
+        "yandex": "Яндекс ID",
+        "vk": "VK ID",
     }
-    return labels.get(provider_id, f"Продолжить через {fallback}")
+    return labels.get(provider_id, fallback)
 
 
 def _login_provider_mark(provider_id: str, label: str) -> str:
     marks = {
         "yandex": "Я",
         "vk": "VK",
-        "telegram": "TG",
     }
     return marks.get(provider_id, label[:2].upper())
 

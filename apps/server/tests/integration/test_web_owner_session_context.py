@@ -157,18 +157,23 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert "Войти в кабинет" in response.text
     assert 'action="/login/email/start"' in response.text
     assert 'type="email"' in response.text
-    assert "Продолжить" in response.text
-    assert "Другие способы входа" in response.text
-    assert "Продолжить через Яндекс ID" in response.text
+    assert "Способ входа" in response.text
+    assert "Яндекс ID" in response.text
     assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
-    assert "Продолжить через VK ID" in response.text
+    assert "VK ID" in response.text
     assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
-    assert "Продолжить через Mail.ru" in response.text
+    assert "Mail.ru" in response.text
     assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=mail_ru" in response.text
-    assert "Продолжить через Одноклассники" in response.text
+    assert "Одноклассники" in response.text
     assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=ok_ru" in response.text
-    assert "Продолжить через Telegram" in response.text
+    assert "T-Банк ID" in response.text
+    assert "Sber ID" in response.text
+    assert "Госуслуги" in response.text
+    assert "Alfa ID" in response.text
     assert "скоро" in response.text
+    assert "Telegram" not in response.text
+    assert "TG" not in response.text
+    assert "Продолжить через" not in response.text
     assert "Workspace ID" not in response.text
     assert 'name="workspace_id"' not in response.text
     assert str(WORKSPACE_ID) not in response.text
@@ -180,12 +185,18 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
 
     assert first_step.status_code == 200
     assert "Зарегистрируйтесь бесплатно" in first_step.text
-    assert "Продолжить через Яндекс ID" in first_step.text
+    assert "Яндекс ID" in first_step.text
     assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in first_step.text
     assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in first_step.text
     assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=mail_ru" in first_step.text
     assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=ok_ru" in first_step.text
-    assert "Продолжить с email" in first_step.text
+    assert "T-Банк ID" in first_step.text
+    assert "Sber ID" in first_step.text
+    assert "Госуслуги" in first_step.text
+    assert "Alfa ID" in first_step.text
+    assert "Рабочая почта" in first_step.text
+    assert "Telegram" not in first_step.text
+    assert "Продолжить через" not in first_step.text
     assert "Workspace ID" not in first_step.text
     assert 'name="workspace_id"' not in first_step.text
     assert email_step.status_code == 200
@@ -253,7 +264,7 @@ def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
 
     page = client.get("/login?next=/meetings")
     assert page.status_code == 200
-    assert "Продолжить через Яндекс ID" not in page.text
+    assert "Яндекс ID" not in page.text
     assert 'action="/login/email/start"' in page.text
 
     start = client.get("/login/yandex/start?next=/meetings", follow_redirects=False)
@@ -267,7 +278,7 @@ def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
 
     page = client.get("/login?next=/meetings")
     assert page.status_code == 200
-    assert "Продолжить через VK ID" not in page.text
+    assert "VK ID" not in page.text
     assert 'action="/login/email/start"' in page.text
 
     start = client.get("/login/vk/start?next=/meetings", follow_redirects=False)
