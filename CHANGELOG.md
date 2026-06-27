@@ -9,7 +9,8 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `066-vk-id-web-login`: web-cabinet показывает активный вход через
+  VK ID и ведет `/login/vk/start` в существующий provider flow.
 
 ### Изменено
 - _Пока нет записей._
@@ -24,7 +25,9 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Feature `066-vk-id-web-login`: production compose прокидывает
+  `TWOBRAIN_VK_CLIENT_ID` и монтирует `twobrain_vk_client_secret` только в
+  `rec-api`.
 
 ## [2026.06.27.8] - 2026-06-27
 

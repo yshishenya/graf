@@ -33,7 +33,7 @@ def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str
             continue
         label = _login_provider_label(provider_id, str(getattr(provider, "label", "") or provider_id))
         mark = _login_provider_mark(provider_id, label)
-        active = provider_id == "yandex"
+        active = provider_id in {"yandex", "vk"}
         action: dict[str, str | bool] = {
             "provider": provider_id,
             "label": label,
