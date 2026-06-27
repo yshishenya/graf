@@ -56,6 +56,7 @@ public struct RecordingMetadataResolver: Sendable {
         return RecordingDisplayMetadata(
             recordingStartedAt: startedAt,
             recordingStoppedAt: validStoppedAt,
+            recordingDisplayTimeZoneOffsetMinutes: displayTimeZone.secondsFromGMT(for: startedAt) / 60,
             title: titleChoice.0,
             titleStatus: titleChoice.1,
             titleSource: titleChoice.2,

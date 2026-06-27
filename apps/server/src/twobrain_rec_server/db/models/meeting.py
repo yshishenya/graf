@@ -20,6 +20,7 @@ class Meeting(Base):
     title: Mapped[str | None] = mapped_column(String(500))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recording_display_timezone_offset_minutes: Mapped[int | None] = mapped_column(Integer)
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(64), default="draft")
     processing_status: Mapped[str] = mapped_column(String(64), default="not_submitted")

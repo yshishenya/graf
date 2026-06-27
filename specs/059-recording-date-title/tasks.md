@@ -148,6 +148,21 @@
 
 ---
 
+## Post-Merge Review Fixes
+
+**Purpose**: Close merged PR review findings without broadening 059 into calendar, window-title, rename, or export work.
+
+- [X] T044 [P] Add server regression tests for unsafe fallback titles, visible-title sort, display-timezone labels, and legacy unsafe-title idempotent retry in `apps/server/tests/unit/test_cabinet_view_models.py`, `apps/server/tests/integration/test_cabinet_meeting_list.py`, and `apps/server/tests/integration/test_ingest_happy_path.py`
+- [X] T045 [P] Add Swift regression tests for display timezone payload and ponytail metadata simplifications in `apps/macos/Shared/Tests/RecordingMetadataResolverTests.swift`, `apps/macos/Shared/Tests/DesktopUploadClientTests.swift`, and `apps/macos/Shared/Tests/DiagnosticRedactionTests.swift`
+- [X] T046 Fix unsafe fallback title rendering and visible-title sort behavior in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T047 Persist and use recording display timezone offset through create-meeting in `apps/macos/Shared/Sources/Models/AudioModels.swift`, `apps/macos/RecApp/Sources/Upload/RecordingMetadataResolver.swift`, `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`, `apps/server/src/twobrain_rec_server/api/schemas.py`, `apps/server/src/twobrain_rec_server/db/models/meeting.py`, `apps/server/src/twobrain_rec_server/db/migrations/versions/0011_recording_display_timezone.py`, `apps/server/src/twobrain_rec_server/ingest/store.py`, `apps/server/src/twobrain_rec_server/ingest/meetings.py`, `apps/server/src/twobrain_rec_server/api/ingest.py`, and `specs/012-server-ingest-foundation/contracts/openapi.yaml`
+- [X] T048 Preserve exact legacy unsafe-title create-meeting retries in `apps/server/src/twobrain_rec_server/ingest/meetings.py`
+- [X] T049 Apply ponytail review simplifications in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`, `apps/macos/Shared/Sources/Models/AudioModels.swift`, `apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleService.swift`, and `apps/macos/Shared/Tests/RecordingMetadataResolverTests.swift`
+- [X] T050 Run focused server and Swift validation for post-merge fixes and record results in `specs/059-recording-date-title/quickstart.md`
+- [X] T051 Run `infra/scripts/ci-local.sh` after post-merge fixes and record the result in `specs/059-recording-date-title/quickstart.md`
+
+---
+
 ## Dependencies And Execution Order
 
 ### Phase Dependencies

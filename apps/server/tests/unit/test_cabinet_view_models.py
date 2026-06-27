@@ -70,6 +70,7 @@ def _list_item(
     source: str = "desktop_recording",
     title: str = "Synthetic meeting",
     started_at: datetime | None = datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
+    recording_display_timezone_offset_minutes: int | None = None,
     transcript_available: bool = False,
     artifacts: list[ArtifactEgressState] | None = None,
 ) -> MeetingListItem:
@@ -78,6 +79,7 @@ def _list_item(
         title=title,
         started_at=started_at,
         ended_at=None,
+        recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         duration_seconds=65,
         source=source,
         status="ready",
@@ -125,10 +127,15 @@ def test_common_display_helpers_for_meeting_rows() -> None:
 def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
     recorded = _list_item(started_at=datetime(2026, 6, 26, 23, 30, tzinfo=UTC))
     timezone_shifted = _list_item(started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3))))
+    offset_shifted = _list_item(
+        started_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
+        recording_display_timezone_offset_minutes=180,
+    )
     legacy = _list_item(title="legacy-no-recording-date", started_at=None)
 
     assert view_models.date_label(recorded) == "26 июн"
     assert view_models.date_label(timezone_shifted) == "27 июн"
+    assert view_models.date_label(offset_shifted) == "27 июн"
     assert view_models.date_label(legacy) == "Без даты"
     assert view_models.sort_label("started_desc") == "Новые по дате записи"
     assert view_models.sort_label("started_asc") == "Старые по дате записи"
@@ -156,6 +163,14 @@ def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
     meeting.local_recording_id = "legacy-bare-link-title"
 
     assert view_models.safe_title(meeting) == "legacy-bare-link-title"
+
+
+def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
+    meeting = _meeting()
+    meeting.title = "meet.google.com/abc-defg-hij"
+    meeting.local_recording_id = "john@example.com"
+
+    assert view_models.safe_title(meeting) == "Untitled meeting"
 
 
 def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> None:

@@ -110,6 +110,7 @@ def meeting_response(meeting: object) -> MeetingResponse:
         processing_status=meeting.processing_status,
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
+        recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         created_at=meeting.created_at,
     )
 
@@ -151,6 +152,7 @@ async def create_meeting(
             title=payload.title,
             started_at=payload.started_at,
             ended_at=payload.ended_at,
+            recording_display_timezone_offset_minutes=payload.recording_display_timezone_offset_minutes,
         )
     except IngestLimitViolation as exc:
         raise ProblemDetail(

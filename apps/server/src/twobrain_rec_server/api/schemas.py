@@ -214,6 +214,7 @@ class CreateMeetingRequest(BaseModel):
     title: Annotated[SafeClientText, Field(max_length=500)] | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    recording_display_timezone_offset_minutes: int | None = Field(default=None, ge=-14 * 60, le=14 * 60)
     duration_seconds: int = Field(gt=0)
 
 
@@ -229,6 +230,7 @@ class MeetingResponse(BaseModel):
     processing_status: ProcessingStatus
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    recording_display_timezone_offset_minutes: int | None = None
     created_at: datetime | None = None
 
 
@@ -767,6 +769,7 @@ class MeetingListItem(BaseModel):
     title: str
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    recording_display_timezone_offset_minutes: int | None = None
     duration_seconds: int = Field(ge=0)
     source: MeetingSource = "desktop_recording"
     status: MeetingReviewStatus

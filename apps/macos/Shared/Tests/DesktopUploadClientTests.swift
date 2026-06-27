@@ -39,6 +39,7 @@ final class DesktopUploadClientTests: XCTestCase {
         let item = makeQueueItem(recordingMetadata: RecordingDisplayMetadata(
             recordingStartedAt: startedAt,
             recordingStoppedAt: stoppedAt,
+            recordingDisplayTimeZoneOffsetMinutes: 180,
             title: "Zoom - 2026-06-26 11:30",
             titleStatus: .generated,
             titleSource: .appContext,
@@ -52,6 +53,7 @@ final class DesktopUploadClientTests: XCTestCase {
 
         XCTAssertEqual(payload.started_at, startedAt)
         XCTAssertEqual(payload.ended_at, stoppedAt)
+        XCTAssertEqual(payload.recording_display_timezone_offset_minutes, 180)
         XCTAssertEqual(payload.duration_seconds, 60)
     }
 

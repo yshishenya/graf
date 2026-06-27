@@ -52,6 +52,7 @@ class MeetingRecord:
     media_revision_source_kind: MediaRevisionSourceKind = field(default_factory=initial_media_revision_source_kind)
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    recording_display_timezone_offset_minutes: int | None = None
     status: MeetingStatus = MeetingStatus.DRAFT
     processing_status: ProcessingStatus = ProcessingStatus.NOT_SUBMITTED
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -206,6 +207,7 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, co
             title=meeting.title,
             started_at=meeting.started_at,
             ended_at=meeting.ended_at,
+            recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
             duration_seconds=meeting.duration_seconds,
             status=meeting.status.value,
             processing_status=meeting.processing_status.value,
@@ -263,6 +265,7 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, co
         existing.processing_status = meeting.processing_status.value
         existing.started_at = meeting.started_at
         existing.ended_at = meeting.ended_at
+        existing.recording_display_timezone_offset_minutes = meeting.recording_display_timezone_offset_minutes
         placeholder = await db.scalar(select(ProcessingPlaceholder).where(ProcessingPlaceholder.meeting_id == meeting.id))
         if placeholder is not None:
             placeholder.status = meeting.processing_status.value
@@ -327,6 +330,7 @@ async def load_meeting_record(
         ),
         started_at=model.started_at,
         ended_at=model.ended_at,
+        recording_display_timezone_offset_minutes=model.recording_display_timezone_offset_minutes,
         status=MeetingStatus(model.status),
         processing_status=ProcessingStatus(model.processing_status),
         created_at=model.created_at,
