@@ -65,7 +65,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.processingState, .failedTerminal)
         XCTAssertEqual(projection.deletionState, .none)
         XCTAssertEqual(projection.localPurgeState, .none)
-        XCTAssertEqual(projection.normalUserAction, .copySafeReport)
+        XCTAssertEqual(projection.normalUserAction, .sendSupportReport)
         XCTAssertFalse(projection.reviewAvailable)
     }
 
@@ -91,7 +91,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.deletionState, .serverDeleted)
         XCTAssertEqual(projection.localPurgeState, .pending)
         XCTAssertEqual(projection.owner, .workspaceAdmin)
-        XCTAssertEqual(projection.normalUserAction, .copySafeReport)
+        XCTAssertEqual(projection.normalUserAction, .sendSupportReport)
     }
 
     func testVerifiedTerminalLocalPurgeDoesNotOverclaimUploadDelivery() {
@@ -162,7 +162,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.custodyState, .cannotSend)
         XCTAssertEqual(projection.owner, .support)
         XCTAssertEqual(projection.retryClass, .notRetryable)
-        XCTAssertEqual(projection.normalUserAction, .openDiagnostics)
+        XCTAssertEqual(projection.normalUserAction, .sendSupportReport)
         XCTAssertNotEqual(projection.normalUserAction, .deleteLocalCopy)
         XCTAssertEqual(projection.copyKey, "custody.cannot_send")
         XCTAssertFalse(projection.reviewAvailable)
@@ -181,7 +181,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.custodyState, .retainedAwaitingCondition)
         XCTAssertEqual(projection.owner, .workspaceAdmin)
         XCTAssertEqual(projection.retryClass, .pausedUntilAdminAction)
-        XCTAssertEqual(projection.normalUserAction, .copySafeReport)
+        XCTAssertEqual(projection.normalUserAction, .sendSupportReport)
         XCTAssertEqual(projection.copyKey, "custody.needs_admin")
         XCTAssertFalse(projection.reviewAvailable)
     }
@@ -218,7 +218,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.custodyState, .terminalUndelivered)
         XCTAssertEqual(projection.owner, .policyLifecycle)
         XCTAssertEqual(projection.retryClass, .terminal)
-        XCTAssertEqual(projection.normalUserAction, .copySafeReport)
+        XCTAssertEqual(projection.normalUserAction, .sendSupportReport)
         XCTAssertNotEqual(projection.normalUserAction, .deleteLocalCopy)
     }
 
@@ -291,6 +291,44 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(summaries.map(\.copyKey), ["custody.needs_sign_in", "custody.saved_will_send"])
         XCTAssertEqual(summaries.first?.ownerLabel, "Владелец встречи")
         XCTAssertEqual(summaries.last?.pendingCount, 2)
+    }
+
+    func testAggregateSupportIncidentReportBoundsSafeAffectedIdentities() throws {
+        let items = (0..<6).map { index in
+            custodyFixtureQueueItem(
+                id: "terminal-\(index)",
+                state: .failed,
+                retryMode: .terminal,
+                syncConflictState: .retentionExpired,
+                retentionDeadline: Date(timeIntervalSince1970: 10),
+                updatedAt: Date(timeIntervalSince1970: Double(20 + index))
+            )
+        }
+
+        let summary = try XCTUnwrap(DesktopUploadCustodySummary.summaries(
+            for: items,
+            now: Date(timeIntervalSince1970: 30)
+        ).first)
+        let report = try XCTUnwrap(DesktopSupportIncidentReport(
+            item: summary.primaryItem,
+            projection: summary.primaryProjection,
+            context: DesktopSupportIncidentReportContext(
+                buildVersion: "1234",
+                workspaceFingerprint: "ws_fpr_safe",
+                userFingerprint: "usr_fpr_safe",
+                deviceFingerprint: "dev_fpr_safe",
+                safeDeviceIdentifier: "device:dev_fpr_safe"
+            ),
+            affectedItems: summary.affectedItems,
+            now: Date(timeIntervalSince1970: 30)
+        ))
+
+        XCTAssertEqual(summary.pendingCount, 6)
+        XCTAssertEqual(summary.affectedItems.count, 6)
+        XCTAssertEqual(report.affectedCount, 6)
+        XCTAssertEqual(report.safeAffectedIdentities.count, 5)
+        XCTAssertEqual(Set(report.safeAffectedIdentities).count, 5)
+        XCTAssertTrue(report.safeAffectedIdentities.allSatisfy { $0.hasPrefix("affected_fpr_") })
     }
 
     func testMeetingOwnerActionBadgeCountsOnlyRealOwnerActions() {
@@ -370,6 +408,73 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertTrue(report.clipboardText.contains("Связь с сервером: серверная запись не подтверждена."))
         XCTAssertFalse(report.clipboardText.localizedCaseInsensitiveContains("recovery"))
         XCTAssertFalse(report.clipboardText.localizedCaseInsensitiveContains("восстанов"))
+    }
+
+    func testSupportIncidentReportUsesFullMetadataOnlyPayload() throws {
+        var item = custodyFixtureQueueItem(
+            id: "terminal-support-report",
+            state: .failed,
+            retryMode: .terminal,
+            failureReason: "/Users/private/recording.wav Bearer leaked-token",
+            syncConflictState: .retentionExpired,
+            retentionDeadline: Date(timeIntervalSince1970: 10),
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        item.attemptCount = 3
+        item.retryRecords = [
+            RetryRecord(
+                attemptNumber: 3,
+                startedAt: Date(timeIntervalSince1970: 18),
+                finishedAt: Date(timeIntervalSince1970: 19),
+                stateBefore: .uploading,
+                stateAfter: .blocked,
+                failureCategory: .network,
+                failureReason: "http_status_503:support_incident.github_unavailable"
+            )
+        ]
+        let projection = DesktopUploadCustodyProjection(item: item, now: Date(timeIntervalSince1970: 20))
+        let context = DesktopSupportIncidentReportContext(
+            appVersion: "2026.06.27",
+            buildVersion: "1234",
+            macOSVersion: "15.5.0",
+            architecture: "arm64",
+            locale: "ru_RU",
+            timezone: "Europe/Moscow",
+            environmentBaseURLIdentity: "rec.2brain.pro",
+            workspaceFingerprint: "ws_fpr_safe",
+            userFingerprint: "usr_fpr_safe",
+            deviceFingerprint: "dev_fpr_safe",
+            safeDeviceIdentifier: "device:dev_fpr_safe"
+        )
+
+        let report = try XCTUnwrap(DesktopSupportIncidentReport(
+            item: item,
+            projection: projection,
+            context: context,
+            now: Date(timeIntervalSince1970: 20)
+        ))
+        let json = String(data: try JSONEncoder().encode(report), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(report.schemaVersion, DesktopSupportIncidentReport.schemaVersion)
+        XCTAssertEqual(report.normalUserAction, "send_support_report")
+        XCTAssertEqual(report.problemCode, "custody.retention_expired.local_retained")
+        XCTAssertEqual(report.failureCategory, "retention_expired")
+        XCTAssertEqual(report.redactionState, "metadata_only")
+        XCTAssertEqual(report.environmentBaseURLIdentity, "rec.2brain.pro")
+        XCTAssertEqual(report.workspaceFingerprint, "ws_fpr_safe")
+        XCTAssertEqual(report.uploadAttemptCount, 3)
+        XCTAssertEqual(report.lastSafeHTTPStatus, "503")
+        XCTAssertEqual(report.lastSafeProblemCode, "retention_expired")
+        XCTAssertEqual(report.localFileCompletenessProfile.totalSizeBucket, "lt_1mb")
+        XCTAssertEqual(report.localFileCompletenessProfile.durationBucket, "lt_5m")
+        XCTAssertTrue(report.safeRecordingIdentity.hasPrefix("local:fpr_"))
+        XCTAssertTrue(report.safeReportFingerprint.hasPrefix("report_fpr_"))
+        XCTAssertTrue(report.dedupeKey.hasPrefix("support_dedupe_"))
+        XCTAssertFalse(json.contains("/Users/private"))
+        XCTAssertFalse(json.contains("Bearer"))
+        XCTAssertFalse(json.contains("recording.wav"))
+        XCTAssertFalse(json.contains("mic.wav"))
+        XCTAssertFalse(json.contains("incoming.wav"))
     }
 
     func testAutomaticCustodyDoesNotCreateIncidentReport() {

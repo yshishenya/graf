@@ -198,7 +198,10 @@ async def _upsert_incident(
             SupportIncident.dedupe_key == dedupe_key,
         )
     )
+    affected_count = _reported_affected_count(report)
+    report_identities = _reported_safe_identities(report)
     identity = str(report.get("affected_identity_fingerprint") or "unknown")
+    identities_to_merge = report_identities or [identity]
     if incident is None:
         incident = SupportIncident(
             workspace_id=tenant_scope.workspace_id,
@@ -209,8 +212,8 @@ async def _upsert_incident(
             failure_category=str(report.get("failure_category") or "unknown"),
             retry_class=str(report.get("retry_class") or "unknown"),
             status="pending_github",
-            affected_count=1,
-            safe_affected_identities=[identity],
+            affected_count=affected_count,
+            safe_affected_identities=identities_to_merge[:5],
             latest_safe_report_json=dict(report),
             latest_safe_report_fingerprint=str(report["safe_report_fingerprint"]),
             first_received_at=now,
@@ -222,10 +225,11 @@ async def _upsert_incident(
         await db.flush()
         return incident, "created"
 
-    incident.affected_count += 1
+    incident.affected_count += affected_count
     identities = list(incident.safe_affected_identities or [])
-    if identity not in identities and len(identities) < 5:
-        identities.append(identity)
+    for identity in identities_to_merge:
+        if identity not in identities and len(identities) < 5:
+            identities.append(identity)
     incident.safe_affected_identities = identities
     incident.latest_safe_report_json = dict(report)
     incident.latest_safe_report_fingerprint = str(report["safe_report_fingerprint"])
@@ -234,6 +238,24 @@ async def _upsert_incident(
     incident.redaction_result = str(report.get("redaction_result") or incident.redaction_result)
     await db.flush()
     return incident, "updated"
+
+
+def _reported_affected_count(report: Mapping[str, Any]) -> int:
+    value = report.get("affected_count")
+    if isinstance(value, int) and value > 0:
+        return value
+    return 1
+
+
+def _reported_safe_identities(report: Mapping[str, Any]) -> list[str]:
+    value = report.get("safe_affected_identities")
+    if not isinstance(value, list):
+        return []
+    identities: list[str] = []
+    for item in value[:5]:
+        if isinstance(item, str) and item and item != "redacted_metadata":
+            identities.append(item)
+    return identities
 
 
 async def _create_or_update_issue(

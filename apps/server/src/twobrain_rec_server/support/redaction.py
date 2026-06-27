@@ -67,6 +67,8 @@ ALLOWED_REPORT_FIELDS = (
     "app_queue_schema_version",
     "ledger_schema_version",
     "redaction_state",
+    "affected_count",
+    "safe_affected_identities",
 )
 
 NESTED_ALLOWED_FIELDS = {
@@ -98,7 +100,7 @@ BOOL_FIELDS = {
     "server_copy_known",
     "upload_session_present",
 }
-INT_FIELDS = {"upload_attempt_count", "expected_parts_count", "uploaded_parts_count"}
+INT_FIELDS = {"upload_attempt_count", "expected_parts_count", "uploaded_parts_count", "affected_count"}
 
 UNSAFE_KEY_PARTS = (
     "authorization",
@@ -251,6 +253,8 @@ def _redact_field(field: str, value: Any) -> tuple[Any, int]:
         return _redact_nested(field, value)
     if field == "local_purge_tasks":
         return _redact_safe_list(value)
+    if field == "safe_affected_identities":
+        return _redact_safe_list(value, limit=5)
     if isinstance(value, str):
         if _is_unsafe_string(value) or not SAFE_TEXT_RE.match(value):
             return REDACTED_METADATA, 1
@@ -282,12 +286,12 @@ def _redact_nested(field: str, value: Any) -> tuple[dict[str, Any], int]:
     return redacted, count
 
 
-def _redact_safe_list(value: Any) -> tuple[list[Any], int]:
+def _redact_safe_list(value: Any, *, limit: int | None = None) -> tuple[list[Any], int]:
     if not isinstance(value, list):
         return [], 0
     redacted: list[Any] = []
     count = 0
-    for item in value:
+    for item in value[:limit]:
         if isinstance(item, str) and not _is_unsafe_string(item) and SAFE_TEXT_RE.match(item):
             redacted.append(item)
         else:

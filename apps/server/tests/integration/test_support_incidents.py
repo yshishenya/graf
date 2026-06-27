@@ -50,6 +50,43 @@ def test_support_incident_duplicate_updates_existing_issue_and_aggregate(client)
     assert "Affected count: `2`" in fake_github.updated_issues[0]["body"]
 
 
+def test_support_incident_aggregate_report_creates_one_issue_with_bounded_identities(client) -> None:
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    payload = safe_report_payload() | {
+        "affected_count": 5,
+        "safe_affected_identities": [
+            "affected_fpr_01",
+            "affected_fpr_02",
+            "affected_fpr_03",
+            "affected_fpr_04",
+            "affected_fpr_05",
+        ],
+    }
+
+    response = client.post("/api/v1/desktop/support-incidents", headers=auth_headers(), json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["affected_count"] == 5
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def load_incident() -> SupportIncident:
+        async with sessionmaker() as session:
+            return await session.scalar(select(SupportIncident))
+
+    incident = asyncio.run(load_incident())
+    assert incident.affected_count == 5
+    assert incident.safe_affected_identities == [
+        "affected_fpr_01",
+        "affected_fpr_02",
+        "affected_fpr_03",
+        "affected_fpr_04",
+        "affected_fpr_05",
+    ]
+    assert len(fake_github.created_issues) == 1
+    assert "Affected count: `5`" in fake_github.created_issues[0]["body"]
+
+
 def test_support_incident_dependency_failure_persists_fallback_state(client) -> None:
     fake_github = FakeGitHubIssueClient(failure_reason_code="support_incident.github_unavailable")
     client.app.state.support_incident_github_client = fake_github

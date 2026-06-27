@@ -39,9 +39,9 @@
 - [X] T010 Implement the minimal GitHub issue title/body/label builder and `httpx` client in `apps/server/src/twobrain_rec_server/support/github_issues.py`
 - [X] T011 Implement the support incident persistence service shell with redaction, durable rate-limit bucket checks, and GitHub dependency injection in `apps/server/src/twobrain_rec_server/support/incidents.py`
 - [X] T012 Add the support incident API router and register it in `apps/server/src/twobrain_rec_server/api/support_incidents.py` and `apps/server/src/twobrain_rec_server/main.py`
-- [ ] T013 Extend `DesktopUploadClientProtocol`, shared request handling, and client error mapping for support incident submission in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
-- [ ] T014 Add desktop support incident payload, response, and submission state types in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
-- [ ] T015 Persist support incident submission state in the local upload ledger in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T013 Extend `DesktopUploadClientProtocol`, shared request handling, and client error mapping for support incident submission in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
+- [X] T014 Add desktop support incident payload, response, and submission state types in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
+- [X] T015 Persist support incident submission state in the local upload ledger in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
 
 **Checkpoint**: Foundation ready. User story implementation can now proceed.
 
@@ -57,18 +57,18 @@
 
 - [X] T016 [P] [US1] Add contract coverage for successful `POST /api/v1/desktop/support-incidents`, `CUST-*` response shape, and forbidden desktop-direct GitHub assumptions in `apps/server/tests/contract/test_support_incident_contract.py`
 - [X] T017 [US1] Add integration coverage for successful incident persistence plus fake private GitHub issue creation in `apps/server/tests/integration/test_support_incidents.py`
-- [ ] T018 [P] [US1] Add macOS tests for reportable custody states, full safe payload construction, and sent incident persistence in `apps/macos/Shared/Tests/DesktopUploadCustodyProjectionTests.swift`
-- [ ] T019 [P] [US1] Add macOS client tests for support incident JSON request path, timeout, and `CUST-*` decoding in `apps/macos/Shared/Tests/DesktopUploadClientTests.swift`
+- [X] T018 [P] [US1] Add macOS tests for reportable custody states, full safe payload construction, and sent incident persistence in `apps/macos/Shared/Tests/DesktopUploadCustodyProjectionTests.swift`
+- [X] T019 [P] [US1] Add macOS client tests for support incident JSON request path, timeout, and `CUST-*` decoding in `apps/macos/Shared/Tests/DesktopUploadClientTests.swift`
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Expand the desktop metadata-only support report fields and report availability rules in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
-- [ ] T021 [US1] Implement `submitSupportIncident` on the desktop upload client using `POST /api/v1/desktop/support-incidents` in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
+- [X] T020 [US1] Expand the desktop metadata-only support report fields and report availability rules in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
+- [X] T021 [US1] Implement `submitSupportIncident` on the desktop upload client using `POST /api/v1/desktop/support-incidents` in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
 - [X] T022 [US1] Implement the authenticated support incident endpoint success path in `apps/server/src/twobrain_rec_server/api/support_incidents.py`
 - [X] T023 [US1] Implement redacted persistence plus new GitHub issue creation for the success path in `apps/server/src/twobrain_rec_server/support/incidents.py`
-- [ ] T024 [US1] Add the primary `Отправить отчет` loading and success state to the native upload status card in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T025 [US1] Add the same support incident action/status affordance to the native right-panel custody detail row in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T026 [US1] Save and reload sent incident numbers for custody items in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T024 [US1] Add the primary `Отправить отчет` loading and success state to the native upload status card in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T025 [US1] Add the same support incident action/status affordance to the native right-panel custody detail row in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [X] T026 [US1] Save and reload sent incident numbers for custody items in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
 
 **Checkpoint**: User Story 1 is independently functional and testable as the MVP.
 
@@ -85,16 +85,16 @@
 - [X] T027 [P] [US2] Add unit coverage for unsafe payload rejection, allowlisted fallback values, deterministic redacted JSON, and forbidden evidence strings in `apps/server/tests/unit/test_support_incident_redaction.py`
 - [X] T028 [US2] Add contract coverage for `400`, `403`, `422`, `429`, and `503` fallback problem responses in `apps/server/tests/contract/test_support_incident_contract.py`
 - [X] T029 [US2] Add integration coverage for missing labels, wrong repo, public repo, GitHub outage, GitHub timeout, durable rate-limit bucket fallback, and no GitHub mutation while rate-limited in `apps/server/tests/integration/test_support_incidents.py`
-- [ ] T030 [P] [US2] Add macOS fallback state, copy button visibility, safe clipboard report, accessible names, keyboard/focus reachability, and non-overlap tests for both native custody surfaces in `apps/macos/Shared/Tests/CaptureControlTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
+- [X] T030 [P] [US2] Add macOS fallback state, copy button visibility, safe clipboard report, accessible names, keyboard/focus reachability, and non-overlap tests for both native custody surfaces in `apps/macos/Shared/Tests/CaptureControlTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
 
 ### Implementation for User Story 2
 
 - [X] T031 [US2] Harden unsafe payload rejection and metadata-only fallback values in `apps/server/src/twobrain_rec_server/support/redaction.py`
 - [X] T032 [US2] Map unsafe, workspace mismatch, unsupported schema, rate-limit, configuration, and GitHub unavailable failures to safe `Problem` responses in `apps/server/src/twobrain_rec_server/api/support_incidents.py`
 - [X] T033 [US2] Implement repo privacy, label existence, auth failure, timeout, and GitHub rate-limit handling in `apps/server/src/twobrain_rec_server/support/github_issues.py`
-- [ ] T034 [US2] Preserve failed-with-copy-fallback state and retry-safe local report state in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
-- [ ] T035 [US2] Show the failure copy, visible `Скопировать отчет` fallback, and accessible labels in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T036 [US2] Update terminal expired and admin/access-policy human copy in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
+- [X] T034 [US2] Preserve failed-with-copy-fallback state and retry-safe local report state in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
+- [X] T035 [US2] Show the failure copy, visible `Скопировать отчет` fallback, and accessible labels in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T036 [US2] Update terminal expired and admin/access-policy human copy in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
 
 **Checkpoint**: User Stories 1 and 2 both work independently.
 
@@ -110,14 +110,14 @@
 
 - [X] T037 [P] [US3] Add unit coverage for GitHub issue title/body rendering, stable section order, metadata block replacement, closed-issue safe JSON retention, and forbidden-content safety in `apps/server/tests/unit/test_support_incident_github_issue_body.py`
 - [X] T038 [US3] Add duplicate aggregate integration scenarios for same dedupe key, affected count, and existing issue update in `apps/server/tests/integration/test_support_incidents.py`
-- [ ] T039 [P] [US3] Add macOS aggregate-report tests for five matching custody items and bounded safe identities in `apps/macos/Shared/Tests/DesktopUploadCustodyProjectionTests.swift`
+- [X] T039 [P] [US3] Add macOS aggregate-report tests for five matching custody items and bounded safe identities in `apps/macos/Shared/Tests/DesktopUploadCustodyProjectionTests.swift`
 
 ### Implementation for User Story 3
 
 - [X] T040 [US3] Implement deterministic dedupe key derivation, upsert behavior, and max-5 safe identity cap in `apps/server/src/twobrain_rec_server/support/incidents.py`
 - [X] T041 [US3] Implement GitHub issue update behavior that preserves human sections and replaces only generated metadata/counters in `apps/server/src/twobrain_rec_server/support/github_issues.py`
 - [X] T042 [US3] Ensure database uniqueness and indexes match dedupe semantics in `apps/server/src/twobrain_rec_server/db/migrations/versions/0012_support_incidents.py`
-- [ ] T043 [US3] Add aggregate affected-count and safe identity payload support for grouped custody summaries in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
+- [X] T043 [US3] Add aggregate affected-count and safe identity payload support for grouped custody summaries in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
 
 **Checkpoint**: All user stories are independently functional and safe.
 
@@ -127,12 +127,12 @@
 
 **Purpose**: Final safety proof, repository hygiene, and release-facing documentation.
 
-- [ ] T044 [P] Update the unreleased changelog entry for feature `061-support-incident-reporting` in `CHANGELOG.md`
-- [ ] T045 [P] Confirm quickstart scenarios and validation commands remain accurate after implementation in `specs/061-support-incident-reporting/quickstart.md`
-- [ ] T046 Run the focused server test command from `specs/061-support-incident-reporting/quickstart.md`
-- [ ] T047 Run `swift test --package-path apps/macos` for native custody/report coverage from `specs/061-support-incident-reporting/quickstart.md`
-- [ ] T048 Run `infra/scripts/ci-local.sh` as the repository gate in `infra/scripts/ci-local.sh`
-- [ ] T049 Confirm no implementation diff touches the server-owned WebView meeting list route in `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T044 [P] Update the unreleased changelog entry for feature `061-support-incident-reporting` in `CHANGELOG.md`
+- [X] T045 [P] Confirm quickstart scenarios and validation commands remain accurate after implementation in `specs/061-support-incident-reporting/quickstart.md`
+- [X] T046 Run the focused server test command from `specs/061-support-incident-reporting/quickstart.md`
+- [X] T047 Run `swift test --package-path apps/macos` for native custody/report coverage from `specs/061-support-incident-reporting/quickstart.md`
+- [X] T048 Run `infra/scripts/ci-local.sh` as the repository gate in `infra/scripts/ci-local.sh`
+- [X] T049 Confirm no implementation diff touches the server-owned WebView meeting list route in `apps/server/src/twobrain_rec_server/cabinet/web.py`
 - [ ] T050 Prepare Russian PR evidence with risk lane, validation, issue links, and no closing keywords unless fully closed using `.github/pull_request_template.md`
 
 ---

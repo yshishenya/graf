@@ -28,6 +28,7 @@ public struct CaptureControlView: View {
     private let onResume: () -> Void
     private let onSelectRecordingMicrophone: (String?) -> Void
     private let onUploadReview: (URL) -> Void
+    private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let onCalendarPromptPrimary: (DesktopCalendarPrompt) -> Void
     private let onCalendarPromptDismiss: (DesktopCalendarPrompt) -> Void
 
@@ -55,6 +56,9 @@ public struct CaptureControlView: View {
         onResume: @escaping () -> Void = {},
         onSelectRecordingMicrophone: @escaping (String?) -> Void = { _ in },
         onUploadReview: @escaping (URL) -> Void = { _ in },
+        onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
+            throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
+        },
         onCalendarPromptPrimary: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
         onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in }
     ) {
@@ -81,6 +85,7 @@ public struct CaptureControlView: View {
         self.onResume = onResume
         self.onSelectRecordingMicrophone = onSelectRecordingMicrophone
         self.onUploadReview = onUploadReview
+        self.onSupportIncidentReport = onSupportIncidentReport
         self.onCalendarPromptPrimary = onCalendarPromptPrimary
         self.onCalendarPromptDismiss = onCalendarPromptDismiss
     }
@@ -234,7 +239,8 @@ public struct CaptureControlView: View {
                 UploadQueueStatusView(
                     summary: summary,
                     reviewLink: Self.uploadReviewLink(for: summary.primaryItem, configuration: cabinetConfiguration),
-                    onReview: onUploadReview
+                    onReview: onUploadReview,
+                    onSupportIncidentReport: onSupportIncidentReport
                 )
             }
 
@@ -734,6 +740,7 @@ private struct UploadQueueStatusView: View {
     let summary: DesktopUploadCustodySummary
     let reviewLink: UploadReviewLink?
     let onReview: (URL) -> Void
+    let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -776,18 +783,13 @@ private struct UploadQueueStatusView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
-                if let safeReport = summary.safeReport {
-                    Button {
-                        copySafeReport(safeReport)
-                    } label: {
-                        Label(safeReportCopied ? "Скопировано" : "Скопировать отчет", systemImage: "doc.on.doc")
-                    }
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Метаданные для поддержки без аудио, текста встречи, локальных путей, токенов и ссылок.")
-                }
             }
+
+            DesktopSupportIncidentActionStrip(
+                summary: summary,
+                onSubmit: onSupportIncidentReport
+            )
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
         .background(
@@ -801,14 +803,6 @@ private struct UploadQueueStatusView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(summary.accessibilityLabel)
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.uploadTruthRegion)
-    }
-
-    @State private var safeReportCopied = false
-
-    private func copySafeReport(_ report: DesktopUploadCustodySafeReport) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(report.clipboardText, forType: .string)
-        safeReportCopied = true
     }
 
     private var iconName: String {

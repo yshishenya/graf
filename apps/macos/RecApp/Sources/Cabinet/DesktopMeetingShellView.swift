@@ -244,12 +244,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onRefresh: () -> Void
     private let onRunCheck: () -> Void
     private let onOpenMeetingsList: () -> Void
+    private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     private let diagnosticsContent: DiagnosticsContent
     @State private var inspectorExpanded = false
     @State private var selectedSidebarItem = DesktopMeetingShellSidebarItem.meetings
-    @State private var copiedCustodySafeReportItemID: String?
 
     public init(
         session: CaptureSession?,
@@ -263,6 +263,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         onRefresh: @escaping () -> Void,
         onRunCheck: @escaping () -> Void,
         onOpenMeetingsList: @escaping () -> Void = {},
+        onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
+            throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
+        },
         @ViewBuilder captureControls: () -> CaptureControls,
         @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace,
         @ViewBuilder diagnosticsContent: () -> DiagnosticsContent
@@ -278,6 +281,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onRefresh = onRefresh
         self.onRunCheck = onRunCheck
         self.onOpenMeetingsList = onOpenMeetingsList
+        self.onSupportIncidentReport = onSupportIncidentReport
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
         self.diagnosticsContent = diagnosticsContent()
@@ -1102,30 +1106,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     .minimumScaleFactor(0.78)
             }
 
-            if let safeReport = summary.safeReport {
-                Button {
-                    copyCustodySafeReport(safeReport, itemID: summary.primaryItem.id)
-                } label: {
-                    Label(
-                        copiedCustodySafeReportItemID == summary.primaryItem.id ? "Скопировано" : "Скопировать отчет",
-                        systemImage: "doc.on.doc"
-                    )
-                }
-                .font(.caption)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .padding(.leading, 22)
-                .help("Метаданные для администратора или поддержки без аудио, текста встречи, локальных путей, токенов и ссылок.")
-            }
+            DesktopSupportIncidentActionStrip(
+                summary: summary,
+                leadingPadding: 22,
+                onSubmit: onSupportIncidentReport
+            )
         }
         .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
         .accessibilityLabel("\(summary.title). \(summary.detail). Ответственный: \(summary.ownerLabel).")
-    }
-
-    private func copyCustodySafeReport(_ report: DesktopUploadCustodySafeReport, itemID: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(report.clipboardText, forType: .string)
-        copiedCustodySafeReportItemID = itemID
     }
 
     private func custodyDetailIcon(for projection: DesktopUploadCustodyProjection) -> String {

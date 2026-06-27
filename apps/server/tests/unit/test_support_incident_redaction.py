@@ -76,6 +76,8 @@ def safe_report_payload() -> dict[str, object]:
         "app_queue_schema_version": "desktop-upload-queue.v1",
         "ledger_schema_version": "desktop-upload-ledger.v1",
         "redaction_state": "metadata_only",
+        "affected_count": 1,
+        "safe_affected_identities": ["affected_fpr_01"],
     }
 
 
@@ -90,6 +92,8 @@ def test_redacts_to_deterministic_metadata_only_report() -> None:
     assert "exact_size_bytes" not in report["local_file_completeness_profile"]
     assert "raw_path" not in report["local_file_completeness_profile"]
     assert report["redaction_state"] == "metadata_only"
+    assert report["affected_count"] == 1
+    assert report["safe_affected_identities"] == ["affected_fpr_01"]
     assert report["redaction_result"] == "accepted_with_redactions"
     assert report["safe_report_fingerprint"].startswith("report_fpr_")
     assert report["dedupe_key"].startswith("support_dedupe_")
@@ -125,6 +129,30 @@ def test_missing_safe_values_stay_present_as_unknown() -> None:
 
     assert report["architecture"] == "unknown"
     assert "architecture" in report
+
+
+def test_redacts_aggregate_identities_to_bounded_safe_list() -> None:
+    payload = safe_report_payload()
+    payload["affected_count"] = 6
+    payload["safe_affected_identities"] = [
+        "affected_fpr_01",
+        "affected_fpr_02",
+        "affected_fpr_03",
+        "affected_fpr_04",
+        "affected_fpr_05",
+        "affected_fpr_06",
+    ]
+
+    report = build_server_redacted_report(payload)
+
+    assert report["affected_count"] == 6
+    assert report["safe_affected_identities"] == [
+        "affected_fpr_01",
+        "affected_fpr_02",
+        "affected_fpr_03",
+        "affected_fpr_04",
+        "affected_fpr_05",
+    ]
 
 
 def test_rejects_non_metadata_only_or_unsupported_schema() -> None:
