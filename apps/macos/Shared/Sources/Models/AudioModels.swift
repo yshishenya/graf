@@ -1191,8 +1191,6 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
 public enum RecordingTitleStatus: String, Codable, Equatable, Sendable {
     case generated
     case userConfirmed = "user_confirmed"
-    case suppressedByPolicy = "suppressed_by_policy"
-    case legacyFallback = "legacy_fallback"
 }
 
 public enum RecordingTitleSource: String, Codable, Equatable, Sendable {
@@ -1204,8 +1202,6 @@ public enum RecordingTitleSource: String, Codable, Equatable, Sendable {
 public enum RecordingTitleConfidence: String, Codable, Equatable, Sendable {
     case high
     case medium
-    case low
-    case rejected
 }
 
 public struct RecordingTitleSuppression: Codable, Equatable, Sendable {
@@ -1221,6 +1217,7 @@ public struct RecordingTitleSuppression: Codable, Equatable, Sendable {
 public struct RecordingDisplayMetadata: Codable, Equatable, Sendable {
     public var recordingStartedAt: Date
     public var recordingStoppedAt: Date?
+    public var recordingDisplayTimeZoneOffsetMinutes: Int?
     public var title: String
     public var titleStatus: RecordingTitleStatus
     public var titleSource: RecordingTitleSource
@@ -1233,6 +1230,7 @@ public struct RecordingDisplayMetadata: Codable, Equatable, Sendable {
     public init(
         recordingStartedAt: Date,
         recordingStoppedAt: Date?,
+        recordingDisplayTimeZoneOffsetMinutes: Int? = nil,
         title: String,
         titleStatus: RecordingTitleStatus,
         titleSource: RecordingTitleSource,
@@ -1244,6 +1242,7 @@ public struct RecordingDisplayMetadata: Codable, Equatable, Sendable {
     ) {
         self.recordingStartedAt = recordingStartedAt
         self.recordingStoppedAt = recordingStoppedAt
+        self.recordingDisplayTimeZoneOffsetMinutes = recordingDisplayTimeZoneOffsetMinutes
         self.title = title
         self.titleStatus = titleStatus
         self.titleSource = titleSource
@@ -1911,14 +1910,6 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.serverTruth = serverTruth
         self.retryRecords = retryRecords
         self.retentionDecision = retentionDecision
-    }
-
-    public var recordingStartedAt: Date? {
-        recordingMetadata?.recordingStartedAt
-    }
-
-    public var recordingStoppedAt: Date? {
-        recordingMetadata?.recordingStoppedAt
     }
 
     public var progressFraction: Double {

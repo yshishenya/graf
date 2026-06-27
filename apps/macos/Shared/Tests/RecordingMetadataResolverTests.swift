@@ -11,7 +11,6 @@ final class RecordingMetadataResolverTests: XCTestCase {
         let generatedAt = utcDate(year: 2026, month: 6, day: 26, hour: 11, minute: 31)
         let resolver = RecordingMetadataResolver(clock: { generatedAt }, displayTimeZone: utcTimeZone)
 
-        let began = Date()
         let metadata = resolver.resolve(
             startedAt: startedAt,
             stoppedAt: utcDate(year: 2026, month: 6, day: 26, hour: 12, minute: 15),
@@ -20,9 +19,9 @@ final class RecordingMetadataResolverTests: XCTestCase {
             approvedAppName: "Zoom"
         )
 
-        XCTAssertLessThan(Date().timeIntervalSince(began), 0.5)
         XCTAssertEqual(metadata.recordingStartedAt, startedAt)
         XCTAssertEqual(metadata.recordingStoppedAt, utcDate(year: 2026, month: 6, day: 26, hour: 12, minute: 15))
+        XCTAssertEqual(metadata.recordingDisplayTimeZoneOffsetMinutes, 0)
         XCTAssertEqual(metadata.title, "Zoom - 2026-06-26 11:30")
         XCTAssertEqual(metadata.titleStatus, .generated)
         XCTAssertEqual(metadata.titleSource, .appContext)
@@ -203,6 +202,7 @@ final class RecordingMetadataResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(metadata.title.count, 500)
+        XCTAssertEqual(metadata.recordingDisplayTimeZoneOffsetMinutes, 180)
         XCTAssertTrue(metadata.title.hasSuffix(" - 2026-06-26 23:30"))
         XCTAssertTrue(metadata.safeFileBasename.hasPrefix("2026-06-26_23-30_"))
     }

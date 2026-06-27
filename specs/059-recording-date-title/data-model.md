@@ -22,7 +22,7 @@ Validation rules:
 Represents the visible meeting name.
 
 - `title`: sanitized visible title, maximum 500 characters in the current server contract.
-- `title_status`: `generated`, `user_confirmed`, `suppressed_by_policy`, or `legacy_fallback`.
+- `title_status`: `generated` or `user_confirmed`; suppressed candidates are recorded in `suppressed_sources`, and legacy server rows render a fallback without a persisted title status.
 - `title_updated_at`: optional timestamp for user rename or generated replacement.
 
 Validation rules:
@@ -39,7 +39,7 @@ Represents one potential source for the visible title.
 - `source`: `app_context` or `generic`.
 - `raw_available`: boolean metadata; raw private value is not required to be stored.
 - `sanitized_title`: candidate after safety filtering.
-- `confidence`: `high`, `medium`, `low`, or `rejected`.
+- `confidence`: `high` or `medium`; rejected candidates are represented by metadata-only suppression reasons, not by a selected confidence value.
 - `reason`: short metadata-only reason such as `app_context`, `generic_fallback`, `policy_suppressed`, `unsafe_pattern`, or `missing_permission`.
 
 Validation rules:

@@ -3573,6 +3573,13 @@ components:
             format: date-time
           - type: 'null'
           title: Ended At
+        recording_display_timezone_offset_minutes:
+          anyOf:
+          - type: integer
+            maximum: 840.0
+            minimum: -840.0
+          - type: 'null'
+          title: Recording Display Timezone Offset Minutes
         duration_seconds:
           type: integer
           exclusiveMinimum: 0.0
@@ -4737,6 +4744,11 @@ components:
             format: date-time
           - type: 'null'
           title: Ended At
+        recording_display_timezone_offset_minutes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Recording Display Timezone Offset Minutes
         duration_seconds:
           type: integer
           minimum: 0.0
@@ -4921,6 +4933,11 @@ components:
             format: date-time
           - type: 'null'
           title: Ended At
+        recording_display_timezone_offset_minutes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Recording Display Timezone Offset Minutes
         created_at:
           anyOf:
           - type: string

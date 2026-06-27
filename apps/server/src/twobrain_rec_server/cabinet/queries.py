@@ -101,8 +101,11 @@ async def list_cabinet_meetings(
         if status is not None and item.status != status:
             continue
         items.append(item)
-        if len(items) >= limit:
+        if sort != "title_asc" and len(items) >= limit:
             break
+    if sort == "title_asc":
+        items.sort(key=lambda item: item.title.casefold())
+        items = items[:limit]
     return MeetingListResponse(
         items=items,
         filters=MeetingFilterState(q=q, status=status, access=access, sort=sort),
@@ -217,7 +220,6 @@ def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meetin
         "started_asc": nullslast(asc(Meeting.started_at)),
         "duration_desc": desc(Meeting.duration_seconds),
         "duration_asc": asc(Meeting.duration_seconds),
-        "title_asc": asc(Meeting.title),
     }
     return query.order_by(sorters.get(sort, desc(Meeting.updated_at)), desc(Meeting.created_at))
 

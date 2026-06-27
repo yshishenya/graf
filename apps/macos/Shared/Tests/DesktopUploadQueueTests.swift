@@ -552,8 +552,8 @@ final class DesktopUploadQueueTests: XCTestCase {
             .replacingOccurrences(of: " ", with: "-")
             .replacingOccurrences(of: ":", with: "-")
 
-        XCTAssertEqual(item.recordingStartedAt, Date(timeIntervalSince1970: 10))
-        XCTAssertEqual(item.recordingStoppedAt, Date(timeIntervalSince1970: 20))
+        XCTAssertEqual(item.recordingMetadata?.recordingStartedAt, Date(timeIntervalSince1970: 10))
+        XCTAssertEqual(item.recordingMetadata?.recordingStoppedAt, Date(timeIntervalSince1970: 20))
         XCTAssertEqual(item.recordingMetadata?.title, "Display - \(displayLabel)")
         XCTAssertEqual(item.recordingMetadata?.titleSource, .appContext)
         XCTAssertEqual(item.recordingMetadata?.titleConfidence, .high)
@@ -591,8 +591,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         let refreshed = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
 
         XCTAssertEqual(refreshed.recordingMetadata, first.recordingMetadata)
-        XCTAssertEqual(refreshed.recordingStartedAt, first.recordingStartedAt)
-        XCTAssertEqual(refreshed.recordingStoppedAt, first.recordingStoppedAt)
+        XCTAssertEqual(refreshed.recordingMetadata?.recordingStartedAt, first.recordingMetadata?.recordingStartedAt)
+        XCTAssertEqual(refreshed.recordingMetadata?.recordingStoppedAt, first.recordingMetadata?.recordingStoppedAt)
         XCTAssertEqual(refreshed.localMediaRevisionId, first.localMediaRevisionId)
         XCTAssertEqual(
             DesktopUploadClient.idempotencyKey(item: refreshed, scope: "meeting"),

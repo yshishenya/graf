@@ -688,7 +688,6 @@ public struct DiagnosticBundleService: Sendable {
             "titleLength": .int(metadata.title.count),
             "safeFileBasenamePresent": .bool(!metadata.safeFileBasename.isEmpty),
             "safeFileBasenameLength": .int(metadata.safeFileBasename.count),
-            "stableSuffix": .string(metadata.stableSuffix),
             "suppressedSources": .array(metadata.suppressedSources.map { suppression in
                 .object([
                     "source": .string(suppression.source.rawValue),

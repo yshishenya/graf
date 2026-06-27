@@ -166,6 +166,57 @@ RLS truth probe was not attempted from the local `postgres_test` boundary
 (`reason=postgres_test_database_required`). This does not block the local CI
 pass, but it must not be represented as production RLS enforcement evidence.
 
+## Post-Merge Review Fix Evidence - 2026-06-27
+
+Risk/validation lane: active Spec Kit slice post-merge hotfix. Full local
+validation is required because the fix touches macOS metadata, server ingest,
+database schema, cabinet rendering, and the public OpenAPI contract.
+
+Post-merge findings closed:
+
+- Unsafe legacy fallback titles no longer display raw `local_recording_id` when
+  that fallback looks like an email, URL, token, or other unsafe title.
+- Cabinet `title_asc` sorting now follows the visible title after safe fallback
+  logic instead of the raw stored title.
+- Recording date labels use the display timezone offset captured by the macOS
+  app at recording start, while preserving UTC instants for storage.
+- Exact idempotent retries for already-persisted legacy unsafe titles return the
+  existing meeting instead of failing a duplicate upload retry.
+- Swift metadata plumbing was simplified to the minimal values still needed for
+  059, and diagnostics no longer expose `stableSuffix`.
+- OpenAPI contract snapshot was updated for
+  `recording_display_timezone_offset_minutes`.
+
+Focused post-merge validation:
+
+| Command | Result |
+|---------|--------|
+| `cd apps/server && uv run pytest tests/unit/test_cabinet_view_models.py tests/integration/test_cabinet_meeting_list.py tests/integration/test_ingest_happy_path.py tests/contract/test_cabinet_no_secret_content_egress.py tests/unit/test_api_boundary_validation.py -q` | `38 passed, 1 warning` |
+| `swift test --package-path apps/macos --filter 'RecordingMetadataResolverTests|DesktopUploadClientTests|DesktopUploadQueueTests|DiagnosticRedactionTests'` | `82 tests, 0 failures` |
+| `swift test --package-path apps/macos` | `653 tests, 0 failures` |
+| `cd apps/server && uv run pytest tests/contract/test_openapi_contract_drift.py -q` | `5 passed, 1 warning` |
+| `cd apps/server && uv run ruff check .` | `All checks passed!` |
+
+Full post-merge local CI:
+
+| Command | Result |
+|---------|--------|
+| `infra/scripts/ci-local.sh` | `ci_local_result=pass`; server tests `715 passed, 4 skipped, 103 warnings`; server lint `All checks passed!`; deployment evidence scan `pass files=7` |
+
+Review follow-up validation:
+
+| Command | Result |
+|---------|--------|
+| `cd apps/server && uv run pytest tests/integration/test_cabinet_meeting_list.py tests/unit/test_cabinet_view_models.py -q` | `22 passed, 1 warning` |
+| `cd apps/server && uv run pytest tests/integration/test_ingest_happy_path.py::test_create_meeting_duplicate_rejects_mutated_recording_metadata tests/integration/test_ingest_happy_path.py::test_create_meeting_unsafe_legacy_title_retry_returns_existing_meeting -q` | `2 passed, 1 warning` |
+| `cd apps/server && uv run ruff check tests/integration/test_cabinet_meeting_list.py src/twobrain_rec_server/cabinet/view_models.py` | `All checks passed!` |
+| `cd apps/server && uv run ruff check src/twobrain_rec_server/ingest/meetings.py tests/integration/test_ingest_happy_path.py` | `All checks passed!` |
+| `infra/scripts/ci-local.sh` | `ci_local_result=pass`; server tests `716 passed, 4 skipped, 103 warnings`; server lint `All checks passed!`; deployment evidence scan `pass files=7` |
+
+The full CI run still reports `rls_validation_result=blocked` for the local
+`postgres_test` boundary. This is unchanged from the earlier 059 validation and
+must not be used as production RLS evidence.
+
 Behavior confirmed:
 
 - Queue metadata is resolved from manifest `startedAt`/`stoppedAt` and the

@@ -265,6 +265,7 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertEqual(bundle.redactionState, .redacted)
         XCTAssertTrue(rendered.contains("titleSource"))
         XCTAssertTrue(rendered.contains("safeFileBasenameLength"))
+        XCTAssertFalse(rendered.contains("stableSuffix"))
         XCTAssertFalse(rendered.contains("Private Customer Sync"))
         XCTAssertFalse(rendered.contains("private-customer-sync"))
     }

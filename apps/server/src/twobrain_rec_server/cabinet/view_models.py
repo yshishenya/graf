@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, timedelta, timezone
 from decimal import Decimal
 from typing import cast
 
@@ -159,6 +160,10 @@ def format_duration(seconds: int) -> str:
 def date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
         return "Без даты"
+    started_at = item.started_at if item.started_at.tzinfo is not None else item.started_at.replace(tzinfo=UTC)
+    offset = item.recording_display_timezone_offset_minutes
+    if offset is not None and -14 * 60 <= offset <= 14 * 60:
+        started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
     months = {
         1: "янв",
         2: "фев",
@@ -173,7 +178,7 @@ def date_label(item: MeetingListItem) -> str:
         11: "ноя",
         12: "дек",
     }
-    return f"{item.started_at.day} {months[item.started_at.month]}"
+    return f"{started_at.day} {months[started_at.month]}"
 
 
 def sort_label(sort: str) -> str:
@@ -204,15 +209,18 @@ def meeting_media_label(item: MeetingListItem) -> str:
 
 
 def safe_title(meeting: Meeting) -> str:
-    title = (meeting.title or "").strip()
-    title = "".join(char for char in title if char >= " " and char != "\x7f").strip()
-    if UNSAFE_TITLE_RE.search(title):
-        title = ""
-    if not title:
-        title = (meeting.local_recording_id or "").strip()
-    if not title:
-        title = "Untitled meeting"
-    return "".join(char for char in title if char >= " " and char != "\x7f")[:500]
+    for candidate in (meeting.title, meeting.local_recording_id):
+        title = safe_title_candidate(candidate)
+        if title:
+            return title
+    return "Untitled meeting"
+
+
+def safe_title_candidate(raw: str | None) -> str | None:
+    title = "".join(char for char in (raw or "").strip() if char >= " " and char != "\x7f").strip()
+    if not title or UNSAFE_TITLE_RE.search(title):
+        return None
+    return title[:500]
 
 
 def transcript_available(result: ProcessingResult | None) -> bool:
@@ -355,6 +363,7 @@ def build_list_item(
         title=safe_title(meeting),
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
+        recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         duration_seconds=max(0, meeting.duration_seconds),
         source=_meeting_source(media_revision),
         status=status,

@@ -561,8 +561,9 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             local_recording_id: item.directoryId,
             local_media_revision_id: item.localMediaRevisionId,
             title: item.recordingMetadata?.title,
-            started_at: item.recordingStartedAt,
-            ended_at: item.recordingStoppedAt,
+            started_at: item.recordingMetadata?.recordingStartedAt,
+            ended_at: item.recordingMetadata?.recordingStoppedAt,
+            recording_display_timezone_offset_minutes: item.recordingMetadata?.recordingDisplayTimeZoneOffsetMinutes,
             duration_seconds: item.artifactProfile.durationSeconds
         )
     }
@@ -780,29 +781,14 @@ public struct DesktopUploadFileDescriptor: Equatable, Sendable {
     public let durationSeconds: Int
 }
 
-public struct DesktopCreateMeetingPayload: Encodable, Equatable, Sendable {
+public struct DesktopCreateMeetingPayload: Encodable, Sendable {
     public let local_recording_id: String
     public let local_media_revision_id: String
     public let title: String?
     public let started_at: Date?
     public let ended_at: Date?
+    public let recording_display_timezone_offset_minutes: Int?
     public let duration_seconds: Int
-
-    public init(
-        local_recording_id: String,
-        local_media_revision_id: String,
-        title: String?,
-        started_at: Date?,
-        ended_at: Date?,
-        duration_seconds: Int
-    ) {
-        self.local_recording_id = local_recording_id
-        self.local_media_revision_id = local_media_revision_id
-        self.title = title
-        self.started_at = started_at
-        self.ended_at = ended_at
-        self.duration_seconds = duration_seconds
-    }
 }
 
 private struct MediaRevisionSummary: Decodable {
