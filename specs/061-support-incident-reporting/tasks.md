@@ -18,9 +18,9 @@
 
 **Purpose**: Create minimal new file locations and test doubles used by the implementation.
 
-- [ ] T001 Create the support package marker in `apps/server/src/twobrain_rec_server/support/__init__.py`
-- [ ] T002 [P] Create the fake GitHub issue test double in `apps/server/tests/fakes/fake_github.py`
-- [ ] T003 [P] Create macOS support incident fixture helpers in `apps/macos/Shared/Tests/DesktopSupportIncidentFixtures.swift`
+- [X] T001 Create the support package marker in `apps/server/src/twobrain_rec_server/support/__init__.py`
+- [X] T002 [P] Create the fake GitHub issue test double in `apps/server/tests/fakes/fake_github.py`
+- [X] T003 [P] Create macOS support incident fixture helpers in `apps/macos/Shared/Tests/DesktopSupportIncidentFixtures.swift`
 
 ---
 
@@ -35,8 +35,8 @@
 - [ ] T006 Add Alembic migration `0010_support_incidents.py` for support incidents, durable rate-limit buckets, indexes, uniqueness, and RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0010_support_incidents.py`
 - [ ] T007 Export the `SupportIncident` and `SupportIncidentRateLimitBucket` models in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
 - [ ] T008 Add support incident request, response, safe metadata, and failure schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
-- [ ] T009 Implement allowlist redaction, forbidden-content detection, stable ordering, and safe report fingerprinting in `apps/server/src/twobrain_rec_server/support/redaction.py`
-- [ ] T010 Implement the minimal GitHub issue title/body/label builder and `httpx` client in `apps/server/src/twobrain_rec_server/support/github_issues.py`
+- [X] T009 Implement allowlist redaction, forbidden-content detection, stable ordering, and safe report fingerprinting in `apps/server/src/twobrain_rec_server/support/redaction.py`
+- [X] T010 Implement the minimal GitHub issue title/body/label builder and `httpx` client in `apps/server/src/twobrain_rec_server/support/github_issues.py`
 - [ ] T011 Implement the support incident persistence service shell with redaction, durable rate-limit bucket checks, and GitHub dependency injection in `apps/server/src/twobrain_rec_server/support/incidents.py`
 - [ ] T012 Add the support incident API router and register it in `apps/server/src/twobrain_rec_server/api/support_incidents.py` and `apps/server/src/twobrain_rec_server/main.py`
 - [ ] T013 Extend `DesktopUploadClientProtocol`, shared request handling, and client error mapping for support incident submission in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
@@ -82,7 +82,7 @@
 
 ### Tests for User Story 2
 
-- [ ] T027 [P] [US2] Add unit coverage for unsafe payload rejection, allowlisted fallback values, deterministic redacted JSON, and forbidden evidence strings in `apps/server/tests/unit/test_support_incident_redaction.py`
+- [X] T027 [P] [US2] Add unit coverage for unsafe payload rejection, allowlisted fallback values, deterministic redacted JSON, and forbidden evidence strings in `apps/server/tests/unit/test_support_incident_redaction.py`
 - [ ] T028 [US2] Add contract coverage for `400`, `403`, `422`, `429`, and `503` fallback problem responses in `apps/server/tests/contract/test_support_incident_contract.py`
 - [ ] T029 [US2] Add integration coverage for missing labels, wrong repo, public repo, GitHub outage, GitHub timeout, durable rate-limit bucket fallback, and no GitHub mutation while rate-limited in `apps/server/tests/integration/test_support_incidents.py`
 - [ ] T030 [P] [US2] Add macOS fallback state, copy button visibility, safe clipboard report, accessible names, keyboard/focus reachability, and non-overlap tests for both native custody surfaces in `apps/macos/Shared/Tests/CaptureControlTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
@@ -108,7 +108,7 @@
 
 ### Tests for User Story 3
 
-- [ ] T037 [P] [US3] Add unit coverage for GitHub issue title/body rendering, stable section order, metadata block replacement, closed-issue safe JSON retention, and forbidden-content safety in `apps/server/tests/unit/test_support_incident_github_issue_body.py`
+- [X] T037 [P] [US3] Add unit coverage for GitHub issue title/body rendering, stable section order, metadata block replacement, closed-issue safe JSON retention, and forbidden-content safety in `apps/server/tests/unit/test_support_incident_github_issue_body.py`
 - [ ] T038 [US3] Add duplicate aggregate integration scenarios for same dedupe key, affected count, and existing issue update in `apps/server/tests/integration/test_support_incidents.py`
 - [ ] T039 [P] [US3] Add macOS aggregate-report tests for five matching custody items and bounded safe identities in `apps/macos/Shared/Tests/DesktopUploadCustodyProjectionTests.swift`
 
