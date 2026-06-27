@@ -52,6 +52,16 @@ async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
         await db.commit()
 
 
+async def _set_workspace_vk_policy(client, enabled: bool) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        if policy is None:
+            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            db.add(policy)
+        policy.allow_vk = enabled
+        await db.commit()
+
+
 async def _seed_owner_review_session(
     client,
     *,
@@ -152,6 +162,7 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert "Продолжить через Яндекс ID" in response.text
     assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
     assert "Продолжить через VK ID" in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
     assert "Продолжить через Telegram" in response.text
     assert "скоро" in response.text
     assert "Workspace ID" not in response.text
@@ -167,6 +178,7 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert "Зарегистрируйтесь бесплатно" in first_step.text
     assert "Продолжить через Яндекс ID" in first_step.text
     assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in first_step.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in first_step.text
     assert "Продолжить с email" in first_step.text
     assert "Workspace ID" not in first_step.text
     assert 'name="workspace_id"' not in first_step.text
@@ -188,9 +200,22 @@ def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex" in response.headers["location"]
 
 
-def test_browser_non_yandex_provider_login_routes_remain_stubs(client) -> None:
+def test_browser_vk_login_start_redirects_to_provider(client) -> None:
     response = client.get(
         "/login/vk/start?next=/meetings",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("https://id.vk.com/authorize?")
+    assert "client_id=twobrain-vk-client-id" in response.headers["location"]
+    assert "state=" in response.headers["location"]
+    assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fvk" in response.headers["location"]
+
+
+def test_browser_telegram_provider_login_route_remains_stub(client) -> None:
+    response = client.get(
+        "/login/telegram/start?next=/meetings",
         follow_redirects=False,
     )
 
@@ -208,6 +233,20 @@ def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
     assert 'action="/login/email/start"' in page.text
 
     start = client.get("/login/yandex/start?next=/meetings", follow_redirects=False)
+    assert start.status_code == 403
+    assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
+    assert 'action="/login/email/start"' in start.text
+
+
+def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
+    client.portal.call(_set_workspace_vk_policy, client, False)
+
+    page = client.get("/login?next=/meetings")
+    assert page.status_code == 200
+    assert "Продолжить через VK ID" not in page.text
+    assert 'action="/login/email/start"' in page.text
+
+    start = client.get("/login/vk/start?next=/meetings", follow_redirects=False)
     assert start.status_code == 403
     assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
     assert 'action="/login/email/start"' in start.text

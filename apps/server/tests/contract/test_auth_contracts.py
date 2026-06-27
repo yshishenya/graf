@@ -52,6 +52,24 @@ class FakeProviderHttpClient:
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         self.calls.append(("GET", url, params or {}))
+        if "oauth.vk.com/access_token" in url:
+            assert params is not None
+            if params.get("code") != "VALID-VK-CODE":
+                return {"error": "invalid_grant"}
+            return {"access_token": "verified-vk-token", "user_id": "VK-USER-42", "email": "verified-vk@example.ru"}
+        if "api.vk.com/method/users.get" in url:
+            assert params is not None
+            assert params["access_token"] == "verified-vk-token"
+            return {
+                "response": [
+                    {
+                        "id": 42,
+                        "screen_name": "verified_vk",
+                        "first_name": "Verified",
+                        "last_name": "VK",
+                    }
+                ]
+            }
         if "login.yandex.ru/info" in url:
             assert headers == {"Authorization": "OAuth verified-yandex-token"}
             return {
@@ -427,6 +445,54 @@ def test_provider_start_uses_public_auth_base_url_for_redirect_uri(client: TestC
     assert start.status_code == 200
     query = parse_qs(urlparse(start.json()["authorization_url"]).query)
     assert query["redirect_uri"] == ["https://rec.2brain.pro/api/v1/auth/callback/yandex"]
+
+
+def test_vk_provider_start_uses_public_auth_base_url_and_vk_client_id(client: TestClient) -> None:
+    client.app.state.settings.auth_base_url = "https://rec.2brain.pro"
+
+    start = client.post(
+        "/api/v1/auth/providers/vk/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "/meetings"},
+    )
+
+    assert start.status_code == 200
+    query = parse_qs(urlparse(start.json()["authorization_url"]).query)
+    assert query["client_id"] == ["twobrain-vk-client-id"]
+    assert query["redirect_uri"] == ["https://rec.2brain.pro/api/v1/auth/callback/vk"]
+
+
+def test_vk_callback_uses_verified_profile_not_raw_code(monkeypatch, tmp_path, client: TestClient) -> None:
+    _set_provider_self_enrollment(client, True)
+    _write_secret_file(client, tmp_path, "vk", "vk-secret")
+    fake_http = FakeProviderHttpClient()
+    monkeypatch.setattr("twobrain_rec_server.auth.callbacks.get_provider_http_client", lambda: fake_http)
+
+    start = client.post(
+        "/api/v1/auth/providers/vk/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    assert start.status_code == 200
+
+    response = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": start.json()["state_nonce"], "code": "VALID-VK-CODE"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider_subject"] == "vk-user-42"
+    assert payload["provider_subject"] != "valid-vk-code"
+    assert fake_http.calls[0] == (
+        "GET",
+        "https://oauth.vk.com/access_token",
+        {
+            "client_id": "twobrain-vk-client-id",
+            "client_secret": "vk-secret",
+            "redirect_uri": "http://testserver/api/v1/auth/callback/vk",
+            "code": "VALID-VK-CODE",
+        },
+    )
+    assert fake_http.calls[1][0:2] == ("GET", "https://api.vk.com/method/users.get")
 
 
 def test_telegram_callback_rejects_forged_signature(tmp_path, client: TestClient) -> None:

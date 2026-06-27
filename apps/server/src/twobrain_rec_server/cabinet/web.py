@@ -540,7 +540,7 @@ async def browser_login_provider_start(
             status_code=400,
         )
     normalized_provider = provider.strip().lower()
-    if normalized_provider != "yandex":
+    if normalized_provider not in {"yandex", "vk"}:
         providers = []
         if db is not None:
             try:
@@ -619,7 +619,7 @@ async def browser_login_provider_start(
     settings = request.app.state.settings
     callback_url = build_provider_callback_url(request, normalized_provider)
     authorization_url = adapter.build_authorization_url(
-        client_id=settings.yandex_client_id,
+        client_id=getattr(settings, f"{normalized_provider}_client_id"),
         redirect_uri=callback_url,
         state=state.state_nonce,
         return_url=safe_next,
