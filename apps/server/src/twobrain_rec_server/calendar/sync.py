@@ -47,6 +47,8 @@ async def upsert_event_snapshot(
             CalendarEventSnapshot.external_calendar_id == calendar.id,
             CalendarEventSnapshot.provider_event_id == event.provider_event_id,
             CalendarEventSnapshot.ical_uid == event.ical_uid,
+            CalendarEventSnapshot.recurrence_instance_id == event.recurrence_instance_id,
+            CalendarEventSnapshot.original_start == event.original_start,
         )
     )
     snapshot = existing or CalendarEventSnapshot(
@@ -70,9 +72,12 @@ async def upsert_event_snapshot(
     snapshot.timezone = event.timezone
     snapshot.all_day = event.all_day
     snapshot.floating_time = event.floating_time
+    snapshot.transparency = event.transparency
     snapshot.recurrence_rule_json = event.recurrence_rule
     snapshot.recurrence_exceptions_json = event.recurrence_exceptions
     snapshot.title = event.title
+    snapshot.description = event.description
+    snapshot.location = event.location
     snapshot.privacy_class = event.privacy_class
     snapshot.conference_summary_json = {
         "meeting_link_present": event.meeting_link_present,
@@ -87,9 +92,12 @@ async def upsert_event_snapshot(
     }
     snapshot.safe_to_show_in_list = event.title_state == "available"
     snapshot.safe_to_use_as_title = event.title_state == "available"
+    snapshot.attachments_metadata_json = event.attachments_metadata
     snapshot.sensitivity_reasons_json = [
         field for field, state in event.limitation_states.items() if state in {"private_redacted", "free_busy_only"}
     ]
+    snapshot.source_created_at = event.source_created_at
+    snapshot.source_updated_at = event.source_updated_at
     await db.flush()
 
     await db.execute(delete(CalendarParticipant).where(CalendarParticipant.calendar_event_snapshot_id == snapshot.id))

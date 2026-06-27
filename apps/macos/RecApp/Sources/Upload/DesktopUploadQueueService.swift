@@ -203,7 +203,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     public func enqueue(
         manifest: LocalRecordingManifest,
         directoryURL: URL,
-        reason: String = "local_recording_finalized"
+        reason: String = "local_recording_finalized",
+        calendarContextEventId: String? = nil
     ) throws -> DesktopUploadQueueItem {
         try queue.sync {
             var document = try loadDocumentOnQueue()
@@ -212,7 +213,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifest: manifest,
                 directoryURL: directoryURL,
                 now: now,
-                reason: reason
+                reason: reason,
+                calendarContextEventId: calendarContextEventId
             )
             var savedItem = item
 
@@ -947,7 +949,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         directoryURL: URL,
         now: Date,
-        reason: String = "local_recording_discovered"
+        reason: String = "local_recording_discovered",
+        calendarContextEventId: String? = nil
     ) throws -> DesktopUploadQueueItem {
         let manifestURL = directoryURL.appendingPathComponent(manifest.manifestFileName)
         let microphoneURL = directoryURL.appendingPathComponent("mic.wav")
@@ -1000,6 +1003,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             retentionDeadline: retentionDeadline,
             createdAt: now,
             updatedAt: now,
+            calendarContextEventId: calendarContextEventId,
             recordingMetadata: recordingMetadata,
             artifactProfile: profile,
             retentionDecision: RetentionDecision(

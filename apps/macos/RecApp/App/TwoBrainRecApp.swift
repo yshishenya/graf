@@ -153,6 +153,7 @@ private struct ContentView: View {
     @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
     @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
     @State private var desktopCalendarRefreshInProgress = false
+    @State private var activeCalendarContextEventId: String?
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
@@ -404,7 +405,7 @@ private struct ContentView: View {
                 NSWorkspace.shared.open(url)
             },
             startRecording: {
-                Task { await startManualRecording() }
+                Task { await startManualRecording(calendarContextEventId: prompt.eventId) }
             },
             dismiss: { dismissed in
                 dismissCalendarPrompt(dismissed)
@@ -429,11 +430,13 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func startManualRecording() async {
+    private func startManualRecording(calendarContextEventId: String? = nil) async {
         guard !recordingStartInProgress, !recordingStopInProgress else { return }
         if let captureSession, CaptureStatusItem.showsStopButton(for: captureSession) {
             return
         }
+        let trimmedCalendarContextEventId = calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        activeCalendarContextEventId = trimmedCalendarContextEventId?.isEmpty == false ? trimmedCalendarContextEventId : nil
         recordingStartInProgress = true
         defer { recordingStartInProgress = false }
 
@@ -610,6 +613,7 @@ private struct ContentView: View {
                 reason: "start_failure_cleanup",
                 failureReason: releasedSystemAudioSession?.failureReason ?? .none
             )
+            activeCalendarContextEventId = nil
             let failureCategory = recordingStartFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
@@ -640,8 +644,10 @@ private struct ContentView: View {
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
-                reason: reason
+                reason: reason,
+                calendarContextEventId: activeCalendarContextEventId
             )
+            activeCalendarContextEventId = nil
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason) failureReason=\(manifest.failureReason.rawValue)"
@@ -825,8 +831,10 @@ private struct ContentView: View {
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
-                reason: "manual_stop_finalized"
+                reason: "manual_stop_finalized",
+                calendarContextEventId: activeCalendarContextEventId
             )
+            activeCalendarContextEventId = nil
             AppLog.writeRaw(
                 event: AuditEventName.recordingStopped.rawValue,
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
@@ -845,6 +853,7 @@ private struct ContentView: View {
                 reason: "stop_failure_cleanup",
                 failureReason: releasedSystemAudioSession?.failureReason ?? .none
             )
+            activeCalendarContextEventId = nil
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
             recordingBlocker = "Не удалось остановить запись: \(error)"
@@ -941,8 +950,10 @@ private struct ContentView: View {
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
-                reason: "app_exit_resource_release"
+                reason: "app_exit_resource_release",
+                calendarContextEventId: activeCalendarContextEventId
             )
+            activeCalendarContextEventId = nil
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release failureReason=\(manifest.failureReason.rawValue)"
@@ -1053,14 +1064,16 @@ private struct ContentView: View {
     private func enqueueLocalRecordingForUpload(
         manifest: LocalRecordingManifest,
         directoryURL: URL?,
-        reason: String
+        reason: String,
+        calendarContextEventId: String? = nil
     ) {
         guard let directoryURL else { return }
         do {
             let item = try desktopUploadQueueService.enqueue(
                 manifest: manifest,
                 directoryURL: directoryURL,
-                reason: reason
+                reason: reason,
+                calendarContextEventId: calendarContextEventId
             )
             uploadQueueItems = try desktopUploadQueueService.loadItems()
             let event: AuditEventName = switch item.state {

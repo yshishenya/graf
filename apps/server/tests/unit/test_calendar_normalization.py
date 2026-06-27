@@ -16,18 +16,27 @@ def test_normalization_preserves_available_fields() -> None:
 
     assert normalized.provider_family == "google_calendar"
     assert normalized.title == "Synthetic Planning Sync"
+    assert normalized.description == "Synthetic agenda"
+    assert normalized.location == "Synthetic Room"
+    assert normalized.transparency == "busy"
     assert normalized.title_state == "available"
     assert normalized.participant_count == 2
     assert normalized.meeting_link_present is True
+    assert normalized.attachments_metadata == [{"file_name": "synthetic-agenda.pdf", "mime_type": "application/pdf"}]
+    assert normalized.source_updated_at == datetime(2026, 7, 1, 8, 0, tzinfo=UTC)
 
 
 def test_private_free_busy_normalization_does_not_fabricate_content() -> None:
-    normalized = normalize_calendar_event(private_free_busy_event_fixture())
+    event = private_free_busy_event_fixture()
+    event["conference_links"] = [{"provider_family": "generic", "source_field": "location", "url_hash": "sha256:private"}]
+    event["attachments_metadata"] = [{"file_name": "private.pdf"}]
+    normalized = normalize_calendar_event(event)
 
     assert normalized.title is None
     assert normalized.title_state == "free_busy_only"
     assert normalized.participant_count == 0
     assert normalized.meeting_link_present is False
+    assert normalized.attachments_metadata == []
     assert normalized.limitation_states["participants"] == "private_redacted"
 
 
@@ -84,9 +93,11 @@ UID:yandex-uid@example.test
 DTSTART:20260701T090000Z
 DTEND:20260701T100000Z
 SUMMARY:CalDAV planning
+LOCATION:CalDAV Room
 DESCRIPTION:Join https://telemost.yandex.ru/j/00000000000000
 RRULE:FREQ=WEEKLY;COUNT=2
 SEQUENCE:4
+TRANSP:OPAQUE
 END:VEVENT
 END:VCALENDAR
 """,
@@ -98,8 +109,35 @@ END:VCALENDAR
     assert normalized.provider_calendar_id == "primary"
     assert normalized.ical_uid == "yandex-uid@example.test"
     assert normalized.source_version == "4"
+    assert normalized.description == "Join https://telemost.yandex.ru/j/00000000000000"
+    assert normalized.location == "CalDAV Room"
+    assert normalized.transparency == "OPAQUE"
     assert normalized.recurrence_rule == {"rrule": "FREQ=WEEKLY;COUNT=2"}
     assert normalized.conference_links[0]["provider_family"] == "yandex_telemost"
+
+
+def test_icalendar_normalization_preserves_recurrence_instance_identity() -> None:
+    normalized = normalize_icalendar_event(
+        """
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:series@example.test
+RECURRENCE-ID:20260708T090000Z
+DTSTART:20260708T100000Z
+DTEND:20260708T110000Z
+SUMMARY:Moved occurrence
+EXDATE:20260715T090000Z
+END:VEVENT
+END:VCALENDAR
+""",
+        provider_family="caldav_yandex",
+    )
+
+    assert normalized.provider_event_id == "20260708T090000Z"
+    assert normalized.ical_uid == "series@example.test"
+    assert normalized.recurrence_instance_id == "20260708T090000Z"
+    assert normalized.original_start == datetime(2026, 7, 8, 9, 0, tzinfo=UTC)
+    assert normalized.recurrence_exceptions == [{"exdate": "20260715T090000Z"}]
 
 
 def test_normalization_preserves_cancelled_and_duplicate_identity_without_fabricating_match() -> None:

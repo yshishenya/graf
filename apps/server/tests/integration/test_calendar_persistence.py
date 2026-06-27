@@ -6,7 +6,10 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.calendar import calendar_event_fixture
-from twobrain_rec_server.calendar.normalize import normalize_calendar_event
+from twobrain_rec_server.calendar.normalize import (
+    normalize_calendar_event,
+    normalize_icalendar_event,
+)
 from twobrain_rec_server.calendar.sync import apply_calendar_sync_result, upsert_event_snapshot
 from twobrain_rec_server.db.models import (
     CalendarAuditEvent,
@@ -169,6 +172,100 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
     assert desktop.status_code == 200
     assert desktop.json()["events"][0]["join_prompt_due_at"] is not None
     assert desktop.json()["events"][0]["record_prompt_due_at"] is not None
+
+
+def test_calendar_event_snapshot_persists_context_fields_and_recurrence_instances(client) -> None:
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def seed_events() -> tuple[str | None, str | None, int, list[datetime]]:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
+            tenant_scope = client.app_state.get("tenant_scope") or _tenant_scope()
+            first = await upsert_event_snapshot(
+                session,
+                tenant_scope=tenant_scope,
+                source=source,
+                calendar=calendar,
+                event=normalize_icalendar_event(
+                    """
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:series@example.test
+RECURRENCE-ID:20260708T090000Z
+DTSTART:20260708T100000Z
+DTEND:20260708T110000Z
+SUMMARY:Moved occurrence
+DESCRIPTION:Agenda one
+LOCATION:Room one
+TRANSP:OPAQUE
+ATTACH:https://files.example.test/private.pdf
+END:VEVENT
+END:VCALENDAR
+""",
+                    provider_family="caldav_yandex",
+                    provider_calendar_id="primary",
+                ),
+            )
+            await upsert_event_snapshot(
+                session,
+                tenant_scope=tenant_scope,
+                source=source,
+                calendar=calendar,
+                event=normalize_icalendar_event(
+                    """
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:series@example.test
+RECURRENCE-ID:20260715T090000Z
+DTSTART:20260715T090000Z
+DTEND:20260715T100000Z
+SUMMARY:Second occurrence
+END:VEVENT
+END:VCALENDAR
+""",
+                    provider_family="caldav_yandex",
+                    provider_calendar_id="primary",
+                ),
+            )
+            snapshots = list(
+                await session.scalars(
+                    select(CalendarEventSnapshot)
+                    .where(CalendarEventSnapshot.ical_uid == "series@example.test")
+                    .order_by(CalendarEventSnapshot.starts_at)
+                )
+            )
+            await session.commit()
+            return (
+                first.description,
+                first.location,
+                len(snapshots),
+                [snapshot.original_start for snapshot in snapshots],
+            )
+
+    import asyncio
+
+    description, location, count, original_starts = asyncio.run(seed_events())
+
+    assert description == "Agenda one"
+    assert location == "Room one"
+    assert count == 2
+    assert [original_start.replace(tzinfo=UTC) for original_start in original_starts] == [
+        datetime(2026, 7, 8, 9, 0, tzinfo=UTC),
+        datetime(2026, 7, 15, 9, 0, tzinfo=UTC),
+    ]
 
 
 def test_calendar_context_link_does_not_match_past_event_to_later_recording(client) -> None:
