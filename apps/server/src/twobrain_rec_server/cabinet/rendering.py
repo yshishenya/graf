@@ -43,6 +43,25 @@ def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str
         if active:
             action["href"] = f"/login/{provider_id}/start?{urlencode({'next': safe_next})}"
         actions.append(action)
+        if provider_id == "vk":
+            actions.extend(
+                [
+                    {
+                        "provider": "mail_ru",
+                        "label": "Продолжить через Mail.ru",
+                        "mark": "@",
+                        "active": True,
+                        "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'mail_ru'})}",
+                    },
+                    {
+                        "provider": "ok_ru",
+                        "label": "Продолжить через Одноклассники",
+                        "mark": "OK",
+                        "active": True,
+                        "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'ok_ru'})}",
+                    },
+                ]
+            )
     return actions
 
 

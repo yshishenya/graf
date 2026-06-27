@@ -8,7 +8,9 @@
   - `TWOBRAIN_AUTH_BASE_URL=https://rec.2brain.pro`
   - `TWOBRAIN_VK_CLIENT_ID` in the server `.env`
   - `TWOBRAIN_VK_CLIENT_SECRET_FILE=secrets/twobrain_vk_client_secret` in the server `.env`
-  - VK app callback registered as `https://rec.2brain.pro/api/v1/auth/callback/vk`
+- VK app callback registered as `https://rec.2brain.pro/api/v1/auth/callback/vk`
+- VK ID access settings allow the `email` and `phone` scopes when unmasked
+  data is required.
 
 ## Focused Local Validation
 
@@ -21,7 +23,13 @@ PYTHONPATH=apps/server/src pytest -q apps/server/tests/unit/test_config_validati
 Expected:
 
 - `/login` and `/sign-up` render VK as an active provider when policy enables VK.
-- `/login/vk/start?next=/meetings` redirects to VK authorization.
+- `/login` and `/sign-up` render Mail.ru and Одноклассники as VK ID-backed
+  active provider hints.
+- `/login/vk/start?next=/meetings` redirects to VK ID authorization.
+- `/login/vk/start?next=/meetings&auth_provider=mail_ru` forwards
+  `provider=mail_ru` to VK ID.
+- `/login/vk/start?next=/meetings&auth_provider=ok_ru` forwards
+  `provider=ok_ru` to VK ID.
 - VK start uses VK client ID and `/api/v1/auth/callback/vk`.
 - Telegram remains a stub.
 - Email login remains visible.
@@ -58,6 +66,7 @@ curl -sS -D /tmp/vk-start.headers -o /tmp/vk-start.body \
 Expected:
 
 - HTTP `303`
-- `Location` starts with VK authorization URL
+- `Location` starts with `https://id.vk.ru/authorize`
 - `redirect_uri` is `https://rec.2brain.pro/api/v1/auth/callback/vk`
+- `code_challenge_method=S256`
 - no secret values are printed

@@ -88,6 +88,7 @@ LoginWorkspaceQuery = Query(default=None)
 LoginNextQuery = Query(default="/meetings", alias="next", max_length=512)
 LoginErrorQuery = Query(default=None, max_length=120)
 SignupModeQuery = Query(default=None, max_length=32, alias="mode")
+LoginAuthProviderQuery = Query(default=None, alias="auth_provider", max_length=32)
 LoginEmailForm = Form(..., max_length=240)
 LoginCodeForm = Form(..., max_length=32)
 LoginStateForm = Form(..., max_length=160)
@@ -525,6 +526,7 @@ async def browser_login_provider_start(
     request: Request,
     workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
+    auth_provider: str | None = LoginAuthProviderQuery,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse | RedirectResponse:
     safe_next = _safe_browser_next_path(next_path)
@@ -618,12 +620,15 @@ async def browser_login_provider_start(
     )
     settings = request.app.state.settings
     callback_url = build_provider_callback_url(request, normalized_provider)
+    client_secret = _provider_client_secret(settings, normalized_provider)
     authorization_url = adapter.build_authorization_url(
         client_id=getattr(settings, f"{normalized_provider}_client_id"),
+        client_secret=client_secret,
         redirect_uri=callback_url,
         state=state.state_nonce,
         return_url=safe_next,
         workspace_id=str(resolved_workspace_id),
+        auth_provider=_safe_vk_auth_provider(auth_provider) if normalized_provider == "vk" else None,
     )
     await write_auth_audit_event(
         db,
@@ -1415,6 +1420,21 @@ def _issue_email_login_code() -> str:
 
 def _normalize_email_code(value: str) -> str:
     return "".join(char for char in value.strip() if char.isdigit())
+
+
+def _safe_vk_auth_provider(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in {"vkid", "mail_ru", "ok_ru"} else None
+
+
+def _provider_client_secret(settings, provider: str) -> str | None:
+    path = getattr(settings, f"{provider}_client_secret_file", None)
+    if path is None:
+        return None
+    try:
+        return path.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
 
 
 def _should_echo_email_code(request: Request) -> bool:
