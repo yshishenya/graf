@@ -416,8 +416,26 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
 def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     css = _cabinet_css()
 
+    assert (
+        ".app-shell.desktop-embedded {\n"
+        "  grid-template-columns: 184px minmax(0, 1fr);\n"
+        "  height: 100vh;\n"
+        "  min-height: 0;\n"
+        "  overflow: hidden;\n"
+        "}"
+    ) in css
     assert ".sidebar {\n  position: sticky;" in css
     assert "  height: 100vh;\n  overflow: hidden;" in css
+    assert (
+        ".desktop-embedded .main,\n"
+        ".desktop-embedded .cabinet-main {\n"
+        "  height: 100vh;\n"
+        "  min-height: 0;\n"
+        "  overflow-y: auto;\n"
+        "}"
+    ) in css
+    assert ".desktop-embedded .main {\n  padding: 22px" in css
+    assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:

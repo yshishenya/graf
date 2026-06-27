@@ -67,7 +67,12 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .primary { background: var(--blue); border-color: var(--blue); color: white; font-weight: 700; }
 .quiet { background: transparent; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); }
-.app-shell.desktop-embedded { grid-template-columns: 184px minmax(0, 1fr); }
+.app-shell.desktop-embedded {
+  grid-template-columns: 184px minmax(0, 1fr);
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
 .sidebar {
   position: sticky;
   top: 0;
@@ -111,7 +116,15 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .trial { background: #3b3270; border-radius: 7px; padding: 9px 10px; font-weight: 700; }
 .main { min-width: 0; padding: 28px clamp(24px, 7vw, 118px) 92px; }
 .detail-page-main { padding-bottom: 192px; }
-.desktop-embedded .main { padding: 22px clamp(18px, 4vw, 64px) 28px; }
+.desktop-embedded .main,
+.desktop-embedded .cabinet-main {
+  height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+}
+.desktop-embedded .main {
+  padding: 22px clamp(18px, 4vw, 64px) 28px;
+}
 .desktop-embedded .detail-page-main { padding-bottom: 192px; }
 .topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .page-title { display: grid; gap: 2px; min-width: 0; }
@@ -554,7 +567,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   padding: 34px clamp(24px, 5vw, 96px) 92px;
 }
 .desktop-embedded .cabinet-main {
-  min-height: 100vh;
   padding: 24px clamp(18px, 4vw, 64px) 80px;
 }
 .cabinet-workspace { width: 100%; max-width: 1120px; }
