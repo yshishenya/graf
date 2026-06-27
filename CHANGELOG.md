@@ -12,10 +12,17 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Feature `060-calendar-context-ingestion`: календарный ingest теперь сохраняет
+  больше доступного provider context: описание, локацию, free/busy transparency,
+  attachment metadata, source created/updated timestamps и recurrence identity.
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `060-calendar-context-ingestion`: запись, запущенная из календарного
+  prompt, теперь передает calendar event id в upload queue, поэтому сервер
+  может связать запись с событием календаря.
+- Feature `060-calendar-context-ingestion`: CalDAV/iCalendar recurrence
+  instances теперь различаются по `RECURRENCE-ID`/`original_start`, чтобы
+  разные встречи одной серии не перетирали друг друга.
 
 ### Безопасность
 - _Пока нет записей._

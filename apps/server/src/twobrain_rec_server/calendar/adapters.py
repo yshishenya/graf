@@ -75,17 +75,32 @@ def _google_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]
         "ical_uid": event.get("iCalUID"),
         "source_version": event.get("etag"),
         "source_status": event.get("status", "unknown"),
+        "source_created_at": event.get("created"),
+        "source_updated_at": event.get("updated"),
         "starts_at": _google_time(event["start"]),
         "ends_at": _google_time(event.get("end") or event["start"]),
         "timezone": (event.get("start") or {}).get("timeZone"),
         "all_day": "date" in (event.get("start") or {}),
         "title": None if private else event.get("summary"),
         "title_state": "private_redacted" if private else ("available" if event.get("summary") else "unknown"),
+        "description": None if private else event.get("description"),
+        "description_state": "private_redacted" if private else ("available" if event.get("description") else "unknown"),
+        "location": None if private else event.get("location"),
+        "transparency": event.get("transparency"),
         "privacy_class": "private" if private else "public",
         "participants": [participant for participant in attendees if participant],
         "conference_links": _link_dicts("google_conference", *links),
-        "provider_extras": {"native_resource": "google_event"},
+        "attachments_metadata": event.get("attachments") or [],
+        "provider_extras": {
+            "native_resource": "google_event",
+            "color_id": event.get("colorId"),
+            "event_type": event.get("eventType"),
+        },
         "limitation_states": {"participants": "private_redacted"} if private else {},
+        "recurrence_rule": {"rules": event["recurrence"]} if event.get("recurrence") else None,
+        "recurring_series_id": event.get("recurringEventId"),
+        "recurrence_instance_id": _google_time(event["originalStartTime"]) if event.get("originalStartTime") else None,
+        "original_start": _google_time(event["originalStartTime"]) if event.get("originalStartTime") else None,
     }
 
 
@@ -100,16 +115,31 @@ def _graph_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]:
         "ical_uid": event.get("iCalUId") or event.get("iCalUID"),
         "source_version": event.get("changeKey"),
         "source_status": "cancelled" if event.get("isCancelled") else "confirmed",
+        "source_created_at": event.get("createdDateTime"),
+        "source_updated_at": event.get("lastModifiedDateTime"),
         "starts_at": _graph_time(event["start"]),
         "ends_at": _graph_time(event.get("end") or event["start"]),
         "timezone": (event.get("start") or {}).get("timeZone"),
         "title": None if private else event.get("subject"),
         "title_state": "private_redacted" if private else ("available" if event.get("subject") else "unknown"),
+        "description": None if private else (event.get("bodyPreview") or (event.get("body") or {}).get("content")),
+        "description_state": "private_redacted" if private else (
+            "available" if event.get("bodyPreview") or (event.get("body") or {}).get("content") else "unknown"
+        ),
+        "location": None if private else (event.get("location") or {}).get("displayName"),
+        "transparency": event.get("showAs"),
         "privacy_class": "private" if private else "public",
         "participants": [participant for participant in attendees if participant],
         "conference_links": _link_dicts("graph_online_meeting", join_url, event.get("onlineMeetingUrl")),
-        "provider_extras": {"native_resource": "microsoft_graph_event"},
+        "attachments_metadata": event.get("attachments") or [],
+        "provider_extras": {
+            "native_resource": "microsoft_graph_event",
+            "categories": event.get("categories") or [],
+            "importance": event.get("importance"),
+        },
         "limitation_states": {"participants": "private_redacted"} if private else {},
+        "recurrence_rule": event.get("recurrence"),
+        "recurring_series_id": event.get("seriesMasterId"),
     }
 
 
@@ -126,15 +156,22 @@ def _ews_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]:
         "ical_uid": event.get("UID") or event.get("ICalUid"),
         "source_version": item_id.get("ChangeKey") if isinstance(item_id, dict) else event.get("ChangeKey"),
         "source_status": "cancelled" if event.get("IsCancelled") else "confirmed",
+        "source_created_at": event.get("DateTimeCreated"),
+        "source_updated_at": event.get("LastModifiedTime"),
         "starts_at": event["Start"],
         "ends_at": event.get("End") or event["Start"],
         "timezone": event.get("TimeZone"),
         "title": None if private else event.get("Subject"),
         "title_state": "private_redacted" if private else ("available" if event.get("Subject") else "unknown"),
+        "description": None if private else _ews_body_text(event.get("Body")),
+        "description_state": "private_redacted" if private else ("available" if event.get("Body") else "unknown"),
+        "location": None if private else event.get("Location"),
+        "transparency": event.get("LegacyFreeBusyStatus"),
         "privacy_class": "private" if private else "public",
         "participants": [participant for participant in attendees if participant],
         "conference_links": _link_dicts("ews_location", event.get("Location"), event.get("JoinUrl")),
-        "provider_extras": {"native_resource": "exchange_ews_event"},
+        "attachments_metadata": event.get("Attachments") or [],
+        "provider_extras": {"native_resource": "exchange_ews_event", "categories": event.get("Categories") or []},
         "limitation_states": {"participants": "private_redacted"} if private else {},
         "recurring_series_id": event.get("RecurringMasterId"),
         "recurrence_instance_id": event.get("OccurrenceId"),
@@ -152,16 +189,28 @@ def _bitrix_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]
         "ical_uid": event.get("DAV_XML_ID") or event.get("G_EVENT_ID") or str(event.get("ID")),
         "source_version": str(event.get("VERSION")) if event.get("VERSION") is not None else None,
         "source_status": "cancelled" if str(event.get("DELETED", "")).upper() == "Y" else "confirmed",
+        "source_created_at": event.get("DATE_CREATE"),
+        "source_updated_at": event.get("TIMESTAMP_X"),
         "starts_at": event["DATE_FROM"],
         "ends_at": event.get("DATE_TO") or event["DATE_FROM"],
         "timezone": event.get("TZ_FROM"),
         "title": None if private else event.get("NAME"),
         "title_state": "private_redacted" if private else ("available" if event.get("NAME") else "unknown"),
+        "description": None if private else event.get("DESCRIPTION"),
+        "description_state": "private_redacted" if private else ("available" if event.get("DESCRIPTION") else "unknown"),
+        "location": None if private else event.get("LOCATION"),
+        "transparency": event.get("ACCESSIBILITY"),
         "privacy_class": "private" if private else "public",
         "participants": [participant for participant in attendees if participant],
         "conference_links": _link_dicts("bitrix_location", event.get("LOCATION"), event.get("DESCRIPTION")),
-        "provider_extras": {"native_resource": "bitrix24_event"},
+        "provider_extras": {
+            "native_resource": "bitrix24_event",
+            "color": event.get("COLOR"),
+            "reminders": event.get("REMIND") or [],
+        },
         "limitation_states": {"participants": "private_redacted"} if private else {},
+        "recurrence_rule": {"rrule": event["RRULE"]} if event.get("RRULE") else None,
+        "recurrence_exceptions": [{"exdate": event["EXDATE"]}] if event.get("EXDATE") else [],
     }
 
 
@@ -171,6 +220,12 @@ def _google_time(value: dict[str, Any]) -> str:
 
 def _graph_time(value: dict[str, Any]) -> str:
     return str(value.get("dateTime"))
+
+
+def _ews_body_text(value: Any) -> str | None:
+    if isinstance(value, dict):
+        return value.get("Text") or value.get("text")
+    return str(value) if value else None
 
 
 def _google_organizer(event: dict[str, Any]) -> dict[str, Any] | None:

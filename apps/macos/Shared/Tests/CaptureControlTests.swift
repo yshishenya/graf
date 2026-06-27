@@ -181,6 +181,17 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(source.contains("calendarPrompt") && source.contains(".task { await startManualRecording() }"))
     }
 
+    func testCalendarPromptRecordActionPassesEventIdToRecordingStart() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("startManualRecording(calendarContextEventId: prompt.eventId)"))
+        XCTAssertTrue(source.contains("calendarContextEventId: activeCalendarContextEventId"))
+    }
+
     func testCaptureControlsCanShowMuteTruthWarningWithoutBlockingStop() {
         let session = CaptureSession(
             id: "warning-session",

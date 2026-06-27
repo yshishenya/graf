@@ -39,8 +39,10 @@ def calendar_event_fixture(provider_family: str = "caldav_yandex", **overrides: 
         "floating_time": False,
         "title": "Synthetic Planning Sync",
         "title_state": "available",
+        "description": "Synthetic agenda",
         "description_state": "available",
         "location": "Synthetic Room",
+        "transparency": "busy",
         "privacy_class": "public",
         "participants": [
             participant_fixture("organizer", email="organizer@example.test", response_status="organizer"),
@@ -56,8 +58,17 @@ def calendar_event_fixture(provider_family: str = "caldav_yandex", **overrides: 
                 "sensitivity_class": "meeting_link",
             }
         ],
+        "attachments_metadata": [
+            {
+                "file_name": "synthetic-agenda.pdf",
+                "mime_type": "application/pdf",
+                "content_url": "https://files.example.test/private.pdf",
+            }
+        ],
         "provider_extras": {"raw_payload_retained": False},
         "limitation_states": {},
+        "source_created_at": BASE_START - timedelta(days=1),
+        "source_updated_at": BASE_START - timedelta(hours=1),
     }
     event.update(overrides)
     return event

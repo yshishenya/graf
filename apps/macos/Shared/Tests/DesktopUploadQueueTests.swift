@@ -613,6 +613,35 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
     }
 
+    func testEnqueuePersistsCalendarContextEventId() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-package",
+            sessionId: "calendar-session"
+        )
+        let manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        let eventId = "00000000-0000-0000-0000-000000000060"
+
+        let item = try service.enqueue(
+            manifest: manifest,
+            directoryURL: package.directoryURL,
+            reason: "calendar_prompt_recording",
+            calendarContextEventId: eventId
+        )
+
+        XCTAssertEqual(item.calendarContextEventId, eventId)
+        XCTAssertEqual(try service.loadItems().first?.calendarContextEventId, eventId)
+    }
+
     func testQualityLeakageStateDoesNotBlockStructurallyValidPackageUpload() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

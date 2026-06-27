@@ -24,16 +24,22 @@ class NormalizedCalendarEvent:
     all_day: bool
     floating_time: bool
     title: str | None
+    description: str | None
+    location: str | None
     title_state: str
+    transparency: str | None
     privacy_class: str
     participants: list[dict[str, Any]] = field(default_factory=list)
     conference_links: list[dict[str, Any]] = field(default_factory=list)
+    attachments_metadata: list[dict[str, Any]] = field(default_factory=list)
     provider_extras: dict[str, Any] = field(default_factory=dict)
     limitation_states: dict[str, str] = field(default_factory=dict)
     recurrence_rule: dict[str, Any] | None = None
     recurrence_exceptions: list[dict[str, Any]] = field(default_factory=list)
     recurring_series_id: str | None = None
     recurrence_instance_id: str | None = None
+    source_created_at: datetime | None = None
+    source_updated_at: datetime | None = None
 
     @property
     def participant_count(self) -> int:
@@ -51,8 +57,11 @@ def normalize_calendar_event(event: dict[str, Any]) -> NormalizedCalendarEvent:
         ends_at = starts_at + timedelta(minutes=1)
     title = event.get("title")
     title_state = str(event.get("title_state") or _title_state(title, event))
+    description_state = str(event.get("description_state") or title_state)
+    privacy_class = str(event.get("privacy_class", "unknown"))
+    content_available = privacy_class.lower() not in {"private", "confidential", "free_busy_only"}
     participants = normalize_calendar_participants(event.get("participants") or [])
-    conference_links = [dict(link) for link in event.get("conference_links") or []]
+    conference_links = [dict(link) for link in event.get("conference_links") or []] if content_available else []
     return NormalizedCalendarEvent(
         provider_family=str(event["provider_family"]),
         provider_calendar_id=event.get("provider_calendar_id"),
@@ -68,16 +77,22 @@ def normalize_calendar_event(event: dict[str, Any]) -> NormalizedCalendarEvent:
         all_day=bool(event.get("all_day", False)),
         floating_time=bool(event.get("floating_time", False)),
         title=title if title_state == "available" else None,
+        description=event.get("description") if description_state == "available" else None,
+        location=event.get("location") if content_available else None,
         title_state=title_state,
-        privacy_class=str(event.get("privacy_class", "unknown")),
+        transparency=event.get("transparency"),
+        privacy_class=privacy_class,
         participants=participants,
         conference_links=conference_links,
+        attachments_metadata=_safe_attachment_metadata(event.get("attachments_metadata") or []) if content_available else [],
         provider_extras=_safe_provider_extras(event.get("provider_extras") or {}),
         limitation_states=dict(event.get("limitation_states") or {}),
         recurrence_rule=event.get("recurrence_rule"),
         recurrence_exceptions=list(event.get("recurrence_exceptions") or []),
         recurring_series_id=event.get("recurring_series_id"),
         recurrence_instance_id=event.get("recurrence_instance_id"),
+        source_created_at=_optional_datetime(event.get("source_created_at")),
+        source_updated_at=_optional_datetime(event.get("source_updated_at")),
     )
 
 
@@ -91,10 +106,12 @@ def normalize_icalendar_event(
     privacy_class = "private" if fields.get("CLASS", "").lower() in {"private", "confidential"} else "public"
     source_status = fields.get("STATUS", "unknown").lower()
     starts_at = _parse_ical_datetime(fields["DTSTART"])
+    recurrence_id = fields.get("RECURRENCE-ID")
+    public_content = privacy_class == "public"
     event = {
         "provider_family": provider_family,
         "provider_calendar_id": provider_calendar_id,
-        "provider_event_id": fields.get("UID"),
+        "provider_event_id": recurrence_id or fields.get("UID"),
         "ical_uid": fields.get("UID"),
         "source_version": fields.get("SEQUENCE"),
         "source_status": source_status,
@@ -103,12 +120,14 @@ def normalize_icalendar_event(
         "all_day": len(fields["DTSTART"]) == 8,
         "floating_time": fields["DTSTART"].endswith("Z") is False and "T" in fields["DTSTART"],
         "timezone": "UTC" if fields["DTSTART"].endswith("Z") else None,
-        "title": fields.get("SUMMARY") if privacy_class == "public" else None,
-        "title_state": "available" if fields.get("SUMMARY") and privacy_class == "public" else "private_redacted",
-        "description_state": "available" if fields.get("DESCRIPTION") and privacy_class == "public" else "private_redacted",
-        "location": fields.get("LOCATION"),
+        "title": fields.get("SUMMARY") if public_content else None,
+        "title_state": "available" if fields.get("SUMMARY") and public_content else "private_redacted",
+        "description": fields.get("DESCRIPTION") if public_content else None,
+        "description_state": "available" if fields.get("DESCRIPTION") and public_content else "private_redacted",
+        "location": fields.get("LOCATION") if public_content else None,
+        "transparency": fields.get("TRANSP"),
         "privacy_class": privacy_class,
-        "conference_links": [] if source_status == "cancelled" else [
+        "conference_links": [] if source_status == "cancelled" or not public_content else [
             {
                 "provider_family": link.provider_family,
                 "source_field": "icalendar",
@@ -120,8 +139,14 @@ def normalize_icalendar_event(
             for link in _extract_ical_links(fields)
         ],
         "provider_extras": {"icalendar_source": "VEVENT"},
+        "attachments_metadata": [{"source_field": "ATTACH", "available": True}] if fields.get("ATTACH") else [],
         "limitation_states": {},
         "recurrence_rule": {"rrule": fields["RRULE"]} if fields.get("RRULE") else None,
+        "recurrence_exceptions": [{"exdate": fields["EXDATE"]}] if fields.get("EXDATE") else [],
+        "recurrence_instance_id": recurrence_id,
+        "original_start": _parse_ical_datetime(recurrence_id) if recurrence_id else None,
+        "source_created_at": fields.get("CREATED"),
+        "source_updated_at": fields.get("LAST-MODIFIED"),
     }
     return normalize_calendar_event(event)
 
@@ -241,6 +266,20 @@ def _safe_provider_extras(extras: dict[str, Any]) -> dict[str, Any]:
         safe[key] = value
     safe["raw_payload_retained"] = False
     return safe
+
+
+def _safe_attachment_metadata(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    blocked_markers = (*RAW_EXTRA_MARKERS, "url", "link", "content")
+    safe_attachments: list[dict[str, Any]] = []
+    for attachment in attachments:
+        safe = {
+            key: value
+            for key, value in attachment.items()
+            if not any(marker in key.lower() for marker in blocked_markers)
+        }
+        if safe:
+            safe_attachments.append(safe)
+    return safe_attachments
 
 
 def _parse_vevent_fields(icalendar_text: str) -> dict[str, str]:
