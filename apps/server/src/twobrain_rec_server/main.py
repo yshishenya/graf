@@ -46,7 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     production = settings.env.lower() == "production"
     app = FastAPI(
-        title="2brain Rec Server Ingest API",
+        title="GRAF Server Ingest API",
         version="0.1.0",
         description="Backend ingest foundation for finalized local recording artifacts.",
         docs_url=None if production else "/docs",

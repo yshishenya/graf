@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Graf light favicon mark</title>
+  <desc id="desc">A graphite Cyrillic-style phi mark with a purple microphone accent on a light surface.</desc>
+  <rect width="512" height="512" fill="#FFFFFF"/>
+  <rect x="234" y="64" width="44" height="384" rx="22" fill="#111820"/>
+  <circle cx="256" cy="256" r="152" fill="none" stroke="#111820" stroke-width="60"/>
+  <rect x="224" y="176" width="64" height="118" rx="32" fill="#7C3AED"/>
+  <rect x="248" y="300" width="16" height="44" rx="8" fill="#7C3AED"/>
+  <path d="M216 310H296" fill="none" stroke="#7C3AED" stroke-width="16" stroke-linecap="round"/>
+  <path d="M238 210V252M256 202V268M274 210V252" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity=".95"/>
+</svg>

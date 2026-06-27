@@ -98,6 +98,12 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 }
 .brand-mark { background: #7a2b82; color: white; }
 .avatar { background: #f0f2f5; color: #24272b; width: 28px; height: 28px; border-radius: 7px; }
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 .workspace-title { font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-subtitle, .muted { color: var(--muted); font-size: 12px; }
 .nav { display: grid; gap: 4px; }
@@ -431,6 +437,15 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
     filter .16s cubic-bezier(.2,.8,.2,1);
 }
 .auth-panel h1 { font-size: 22px; text-align: center; }
+.auth-brand-lockup {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+}
+.brand-logo--auth {
+  width: 54px;
+  height: 54px;
+}
 .auth-brand-wordmark { text-align: center; font-size: 25px; line-height: 1; font-weight: 850; }
 .auth-subtitle { color: var(--muted); font-size: 12px; line-height: 1.35; text-align: center; }
 .auth-methods { display: grid; gap: 12px; }
@@ -1296,9 +1311,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: #f0f2f5;
+  background: #111820;
   color: #24272b;
   font-weight: 800;
+  overflow: hidden;
 }
 
 .cabinet-workspace-header__text,

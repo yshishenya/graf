@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +53,7 @@ from twobrain_rec_server.cabinet.rendering import (
 )
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
+    cabinet_static_dir,
 )
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
@@ -103,10 +104,20 @@ def _is_hx_request(request: Request) -> bool:
 
 
 @router.get("/favicon.ico", include_in_schema=False)
+async def browser_favicon() -> FileResponse:
+    return FileResponse(
+        f"{cabinet_static_dir()}/favicon.ico",
+        media_type="image/x-icon",
+    )
+
+
 @router.get("/apple-touch-icon.png", include_in_schema=False)
 @router.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
-async def browser_icon_probe() -> Response:
-    return Response(status_code=204)
+async def browser_apple_touch_icon() -> FileResponse:
+    return FileResponse(
+        f"{cabinet_static_dir()}/apple-touch-icon.png",
+        media_type="image/png",
+    )
 
 
 async def get_web_request_db_session(

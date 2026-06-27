@@ -367,7 +367,7 @@ def _render_deletion_report_content(
         bounded_copy=report.bounded_copy,
         bounded_copy_text=_ui_text(report.bounded_copy),
         artifact_band=trusted_component_html(
-            _render_report_band("Файлы под контролем 2brain Rec", report.artifact_states),
+            _render_report_band("Файлы под контролем GRAF", report.artifact_states),
             source="deletion_report.band",
         ),
         backup_band=trusted_component_html(
@@ -467,8 +467,8 @@ UI_TEXT: dict[str, str] = {
     "Copy link": "Ссылка",
     "Decisions": "Решения",
     "Delete planned": "Удаление запланировано",
-    "Delete this meeting everywhere 2brain Rec controls": "Удалить встречу в системах 2brain Rec",
-    "Delete this meeting everywhere 2brain Rec controls.": "Удалить встречу везде, где ее контролирует 2brain Rec.",
+    "Delete this meeting everywhere 2brain Rec controls": "Удалить встречу в системах GRAF",
+    "Delete this meeting everywhere 2brain Rec controls.": "Удалить встречу везде, где ее контролирует GRAF.",
     "Disabled": "Выключено",
     "Disabled by policy": "Заблокировано",
     "Download": "Скачать",
@@ -477,8 +477,8 @@ UI_TEXT: dict[str, str] = {
     "Export package": "Экспорт",
     "Export ready": "Экспорт готов",
     "Failed": "Сбой",
-    "Files already downloaded or exported are outside 2brain Rec deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в 2brain Rec.",
-    "Files already downloaded or exported are outside later 2brain Rec revocation. Deleting a meeting can remove what 2brain Rec controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в 2brain Rec. Удаление встречи может убрать то, что контролирует 2brain Rec, но не копии, уже сохраненные где-то еще.",
+    "Files already downloaded or exported are outside 2brain Rec deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в GRAF.",
+    "Files already downloaded or exported are outside later 2brain Rec revocation. Deleting a meeting can remove what 2brain Rec controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в GRAF. Удаление встречи может убрать то, что контролирует GRAF, но не копии, уже сохраненные где-то еще.",
     "Follow-ups": "Продолжение",
     "Incoming system": "Входящий звук",
     "Key points": "Ключевое",
@@ -566,10 +566,12 @@ UI_TEXT: dict[str, str] = {
     "local_buffers_purged": "локальные буферы очищены",
     "metadata only": "только метаданные",
     "Owner/Admin": "Владелец/админ",
-    "outside 2brain rec control": "вне контроля 2brain Rec",
-    "outside_control": "вне контроля 2brain Rec",
+    "outside 2brain rec control": "вне контроля GRAF",
+    "outside_control": "вне контроля GRAF",
     "pending": "ожидает",
-    "Planned; this does not promise deletion outside 2brain Rec control.": "Запланировано; это не обещает удаление вне контроля 2brain Rec.",
+    "Outside 2brain Rec control after delivery": "Вне контроля GRAF после передачи",
+    "Delivered copies are outside 2brain Rec control": "Переданные копии находятся вне контроля GRAF",
+    "Planned; this does not promise deletion outside 2brain Rec control.": "Запланировано; это не обещает удаление вне контроля GRAF.",
     "policy blocked": "по политике",
     "policy_blocked": "по политике",
     "processing": "обработка",
@@ -666,7 +668,7 @@ def _meeting_media_icon(item: MeetingListItem) -> tuple[str, str]:
 
 
 def _render_list_delete_dialog() -> str:
-    bounded_copy = "Запись будет удалена везде, где ее контролирует 2brain Rec. Уже скачанные или экспортированные копии могут оставаться вне контроля 2brain Rec."
+    bounded_copy = "Запись будет удалена везде, где ее контролирует GRAF. Уже скачанные или экспортированные копии могут оставаться вне контроля GRAF."
     return f"""
       <dialog class="delete-dialog" data-delete-dialog data-title-one="Удалить запись?" data-title-many="Удалить записи?">
         <h2 data-delete-title>Удалить запись?</h2>

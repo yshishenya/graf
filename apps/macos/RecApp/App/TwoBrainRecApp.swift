@@ -24,16 +24,16 @@ private enum TwoBrainRecAppMain {
 
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
-        let appMenu = NSMenu(title: "2brain Rec")
+        let appMenu = NSMenu(title: "GRAF")
         appMenuItem.submenu = appMenu
         appMenu.addItem(
-            withTitle: "About 2brain Rec",
+            withTitle: "About GRAF",
             action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: ""
         )
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(
-            withTitle: "Hide 2brain Rec",
+            withTitle: "Hide GRAF",
             action: #selector(NSApplication.hide(_:)),
             keyEquivalent: "h"
         )
@@ -50,7 +50,7 @@ private enum TwoBrainRecAppMain {
         )
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(
-            withTitle: "Quit 2brain Rec",
+            withTitle: "Quit GRAF",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
@@ -1379,7 +1379,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "2brain Rec"
+        window.title = "GRAF"
         window.minSize = NSSize(width: 1040, height: 680)
         window.isReleasedWhenClosed = false
         window.isRestorable = false

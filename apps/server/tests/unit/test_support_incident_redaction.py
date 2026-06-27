@@ -14,7 +14,7 @@ from twobrain_rec_server.support.redaction import (
 def safe_report_payload() -> dict[str, object]:
     return {
         "schema_version": "desktop-support-incident.v1",
-        "app_name": "2brain Rec",
+        "app_name": "GRAF",
         "bundle_id": "pro.2brain.rec",
         "app_version": "2026.06.26",
         "build_version": "1234",

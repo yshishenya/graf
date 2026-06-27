@@ -59,7 +59,7 @@ struct DesktopSupportIncidentActionStrip: View {
                         .controlSize(.small)
                         .disabled(isSending)
                         .accessibilityLabel("Отправить отчет разработчикам")
-                        .help("Отправить безопасный отчет разработчикам через сервер 2brain Rec.")
+                        .help("Отправить безопасный отчет разработчикам через сервер GRAF.")
                     }
 
                     Button {

@@ -21,7 +21,7 @@ struct DesktopSupportIncidentFixture {
     ) -> [String: Any] {
         [
             "schema_version": schemaVersion,
-            "app_name": "2brain Rec",
+            "app_name": "GRAF",
             "bundle_id": "pro.2brain.rec",
             "app_version": "2026.06.26",
             "build_version": "1234",

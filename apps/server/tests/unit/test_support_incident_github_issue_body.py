@@ -81,7 +81,7 @@ def test_deduped_issue_update_refreshes_generated_counters_only() -> None:
         affected_count=1,
         safe_affected_identities=("old_identity",),
         github_issue_number=123,
-    ).body.replace("Пользовательская проблема из 2brain Rec", "Ручная заметка. Пользовательская проблема из 2brain Rec")
+    ).body.replace("Пользовательская проблема из GRAF", "Ручная заметка. Пользовательская проблема из GRAF")
 
     updated = updated_deduped_issue_body(
         existing,

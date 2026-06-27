@@ -1,4 +1,4 @@
-# 2brain Rec macOS Installer
+# GRAF macOS Installer
 
 This directory owns the local macOS installer package and recovery scripts.
 

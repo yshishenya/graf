@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     web_login_workspace_id: UUID | None = None
     email_login_delivery_enabled: bool = False
     email_login_from_address: str | None = None
-    email_login_from_name: str = "2brain Rec"
+    email_login_from_name: str = "GRAF"
     postal_api_url: AnyUrl | None = None
     postal_api_key_file: Path | None = None
     postal_host_header: str | None = None
