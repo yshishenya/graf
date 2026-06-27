@@ -42,6 +42,12 @@ def problem_response(problem: ProblemDetail, request: Request | None = None) -> 
     body["retry_class"] = problem.retry_class or defaults["retry_class"]
     body["normal_user_action"] = problem.normal_user_action or defaults["normal_user_action"]
     body["metadata_safety"] = problem.metadata_safety or defaults["metadata_safety"]
+    body["custody"] = {
+        "owner": body["custody_owner"],
+        "retry_class": body["retry_class"],
+        "normal_user_action": body["normal_user_action"],
+        "metadata_safety": body["metadata_safety"],
+    }
     if request is not None:
         body["request_id"] = getattr(request.state, "request_id", None)
     return JSONResponse(

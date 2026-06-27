@@ -97,6 +97,28 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         }
     }
 
+    func testRightNativeCustodyPanelUsesAccessibleSupportIncidentActions() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let stripSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Upload/DesktopSupportIncidentActionStrip.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
+        XCTAssertTrue(shellSource.contains("leadingPadding: 22"))
+        XCTAssertTrue(shellSource.contains("onSubmit: onSupportIncidentReport"))
+        XCTAssertTrue(shellSource.contains("accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)"))
+        XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.sendTitle))
+        XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.copyTitle))
+        XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.failureMessage))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(\"Отправить отчет разработчикам\")"))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)"))
+    }
+
     private func makeActiveSession() -> CaptureSession {
         CaptureSession(
             id: "active-recording-boundary",
@@ -159,6 +181,22 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
                 localArtifactsRetained: true,
                 policyReference: "test"
             )
+        )
+    }
+
+    private func repositoryRootForMeetingShellBoundaryTests() throws -> URL {
+        var candidate = URL(fileURLWithPath: #filePath)
+        while candidate.path != "/" {
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            if FileManager.default.fileExists(atPath: appSourceURL.path) {
+                return candidate
+            }
+            candidate.deleteLastPathComponent()
+        }
+        throw NSError(
+            domain: "DesktopMeetingShellWebViewBoundaryTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
         )
     }
 }

@@ -9,7 +9,13 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `061-support-incident-reporting`: в native custody UI добавлено
+  действие `Отправить отчет` для локальных записей, которые больше не могут
+  отправиться автоматически; успешная отправка показывает пользователю номер
+  вида `CUST-*`, а `Скопировать отчет` остается fallback-действием.
+- Feature `061-support-incident-reporting`: backend принимает desktop
+  metadata-only support incidents, сохраняет redacted incident и создает или
+  обновляет deduped private GitHub issue через серверный токен.
 
 ### Изменено
 - _Пока нет записей._
@@ -24,13 +30,19 @@
   навигации.
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `061-support-incident-reporting`: support incident payload и GitHub
+  issue body проходят server-side redaction validation; аудио, transcript text,
+  raw local paths, tokens, signed URLs и private meeting content запрещены в
+  payload, storage, logs и evidence.
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Feature `061-support-incident-reporting`: одинаковые пользовательские
+  custody-проблемы агрегируются через dedupe key, `affected_count` и bounded
+  safe affected identities, чтобы support/agent разбирал один incident вместо
+  пачки дублей.
 
 ## [2026.06.27.4] - 2026-06-27
 

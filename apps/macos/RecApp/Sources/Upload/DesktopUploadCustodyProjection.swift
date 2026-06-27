@@ -38,6 +38,7 @@ public enum DesktopUploadCustodyNormalUserAction: String, Codable, CaseIterable,
     case grantPermission = "grant_permission"
     case openReview = "open_review"
     case openDiagnostics = "open_diagnostics"
+    case sendSupportReport = "send_support_report"
     case copySafeReport = "copy_safe_report"
     case deleteLocalCopy = "delete_local_copy"
 }
@@ -145,7 +146,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
                 custodyState: .terminalUndelivered,
                 owner: .policyLifecycle,
                 retryClass: .terminal,
-                normalUserAction: .copySafeReport,
+                normalUserAction: .sendSupportReport,
                 displayPriority: 0,
                 reviewAvailable: false,
                 retentionDeadline: item.retentionDeadline,
@@ -171,7 +172,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
                 custodyState: .retainedAwaitingCondition,
                 owner: .workspaceAdmin,
                 retryClass: .pausedUntilAdminAction,
-                normalUserAction: .copySafeReport,
+                normalUserAction: .sendSupportReport,
                 displayPriority: 1,
                 reviewAvailable: false,
                 retentionDeadline: item.retentionDeadline,
@@ -201,7 +202,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
                 custodyState: .cannotSend,
                 owner: .support,
                 retryClass: .notRetryable,
-                normalUserAction: .openDiagnostics,
+                normalUserAction: .sendSupportReport,
                 displayPriority: 0,
                 reviewAvailable: false,
                 retentionDeadline: item.retentionDeadline,
@@ -278,7 +279,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
                 custodyState: .terminalUndelivered,
                 owner: .policyLifecycle,
                 retryClass: .terminal,
-                normalUserAction: .copySafeReport,
+                normalUserAction: .sendSupportReport,
                 displayPriority: 1,
                 reviewAvailable: false,
                 retentionDeadline: item.retentionDeadline,
@@ -297,7 +298,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
                 custodyState: .retainedAwaitingCondition,
                 owner: .workspaceAdmin,
                 retryClass: .pausedUntilAdminAction,
-                normalUserAction: .copySafeReport,
+                normalUserAction: .sendSupportReport,
                 displayPriority: 1,
                 reviewAvailable: false,
                 retentionDeadline: item.retentionDeadline,
@@ -308,7 +309,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
                 custodyState: .processing,
                 owner: .support,
                 retryClass: .notRetryable,
-                normalUserAction: .copySafeReport,
+                normalUserAction: .sendSupportReport,
                 displayPriority: 2,
                 reviewAvailable: false,
                 retentionDeadline: item.retentionDeadline,
@@ -319,7 +320,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
                 custodyState: .terminalUndelivered,
                 owner: .policyLifecycle,
                 retryClass: .terminal,
-                normalUserAction: .copySafeReport,
+                normalUserAction: .sendSupportReport,
                 displayPriority: 0,
                 reviewAvailable: false,
                 retentionDeadline: item.retentionDeadline,
@@ -516,11 +517,15 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
 
 public struct DesktopUploadCustodySummary: Equatable, Sendable {
     public let primaryItem: DesktopUploadQueueItem
+    public let affectedItems: [DesktopUploadQueueItem]
     public let primaryProjection: DesktopUploadCustodyProjection
     public let pendingCount: Int
     public let totalCount: Int
 
     public var copyKey: String { primaryProjection.copyKey }
+    public var stableIdentity: String {
+        "\(copyKey)|\(primaryProjection.owner.rawValue)|\(primaryItem.id)"
+    }
     public var progressFraction: Double { primaryItem.progressFraction }
     public var showsProgress: Bool {
         primaryProjection.custodyState == .partialUploaded || primaryItem.state == .uploading
@@ -563,8 +568,12 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     ) -> DesktopUploadCustodySummary? {
         let candidates = visibleCandidates(for: items, now: now)
         guard let primary = candidates.sorted(by: sortCandidates).first else { return nil }
+        let affectedItems = candidates
+            .filter { isSameSupportGroup($0, primary) }
+            .map(\.item)
         return DesktopUploadCustodySummary(
             primaryItem: primary.item,
+            affectedItems: affectedItems,
             primaryProjection: primary.projection,
             pendingCount: candidates.count,
             totalCount: items.count
@@ -587,6 +596,7 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
                 guard let primary = sortedGroup.first else { return nil }
                 return DesktopUploadCustodySummary(
                     primaryItem: primary.item,
+                    affectedItems: sortedGroup.map(\.item),
                     primaryProjection: primary.projection,
                     pendingCount: sortedGroup.count,
                     totalCount: candidates.count
@@ -656,6 +666,11 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
         return true
     }
 
+    private static func isSameSupportGroup(_ lhs: Candidate, _ rhs: Candidate) -> Bool {
+        lhs.projection.copyKey == rhs.projection.copyKey &&
+            lhs.projection.owner == rhs.projection.owner
+    }
+
     private static func priority(
         for item: DesktopUploadQueueItem,
         projection: DesktopUploadCustodyProjection
@@ -697,6 +712,596 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     }
 }
 
+public struct DesktopSupportIncidentReportContext: Equatable, Sendable {
+    public let appName: String
+    public let bundleID: String
+    public let appVersion: String
+    public let buildVersion: String
+    public let macOSVersion: String
+    public let architecture: String
+    public let locale: String
+    public let timezone: String
+    public let environmentBaseURLIdentity: String
+    public let workspaceFingerprint: String
+    public let userFingerprint: String
+    public let deviceFingerprint: String
+    public let safeDeviceIdentifier: String
+
+    public init(
+        appName: String = "2brain Rec",
+        bundleID: String = Bundle.main.bundleIdentifier ?? "pro.2brain.rec",
+        appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "local",
+        buildVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local",
+        macOSVersion: String = Self.currentMacOSVersion(),
+        architecture: String = Self.currentArchitecture(),
+        locale: String = Locale.current.identifier,
+        timezone: String = TimeZone.current.identifier,
+        environmentBaseURLIdentity: String = "unknown",
+        workspaceFingerprint: String = "unknown",
+        userFingerprint: String = "unknown",
+        deviceFingerprint: String = "unknown",
+        safeDeviceIdentifier: String = "unknown"
+    ) {
+        self.appName = appName
+        self.bundleID = bundleID
+        self.appVersion = appVersion
+        self.buildVersion = buildVersion
+        self.macOSVersion = macOSVersion
+        self.architecture = architecture
+        self.locale = locale
+        self.timezone = timezone
+        self.environmentBaseURLIdentity = environmentBaseURLIdentity
+        self.workspaceFingerprint = workspaceFingerprint
+        self.userFingerprint = userFingerprint
+        self.deviceFingerprint = deviceFingerprint
+        self.safeDeviceIdentifier = safeDeviceIdentifier
+    }
+
+    public static var unknown: DesktopSupportIncidentReportContext {
+        DesktopSupportIncidentReportContext()
+    }
+
+    public static func currentMacOSVersion() -> String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+    }
+
+    public static func currentArchitecture() -> String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
+    }
+}
+
+public struct DesktopSupportIncidentRangeMismatchMetadata: Codable, Equatable, Sendable {
+    public let hasMismatch: Bool
+    public let missingRangeCount: Int
+    public let corruptRangeCount: Int
+    public let expectedRangeCount: Int
+    public let uploadedRangeCount: Int
+
+    public init(
+        hasMismatch: Bool,
+        missingRangeCount: Int = 0,
+        corruptRangeCount: Int = 0,
+        expectedRangeCount: Int = 0,
+        uploadedRangeCount: Int = 0
+    ) {
+        self.hasMismatch = hasMismatch
+        self.missingRangeCount = max(0, missingRangeCount)
+        self.corruptRangeCount = max(0, corruptRangeCount)
+        self.expectedRangeCount = max(0, expectedRangeCount)
+        self.uploadedRangeCount = max(0, uploadedRangeCount)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hasMismatch = "has_mismatch"
+        case missingRangeCount = "missing_range_count"
+        case corruptRangeCount = "corrupt_range_count"
+        case expectedRangeCount = "expected_range_count"
+        case uploadedRangeCount = "uploaded_range_count"
+    }
+}
+
+public struct DesktopSupportIncidentLocalFileCompletenessProfile: Codable, Equatable, Sendable {
+    public let manifestPresent: Bool
+    public let manifestSchemaVersion: String
+    public let audioFilesPresent: Bool
+    public let microphonePresent: Bool
+    public let systemAudioPresent: Bool
+    public let missingFileCount: Int
+    public let corruptFileCount: Int
+    public let totalSizeBucket: String
+    public let durationBucket: String
+
+    public init(item: DesktopUploadQueueItem) {
+        let profile = item.artifactProfile
+        self.manifestPresent = profile.manifestPresent
+        self.manifestSchemaVersion = Self.safeCode(profile.schemaVersion) ? profile.schemaVersion : "unknown"
+        self.audioFilesPresent = profile.microphonePresent && profile.systemAudioPresent
+        self.microphonePresent = profile.microphonePresent
+        self.systemAudioPresent = profile.systemAudioPresent
+        self.missingFileCount = [
+            profile.manifestPresent,
+            profile.microphonePresent,
+            profile.systemAudioPresent
+        ].filter { !$0 }.count
+        self.corruptFileCount = profile.trackCompleteness.filter { $0.present && !$0.uploadable }.count
+        self.totalSizeBucket = Self.sizeBucket(profile.totalUploadBytes)
+        self.durationBucket = Self.durationBucket(profile.durationSeconds)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case manifestPresent = "manifest_present"
+        case manifestSchemaVersion = "manifest_schema_version"
+        case audioFilesPresent = "audio_files_present"
+        case microphonePresent = "microphone_present"
+        case systemAudioPresent = "system_audio_present"
+        case missingFileCount = "missing_file_count"
+        case corruptFileCount = "corrupt_file_count"
+        case totalSizeBucket = "total_size_bucket"
+        case durationBucket = "duration_bucket"
+    }
+
+    private static func sizeBucket(_ bytes: Int64) -> String {
+        switch max(0, bytes) {
+        case 0:
+            return "0"
+        case 1..<(1024 * 1024):
+            return "lt_1mb"
+        case ..<(100 * 1024 * 1024):
+            return "1mb_100mb"
+        case ..<(1024 * 1024 * 1024):
+            return "100mb_1gb"
+        default:
+            return "gt_1gb"
+        }
+    }
+
+    private static func durationBucket(_ seconds: Int) -> String {
+        switch max(0, seconds) {
+        case 0..<300:
+            return "lt_5m"
+        case ..<1800:
+            return "5m_30m"
+        case ..<7200:
+            return "30m_2h"
+        default:
+            return "gt_2h"
+        }
+    }
+
+    private static func safeCode(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 120 else { return false }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+}
+
+public struct DesktopSupportIncidentResponse: Decodable, Equatable, Sendable {
+    public let incidentId: String
+    public let incidentStatus: String
+    public let githubIssueNumber: Int
+    public let githubIssueURL: String
+    public let dedupeStatus: String
+    public let affectedCount: Int
+    public let copyFallbackAvailable: Bool
+    public let userMessage: String
+
+    public init(
+        incidentId: String,
+        incidentStatus: String,
+        githubIssueNumber: Int,
+        githubIssueURL: String,
+        dedupeStatus: String,
+        affectedCount: Int,
+        copyFallbackAvailable: Bool,
+        userMessage: String
+    ) {
+        self.incidentId = incidentId
+        self.incidentStatus = incidentStatus
+        self.githubIssueNumber = githubIssueNumber
+        self.githubIssueURL = githubIssueURL
+        self.dedupeStatus = dedupeStatus
+        self.affectedCount = affectedCount
+        self.copyFallbackAvailable = copyFallbackAvailable
+        self.userMessage = userMessage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case incidentId = "incident_id"
+        case incidentStatus = "incident_status"
+        case githubIssueNumber = "github_issue_number"
+        case githubIssueURL = "github_issue_url"
+        case dedupeStatus = "dedupe_status"
+        case affectedCount = "affected_count"
+        case copyFallbackAvailable = "copy_fallback_available"
+        case userMessage = "user_message"
+    }
+}
+
+public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
+    public static let schemaVersion = "desktop-support-incident.v1"
+    public static let ledgerSchemaVersion = "desktop-support-incident-ledger.v1"
+
+    public let schemaVersion: String
+    public let appName: String
+    public let bundleID: String
+    public let appVersion: String
+    public let buildVersion: String
+    public let macOSVersion: String
+    public let architecture: String
+    public let locale: String
+    public let timezone: String
+    public let environmentBaseURLIdentity: String
+    public let workspaceFingerprint: String
+    public let userFingerprint: String
+    public let deviceFingerprint: String
+    public let safeDeviceIdentifier: String
+    public let safeRecordingIdentity: String
+    public let localRecordingIDFingerprint: String
+    public let serverMeetingFingerprint: String
+    public let serverMediaRevisionFingerprint: String
+    public let serverMeetingPresent: Bool
+    public let serverMediaRevisionPresent: Bool
+    public let custodyLifecycleState: String
+    public let uploadQueueItemState: String
+    public let retryClass: String
+    public let retryMode: String
+    public let normalUserAction: String
+    public let failureCategory: String
+    public let problemCode: String
+    public let syncConflictState: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let retentionDeadline: String
+    public let serverIdentityPresent: Bool
+    public let localMediaRetained: Bool
+    public let dataLossRisk: String
+    public let serverCopyKnown: Bool
+    public let uploadAttemptCount: Int
+    public let lastAttemptAt: String
+    public let nextRetryAt: String
+    public let lastSafeHTTPStatus: String
+    public let lastSafeProblemCode: String
+    public let uploadSessionPresent: Bool
+    public let uploadSessionFingerprint: String
+    public let expectedPartsCount: Int
+    public let uploadedPartsCount: Int
+    public let rangeMismatchMetadata: DesktopSupportIncidentRangeMismatchMetadata
+    public let localFileCompletenessProfile: DesktopSupportIncidentLocalFileCompletenessProfile
+    public let localPurgeState: String
+    public let localPurgeTasks: [String]
+    public let localPurgeAckState: String
+    public let processingStatus: String
+    public let appQueueSchemaVersion: String
+    public let ledgerSchemaVersion: String
+    public let redactionState: String
+    public let affectedCount: Int
+    public let safeAffectedIdentities: [String]
+
+    public init?(
+        item: DesktopUploadQueueItem,
+        projection: DesktopUploadCustodyProjection,
+        context: DesktopSupportIncidentReportContext = .unknown,
+        affectedItems: [DesktopUploadQueueItem] = []
+    ) {
+        guard Self.reportAvailable(for: projection) else { return nil }
+        let boundedAffectedItems = Self.affectedItems(primary: item, affectedItems: affectedItems)
+        let serverMeetingFingerprint = Self.optionalFingerprint(projection.serverMeetingId)
+        let serverMediaRevisionFingerprint = Self.optionalFingerprint(projection.serverMediaRevisionId)
+        let uploadSessionId = item.uploadSessionId ?? item.serverTruth.uploadSessionId
+        let expectedParts = max(item.artifactProfile.trackCompleteness.count, 3)
+        let uploadedParts = item.serverTruth.acceptedBytesByTrack.count
+        let serverCopyKnown = item.state == .uploaded || item.serverTruth.finalizedAt != nil
+        let localMediaRetained = item.retentionDecision.localArtifactsRetained && item.state != .terminalDeleted
+        let problemCode = Self.problemCode(
+            for: item,
+            projection: projection,
+            serverIdentityPresent: projection.serverMeetingId != nil,
+            localMediaRetained: localMediaRetained
+        )
+        let lastProblemCode = Self.lastSafeProblemCode(item: item, fallback: problemCode)
+
+        self.schemaVersion = Self.schemaVersion
+        self.appName = context.appName
+        self.bundleID = context.bundleID
+        self.appVersion = context.appVersion
+        self.buildVersion = context.buildVersion
+        self.macOSVersion = context.macOSVersion
+        self.architecture = context.architecture
+        self.locale = context.locale
+        self.timezone = context.timezone
+        self.environmentBaseURLIdentity = context.environmentBaseURLIdentity
+        self.workspaceFingerprint = context.workspaceFingerprint
+        self.userFingerprint = context.userFingerprint
+        self.deviceFingerprint = context.deviceFingerprint
+        self.safeDeviceIdentifier = context.safeDeviceIdentifier
+        self.safeRecordingIdentity = projection.serverMeetingId.map { "server:\(Self.fingerprint($0))" } ??
+            "local:\(Self.fingerprint(item.directoryId))"
+        self.localRecordingIDFingerprint = Self.fingerprint(item.directoryId)
+        self.serverMeetingFingerprint = serverMeetingFingerprint
+        self.serverMediaRevisionFingerprint = serverMediaRevisionFingerprint
+        self.serverMeetingPresent = projection.serverMeetingId != nil
+        self.serverMediaRevisionPresent = projection.serverMediaRevisionId != nil
+        self.custodyLifecycleState = projection.custodyState.rawValue
+        self.uploadQueueItemState = item.state.rawValue
+        self.retryClass = projection.retryClass.rawValue
+        self.retryMode = Self.retryMode(item: item, projection: projection)
+        self.normalUserAction = projection.normalUserAction.rawValue
+        self.failureCategory = Self.failureCategory(item: item, projection: projection)
+        self.problemCode = problemCode
+        self.syncConflictState = item.syncConflictState.rawValue
+        self.createdAt = Self.dateText(item.createdAt)
+        self.updatedAt = Self.dateText(item.updatedAt)
+        self.retentionDeadline = projection.retentionDeadline.map(Self.dateText) ?? "not_applicable"
+        self.serverIdentityPresent = projection.serverMeetingId != nil
+        self.localMediaRetained = localMediaRetained
+        self.dataLossRisk = serverCopyKnown ? "low" : (localMediaRetained ? "possible" : "elevated")
+        self.serverCopyKnown = serverCopyKnown
+        self.uploadAttemptCount = item.attemptCount
+        self.lastAttemptAt = Self.lastAttemptAt(item).map(Self.dateText) ?? "not_applicable"
+        self.nextRetryAt = item.nextRetryAt.map(Self.dateText) ?? "not_applicable"
+        self.lastSafeHTTPStatus = Self.lastSafeHTTPStatus(Self.lastFailureReason(item))
+        self.lastSafeProblemCode = lastProblemCode
+        self.uploadSessionPresent = uploadSessionId != nil
+        self.uploadSessionFingerprint = Self.optionalFingerprint(uploadSessionId)
+        self.expectedPartsCount = expectedParts
+        self.uploadedPartsCount = uploadedParts
+        self.rangeMismatchMetadata = DesktopSupportIncidentRangeMismatchMetadata(
+            hasMismatch: item.syncConflictState == .serverRangesInconsistent,
+            missingRangeCount: item.syncConflictState == .serverRangesInconsistent ? max(0, expectedParts - uploadedParts) : 0,
+            expectedRangeCount: expectedParts,
+            uploadedRangeCount: uploadedParts
+        )
+        self.localFileCompletenessProfile = DesktopSupportIncidentLocalFileCompletenessProfile(item: item)
+        self.localPurgeState = projection.localPurgeState.rawValue
+        self.localPurgeTasks = projection.localPurgeState == .pending ? ["local_purge_pending"] : []
+        self.localPurgeAckState = projection.localPurgeState == .verified ? "acknowledged" : "not_applicable"
+        self.processingStatus = projection.processingState.rawValue
+        self.appQueueSchemaVersion = DesktopUploadQueueDocument.schemaVersion
+        self.ledgerSchemaVersion = Self.ledgerSchemaVersion
+        self.redactionState = DesktopUploadCustodyMetadataSafety.metadataOnly.rawValue
+        self.affectedCount = boundedAffectedItems.count
+        self.safeAffectedIdentities = Array(boundedAffectedItems.prefix(5)).map(Self.safeAffectedIdentity)
+    }
+
+    public var safeReportFingerprint: String {
+        Self.fingerprint(
+            [
+                problemCode,
+                failureCategory,
+                retryClass,
+                syncConflictState,
+                workspaceFingerprint,
+                deviceFingerprint,
+                buildVersion,
+                localRecordingIDFingerprint,
+                updatedAt
+            ].joined(separator: "|"),
+            prefix: "report_fpr",
+            length: 16
+        )
+    }
+
+    public var dedupeKey: String {
+        Self.fingerprint(
+            [
+                problemCode,
+                failureCategory,
+                retryClass,
+                syncConflictState,
+                workspaceFingerprint,
+                deviceFingerprint,
+                buildVersion
+            ].joined(separator: "|"),
+            prefix: "support_dedupe",
+            length: 24
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case appName = "app_name"
+        case bundleID = "bundle_id"
+        case appVersion = "app_version"
+        case buildVersion = "build_version"
+        case macOSVersion = "macos_version"
+        case architecture
+        case locale
+        case timezone
+        case environmentBaseURLIdentity = "environment_base_url_identity"
+        case workspaceFingerprint = "workspace_fingerprint"
+        case userFingerprint = "user_fingerprint"
+        case deviceFingerprint = "device_fingerprint"
+        case safeDeviceIdentifier = "safe_device_identifier"
+        case safeRecordingIdentity = "safe_recording_identity"
+        case localRecordingIDFingerprint = "local_recording_id_fingerprint"
+        case serverMeetingFingerprint = "server_meeting_fingerprint"
+        case serverMediaRevisionFingerprint = "server_media_revision_fingerprint"
+        case serverMeetingPresent = "server_meeting_present"
+        case serverMediaRevisionPresent = "server_media_revision_present"
+        case custodyLifecycleState = "custody_lifecycle_state"
+        case uploadQueueItemState = "upload_queue_item_state"
+        case retryClass = "retry_class"
+        case retryMode = "retry_mode"
+        case normalUserAction = "normal_user_action"
+        case failureCategory = "failure_category"
+        case problemCode = "problem_code"
+        case syncConflictState = "sync_conflict_state"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case retentionDeadline = "retention_deadline"
+        case serverIdentityPresent = "server_identity_present"
+        case localMediaRetained = "local_media_retained"
+        case dataLossRisk = "data_loss_risk"
+        case serverCopyKnown = "server_copy_known"
+        case uploadAttemptCount = "upload_attempt_count"
+        case lastAttemptAt = "last_attempt_at"
+        case nextRetryAt = "next_retry_at"
+        case lastSafeHTTPStatus = "last_safe_http_status"
+        case lastSafeProblemCode = "last_safe_problem_code"
+        case uploadSessionPresent = "upload_session_present"
+        case uploadSessionFingerprint = "upload_session_fingerprint"
+        case expectedPartsCount = "expected_parts_count"
+        case uploadedPartsCount = "uploaded_parts_count"
+        case rangeMismatchMetadata = "range_mismatch_metadata"
+        case localFileCompletenessProfile = "local_file_completeness_profile"
+        case localPurgeState = "local_purge_state"
+        case localPurgeTasks = "local_purge_tasks"
+        case localPurgeAckState = "local_purge_ack_state"
+        case processingStatus = "processing_status"
+        case appQueueSchemaVersion = "app_queue_schema_version"
+        case ledgerSchemaVersion = "ledger_schema_version"
+        case redactionState = "redaction_state"
+        case affectedCount = "affected_count"
+        case safeAffectedIdentities = "safe_affected_identities"
+    }
+
+    public static func reportAvailable(for projection: DesktopUploadCustodyProjection) -> Bool {
+        switch projection.normalUserAction {
+        case .sendSupportReport, .copySafeReport, .openDiagnostics:
+            return true
+        case .none, .signIn, .chooseWorkspace, .grantPermission, .openReview, .deleteLocalCopy:
+            return false
+        }
+    }
+
+    private static func retryMode(
+        item: DesktopUploadQueueItem,
+        projection: DesktopUploadCustodyProjection
+    ) -> String {
+        switch projection.retryClass {
+        case .terminal, .notRetryable:
+            return "not_retryable"
+        case .automatic, .pausedUntilUserAction, .pausedUntilAdminAction:
+            return item.retryMode.rawValue
+        }
+    }
+
+    private static func failureCategory(
+        item: DesktopUploadQueueItem,
+        projection: DesktopUploadCustodyProjection
+    ) -> String {
+        if projection.copyKey == "custody.terminal_undelivered" || item.syncConflictState == .retentionExpired {
+            return "retention_expired"
+        }
+        if item.syncConflictState != .none {
+            return item.syncConflictState.rawValue
+        }
+        if item.failureCategory != .none {
+            return item.failureCategory.rawValue
+        }
+        return "unknown"
+    }
+
+    private static func problemCode(
+        for item: DesktopUploadQueueItem,
+        projection: DesktopUploadCustodyProjection,
+        serverIdentityPresent: Bool,
+        localMediaRetained: Bool
+    ) -> String {
+        if projection.copyKey == "custody.terminal_undelivered" && !serverIdentityPresent && localMediaRetained {
+            return "custody.retention_expired.local_retained"
+        }
+        if projection.owner == .workspaceAdmin {
+            return "custody.access_policy_review"
+        }
+        if projection.custodyState == .cannotSend {
+            return "custody.local_artifacts_unavailable"
+        }
+        if item.syncConflictState == .processingFailed || item.syncConflictState == .processingBlocked {
+            return "custody.\(item.syncConflictState.rawValue)"
+        }
+        if let reason = item.failureReason, isSafeCode(reason) {
+            return "custody.\(reason)"
+        }
+        return projection.copyKey
+    }
+
+    private static func lastSafeProblemCode(
+        item: DesktopUploadQueueItem,
+        fallback: String
+    ) -> String {
+        if item.syncConflictState != .none {
+            return item.syncConflictState.rawValue
+        }
+        guard let reason = item.failureReason else { return fallback }
+        let code = reason.split(separator: ":").last.map(String.init) ?? reason
+        return isSafeCode(code) ? code : fallback
+    }
+
+    private static func lastFailureReason(_ item: DesktopUploadQueueItem) -> String? {
+        item.retryRecords.last?.failureReason ?? item.failureReason
+    }
+
+    private static func lastSafeHTTPStatus(_ reason: String?) -> String {
+        guard let reason, reason.hasPrefix("http_status_") else { return "unknown" }
+        let suffix = reason.dropFirst("http_status_".count)
+        let status = suffix.split(separator: ":").first.map(String.init) ?? ""
+        return status.allSatisfy(\.isNumber) ? status : "unknown"
+    }
+
+    private static func lastAttemptAt(_ item: DesktopUploadQueueItem) -> Date? {
+        guard let record = item.retryRecords.last else { return nil }
+        return record.finishedAt ?? record.startedAt
+    }
+
+    private static func affectedItems(
+        primary: DesktopUploadQueueItem,
+        affectedItems: [DesktopUploadQueueItem]
+    ) -> [DesktopUploadQueueItem] {
+        var seen = Set<String>()
+        var items: [DesktopUploadQueueItem] = []
+        for item in [primary] + affectedItems where !seen.contains(item.id) {
+            seen.insert(item.id)
+            items.append(item)
+        }
+        return items
+    }
+
+    private static func safeAffectedIdentity(_ item: DesktopUploadQueueItem) -> String {
+        fingerprint(
+            [
+                item.directoryId,
+                item.localMediaRevisionId,
+                item.serverTruth.meetingId ?? "server_unknown",
+                item.syncConflictState.rawValue
+            ].joined(separator: "|"),
+            prefix: "affected_fpr",
+            length: 20
+        )
+    }
+
+    private static func optionalFingerprint(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "not_applicable" }
+        return fingerprint(value)
+    }
+
+    private static func isSafeCode(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 120 else { return false }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    private static func fingerprint(_ value: String) -> String {
+        fingerprint(value, prefix: "fpr", length: 16)
+    }
+
+    private static func fingerprint(_ value: String, prefix: String, length: Int) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8)).prefix(max(4, length))
+        return "\(prefix)_\(digest.map { String(format: "%02x", $0) }.joined())"
+    }
+
+    private static func dateText(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+}
+
 public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
     public static let schemaVersion = "desktop-custody-safe-report.v1"
 
@@ -717,8 +1322,7 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
 
     public init?(
         item: DesktopUploadQueueItem,
-        projection: DesktopUploadCustodyProjection,
-        now _: Date = Date()
+        projection: DesktopUploadCustodyProjection
     ) {
         guard Self.safeIncidentAvailable(for: projection) else { return nil }
         self.schemaVersion = Self.schemaVersion
@@ -822,12 +1426,7 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
     }
 
     private static func safeIncidentAvailable(for projection: DesktopUploadCustodyProjection) -> Bool {
-        switch projection.normalUserAction {
-        case .copySafeReport, .openDiagnostics:
-            return true
-        case .none, .signIn, .chooseWorkspace, .grantPermission, .openReview, .deleteLocalCopy:
-            return false
-        }
+        DesktopSupportIncidentReport.reportAvailable(for: projection)
     }
 
     private static func safeRecordingIdentity(
@@ -924,7 +1523,7 @@ public enum DesktopUploadCustodyCopy {
         case "custody.needs_workspace":
             return "Выберите, куда отправить записи. Локальные копии сохранены."
         case "custody.needs_admin":
-            return "Скопируйте отчет и отправьте администратору или поддержке. Локальные копии сохранены."
+            return "Нужна проверка доступа или политики рабочего пространства. Отправьте отчет, мы передадим детали поддержке/администратору."
         case "custody.cannot_send":
             return "Локальная копия сохранена. Диагностика не содержит аудио и текст встречи."
         case "custody.retention_warning":
@@ -933,7 +1532,7 @@ public enum DesktopUploadCustodyCopy {
             }
             return "Локальная копия сохранена до срока политики хранения."
         case "custody.terminal_undelivered":
-            return "Скопируйте отчет для поддержки. Метаданные сохранены; восстановление не обещается."
+            return "Автоматическая отправка уже не выполнится. Локальная копия сохранена на этом Mac. Отправьте отчет, чтобы мы проверили, можно ли помочь."
         case "custody.known_by_server":
             return "Серверный список показывает актуальное состояние."
         default:

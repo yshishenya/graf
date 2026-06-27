@@ -1553,6 +1553,146 @@ final class DesktopUploadQueueTests: XCTestCase {
         ))
     }
 
+    func testSupportIncidentSubmissionPersistsSentIncidentNumber() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let item = makeSupportIncidentItem(id: "support-sent")
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let client = SupportIncidentOnlyClient(result: DesktopSupportIncidentResponse(
+            incidentId: "CUST-123",
+            incidentStatus: "created",
+            githubIssueNumber: 123,
+            githubIssueURL: "https://github.com/yshishenya/crisp/issues/123",
+            dedupeStatus: "created",
+            affectedCount: 1,
+            copyFallbackAvailable: true,
+            userMessage: DesktopSupportIncidentFixture.successMessage
+        ))
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        let response = try await service.submitSupportIncident(itemId: item.id)
+        let saved = try XCTUnwrap(service.loadItems().first)
+
+        XCTAssertEqual(response.incidentId, "CUST-123")
+        XCTAssertEqual(client.reports.count, 1)
+        XCTAssertEqual(client.reports.first?.normalUserAction, "send_support_report")
+        XCTAssertEqual(saved.supportIncidentSubmission?.state, .sent)
+        XCTAssertEqual(saved.supportIncidentSubmission?.incidentNumber, "CUST-123")
+        XCTAssertEqual(saved.supportIncidentSubmission?.githubIssueNumber, 123)
+        XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
+    }
+
+    func testSupportIncidentSubmissionAggregatesMatchingItems() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let items = (0..<6).map { makeSupportIncidentItem(id: "support-aggregate-\($0)") }
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: Date(timeIntervalSince1970: 20), items: items))
+            .write(to: queueURL, options: [.atomic])
+        let client = SupportIncidentOnlyClient(result: DesktopSupportIncidentResponse(
+            incidentId: "CUST-123",
+            incidentStatus: "created",
+            githubIssueNumber: 123,
+            githubIssueURL: "https://github.com/yshishenya/crisp/issues/123",
+            dedupeStatus: "created",
+            affectedCount: 6,
+            copyFallbackAvailable: true,
+            userMessage: DesktopSupportIncidentFixture.successMessage
+        ))
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        let response = try await service.submitSupportIncident(itemIds: items.map(\.id))
+        let saved = try service.loadItems()
+
+        XCTAssertEqual(response.affectedCount, 6)
+        XCTAssertEqual(client.reports.count, 1)
+        XCTAssertEqual(client.reports.first?.affectedCount, 6)
+        XCTAssertEqual(client.reports.first?.safeAffectedIdentities.count, 5)
+        XCTAssertEqual(saved.compactMap(\.supportIncidentSubmission?.incidentNumber), Array(repeating: "CUST-123", count: 6))
+    }
+
+    func testSupportIncidentSubmissionFailurePersistsCopyFallbackState() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let item = makeSupportIncidentItem(id: "support-failed")
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let client = SupportIncidentOnlyClient(
+            error: DesktopUploadClientError.httpStatus(503, "support_incident.github_unavailable")
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        do {
+            _ = try await service.submitSupportIncident(itemId: item.id)
+            XCTFail("Expected support incident submission to fail")
+        } catch DesktopUploadClientError.httpStatus(let status, let code) {
+            XCTAssertEqual(status, 503)
+            XCTAssertEqual(code, "support_incident.github_unavailable")
+        }
+        let saved = try XCTUnwrap(service.loadItems().first)
+
+        XCTAssertEqual(client.reports.count, 1)
+        XCTAssertEqual(saved.supportIncidentSubmission?.state, .failedWithCopyFallback)
+        XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCategory, UploadFailureCategory.network.rawValue)
+        XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCode, "support_incident.github_unavailable")
+        XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
+    }
+
+    func testInterruptedSupportIncidentSubmissionRecoversCopyFallbackOnRestart() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        var item = makeSupportIncidentItem(id: "support-interrupted")
+        item.supportIncidentSubmission = .sending(
+            reportFingerprint: "report_fpr_1234abcd",
+            dedupeKey: "support_dedupe_1234abcd",
+            attemptedAt: Date(timeIntervalSince1970: 100)
+        )
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: SupportIncidentOnlyClient(),
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        let saved = try XCTUnwrap(service.loadItems().first)
+
+        XCTAssertEqual(saved.supportIncidentSubmission?.state, .failedWithCopyFallback)
+        XCTAssertEqual(saved.supportIncidentSubmission?.localReportFingerprint, "report_fpr_1234abcd")
+        XCTAssertEqual(saved.supportIncidentSubmission?.dedupeKey, "support_dedupe_1234abcd")
+        XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCategory, UploadFailureCategory.network.rawValue)
+        XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCode, "support_incident.interrupted")
+        XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
+    }
+
     func testQueueDocumentUsesRevisionReadyV2Schema() {
         let fixture = makeQueueV2Fixture(directoryId: "recording-sync-001")
 
@@ -1630,6 +1770,17 @@ final class DesktopUploadQueueTests: XCTestCase {
                 localArtifactsRetained: true,
                 policyReference: "test"
             )
+        )
+    }
+
+    private func makeSupportIncidentItem(id: String) -> DesktopUploadQueueItem {
+        makeQueueItem(
+            id: id,
+            state: .blocked,
+            retryMode: .manualOnly,
+            failureReason: "automatic_retry_window_expired",
+            syncConflictState: .retentionExpired,
+            updatedAt: Date(timeIntervalSince1970: 20)
         )
     }
 
@@ -2066,6 +2217,63 @@ final class DesktopUploadQueueTests: XCTestCase {
             state: DesktopLocalPurgeTaskState,
             reasonCode: String,
             completedAt: Date?
+        ) async throws -> DesktopLocalPurgeTask {
+            task
+        }
+    }
+
+    private final class SupportIncidentOnlyClient: @unchecked Sendable, DesktopUploadClientProtocol {
+        private let result: DesktopSupportIncidentResponse?
+        private let error: Error?
+        private(set) var reports: [DesktopSupportIncidentReport] = []
+
+        init(result: DesktopSupportIncidentResponse? = nil, error: Error? = nil) {
+            self.result = result
+            self.error = error
+        }
+
+        func supportIncidentContext() -> DesktopSupportIncidentReportContext {
+            DesktopSupportIncidentReportContext(
+                appVersion: "2026.06.27",
+                buildVersion: "1234",
+                environmentBaseURLIdentity: "rec.2brain.pro",
+                workspaceFingerprint: "ws_fpr_717e",
+                userFingerprint: "usr_fpr_717e",
+                deviceFingerprint: "dev_fpr_717e",
+                safeDeviceIdentifier: "device:dev_fpr_717e"
+            )
+        }
+
+        func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
+            reports.append(report)
+            if let error {
+                throw error
+            }
+            return result ?? DesktopSupportIncidentResponse(
+                incidentId: "CUST-123",
+                incidentStatus: "created",
+                githubIssueNumber: 123,
+                githubIssueURL: "https://github.com/yshishenya/crisp/issues/123",
+                dedupeStatus: "created",
+                affectedCount: 1,
+                copyFallbackAvailable: true,
+                userMessage: DesktopSupportIncidentFixture.successMessage
+            )
+        }
+
+        func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
+            throw DesktopUploadQueueServiceError.packageNotFound(item.id)
+        }
+
+        func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
+            []
+        }
+
+        func acknowledgeLocalPurgeTask(
+            _ task: DesktopLocalPurgeTask,
+            state _: DesktopLocalPurgeTaskState,
+            reasonCode _: String,
+            completedAt _: Date?
         ) async throws -> DesktopLocalPurgeTask {
             task
         }

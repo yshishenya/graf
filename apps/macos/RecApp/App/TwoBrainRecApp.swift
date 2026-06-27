@@ -191,6 +191,9 @@ private struct ContentView: View {
                 selectedCabinetRoute = desktopCabinetConfiguration.map {
                     DesktopCabinetWorkspace.defaultRoute(configuration: $0)
                 }
+            },
+            onSupportIncidentReport: { itemIds in
+                try await submitSupportIncidentReport(itemIds: itemIds)
             }
         ) {
             CaptureControlView(
@@ -236,6 +239,9 @@ private struct ContentView: View {
                 },
                 onUploadReview: { route in
                     selectedCabinetRoute = route
+                },
+                onSupportIncidentReport: { itemIds in
+                    try await submitSupportIncidentReport(itemIds: itemIds)
                 },
                 onCalendarPromptPrimary: { prompt in
                     handleCalendarPromptPrimary(prompt)
@@ -1011,6 +1017,37 @@ private struct ContentView: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    private func submitSupportIncidentReport(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
+        let service = desktopUploadQueueService
+        do {
+            let response = try await service.submitSupportIncident(itemIds: itemIds)
+            uploadQueueItems = try service.loadItems()
+            AppLog.writeRaw(
+                event: "support_incident.submitted",
+                detail: "incident=\(response.incidentId) status=\(response.incidentStatus)"
+            )
+            return response
+        } catch {
+            uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+            AppLog.writeRaw(
+                event: "support_incident.failed",
+                detail: "code=\(safeSupportIncidentErrorCode(error))"
+            )
+            throw error
+        }
+    }
+
+    private func safeSupportIncidentErrorCode(_ error: Error) -> String {
+        if case DesktopUploadClientError.httpStatus(_, let code) = error {
+            return code
+        }
+        if error is DesktopUploadQueueServiceError {
+            return "support_incident.local_queue_unavailable"
+        }
+        return "support_incident.unavailable"
     }
 
     @MainActor

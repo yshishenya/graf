@@ -16,6 +16,7 @@ from twobrain_rec_server.api.problems import (
     request_validation_exception_handler,
 )
 from twobrain_rec_server.api.processing import router as processing_router
+from twobrain_rec_server.api.support_incidents import router as support_incidents_router
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_dir
 from twobrain_rec_server.cabinet.web import router as cabinet_web_router
 from twobrain_rec_server.config import Settings, get_settings
@@ -65,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ingest_router)
     app.include_router(processing_router)
     app.include_router(calendar_router)
+    app.include_router(support_incidents_router)
     app.include_router(cabinet_api_router)
     app.include_router(cabinet_web_router)
     return app
