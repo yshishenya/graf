@@ -17,6 +17,7 @@ public struct CaptureControlView: View {
     private let selectedRecordingMicrophoneDeviceId: String?
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let cabinetConfiguration: DesktopCabinetConfiguration?
+    private let calendarPrompt: DesktopCalendarPrompt?
     private let routeSignalLevels: LiveRouteSignalLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
@@ -27,6 +28,8 @@ public struct CaptureControlView: View {
     private let onResume: () -> Void
     private let onSelectRecordingMicrophone: (String?) -> Void
     private let onUploadReview: (URL) -> Void
+    private let onCalendarPromptPrimary: (DesktopCalendarPrompt) -> Void
+    private let onCalendarPromptDismiss: (DesktopCalendarPrompt) -> Void
 
     public init(
         session: CaptureSession?,
@@ -41,6 +44,7 @@ public struct CaptureControlView: View {
         selectedRecordingMicrophoneDeviceId: String? = nil,
         uploadQueueItems: [DesktopUploadQueueItem] = [],
         cabinetConfiguration: DesktopCabinetConfiguration? = nil,
+        calendarPrompt: DesktopCalendarPrompt? = nil,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
@@ -50,7 +54,9 @@ public struct CaptureControlView: View {
         onPause: @escaping () -> Void = {},
         onResume: @escaping () -> Void = {},
         onSelectRecordingMicrophone: @escaping (String?) -> Void = { _ in },
-        onUploadReview: @escaping (URL) -> Void = { _ in }
+        onUploadReview: @escaping (URL) -> Void = { _ in },
+        onCalendarPromptPrimary: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
+        onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in }
     ) {
         self.session = session
         self.blockedReason = blockedReason
@@ -64,6 +70,7 @@ public struct CaptureControlView: View {
         self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfiguration = cabinetConfiguration
+        self.calendarPrompt = calendarPrompt
         self.routeSignalLevels = routeSignalLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
@@ -74,6 +81,8 @@ public struct CaptureControlView: View {
         self.onResume = onResume
         self.onSelectRecordingMicrophone = onSelectRecordingMicrophone
         self.onUploadReview = onUploadReview
+        self.onCalendarPromptPrimary = onCalendarPromptPrimary
+        self.onCalendarPromptDismiss = onCalendarPromptDismiss
     }
 
     public var body: some View {
@@ -119,6 +128,14 @@ public struct CaptureControlView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(blockedReason)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
+            }
+
+            if let calendarPrompt {
+                CalendarPromptView(
+                    prompt: calendarPrompt,
+                    onPrimary: onCalendarPromptPrimary,
+                    onDismiss: onCalendarPromptDismiss
+                )
             }
 
             if !recordingMicrophoneInputs.isEmpty || recordingMicrophoneSelection != nil {
@@ -626,6 +643,59 @@ public struct CaptureControlView: View {
         default:
             return .secondary
         }
+    }
+}
+
+private struct CalendarPromptView: View {
+    let prompt: DesktopCalendarPrompt
+    let onPrimary: (DesktopCalendarPrompt) -> Void
+    let onDismiss: (DesktopCalendarPrompt) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            StatusNoteView(
+                icon: prompt.kind == .join ? "video.fill" : "record.circle",
+                title: prompt.title,
+                detail: prompt.message,
+                iconColor: prompt.kind == .join ? .blue : .orange
+            )
+
+            HStack(spacing: 8) {
+                Button {
+                    onPrimary(prompt)
+                } label: {
+                    Label(prompt.primaryActionTitle, systemImage: prompt.kind == .join ? "arrow.up.right.square" : "record.circle")
+                }
+                .font(.caption)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityLabel(prompt.primaryActionTitle)
+                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.calendarPromptPrimaryButton)
+
+                Button {
+                    onDismiss(prompt)
+                } label: {
+                    Label(prompt.dismissActionTitle, systemImage: "xmark")
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel(prompt.dismissActionTitle)
+                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.calendarPromptDismissButton)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(prompt.accessibilityLabel)
+        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.calendarPrompt)
     }
 }
 

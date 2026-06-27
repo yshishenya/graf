@@ -233,6 +233,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 merged.serverTruth = existing.serverTruth
                 merged.retryRecords = existing.retryRecords
                 merged.createdAt = existing.createdAt
+                merged.calendarContextEventId = existing.calendarContextEventId ?? merged.calendarContextEventId
                 merged.recordingMetadata = existing.recordingMetadata ?? merged.recordingMetadata
                 document.items[index] = merged
                 savedItem = merged
@@ -1028,6 +1029,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.serverTruth = existing.serverTruth
         merged.retryRecords = existing.retryRecords
         merged.createdAt = existing.createdAt
+        merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
         merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
         if refreshed.artifactProfile.isUploadable && existing.syncConflictState == .localFilesMissing {
             merged.syncConflictState = .none

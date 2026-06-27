@@ -40,6 +40,15 @@ SECRET_KEYS = {
     "workspace_auth_policy",
     "auth_callback_state",
     "id_token",
+    "attendee",
+    "calendar_passcode",
+    "conference_url",
+    "credential",
+    "description",
+    "meeting_url",
+    "passcode",
+    "provider_payload",
+    "raw_event_payload",
 }
 
 FORBIDDEN_EVIDENCE_PATTERNS = (
@@ -57,6 +66,7 @@ FORBIDDEN_EVIDENCE_PATTERNS = (
     re.compile(r"(transcript|diarization|mediascribe_result).*text\s*[:=]", re.IGNORECASE),
     re.compile(r"langfuse.*(secret|token|credential|api[_-]?key)", re.IGNORECASE),
     re.compile(r"https?://[^\\s]+X-Amz-Signature=", re.IGNORECASE),
+    re.compile(r"(refresh_token|app_password|signed_url|attendee_email_dump|raw_event_payload|passcode)\s*[:=]", re.IGNORECASE),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
 )
 

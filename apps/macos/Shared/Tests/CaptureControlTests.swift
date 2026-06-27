@@ -166,6 +166,21 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(CaptureControlView.shouldEnableRecordButton(for: detecting, recordDisabled: true))
     }
 
+    func testCalendarPromptUIWiresManualPrimaryAndDismissActions() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("CalendarPromptView("))
+        XCTAssertTrue(source.contains("onCalendarPromptPrimary"))
+        XCTAssertTrue(source.contains("onCalendarPromptDismiss"))
+        XCTAssertTrue(source.contains("SystemAudioAccessibilityIdentifier.calendarPromptPrimaryButton"))
+        XCTAssertTrue(source.contains("SystemAudioAccessibilityIdentifier.calendarPromptDismissButton"))
+        XCTAssertFalse(source.contains("calendarPrompt") && source.contains(".task { await startManualRecording() }"))
+    }
+
     func testCaptureControlsCanShowMuteTruthWarningWithoutBlockingStop() {
         let session = CaptureSession(
             id: "warning-session",
@@ -600,6 +615,22 @@ final class CaptureControlTests: XCTestCase {
             )
         )
     }
+}
+
+private func repositoryRootForCaptureTests() throws -> URL {
+    var candidate = URL(fileURLWithPath: #filePath)
+    while candidate.path != "/" {
+        let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+        if FileManager.default.fileExists(atPath: appSourceURL.path) {
+            return candidate
+        }
+        candidate.deleteLastPathComponent()
+    }
+    throw NSError(
+        domain: "CaptureControlTests",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
+    )
 }
 
 private func controlRecordingMicrophoneSelection(

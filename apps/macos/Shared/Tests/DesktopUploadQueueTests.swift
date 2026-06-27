@@ -581,6 +581,18 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
 
         let first = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let selectedEventId = "00000000-0000-0000-0000-000000000060"
+        var persisted = first
+        persisted.calendarContextEventId = selectedEventId
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: first.updatedAt, items: [persisted]))
+            .write(to: queueURL, options: [.atomic])
+        let refreshedService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
         let changedManifest = makeManifest(
             directoryId: "package-1",
             sessionId: "session-1",
@@ -588,9 +600,10 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
         try LocalRecordingManifestService().write(changedManifest, to: package.manifestURL)
 
-        let refreshed = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let refreshed = try XCTUnwrap(refreshedService.scanAndEnqueueCompletedRecordings().first)
 
         XCTAssertEqual(refreshed.recordingMetadata, first.recordingMetadata)
+        XCTAssertEqual(refreshed.calendarContextEventId, selectedEventId)
         XCTAssertEqual(refreshed.recordingStartedAt, first.recordingStartedAt)
         XCTAssertEqual(refreshed.recordingStoppedAt, first.recordingStoppedAt)
         XCTAssertEqual(refreshed.localMediaRevisionId, first.localMediaRevisionId)

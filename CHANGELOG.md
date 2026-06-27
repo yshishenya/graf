@@ -9,10 +9,17 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `060-calendar-context-ingestion`: добавлен первый слой календарного
+  контекста. Сервер хранит read-only подключения календарей, выбранные
+  календари, будущие события, участников, conference-link metadata,
+  recording-time context links и safe recipient-candidate counts; macOS
+  получает one-minute join prompt и event-start record prompt без
+  auto-record/auto-join.
 
 ### Изменено
-- _Пока нет записей._
+- Названия новых записей теперь могут получать `calendar` title source только
+  при явной recording-time связи с текущим/выбранным событием; пользовательское
+  название остается главным, а прошлые события не подтягиваются задним числом.
 
 ### Исправлено
 - Desktop WebView больше не блокирует переход "Мои встречи" из web-sidebar:
@@ -22,13 +29,30 @@
   собственный скроллбар при прокрутке списка встреч.
 
 ### Безопасность
-- _Пока нет записей._
+- Календарные credentials остаются server-owned и sealed; committed fixtures,
+  logs и evidence не содержат raw provider payloads, refresh tokens, app
+  passwords, attendee email dumps, passcodes, signed links или private event
+  text. Calendar attendees не создают share/access grants и не становятся
+  получателями сообщений в 060.
+- В production credential-bearing calendar connect требует устойчивый Fernet key
+  через `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`; без него API fail-closed до
+  принятия app passwords/OAuth-refresh-like материала.
 
 ### Документы
-- _Пока нет записей._
+- Зафиксированы provider deep dive, quickstart, metadata-only evidence,
+  supported provider families, known limitations и явная граница: отправка
+  summary/transcript/report будет отдельным слоем после 060.
 
 ### Операции
-- _Пока нет записей._
+- Local validation для 060 на 2026-06-27: focused backend
+  calendar/cabinet/ingest checks passed `134 passed`; macOS prompt/upload/
+  recording-metadata checks passed `155 tests`; full macOS suite passed
+  `666 tests, 0 failures`; forbidden-content scan returned no matches; after
+  refreshing from `origin/master` `94ffcb6`, final `infra/scripts/ci-local.sh`
+  passed with server `782 passed, 4 skipped, 103 warnings`, Ruff, compile,
+  production compose config, deployment evidence scan, and
+  `ci_local_result=pass`. PR review, release, deploy и production smoke еще не
+  закрыты.
 
 ## [2026.06.27.1] - 2026-06-27
 

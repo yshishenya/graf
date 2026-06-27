@@ -1827,6 +1827,753 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/providers:
+    get:
+      tags:
+      - calendar
+      summary: List Calendar Providers
+      operationId: list_calendar_providers_api_v1_calendar_providers_get
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarProviderListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/sources:
+    get:
+      tags:
+      - calendar
+      summary: List Calendar Sources
+      operationId: list_calendar_sources_api_v1_calendar_sources_get
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarSourceListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - calendar
+      summary: Connect Calendar Source
+      operationId: connect_calendar_source_api_v1_calendar_sources_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectCalendarSourceRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarSourceResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/sources/{source_id}:
+    get:
+      tags:
+      - calendar
+      summary: Get Calendar Source
+      operationId: get_calendar_source_api_v1_calendar_sources__source_id__get
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Source Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarSourceResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/sources/{source_id}/selected-calendars:
+    patch:
+      tags:
+      - calendar
+      summary: Select Calendar Source Calendars
+      operationId: select_calendar_source_calendars_api_v1_calendar_sources__source_id__selected_calendars_patch
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Source Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectCalendarsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarSourceResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/sources/{source_id}/sync:
+    post:
+      tags:
+      - calendar
+      summary: Sync Calendar Source
+      operationId: sync_calendar_source_api_v1_calendar_sources__source_id__sync_post
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Source Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarSyncResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/sources/{source_id}/disconnect:
+    post:
+      tags:
+      - calendar
+      summary: Disconnect Calendar Source Endpoint
+      operationId: disconnect_calendar_source_endpoint_api_v1_calendar_sources__source_id__disconnect_post
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Source Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarDisconnectResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/events/upcoming:
+    get:
+      tags:
+      - calendar
+      summary: List Upcoming Calendar Events
+      operationId: list_upcoming_calendar_events_api_v1_calendar_events_upcoming_get
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: To
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpcomingCalendarEventsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/desktop/calendar/upcoming:
+    get:
+      tags:
+      - calendar
+      summary: List Desktop Calendar Upcoming
+      operationId: list_desktop_calendar_upcoming_api_v1_desktop_calendar_upcoming_get
+      parameters:
+      - name: before_minutes
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1440
+          minimum: 1
+          default: 15
+          title: Before Minutes
+      - name: after_minutes
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1440
+          minimum: 0
+          default: 60
+          title: After Minutes
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DesktopCalendarPromptResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/meetings/{meeting_id}/calendar-context:
+    put:
+      tags:
+      - calendar
+      summary: Put Meeting Calendar Context
+      operationId: put_meeting_calendar_context_api_v1_meetings__meeting_id__calendar_context_put
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutMeetingCalendarContextRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingCalendarContextResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - calendar
+      summary: Delete Meeting Calendar Context
+      operationId: delete_meeting_calendar_context_api_v1_meetings__meeting_id__calendar_context_delete
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingCalendarContextResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings:
     get:
       tags:
@@ -3507,6 +4254,340 @@ components:
       - expires_at
       - provider
       title: AuthStartResponse
+    CalendarDisconnectResponse:
+      properties:
+        source_id:
+          type: string
+          format: uuid
+          title: Source Id
+        connection_state:
+          type: string
+          const: disconnected
+          title: Connection State
+        credentials_purged:
+          type: boolean
+          title: Credentials Purged
+        unmatched_future_cache_purged:
+          type: boolean
+          title: Unmatched Future Cache Purged
+        matched_context_retention:
+          type: string
+          const: meeting_retention_policy
+          title: Matched Context Retention
+          default: meeting_retention_policy
+      type: object
+      required:
+      - source_id
+      - connection_state
+      - credentials_purged
+      - unmatched_future_cache_purged
+      title: CalendarDisconnectResponse
+    CalendarEventSummary:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        provider_family:
+          type: string
+          title: Provider Family
+        starts_at:
+          type: string
+          format: date-time
+          title: Starts At
+        ends_at:
+          type: string
+          format: date-time
+          title: Ends At
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        title_state:
+          type: string
+          enum:
+          - available
+          - private_redacted
+          - free_busy_only
+          - policy_hidden
+          title: Title State
+        meeting_link_present:
+          type: boolean
+          title: Meeting Link Present
+          default: false
+        attendee_count:
+          type: integer
+          title: Attendee Count
+          default: 0
+        roster_state:
+          type: string
+          title: Roster State
+          default: not_available
+        recipient_candidate_count:
+          type: integer
+          title: Recipient Candidate Count
+          default: 0
+        privacy_class:
+          type: string
+          title: Privacy Class
+          default: unknown
+      type: object
+      required:
+      - event_id
+      - provider_family
+      - starts_at
+      - ends_at
+      - title_state
+      title: CalendarEventSummary
+    CalendarProviderListResponse:
+      properties:
+        providers:
+          items:
+            $ref: '#/components/schemas/CalendarProviderPreset'
+          type: array
+          title: Providers
+      type: object
+      title: CalendarProviderListResponse
+    CalendarProviderPreset:
+      properties:
+        provider_family:
+          type: string
+          title: Provider Family
+        label:
+          type: string
+          title: Label
+        adapter_family:
+          type: string
+          enum:
+          - caldav
+          - rich_api
+          - ews
+          title: Adapter Family
+        supported:
+          type: boolean
+          title: Supported
+        capability_state:
+          additionalProperties:
+            type: string
+          type: object
+          title: Capability State
+      type: object
+      required:
+      - provider_family
+      - label
+      - adapter_family
+      - supported
+      title: CalendarProviderPreset
+    CalendarRosterParticipantView:
+      properties:
+        participant_kind:
+          type: string
+          title: Participant Kind
+        response_status:
+          type: string
+          title: Response Status
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        email_present:
+          type: boolean
+          title: Email Present
+          default: false
+        workspace_relation:
+          type: string
+          title: Workspace Relation
+          default: unknown
+        recipient_candidate_class:
+          type: string
+          title: Recipient Candidate Class
+          default: unknown
+      type: object
+      required:
+      - participant_kind
+      - response_status
+      title: CalendarRosterParticipantView
+    CalendarRosterReviewState:
+      properties:
+        available:
+          type: boolean
+          title: Available
+          default: false
+        roster_state:
+          type: string
+          title: Roster State
+          default: not_available
+        participant_count:
+          type: integer
+          title: Participant Count
+          default: 0
+        source:
+          type: string
+          enum:
+          - calendar
+          - none
+          title: Source
+          default: none
+        participants:
+          items:
+            $ref: '#/components/schemas/CalendarRosterParticipantView'
+          type: array
+          title: Participants
+      type: object
+      title: CalendarRosterReviewState
+    CalendarSourceListResponse:
+      properties:
+        sources:
+          items:
+            $ref: '#/components/schemas/CalendarSourceSummary'
+          type: array
+          title: Sources
+      type: object
+      title: CalendarSourceListResponse
+    CalendarSourceResponse:
+      properties:
+        source:
+          $ref: '#/components/schemas/CalendarSourceSummary'
+        calendars:
+          items:
+            $ref: '#/components/schemas/ExternalCalendarSummary'
+          type: array
+          title: Calendars
+      type: object
+      required:
+      - source
+      title: CalendarSourceResponse
+    CalendarSourceSummary:
+      properties:
+        source_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Source Id
+        provider_family:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Family
+        provider_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Label
+        connection_state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Connection State
+        credential_state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Credential State
+        sync_state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sync State
+        selected_calendar_count:
+          type: integer
+          title: Selected Calendar Count
+          default: 0
+        sync_horizon_end:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Sync Horizon End
+        last_successful_sync_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Successful Sync At
+        safe_error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Safe Error Code
+      type: object
+      title: CalendarSourceSummary
+    CalendarSyncResponse:
+      properties:
+        source_id:
+          type: string
+          format: uuid
+          title: Source Id
+        sync_state:
+          type: string
+          title: Sync State
+        accepted:
+          type: boolean
+          title: Accepted
+        event_count:
+          type: integer
+          title: Event Count
+          default: 0
+        safe_error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Safe Error Code
+      type: object
+      required:
+      - source_id
+      - sync_state
+      - accepted
+      title: CalendarSyncResponse
+    ConnectCalendarSourceRequest:
+      properties:
+        provider_family:
+          type: string
+          title: Provider Family
+        auth_mode:
+          type: string
+          enum:
+          - oauth
+          - app_password
+          - manual_url
+          title: Auth Mode
+        display_label:
+          anyOf:
+          - type: string
+            maxLength: 160
+          - type: 'null'
+          title: Display Label
+        caldav_url:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Caldav Url
+        username:
+          anyOf:
+          - type: string
+            maxLength: 240
+          - type: 'null'
+          title: Username
+        credential_input:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Credential Input
+        selected_provider_calendar_ids:
+          items:
+            type: string
+          type: array
+          title: Selected Provider Calendar Ids
+      additionalProperties: false
+      type: object
+      required:
+      - provider_family
+      - auth_mode
+      title: ConnectCalendarSourceRequest
     CreateDeletionRequest:
       properties:
         confirmation_boundary:
@@ -3960,6 +5041,98 @@ components:
       - bounded_copy
       - backup
       title: DeletionVerificationReport
+    DesktopCalendarPromptEvent:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        provider_family:
+          type: string
+          title: Provider Family
+        starts_at:
+          type: string
+          format: date-time
+          title: Starts At
+        ends_at:
+          type: string
+          format: date-time
+          title: Ends At
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        title_state:
+          type: string
+          enum:
+          - available
+          - private_redacted
+          - free_busy_only
+          - policy_hidden
+          title: Title State
+        meeting_link_present:
+          type: boolean
+          title: Meeting Link Present
+          default: false
+        attendee_count:
+          type: integer
+          title: Attendee Count
+          default: 0
+        roster_state:
+          type: string
+          title: Roster State
+          default: not_available
+        recipient_candidate_count:
+          type: integer
+          title: Recipient Candidate Count
+          default: 0
+        privacy_class:
+          type: string
+          title: Privacy Class
+          default: unknown
+        join_prompt_due_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Join Prompt Due At
+        record_prompt_due_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Record Prompt Due At
+        join_prompt_state:
+          type: string
+          title: Join Prompt State
+        record_prompt_state:
+          type: string
+          title: Record Prompt State
+        open_meeting_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Open Meeting Url
+      type: object
+      required:
+      - event_id
+      - provider_family
+      - starts_at
+      - ends_at
+      - title_state
+      - join_prompt_state
+      - record_prompt_state
+      title: DesktopCalendarPromptEvent
+    DesktopCalendarPromptResponse:
+      properties:
+        events:
+          items:
+            $ref: '#/components/schemas/DesktopCalendarPromptEvent'
+          type: array
+          title: Events
+      type: object
+      title: DesktopCalendarPromptResponse
     DesktopRecordingSyncStateResponse:
       properties:
         local_recording_id:
@@ -4172,6 +5345,32 @@ components:
       - export_id
       - status
       title: ExportPackageResponse
+    ExternalCalendarSummary:
+      properties:
+        calendar_id:
+          type: string
+          title: Calendar Id
+        display_label:
+          type: string
+          title: Display Label
+        selected:
+          type: boolean
+          title: Selected
+        color:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Color
+        visibility:
+          type: string
+          title: Visibility
+          default: available
+      type: object
+      required:
+      - calendar_id
+      - display_label
+      - selected
+      title: ExternalCalendarSummary
     FinalizeUploadRequest:
       properties:
         manifest_sha256:
@@ -4675,6 +5874,40 @@ components:
       required:
       - meeting_id
       title: MeetingActivityResponse
+    MeetingCalendarContextResponse:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        event_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Event Id
+        context_state:
+          type: string
+          enum:
+          - linked
+          - unlinked
+          - no_context
+          title: Context State
+        context_confidence:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Context Confidence
+        title_source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title Source
+      type: object
+      required:
+      - meeting_id
+      - context_state
+      title: MeetingCalendarContextResponse
     MeetingFilterState:
       properties:
         q:
@@ -4901,6 +6134,15 @@ components:
           - type: string
           - type: 'null'
           title: Local Media Revision Id
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        title_source:
+          type: string
+          title: Title Source
+          default: generic
         media_revision:
           anyOf:
           - $ref: '#/components/schemas/MediaRevisionSummary'
@@ -4947,6 +6189,10 @@ components:
           $ref: '#/components/schemas/TranscriptReviewState'
         speakers:
           $ref: '#/components/schemas/SpeakerReviewState'
+        calendar_roster:
+          anyOf:
+          - $ref: '#/components/schemas/CalendarRosterReviewState'
+          - type: 'null'
         notes:
           $ref: '#/components/schemas/NotesReviewState'
         notes_action_truth:
@@ -5584,6 +6830,25 @@ components:
       - workspace_id
       - state
       title: ProcessingStatusResponse
+    PutMeetingCalendarContextRequest:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        context_reason:
+          type: string
+          enum:
+          - manual_selection
+          - current_event_prompt
+          - event_start_prompt
+          title: Context Reason
+      additionalProperties: false
+      type: object
+      required:
+      - event_id
+      - context_reason
+      title: PutMeetingCalendarContextRequest
     ReadyDetailResponse:
       properties:
         status:
@@ -5654,6 +6919,19 @@ components:
       - skipped
       - blocked
       title: RetentionRunResponse
+    SelectCalendarsRequest:
+      properties:
+        selected_provider_calendar_ids:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Selected Provider Calendar Ids
+      additionalProperties: false
+      type: object
+      required:
+      - selected_provider_calendar_ids
+      title: SelectCalendarsRequest
     ShareGrantResponse:
       properties:
         grant:
@@ -5984,6 +7262,19 @@ components:
       - source_role
       - text
       title: TranscriptSegmentView
+    UpcomingCalendarEventsResponse:
+      properties:
+        events:
+          items:
+            $ref: '#/components/schemas/CalendarEventSummary'
+          type: array
+          title: Events
+        truncated:
+          type: boolean
+          title: Truncated
+          default: false
+      type: object
+      title: UpcomingCalendarEventsResponse
     UploadPartResponse:
       properties:
         session_id:
