@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.2] - 2026-06-27
+
+
+### Добавлено
 - Feature `060-calendar-context-ingestion`: добавлен первый слой календарного
   контекста. Сервер хранит read-only подключения календарей, выбранные
   календари, будущие события, участников, conference-link metadata,
@@ -51,8 +72,9 @@
   refreshing from `origin/master` `94ffcb6`, final `infra/scripts/ci-local.sh`
   passed with server `782 passed, 4 skipped, 103 warnings`, Ruff, compile,
   production compose config, deployment evidence scan, and
-  `ci_local_result=pass`. PR #2286 смержен в `master`; release, deploy,
-  production smoke и desktop installer/app build еще не закрыты.
+  `ci_local_result=pass`. PR #2286 и closeout PR #2287 смержены в `master`;
+  production deploy/smoke и desktop installer/app build остаются release
+  execution gates, а не implementation evidence 060.
 
 ## [2026.06.27.1] - 2026-06-27
 
