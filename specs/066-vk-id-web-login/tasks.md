@@ -27,7 +27,7 @@
 - [X] T011 Update `[Unreleased]` in `CHANGELOG.md`
 - [X] T012 Run focused quickstart validation commands from `specs/066-vk-id-web-login/quickstart.md`
 - [X] T013 Run `infra/scripts/ci-local.sh` before closeout or document the exact blocker
-- [ ] T014 If production credentials are available, configure server `.env`/secret and run deploy dry-run/execute gates from `docs/agent-guidance/release-and-validation.md`
+- [X] T014 If production credentials are available, configure server `.env`/secret and run deploy dry-run/execute gates from `docs/agent-guidance/release-and-validation.md`
 
 ## Dependencies & Execution Order
 
