@@ -5,6 +5,7 @@ import pytest
 from twobrain_rec_server.support.redaction import (
     REDACTED_METADATA,
     SupportIncidentRedactionError,
+    blocking_unsafe_unknown_fields,
     build_server_redacted_report,
     canonical_report_json,
 )
@@ -98,16 +99,22 @@ def test_redacts_to_deterministic_metadata_only_report() -> None:
 def test_redacts_forbidden_values_and_never_keeps_content() -> None:
     payload = safe_report_payload()
     payload["last_safe_problem_code"] = "token=abc123"
-    payload["unknown_transcript_text"] = "transcript text: private words"
-    payload["user_email"] = "person@example.test"
     report = build_server_redacted_report(payload)
     encoded = canonical_report_json(report)
 
     assert report["last_safe_problem_code"] == REDACTED_METADATA
-    assert report["forbidden_field_count"] >= 3
-    assert "person@example.test" not in encoded
-    assert "private words" not in encoded
+    assert report["forbidden_field_count"] >= 1
     assert "abc123" not in encoded
+
+
+def test_rejects_unknown_forbidden_content_before_redaction() -> None:
+    payload = safe_report_payload()
+    payload["unknown_transcript_text"] = "transcript text: private words"
+    payload["user_email"] = "person@example.test"
+
+    assert blocking_unsafe_unknown_fields(payload) == ("unknown_transcript_text", "user_email")
+    with pytest.raises(SupportIncidentRedactionError, match="support_incident.unsafe_payload"):
+        build_server_redacted_report(payload)
 
 
 def test_missing_safe_values_stay_present_as_unknown() -> None:

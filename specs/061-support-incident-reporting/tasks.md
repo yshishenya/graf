@@ -89,9 +89,9 @@
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Harden unsafe payload rejection and metadata-only fallback values in `apps/server/src/twobrain_rec_server/support/redaction.py`
+- [X] T031 [US2] Harden unsafe payload rejection and metadata-only fallback values in `apps/server/src/twobrain_rec_server/support/redaction.py`
 - [ ] T032 [US2] Map unsafe, workspace mismatch, unsupported schema, rate-limit, configuration, and GitHub unavailable failures to safe `Problem` responses in `apps/server/src/twobrain_rec_server/api/support_incidents.py`
-- [ ] T033 [US2] Implement repo privacy, label existence, auth failure, timeout, and GitHub rate-limit handling in `apps/server/src/twobrain_rec_server/support/github_issues.py`
+- [X] T033 [US2] Implement repo privacy, label existence, auth failure, timeout, and GitHub rate-limit handling in `apps/server/src/twobrain_rec_server/support/github_issues.py`
 - [ ] T034 [US2] Preserve failed-with-copy-fallback state and retry-safe local report state in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
 - [ ] T035 [US2] Show the failure copy, visible `Скопировать отчет` fallback, and accessible labels in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
 - [ ] T036 [US2] Update terminal expired and admin/access-policy human copy in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
@@ -115,7 +115,7 @@
 ### Implementation for User Story 3
 
 - [ ] T040 [US3] Implement deterministic dedupe key derivation, upsert behavior, and max-5 safe identity cap in `apps/server/src/twobrain_rec_server/support/incidents.py`
-- [ ] T041 [US3] Implement GitHub issue update behavior that preserves human sections and replaces only generated metadata/counters in `apps/server/src/twobrain_rec_server/support/github_issues.py`
+- [X] T041 [US3] Implement GitHub issue update behavior that preserves human sections and replaces only generated metadata/counters in `apps/server/src/twobrain_rec_server/support/github_issues.py`
 - [ ] T042 [US3] Ensure database uniqueness and indexes match dedupe semantics in `apps/server/src/twobrain_rec_server/db/migrations/versions/0010_support_incidents.py`
 - [ ] T043 [US3] Add aggregate affected-count and safe identity payload support for grouped custody summaries in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
 

@@ -20,6 +20,8 @@ REQUIRED_SUPPORT_LABELS = (
     "source:user-report",
     "privacy:metadata-only",
 )
+REQUIRED_REPO_OWNER = "yshishenya"
+REQUIRED_REPO_NAME = "crisp"
 
 
 class GitHubIssueClientError(RuntimeError):
@@ -44,11 +46,28 @@ class GitHubIssueClient:
     timeout_seconds: float = 4.0
     transport: httpx.AsyncBaseTransport | None = None
 
+    async def validate_repository_ready(self, *, owner: str, repo: str) -> None:
+        _validate_target_repo(owner=owner, repo=repo)
+        if not await self.repo_is_private(owner=owner, repo=repo):
+            raise GitHubIssueClientError("support_incident.configuration_invalid")
+        missing = sorted(set(REQUIRED_SUPPORT_LABELS) - await self.label_names(owner=owner, repo=repo))
+        if missing:
+            raise GitHubIssueClientError("support_incident.configuration_invalid")
+
     async def repo_is_private(self, *, owner: str, repo: str) -> bool:
+        _validate_target_repo(owner=owner, repo=repo)
         data = await self._request_json("GET", f"/repos/{owner}/{repo}")
         return bool(data.get("private"))
 
+    async def label_names(self, *, owner: str, repo: str) -> set[str]:
+        _validate_target_repo(owner=owner, repo=repo)
+        data = await self._request_json("GET", f"/repos/{owner}/{repo}/labels?per_page=100")
+        if not isinstance(data, list):
+            raise GitHubIssueClientError("support_incident.github_unavailable")
+        return {str(item.get("name")) for item in data if isinstance(item, dict) and item.get("name")}
+
     async def create_issue(self, *, owner: str, repo: str, draft: GitHubIssueDraft) -> dict[str, Any]:
+        _validate_target_repo(owner=owner, repo=repo)
         return await self._request_json(
             "POST",
             f"/repos/{owner}/{repo}/issues",
@@ -67,6 +86,7 @@ class GitHubIssueClient:
         issue_number: int,
         draft: GitHubIssueDraft,
     ) -> dict[str, Any]:
+        _validate_target_repo(owner=owner, repo=repo)
         return await self._request_json(
             "PATCH",
             f"/repos/{owner}/{repo}/issues/{issue_number}",
@@ -77,7 +97,7 @@ class GitHubIssueClient:
             },
         )
 
-    async def _request_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def _request_json(self, method: str, path: str, **kwargs: Any) -> Any:
         try:
             async with httpx.AsyncClient(
                 base_url=self.base_url.rstrip("/"),
@@ -96,14 +116,14 @@ class GitHubIssueClient:
             raise GitHubIssueClientError("support_incident.github_unavailable") from exc
         if response.status_code >= 400:
             raise GitHubIssueClientError(
-                "support_incident.github_unavailable",
+                _response_reason_code(response),
                 status_code=response.status_code,
             )
         try:
             data = response.json()
         except ValueError as exc:
             raise GitHubIssueClientError("support_incident.github_unavailable") from exc
-        if not isinstance(data, dict):
+        if not isinstance(data, dict | list):
             raise GitHubIssueClientError("support_incident.github_unavailable")
         return data
 
@@ -143,6 +163,23 @@ def replace_generated_issue_metadata(existing_body: str, draft: GitHubIssueDraft
     return existing_body[:start] + new_block + existing_body[end + len(GENERATED_END) :]
 
 
+def updated_deduped_issue_body(
+    existing_body: str,
+    report: Mapping[str, Any],
+    *,
+    affected_count: int,
+    safe_affected_identities: tuple[str, ...] | list[str],
+    github_issue_number: int,
+) -> str:
+    draft = build_github_issue_draft(
+        report,
+        affected_count=affected_count,
+        safe_affected_identities=safe_affected_identities,
+        github_issue_number=github_issue_number,
+    )
+    return replace_generated_issue_metadata(existing_body, draft)
+
+
 def priority_for_report(report: Mapping[str, Any]) -> str:
     data_loss_risk = str(report.get("data_loss_risk") or "").lower()
     if data_loss_risk in {"probable", "high", "confirmed"}:
@@ -180,12 +217,12 @@ def _issue_body(
 
 ## Проверенные факты
 
-- Номер для пользователя: `CUST-{issue_number}`
-- Problem code: `{report.get("problem_code", "unknown")}`
-- Dedupe key: `{report.get("dedupe_key", "unknown")}`
-- Affected count: `{affected_count}`
-- Safe affected identities: {", ".join(safe_affected_identities) if safe_affected_identities else "none"}
-{_generated_block(report)}
+{_generated_block(
+        report,
+        affected_count=affected_count,
+        safe_affected_identities=safe_affected_identities,
+        issue_number=issue_number,
+    )}
 
 ## Границы задачи
 
@@ -223,10 +260,22 @@ Full metadata-only issue details are retained indefinitely in this private GitHu
 """
 
 
-def _generated_block(report: Mapping[str, Any]) -> str:
+def _generated_block(
+    report: Mapping[str, Any],
+    *,
+    affected_count: int,
+    safe_affected_identities: tuple[str, ...],
+    issue_number: str,
+) -> str:
     report_json = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     return f"""
 {GENERATED_START}
+- Номер для пользователя: `CUST-{issue_number}`
+- Problem code: `{report.get("problem_code", "unknown")}`
+- Dedupe key: `{report.get("dedupe_key", "unknown")}`
+- Affected count: `{affected_count}`
+- Safe affected identities: {", ".join(safe_affected_identities) if safe_affected_identities else "none"}
+
 Full safe metadata-only report:
 
 ```json
@@ -251,3 +300,14 @@ def _human_problem_summary(problem_code: str) -> str:
     if "retention" in lowered or "expired" in lowered:
         return "автоматическая отправка уже не выполнится"
     return "локальная запись требует проверки поддержки"
+
+
+def _validate_target_repo(*, owner: str, repo: str) -> None:
+    if owner != REQUIRED_REPO_OWNER or repo != REQUIRED_REPO_NAME:
+        raise GitHubIssueClientError("support_incident.configuration_invalid")
+
+
+def _response_reason_code(response: httpx.Response) -> str:
+    if response.status_code in {401, 403, 404, 422}:
+        return "support_incident.configuration_invalid"
+    return "support_incident.github_unavailable"

@@ -121,6 +121,23 @@ UNSAFE_KEY_PARTS = (
     "raw_log",
     "screenshot",
 )
+BLOCKING_UNKNOWN_KEY_PARTS = (
+    "authorization",
+    "cookie",
+    "password",
+    "secret",
+    "token",
+    "signed_url",
+    "raw_audio",
+    "transcript",
+    "meeting_content",
+    "meeting_title",
+    "human_name",
+    "display_name",
+    "email",
+    "raw_log",
+    "screenshot",
+)
 
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 BEARER_RE = re.compile(r"\bbearer\s+[a-z0-9._~+/-]+=*", re.IGNORECASE)
@@ -144,6 +161,8 @@ def build_server_redacted_report(
     if payload.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
         raise SupportIncidentRedactionError("support_incident.unsupported_schema")
     if payload.get("redaction_state") != "metadata_only":
+        raise SupportIncidentRedactionError("support_incident.unsafe_payload")
+    if blocking_unsafe_unknown_fields(payload):
         raise SupportIncidentRedactionError("support_incident.unsafe_payload")
 
     forbidden_count = count_forbidden_content(payload)
@@ -183,6 +202,17 @@ def count_forbidden_content(value: Any) -> int:
     elif isinstance(value, str) and _is_unsafe_string(value):
         count += 1
     return count
+
+
+def blocking_unsafe_unknown_fields(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    blocked: list[str] = []
+    for key, value in payload.items():
+        if key in ALLOWED_REPORT_FIELDS:
+            continue
+        lowered = str(key).lower()
+        if any(part in lowered for part in BLOCKING_UNKNOWN_KEY_PARTS) or count_forbidden_content(value):
+            blocked.append(str(key))
+    return tuple(sorted(blocked))
 
 
 def derive_dedupe_key(report: Mapping[str, Any]) -> str:

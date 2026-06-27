@@ -9,6 +9,7 @@ from twobrain_rec_server.support.github_issues import (
     GitHubIssueClientError,
     build_github_issue_draft,
     replace_generated_issue_metadata,
+    updated_deduped_issue_body,
 )
 from twobrain_rec_server.support.redaction import build_server_redacted_report
 
@@ -73,6 +74,29 @@ def test_metadata_block_replacement_preserves_human_sections() -> None:
     assert '"old_field"' not in updated
 
 
+def test_deduped_issue_update_refreshes_generated_counters_only() -> None:
+    report = build_server_redacted_report(safe_report_payload())
+    existing = build_github_issue_draft(
+        report,
+        affected_count=1,
+        safe_affected_identities=("old_identity",),
+        github_issue_number=123,
+    ).body.replace("Пользовательская проблема из 2brain Rec", "Ручная заметка. Пользовательская проблема из 2brain Rec")
+
+    updated = updated_deduped_issue_body(
+        existing,
+        report,
+        affected_count=6,
+        safe_affected_identities=("new_a", "new_b"),
+        github_issue_number=123,
+    )
+
+    assert "Ручная заметка" in updated
+    assert "Affected count: `6`" in updated
+    assert "new_a, new_b" in updated
+    assert "old_identity" not in updated
+
+
 @pytest.mark.asyncio
 async def test_github_issue_client_sends_safe_issue_payload_without_leaking_token() -> None:
     report = build_server_redacted_report(safe_report_payload())
@@ -97,14 +121,57 @@ async def test_github_issue_client_sends_safe_issue_payload_without_leaking_toke
 
 
 @pytest.mark.asyncio
+async def test_github_issue_client_validates_private_repo_and_required_labels() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/yshishenya/crisp":
+            return httpx.Response(200, json={"private": True})
+        if request.url.path == "/repos/yshishenya/crisp/labels":
+            return httpx.Response(200, json=[{"name": "needs-triage"}])
+        return httpx.Response(404, json={})
+
+    client = GitHubIssueClient(token="server-token", transport=httpx.MockTransport(handler))
+
+    with pytest.raises(GitHubIssueClientError, match="support_incident.configuration_invalid"):
+        await client.validate_repository_ready(owner="yshishenya", repo="crisp")
+
+
+@pytest.mark.asyncio
+async def test_github_issue_client_rejects_wrong_or_public_repo_before_issue_mutation() -> None:
+    client = GitHubIssueClient(token="server-token")
+
+    with pytest.raises(GitHubIssueClientError, match="support_incident.configuration_invalid"):
+        await client.repo_is_private(owner="other", repo="crisp")
+
+    async def public_repo(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"private": False})
+
+    client = GitHubIssueClient(token="server-token", transport=httpx.MockTransport(public_repo))
+    with pytest.raises(GitHubIssueClientError, match="support_incident.configuration_invalid"):
+        await client.validate_repository_ready(owner="yshishenya", repo="crisp")
+
+
+@pytest.mark.asyncio
 async def test_github_issue_client_maps_failure_to_safe_reason() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, json={"message": "bad credentials"})
 
     client = GitHubIssueClient(token="server-token", transport=httpx.MockTransport(handler))
 
-    with pytest.raises(GitHubIssueClientError, match="support_incident.github_unavailable") as exc:
+    with pytest.raises(GitHubIssueClientError, match="support_incident.configuration_invalid") as exc:
         await client.repo_is_private(owner="yshishenya", repo="crisp")
 
     assert exc.value.status_code == 403
     assert "server-token" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_github_issue_client_maps_rate_limit_to_dependency_failure() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"message": "rate limit"})
+
+    client = GitHubIssueClient(token="server-token", transport=httpx.MockTransport(handler))
+
+    with pytest.raises(GitHubIssueClientError, match="support_incident.github_unavailable") as exc:
+        await client.repo_is_private(owner="yshishenya", repo="crisp")
+
+    assert exc.value.status_code == 429
