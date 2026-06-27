@@ -1076,12 +1076,22 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .toolbar { grid-template-columns: 1fr; }
   .toolbar button { grid-column: auto; }
   .auth-page { padding: 18px 14px 28px; }
-  .auth-panel { padding: 20px; }
+  .auth-panel { padding: 18px; }
   .auth-provider-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: none;
-    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(4, minmax(40px, auto));
+    grid-auto-flow: column;
+    gap: 8px;
   }
+  .auth-provider {
+    min-height: 40px;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 6px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+  .auth-provider .provider-mark { width: 24px; height: 24px; font-size: 10px; }
+  .auth-provider .provider-pill { display: none; }
   .playback-bar { padding-inline: 12px; }
   .timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }
 }
