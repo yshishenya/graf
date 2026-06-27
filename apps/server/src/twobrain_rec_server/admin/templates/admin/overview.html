@@ -1,0 +1,50 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-grid" aria-label="Сводка рабочей области">
+    <article class="admin-panel">
+      <h2>Пользователи</h2>
+      <dl class="admin-metrics">
+        <div><dt>Активные пользователи</dt><dd>{{ view.overview.user_counts.active }}</dd></div>
+        <div><dt>Ожидают приглашения</dt><dd>{{ view.overview.user_counts.pending }}</dd></div>
+        <div><dt>Ограничены</dt><dd>{{ view.overview.user_counts.blocked + view.overview.user_counts.revoked }}</dd></div>
+      </dl>
+    </article>
+    <article class="admin-panel">
+      <h2>Баланс и лимиты</h2>
+      <dl class="admin-metrics">
+        <div><dt>Минуты записи</dt><dd>{{ view.overview.usage_summary.recording_minutes }}</dd></div>
+        <div><dt>Задачи обработки</dt><dd>{{ view.overview.usage_summary.processing_jobs }}</dd></div>
+        <div><dt>Риск лимита</dt><dd>{{ view.overview.usage_summary.quota_risk }}</dd></div>
+      </dl>
+    </article>
+    <article class="admin-panel">
+      <h2>Файлы</h2>
+      <dl class="admin-metrics">
+        <div><dt>Серверные встречи</dt><dd>{{ view.overview.file_summary.server_known_meetings }}</dd></div>
+        <div><dt>Удаляются</dt><dd>{{ view.overview.file_summary.deleting }}</dd></div>
+        <div><dt>Проблемы</dt><dd>{{ view.overview.file_summary.problem }}</dd></div>
+      </dl>
+    </article>
+    <article class="admin-panel">
+      <h2>Метрики</h2>
+      <p class="admin-empty">Источник: {{ view.overview.metrics_summary.freshness }}</p>
+    </article>
+    <article class="admin-panel admin-panel--wide">
+      <h2>Аудит</h2>
+      {% if view.overview.recent_audit %}
+        <ul class="admin-list">
+          {% for event in view.overview.recent_audit %}
+            <li>{{ event.action }} · {{ event.outcome }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="admin-empty">Пока нет событий аудита.</p>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

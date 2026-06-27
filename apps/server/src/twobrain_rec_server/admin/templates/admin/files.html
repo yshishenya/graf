@@ -1,0 +1,62 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-panel">
+    <h2>Файлы и встречи</h2>
+    <form class="admin-toolbar" method="get" action="/admin/files">
+      <label>Поиск
+        <input name="search" type="search" value="{{ view.filters.q or '' }}" autocomplete="off">
+      </label>
+      <label>Владелец
+        <input name="owner_user_id" type="text" value="{{ view.filters.owner_user_id or '' }}">
+      </label>
+      <label>Тип
+        <select name="type">
+          <option value="">Все</option>
+          {% for item in ["audio", "transcript", "summary", "meeting"] %}
+            <option value="{{ item }}"{% if view.filters.type == item %} selected{% endif %}>{{ item }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>С даты
+        <input name="date_from" type="date" value="{{ view.filters.date_from or '' }}">
+      </label>
+      <label>По дату
+        <input name="date_to" type="date" value="{{ view.filters.date_to or '' }}">
+      </label>
+      <label>Обработка
+        <input name="processing_state" type="text" value="{{ view.filters.processing_state or '' }}">
+      </label>
+      <label>Удаление
+        <input name="deletion_state" type="text" value="{{ view.filters.deletion_state or '' }}">
+      </label>
+      <label>Мин. размер
+        <input name="min_size" type="number" min="0" value="{{ view.filters.min_size or '' }}">
+      </label>
+      <label>Мин. длительность
+        <input name="min_duration" type="number" min="0" value="{{ view.filters.min_duration or '' }}">
+      </label>
+      <button type="submit">Применить</button>
+    </form>
+    <table class="admin-table">
+      <thead><tr><th>Встреча</th><th>Владелец</th><th>Длительность</th><th>Размер</th><th>Обработка</th><th>Удаление</th><th>Доступ</th></tr></thead>
+      <tbody>
+        {% for file in view.files.files %}
+          <tr>
+            <td><a href="/admin/files/{{ file.meeting_id }}">{{ file.title or file.meeting_id }}</a></td>
+            <td>{{ file.owner_user_id }}</td>
+            <td>{{ file.duration_seconds }}</td>
+            <td>{{ file.total_size_bytes }}</td>
+            <td>{{ file.processing_state }}</td>
+            <td>{{ file.deletion_state }}</td>
+            <td>{{ file.access.outcome }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

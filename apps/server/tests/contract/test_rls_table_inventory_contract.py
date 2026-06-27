@@ -36,6 +36,10 @@ SUPPORT_INCIDENT_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0012_support_incidents.py"
 )
+ADMIN_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0013_workspace_admin_panel.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -79,6 +83,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         SUPPORT_INCIDENT_MIGRATION,
         "support_incident_migration",
     )
+    admin_migration = _load_migration_module(
+        ADMIN_MIGRATION,
+        "workspace_admin_panel_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -91,6 +99,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(meeting_outcomes_migration.CONTENT_WORKSPACE_POLICIES)
         | set(calendar_context_migration.CONTENT_WORKSPACE_POLICIES)
         | set(support_incident_migration.SUPPORT_TABLES)
+        | set(admin_migration.ADMIN_TABLES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

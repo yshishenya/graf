@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }} · 2brain Rec</title>
+    <link rel="stylesheet" href="{{ admin_static_url }}/admin.css">
+  </head>
+  <body>
+    <main class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <p class="admin-kicker">2brain Rec</p>
+          <h1>{% block title %}{{ page_title }}{% endblock %}</h1>
+          {% block subtitle %}{% endblock %}
+        </div>
+      </header>
+      {% if view is defined and view.navigation is defined %}
+        <nav class="admin-nav" aria-label="Админ-навигация">
+          {% for item in view.navigation.items %}
+            <a class="admin-nav__link{% if item.id == view.navigation.active %} is-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+          {% endfor %}
+        </nav>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

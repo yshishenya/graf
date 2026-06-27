@@ -39,6 +39,11 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
     func testBlocksFutureGovernanceAndNativeCaptureRoutes() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
 
+        let admin = policy.decision(for: try url("/admin"))
+        XCTAssertEqual(admin.decision, .openExternally)
+        XCTAssertEqual(admin.route.kind, .admin)
+        XCTAssertEqual(admin.reason, .openBrowserOwnedAdmin)
+
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/share")).decision, .blockWithMessage)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/download")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/delete")).reason, .blockedFutureGovernance)
