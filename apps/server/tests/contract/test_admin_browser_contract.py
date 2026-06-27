@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import parse_qs, urlparse
 
 from tests.contract.test_admin_no_secret_content_egress import FORBIDDEN_MARKERS
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -29,6 +30,17 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert "Analyst" not in response.text
     for marker in FORBIDDEN_MARKERS:
         assert marker not in response.text
+
+
+def test_admin_browser_without_session_redirects_to_login(client) -> None:
+    response = client.get("/admin?tab=users", follow_redirects=False)
+
+    assert response.status_code == 303
+    location = urlparse(response.headers["location"])
+    query = parse_qs(location.query)
+    assert location.path == "/login"
+    assert query["next"] == ["/admin?tab=users"]
+    assert query["error"][0] in {"missing_auth_context", "legacy_header_auth_disabled"}
 
 
 def test_admin_overview_page_denies_member_without_counts(client) -> None:
