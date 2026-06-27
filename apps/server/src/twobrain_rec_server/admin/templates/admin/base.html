@@ -7,25 +7,38 @@
     <link rel="icon" href="{{ cabinet_static_url }}/favicon.ico" sizes="any">
     <link rel="icon" href="{{ cabinet_static_url }}/graf-logo.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
+    <link rel="stylesheet" href="/static/cabinet/cabinet.css">
     <link rel="stylesheet" href="{{ admin_static_url }}/admin.css">
   </head>
-  <body>
-    <main class="admin-shell">
-      <header class="admin-header">
-        <div>
-          <p class="admin-kicker">GRAF</p>
-          <h1>{% block title %}{{ page_title }}{% endblock %}</h1>
-          {% block subtitle %}{% endblock %}
+  <body data-surface-mode="standalone_browser">
+    <div class="app-shell admin-app-shell">
+      <aside class="sidebar admin-sidebar">
+        <div class="brand">
+          <div class="brand-mark"><img class="brand-logo" src="{{ cabinet_static_url }}/graf-logo.svg" alt="" aria-hidden="true"></div>
+          <div>
+            <div class="workspace-title">GRAF</div>
+            <div class="workspace-subtitle">Админка</div>
+          </div>
         </div>
-      </header>
-      {% if view is defined and view.navigation is defined %}
-        <nav class="admin-nav" aria-label="Админ-навигация">
-          {% for item in view.navigation.items %}
-            <a class="admin-nav__link{% if item.id == view.navigation.active %} is-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
-          {% endfor %}
-        </nav>
-      {% endif %}
-      {% block content %}{% endblock %}
-    </main>
+        {% if view is defined and view.navigation is defined %}
+          <nav class="nav admin-nav" aria-label="Админ-навигация">
+            {% for item in view.navigation.items %}
+              <a class="admin-nav__link{% if item.id == view.navigation.active %} active is-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+            {% endfor %}
+          </nav>
+        {% endif %}
+      </aside>
+      <main class="main admin-main">
+        <header class="topline admin-header">
+          <div class="page-title">
+            <p class="admin-kicker">GRAF</p>
+            <h1>{% block title %}{{ page_title }}{% endblock %}</h1>
+            {% block subtitle %}{% endblock %}
+          </div>
+          <div class="admin-header-brand" aria-label="GRAF">GRAF</div>
+        </header>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
   </body>
 </html>
