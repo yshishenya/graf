@@ -18,6 +18,8 @@
 - Desktop WebView больше не блокирует переход "Мои встречи" из web-sidebar:
   embedded cabinet navigation теперь ведет на `/desktop/meetings`, а не на
   browser route `/meetings`.
+- Левый web-sidebar кабинета закреплен на высоту окна и больше не получает
+  собственный скроллбар при прокрутке списка встреч.
 
 ### Безопасность
 - _Пока нет записей._
