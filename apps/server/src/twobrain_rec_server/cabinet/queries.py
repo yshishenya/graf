@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, asc, desc, or_, select
+from sqlalchemy import Select, asc, desc, nullslast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import (
@@ -244,10 +244,11 @@ def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meetin
     sorters = {
         "updated_desc": desc(Meeting.updated_at),
         "updated_asc": asc(Meeting.updated_at),
-        "started_desc": desc(Meeting.started_at),
-        "started_asc": asc(Meeting.started_at),
+        "started_desc": nullslast(desc(Meeting.started_at)),
+        "started_asc": nullslast(asc(Meeting.started_at)),
         "duration_desc": desc(Meeting.duration_seconds),
         "duration_asc": asc(Meeting.duration_seconds),
+        "title_asc": asc(Meeting.title),
     }
     return query.order_by(sorters.get(sort, desc(Meeting.updated_at)), desc(Meeting.created_at))
 

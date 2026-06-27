@@ -575,18 +575,22 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         ]
     }
 
+    public static func createMeetingPayload(for item: DesktopUploadQueueItem) -> DesktopCreateMeetingPayload {
+        DesktopCreateMeetingPayload(
+            local_recording_id: item.directoryId,
+            local_media_revision_id: item.localMediaRevisionId,
+            title: item.recordingMetadata?.title,
+            started_at: item.recordingStartedAt,
+            ended_at: item.recordingStoppedAt,
+            duration_seconds: item.artifactProfile.durationSeconds
+        )
+    }
+
     private func createMeeting(_ item: DesktopUploadQueueItem) async throws -> MeetingResponse {
         var request = try jsonRequest(
             path: "/api/v1/meetings",
             method: "POST",
-            body: CreateMeetingRequest(
-                local_recording_id: item.directoryId,
-                local_media_revision_id: item.localMediaRevisionId,
-                title: nil,
-                started_at: nil,
-                ended_at: nil,
-                duration_seconds: item.artifactProfile.durationSeconds
-            )
+            body: Self.createMeetingPayload(for: item)
         )
         request.setValue(Self.idempotencyKey(item: item, scope: "meeting"), forHTTPHeaderField: "Idempotency-Key")
         return try await perform(request)
@@ -816,13 +820,29 @@ public struct DesktopUploadFileDescriptor: Equatable, Sendable {
     public let durationSeconds: Int
 }
 
-private struct CreateMeetingRequest: Encodable {
-    let local_recording_id: String
-    let local_media_revision_id: String
-    let title: String?
-    let started_at: Date?
-    let ended_at: Date?
-    let duration_seconds: Int
+public struct DesktopCreateMeetingPayload: Encodable, Equatable, Sendable {
+    public let local_recording_id: String
+    public let local_media_revision_id: String
+    public let title: String?
+    public let started_at: Date?
+    public let ended_at: Date?
+    public let duration_seconds: Int
+
+    public init(
+        local_recording_id: String,
+        local_media_revision_id: String,
+        title: String?,
+        started_at: Date?,
+        ended_at: Date?,
+        duration_seconds: Int
+    ) {
+        self.local_recording_id = local_recording_id
+        self.local_media_revision_id = local_media_revision_id
+        self.title = title
+        self.started_at = started_at
+        self.ended_at = ended_at
+        self.duration_seconds = duration_seconds
+    }
 }
 
 public struct DesktopCalendarContextLinkRequest: Encodable, Equatable, Sendable {

@@ -3,6 +3,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from twobrain_rec_server.domain.statuses import (
@@ -174,6 +175,18 @@ async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSO
             status_code=303,
         )
     return problem_response(exc, request)
+
+
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    _ = exc
+    return problem_response(
+        ProblemDetail(
+            status=422,
+            code="request_validation_error",
+            title="Request validation failed",
+        ),
+        request,
+    )
 
 
 def bad_request(code: str, title: str, detail: str | None = None) -> ProblemDetail:

@@ -672,7 +672,29 @@ public struct DiagnosticBundleService: Sendable {
             "meetingMuteTruth": manifest.meetingMuteTruth.map(Self.diagnosticValue) ?? .null,
             "meetingMuteTruthEvidence": .array((manifest.meetingMuteTruthEvidence ?? []).map(Self.diagnosticValue)),
             "targetMuteCapability": manifest.targetMuteCapability.map(Self.diagnosticValue) ?? .null,
-            "limitationCopyShownAt": .string(manifest.limitationCopyShownAt.map(Self.formatDate) ?? "none")
+            "limitationCopyShownAt": .string(manifest.limitationCopyShownAt.map(Self.formatDate) ?? "none"),
+            "recordingMetadata": manifest.recordingMetadata.map(Self.diagnosticValue) ?? .null
+        ])
+    }
+
+    private static func diagnosticValue(_ metadata: RecordingDisplayMetadata) -> DiagnosticFieldValue {
+        .object([
+            "recordingStartedAt": .string(Self.formatDate(metadata.recordingStartedAt)),
+            "recordingStoppedAt": .string(metadata.recordingStoppedAt.map(Self.formatDate) ?? "none"),
+            "titlePresent": .bool(!metadata.title.isEmpty),
+            "titleStatus": .string(metadata.titleStatus.rawValue),
+            "titleSource": .string(metadata.titleSource.rawValue),
+            "titleConfidence": .string(metadata.titleConfidence.rawValue),
+            "titleLength": .int(metadata.title.count),
+            "safeFileBasenamePresent": .bool(!metadata.safeFileBasename.isEmpty),
+            "safeFileBasenameLength": .int(metadata.safeFileBasename.count),
+            "stableSuffix": .string(metadata.stableSuffix),
+            "suppressedSources": .array(metadata.suppressedSources.map { suppression in
+                .object([
+                    "source": .string(suppression.source.rawValue),
+                    "reason": .string(suppression.reason)
+                ])
+            })
         ])
     }
 

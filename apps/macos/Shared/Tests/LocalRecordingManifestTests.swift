@@ -118,6 +118,42 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
     }
 
+    func testRecordingMetadataBasenameDoesNotRenameRequiredPackageFiles() throws {
+        let metadata = RecordingDisplayMetadata(
+            recordingStartedAt: Date(timeIntervalSince1970: 10),
+            recordingStoppedAt: Date(timeIntervalSince1970: 20),
+            title: "Zoom - 1970-01-01 00:00",
+            titleStatus: .generated,
+            titleSource: .appContext,
+            titleConfidence: .high,
+            titleGeneratedAt: Date(timeIntervalSince1970: 30),
+            safeFileBasename: "1970-01-01_00-00_zoom-1970-01-01-00-00_ab12cd",
+            stableSuffix: "ab12cd"
+        )
+        let manifest = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .saved,
+            directoryId: "dir",
+            transcriptionReadiness: .ready,
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            recordingMetadata: metadata
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decoded = try decoder.decode(LocalRecordingManifest.self, from: encoder.encode(manifest))
+
+        XCTAssertEqual(decoded.recordingMetadata, metadata)
+        XCTAssertEqual(decoded.manifestFileName, "manifest.json")
+        XCTAssertEqual(decoded.tracks.first { $0.role == .localMic }?.fileName, "mic.wav")
+        XCTAssertEqual(decoded.tracks.first { $0.role == .remoteSpeaker }?.fileName, "incoming.wav")
+    }
+
     func testReadNormalizesStaleCaptureHealthAgainstManifestFailure() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-recording-manifest-stale-health-\(UUID().uuidString).json")

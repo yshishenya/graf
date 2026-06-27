@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -73,10 +74,13 @@ STATUS_LABELS: dict[str, str] = {
 }
 
 SORT_LABELS: dict[str, str] = {
-    "updated_desc": "Сначала новые",
-    "updated_asc": "Сначала старые",
+    "updated_desc": "Недавно обновленные",
+    "updated_asc": "Давно обновленные",
+    "started_desc": "Новые по дате записи",
+    "started_asc": "Старые по дате записи",
     "duration_desc": "Сначала длинные",
     "duration_asc": "Сначала короткие",
+    "title_asc": "По названию",
 }
 
 PROCESSING_STATUSES = {
@@ -88,6 +92,11 @@ PROCESSING_STATUSES = {
     ProcessingStatus.POLLING.value,
     ProcessingStatus.IMPORTING.value,
 }
+
+UNSAFE_TITLE_RE = re.compile(
+    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:meet\.google\.com/[A-Z0-9_-]+|zoom\.us/(?:j|my)/[A-Z0-9._-]+|teams\.microsoft\.com/l/meetup-join|whereby\.com/[A-Z0-9_-]+|webex\.com/meet/[A-Z0-9._-]+)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -171,7 +180,7 @@ def date_label(item: MeetingListItem) -> str:
 
 
 def sort_label(sort: str) -> str:
-    return SORT_LABELS.get(sort, "Сначала новые")
+    return SORT_LABELS.get(sort, SORT_LABELS["updated_desc"])
 
 
 def meeting_media_kind(item: MeetingListItem) -> str:
@@ -199,6 +208,9 @@ def meeting_media_label(item: MeetingListItem) -> str:
 
 def safe_title(meeting: Meeting) -> str:
     title = (meeting.title or "").strip()
+    title = "".join(char for char in title if char >= " " and char != "\x7f").strip()
+    if UNSAFE_TITLE_RE.search(title):
+        title = ""
     if not title:
         title = (meeting.local_recording_id or "").strip()
     if not title:

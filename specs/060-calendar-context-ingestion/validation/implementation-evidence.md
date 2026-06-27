@@ -9,7 +9,7 @@
 - Lane: High-risk product area.
 - Reason: Calendar integration touches provider credentials, sensitive meeting-adjacent calendar content, retention/deletion accounting, API contracts, external provider failure states, and desktop prompts near recording start.
 - Implementation boundary: code/test implementation does not deploy by itself. Release/deploy/build evidence belongs to the final closeout stage after PR merge and release gate validation.
-- Origin/master sync: pass. `origin/master` (`586691f`) is an ancestor of feature HEAD `bf36517`.
+- Origin/master refresh: pass. Feature branch was refreshed from `origin/master` `94ffcb6` (`v2026.06.27.1`, including feature 059 recording date/title metadata) on 2026-06-27; merge conflicts in `AGENTS.md`, `CHANGELOG.md`, and `docs/current-product-status.md` were resolved with 060 remaining the active feature context.
 
 ## T001 Evidence Log Setup
 
@@ -24,6 +24,7 @@
 - Placeholder scan over current 060 spec/plan/tasks/checklists found no unresolved `NEEDS CLARIFICATION`, `TODO`, `TKTK`, `???`, or `<placeholder>` markers in active requirements. The only `NEEDS CLARIFICATION` string is a checked checklist assertion.
 - Real integration touchpoints from 057/058 master state exist for ingest, processing, cabinet, access/share boundaries, meeting lifecycle, desktop upload, capture UI, app wiring, and shared system-audio models.
 - Added `specs/060-calendar-context-ingestion/checklists/pre-implementation-readiness.md` for the post-master-sync requirement-quality pass.
+- Rechecked after the 2026-06-27 `origin/master` `94ffcb6` refresh that includes feature 059. Added `specs/060-calendar-context-ingestion/checklists/post-master-refresh.md`; PMR001-PMR010 are satisfied. The recheck specifically covers 059/060 title/date interaction, no retrospective matching, no auto-record, no send/share/calendar mutation, and evidence wording refresh.
 
 ## Speckit Analyze Rerun
 
@@ -32,6 +33,7 @@
 - Result: no unresolved critical/high blockers found.
 - Coverage: FR-001 through FR-026 and SC-001 through SC-011 have mapped tasks, validation tasks, or explicit no-go boundaries in `tasks.md`.
 - Constitution alignment: pass. Calendar credentials stay server-owned, no hidden/automatic recording is introduced in 060, deletion/retention accounting is planned, and high-risk validation gates remain required.
+- Post-master-refresh analysis result: no new critical/high blockers found after `origin/master` `94ffcb6`. One low-risk implementation gap was found and fixed: desktop queue refresh/re-enqueue now preserves `calendarContextEventId` together with feature 059 `recordingMetadata`, so a selected future/current calendar event is not lost before upload.
 
 ## Tests
 
@@ -157,6 +159,8 @@
   - Result: pass, no matches.
 - Focused forbidden-content scan after US3-US7 implementation:
   - Result: pass, no matches (`rg` exit code 1).
+- Post-master-refresh forbidden-content scan from `quickstart.md` after evidence/docs updates:
+  - Result: pass, no matches (`rg` exit code 1).
 - Current preparation evidence contains no real provider credentials, live calendar payloads, attendee email dumps, meeting passcodes, signed URLs, screenshots, transcript text, or private meeting content.
 
 ## RLS Proof
@@ -194,6 +198,18 @@
 
 ## Focused Final Implementation Checkpoint
 
+- Post-master-refresh focused backend gate:
+  `cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_calendar_credentials.py tests/unit/test_calendar_normalization.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_calendar_recording_context.py tests/unit/test_calendar_participants.py tests/unit/test_cabinet_view_models.py tests/unit/test_redaction.py tests/unit/test_calendar_recipient_candidates.py tests/contract/test_calendar_context_contract.py tests/contract/test_calendar_no_secret_content_egress.py tests/contract/test_calendar_rls_contract.py tests/contract/test_openapi_contract_drift.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_disconnect_lifecycle.py tests/integration/test_calendar_deletion_lifecycle.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_provider_failures.py tests/integration/test_meeting_share_links.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_ingest_happy_path.py tests/integration/test_degraded_ingest.py tests/integration/test_cabinet_meeting_list.py`
+  - Result after `origin/master` `94ffcb6` refresh: pass, 107 passed, 1 pytest-asyncio deprecation warning.
+- Post-master-refresh focused Ruff gate:
+  `cd apps/server && uv run --extra dev ruff check src/twobrain_rec_server/calendar src/twobrain_rec_server/api/calendar.py src/twobrain_rec_server/api/problems.py src/twobrain_rec_server/api/schemas.py src/twobrain_rec_server/api/ingest.py src/twobrain_rec_server/ingest/meetings.py src/twobrain_rec_server/cabinet/queries.py src/twobrain_rec_server/cabinet/view_models.py tests/unit/test_calendar_credentials.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_redaction.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_provider_failures.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_deletion_lifecycle.py tests/integration/test_ingest_happy_path.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_cabinet_meeting_list.py`
+  - Result after `origin/master` `94ffcb6` refresh: pass.
+- Post-master-refresh focused macOS gate:
+  `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopUploadQueue|DesktopUploadClient|RecordingMetadataResolver|DesktopCalendarReminder|CaptureControl|AppControlAccessibility|LocalRecordingManifest|DiagnosticRedaction'`
+  - Result after `origin/master` `94ffcb6` refresh and the queue context-preservation fix: pass, 155 tests, 0 failures.
+- Post-master-refresh full macOS gate:
+  `swift test --package-path apps/macos --disable-swift-testing`
+  - Result after `origin/master` `94ffcb6` refresh: pass, 666 tests, 0 failures.
 - `cd apps/server && uv run --extra dev ruff check src/twobrain_rec_server/calendar src/twobrain_rec_server/api/problems.py src/twobrain_rec_server/api/schemas.py src/twobrain_rec_server/api/ingest.py src/twobrain_rec_server/cabinet/queries.py src/twobrain_rec_server/cabinet/view_models.py src/twobrain_rec_server/deletion/service.py tests/unit/test_calendar_credentials.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_redaction.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_provider_failures.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_deletion_lifecycle.py`
   - Result: pass.
 - `cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_calendar_credentials.py tests/unit/test_calendar_normalization.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_calendar_recording_context.py tests/unit/test_calendar_participants.py tests/unit/test_cabinet_view_models.py tests/unit/test_redaction.py tests/unit/test_calendar_recipient_candidates.py tests/contract/test_calendar_context_contract.py tests/contract/test_calendar_no_secret_content_egress.py tests/contract/test_calendar_rls_contract.py tests/contract/test_openapi_contract_drift.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_disconnect_lifecycle.py tests/integration/test_calendar_deletion_lifecycle.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_provider_failures.py tests/integration/test_meeting_share_links.py tests/integration/test_persistent_ingest_storage.py`
@@ -207,6 +223,15 @@
 
 ## Full Local CI And Closeout Readiness
 
+- Post-master-refresh T133 rerun:
+  `infra/scripts/ci-local.sh`
+  - Result after `origin/master` `94ffcb6` refresh: pass, `ci_local_result=pass`.
+  - Server tests: `779 passed, 4 skipped, 103 warnings`.
+  - Server lint: pass.
+  - Python compile: pass.
+  - RLS validation boundary: expected local boundary output stayed `rls_validation_result=blocked` with `reason=postgres_test_database_required`, and did not fail the CI gate.
+  - Production compose config: rendered successfully.
+  - Deployment evidence scan: pass.
 - T133 completed after the final Ponytail simplification:
   `infra/scripts/ci-local.sh`
   - Result: pass, `ci_local_result=pass`.

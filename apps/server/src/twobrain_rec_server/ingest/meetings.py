@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,11 @@ from twobrain_rec_server.ingest.store import (
     persist_meeting,
 )
 
+UNSAFE_MEETING_TITLE_RE = re.compile(
+    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:meet\.google\.com/[A-Z0-9_-]+|zoom\.us/(?:j|my)/[A-Z0-9._-]+|teams\.microsoft\.com/l/meetup-join|whereby\.com/[A-Z0-9_-]+|webex\.com/meet/[A-Z0-9._-]+)",
+    re.IGNORECASE,
+)
+
 
 async def create_or_get_meeting(
     *,
@@ -29,6 +35,7 @@ async def create_or_get_meeting(
     ended_at: datetime | None = None,
 ) -> MeetingRecord:
     validate_recording_duration(settings, duration_seconds)
+    validate_meeting_title_policy(title)
     persisted = await load_meeting_record(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -64,3 +71,14 @@ async def create_or_get_meeting(
     await persist_meeting(db, meeting, commit=False)
     await persist_audit_event(db, event, commit=False)
     return meeting
+
+
+def validate_meeting_title_policy(title: str | None) -> None:
+    if title is None:
+        return
+    if UNSAFE_MEETING_TITLE_RE.search(title) or any(ord(char) < 32 or ord(char) == 127 for char in title):
+        raise ProblemDetail(
+            status=400,
+            code="unsafe_meeting_title",
+            title="Meeting title rejected by metadata policy",
+        )

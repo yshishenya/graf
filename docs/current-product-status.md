@@ -272,8 +272,9 @@ metadata-only evidence остаются подробной историей ре
   `user_rollout_ready`, and `production_ready` stay excluded until a fresh live
   owner journey, stored outcomes on a production candidate, and representative
   one-hour timing proof pass with metadata-only evidence.
-- Feature `058-web-cabinet-htmx-shell` is implemented in the current feature
-  branch as a local architecture refactor for the server-owned cabinet shell.
+- Feature `058-web-cabinet-htmx-shell` is implemented and merged into
+  `origin/master` through PR `#2096` and PR `#2234` as a local architecture
+  refactor for the server-owned cabinet shell.
   It fixes the frontend foundation as Jinja templates, reusable cabinet
   component macros, one static CSS/token layer, centralized Lucide-style inline
   SVG icons, and locally vendored HTMX `2.0.10`; Tailwind, ready UI kits, SPA
@@ -289,8 +290,30 @@ metadata-only evidence остаются подробной историей ре
   `result=pass` across `8` synthetic surfaces and `12` checks; desktop cabinet
   checks passed `63 tests, 0 failures`; static source guard passed; full local
   CI passed `685 passed, 4 skipped, 94 warnings` with `ci_local_result=pass`.
-  This branch has no database migration or machine-readable JSON contract
-  change and is not merged, released, deployed, or production-smoked yet.
+  This slice has no database migration or machine-readable JSON contract
+  change and is not released, deployed, or production-smoked yet.
+- Feature `059-recording-date-title` is merged into `origin/master` through PR
+  `#2235` and included in release `v2026.06.27.1`. New recordings now carry
+  persisted recording metadata from
+  the local manifest start/stop instants plus a minimal safe title from
+  already-approved app/platform context or a generic date fallback. The desktop
+  create-meeting payload sends persisted `title`, `started_at`, and `ended_at`;
+  server ingest persists safe values and rejects unsafe title-like values; the
+  cabinet list/detail/search/sort surfaces use recording start time with
+  truthful legacy fallback. Safe filename basename is metadata only and does
+  not rename required local package files, upload idempotency keys, media
+  revision identity, or storage object keys. Focused local evidence on
+  2026-06-27 passed Swift filters for manifest, resolver, queue, client, and
+  diagnostics (`22 + 6 + 43 + 13 + 20` tests), focused server pytest
+  (`25 passed, 1 warning`), focused Ruff, full SwiftPM
+  (`653 tests, 0 failures`), and full local CI (`ci_local_result=pass`; server
+  tests `712 passed, 4 skipped, 103 warnings`; deployment evidence scan
+  `pass files=7`). The local CI RLS boundary reported
+  `rls_validation_result=blocked` because production enforcement was not
+  inspected from the local `postgres_test` boundary, so that local run is not
+  production RLS evidence. It deliberately does not implement calendar
+  integration, window/browser title collection, rename UI/API, download/export,
+  transcript-derived titles, or new app/window observers.
 - Feature `060-calendar-context-ingestion` is implemented in the current
   feature branch as the first calendar context layer. It adds server-owned
   read-only calendar source connection state, credential sealing, selected
@@ -307,10 +330,11 @@ metadata-only evidence остаются подробной историей ре
   calendars, send summaries/transcripts/reports, create attendee share grants,
   fetch attachments, perform retrospective matching, or use live provider
   credentials in committed evidence. Focused local evidence on 2026-06-27:
-  Ruff passed, backend focused calendar/cabinet/ingest checks passed
-  `91 passed`, macOS calendar/upload/capture prompt checks passed
-  `8 + 54` tests, the forbidden-content scan found no matches, and full local
-  CI passed `771 passed, 4 skipped, 103 warnings` with
+  after refreshing from `origin/master` `94ffcb6`, Ruff passed, backend focused
+  calendar/cabinet/ingest checks passed `107 passed`, macOS calendar/upload/
+  recording-metadata checks passed `155 tests`, full macOS suite passed
+  `666 tests, 0 failures`, the forbidden-content scan found no matches, and
+  full local CI passed `779 passed, 4 skipped, 103 warnings` with
   `ci_local_result=pass`. PR review, release, deploy, and production smoke are
   still pending.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
@@ -516,8 +540,8 @@ states, and fails closed on local purge acknowledgement unless deletion,
 tombstone, or unrecoverability is verified. Focused local evidence passed the
 057 Swift custody/purge/projection suites and focused server custody/purge
 read-model suites on 2026-06-26. This is merged/released local implementation
-readiness, not production-smoked evidence, and feature `058` still owns server
-cabinet presentation refactor work.
+readiness, not production-smoked evidence; feature `058` has since landed the
+server cabinet presentation refactor baseline.
 
 Current evidence already accepted before 050:
 
