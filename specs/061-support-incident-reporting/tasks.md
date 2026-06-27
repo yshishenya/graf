@@ -133,7 +133,7 @@
 - [X] T047 Run `swift test --package-path apps/macos` for native custody/report coverage from `specs/061-support-incident-reporting/quickstart.md`
 - [X] T048 Run `infra/scripts/ci-local.sh` as the repository gate in `infra/scripts/ci-local.sh`
 - [X] T049 Confirm no implementation diff touches the server-owned WebView meeting list route in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T050 Prepare Russian PR evidence with risk lane, validation, issue links, and no closing keywords unless fully closed using `.github/pull_request_template.md`
+- [X] T050 Prepare Russian PR evidence with risk lane, validation, issue links, and no closing keywords unless fully closed using `.github/pull_request_template.md`
 
 ---
 
