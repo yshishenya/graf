@@ -20,7 +20,7 @@
         <button class="primary" type="submit">Зарегистрироваться</button>
       </form>
       {% else %}
-      <div class="auth-actions">
+      <div class="auth-actions{% if providers %} auth-provider-grid{% endif %}">
         {% if not workspace_configured %}
         <div class="truth-copy">Кабинет регистрации не настроен. Проверьте серверные настройки.</div>
         {% elif providers %}
@@ -45,7 +45,7 @@
       <a class="mini-link auth-help" href="#" aria-disabled="true">Зачем 2brain Rec доступ к календарю?</a>
       <div class="auth-divider">или</div>
       <a class="email-mode-trigger" href="{{ signup_email_href }}">
-        <span class="provider-mark">@</span><span>Продолжить с email</span>
+        <span class="provider-mark">@</span><span>Рабочая почта</span>
       </a>
       {% endif %}
     </div>
