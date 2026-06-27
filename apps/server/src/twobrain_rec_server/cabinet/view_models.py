@@ -114,12 +114,13 @@ class CabinetNavigationModel:
     workspace_subtitle: str = "Бесплатный план"
 
 
-def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6) -> CabinetNavigationModel:
+def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, embedded: bool = False) -> CabinetNavigationModel:
+    meetings_href = "/desktop/meetings" if embedded else "/meetings"
     return CabinetNavigationModel(
         active=active,
         items=(
             CabinetNavigationItem("search", "Поиск", "#", "filter", enabled=False),
-            CabinetNavigationItem("meetings", "Мои встречи", "/meetings", "audio"),
+            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "audio"),
             CabinetNavigationItem("shared", "Общие", "#", "bookmark", enabled=False),
             CabinetNavigationItem("actions", "Действия", "#", "check", enabled=False, count=pending_actions),
             CabinetNavigationItem("activity", "Активность", "#", "sort", enabled=False),

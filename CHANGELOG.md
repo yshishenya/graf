@@ -15,7 +15,9 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Desktop WebView больше не блокирует переход "Мои встречи" из web-sidebar:
+  embedded cabinet navigation теперь ведет на `/desktop/meetings`, а не на
+  browser route `/meetings`.
 
 ### Безопасность
 - _Пока нет записей._

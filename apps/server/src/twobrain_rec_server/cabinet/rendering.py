@@ -348,7 +348,7 @@ def _page_shell(
     shell = render_template(
         page_template,
         embedded=embedded,
-        navigation=cabinet_view_models.cabinet_navigation(active="meetings"),
+        navigation=cabinet_view_models.cabinet_navigation(active="meetings", embedded=embedded),
         **context,
     )
     return render_template(
