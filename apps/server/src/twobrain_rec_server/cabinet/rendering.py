@@ -24,13 +24,25 @@ from twobrain_rec_server.cabinet.templates import (
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
-def _login_provider_actions(providers: list) -> list[dict[str, str]]:
-    actions: list[dict[str, str]] = []
+def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str, str | bool]]:
+    actions: list[dict[str, str | bool]] = []
+    safe_next = _safe_browser_next_path(next_path)
     for provider in providers:
         provider_id = str(getattr(provider, "provider", "") or "").strip()
+        if not provider_id or not bool(getattr(provider, "enabled", True)):
+            continue
         label = _login_provider_label(provider_id, str(getattr(provider, "label", "") or provider_id))
         mark = _login_provider_mark(provider_id, label)
-        actions.append({"label": label, "mark": mark})
+        active = provider_id == "yandex"
+        action: dict[str, str | bool] = {
+            "provider": provider_id,
+            "label": label,
+            "mark": mark,
+            "active": active,
+        }
+        if active:
+            action["href"] = f"/login/{provider_id}/start?{urlencode({'next': safe_next})}"
+        actions.append(action)
     return actions
 
 
@@ -63,7 +75,7 @@ def render_login_page(
     content = render_template(
         "cabinet/auth/login.html",
         workspace_configured=workspace_id is not None,
-        providers=_login_provider_actions(providers),
+        providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
         login_sso_href=f"/login/sso/start?{urlencode({'next': safe_next})}",
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
@@ -85,7 +97,7 @@ def render_signup_page(
     content = render_template(
         "cabinet/auth/signup.html",
         workspace_configured=workspace_id is not None,
-        providers=_login_provider_actions(providers),
+        providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
         email_mode=email_mode,
         error_message=_login_error_message(error),

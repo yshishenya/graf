@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     ExternalIdentity,
     UserIdentity,
+    WorkspaceAuthPolicy,
     WorkspaceMembership,
 )
 
@@ -37,6 +39,16 @@ async def _link_owner_email_identity(client) -> None:
                 is_verified=True,
             )
         )
+        await db.commit()
+
+
+async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        if policy is None:
+            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            db.add(policy)
+        policy.allow_yandex = enabled
         await db.commit()
 
 
@@ -138,6 +150,7 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert "Продолжить" in response.text
     assert "Другие способы входа" in response.text
     assert "Продолжить через Яндекс ID" in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
     assert "Продолжить через VK ID" in response.text
     assert "Продолжить через Telegram" in response.text
     assert "скоро" in response.text
@@ -153,6 +166,7 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert first_step.status_code == 200
     assert "Зарегистрируйтесь бесплатно" in first_step.text
     assert "Продолжить через Яндекс ID" in first_step.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in first_step.text
     assert "Продолжить с email" in first_step.text
     assert "Workspace ID" not in first_step.text
     assert 'name="workspace_id"' not in first_step.text
@@ -162,15 +176,41 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert "Зарегистрироваться" in email_step.text
 
 
-def test_browser_provider_login_routes_are_explicit_stubs(client) -> None:
+def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     response = client.get(
         "/login/yandex/start?next=/meetings",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("https://oauth.yandex.ru/authorize?")
+    assert "state=" in response.headers["location"]
+    assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex" in response.headers["location"]
+
+
+def test_browser_non_yandex_provider_login_routes_remain_stubs(client) -> None:
+    response = client.get(
+        "/login/vk/start?next=/meetings",
         follow_redirects=False,
     )
 
     assert response.status_code == 501
     assert "Этот способ входа появится позже" in response.text
     assert "location" not in response.headers
+
+
+def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
+    client.portal.call(_set_workspace_yandex_policy, client, False)
+
+    page = client.get("/login?next=/meetings")
+    assert page.status_code == 200
+    assert "Продолжить через Яндекс ID" not in page.text
+    assert 'action="/login/email/start"' in page.text
+
+    start = client.get("/login/yandex/start?next=/meetings", follow_redirects=False)
+    assert start.status_code == 403
+    assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
+    assert 'action="/login/email/start"' in start.text
 
 
 def test_browser_email_login_start_rejects_unknown_workspace_without_code(client) -> None:

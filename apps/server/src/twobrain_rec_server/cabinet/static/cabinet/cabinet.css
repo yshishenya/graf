@@ -447,6 +447,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border-radius: 7px;
   background: #24272b;
   color: #eef0f4;
+  text-decoration: none;
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: center;

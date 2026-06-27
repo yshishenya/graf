@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -279,6 +280,15 @@ def _provider_credentials(settings: Settings, provider: str, redirect_uri: str) 
     )
 
 
+def build_provider_callback_url(request: Request, provider: str) -> str:
+    callback_url = str(request.url_for("auth_callback", provider=provider))
+    public_base_url = getattr(request.app.state.settings, "auth_base_url", None)
+    if public_base_url is None:
+        return callback_url
+    callback_path = urlsplit(callback_url).path
+    return f"{str(public_base_url).rstrip('/')}{callback_path}"
+
+
 def _request_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
 
@@ -525,7 +535,7 @@ async def start_provider_flow(
         requested_redirect=payload.workspace_return_url,
         ttl_seconds=request.app.state.settings.auth_callback_state_ttl_seconds,
     )
-    callback_url = str(request.url_for("auth_callback", provider=normalized_provider))
+    callback_url = build_provider_callback_url(request, normalized_provider)
     settings = request.app.state.settings
     authorization_url = adapter.build_authorization_url(
         client_id=_provider_client_id(settings, normalized_provider),
@@ -576,7 +586,7 @@ async def callback(
     provider = provider.lower()
     query = dict(request.query_params)
     settings = request.app.state.settings
-    callback_url = str(request.url_for("auth_callback", provider=provider))
+    callback_url = build_provider_callback_url(request, provider)
     try:
         profile: CallbackProfile = await resolve_callback_to_user(
             db,

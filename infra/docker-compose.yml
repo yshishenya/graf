@@ -26,6 +26,8 @@ services:
       TWOBRAIN_POSTAL_API_KEY_FILE: ${TWOBRAIN_POSTAL_API_KEY_FILE:-/run/secrets/twobrain_postal_api_key}
       TWOBRAIN_POSTAL_HOST_HEADER: ${TWOBRAIN_POSTAL_HOST_HEADER:-postal.2brain.pro}
       TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
+      TWOBRAIN_YANDEX_CLIENT_ID: ${TWOBRAIN_YANDEX_CLIENT_ID:-twobrain-yandex-client-id}
+      TWOBRAIN_YANDEX_CLIENT_SECRET_FILE: /run/secrets/twobrain_yandex_client_secret
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_PROCESSING_ENABLED: "true"
@@ -41,6 +43,8 @@ services:
         target: twobrain_smoke_credential
       - source: twobrain_postal_api_key
         target: twobrain_postal_api_key
+      - source: twobrain_yandex_client_secret
+        target: twobrain_yandex_client_secret
     ports:
       - "127.0.0.1:18081:8080"
     healthcheck:
@@ -349,3 +353,5 @@ secrets:
     file: ${TWOBRAIN_MEDIASCRIBE_API_KEY_FILE:-./secrets/twobrain_mediascribe_api_key}
   twobrain_postal_api_key:
     file: ${TWOBRAIN_POSTAL_API_SECRET_FILE:-./secrets/twobrain_postal_api_key}
+  twobrain_yandex_client_secret:
+    file: ${TWOBRAIN_YANDEX_CLIENT_SECRET_FILE:-./secrets/twobrain_yandex_client_secret}
