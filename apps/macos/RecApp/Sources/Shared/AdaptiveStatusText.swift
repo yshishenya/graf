@@ -196,7 +196,7 @@ public extension AdaptiveStatusText {
         case .muteRespecting:
             return "Meeting mute verified"
         case .meetingMuteUnproven:
-            return "2brain Pause recorded; meeting mute not verified"
+            return "GRAF Pause recorded; meeting mute not verified"
         case .unsupported:
             return "Meeting-app mute not supported for this target"
         case .degraded:

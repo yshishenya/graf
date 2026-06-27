@@ -215,7 +215,7 @@ public struct TargetMuteCapability: Codable, Equatable, Sendable {
         productPauseSupported: true,
         meetingAppMuteAdapterSupported: false,
         firstMatrixStatus: .pauseValidated,
-        releaseClaim: "2brain Pause/Stop keeps local speech out; Zoom mute is unproven"
+        releaseClaim: "GRAF Pause/Stop keeps local speech out; Zoom mute is unproven"
     )
 
     public static let chromeTelemost = TargetMuteCapability(
@@ -225,7 +225,7 @@ public struct TargetMuteCapability: Codable, Equatable, Sendable {
         productPauseSupported: true,
         meetingAppMuteAdapterSupported: false,
         firstMatrixStatus: .pauseValidated,
-        releaseClaim: "2brain Pause/Stop keeps local speech out; Telemost/browser mute is unproven"
+        releaseClaim: "GRAF Pause/Stop keeps local speech out; Telemost/browser mute is unproven"
     )
 
     public static let operaTelemost = TargetMuteCapability(
@@ -235,7 +235,7 @@ public struct TargetMuteCapability: Codable, Equatable, Sendable {
         productPauseSupported: true,
         meetingAppMuteAdapterSupported: false,
         firstMatrixStatus: .pauseValidated,
-        releaseClaim: "2brain Pause/Stop keeps local speech out; Telemost/browser mute is unproven"
+        releaseClaim: "GRAF Pause/Stop keeps local speech out; Telemost/browser mute is unproven"
     )
 
     public static let yandexTelemost = TargetMuteCapability(

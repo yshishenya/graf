@@ -10,6 +10,7 @@ from starlette.responses import HTMLResponse
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, issue_csrf_token
+from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 
 ADMIN_STATIC_URL = "/static/admin"
 
@@ -41,7 +42,11 @@ def render_template(template_name: str, **context: Any) -> str:
     principal = context.get("principal")
     context.setdefault("csrf_field_name", CSRF_FORM_FIELD_NAME)
     context.setdefault("csrf_token", _csrf_token_for_principal(request, principal))
-    return template.render(admin_static_url=ADMIN_STATIC_URL, **context)
+    return template.render(
+        admin_static_url=ADMIN_STATIC_URL,
+        cabinet_static_url=CABINET_STATIC_URL,
+        **context,
+    )
 
 
 def admin_template_response(

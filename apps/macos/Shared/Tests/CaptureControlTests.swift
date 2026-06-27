@@ -388,7 +388,7 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertEqual(
             CaptureControlView.recordingMicrophoneRecoveryCopy(for: rejected),
-            "Выберите обычный микрофон. Виртуальные устройства 2brain нельзя использовать как микрофон записи."
+            "Выберите обычный микрофон. Виртуальные устройства GRAF нельзя использовать как микрофон записи."
         )
     }
 
