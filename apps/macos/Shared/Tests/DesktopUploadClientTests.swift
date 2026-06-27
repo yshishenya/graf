@@ -291,10 +291,10 @@ final class DesktopUploadClientTests: XCTestCase {
                 appVersion: "2026.06.27",
                 buildVersion: "1234",
                 environmentBaseURLIdentity: "rec.2brain.pro",
-                workspaceFingerprint: "ws_fpr_test",
-                userFingerprint: "usr_fpr_test",
-                deviceFingerprint: "dev_fpr_test",
-                safeDeviceIdentifier: "device:dev_fpr_test"
+                workspaceFingerprint: "ws_fpr_7e57",
+                userFingerprint: "usr_fpr_7e57",
+                deviceFingerprint: "dev_fpr_7e57",
+                safeDeviceIdentifier: "device:dev_fpr_7e57"
             ),
             now: Date(timeIntervalSince1970: 20)
         )

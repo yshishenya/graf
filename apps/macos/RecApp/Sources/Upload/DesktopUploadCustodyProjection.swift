@@ -523,6 +523,9 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     public let totalCount: Int
 
     public var copyKey: String { primaryProjection.copyKey }
+    public var stableIdentity: String {
+        "\(copyKey)|\(primaryProjection.owner.rawValue)|\(primaryItem.id)"
+    }
     public var progressFraction: Double { primaryItem.progressFraction }
     public var showsProgress: Bool {
         primaryProjection.custodyState == .partialUploaded || primaryItem.state == .uploading

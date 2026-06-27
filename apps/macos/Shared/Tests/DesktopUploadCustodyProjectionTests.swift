@@ -291,6 +291,9 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(summaries.map(\.copyKey), ["custody.needs_sign_in", "custody.saved_will_send"])
         XCTAssertEqual(summaries.first?.ownerLabel, "Владелец встречи")
         XCTAssertEqual(summaries.last?.pendingCount, 2)
+        XCTAssertEqual(Set(summaries.map(\.stableIdentity)).count, summaries.count)
+        XCTAssertTrue(summaries[0].stableIdentity.contains(summaries[0].copyKey))
+        XCTAssertTrue(summaries[0].stableIdentity.contains(summaries[0].primaryItem.id))
     }
 
     func testAggregateSupportIncidentReportBoundsSafeAffectedIdentities() throws {
@@ -314,10 +317,10 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
             projection: summary.primaryProjection,
             context: DesktopSupportIncidentReportContext(
                 buildVersion: "1234",
-                workspaceFingerprint: "ws_fpr_safe",
-                userFingerprint: "usr_fpr_safe",
-                deviceFingerprint: "dev_fpr_safe",
-                safeDeviceIdentifier: "device:dev_fpr_safe"
+                workspaceFingerprint: "ws_fpr_5afe",
+                userFingerprint: "usr_fpr_5afe",
+                deviceFingerprint: "dev_fpr_5afe",
+                safeDeviceIdentifier: "device:dev_fpr_5afe"
             ),
             affectedItems: summary.affectedItems,
             now: Date(timeIntervalSince1970: 30)
@@ -441,10 +444,10 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
             locale: "ru_RU",
             timezone: "Europe/Moscow",
             environmentBaseURLIdentity: "rec.2brain.pro",
-            workspaceFingerprint: "ws_fpr_safe",
-            userFingerprint: "usr_fpr_safe",
-            deviceFingerprint: "dev_fpr_safe",
-            safeDeviceIdentifier: "device:dev_fpr_safe"
+            workspaceFingerprint: "ws_fpr_5afe",
+            userFingerprint: "usr_fpr_5afe",
+            deviceFingerprint: "dev_fpr_5afe",
+            safeDeviceIdentifier: "device:dev_fpr_5afe"
         )
 
         let report = try XCTUnwrap(DesktopSupportIncidentReport(
@@ -461,7 +464,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(report.failureCategory, "retention_expired")
         XCTAssertEqual(report.redactionState, "metadata_only")
         XCTAssertEqual(report.environmentBaseURLIdentity, "rec.2brain.pro")
-        XCTAssertEqual(report.workspaceFingerprint, "ws_fpr_safe")
+        XCTAssertEqual(report.workspaceFingerprint, "ws_fpr_5afe")
         XCTAssertEqual(report.uploadAttemptCount, 3)
         XCTAssertEqual(report.lastSafeHTTPStatus, "503")
         XCTAssertEqual(report.lastSafeProblemCode, "retention_expired")

@@ -107,7 +107,6 @@ async def create_support_incident(
     db: AsyncSession | None = DbDependency,
     github_client: object = GitHubClientDependency,
 ) -> SupportIncidentResponse:
-    _ = idempotency_key
     try:
         result = await submit_support_incident(
             settings=request.app.state.settings,
@@ -115,6 +114,7 @@ async def create_support_incident(
             db=db,
             payload=payload.model_dump(mode="json"),
             github_client=github_client,
+            idempotency_key=idempotency_key,
         )
     except SupportIncidentSubmissionError as exc:
         await commit_if_available(db)

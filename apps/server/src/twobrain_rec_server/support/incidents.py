@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from typing import Any
 
 from sqlalchemy import select
@@ -52,6 +53,7 @@ async def submit_support_incident(
     db: AsyncSession | None,
     payload: Mapping[str, Any],
     github_client: Any,
+    idempotency_key: str | None = None,
     received_at: datetime | None = None,
 ) -> SupportIncidentSubmissionResult:
     if db is None:
@@ -66,8 +68,30 @@ async def submit_support_incident(
     except SupportIncidentRedactionError as exc:
         raise _redaction_error(exc) from exc
 
+    idempotency_fingerprint = _idempotency_fingerprint(idempotency_key)
+    idempotent_incident = await _load_idempotent_incident(
+        tenant_scope=tenant_scope,
+        db=db,
+        idempotency_fingerprint=idempotency_fingerprint,
+    )
+    if idempotent_incident is not None:
+        if idempotent_incident.dedupe_key != str(report["dedupe_key"]):
+            raise SupportIncidentSubmissionError(
+                status=409,
+                code="support_incident.idempotency_conflict",
+                title="Idempotency key conflict",
+            )
+        if idempotent_incident.github_issue_number is not None and idempotent_incident.incident_number is not None:
+            return _result_from_incident(idempotent_incident, dedupe_status="updated")
+
     await _touch_rate_limit(settings=settings, tenant_scope=tenant_scope, db=db, report=report, now=now)
-    incident, dedupe_status = await _upsert_incident(tenant_scope=tenant_scope, db=db, report=report, now=now)
+    incident, dedupe_status = await _upsert_incident(
+        tenant_scope=tenant_scope,
+        db=db,
+        report=report,
+        now=now,
+        idempotency_fingerprint=idempotency_fingerprint,
+    )
     owner = settings.support_incident_github_owner
     repo = settings.support_incident_github_repo
     try:
@@ -100,14 +124,7 @@ async def submit_support_incident(
     incident.incident_number = f"CUST-{issue_number}"
     incident.status = "open"
     await db.flush()
-    return SupportIncidentSubmissionResult(
-        incident_id=incident.incident_number,
-        incident_status="created" if dedupe_status == "created" else "updated",
-        github_issue_number=issue_number,
-        github_issue_url=incident.github_issue_url,
-        dedupe_status=dedupe_status,
-        affected_count=incident.affected_count,
-    )
+    return _result_from_incident(incident, dedupe_status=dedupe_status)
 
 
 def _redaction_error(exc: SupportIncidentRedactionError) -> SupportIncidentSubmissionError:
@@ -190,6 +207,7 @@ async def _upsert_incident(
     db: AsyncSession,
     report: Mapping[str, Any],
     now: datetime,
+    idempotency_fingerprint: str | None,
 ) -> tuple[SupportIncident, str]:
     dedupe_key = str(report["dedupe_key"])
     incident = await db.scalar(
@@ -216,6 +234,7 @@ async def _upsert_incident(
             safe_affected_identities=identities_to_merge[:5],
             latest_safe_report_json=dict(report),
             latest_safe_report_fingerprint=str(report["safe_report_fingerprint"]),
+            last_idempotency_key_fingerprint=idempotency_fingerprint,
             first_received_at=now,
             last_received_at=now,
             redaction_result=str(report.get("redaction_result") or "accepted"),
@@ -225,7 +244,12 @@ async def _upsert_incident(
         await db.flush()
         return incident, "created"
 
-    incident.affected_count += affected_count
+    is_replay = (
+        idempotency_fingerprint is not None
+        and incident.last_idempotency_key_fingerprint == idempotency_fingerprint
+    )
+    if not is_replay:
+        incident.affected_count += affected_count
     identities = list(incident.safe_affected_identities or [])
     for identity in identities_to_merge:
         if identity not in identities and len(identities) < 5:
@@ -233,11 +257,29 @@ async def _upsert_incident(
     incident.safe_affected_identities = identities
     incident.latest_safe_report_json = dict(report)
     incident.latest_safe_report_fingerprint = str(report["safe_report_fingerprint"])
+    incident.last_idempotency_key_fingerprint = idempotency_fingerprint or incident.last_idempotency_key_fingerprint
     incident.last_received_at = now
-    incident.last_duplicate_received_at = now
+    if not is_replay:
+        incident.last_duplicate_received_at = now
     incident.redaction_result = str(report.get("redaction_result") or incident.redaction_result)
     await db.flush()
     return incident, "updated"
+
+
+async def _load_idempotent_incident(
+    *,
+    tenant_scope: TenantScope,
+    db: AsyncSession,
+    idempotency_fingerprint: str | None,
+) -> SupportIncident | None:
+    if idempotency_fingerprint is None:
+        return None
+    return await db.scalar(
+        select(SupportIncident).where(
+            SupportIncident.workspace_id == tenant_scope.workspace_id,
+            SupportIncident.last_idempotency_key_fingerprint == idempotency_fingerprint,
+        )
+    )
 
 
 def _reported_affected_count(report: Mapping[str, Any]) -> int:
@@ -256,6 +298,25 @@ def _reported_safe_identities(report: Mapping[str, Any]) -> list[str]:
         if isinstance(item, str) and item and item != "redacted_metadata":
             identities.append(item)
     return identities
+
+
+def _result_from_incident(incident: SupportIncident, *, dedupe_status: str) -> SupportIncidentSubmissionResult:
+    if incident.incident_number is None or incident.github_issue_number is None:
+        raise RuntimeError("Support incident is missing a synced GitHub issue")
+    return SupportIncidentSubmissionResult(
+        incident_id=incident.incident_number,
+        incident_status="created" if dedupe_status == "created" else "updated",
+        github_issue_number=incident.github_issue_number,
+        github_issue_url=str(incident.github_issue_url or ""),
+        dedupe_status=dedupe_status,
+        affected_count=incident.affected_count,
+    )
+
+
+def _idempotency_fingerprint(idempotency_key: str | None) -> str | None:
+    if not idempotency_key:
+        return None
+    return "idem_fpr_" + sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
 
 
 async def _create_or_update_issue(

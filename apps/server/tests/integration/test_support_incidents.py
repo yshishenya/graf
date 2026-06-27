@@ -50,6 +50,53 @@ def test_support_incident_duplicate_updates_existing_issue_and_aggregate(client)
     assert "Affected count: `2`" in fake_github.updated_issues[0]["body"]
 
 
+def test_support_incident_idempotency_replay_does_not_increment_or_mutate_github(client) -> None:
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    headers = auth_headers() | {"Idempotency-Key": "support-incident:report_fpr_replay"}
+    payload = safe_report_payload()
+
+    first = client.post("/api/v1/desktop/support-incidents", headers=headers, json=payload)
+    replay = client.post("/api/v1/desktop/support-incidents", headers=headers, json=payload)
+
+    assert first.status_code == 201
+    assert replay.status_code == 200
+    assert replay.json()["incident_id"] == first.json()["incident_id"]
+    assert replay.json()["affected_count"] == 1
+    assert len(fake_github.created_issues) == 1
+    assert not fake_github.updated_issues
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def load_incident() -> SupportIncident:
+        async with sessionmaker() as session:
+            return await session.scalar(select(SupportIncident))
+
+    incident = asyncio.run(load_incident())
+    assert incident.affected_count == 1
+    assert incident.last_duplicate_received_at is None
+    assert incident.last_idempotency_key_fingerprint.startswith("idem_fpr_")
+    assert "report_fpr_replay" not in incident.last_idempotency_key_fingerprint
+
+
+def test_support_incident_idempotency_conflict_does_not_create_second_issue(client) -> None:
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    headers = auth_headers() | {"Idempotency-Key": "support-incident:conflict-key"}
+
+    first = client.post("/api/v1/desktop/support-incidents", headers=headers, json=safe_report_payload())
+    conflicting_payload = safe_report_payload() | {
+        "problem_code": "custody.auth_required.local_retained",
+        "failure_category": "auth_session",
+    }
+    conflict = client.post("/api/v1/desktop/support-incidents", headers=headers, json=conflicting_payload)
+
+    assert first.status_code == 201
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "support_incident.idempotency_conflict"
+    assert len(fake_github.created_issues) == 1
+    assert not fake_github.updated_issues
+
+
 def test_support_incident_aggregate_report_creates_one_issue_with_bounded_identities(client) -> None:
     fake_github = FakeGitHubIssueClient()
     client.app.state.support_incident_github_client = fake_github

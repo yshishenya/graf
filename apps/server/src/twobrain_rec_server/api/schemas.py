@@ -84,10 +84,6 @@ class SupportIncidentResponse(BaseModel):
     user_message: str
 
 
-class SupportIncidentFailureResponse(Problem):
-    custody: ProblemCustodyExtension | None = None
-
-
 class CalendarProviderPreset(BaseModel):
     provider_family: str
     label: str

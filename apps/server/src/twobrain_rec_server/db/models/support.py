@@ -32,6 +32,7 @@ class SupportIncident(Base):
     safe_affected_identities: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     latest_safe_report_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     latest_safe_report_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    last_idempotency_key_fingerprint: Mapped[str | None] = mapped_column(String(128))
     first_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_duplicate_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -2206,10 +2206,10 @@ final class DesktopUploadQueueTests: XCTestCase {
                 appVersion: "2026.06.27",
                 buildVersion: "1234",
                 environmentBaseURLIdentity: "rec.2brain.pro",
-                workspaceFingerprint: "ws_fpr_queue",
-                userFingerprint: "usr_fpr_queue",
-                deviceFingerprint: "dev_fpr_queue",
-                safeDeviceIdentifier: "device:dev_fpr_queue"
+                workspaceFingerprint: "ws_fpr_717e",
+                userFingerprint: "usr_fpr_717e",
+                deviceFingerprint: "dev_fpr_717e",
+                safeDeviceIdentifier: "device:dev_fpr_717e"
             )
         }
 

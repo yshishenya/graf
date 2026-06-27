@@ -155,6 +155,21 @@ def test_redacts_aggregate_identities_to_bounded_safe_list() -> None:
     ]
 
 
+def test_redacts_human_text_in_safe_identifier_fields() -> None:
+    payload = safe_report_payload()
+    payload["workspace_fingerprint"] = "Alice Smith"
+    payload["safe_device_identifier"] = "device:Alice-MacBook"
+    payload["safe_recording_identity"] = "local:Team Sync"
+    payload["safe_affected_identities"] = ["Customer CEO"]
+
+    report = build_server_redacted_report(payload)
+
+    assert report["workspace_fingerprint"] == REDACTED_METADATA
+    assert report["safe_device_identifier"] == REDACTED_METADATA
+    assert report["safe_recording_identity"] == REDACTED_METADATA
+    assert report["safe_affected_identities"] == [REDACTED_METADATA]
+
+
 def test_rejects_non_metadata_only_or_unsupported_schema() -> None:
     payload = safe_report_payload()
     payload["redaction_state"] = "raw"

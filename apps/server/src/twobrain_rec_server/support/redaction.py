@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
@@ -147,6 +147,18 @@ SECRET_RE = re.compile(r"\b(api[_-]?key|token|password|secret)\s*[:=]", re.IGNOR
 SIGNED_URL_RE = re.compile(r"https?://[^\s]+(X-Amz-Signature=|[?&](token|signature|sig)=)", re.IGNORECASE)
 RAW_PATH_RE = re.compile(r"(^|[\s=:])(/Users/|/private/|/var/folders/|file://|[A-Za-z]:\\)")
 SAFE_TEXT_RE = re.compile(r"^[A-Za-z0-9 ._:/+@-]{1,256}$")
+SAFE_FINGERPRINT_RE = re.compile(r"^(?:fpr|[a-z0-9]+_fpr)_[a-f0-9]{2,64}$")
+SAFE_AFFECTED_FINGERPRINT_RE = re.compile(r"^affected_fpr_[a-f0-9]{2,64}$")
+SAFE_SENTINELS = {"unknown", "not_applicable"}
+FINGERPRINT_FIELDS = {
+    "workspace_fingerprint",
+    "user_fingerprint",
+    "device_fingerprint",
+    "local_recording_id_fingerprint",
+    "server_meeting_fingerprint",
+    "server_media_revision_fingerprint",
+    "upload_session_fingerprint",
+}
 
 
 class SupportIncidentRedactionError(ValueError):
@@ -254,7 +266,13 @@ def _redact_field(field: str, value: Any) -> tuple[Any, int]:
     if field == "local_purge_tasks":
         return _redact_safe_list(value)
     if field == "safe_affected_identities":
-        return _redact_safe_list(value, limit=5)
+        return _redact_safe_list(value, limit=5, item_validator=_is_safe_affected_identity)
+    if field in FINGERPRINT_FIELDS:
+        return _redact_safe_identity(value, allow_device_prefix=False, allow_recording_prefix=False)
+    if field == "safe_device_identifier":
+        return _redact_safe_identity(value, allow_device_prefix=True, allow_recording_prefix=False)
+    if field == "safe_recording_identity":
+        return _redact_safe_identity(value, allow_device_prefix=False, allow_recording_prefix=True)
     if isinstance(value, str):
         if _is_unsafe_string(value) or not SAFE_TEXT_RE.match(value):
             return REDACTED_METADATA, 1
@@ -286,18 +304,56 @@ def _redact_nested(field: str, value: Any) -> tuple[dict[str, Any], int]:
     return redacted, count
 
 
-def _redact_safe_list(value: Any, *, limit: int | None = None) -> tuple[list[Any], int]:
+def _redact_safe_list(
+    value: Any,
+    *,
+    limit: int | None = None,
+    item_validator: Callable[[Any], bool] | None = None,
+) -> tuple[list[Any], int]:
     if not isinstance(value, list):
         return [], 0
     redacted: list[Any] = []
     count = 0
     for item in value[:limit]:
-        if isinstance(item, str) and not _is_unsafe_string(item) and SAFE_TEXT_RE.match(item):
+        is_safe = item_validator(item) if item_validator is not None else _is_safe_text(item)
+        if is_safe:
             redacted.append(item)
         else:
             redacted.append(REDACTED_METADATA)
             count += 1
     return redacted, count
+
+
+def _redact_safe_identity(
+    value: Any,
+    *,
+    allow_device_prefix: bool,
+    allow_recording_prefix: bool,
+) -> tuple[str, int]:
+    if not isinstance(value, str):
+        return REDACTED_METADATA, 1
+    if value in SAFE_SENTINELS or SAFE_FINGERPRINT_RE.match(value):
+        return value, 0
+    if allow_device_prefix and value.startswith("device:") and _is_safe_fingerprint(value.removeprefix("device:")):
+        return value, 0
+    if allow_recording_prefix and (
+        value.startswith("local:")
+        or value.startswith("server:")
+    ) and _is_safe_fingerprint(value.split(":", 1)[1]):
+        return value, 0
+    return REDACTED_METADATA, 1
+
+
+def _is_safe_text(value: Any) -> bool:
+    return isinstance(value, str) and not _is_unsafe_string(value) and SAFE_TEXT_RE.match(value) is not None
+
+
+def _is_safe_fingerprint(value: str) -> bool:
+    return value in SAFE_SENTINELS or SAFE_FINGERPRINT_RE.match(value) is not None
+
+
+def _is_safe_affected_identity(value: Any) -> bool:
+    return isinstance(value, str) and SAFE_AFFECTED_FINGERPRINT_RE.match(value) is not None
 
 
 def _safe_base_identity(value: Any) -> tuple[str, int]:

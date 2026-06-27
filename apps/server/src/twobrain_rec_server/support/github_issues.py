@@ -36,7 +36,6 @@ class GitHubIssueDraft:
     title: str
     body: str
     labels: tuple[str, ...]
-    priority: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +157,7 @@ def build_github_issue_draft(
         safe_affected_identities=tuple(safe_affected_identities)[:5],
         github_issue_number=github_issue_number,
     )
-    return GitHubIssueDraft(title=title, body=body, labels=labels, priority=priority)
+    return GitHubIssueDraft(title=title, body=body, labels=labels)
 
 
 def replace_generated_issue_metadata(existing_body: str, draft: GitHubIssueDraft) -> str:

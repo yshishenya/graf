@@ -1056,7 +1056,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var custodyDetailsDisclosure: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(custodyDetailSummaries.enumerated()), id: \.offset) { _, summary in
+                ForEach(custodyDetailSummaries, id: \.stableIdentity) { summary in
                     custodyDetailRow(summary)
                 }
 

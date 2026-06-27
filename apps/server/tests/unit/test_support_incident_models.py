@@ -40,6 +40,7 @@ def test_support_incident_model_has_safe_dedupe_storage_contract() -> None:
         "safe_affected_identities",
         "latest_safe_report_json",
         "latest_safe_report_fingerprint",
+        "last_idempotency_key_fingerprint",
         "github_repo",
         "github_issue_number",
         "github_issue_url",
@@ -54,6 +55,7 @@ def test_support_incident_model_has_safe_dedupe_storage_contract() -> None:
     assert not table.c.workspace_id.nullable
     assert not table.c.dedupe_key.nullable
     assert table.c.incident_number.nullable
+    assert table.c.last_idempotency_key_fingerprint.nullable
 
     unsafe_name_parts = {"audio", "email", "meeting_title", "raw_path", "signed_url", "token", "transcript"}
     assert not any(
@@ -90,6 +92,7 @@ def test_support_incident_migration_declares_tables_indexes_and_rls() -> None:
     for expected in {
         "support_incidents",
         "support_incident_rate_limit_buckets",
+        "last_idempotency_key_fingerprint",
         "uq_support_incidents_workspace_dedupe",
         "uq_support_incident_rate_limit_scope",
         "enable row level security",
