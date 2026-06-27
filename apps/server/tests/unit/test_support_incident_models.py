@@ -1,9 +1,17 @@
+from pathlib import Path
+
 from sqlalchemy import JSON
 
 from twobrain_rec_server.db.models.support import (
     SUPPORT_INCIDENT_GITHUB_REPO,
     SupportIncident,
     SupportIncidentRateLimitBucket,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+MIGRATION_PATH = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0012_support_incidents.py"
 )
 
 
@@ -74,3 +82,18 @@ def test_support_incident_rate_limit_bucket_has_durable_scope() -> None:
     assert not table.c.reporter_user_id.nullable
     assert not table.c.device_id.nullable
     assert not table.c.dedupe_key.nullable
+
+
+def test_support_incident_migration_declares_tables_indexes_and_rls() -> None:
+    migration = MIGRATION_PATH.read_text()
+
+    for expected in {
+        "support_incidents",
+        "support_incident_rate_limit_buckets",
+        "uq_support_incidents_workspace_dedupe",
+        "uq_support_incident_rate_limit_scope",
+        "enable row level security",
+        "force row level security",
+    }:
+        assert expected in migration
+    assert 'down_revision: str | None = "0011_recording_display_timezone"' in migration

@@ -30,15 +30,15 @@
 
 **Critical**: No user story work should begin until this phase is complete.
 
-- [ ] T004 Add support incident GitHub config fields, timeout config, and production safety validation in `apps/server/src/twobrain_rec_server/config.py` and `apps/server/.env.example`
+- [X] T004 Add support incident GitHub config fields, timeout config, and production safety validation in `apps/server/src/twobrain_rec_server/config.py` and `apps/server/.env.example`
 - [X] T005 Create the `SupportIncident` and `SupportIncidentRateLimitBucket` SQLAlchemy models with tenant scope, GitHub linkage, redacted JSON, affected count, dedupe fields, and durable rate-limit fields in `apps/server/src/twobrain_rec_server/db/models/support.py`
-- [ ] T006 Add Alembic migration `0010_support_incidents.py` for support incidents, durable rate-limit buckets, indexes, uniqueness, and RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0010_support_incidents.py`
-- [ ] T007 Export the `SupportIncident` and `SupportIncidentRateLimitBucket` models in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
-- [ ] T008 Add support incident request, response, safe metadata, and failure schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
+- [X] T006 Add Alembic migration `0012_support_incidents.py` for support incidents, durable rate-limit buckets, indexes, uniqueness, and RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0012_support_incidents.py`
+- [X] T007 Export the `SupportIncident` and `SupportIncidentRateLimitBucket` models in `apps/server/src/twobrain_rec_server/db/models/__init__.py`
+- [X] T008 Add support incident request, response, safe metadata, and failure schemas in `apps/server/src/twobrain_rec_server/api/schemas.py`
 - [X] T009 Implement allowlist redaction, forbidden-content detection, stable ordering, and safe report fingerprinting in `apps/server/src/twobrain_rec_server/support/redaction.py`
 - [X] T010 Implement the minimal GitHub issue title/body/label builder and `httpx` client in `apps/server/src/twobrain_rec_server/support/github_issues.py`
-- [ ] T011 Implement the support incident persistence service shell with redaction, durable rate-limit bucket checks, and GitHub dependency injection in `apps/server/src/twobrain_rec_server/support/incidents.py`
-- [ ] T012 Add the support incident API router and register it in `apps/server/src/twobrain_rec_server/api/support_incidents.py` and `apps/server/src/twobrain_rec_server/main.py`
+- [X] T011 Implement the support incident persistence service shell with redaction, durable rate-limit bucket checks, and GitHub dependency injection in `apps/server/src/twobrain_rec_server/support/incidents.py`
+- [X] T012 Add the support incident API router and register it in `apps/server/src/twobrain_rec_server/api/support_incidents.py` and `apps/server/src/twobrain_rec_server/main.py`
 - [ ] T013 Extend `DesktopUploadClientProtocol`, shared request handling, and client error mapping for support incident submission in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
 - [ ] T014 Add desktop support incident payload, response, and submission state types in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
 - [ ] T015 Persist support incident submission state in the local upload ledger in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
@@ -55,8 +55,8 @@
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Add contract coverage for successful `POST /api/v1/desktop/support-incidents`, `CUST-*` response shape, and forbidden desktop-direct GitHub assumptions in `apps/server/tests/contract/test_support_incident_contract.py`
-- [ ] T017 [US1] Add integration coverage for successful incident persistence plus fake private GitHub issue creation in `apps/server/tests/integration/test_support_incidents.py`
+- [X] T016 [P] [US1] Add contract coverage for successful `POST /api/v1/desktop/support-incidents`, `CUST-*` response shape, and forbidden desktop-direct GitHub assumptions in `apps/server/tests/contract/test_support_incident_contract.py`
+- [X] T017 [US1] Add integration coverage for successful incident persistence plus fake private GitHub issue creation in `apps/server/tests/integration/test_support_incidents.py`
 - [ ] T018 [P] [US1] Add macOS tests for reportable custody states, full safe payload construction, and sent incident persistence in `apps/macos/Shared/Tests/DesktopUploadCustodyProjectionTests.swift`
 - [ ] T019 [P] [US1] Add macOS client tests for support incident JSON request path, timeout, and `CUST-*` decoding in `apps/macos/Shared/Tests/DesktopUploadClientTests.swift`
 
@@ -64,8 +64,8 @@
 
 - [ ] T020 [US1] Expand the desktop metadata-only support report fields and report availability rules in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
 - [ ] T021 [US1] Implement `submitSupportIncident` on the desktop upload client using `POST /api/v1/desktop/support-incidents` in `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`
-- [ ] T022 [US1] Implement the authenticated support incident endpoint success path in `apps/server/src/twobrain_rec_server/api/support_incidents.py`
-- [ ] T023 [US1] Implement redacted persistence plus new GitHub issue creation for the success path in `apps/server/src/twobrain_rec_server/support/incidents.py`
+- [X] T022 [US1] Implement the authenticated support incident endpoint success path in `apps/server/src/twobrain_rec_server/api/support_incidents.py`
+- [X] T023 [US1] Implement redacted persistence plus new GitHub issue creation for the success path in `apps/server/src/twobrain_rec_server/support/incidents.py`
 - [ ] T024 [US1] Add the primary `Отправить отчет` loading and success state to the native upload status card in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
 - [ ] T025 [US1] Add the same support incident action/status affordance to the native right-panel custody detail row in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
 - [ ] T026 [US1] Save and reload sent incident numbers for custody items in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
@@ -83,14 +83,14 @@
 ### Tests for User Story 2
 
 - [X] T027 [P] [US2] Add unit coverage for unsafe payload rejection, allowlisted fallback values, deterministic redacted JSON, and forbidden evidence strings in `apps/server/tests/unit/test_support_incident_redaction.py`
-- [ ] T028 [US2] Add contract coverage for `400`, `403`, `422`, `429`, and `503` fallback problem responses in `apps/server/tests/contract/test_support_incident_contract.py`
-- [ ] T029 [US2] Add integration coverage for missing labels, wrong repo, public repo, GitHub outage, GitHub timeout, durable rate-limit bucket fallback, and no GitHub mutation while rate-limited in `apps/server/tests/integration/test_support_incidents.py`
+- [X] T028 [US2] Add contract coverage for `400`, `403`, `422`, `429`, and `503` fallback problem responses in `apps/server/tests/contract/test_support_incident_contract.py`
+- [X] T029 [US2] Add integration coverage for missing labels, wrong repo, public repo, GitHub outage, GitHub timeout, durable rate-limit bucket fallback, and no GitHub mutation while rate-limited in `apps/server/tests/integration/test_support_incidents.py`
 - [ ] T030 [P] [US2] Add macOS fallback state, copy button visibility, safe clipboard report, accessible names, keyboard/focus reachability, and non-overlap tests for both native custody surfaces in `apps/macos/Shared/Tests/CaptureControlTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
 
 ### Implementation for User Story 2
 
 - [X] T031 [US2] Harden unsafe payload rejection and metadata-only fallback values in `apps/server/src/twobrain_rec_server/support/redaction.py`
-- [ ] T032 [US2] Map unsafe, workspace mismatch, unsupported schema, rate-limit, configuration, and GitHub unavailable failures to safe `Problem` responses in `apps/server/src/twobrain_rec_server/api/support_incidents.py`
+- [X] T032 [US2] Map unsafe, workspace mismatch, unsupported schema, rate-limit, configuration, and GitHub unavailable failures to safe `Problem` responses in `apps/server/src/twobrain_rec_server/api/support_incidents.py`
 - [X] T033 [US2] Implement repo privacy, label existence, auth failure, timeout, and GitHub rate-limit handling in `apps/server/src/twobrain_rec_server/support/github_issues.py`
 - [ ] T034 [US2] Preserve failed-with-copy-fallback state and retry-safe local report state in `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`
 - [ ] T035 [US2] Show the failure copy, visible `Скопировать отчет` fallback, and accessible labels in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
@@ -109,14 +109,14 @@
 ### Tests for User Story 3
 
 - [X] T037 [P] [US3] Add unit coverage for GitHub issue title/body rendering, stable section order, metadata block replacement, closed-issue safe JSON retention, and forbidden-content safety in `apps/server/tests/unit/test_support_incident_github_issue_body.py`
-- [ ] T038 [US3] Add duplicate aggregate integration scenarios for same dedupe key, affected count, and existing issue update in `apps/server/tests/integration/test_support_incidents.py`
+- [X] T038 [US3] Add duplicate aggregate integration scenarios for same dedupe key, affected count, and existing issue update in `apps/server/tests/integration/test_support_incidents.py`
 - [ ] T039 [P] [US3] Add macOS aggregate-report tests for five matching custody items and bounded safe identities in `apps/macos/Shared/Tests/DesktopUploadCustodyProjectionTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T040 [US3] Implement deterministic dedupe key derivation, upsert behavior, and max-5 safe identity cap in `apps/server/src/twobrain_rec_server/support/incidents.py`
+- [X] T040 [US3] Implement deterministic dedupe key derivation, upsert behavior, and max-5 safe identity cap in `apps/server/src/twobrain_rec_server/support/incidents.py`
 - [X] T041 [US3] Implement GitHub issue update behavior that preserves human sections and replaces only generated metadata/counters in `apps/server/src/twobrain_rec_server/support/github_issues.py`
-- [ ] T042 [US3] Ensure database uniqueness and indexes match dedupe semantics in `apps/server/src/twobrain_rec_server/db/migrations/versions/0010_support_incidents.py`
+- [X] T042 [US3] Ensure database uniqueness and indexes match dedupe semantics in `apps/server/src/twobrain_rec_server/db/migrations/versions/0012_support_incidents.py`
 - [ ] T043 [US3] Add aggregate affected-count and safe identity payload support for grouped custody summaries in `apps/macos/RecApp/Sources/Upload/DesktopUploadCustodyProjection.swift`
 
 **Checkpoint**: All user stories are independently functional and safe.

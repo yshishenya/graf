@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -60,6 +60,31 @@ class Problem(BaseModel):
     retry_class: CustodyRetryClass | None = None
     normal_user_action: CustodyNormalUserAction | None = None
     metadata_safety: CustodyMetadataSafety | None = None
+    custody: ProblemCustodyExtension | None = None
+
+
+class SupportIncidentReportRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str
+    redaction_state: Literal["metadata_only"]
+    range_mismatch_metadata: dict[str, Any] = Field(default_factory=dict)
+    local_file_completeness_profile: dict[str, Any] = Field(default_factory=dict)
+    local_purge_tasks: list[Any] = Field(default_factory=list)
+
+
+class SupportIncidentResponse(BaseModel):
+    incident_id: Annotated[str, Field(pattern=r"^CUST-[1-9][0-9]*$")]
+    incident_status: Literal["created", "updated"]
+    github_issue_number: int = Field(gt=0)
+    github_issue_url: str
+    dedupe_status: Literal["created", "updated"]
+    affected_count: int = Field(ge=1)
+    copy_fallback_available: bool = True
+    user_message: str
+
+
+class SupportIncidentFailureResponse(Problem):
     custody: ProblemCustodyExtension | None = None
 
 

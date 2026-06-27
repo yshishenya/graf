@@ -32,6 +32,10 @@ CALENDAR_CONTEXT_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0010_calendar_context_ingestion.py"
 )
+SUPPORT_INCIDENT_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0012_support_incidents.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -71,6 +75,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         CALENDAR_CONTEXT_MIGRATION,
         "calendar_context_ingestion_migration",
     )
+    support_incident_migration = _load_migration_module(
+        SUPPORT_INCIDENT_MIGRATION,
+        "support_incident_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -82,6 +90,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(recording_sync_migration.CONTENT_WORKSPACE_POLICIES)
         | set(meeting_outcomes_migration.CONTENT_WORKSPACE_POLICIES)
         | set(calendar_context_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(support_incident_migration.SUPPORT_TABLES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

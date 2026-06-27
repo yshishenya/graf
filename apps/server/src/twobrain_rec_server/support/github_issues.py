@@ -66,6 +66,13 @@ class GitHubIssueClient:
             raise GitHubIssueClientError("support_incident.github_unavailable")
         return {str(item.get("name")) for item in data if isinstance(item, dict) and item.get("name")}
 
+    async def get_issue(self, *, owner: str, repo: str, issue_number: int) -> dict[str, Any]:
+        _validate_target_repo(owner=owner, repo=repo)
+        data = await self._request_json("GET", f"/repos/{owner}/{repo}/issues/{issue_number}")
+        if not isinstance(data, dict):
+            raise GitHubIssueClientError("support_incident.github_unavailable")
+        return data
+
     async def create_issue(self, *, owner: str, repo: str, draft: GitHubIssueDraft) -> dict[str, Any]:
         _validate_target_repo(owner=owner, repo=repo)
         return await self._request_json(

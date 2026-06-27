@@ -64,6 +64,7 @@ from twobrain_rec_server.db.models.processing import (
     ProcessingWorkflow,
     TranscriptSegment,
 )
+from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
     "DiarizationSegment",
@@ -117,4 +118,6 @@ __all__ = [
     "WorkspaceAuthPolicy",
     "WorkspaceConsentCopy",
     "WorkspaceProviderLinkState",
+    "SupportIncident",
+    "SupportIncidentRateLimitBucket",
 ]
