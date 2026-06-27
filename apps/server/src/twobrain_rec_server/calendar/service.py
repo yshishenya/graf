@@ -65,7 +65,7 @@ async def connect_source(
     display_label: str | None,
     credential_input: str | None,
     selected_provider_calendar_ids: list[str],
-    credential_key: bytes,
+    credential_key: bytes | None,
 ) -> CalendarSource:
     require_supported_provider(provider_family)
     selected_calendar_ids = list(dict.fromkeys(selected_provider_calendar_ids))
@@ -84,6 +84,12 @@ async def connect_source(
     db.add(source)
     await db.flush()
     if credential_input:
+        if credential_key is None:
+            raise ProblemDetail(
+                status=503,
+                code="calendar_credential_key_unavailable",
+                title="Calendar credential key unavailable",
+            )
         metadata = sealed_credential_metadata(secret=credential_input, secret_kind=auth_mode)
         db.add(
             CalendarCredentialEnvelope(

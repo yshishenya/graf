@@ -329,12 +329,16 @@ metadata-only evidence остаются подробной историей ре
   and Bitrix24. The slice deliberately does not auto-join, auto-record, mutate
   calendars, send summaries/transcripts/reports, create attendee share grants,
   fetch attachments, perform retrospective matching, or use live provider
-  credentials in committed evidence. Focused local evidence on 2026-06-27:
+  credentials in committed evidence. Production credential-bearing calendar
+  connect requires a durable Fernet key file through
+  `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`; without it, the API fails closed
+  before accepting app passwords or OAuth-refresh-like material. Focused local
+  evidence on 2026-06-27:
   after refreshing from `origin/master` `94ffcb6`, Ruff passed, backend focused
-  calendar/cabinet/ingest checks passed `107 passed`, macOS calendar/upload/
+  calendar/cabinet/ingest checks passed `134 passed`, macOS calendar/upload/
   recording-metadata checks passed `155 tests`, full macOS suite passed
   `666 tests, 0 failures`, the forbidden-content scan found no matches, and
-  full local CI passed `779 passed, 4 skipped, 103 warnings` with
+  full local CI passed `782 passed, 4 skipped, 103 warnings` with
   `ci_local_result=pass`. PR review, release, deploy, and production smoke are
   still pending.
 - Feature `036-owner-review-live-polish` is implemented as the current owner

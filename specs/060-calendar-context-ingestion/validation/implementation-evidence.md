@@ -60,6 +60,7 @@
 - T043/T046 completed: safe credential failure mapping covers invalid app password, OAuth unavailable, tenant denial, provider timeout, and rate limit without provider secret content.
 - T038 completed: runtime FastAPI OpenAPI and committed `specs/012-server-ingest-foundation/contracts/openapi.yaml` match after calendar route registration.
 - US1 limitation: live provider calendar discovery is not used in validation. For 060 implementation evidence, discovery results are represented by synthetic selected calendar ids and provider capability presets; live provider checks require separate approval and metadata-only evidence.
+- Production credential boundary: credential-bearing calendar source connections require a durable Fernet key file configured through `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`. Without it, production fails closed with `calendar_credential_key_unavailable` before accepting/storing app passwords or OAuth-refresh-like material.
 
 ## US2 Event Context Evidence
 
@@ -186,6 +187,7 @@
 
 - 060 remains read-only for calendars: no calendar mutation, no message sending, no share grants from attendees, no bot auto-join, no auto-record, and no retrospective matching of old recordings.
 - Live provider checks are not used for implementation evidence unless separately approved; synthetic fixtures are the default proof surface.
+- Production deployments must provision `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE` before accepting app-password or OAuth-refresh-like calendar credentials. Without it, credential-bearing calendar connect requests fail closed with metadata-only `calendar_credential_key_unavailable`.
 
 ## Documentation And Final Focused Validation
 
@@ -199,11 +201,11 @@
 ## Focused Final Implementation Checkpoint
 
 - Post-master-refresh focused backend gate:
-  `cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_calendar_credentials.py tests/unit/test_calendar_normalization.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_calendar_recording_context.py tests/unit/test_calendar_participants.py tests/unit/test_cabinet_view_models.py tests/unit/test_redaction.py tests/unit/test_calendar_recipient_candidates.py tests/contract/test_calendar_context_contract.py tests/contract/test_calendar_no_secret_content_egress.py tests/contract/test_calendar_rls_contract.py tests/contract/test_openapi_contract_drift.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_disconnect_lifecycle.py tests/integration/test_calendar_deletion_lifecycle.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_provider_failures.py tests/integration/test_meeting_share_links.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_ingest_happy_path.py tests/integration/test_degraded_ingest.py tests/integration/test_cabinet_meeting_list.py`
-  - Result after `origin/master` `94ffcb6` refresh: pass, 107 passed, 1 pytest-asyncio deprecation warning.
+  `cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_calendar_credentials.py tests/unit/test_calendar_normalization.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_calendar_recording_context.py tests/unit/test_calendar_participants.py tests/unit/test_cabinet_view_models.py tests/unit/test_redaction.py tests/unit/test_calendar_recipient_candidates.py tests/contract/test_calendar_context_contract.py tests/contract/test_calendar_no_secret_content_egress.py tests/contract/test_calendar_rls_contract.py tests/contract/test_openapi_contract_drift.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_disconnect_lifecycle.py tests/integration/test_calendar_deletion_lifecycle.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_provider_failures.py tests/integration/test_meeting_share_links.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_ingest_happy_path.py tests/integration/test_degraded_ingest.py tests/integration/test_cabinet_meeting_list.py tests/unit/test_config_validation.py`
+  - Result after `origin/master` `94ffcb6` refresh and review fixes: pass, 134 passed, 1 pytest-asyncio deprecation warning.
 - Post-master-refresh focused Ruff gate:
-  `cd apps/server && uv run --extra dev ruff check src/twobrain_rec_server/calendar src/twobrain_rec_server/api/calendar.py src/twobrain_rec_server/api/problems.py src/twobrain_rec_server/api/schemas.py src/twobrain_rec_server/api/ingest.py src/twobrain_rec_server/ingest/meetings.py src/twobrain_rec_server/cabinet/queries.py src/twobrain_rec_server/cabinet/view_models.py tests/unit/test_calendar_credentials.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_redaction.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_provider_failures.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_deletion_lifecycle.py tests/integration/test_ingest_happy_path.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_cabinet_meeting_list.py`
-  - Result after `origin/master` `94ffcb6` refresh: pass.
+  `cd apps/server && uv run --extra dev ruff check src/twobrain_rec_server/calendar src/twobrain_rec_server/api/calendar.py src/twobrain_rec_server/api/problems.py src/twobrain_rec_server/api/schemas.py src/twobrain_rec_server/api/ingest.py src/twobrain_rec_server/ingest/meetings.py src/twobrain_rec_server/cabinet/queries.py src/twobrain_rec_server/cabinet/view_models.py src/twobrain_rec_server/config.py tests/unit/test_calendar_credentials.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/unit/test_redaction.py tests/integration/test_calendar_persistence.py tests/integration/test_calendar_provider_failures.py tests/integration/test_calendar_access_policy.py tests/integration/test_calendar_deletion_lifecycle.py tests/integration/test_ingest_happy_path.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_cabinet_meeting_list.py tests/contract/test_calendar_context_contract.py tests/unit/test_config_validation.py`
+  - Result after `origin/master` `94ffcb6` refresh and review fixes: pass.
 - Post-master-refresh focused macOS gate:
   `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopUploadQueue|DesktopUploadClient|RecordingMetadataResolver|DesktopCalendarReminder|CaptureControl|AppControlAccessibility|LocalRecordingManifest|DiagnosticRedaction'`
   - Result after `origin/master` `94ffcb6` refresh and the queue context-preservation fix: pass, 155 tests, 0 failures.
@@ -225,8 +227,8 @@
 
 - Post-master-refresh T133 rerun:
   `infra/scripts/ci-local.sh`
-  - Result after `origin/master` `94ffcb6` refresh: pass, `ci_local_result=pass`.
-  - Server tests: `779 passed, 4 skipped, 103 warnings`.
+  - Result after `origin/master` `94ffcb6` refresh and review fixes: pass, `ci_local_result=pass`.
+  - Server tests: `782 passed, 4 skipped, 103 warnings`.
   - Server lint: pass.
   - Python compile: pass.
   - RLS validation boundary: expected local boundary output stayed `rls_validation_result=blocked` with `reason=postgres_test_database_required`, and did not fail the CI gate.

@@ -30,6 +30,9 @@
   passwords, attendee email dumps, passcodes, signed links или private event
   text. Calendar attendees не создают share/access grants и не становятся
   получателями сообщений в 060.
+- В production credential-bearing calendar connect требует устойчивый Fernet key
+  через `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`; без него API fail-closed до
+  принятия app passwords/OAuth-refresh-like материала.
 
 ### Документы
 - Зафиксированы provider deep dive, quickstart, metadata-only evidence,
@@ -38,11 +41,11 @@
 
 ### Операции
 - Local validation для 060 на 2026-06-27: focused backend
-  calendar/cabinet/ingest checks passed `107 passed`; macOS prompt/upload/
+  calendar/cabinet/ingest checks passed `134 passed`; macOS prompt/upload/
   recording-metadata checks passed `155 tests`; full macOS suite passed
   `666 tests, 0 failures`; forbidden-content scan returned no matches; after
   refreshing from `origin/master` `94ffcb6`, final `infra/scripts/ci-local.sh`
-  passed with server `779 passed, 4 skipped, 103 warnings`, Ruff, compile,
+  passed with server `782 passed, 4 skipped, 103 warnings`, Ruff, compile,
   production compose config, deployment evidence scan, and
   `ci_local_result=pass`. PR review, release, deploy и production smoke еще не
   закрыты.

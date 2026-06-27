@@ -11,6 +11,7 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.calendar import calendar_event_fixture
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.calendar.credentials import generate_credential_key
 from twobrain_rec_server.calendar.normalize import normalize_calendar_event
 from twobrain_rec_server.calendar.sync import upsert_event_snapshot
 from twobrain_rec_server.config import Settings
@@ -112,6 +113,49 @@ def test_calendar_source_contract_rejects_unsupported_provider_without_echoing_s
 
     assert response.status_code == 400
     assert response.json()["code"] == "unsupported_calendar_provider"
+    assert "synthetic-secret" not in response.text
+
+
+def test_calendar_source_contract_requires_stable_credential_key_in_production(client) -> None:
+    client.app.state.settings.env = "production"
+    client.app.state.settings.legacy_header_auth_enabled = True
+
+    response = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "credential_input": "synthetic-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "calendar_credential_key_unavailable"
+    assert "synthetic-secret" not in response.text
+
+
+def test_calendar_source_contract_uses_configured_stable_credential_key_in_production(client, tmp_path) -> None:
+    key_file = tmp_path / "calendar-key"
+    key_file.write_bytes(generate_credential_key())
+    client.app.state.settings.env = "production"
+    client.app.state.settings.legacy_header_auth_enabled = True
+    client.app.state.settings.calendar_credential_key_file = key_file
+
+    response = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "credential_input": "synthetic-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["source"]["credential_state"] == "sealed"
     assert "synthetic-secret" not in response.text
 
 

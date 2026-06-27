@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
+from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,7 +80,26 @@ def require_db(db: AsyncSession | None) -> AsyncSession:
 def _credential_key(request: Request) -> bytes:
     key = getattr(request.app.state, "calendar_credential_key", None)
     if key is None:
-        key = generate_credential_key()
+        settings = request.app.state.settings
+        key_file = getattr(settings, "calendar_credential_key_file", None)
+        if key_file is not None:
+            try:
+                key = key_file.read_text(encoding="utf-8").strip().encode("utf-8")
+                Fernet(key)
+            except (OSError, ValueError) as exc:
+                raise ProblemDetail(
+                    status=503,
+                    code="calendar_credential_key_unavailable",
+                    title="Calendar credential key unavailable",
+                ) from exc
+        elif settings.env.lower() == "production":
+            raise ProblemDetail(
+                status=503,
+                code="calendar_credential_key_unavailable",
+                title="Calendar credential key unavailable",
+            )
+        else:
+            key = generate_credential_key()
         request.app.state.calendar_credential_key = key
     return key
 
@@ -178,7 +198,7 @@ async def connect_calendar_source(
         display_label=payload.display_label,
         credential_input=payload.credential_input,
         selected_provider_calendar_ids=payload.selected_provider_calendar_ids,
-        credential_key=_credential_key(request),
+        credential_key=_credential_key(request) if payload.credential_input else None,
     )
     await commit_if_available(db)
     return await _source_response(db, source)
