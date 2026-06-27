@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, timedelta, timezone
 from decimal import Decimal
 from typing import cast
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
+    CalendarRosterParticipantView,
+    CalendarRosterReviewState,
     GovernanceActionState,
     GovernanceActionSummary,
     MeetingAccessState,
@@ -36,6 +40,7 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.db.models import (
+    CalendarParticipant,
     DiarizationSegment,
     MediaRevision,
     Meeting,
@@ -70,10 +75,13 @@ STATUS_LABELS: dict[str, str] = {
 }
 
 SORT_LABELS: dict[str, str] = {
-    "updated_desc": "Сначала новые",
-    "updated_asc": "Сначала старые",
+    "updated_desc": "Недавно обновленные",
+    "updated_asc": "Давно обновленные",
+    "started_desc": "Новые по дате записи",
+    "started_asc": "Старые по дате записи",
     "duration_desc": "Сначала длинные",
     "duration_asc": "Сначала короткие",
+    "title_asc": "По названию",
 }
 
 PROCESSING_STATUSES = {
@@ -85,6 +93,11 @@ PROCESSING_STATUSES = {
     ProcessingStatus.POLLING.value,
     ProcessingStatus.IMPORTING.value,
 }
+
+UNSAFE_TITLE_RE = re.compile(
+    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:meet\.google\.com/[A-Z0-9_-]+|zoom\.us/(?:j|my)/[A-Z0-9._-]+|teams\.microsoft\.com/l/meetup-join|whereby\.com/[A-Z0-9_-]+|webex\.com/meet/[A-Z0-9._-]+)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -105,12 +118,13 @@ class CabinetNavigationModel:
     workspace_subtitle: str = "Бесплатный план"
 
 
-def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6) -> CabinetNavigationModel:
+def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, embedded: bool = False) -> CabinetNavigationModel:
+    meetings_href = "/desktop/meetings" if embedded else "/meetings"
     return CabinetNavigationModel(
         active=active,
         items=(
             CabinetNavigationItem("search", "Поиск", "#", "filter", enabled=False),
-            CabinetNavigationItem("meetings", "Мои встречи", "/meetings", "audio"),
+            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "audio"),
             CabinetNavigationItem("shared", "Общие", "#", "bookmark", enabled=False),
             CabinetNavigationItem("actions", "Действия", "#", "check", enabled=False, count=pending_actions),
             CabinetNavigationItem("activity", "Активность", "#", "sort", enabled=False),
@@ -150,6 +164,10 @@ def format_duration(seconds: int) -> str:
 def date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
         return "Без даты"
+    started_at = item.started_at if item.started_at.tzinfo is not None else item.started_at.replace(tzinfo=UTC)
+    offset = item.recording_display_timezone_offset_minutes
+    if offset is not None and -14 * 60 <= offset <= 14 * 60:
+        started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
     months = {
         1: "янв",
         2: "фев",
@@ -164,11 +182,11 @@ def date_label(item: MeetingListItem) -> str:
         11: "ноя",
         12: "дек",
     }
-    return f"{item.started_at.day} {months[item.started_at.month]}"
+    return f"{started_at.day} {months[started_at.month]}"
 
 
 def sort_label(sort: str) -> str:
-    return SORT_LABELS.get(sort, "Сначала новые")
+    return SORT_LABELS.get(sort, SORT_LABELS["updated_desc"])
 
 
 def meeting_media_kind(item: MeetingListItem) -> str:
@@ -195,12 +213,18 @@ def meeting_media_label(item: MeetingListItem) -> str:
 
 
 def safe_title(meeting: Meeting) -> str:
-    title = (meeting.title or "").strip()
-    if not title:
-        title = (meeting.local_recording_id or "").strip()
-    if not title:
-        title = "Untitled meeting"
-    return "".join(char for char in title if char >= " " and char != "\x7f")[:500]
+    for candidate in (meeting.title, meeting.local_recording_id):
+        title = safe_title_candidate(candidate)
+        if title:
+            return title
+    return "Untitled meeting"
+
+
+def safe_title_candidate(raw: str | None) -> str | None:
+    title = "".join(char for char in (raw or "").strip() if char >= " " and char != "\x7f").strip()
+    if not title or UNSAFE_TITLE_RE.search(title):
+        return None
+    return title[:500]
 
 
 def transcript_available(result: ProcessingResult | None) -> bool:
@@ -343,6 +367,7 @@ def build_list_item(
         title=safe_title(meeting),
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
+        recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         duration_seconds=max(0, meeting.duration_seconds),
         source=_meeting_source(media_revision),
         status=status,
@@ -557,6 +582,27 @@ def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> Speaker
             )
         )
     return SpeakerReviewState(available=True, assignment_state="reserved", degraded_reason=None, speakers=speakers)
+
+
+def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> CalendarRosterReviewState:
+    views = [
+        CalendarRosterParticipantView(
+            participant_kind=participant.participant_kind,
+            response_status=participant.response_status,
+            display_name=participant.display_name,
+            email_present=bool(participant.email_hash or participant.email),
+            workspace_relation=participant.workspace_relation,
+            recipient_candidate_class=participant.recipient_candidate_class,
+        )
+        for participant in participants
+    ]
+    return CalendarRosterReviewState(
+        available=bool(views),
+        roster_state="available" if views else "not_available",
+        participant_count=len(views),
+        source="calendar" if views else "none",
+        participants=views,
+    )
 
 
 def notes_state(status: MeetingReviewStatus) -> NotesReviewState:
@@ -885,6 +931,7 @@ def build_review_response(
     share: SharePanelState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
     review_playback: ArtifactEgressState | None = None,
+    calendar_roster: CalendarRosterReviewState | None = None,
     activity: MeetingActivityResponse | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
@@ -922,6 +969,7 @@ def build_review_response(
             playback_duration_seconds=playback.duration_seconds,
         ),
         speakers=speaker_state(diarization_segments),
+        calendar_roster=calendar_roster,
         notes=notes_state(status),
         notes_action_truth=notes_truth,
         playback=playback,

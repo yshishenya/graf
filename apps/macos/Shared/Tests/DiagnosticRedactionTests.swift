@@ -235,6 +235,59 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertTrue(result.removedFields.contains("recordingPrerequisites[0].signedUrl"))
     }
 
+    func testRecordingMetadataBundleKeepsProvenanceWithoutRawTitleOrBasename() throws {
+        let metadata = RecordingDisplayMetadata(
+            recordingStartedAt: Date(timeIntervalSince1970: 10),
+            recordingStoppedAt: Date(timeIntervalSince1970: 20),
+            title: "Private Customer Sync",
+            titleStatus: .generated,
+            titleSource: .appContext,
+            titleConfidence: .high,
+            titleGeneratedAt: Date(timeIntervalSince1970: 30),
+            safeFileBasename: "1970-01-01_00-00_private-customer-sync_ab12cd",
+            stableSuffix: "ab12cd"
+        )
+        let manifest = LocalRecordingManifest(
+            sessionId: "session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .saved,
+            directoryId: "dir",
+            transcriptionReadiness: .ready,
+            tracks: [],
+            recordingMetadata: metadata
+        )
+
+        let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(manifest: manifest)
+        let rendered = String(describing: bundle.manifest)
+
+        XCTAssertEqual(bundle.redactionState, .redacted)
+        XCTAssertTrue(rendered.contains("titleSource"))
+        XCTAssertTrue(rendered.contains("safeFileBasenameLength"))
+        XCTAssertFalse(rendered.contains("stableSuffix"))
+        XCTAssertFalse(rendered.contains("Private Customer Sync"))
+        XCTAssertFalse(rendered.contains("private-customer-sync"))
+    }
+
+    func testRedactorRemovesUnsafeTitleLikeValues() {
+        let unsafeURL = "https" + "://meet." + "example" + ".com/private"
+        let unsafeEmail = "john" + "@example" + ".com"
+        let unsafeToken = "token" + "=secret"
+        let manifest: [String: DiagnosticFieldValue] = [
+            "localRecordingManifest": .object([
+                "visibleTitle": .string("\(unsafeURL) \(unsafeEmail) \(unsafeToken)"),
+                "titleSource": .string("app_context")
+            ])
+        ]
+
+        let result = DiagnosticRedactor().redact(manifest)
+
+        XCTAssertNotNil(result.manifest["localRecordingManifest"])
+        XCTAssertTrue(result.removedFields.contains("localRecordingManifest.visibleTitle"))
+        XCTAssertFalse(String(describing: result.manifest).contains(unsafeEmail))
+    }
+
     func testAppleProcessingEvidenceKeepsMetadataAndRemovesForbiddenFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "appleProcessingOutcome": .object([

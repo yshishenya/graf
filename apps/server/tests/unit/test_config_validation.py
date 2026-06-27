@@ -76,9 +76,17 @@ def test_production_accepts_existing_secret_files(tmp_path) -> None:
         minio_access_key_file=secret,
         minio_secret_key_file=secret,
         smoke_credential_file=secret,
+        calendar_credential_key_file=secret,
     )
 
     assert settings.postgres_password_file == secret
+    assert settings.calendar_credential_key_file == secret
+
+
+def test_empty_calendar_credential_key_file_is_unset() -> None:
+    settings = _production_settings(calendar_credential_key_file="")
+
+    assert settings.calendar_credential_key_file is None
 
 
 def test_production_reads_runtime_credentials_from_secret_files(tmp_path) -> None:

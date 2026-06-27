@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, asc, desc, or_, select
+from sqlalchemy import Select, asc, desc, nullslast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import (
@@ -21,6 +21,7 @@ from twobrain_rec_server.cabinet.egress import (
 )
 from twobrain_rec_server.cabinet.view_models import build_list_item, build_review_response
 from twobrain_rec_server.db.models import (
+    CalendarParticipant,
     DiarizationSegment,
     MediaRevision,
     Meeting,
@@ -28,6 +29,7 @@ from twobrain_rec_server.db.models import (
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
+    RecordingCalendarContextLink,
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import DeletionState
@@ -101,8 +103,11 @@ async def list_cabinet_meetings(
         if status is not None and item.status != status:
             continue
         items.append(item)
-        if len(items) >= limit:
+        if sort != "title_asc" and len(items) >= limit:
             break
+    if sort == "title_asc":
+        items.sort(key=lambda item: item.title.casefold())
+        items = items[:limit]
     return MeetingListResponse(
         items=items,
         filters=MeetingFilterState(q=q, status=status, access=access, sort=sort),
@@ -198,6 +203,7 @@ async def get_cabinet_meeting_review(
         share=await share_panel_state(db, meeting, decision),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
         review_playback=await review_playback_state(db, meeting=meeting, access=decision, result=result),
+        calendar_roster=await _calendar_roster_state(db, workspace_id=workspace_id, meeting_id=meeting_id),
         activity=await activity_response(
             db,
             workspace_id=workspace_id,
@@ -209,12 +215,40 @@ async def get_cabinet_meeting_review(
     )
 
 
+async def _calendar_roster_state(db: AsyncSession, *, workspace_id: UUID, meeting_id: UUID):
+    link = await db.scalar(
+        select(RecordingCalendarContextLink).where(
+            RecordingCalendarContextLink.workspace_id == workspace_id,
+            RecordingCalendarContextLink.meeting_id == meeting_id,
+            RecordingCalendarContextLink.unlinked_at.is_(None),
+        )
+    )
+    if link is None:
+        return None
+    participants = (
+        await db.scalars(
+            select(CalendarParticipant)
+            .where(
+                CalendarParticipant.workspace_id == workspace_id,
+                CalendarParticipant.calendar_event_snapshot_id == link.calendar_event_snapshot_id,
+            )
+            .order_by(
+                CalendarParticipant.participant_kind.asc(),
+                CalendarParticipant.display_name.asc(),
+            )
+        )
+    ).all()
+    from twobrain_rec_server.cabinet.view_models import calendar_roster_state
+
+    return calendar_roster_state(participants)
+
+
 def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meeting]]:
     sorters = {
         "updated_desc": desc(Meeting.updated_at),
         "updated_asc": asc(Meeting.updated_at),
-        "started_desc": desc(Meeting.started_at),
-        "started_asc": asc(Meeting.started_at),
+        "started_desc": nullslast(desc(Meeting.started_at)),
+        "started_asc": nullslast(asc(Meeting.started_at)),
         "duration_desc": desc(Meeting.duration_seconds),
         "duration_asc": asc(Meeting.duration_seconds),
     }

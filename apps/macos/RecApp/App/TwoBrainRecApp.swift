@@ -150,6 +150,10 @@ private struct ContentView: View {
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
     @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
+    @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
+    @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
+    @State private var desktopCalendarRefreshInProgress = false
+    @State private var activeCalendarContextEventId: String?
     @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
@@ -207,6 +211,7 @@ private struct ContentView: View {
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
                 uploadQueueItems: uploadQueueItems,
                 cabinetConfiguration: desktopCabinetConfiguration,
+                calendarPrompt: desktopCalendarPrompt,
                 routeSignalLevels: liveRouteSignalLevels,
                 recordDisabled: recordingStartInProgress || recordingStopInProgress,
                 stopDisabled: recordingStartInProgress || recordingStopInProgress,
@@ -231,6 +236,12 @@ private struct ContentView: View {
                 },
                 onUploadReview: { route in
                     selectedCabinetRoute = route
+                },
+                onCalendarPromptPrimary: { prompt in
+                    handleCalendarPromptPrimary(prompt)
+                },
+                onCalendarPromptDismiss: { prompt in
+                    dismissCalendarPrompt(prompt)
                 }
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
@@ -319,6 +330,12 @@ private struct ContentView: View {
             refreshUploadQueueAndProcess(reason: "app_appeared")
             startUploadQueueNetworkMonitorIfNeeded()
         }
+        .task {
+            while !Task.isCancelled {
+                await refreshCalendarReminder(reason: "calendar_poll")
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
         .task(id: localRecordingActive) {
             guard localRecordingActive else { return }
             while !Task.isCancelled {
@@ -338,12 +355,15 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
             refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
+            Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshUploadQueueAndProcess(reason: "app_became_active")
+            Task { await refreshCalendarReminder(reason: "app_became_active") }
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
             refreshUploadQueueAndProcess(reason: "system_wake")
+            Task { await refreshCalendarReminder(reason: "system_wake") }
         }
         .onDisappear {
             guard !terminationCleanupInProgress else { return }
@@ -352,11 +372,71 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func startManualRecording() async {
+    private func refreshCalendarReminder(reason: String) async {
+        guard !desktopCalendarRefreshInProgress else { return }
+        guard let client = DesktopUploadClient.configuredFromEnvironment() else {
+            desktopCalendarPrompt = nil
+            return
+        }
+
+        desktopCalendarRefreshInProgress = true
+        defer { desktopCalendarRefreshInProgress = false }
+
+        do {
+            let response = try await client.listDesktopCalendarUpcoming()
+            desktopCalendarPrompt = desktopCalendarReminderService.activePrompt(
+                from: response.events,
+                now: Date(),
+                isRecordingActive: calendarPromptRecordingIsActive
+            )
+        } catch {
+            desktopCalendarPrompt = nil
+            AppLog.writeRaw(
+                event: "calendar.prompt_unavailable",
+                detail: "reason=\(reason) error=calendar_unavailable"
+            )
+        }
+    }
+
+    @MainActor
+    private func handleCalendarPromptPrimary(_ prompt: DesktopCalendarPrompt) {
+        let actions = DesktopCalendarPromptActions(
+            openURL: { url in
+                NSWorkspace.shared.open(url)
+            },
+            startRecording: {
+                Task { await startManualRecording(calendarContextEventId: prompt.eventId) }
+            },
+            dismiss: { dismissed in
+                dismissCalendarPrompt(dismissed)
+            }
+        )
+        actions.performPrimaryAction(for: prompt)
+    }
+
+    @MainActor
+    private func dismissCalendarPrompt(_ prompt: DesktopCalendarPrompt) {
+        desktopCalendarReminderService.dismiss(prompt)
+        if desktopCalendarPrompt?.id == prompt.id {
+            desktopCalendarPrompt = nil
+        }
+    }
+
+    private var calendarPromptRecordingIsActive: Bool {
+        localRecordingActive ||
+            recordingStartInProgress ||
+            recordingStopInProgress ||
+            captureSession.map { CaptureStatusItem.showsStopButton(for: $0) } == true
+    }
+
+    @MainActor
+    private func startManualRecording(calendarContextEventId: String? = nil) async {
         guard !recordingStartInProgress, !recordingStopInProgress else { return }
         if let captureSession, CaptureStatusItem.showsStopButton(for: captureSession) {
             return
         }
+        let trimmedCalendarContextEventId = calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        activeCalendarContextEventId = trimmedCalendarContextEventId?.isEmpty == false ? trimmedCalendarContextEventId : nil
         recordingStartInProgress = true
         defer { recordingStartInProgress = false }
 
@@ -533,6 +613,7 @@ private struct ContentView: View {
                 reason: "start_failure_cleanup",
                 failureReason: releasedSystemAudioSession?.failureReason ?? .none
             )
+            activeCalendarContextEventId = nil
             let failureCategory = recordingStartFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
@@ -563,8 +644,10 @@ private struct ContentView: View {
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
-                reason: reason
+                reason: reason,
+                calendarContextEventId: activeCalendarContextEventId
             )
+            activeCalendarContextEventId = nil
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason) failureReason=\(manifest.failureReason.rawValue)"
@@ -748,8 +831,10 @@ private struct ContentView: View {
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
-                reason: "manual_stop_finalized"
+                reason: "manual_stop_finalized",
+                calendarContextEventId: activeCalendarContextEventId
             )
+            activeCalendarContextEventId = nil
             AppLog.writeRaw(
                 event: AuditEventName.recordingStopped.rawValue,
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
@@ -768,6 +853,7 @@ private struct ContentView: View {
                 reason: "stop_failure_cleanup",
                 failureReason: releasedSystemAudioSession?.failureReason ?? .none
             )
+            activeCalendarContextEventId = nil
             localRecordingActive = false
             liveRouteSignalLevels = .inactive
             recordingBlocker = "Не удалось остановить запись: \(error)"
@@ -864,8 +950,10 @@ private struct ContentView: View {
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
-                reason: "app_exit_resource_release"
+                reason: "app_exit_resource_release",
+                calendarContextEventId: activeCalendarContextEventId
             )
+            activeCalendarContextEventId = nil
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release failureReason=\(manifest.failureReason.rawValue)"
@@ -887,12 +975,27 @@ private struct ContentView: View {
             do {
                 _ = try service.scanAndEnqueueCompletedRecordings()
                 _ = try service.applyRetentionExpiry()
-                let items = try await service.processDueItems()
-                _ = try await service.acknowledgePendingLocalPurgeTasks()
+                var items = try await service.processDueItems()
+                var shouldRetryLocalPurgeAcknowledgement = false
+                do {
+                    _ = try await service.acknowledgePendingLocalPurgeTasks()
+                    items = try service.loadItems()
+                } catch {
+                    shouldRetryLocalPurgeAcknowledgement = true
+                    items = (try? service.loadItems()) ?? items
+                    AppLog.writeRaw(
+                        event: AuditEventName.localPurgeAcknowledged.rawValue,
+                        detail: "reason=\(reason) failed=true error=\(error)"
+                    )
+                }
                 await MainActor.run {
                     uploadQueueItems = items
                     uploadQueueRefreshInProgress = false
-                    scheduleUploadQueueFollowUpIfNeeded(items: items, reason: reason)
+                    scheduleUploadQueueFollowUpIfNeeded(
+                        items: items,
+                        reason: reason,
+                        shouldRetryLocalPurgeAcknowledgement: shouldRetryLocalPurgeAcknowledgement
+                    )
                     AppLog.writeRaw(
                         event: "upload.queue_refreshed",
                         detail: "reason=\(reason) total=\(items.count) pending=\(items.filter { !$0.state.isTerminal }.count)"
@@ -913,17 +1016,21 @@ private struct ContentView: View {
     @MainActor
     private func scheduleUploadQueueFollowUpIfNeeded(
         items: [DesktopUploadQueueItem],
-        reason: String
+        reason: String,
+        shouldRetryLocalPurgeAcknowledgement: Bool = false
     ) {
         guard !uploadQueueFollowUpScheduled else { return }
         let now = Date()
         let needsProcessingFollowUp = items.contains(where: { DesktopUploadQueueService.needsProcessingFollowUp($0, now: now) })
         let nextRetryDate = DesktopUploadQueueService.nextScheduledRetryDate(for: items, now: now)
-        guard needsProcessingFollowUp || nextRetryDate != nil else { return }
+        guard needsProcessingFollowUp || nextRetryDate != nil || shouldRetryLocalPurgeAcknowledgement else { return }
         uploadQueueFollowUpScheduled = true
         let followUpReason: String
         let delay: TimeInterval
-        if needsProcessingFollowUp {
+        if shouldRetryLocalPurgeAcknowledgement {
+            followUpReason = "local_purge_ack_retry_after_\(reason)"
+            delay = 60
+        } else if needsProcessingFollowUp {
             followUpReason = reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
             delay = 10
         } else {
@@ -957,14 +1064,16 @@ private struct ContentView: View {
     private func enqueueLocalRecordingForUpload(
         manifest: LocalRecordingManifest,
         directoryURL: URL?,
-        reason: String
+        reason: String,
+        calendarContextEventId: String? = nil
     ) {
         guard let directoryURL else { return }
         do {
             let item = try desktopUploadQueueService.enqueue(
                 manifest: manifest,
                 directoryURL: directoryURL,
-                reason: reason
+                reason: reason,
+                calendarContextEventId: calendarContextEventId
             )
             uploadQueueItems = try desktopUploadQueueService.loadItems()
             let event: AuditEventName = switch item.state {

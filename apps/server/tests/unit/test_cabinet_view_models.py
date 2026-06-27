@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -11,6 +11,7 @@ from twobrain_rec_server.api.schemas import (
     SlotState,
 )
 from twobrain_rec_server.cabinet import view_models
+from twobrain_rec_server.calendar.normalize import normalize_calendar_participants
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     Meeting,
@@ -67,14 +68,18 @@ def _governance() -> GovernanceActionSummary:
 def _list_item(
     *,
     source: str = "desktop_recording",
+    title: str = "Synthetic meeting",
+    started_at: datetime | None = datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
+    recording_display_timezone_offset_minutes: int | None = None,
     transcript_available: bool = False,
     artifacts: list[ArtifactEgressState] | None = None,
 ) -> MeetingListItem:
     return MeetingListItem(
         meeting_id=uuid4(),
-        title="Synthetic meeting",
-        started_at=datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
+        title=title,
+        started_at=started_at,
         ended_at=None,
+        recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         duration_seconds=65,
         source=source,
         status="ready",
@@ -116,7 +121,63 @@ def test_common_display_helpers_for_meeting_rows() -> None:
     assert view_models.format_duration(65) == "1m"
     assert view_models.date_label(audio) == "16 июн"
     assert view_models.sort_label("duration_asc") == "Сначала короткие"
-    assert view_models.sort_label("unknown") == "Сначала новые"
+    assert view_models.sort_label("unknown") == "Недавно обновленные"
+
+
+def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
+    recorded = _list_item(started_at=datetime(2026, 6, 26, 23, 30, tzinfo=UTC))
+    timezone_shifted = _list_item(started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3))))
+    offset_shifted = _list_item(
+        started_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
+        recording_display_timezone_offset_minutes=180,
+    )
+    legacy = _list_item(title="legacy-no-recording-date", started_at=None)
+
+    assert view_models.date_label(recorded) == "26 июн"
+    assert view_models.date_label(timezone_shifted) == "27 июн"
+    assert view_models.date_label(offset_shifted) == "27 июн"
+    assert view_models.date_label(legacy) == "Без даты"
+    assert view_models.sort_label("started_desc") == "Новые по дате записи"
+    assert view_models.sort_label("started_asc") == "Старые по дате записи"
+
+
+def test_safe_title_uses_legacy_local_recording_fallback_without_control_characters() -> None:
+    meeting = _meeting()
+    meeting.title = "\x00"
+    meeting.local_recording_id = "legacy-no-title"
+
+    assert view_models.safe_title(meeting) == "legacy-no-title"
+
+
+def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
+    meeting = _meeting()
+    meeting.title = "https://meet.example.com/private john@example.com"
+    meeting.local_recording_id = "legacy-unsafe-title"
+
+    assert view_models.safe_title(meeting) == "legacy-unsafe-title"
+
+
+def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
+    meeting = _meeting()
+    meeting.title = "meet.google.com/abc-defg-hij"
+    meeting.local_recording_id = "legacy-bare-link-title"
+
+    assert view_models.safe_title(meeting) == "legacy-bare-link-title"
+
+
+def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
+    meeting = _meeting()
+    meeting.title = "meet.google.com/abc-defg-hij"
+    meeting.local_recording_id = "john@example.com"
+
+    assert view_models.safe_title(meeting) == "Untitled meeting"
+
+
+def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> None:
+    meeting = _meeting()
+    meeting.title = "Risk-review"
+
+    assert view_models.safe_title(meeting) == "Risk-review"
 
 
 def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
@@ -344,6 +405,35 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
         ("Speaker 1", 50),
         ("Speaker 2", 50),
     ]
+
+
+def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -> None:
+    roster = normalize_calendar_participants(
+        [{"participant_kind": "required_attendee", "email": "speaker@example.test", "display_name": "Calendar Name"}]
+    )
+    result_id = uuid4()
+    meeting = _meeting()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0"),
+            end_seconds=Decimal("10"),
+            text="hello",
+            speaker_label="Speaker 1",
+            source_role="mic",
+        )
+    ]
+
+    state = view_models.speaker_state(diarization)
+
+    assert roster[0]["display_name"] == "Calendar Name"
+    assert state.speakers[0].label == "Speaker 1"
+    assert "access_grant" not in roster[0]
+    assert "share_grant" not in roster[0]
 
 
 def test_governance_states_are_non_mutating_and_truthful() -> None:

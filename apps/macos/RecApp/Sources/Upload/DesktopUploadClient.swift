@@ -233,6 +233,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let fallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
     public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let uploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
+    public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
 
     private let baseURL: URL
     private let headers: [String: String]
@@ -370,6 +371,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 meeting_id: meetingId,
                 local_recording_id: item.directoryId,
                 local_media_revision_id: item.localMediaRevisionId,
+                title: nil,
+                title_source: "generic",
                 media_revision: item.mediaRevisionId.map {
                     MediaRevisionSummary(media_revision_id: $0, local_media_revision_id: item.localMediaRevisionId)
                 },
@@ -379,6 +382,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         } else {
             try await createMeeting(item)
         }
+        await linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
 
         let uploadSession = if let sessionId = item.uploadSessionId {
             try await getUploadSession(sessionId: sessionId)
@@ -480,6 +484,21 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return response.tasks
     }
 
+    public func listDesktopCalendarUpcoming(
+        beforeMinutes: Int = 15,
+        afterMinutes: Int = 60
+    ) async throws -> DesktopCalendarPromptResponse {
+        let request = try request(
+            path: Self.desktopCalendarUpcomingPath,
+            method: "GET",
+            queryItems: [
+                URLQueryItem(name: "before_minutes", value: String(beforeMinutes)),
+                URLQueryItem(name: "after_minutes", value: String(afterMinutes))
+            ]
+        )
+        return try await perform(request)
+    }
+
     public func acknowledgeLocalPurgeTask(
         _ task: DesktopLocalPurgeTask,
         state: DesktopLocalPurgeTaskState,
@@ -556,18 +575,23 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         ]
     }
 
+    public static func createMeetingPayload(for item: DesktopUploadQueueItem) -> DesktopCreateMeetingPayload {
+        DesktopCreateMeetingPayload(
+            local_recording_id: item.directoryId,
+            local_media_revision_id: item.localMediaRevisionId,
+            title: item.recordingMetadata?.title,
+            started_at: item.recordingMetadata?.recordingStartedAt,
+            ended_at: item.recordingMetadata?.recordingStoppedAt,
+            recording_display_timezone_offset_minutes: item.recordingMetadata?.recordingDisplayTimeZoneOffsetMinutes,
+            duration_seconds: item.artifactProfile.durationSeconds
+        )
+    }
+
     private func createMeeting(_ item: DesktopUploadQueueItem) async throws -> MeetingResponse {
         var request = try jsonRequest(
             path: "/api/v1/meetings",
             method: "POST",
-            body: CreateMeetingRequest(
-                local_recording_id: item.directoryId,
-                local_media_revision_id: item.localMediaRevisionId,
-                title: nil,
-                started_at: nil,
-                ended_at: nil,
-                duration_seconds: item.artifactProfile.durationSeconds
-            )
+            body: Self.createMeetingPayload(for: item)
         )
         request.setValue(Self.idempotencyKey(item: item, scope: "meeting"), forHTTPHeaderField: "Idempotency-Key")
         return try await perform(request)
@@ -592,6 +616,27 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         )
         request.setValue(Self.idempotencyKey(item: item, scope: "upload-session"), forHTTPHeaderField: "Idempotency-Key")
         return try await perform(request)
+    }
+
+    private func linkCalendarContextIfNeeded(_ item: DesktopUploadQueueItem, meetingId: String) async {
+        guard let eventId = item.calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !eventId.isEmpty
+        else {
+            return
+        }
+        do {
+            let request = try jsonRequest(
+                path: "/api/v1/meetings/\(meetingId)/calendar-context",
+                method: "PUT",
+                body: DesktopCalendarContextLinkRequest(
+                    eventId: eventId,
+                    contextReason: "manual_selection"
+                )
+            )
+            let _: MeetingCalendarContextResponse = try await perform(request)
+        } catch {
+            return
+        }
     }
 
     private func getUploadSession(sessionId: String) async throws -> UploadSessionResponse {
@@ -776,13 +821,29 @@ public struct DesktopUploadFileDescriptor: Equatable, Sendable {
     public let durationSeconds: Int
 }
 
-private struct CreateMeetingRequest: Encodable {
-    let local_recording_id: String
-    let local_media_revision_id: String
-    let title: String?
-    let started_at: Date?
-    let ended_at: Date?
-    let duration_seconds: Int
+public struct DesktopCreateMeetingPayload: Encodable, Sendable {
+    public let local_recording_id: String
+    public let local_media_revision_id: String
+    public let title: String?
+    public let started_at: Date?
+    public let ended_at: Date?
+    public let recording_display_timezone_offset_minutes: Int?
+    public let duration_seconds: Int
+}
+
+public struct DesktopCalendarContextLinkRequest: Encodable, Equatable, Sendable {
+    public let eventId: String
+    public let contextReason: String
+
+    public init(eventId: String, contextReason: String) {
+        self.eventId = eventId
+        self.contextReason = contextReason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case eventId = "event_id"
+        case contextReason = "context_reason"
+    }
 }
 
 private struct MediaRevisionSummary: Decodable {
@@ -794,9 +855,19 @@ private struct MeetingResponse: Decodable {
     let meeting_id: String
     let local_recording_id: String
     let local_media_revision_id: String?
+    let title: String?
+    let title_source: String?
     let media_revision: MediaRevisionSummary?
     let status: String
     let processing_status: String
+}
+
+private struct MeetingCalendarContextResponse: Decodable {
+    let meeting_id: String
+    let event_id: String?
+    let context_state: String
+    let context_confidence: String?
+    let title_source: String?
 }
 
 private struct CreateUploadSessionRequest: Encodable {

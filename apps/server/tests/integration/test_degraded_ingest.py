@@ -29,7 +29,8 @@ def test_finalize_without_required_tracks_returns_truthful_failure(client) -> No
         json={"manifest_sha256": "a" * 64, "tracks": [track_descriptor("microphone", 64)]},
     )
     assert response.status_code == 422
-    assert response.json()["detail"][0]["type"] == "too_short"
+    assert response.json()["code"] == "request_validation_error"
+    assert "microphone" not in response.text
 
 
 def test_desktop_sync_exposes_review_ready_state_for_processed_upload(client) -> None:

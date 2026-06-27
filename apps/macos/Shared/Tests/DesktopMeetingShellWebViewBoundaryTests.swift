@@ -10,7 +10,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
     func testOnlineProductSidebarIsWebOwnedWhileNativeCaptureChromeRemainsNative() {
         XCTAssertFalse(DesktopMeetingShellChrome.showsNativeProductSidebar)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
-        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Очередь"])
+        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
         XCTAssertGreaterThan(DesktopMeetingShellChrome.recordingStripHeight, 0)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
         XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(
@@ -38,7 +38,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         }
     }
 
-    func testLocalQueueTruthStaysNativeUntilServerMeetingIsConfirmed() {
+    func testLocalQueueTruthStaysInLocalModeUntilServerMeetingIsConfirmed() {
         let localQueued = makeQueueItem(
             id: "local-queued",
             state: .queued,
@@ -60,13 +60,20 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 50)
         )
 
-        let nativeRows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
+        let cabinetRows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
             localQueued,
             localUploadedWithoutServerTruth,
             serverConfirmed
         ])
 
-        XCTAssertEqual(nativeRows.map(\.id), [
+        XCTAssertTrue(cabinetRows.isEmpty)
+
+        let localRows = DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode([
+            localQueued,
+            localUploadedWithoutServerTruth
+        ])
+
+        XCTAssertEqual(localRows.map(\.id), [
             "local-uploaded-no-server-truth",
             "local-queued"
         ])

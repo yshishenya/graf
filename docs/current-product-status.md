@@ -1,11 +1,10 @@
 # Текущий статус продукта
 
-Date: 2026-06-26
+Date: 2026-06-27
 
-Этот документ коротко фиксирует состояние продукта во время MVP live UI
-proof-slice `052-mvp-live-ui-proof`. PRD остается базовой продуктовой
-линией; feature specs и metadata-only evidence остаются подробной историей
-реализации.
+Этот документ коротко фиксирует состояние продукта на текущей ветке
+реализации. PRD остается базовой продуктовой линией; feature specs и
+metadata-only evidence остаются подробной историей реализации.
 
 ## Accepted Now
 
@@ -273,8 +272,9 @@ proof-slice `052-mvp-live-ui-proof`. PRD остается базовой про�
   `user_rollout_ready`, and `production_ready` stay excluded until a fresh live
   owner journey, stored outcomes on a production candidate, and representative
   one-hour timing proof pass with metadata-only evidence.
-- Feature `058-web-cabinet-htmx-shell` is implemented in the current feature
-  branch as a local architecture refactor for the server-owned cabinet shell.
+- Feature `058-web-cabinet-htmx-shell` is implemented and merged into
+  `origin/master` through PR `#2096` and PR `#2234` as a local architecture
+  refactor for the server-owned cabinet shell.
   It fixes the frontend foundation as Jinja templates, reusable cabinet
   component macros, one static CSS/token layer, centralized Lucide-style inline
   SVG icons, and locally vendored HTMX `2.0.10`; Tailwind, ready UI kits, SPA
@@ -290,8 +290,64 @@ proof-slice `052-mvp-live-ui-proof`. PRD остается базовой про�
   `result=pass` across `8` synthetic surfaces and `12` checks; desktop cabinet
   checks passed `63 tests, 0 failures`; static source guard passed; full local
   CI passed `685 passed, 4 skipped, 94 warnings` with `ci_local_result=pass`.
-  This branch has no database migration or machine-readable JSON contract
-  change and is not merged, released, deployed, or production-smoked yet.
+  This slice has no database migration or machine-readable JSON contract
+  change and is not released, deployed, or production-smoked yet.
+- Feature `059-recording-date-title` is merged into `origin/master` through PR
+  `#2235` and included in release `v2026.06.27.1`. New recordings now carry
+  persisted recording metadata from
+  the local manifest start/stop instants plus a minimal safe title from
+  already-approved app/platform context or a generic date fallback. The desktop
+  create-meeting payload sends persisted `title`, `started_at`, and `ended_at`;
+  server ingest persists safe values and rejects unsafe title-like values; the
+  cabinet list/detail/search/sort surfaces use recording start time with
+  truthful legacy fallback. Safe filename basename is metadata only and does
+  not rename required local package files, upload idempotency keys, media
+  revision identity, or storage object keys. Focused local evidence on
+  2026-06-27 passed Swift filters for manifest, resolver, queue, client, and
+  diagnostics (`22 + 6 + 43 + 13 + 20` tests), focused server pytest
+  (`25 passed, 1 warning`), focused Ruff, full SwiftPM
+  (`653 tests, 0 failures`), and full local CI (`ci_local_result=pass`; server
+  tests `712 passed, 4 skipped, 103 warnings`; deployment evidence scan
+  `pass files=7`). The local CI RLS boundary reported
+  `rls_validation_result=blocked` because production enforcement was not
+  inspected from the local `postgres_test` boundary, so that local run is not
+  production RLS evidence. It deliberately does not implement calendar
+  integration, window/browser title collection, rename UI/API, download/export,
+  transcript-derived titles, or new app/window observers.
+- Feature `060-calendar-context-ingestion` is implemented, merged through PR
+  `#2286`, released as `v2026.06.27.2`, and deployed to production as the first
+  calendar context layer. It adds server-owned
+  read-only calendar source connection state, credential sealing, selected
+  calendar sync state, normalized future event snapshots, participants,
+  conference-link metadata, recording-time calendar context links, desktop
+  one-minute join prompts, event-start record prompts, safe roster context in
+  authorized meeting review, and future recipient-candidate counts without
+  sending anything. Provider coverage is represented through Yandex/Mail.ru
+  CalDAV presets, custom CalDAV/iCalendar for Russian and on-prem providers
+  such as VK WorkSpace-compatible tenants, Mailion/MyOffice, R7-Office,
+  CommuniGate Pro, RuPost, Nextcloud/SOGo-like deployments, plus native
+  normalization adapters for Google Calendar, Microsoft Graph, Exchange EWS,
+  and Bitrix24. The slice deliberately does not auto-join, auto-record, mutate
+  calendars, send summaries/transcripts/reports, create attendee share grants,
+  fetch attachments, perform retrospective matching, or use live provider
+  credentials in committed evidence. Production credential-bearing calendar
+  connect requires a durable Fernet key file through
+  `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`; without it, the API fails closed
+  before accepting app passwords or OAuth-refresh-like material. Focused local
+  evidence on 2026-06-27:
+  after refreshing from `origin/master` `94ffcb6`, Ruff passed, backend focused
+  calendar/cabinet/ingest checks passed `134 passed`, macOS calendar/upload/
+  recording-metadata checks passed `155 tests`, full macOS suite passed
+  `666 tests, 0 failures`, the forbidden-content scan found no matches, and
+  full local CI passed `782 passed, 4 skipped, 103 warnings` with
+  `ci_local_result=pass`. Release closeout on 2026-06-27: GitHub Release
+  `v2026.06.27.2` published, production deploy passed with deployed SHA
+  `02ee0a87f5f48036e514481495e7d26d02333dc2`, backup reference
+  `/opt/projects/2brain-rec/backups/20260627T013238Z`, production smoke
+  `smoke_result=pass`, readiness `infra_smoke_ready`, and local macOS installer
+  build passed for app/package version `2026.06.27.2`. The local installer is
+  not Developer ID signed or notarized; external distribution still needs a
+  separate signing/notarization gate.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
@@ -495,8 +551,8 @@ states, and fails closed on local purge acknowledgement unless deletion,
 tombstone, or unrecoverability is verified. Focused local evidence passed the
 057 Swift custody/purge/projection suites and focused server custody/purge
 read-model suites on 2026-06-26. This is merged/released local implementation
-readiness, not production-smoked evidence, and feature `058` still owns server
-cabinet presentation refactor work.
+readiness, not production-smoked evidence; feature `058` has since landed the
+server cabinet presentation refactor baseline.
 
 Current evidence already accepted before 050:
 

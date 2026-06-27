@@ -103,11 +103,14 @@ def meeting_response(meeting: object) -> MeetingResponse:
         workspace_id=meeting.workspace_id,
         local_recording_id=meeting.local_recording_id,
         local_media_revision_id=meeting.local_media_revision_id,
+        title=meeting.title,
+        title_source=getattr(meeting, "title_source", None) or ("user" if meeting.title else "generic"),
         media_revision=media_revision,
         status=meeting.status,
         processing_status=meeting.processing_status,
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
+        recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         created_at=meeting.created_at,
     )
 
@@ -149,6 +152,7 @@ async def create_meeting(
             title=payload.title,
             started_at=payload.started_at,
             ended_at=payload.ended_at,
+            recording_display_timezone_offset_minutes=payload.recording_display_timezone_offset_minutes,
         )
     except IngestLimitViolation as exc:
         raise ProblemDetail(

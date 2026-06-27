@@ -9,10 +9,147 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.4] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Feature `060-calendar-context-ingestion`: календарный ingest теперь сохраняет
+  больше доступного provider context: описание, локацию, free/busy transparency,
+  attachment metadata, source created/updated timestamps и recurrence identity.
+
+### Исправлено
+- Feature `060-calendar-context-ingestion`: запись, запущенная из календарного
+  prompt, теперь передает calendar event id в upload queue, поэтому сервер
+  может связать запись с событием календаря.
+- Feature `060-calendar-context-ingestion`: CalDAV/iCalendar recurrence
+  instances теперь различаются по `RECURRENCE-ID`/`original_start`, чтобы
+  разные встречи одной серии не перетирали друг друга.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Зафиксирован post-deploy closeout для `060-calendar-context-ingestion`:
+  release `v2026.06.27.2`, GitHub Release, production deploy
+  `deploy_result=pass`, production smoke `smoke_result=pass`, readiness
+  `infra_smoke_ready`, и local macOS installer build версии `2026.06.27.2`.
+
+## [2026.06.27.3] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Feature `059-recording-date-title`: recording display timezone теперь
+  проходит из macOS metadata через create-meeting и хранится на сервере, чтобы
+  дата записи в кабинете совпадала с локальным днем записи, а не съезжала на
+  UTC-границах.
+
+### Исправлено
+- Feature `059-recording-date-title`: сортировка "По названию" теперь идет по
+  видимому безопасному названию, включая legacy-записи без title.
+- Idempotent create-meeting retry для legacy-записи с уже сохраненным unsafe
+  title снова возвращает существующую встречу, а не ломает повторную отправку.
+- Повторный create-meeting для того же `local_recording_id` теперь отклоняет
+  попытку незаметно поменять дату записи, конец записи или timezone offset.
+
+### Безопасность
+- Unsafe fallback values вроде URL/email/token-like `local_recording_id` больше
+  не показываются как название встречи; кабинет использует безопасный
+  `Untitled meeting`.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Post-merge fixes 059 подняты поверх `v2026.06.27.2`, а миграция timezone
+  стала `0011_recording_display_timezone` после календарной миграции `0010`,
+  чтобы production upgrade шел одной линейной Alembic-цепочкой.
+
+## [2026.06.27.2] - 2026-06-27
+
+### Добавлено
+- Feature `060-calendar-context-ingestion`: добавлен первый слой календарного
+  контекста. Сервер хранит read-only подключения календарей, выбранные
+  календари, будущие события, участников, conference-link metadata,
+  recording-time context links и safe recipient-candidate counts; macOS
+  получает one-minute join prompt и event-start record prompt без
+  auto-record/auto-join.
+
+### Изменено
+- Названия новых записей теперь могут получать `calendar` title source только
+  при явной recording-time связи с текущим/выбранным событием; пользовательское
+  название остается главным, а прошлые события не подтягиваются задним числом.
+
+### Исправлено
+- Desktop WebView больше не блокирует переход "Мои встречи" из web-sidebar:
+  embedded cabinet navigation теперь ведет на `/desktop/meetings`, а не на
+  browser route `/meetings`.
+- Левый web-sidebar кабинета закреплен на высоту окна и больше не получает
+  собственный скроллбар при прокрутке списка встреч.
+
+### Безопасность
+- Календарные credentials остаются server-owned и sealed; committed fixtures,
+  logs и evidence не содержат raw provider payloads, refresh tokens, app
+  passwords, attendee email dumps, passcodes, signed links или private event
+  text. Calendar attendees не создают share/access grants и не становятся
+  получателями сообщений в 060.
+- В production credential-bearing calendar connect требует устойчивый Fernet key
+  через `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`; без него API fail-closed до
+  принятия app passwords/OAuth-refresh-like материала.
+
+### Документы
+- Зафиксированы provider deep dive, quickstart, metadata-only evidence,
+  supported provider families, known limitations и явная граница: отправка
+  summary/transcript/report будет отдельным слоем после 060.
+
+### Операции
+- Local validation для 060 на 2026-06-27: focused backend
+  calendar/cabinet/ingest checks passed `134 passed`; macOS prompt/upload/
+  recording-metadata checks passed `155 tests`; full macOS suite passed
+  `666 tests, 0 failures`; forbidden-content scan returned no matches; after
+  refreshing from `origin/master` `94ffcb6`, final `infra/scripts/ci-local.sh`
+  passed with server `782 passed, 4 skipped, 103 warnings`, Ruff, compile,
+  production compose config, deployment evidence scan, and
+  `ci_local_result=pass`. PR #2286 и closeout PR #2287 смержены в `master`;
+  production deploy/smoke и desktop installer/app build остаются release
+  execution gates, а не implementation evidence 060.
+
+## [2026.06.27.1] - 2026-06-27
+
+
+### Добавлено
 - Feature `058-web-cabinet-htmx-shell`: добавлен серверный Jinja shell для
   web/desktop кабинета, reusable cabinet component catalog, локальный
   `htmx-2.0.10`, bounded HTMX fragments для списка/detail/delete feedback,
   deletion-report и metadata-safe runtime checker.
+- Feature `059-recording-date-title`: новые записи получают дату фактической
+  записи из local manifest и минимальное безопасное название из уже
+  разрешенного app/platform context или generic date fallback.
 
 ### Изменено
 - Список и detail кабинета теперь рендерятся через общий server-owned shell,
@@ -20,10 +157,16 @@
 - Desktop WebView получает online cabinet navigation, а native Record/Stop,
   active capture, upload truth, permission recovery и local diagnostics
   остаются native-only.
+- Create-meeting payload теперь передает persisted `title`, `started_at` и
+  `ended_at`, а список кабинета может сортировать записи по времени записи,
+  а не по времени загрузки или обновления.
 
 ### Исправлено
 - Deletion-report web routes теперь возвращают bounded HTMX fragment при
   `HX-Request`, а не полный shell.
+- MacOS WebView boundary tests теперь закрепляют текущую online/local границу:
+  online cabinet rows остаются web-owned, а local/offline custody rows остаются
+  native-only.
 
 ### Безопасность
 - Unsafe cookie-authenticated cabinet actions защищены CSRF proof, HTMX-запросы
@@ -31,13 +174,26 @@
   guard и отсутствие private evidence markers.
 - CSRF contract отдельно закрепляет все unsafe cabinet API routes, чтобы новые
   POST/PATCH/DELETE действия не обходили web-session защиту.
+- Private cabinet shell теперь просит поисковые роботы не индексировать кабинет
+  и отключает HTMX eval/script-tag handling для authenticated surface.
+- Feature `059` не собирает календарь, window/browser title, transcript-derived
+  title или raw contextual candidates; diagnostics остаются metadata-only, а
+  unsafe title-like values подавляются локально и отклоняются server ingest.
+- Request validation errors теперь возвращают metadata-only problem response и
+  не эхоят raw invalid input вроде control-character title.
 
 ### Документы
 - Зафиксированы architecture/component/HTMX/WebView boundary decisions,
   rollback rules и validation evidence для feature `058`.
+- Зафиксированы scope/evidence для feature `059`: календарная интеграция
+  перенесена в `060`, window-title collection оставлен отдельной будущей
+  privacy-sensitive slice.
 
 ### Операции
-- _Пока нет записей._
+- Feature `059` прошел локальный gate `infra/scripts/ci-local.sh` с
+  `ci_local_result=pass`, а полный macOS SwiftPM suite прошел
+  `653 tests, 0 failures`; production RLS/deploy truth остается отдельным
+  release/deploy evidence.
 
 ## [2026.06.26.12] - 2026-06-26
 

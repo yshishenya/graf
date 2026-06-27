@@ -1188,6 +1188,72 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     }
 }
 
+public enum RecordingTitleStatus: String, Codable, Equatable, Sendable {
+    case generated
+    case userConfirmed = "user_confirmed"
+}
+
+public enum RecordingTitleSource: String, Codable, Equatable, Sendable {
+    case userConfirmed = "user_confirmed"
+    case appContext = "app_context"
+    case generic
+}
+
+public enum RecordingTitleConfidence: String, Codable, Equatable, Sendable {
+    case high
+    case medium
+}
+
+public struct RecordingTitleSuppression: Codable, Equatable, Sendable {
+    public var source: RecordingTitleSource
+    public var reason: String
+
+    public init(source: RecordingTitleSource, reason: String) {
+        self.source = source
+        self.reason = reason
+    }
+}
+
+public struct RecordingDisplayMetadata: Codable, Equatable, Sendable {
+    public var recordingStartedAt: Date
+    public var recordingStoppedAt: Date?
+    public var recordingDisplayTimeZoneOffsetMinutes: Int?
+    public var title: String
+    public var titleStatus: RecordingTitleStatus
+    public var titleSource: RecordingTitleSource
+    public var titleConfidence: RecordingTitleConfidence
+    public var titleGeneratedAt: Date
+    public var safeFileBasename: String
+    public var stableSuffix: String
+    public var suppressedSources: [RecordingTitleSuppression]
+
+    public init(
+        recordingStartedAt: Date,
+        recordingStoppedAt: Date?,
+        recordingDisplayTimeZoneOffsetMinutes: Int? = nil,
+        title: String,
+        titleStatus: RecordingTitleStatus,
+        titleSource: RecordingTitleSource,
+        titleConfidence: RecordingTitleConfidence,
+        titleGeneratedAt: Date,
+        safeFileBasename: String,
+        stableSuffix: String,
+        suppressedSources: [RecordingTitleSuppression] = []
+    ) {
+        self.recordingStartedAt = recordingStartedAt
+        self.recordingStoppedAt = recordingStoppedAt
+        self.recordingDisplayTimeZoneOffsetMinutes = recordingDisplayTimeZoneOffsetMinutes
+        self.title = title
+        self.titleStatus = titleStatus
+        self.titleSource = titleSource
+        self.titleConfidence = titleConfidence
+        self.titleGeneratedAt = titleGeneratedAt
+        self.safeFileBasename = safeFileBasename
+        self.stableSuffix = stableSuffix
+        self.suppressedSources = suppressedSources
+    }
+}
+
 public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public static let schemaVersion = "local-recording-manifest.v3"
 
@@ -1224,6 +1290,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]?
     public var targetMuteCapability: TargetMuteCapability?
     public var limitationCopyShownAt: Date?
+    public var recordingMetadata: RecordingDisplayMetadata?
 
     public init(
         schemaVersion: String = Self.schemaVersion,
@@ -1258,7 +1325,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         meetingMuteTruth: MuteTruthDecision? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]? = nil,
         targetMuteCapability: TargetMuteCapability? = nil,
-        limitationCopyShownAt: Date? = nil
+        limitationCopyShownAt: Date? = nil,
+        recordingMetadata: RecordingDisplayMetadata? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.sessionId = sessionId
@@ -1293,6 +1361,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.meetingMuteTruthEvidence = meetingMuteTruthEvidence
         self.targetMuteCapability = targetMuteCapability
         self.limitationCopyShownAt = limitationCopyShownAt
+        self.recordingMetadata = recordingMetadata
     }
 
     public var isComplete: Bool {
@@ -1774,9 +1843,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var meetingId: String?
     public var mediaRevisionId: String?
     public var uploadSessionId: String?
+    public var calendarContextEventId: String?
     public var syncGeneration: Int
     public var lastReconciledAt: Date?
     public var syncConflictState: DesktopSyncConflictState
+    public var recordingMetadata: RecordingDisplayMetadata?
     public var artifactProfile: ArtifactCompletenessProfile
     public var serverTruth: ServerTruthFingerprint
     public var retryRecords: [RetryRecord]
@@ -1803,9 +1874,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         meetingId: String? = nil,
         mediaRevisionId: String? = nil,
         uploadSessionId: String? = nil,
+        calendarContextEventId: String? = nil,
         syncGeneration: Int = 0,
         lastReconciledAt: Date? = nil,
         syncConflictState: DesktopSyncConflictState = .none,
+        recordingMetadata: RecordingDisplayMetadata? = nil,
         artifactProfile: ArtifactCompletenessProfile,
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         retryRecords: [RetryRecord] = [],
@@ -1831,9 +1904,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.meetingId = meetingId
         self.mediaRevisionId = mediaRevisionId ?? serverTruth.mediaRevisionId
         self.uploadSessionId = uploadSessionId
+        self.calendarContextEventId = calendarContextEventId
         self.syncGeneration = max(0, syncGeneration)
         self.lastReconciledAt = lastReconciledAt
         self.syncConflictState = syncConflictState
+        self.recordingMetadata = recordingMetadata
         self.artifactProfile = artifactProfile
         self.serverTruth = serverTruth
         self.retryRecords = retryRecords
@@ -1925,9 +2000,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case meetingId
         case mediaRevisionId
         case uploadSessionId
+        case calendarContextEventId
         case syncGeneration
         case lastReconciledAt
         case syncConflictState
+        case recordingMetadata
         case artifactProfile
         case serverTruth
         case retryRecords
@@ -1959,9 +2036,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             meetingId: try container.decodeIfPresent(String.self, forKey: .meetingId),
             mediaRevisionId: try container.decodeIfPresent(String.self, forKey: .mediaRevisionId),
             uploadSessionId: try container.decodeIfPresent(String.self, forKey: .uploadSessionId),
+            calendarContextEventId: try container.decodeIfPresent(String.self, forKey: .calendarContextEventId),
             syncGeneration: try container.decodeIfPresent(Int.self, forKey: .syncGeneration) ?? 0,
             lastReconciledAt: try container.decodeIfPresent(Date.self, forKey: .lastReconciledAt),
             syncConflictState: try container.decodeIfPresent(DesktopSyncConflictState.self, forKey: .syncConflictState) ?? .none,
+            recordingMetadata: try container.decodeIfPresent(RecordingDisplayMetadata.self, forKey: .recordingMetadata),
             artifactProfile: try container.decode(ArtifactCompletenessProfile.self, forKey: .artifactProfile),
             serverTruth: serverTruth,
             retryRecords: try container.decodeIfPresent([RetryRecord].self, forKey: .retryRecords) ?? [],

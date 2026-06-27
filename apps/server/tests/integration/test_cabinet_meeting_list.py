@@ -1,6 +1,12 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
+from twobrain_rec_server.db.models import Meeting
+from twobrain_rec_server.domain.statuses import MeetingStatus, ProcessingStatus
 
 
 def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None:
@@ -21,10 +27,55 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
 
 def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     seed_cabinet_meetings(client)
+    legacy = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "sort-legacy-no-date", "duration_seconds": 60},
+    )
+    assert legacy.status_code == 200
+    unsafe_legacy_id = uuid4()
+    visible_title_id = uuid4()
+
+    async def seed_title_sort_regression_rows() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    Meeting(
+                        id=unsafe_legacy_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id="aaa-visible-fallback",
+                        title="zzzz https://example.com/?token=secret",
+                        started_at=datetime(2026, 6, 26, 8, 0, tzinfo=UTC),
+                        duration_seconds=60,
+                        status=MeetingStatus.DRAFT.value,
+                        processing_status=ProcessingStatus.NOT_SUBMITTED.value,
+                    ),
+                    Meeting(
+                        id=visible_title_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id="bbb-visible-title",
+                        title="bbb-visible-title",
+                        started_at=datetime(2026, 6, 26, 9, 0, tzinfo=UTC),
+                        duration_seconds=60,
+                        status=MeetingStatus.DRAFT.value,
+                        processing_status=ProcessingStatus.NOT_SUBMITTED.value,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_title_sort_regression_rows)
 
     search = client.get("/api/v1/cabinet/meetings?q=релиза", headers=auth_headers())
     ready = client.get("/api/v1/cabinet/meetings?status=ready", headers=auth_headers())
     shortest = client.get("/api/v1/cabinet/meetings?sort=duration_asc&limit=2", headers=auth_headers())
+    recording_newest = client.get("/api/v1/cabinet/meetings?sort=started_desc", headers=auth_headers())
+    recording_oldest = client.get("/api/v1/cabinet/meetings?sort=started_asc", headers=auth_headers())
+    title_sorted = client.get("/api/v1/cabinet/meetings?sort=title_asc", headers=auth_headers())
 
     assert search.status_code == 200
     assert [item["title"] for item in search.json()["items"]] == ["Планирование релиза"]
@@ -34,6 +85,64 @@ def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     durations = [item["duration_seconds"] for item in shortest.json()["items"]]
     assert durations == sorted(durations)
     assert len(durations) == 2
+    assert recording_newest.status_code == 200
+    newest_dates = [item["started_at"] for item in recording_newest.json()["items"]]
+    newest_recorded_dates = [value for value in newest_dates if value is not None]
+    assert newest_dates[-1] is None
+    assert newest_recorded_dates == sorted(newest_recorded_dates, reverse=True)
+    assert recording_oldest.status_code == 200
+    oldest_dates = [item["started_at"] for item in recording_oldest.json()["items"]]
+    oldest_recorded_dates = [value for value in oldest_dates if value is not None]
+    assert oldest_dates[-1] is None
+    assert oldest_recorded_dates == sorted(oldest_recorded_dates)
+    assert title_sorted.status_code == 200
+    titles = [item["title"] for item in title_sorted.json()["items"]]
+    assert titles == sorted(titles)
+    assert titles.index("aaa-visible-fallback") < titles.index("bbb-visible-title")
+
+
+def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    legacy = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "legacy-no-recording-date", "duration_seconds": 60},
+    )
+    assert legacy.status_code == 200
+
+    detail = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
+    legacy_list = client.get("/api/v1/cabinet/meetings?q=legacy-no-recording-date", headers=auth_headers())
+    legacy_web = client.get("/meetings?q=legacy-no-recording-date", headers=auth_headers())
+
+    assert detail.status_code == 200
+    assert detail.json()["meeting"]["started_at"].startswith("2026-06-16T08:00:00")
+    assert legacy_list.status_code == 200
+    legacy_item = legacy_list.json()["items"][0]
+    assert legacy_item["title"] == "legacy-no-recording-date"
+    assert legacy_item["started_at"] is None
+    assert legacy_web.status_code == 200
+    assert "legacy-no-recording-date" in legacy_web.text
+    assert "Без даты" in legacy_web.text
+
+
+def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(client) -> None:
+    response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "timezone-offset-label",
+            "title": "Meeting - 2026-06-27 00:30",
+            "started_at": "2026-06-26T21:30:00Z",
+            "recording_display_timezone_offset_minutes": 180,
+            "duration_seconds": 60,
+        },
+    )
+    assert response.status_code == 200
+
+    page = client.get("/meetings?q=timezone-offset-label", headers=auth_headers())
+
+    assert page.status_code == 200
+    assert "27 июн" in page.text
 
 
 def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> None:
@@ -48,6 +157,9 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Новая" in response.text
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
+    assert 'value="started_desc"' in response.text
+    assert 'value="started_asc"' in response.text
+    assert "Новые по дате записи" in response.text
     assert "Проектный синк" in response.text
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
@@ -99,6 +211,8 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
     assert 'data-active-nav="meetings"' in response.text
+    assert 'href="/desktop/meetings"' in response.text
+    assert 'href="/meetings"' not in response.text
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in response.text
     assert "Записи встреч" in response.text
     assert "Проектный синк" in response.text

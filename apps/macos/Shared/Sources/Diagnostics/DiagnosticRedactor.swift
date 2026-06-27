@@ -76,7 +76,12 @@ public struct DiagnosticRedactor: Sendable {
         "X-API-Key:",
         "Authorization: Bearer ",
         "Bearer ",
-        "presigned"
+        "presigned",
+        "http://",
+        "https://",
+        "www.",
+        "token=",
+        "password"
     ]
 
     public static let allowedTopLevelKeys: Set<String> = [
@@ -308,9 +313,15 @@ public struct DiagnosticRedactor: Sendable {
     }
 
     private func containsForbiddenPattern(_ value: String) -> Bool {
-        Self.forbiddenValuePatterns.contains { pattern in
+        if Self.forbiddenValuePatterns.contains(where: { pattern in
             value.range(of: pattern, options: [.caseInsensitive]) != nil
+        }) {
+            return true
         }
+        return value.range(
+            of: #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     private func redactValue(

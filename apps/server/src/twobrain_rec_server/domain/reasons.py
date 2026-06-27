@@ -13,3 +13,14 @@ class IngestFailureReason(StrEnum):
     PACKAGE_BYTES_EXCEEDED = "package_bytes_exceeded"
     SESSION_EXPIRED = "session_expired"
     USER_ABORTED = "user_aborted"
+
+
+class CalendarSafeReason(StrEnum):
+    INVALID_CREDENTIALS = "invalid_credentials"
+    PROVIDER_TIMEOUT = "provider_timeout"
+    RATE_LIMITED = "rate_limited"
+    TENANT_POLICY_DENIED = "tenant_policy_denied"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    MALFORMED_PROVIDER_PAYLOAD = "malformed_provider_payload"
+    CALENDAR_CONTEXT_UNAVAILABLE = "calendar_context_unavailable"
+    PRIVATE_EVENT_REDACTED = "private_event_redacted"

@@ -78,6 +78,26 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertTrue(LocalCustodyFileProtection.isProtected(directory.manifestURL))
     }
 
+    func testWriterProtectsRecorderCreatedMicrophoneFileAtRest() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-writer-recorder-protection-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            sharedMemoryFactory: { nil },
+            recordMicrophone: true
+        )
+
+        let directory = try writer.start(
+            sessionId: "session",
+            startedAt: Date(timeIntervalSince1970: 10)
+        )
+        _ = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
+        XCTAssertTrue(LocalCustodyFileProtection.isProtected(directory.localMicURL))
+    }
+
     func testWriterReportsInactiveLevelsWhenIdle() {
         let writer = LocalRecordingWriter(recordMicrophone: false)
 
