@@ -17,11 +17,9 @@ OWNER_REVIEW_TEST_TOKEN = "csrf-owner-review-session-cookie-token"
 def test_owner_session_meetings_page_exposes_csrf_meta_without_secret(client) -> None:
     seed_cabinet_meetings(client)
     client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
 
-    response = client.get(
-        "/meetings",
-        cookies={AUTH_SESSION_COOKIE_NAME: OWNER_REVIEW_TEST_TOKEN},
-    )
+    response = client.get("/meetings")
 
     assert response.status_code == 200
     assert '<meta name="csrf-token"' in response.text
@@ -31,10 +29,10 @@ def test_owner_session_meetings_page_exposes_csrf_meta_without_secret(client) ->
 def test_cookie_authenticated_deletion_request_requires_csrf_token(client) -> None:
     seeds = seed_cabinet_meetings(client)
     client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
 
     response = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
-        cookies={AUTH_SESSION_COOKIE_NAME: OWNER_REVIEW_TEST_TOKEN},
         json={"confirmation_boundary": BOUNDED_DELETE_COPY},
     )
 
@@ -45,10 +43,10 @@ def test_cookie_authenticated_deletion_request_requires_csrf_token(client) -> No
 def test_cookie_authenticated_deletion_request_rejects_stale_csrf_token(client) -> None:
     seeds = seed_cabinet_meetings(client)
     client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
 
     response = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
-        cookies={AUTH_SESSION_COOKIE_NAME: OWNER_REVIEW_TEST_TOKEN},
         headers={"X-CSRF-Token": "stale"},
         json={"confirmation_boundary": BOUNDED_DELETE_COPY},
     )
@@ -64,10 +62,10 @@ def test_cookie_authenticated_deletion_request_accepts_session_bound_csrf_token(
         session_id=session.id,
         secret=str(client.app.state.web_csrf_secret),
     )
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
 
     response = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
-        cookies={AUTH_SESSION_COOKIE_NAME: OWNER_REVIEW_TEST_TOKEN},
         headers={"X-CSRF-Token": csrf_token},
         json={"confirmation_boundary": BOUNDED_DELETE_COPY},
     )

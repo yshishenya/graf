@@ -82,8 +82,8 @@ def test_dev_lint_toolchain_pins_supported_ruff_version() -> None:
     dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
     uv_lock = UV_LOCK_PATH.read_text()
 
-    assert "ruff==0.15.15" in dev_dependencies
-    assert 'name = "ruff"\nversion = "0.15.15"' in uv_lock
+    assert "ruff==0.15.20" in dev_dependencies
+    assert 'name = "ruff"\nversion = "0.15.20"' in uv_lock
 
 
 def test_production_compose_uses_required_secret_placeholders_without_dev_defaults() -> None:

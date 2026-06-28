@@ -40,6 +40,28 @@ Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, then run the repository gate at the closeout
 boundary required by the lane.
 
+## Dependency Updates
+
+Use the latest stable dependency versions by default. Before adding or updating
+dependencies, refresh the package index with the project package manager instead
+of relying on memory or old lockfile state.
+
+For the server app:
+
+- update `apps/server/pyproject.toml`, `apps/server/uv.lock`, and
+  `apps/server/constraints.txt` together when runtime dependencies change;
+- regenerate `apps/server/constraints.txt` from the lockfile so the production
+  Docker image installs the same validated runtime package set without dev
+  tools;
+- run `uv lock --upgrade` and `uv tree --outdated` to prove whether direct
+  dependencies are current;
+- avoid prerelease versions unless the user explicitly accepts that risk;
+- keep an older pin only with an adjacent reason, owner, and recheck trigger.
+
+Runtime dependency upgrades are significant maintenance when they affect backend
+frameworks, auth, storage, database, infra, or shared behavior. Use the relevant
+Spec Kit lane and finish with `infra/scripts/ci-local.sh` before closeout.
+
 ## Production Deployment And Smoke
 
 Deployment is remote-first and gate-driven:
