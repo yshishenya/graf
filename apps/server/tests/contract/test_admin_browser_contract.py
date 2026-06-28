@@ -21,11 +21,16 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     response = client.get("/admin", headers=auth_headers())
 
     assert response.status_code == 200
+    assert "<title>Администрирование · GRAF</title>" in response.text
+    assert 'href="/static/cabinet/favicon.ico"' in response.text
+    assert 'href="/static/cabinet/graf-logo.svg"' in response.text
+    assert '<p class="admin-kicker">GRAF</p>' in response.text
     assert "/static/cabinet/cabinet.css" in response.text
     assert "/static/admin/graf-cyrillic-mic-inverted.png" in response.text
     assert 'alt="ГРАФ"' in response.text
     assert "app-shell admin-app-shell" in response.text
     assert "sidebar admin-sidebar" in response.text
+    assert "2brain Rec" not in response.text
     assert "Администрирование" in response.text
     assert "Пользователи" in response.text
     assert "Баланс" in response.text
@@ -159,6 +164,9 @@ def test_admin_files_pages_expose_filters_and_safe_file_actions(client) -> None:
     assert f"/api/v1/admin/files/{seeds.ready_id}/downloads/audio" in detail.text
     assert f'action="/admin/files/{seeds.ready_id}/exports"' in detail.text
     assert f'action="/admin/files/{seeds.ready_id}/deletion-requests"' in detail.text
+    assert "Удаление касается только данных, которыми управляет GRAF." in detail.text
+    assert "Подтверждаю удаление в границах GRAF" in detail.text
+    assert "2brain Rec" not in detail.text
     assert 'value="retention_expired"' in detail.text
     assert 'value="policy_blocked"' in detail.text
     assert 'value="retention_policy"' not in detail.text

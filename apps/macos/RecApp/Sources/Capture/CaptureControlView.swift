@@ -405,7 +405,7 @@ public struct CaptureControlView: View {
         guard let selection else { return nil }
         switch selection.rejectionReason {
         case .unsupportedSelfRoutingInput:
-            return "Выберите обычный микрофон. Виртуальные устройства 2brain нельзя использовать как микрофон записи."
+            return "Выберите обычный микрофон. Виртуальные устройства GRAF нельзя использовать как микрофон записи."
         case .unsupportedVirtualInput:
             return "Выберите встроенный, USB, проводной или Bluetooth-микрофон для записи."
         case .deviceUnavailable:

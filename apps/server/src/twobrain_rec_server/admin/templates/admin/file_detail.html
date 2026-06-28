@@ -51,7 +51,7 @@
   </section>
   <section class="admin-panel">
     <h2>Удаление</h2>
-    <p class="admin-empty">Удаление касается только данных, которыми управляет 2brain Rec.</p>
+    <p class="admin-empty">Удаление касается только данных, которыми управляет GRAF.</p>
     {% if view.file.actions.delete %}
       <form class="admin-form admin-form--inline" method="post" action="/admin/files/{{ view.file.meeting_id }}/deletion-requests">
         <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">
@@ -64,7 +64,7 @@
         </label>
         <label class="admin-checkbox">
           <input type="checkbox" name="confirm" value="true" required>
-          Подтверждаю удаление в границах 2brain Rec
+          Подтверждаю удаление в границах GRAF
         </label>
         <button type="submit">Запросить удаление</button>
       </form>

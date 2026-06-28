@@ -126,7 +126,8 @@ def _html_login_code_body(*, code: str, ttl_minutes: int) -> str:
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:0;padding:0;">
                 <tr>
                   <td align="center" style="padding:36px 36px 16px;">
-                    <div style="min-width:74px;height:34px;border-radius:8px;background:#111820;color:#ffffff;display:inline-block;line-height:34px;font-weight:800;font-size:18px;letter-spacing:1px;">GRAF</div>
+                    <div style="display:inline-block;color:#111820;font-size:24px;line-height:1;font-weight:850;letter-spacing:0;">GRAF</div>
+                    <div style="width:42px;height:4px;border-radius:999px;background:#8b5cf6;margin:10px auto 0;"></div>
                   </td>
                 </tr>
                 <tr>
@@ -140,7 +141,7 @@ def _html_login_code_body(*, code: str, ttl_minutes: int) -> str:
                 </tr>
                 <tr>
                   <td align="center" style="border-top:1px solid #e5e5e7;padding:18px 36px 34px;color:#777b84;font-size:12px;line-height:1.5;">
-                    <div>Made by GRAF</div>
+                    <div style="font-weight:700;color:#555862;">GRAF</div>
                     <div>Самостоятельный кабинет записи и расшифровки встреч</div>
                   </td>
                 </tr>

@@ -3,7 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ page_title }} · 2brain Rec</title>
+    <title>{{ page_title }} · GRAF</title>
+    <link rel="icon" href="{{ cabinet_static_url }}/favicon.ico" sizes="any">
+    <link rel="icon" href="{{ cabinet_static_url }}/graf-logo.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/cabinet/cabinet.css">
     <link rel="stylesheet" href="{{ admin_static_url }}/admin.css">
   </head>
@@ -11,9 +14,9 @@
     <div class="app-shell admin-app-shell">
       <aside class="sidebar admin-sidebar">
         <div class="brand">
-          <div class="brand-mark">2</div>
+          <div class="brand-mark"><img class="brand-logo" src="{{ cabinet_static_url }}/graf-logo.svg" alt="" aria-hidden="true"></div>
           <div>
-            <div class="workspace-title">2brain Rec</div>
+            <div class="workspace-title">GRAF</div>
             <div class="workspace-subtitle">Админка</div>
           </div>
         </div>
@@ -28,7 +31,7 @@
       <main class="main admin-main">
         <header class="topline admin-header">
           <div class="page-title">
-            <p class="admin-kicker">2brain Rec</p>
+            <p class="admin-kicker">GRAF</p>
             <h1>{% block title %}{{ page_title }}{% endblock %}</h1>
             {% block subtitle %}{% endblock %}
           </div>
