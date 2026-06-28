@@ -115,7 +115,7 @@ class CabinetNavigationModel:
     active: str
     items: tuple[CabinetNavigationItem, ...]
     workspace_title: str = "Личный"
-    workspace_subtitle: str = "Бесплатный план"
+    workspace_subtitle: str = ""
 
 
 def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, embedded: bool = False) -> CabinetNavigationModel:

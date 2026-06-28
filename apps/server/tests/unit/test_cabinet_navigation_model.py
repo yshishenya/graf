@@ -6,6 +6,7 @@ def test_cabinet_navigation_model_keeps_one_online_meetings_nav() -> None:
 
     assert navigation.active == "meetings"
     assert navigation.workspace_title == "Личный"
+    assert navigation.workspace_subtitle == ""
     meetings = next(item for item in navigation.items if item.id == "meetings")
     settings = next(item for item in navigation.items if item.id == "settings")
     actions = next(item for item in navigation.items if item.id == "actions")

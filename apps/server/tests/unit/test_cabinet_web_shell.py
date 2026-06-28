@@ -372,9 +372,10 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in page
     assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in page
     assert f'src="{CABINET_STATIC_URL}/cabinet.js"' in page
-    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' in page
     assert f'src="{CABINET_STATIC_URL}/graf-wordmark-dark.png"' in page
+    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' not in page
     assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
+    assert "Бесплатный" not in page
     assert '<body data-surface-mode="standalone_browser">' in page
     assert 'data-icon="audio"' in page
     assert 'fill="none" stroke="currentColor" stroke-width="2"' in page
