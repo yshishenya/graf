@@ -15,7 +15,8 @@
 {%- endmacro %}
 
 {% macro workspace_header(name, subtitle, initials="2B", mark_src=None, wordmark_src=None, wordmark_srcset=None) -%}
-<header class="cabinet-workspace-header">
+<header class="cabinet-workspace-header{% if wordmark_src and not mark_src %} cabinet-workspace-header--wordmark-only{% endif %}">
+  {%- if mark_src or not wordmark_src -%}
   <span class="cabinet-workspace-header__avatar" aria-hidden="true">
     {%- if mark_src -%}
     <img class="brand-logo" src="{{ mark_src }}" alt="">
@@ -23,13 +24,16 @@
     {{ initials }}
     {%- endif -%}
   </span>
+  {%- endif -%}
   <span class="cabinet-workspace-header__text">
     {%- if wordmark_src -%}
     <img class="cabinet-workspace-header__wordmark" src="{{ wordmark_src }}"{% if wordmark_srcset %} srcset="{{ wordmark_srcset }}"{% endif %} alt="{{ name }}">
     {%- else -%}
     <strong>{{ name }}</strong>
     {%- endif -%}
+    {%- if subtitle -%}
     <span>{{ subtitle }}</span>
+    {%- endif -%}
   </span>
 </header>
 {%- endmacro %}
