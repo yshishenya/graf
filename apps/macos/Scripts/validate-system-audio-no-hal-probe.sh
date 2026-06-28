@@ -38,7 +38,7 @@ copy_targets="
 apps/macos/RecApp/App/TwoBrainRecApp.swift
 apps/macos/RecApp/Sources/AudioSetup/RouteVerificationView.swift
 "
-copy_patterns='install_or_repair_driver|virtual_microphone_not_visible|virtual_speaker_not_visible|2brain Rec Microphone is not visible|2brain Rec Speaker is not visible'
+copy_patterns='install_or_repair_driver|virtual_microphone_not_visible|virtual_speaker_not_visible|GRAF Microphone is not visible|GRAF Speaker is not visible'
 normal_ui_patterns='LocalAudioSnapshot\.refreshAsync\(event: "(refresh|status_refresh)"'
 normal_ui_probe_patterns='LocalAudioSnapshot\.(current|refreshAsync|runReadinessCheck)|CoreAudioSystemSnapshot\.current|PassthroughRouteEngine|startExperimentalRoute'
 

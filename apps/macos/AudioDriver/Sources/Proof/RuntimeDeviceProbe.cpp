@@ -9,8 +9,8 @@
 namespace {
 
 constexpr AudioObjectPropertyElement kMainElement = 0;
-constexpr const char* kExpectedMicrophone = "2brain Rec Microphone";
-constexpr const char* kExpectedSpeaker = "2brain Rec Speaker";
+constexpr const char* kExpectedMicrophone = "GRAF Microphone";
+constexpr const char* kExpectedSpeaker = "GRAF Speaker";
 
 enum class ExpectationMode {
     PublicationOnly,
@@ -189,7 +189,7 @@ ExpectationMode ParseExpectationMode(int argc, char** argv) {
     }
     if (arg == "--help" || arg == "-h") {
         std::cout << "Usage: runtime-device-probe [--expect-default-safe|--expect-non-running-surface|--expect-hidden-safe-surface|--expect-visible-alive-surface]\n";
-        std::cout << "  no argument             require both 2brain Rec devices to be published\n";
+        std::cout << "  no argument             require both GRAF devices to be published\n";
         std::cout << "  --expect-default-safe   require visible/alive/non-running default safe state\n";
         std::cout << "  --expect-non-running-surface require readable devices with no public running state\n";
         std::cout << "  --expect-hidden-safe-surface require readable hidden/alive/non-running fail-closed state\n";

@@ -4,8 +4,8 @@ BUILD_DIR ?= .build/proof
 PROOF_BIN := $(BUILD_DIR)/audio-driver-proof
 RUNTIME_PROBE_BIN := $(BUILD_DIR)/runtime-device-probe
 HAL_IO_PROBE_BIN := $(BUILD_DIR)/hal-io-probe
-PLUGIN_BUNDLE := $(BUILD_DIR)/2brainRecProof.driver
-PLUGIN_BINARY := $(PLUGIN_BUNDLE)/Contents/MacOS/2brainRecProof
+PLUGIN_BUNDLE := $(BUILD_DIR)/GrafProof.driver
+PLUGIN_BINARY := $(PLUGIN_BUNDLE)/Contents/MacOS/GrafProof
 PLUGIN_INSTALL_DIR := /Library/Audio/Plug-Ins/HAL
 PROOF_SOURCES := \
 	Sources/Proof/ProofRunner.cpp \
@@ -18,7 +18,7 @@ PROOF_SOURCES := \
 RUNTIME_PROBE_SOURCES := Sources/Proof/RuntimeDeviceProbe.cpp
 HAL_IO_PROBE_SOURCES := Sources/Proof/HALIOProbe.cpp
 PLUGIN_SOURCES := \
-	Sources/Plugin/TwoBrainRecProofDriver.cpp \
+	Sources/Plugin/GrafProofDriver.cpp \
 	Sources/Device/VirtualDeviceRegistry.cpp \
 	Sources/Bridge/AudioBridge.cpp
 PLUGIN_HEADERS := \
@@ -45,29 +45,31 @@ proof-hal-io-probe-run: proof-hal-io-probe-build
 proof-plugin-build: $(PLUGIN_BINARY)
 
 proof-plugin-install: proof-plugin-build
+	sudo rm -rf "$(PLUGIN_INSTALL_DIR)/GrafProof.driver"
 	sudo rm -rf "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
 	sudo cp -R "$(PLUGIN_BUNDLE)" "$(PLUGIN_INSTALL_DIR)/"
-	sudo xattr -cr "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
-	sudo xattr -dr com.apple.provenance "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver" || true
-	sudo xattr -dr com.apple.quarantine "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver" || true
+	sudo xattr -cr "$(PLUGIN_INSTALL_DIR)/GrafProof.driver"
+	sudo xattr -dr com.apple.provenance "$(PLUGIN_INSTALL_DIR)/GrafProof.driver" || true
+	sudo xattr -dr com.apple.quarantine "$(PLUGIN_INSTALL_DIR)/GrafProof.driver" || true
 	sudo killall coreaudiod
 
 proof-plugin-uninstall:
+	sudo rm -rf "$(PLUGIN_INSTALL_DIR)/GrafProof.driver"
 	sudo rm -rf "$(PLUGIN_INSTALL_DIR)/2brainRecProof.driver"
 	sudo killall coreaudiod || true
 
 proof-plugin-trace-reset:
-	sudo rm -f /tmp/2brain-rec-proof-driver.trace
+	sudo rm -f /tmp/graf-proof-driver.trace
 
 proof-plugin-trace-enable:
-	touch /tmp/2brain-rec-proof-driver.verbose
+	touch /tmp/graf-proof-driver.verbose
 	@echo "Verbose plugin trace enabled for next coreaudiod/plugin restart."
 
 proof-plugin-trace-disable:
-	rm -f /tmp/2brain-rec-proof-driver.verbose
+	rm -f /tmp/graf-proof-driver.verbose
 
 proof-plugin-trace-read:
-	@test -f /tmp/2brain-rec-proof-driver.trace && tail -n 200 /tmp/2brain-rec-proof-driver.trace || true
+	@test -f /tmp/graf-proof-driver.trace && tail -n 200 /tmp/graf-proof-driver.trace || true
 
 $(PROOF_BIN): $(PROOF_SOURCES)
 	@mkdir -p $(BUILD_DIR)

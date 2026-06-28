@@ -62,13 +62,13 @@ final class SystemAudioNoVirtualDeviceCopyTests: XCTestCase {
     func testDetailedAudioHealthCopyKeepsParkedLegacyRouteInactiveNotChecking() {
         let liveRoute = AudioHealthView.livePassthroughLine(.inactive)
         let microphone = AudioHealthView.virtualDeviceLine(
-            name: "2brain Rec Microphone",
+            name: "GRAF Microphone",
             state: .requiresRestart
         )
 
         XCTAssertEqual(liveRoute, "Inactive, not recording")
         XCTAssertFalse(liveRoute.localizedCaseInsensitiveContains("checking"))
-        XCTAssertEqual(microphone, "2brain Rec Microphone · not required for recording")
+        XCTAssertEqual(microphone, "GRAF Microphone · not required for recording")
         XCTAssertFalse(microphone.localizedCaseInsensitiveContains("restart"))
     }
 

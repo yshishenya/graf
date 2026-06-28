@@ -31,13 +31,13 @@ public struct AudioHealthView: View {
                 )
                 line(
                     label: "Legacy virtual microphone",
-                    detail: Self.virtualDeviceLine(name: "2brain Rec Microphone", state: state.virtualMicState),
+                    detail: Self.virtualDeviceLine(name: "GRAF Microphone", state: state.virtualMicState),
                     icon: statusIcon(state.virtualMicState == .available),
                     emphasis: .normal
                 )
                 line(
                     label: "Legacy virtual speaker",
-                    detail: Self.virtualDeviceLine(name: "2brain Rec Speaker", state: state.virtualSpeakerState),
+                    detail: Self.virtualDeviceLine(name: "GRAF Speaker", state: state.virtualSpeakerState),
                     icon: statusIcon(state.virtualSpeakerState == .available),
                     emphasis: .normal
                 )

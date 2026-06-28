@@ -25,5 +25,5 @@ public enum DesktopCabinetSessionBridge {
 #endif
 
 public extension Notification.Name {
-    static let twoBrainRecDesktopAuthSessionDidChange = Notification.Name("pro.2brain.rec.desktopAuthSessionDidChange")
+    static let twoBrainRecDesktopAuthSessionDidChange = Notification.Name("pro.2brain.graf.desktopAuthSessionDidChange")
 }

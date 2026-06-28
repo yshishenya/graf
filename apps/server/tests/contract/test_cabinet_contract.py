@@ -82,7 +82,7 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
         "unavailable_reason": "generation_future",
     }
     assert payload["governance"]["delete"]["destructive"] is True
-    assert "2brain Rec" in payload["governance"]["delete"]["label"]
+    assert "GRAF" in payload["governance"]["delete"]["label"]
     assert payload["access"]["state"] == "owner"
     assert payload["share"]["public_link_state"] == "disabled_by_default"
     assert payload["activity"]["redaction_state"] == "metadata_only"

@@ -60,7 +60,7 @@ public struct LiveRouteSignalLevels: Equatable, Sendable {
 }
 
 private func bridgeLog(_ msg: String) {
-    let fd = open("/tmp/2brain-rec-bridge.log", O_CREAT | O_WRONLY | O_APPEND, 0644)
+    let fd = open("/tmp/graf-bridge.log", O_CREAT | O_WRONLY | O_APPEND, 0644)
     guard fd >= 0 else { return }
     fchmod(fd, 0o644)
     let ts = Date().timeIntervalSince1970
@@ -370,7 +370,7 @@ public final class PassthroughBridge {
         let numericId = UInt32(selectedId)
         for id in ids where numericId == id || deviceName(id) == selectedId {
             guard let devName = deviceName(id) else { continue }
-            if devName.localizedCaseInsensitiveContains("2brain Rec") {
+            if devName.localizedCaseInsensitiveContains("GRAF") {
                 throw PassthroughBridgeError.selfRoutingDeviceSelected(devName)
             }
             guard hasStreams(id, scope: scope) else { continue }
@@ -388,7 +388,7 @@ public final class PassthroughBridge {
 
         if let defaultID = defaultDeviceID(scope: scope),
            let defaultName = deviceName(defaultID),
-           !defaultName.localizedCaseInsensitiveContains("2brain Rec"),
+           !defaultName.localizedCaseInsensitiveContains("GRAF"),
            hasStreams(defaultID, scope: scope) {
             bridgeLog("findPhysicalDevice: DEFAULT \(defaultID) '\(defaultName)' scope=\(scope) channels=\(channelCount(defaultID, scope: scope))")
             return defaultID
@@ -402,7 +402,7 @@ public final class PassthroughBridge {
         for id in allDeviceIDs() {
             guard let devName = deviceName(id) else { continue }
 
-            if devName.contains("2brain Rec") { continue }
+            if devName.contains("GRAF") { continue }
 
             let nameMatches = keywords.contains { devName.localizedCaseInsensitiveContains($0) }
             if !nameMatches { continue }

@@ -27,7 +27,8 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert '<p class="admin-kicker">GRAF</p>' in response.text
     assert "/static/cabinet/cabinet.css" in response.text
     assert 'src="/static/cabinet/graf-logo.svg"' in response.text
-    assert 'aria-label="GRAF">GRAF</div>' in response.text
+    assert 'aria-label="GRAF"' in response.text
+    assert 'src="/static/cabinet/graf-wordmark-dark.png"' in response.text
     assert "app-shell admin-app-shell" in response.text
     assert "sidebar admin-sidebar" in response.text
     assert "2brain Rec" not in response.text

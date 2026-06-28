@@ -5,7 +5,7 @@ import json
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 
-BOUNDED_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 
 
 def test_retention_deletion_openapi_contract_is_exposed(client) -> None:
@@ -47,7 +47,7 @@ def test_deletion_request_and_report_contract_exposes_no_private_content(client)
     )
     assert report.status_code == 200
     serialized = json.dumps(report.json(), ensure_ascii=False).lower()
-    assert "2brain rec controls" in serialized
+    assert "graf controls" in serialized
     assert SAFE_TRANSCRIPT_TEXT.lower() not in serialized
     assert "storage_object_key" not in serialized
     assert "external_job_id" not in serialized

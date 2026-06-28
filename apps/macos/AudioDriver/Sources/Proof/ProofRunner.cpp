@@ -38,7 +38,7 @@ int main() {
 
     const auto devices = ExpectedMVPDevices();
     if (!HasExactlyMVPDevices(devices)) {
-        std::cerr << "Expected exactly 2brain Rec Microphone and 2brain Rec Speaker\n";
+        std::cerr << "Expected exactly GRAF Microphone and GRAF Speaker\n";
         return 1;
     }
 

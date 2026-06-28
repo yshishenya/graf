@@ -71,7 +71,7 @@ def _governance() -> GovernanceActionSummary:
         retention=GovernanceActionState(state="planned", label="Retention policy planned", reason="future", destructive=False),
         delete=GovernanceActionState(
             state="planned",
-            label="Delete this meeting everywhere 2brain Rec controls",
+            label="Delete this meeting everywhere GRAF controls",
             reason="future",
             destructive=True,
         ),
@@ -182,7 +182,7 @@ def _review() -> MeetingReviewResponse:
         artifacts=_artifacts(),
         activity=MeetingActivityResponse(meeting_id=item.meeting_id, items=[]),
         notes_action_truth=_notes_truth(),
-        deletion_truth_copy="Files already downloaded or exported are outside 2brain Rec deletion control.",
+        deletion_truth_copy="Files already downloaded or exported are outside GRAF deletion control.",
         assistant=SlotState(state="planned", label="Assistant", reason="future"),
         template=SlotState(state="planned", label="Template", reason="future"),
     )
@@ -225,7 +225,7 @@ def _deletion_report() -> DeletionVerificationReport:
                 artifact_class="post_egress_copy",
                 control_scope=DeletionControlScope.POST_EGRESS,
                 state=DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL,
-                label="Delivered copies are outside 2brain Rec control",
+                label="Delivered copies are outside GRAF control",
                 safe_reason="outside_control",
             )
         ],

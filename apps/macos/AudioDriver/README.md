@@ -1,10 +1,10 @@
-# 2brain Rec macOS Audio Component
+# GRAF macOS Audio Component
 
 This directory owns the thin macOS audio component for the driver-first MVP.
 
 ## Scope
 
-- Publish `2brain Rec Microphone` and `2brain Rec Speaker`.
+- Publish `GRAF Microphone` and `GRAF Speaker`.
 - Preserve physical microphone passthrough to meeting targets.
 - Receive virtual speaker output, pass it to the selected physical output, and mirror it for desktop capture.
 - Emit timing, drift, dropout, route, and passthrough health signals.
@@ -88,10 +88,10 @@ make -C apps/macos/AudioDriver proof-runtime-probe-run
 ```
 
 It enumerates devices visible through Core Audio and succeeds only when both
-`2brain Rec Microphone` and `2brain Rec Speaker` are present.
+`GRAF Microphone` and `GRAF Speaker` are present.
 
 Current observed result: ACCEPTED after installing the proof HAL bundle. The
-probe finds both `2brain Rec Microphone` and `2brain Rec Speaker`.
+probe finds both `GRAF Microphone` and `GRAF Speaker`.
 
 The minimal publication proof bundle is built with:
 
@@ -102,7 +102,7 @@ make -C apps/macos/AudioDriver proof-plugin-build
 The generated bundle is:
 
 ```text
-apps/macos/AudioDriver/.build/proof/2brainRecProof.driver
+apps/macos/AudioDriver/.build/proof/GrafProof.driver
 ```
 
 For local proof only, install it into the system HAL plug-in directory and

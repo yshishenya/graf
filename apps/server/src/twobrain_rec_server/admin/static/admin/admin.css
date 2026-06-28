@@ -17,11 +17,18 @@
 .admin-header-brand {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  width: 92px;
   min-height: 34px;
   color: var(--text);
   font-size: 18px;
   font-weight: 850;
   letter-spacing: 0;
+}
+
+.admin-header-brand__image {
+  width: 92px;
+  height: 34px;
 }
 
 .admin-kicker,

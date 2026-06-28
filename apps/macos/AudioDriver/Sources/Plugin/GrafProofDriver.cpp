@@ -32,7 +32,7 @@ constexpr UInt32 kPrivateConfigurationSizeSelector = 'cfsz';
 constexpr UInt32 kPrivateSingleInputSingleOutputSelector = 'siso';
 constexpr UInt32 kPrivateAggregateRelatedSelector = 'aerE';
 constexpr UInt32 kPrivateDataSourceOrderingSelector = 'dsOr';
-constexpr const char* kVerboseTraceFlagPath = "/tmp/2brain-rec-proof-driver.verbose";
+constexpr const char* kVerboseTraceFlagPath = "/tmp/graf-proof-driver.verbose";
 constexpr uint64_t kAppIOHeartbeatTimeoutNanos = 5ULL * 1000ULL * 1000ULL * 1000ULL;
 
 std::atomic<UInt32> gReferenceCount{1};
@@ -52,7 +52,7 @@ std::atomic<uint64_t> gValidatedAppWriterPID{0};
 std::atomic<uint64_t> gRejectedAppWriterPID{0};
 
 void Trace(const char* message) {
-    const int fd = open("/tmp/2brain-rec-proof-driver.trace", O_CREAT | O_WRONLY | O_APPEND, 0644);
+    const int fd = open("/tmp/graf-proof-driver.trace", O_CREAT | O_WRONLY | O_APPEND, 0644);
     if (fd < 0) {
         return;
     }
@@ -287,7 +287,7 @@ bool PrivateAppIOAvailable() {
         char path[PROC_PIDPATHINFO_MAXSIZE] = {0};
         const int path_len = proc_pidpath(static_cast<int>(writer_pid), path, sizeof(path));
         if (path_len <= 0 ||
-            std::strstr(path, "/2brain Rec.app/Contents/MacOS/2brain Rec") == nullptr) {
+            std::strstr(path, "/GRAF.app/Contents/MacOS/GRAF") == nullptr) {
             gRejectedAppWriterPID.store(writer_pid, std::memory_order_release);
             return false;
         }
@@ -722,16 +722,16 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(0));
     case kAudioObjectPropertyName:
         if (in_object_id == kPlugInObject) {
-            return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain Rec Proof Driver"));
+            return WriteCFString(in_data_size, out_data_size, out_data, CopyString("GRAF Proof Driver"));
         }
         if (IsDevice(in_object_id)) {
             return WriteCFString(in_data_size, out_data_size, out_data, CopyString(DeviceName(in_object_id)));
         }
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString(TwoBrainRec::AudioDriver::VirtualStreamName(in_object_id)));
     case kAudioObjectPropertyModelName:
-        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain Rec Proof Audio Device"));
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("GRAF Proof Audio Device"));
     case kAudioObjectPropertyManufacturer:
-        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain"));
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("GRAF"));
     case kAudioObjectPropertyElementName:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("Main"));
     case kAudioObjectPropertyElementCategoryName:
@@ -739,7 +739,7 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioObjectPropertyElementNumberName:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("1"));
     case kAudioObjectPropertySerialNumber:
-        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("2brain-rec-proof"));
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("graf-proof"));
     case kAudioObjectPropertyFirmwareVersion:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("0.1.0-proof"));
     case kAudioObjectPropertyOwnedObjects:
@@ -761,7 +761,7 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
         }
         return WriteEmptyList(out_data_size);
     case kAudioPlugInPropertyBundleID:
-        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.rec.proof.driver"));
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.graf.proof.driver"));
     case kAudioPlugInPropertyResourceBundle:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString("."));
     case kAudioPlugInPropertyDeviceList:
@@ -783,9 +783,9 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
             in_qualifier_data_size == sizeof(CFStringRef) &&
             in_qualifier_data != nullptr) {
             auto uid = *reinterpret_cast<const CFStringRef*>(in_qualifier_data);
-            if (CFStringCompare(uid, CFSTR("pro.2brain.rec.microphone"), 0) == kCFCompareEqualTo) {
+            if (CFStringCompare(uid, CFSTR("pro.2brain.graf.microphone"), 0) == kCFCompareEqualTo) {
                 translated = TwoBrainRec::AudioDriver::kMicrophoneDeviceObjectID;
-            } else if (CFStringCompare(uid, CFSTR("pro.2brain.rec.speaker"), 0) == kCFCompareEqualTo) {
+            } else if (CFStringCompare(uid, CFSTR("pro.2brain.graf.speaker"), 0) == kCFCompareEqualTo) {
                 translated = TwoBrainRec::AudioDriver::kSpeakerDeviceObjectID;
             }
         }
@@ -796,7 +796,7 @@ OSStatus GetPropertyData(AudioServerPlugInDriverRef, AudioObjectID in_object_id,
     case kAudioDevicePropertyDeviceUID:
         return WriteCFString(in_data_size, out_data_size, out_data, CopyString(DeviceUID(in_object_id)));
     case kAudioDevicePropertyModelUID:
-        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.rec.proof.model"));
+        return WriteCFString(in_data_size, out_data_size, out_data, CopyString("pro.2brain.graf.proof.model"));
     case kAudioDevicePropertyTransportType:
         return WriteScalar(in_data_size, out_data_size, out_data, static_cast<UInt32>(kAudioDeviceTransportTypeVirtual));
     case kPrivateAggregateRelatedSelector:
@@ -1082,7 +1082,7 @@ AudioServerPlugInDriverInterface gDriverInterface = {
 
 AudioServerPlugInDriverInterface* gDriverInterfacePointer = &gDriverInterface;
 
-extern "C" __attribute__((visibility("default"))) void* TwoBrainRecProofDriverFactory(CFAllocatorRef, CFUUIDRef in_type_uuid) {
+extern "C" __attribute__((visibility("default"))) void* GrafProofDriverFactory(CFAllocatorRef, CFUUIDRef in_type_uuid) {
     Trace("factory called");
     if (CFEqual(in_type_uuid, kAudioServerPlugInTypeUUID)) {
         gReferenceCount.fetch_add(1);

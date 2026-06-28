@@ -2,10 +2,14 @@ import Foundation
 import TwoBrainRecShared
 
 public struct DesktopCabinetConfiguration: Equatable, Sendable {
-    public static let baseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
-    public static let fallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
-    public static let baseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
-    public static let fallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let baseURLEnvironmentKey = "GRAF_CABINET_BASE_URL"
+    public static let fallbackBaseURLEnvironmentKey = "GRAF_UPLOAD_BASE_URL"
+    public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let legacyFallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let baseURLUserDefaultsKey = "GRAF_CABINET_BASE_URL"
+    public static let fallbackBaseURLUserDefaultsKey = "GRAF_UPLOAD_BASE_URL"
+    public static let legacyBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let legacyFallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
     public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let defaultLoadTimeoutSeconds: TimeInterval = 15
 
@@ -141,8 +145,12 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         let candidates: [(String?, String)] = [
             (environment[baseURLEnvironmentKey], baseURLEnvironmentKey),
             (environment[fallbackBaseURLEnvironmentKey], fallbackBaseURLEnvironmentKey),
+            (environment[legacyBaseURLEnvironmentKey], legacyBaseURLEnvironmentKey),
+            (environment[legacyFallbackBaseURLEnvironmentKey], legacyFallbackBaseURLEnvironmentKey),
             (defaults.string(forKey: baseURLUserDefaultsKey), baseURLUserDefaultsKey),
             (defaults.string(forKey: fallbackBaseURLUserDefaultsKey), fallbackBaseURLUserDefaultsKey),
+            (defaults.string(forKey: legacyBaseURLUserDefaultsKey), legacyBaseURLUserDefaultsKey),
+            (defaults.string(forKey: legacyFallbackBaseURLUserDefaultsKey), legacyFallbackBaseURLUserDefaultsKey),
             (includePackagedDefault ? packagedDefaultBaseURL : nil, "packaged_default")
         ]
         for (rawURL, source) in candidates {

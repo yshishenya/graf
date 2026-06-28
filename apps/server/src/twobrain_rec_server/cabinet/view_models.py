@@ -328,8 +328,8 @@ def governance_summary(
         ),
         delete=GovernanceActionState(
             state="planned",
-            label="Delete this meeting everywhere 2brain Rec controls",
-            reason="Planned; this does not promise deletion outside 2brain Rec control.",
+            label="Delete this meeting everywhere GRAF controls",
+            reason="Planned; this does not promise deletion outside GRAF control.",
             destructive=True,
         ),
     )

@@ -729,7 +729,7 @@ public struct DesktopSupportIncidentReportContext: Equatable, Sendable {
 
     public init(
         appName: String = "GRAF",
-        bundleID: String = Bundle.main.bundleIdentifier ?? "pro.2brain.rec",
+        bundleID: String = Bundle.main.bundleIdentifier ?? "pro.2brain.graf",
         appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "local",
         buildVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local",
         macOSVersion: String = Self.currentMacOSVersion(),

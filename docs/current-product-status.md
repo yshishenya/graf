@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-06-27
+Date: 2026-06-28
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -9,8 +9,11 @@ metadata-only evidence остаются подробной историей ре
 ## Accepted Now
 
 - macOS is the selected MVP platform.
-- The Core Audio HAL component publishes `2brain Rec Microphone` and
-  `2brain Rec Speaker`.
+- The current macOS product identity is `GRAF.app` with bundle id
+  `pro.2brain.graf`.
+- The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
+  with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
+  paths are kept only for cleanup and local data compatibility.
 - The installed local package can be upgraded, `coreaudiod` can be restarted,
   and both virtual devices return visible/alive in default-safe idle state.
 - Low-resource routing is the current local default: public virtual devices
@@ -143,8 +146,8 @@ metadata-only evidence остаются подробной историей ре
   `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
   excluded until P1 launch blockers are closed.
 - Feature `035-mvp-loop-live-evidence` is implemented as the current
-  validation-only evidence pack after `022`. It proves the installed
-  `/Applications/2brain Rec.app` desktop loop with Record, Pause, Resume, Stop,
+  validation-only evidence pack after `022`. It covers the installed
+  `/Applications/GRAF.app` desktop loop with Record, Pause, Resume, Stop,
   metadata-safe screenshots, and latest local artifact validation. It also
   checks the production web owner route on `rec.2brain.pro`: `/meetings` exists
   but live owner review remains blocked by `401 missing_auth_context`, while

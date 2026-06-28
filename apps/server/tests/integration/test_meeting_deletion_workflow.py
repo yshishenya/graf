@@ -17,7 +17,7 @@ from twobrain_rec_server.db.models import (
     TrackArtifact,
 )
 
-BOUNDED_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 
 
 def test_manual_deletion_persists_request_audit_report_and_meeting_lifecycle(client) -> None:

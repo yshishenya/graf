@@ -11,8 +11,8 @@
 
 namespace {
 
-constexpr const char* kExpectedMicrophone = "2brain Rec Microphone";
-constexpr const char* kExpectedSpeaker = "2brain Rec Speaker";
+constexpr const char* kExpectedMicrophone = "GRAF Microphone";
+constexpr const char* kExpectedSpeaker = "GRAF Speaker";
 constexpr double kSampleRate = 48000.0;
 constexpr double kToneFrequency = 440.0;
 constexpr double kPi = 3.14159265358979323846;

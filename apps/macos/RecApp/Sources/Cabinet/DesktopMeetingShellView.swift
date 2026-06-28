@@ -76,6 +76,8 @@ public enum DesktopMeetingShellChrome {
         let iconTextSpacing: CGFloat = 9
         let spacerWidth: CGFloat = 6
         let safetyPadding: CGFloat = 10
+        let headerWordmarkWidth: CGFloat = 64
+        let profileWordmarkWidth: CGFloat = 55
 
         let navLabels = [
             "Поиск",
@@ -104,7 +106,7 @@ public enum DesktopMeetingShellChrome {
             + 34
             + 10
             + max(
-                textWidth("GRAF", font: NSFont.systemFont(ofSize: 13, weight: .semibold)),
+                headerWordmarkWidth,
                 textWidth("Рабочее место", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
                 textWidth("Локальный режим", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
                 textWidth("Сервер недоступен", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
@@ -117,7 +119,7 @@ public enum DesktopMeetingShellChrome {
             + 28
             + 8
             + max(
-                textWidth("GRAF", font: NSFont.systemFont(ofSize: 12, weight: .semibold)),
+                profileWordmarkWidth,
                 textWidth("Кабинет не подключен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
                 textWidth("Кабинет доступен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
                 textWidth("Проверяем кабинет", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
@@ -230,6 +232,25 @@ private struct GrafLogoMark: View {
                 .background(Color(red: 0.067, green: 0.094, blue: 0.125))
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .accessibilityHidden(true)
+        }
+    }
+}
+
+private struct GrafWordmark: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if let image = NSImage(named: colorScheme == .dark ? "GrafWordmarkDark" : "GrafWordmarkLight") {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+                .accessibilityLabel("ГРАФ")
+        } else {
+            Text("ГРАФ")
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.86)
+                .accessibilityLabel("ГРАФ")
         }
     }
 }
@@ -349,8 +370,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 GrafLogoMark()
                     .frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("GRAF")
-                        .font(.system(size: 13, weight: .semibold))
+                    GrafWordmark()
+                        .frame(width: 64, height: 24, alignment: .leading)
                     Text(cabinetStatusPresentation.sidebarSubtitle)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -444,10 +465,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 GrafLogoMark()
                     .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("GRAF")
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.86)
+                    GrafWordmark()
+                        .frame(width: 55, height: 20, alignment: .leading)
                     Text(cabinetStatusPresentation.menuStatusText)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(cabinetStatusColor)
