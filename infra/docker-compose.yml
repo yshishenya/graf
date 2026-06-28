@@ -30,6 +30,7 @@ services:
       TWOBRAIN_YANDEX_CLIENT_SECRET_FILE: /run/secrets/twobrain_yandex_client_secret
       TWOBRAIN_VK_CLIENT_ID: ${TWOBRAIN_VK_CLIENT_ID:-twobrain-vk-client-id}
       TWOBRAIN_VK_CLIENT_SECRET_FILE: /run/secrets/twobrain_vk_client_secret
+      TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE: /run/secrets/twobrain_support_incident_github_token
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_PROCESSING_ENABLED: "true"
@@ -54,6 +55,11 @@ services:
         mode: 0440
       - source: twobrain_vk_client_secret
         target: twobrain_vk_client_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_support_incident_github_token
+        target: twobrain_support_incident_github_token
         uid: "100"
         gid: "101"
         mode: 0440
@@ -375,3 +381,5 @@ secrets:
     file: ${TWOBRAIN_YANDEX_CLIENT_SECRET_FILE:-./secrets/twobrain_yandex_client_secret}
   twobrain_vk_client_secret:
     file: ${TWOBRAIN_VK_CLIENT_SECRET_FILE:-./secrets/twobrain_vk_client_secret}
+  twobrain_support_incident_github_token:
+    file: ${TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE:-./secrets/twobrain_support_incident_github_token}
