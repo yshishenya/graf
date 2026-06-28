@@ -402,7 +402,7 @@ async def download_admin_meeting_artifact(
     await db.commit()
     return Response(
         content=download.body,
-        media_type=download.media_type,
+        media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{download.filename}"'},
     )
 

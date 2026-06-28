@@ -127,6 +127,8 @@ def session_response(session: object) -> UploadSessionResponse:
         status=session.status,
         upload_strategy=session.upload_strategy,
         expires_at=session.expires_at,
+        expected_tracks=session.expected_track_roles,
+        expected_track_sizes=session.expected_track_sizes,
         accepted_bytes_by_track=accepted,
         processing_status=session.processing_status,
         desktop_label=desktop.label,

@@ -9,7 +9,12 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `067-dual-audio-formats`: macOS recording package now writes a local
+  `meeting-review.m4a` playback derivative from the capture-rate writer queue
+  while preserving `mic.wav` and `incoming.wav` for transcription; desktop
+  upload now sends the optional playback artifact, and cabinet playback,
+  shared review access, and audio download prefer the stored M4A with WAV-mix
+  fallback.
 
 ### Изменено
 - _Пока нет записей._
@@ -21,7 +26,9 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Feature `067-dual-audio-formats`: добавлены недостающие Spec Kit артефакты
+  для high-risk audio/storage slice: plan, data model, contracts, quickstart,
+  checklists, tasks и analyze evidence.
 
 ### Операции
 - _Пока нет записей._

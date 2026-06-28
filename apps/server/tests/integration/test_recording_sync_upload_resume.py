@@ -71,6 +71,7 @@ def test_sync_state_returns_server_authoritative_resume_ranges(client) -> None:
     assert body["meeting"]["meeting_id"] == meeting["meeting_id"]
     assert body["media_revision"]["media_revision_id"] == meeting["media_revision"]["media_revision_id"]
     assert body["upload_session"]["session_id"] == session["session_id"]
+    assert body["upload_session"]["expected_tracks"] == ["manifest", "microphone", "system"]
     assert body["upload_session"]["accepted_bytes_by_track"] == {"microphone": 64}
     assert body["upload_session"]["missing_ranges_by_track"]["microphone"] == [{"start": 64, "end": 128}]
     assert body["upload_session"]["missing_ranges_by_track"]["system"] == [{"start": 0, "end": 96}]
