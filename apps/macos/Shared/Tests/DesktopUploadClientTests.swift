@@ -75,12 +75,12 @@ final class DesktopUploadClientTests: XCTestCase {
 
     func testConfiguredHeadersIncludeBearerTokenWithoutPersistingSecrets() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
-            "TWO_BRAIN_REC_CLIENT_VERSION": "smoke-014",
-            "TWO_BRAIN_REC_USER_ID": "00000000-0000-0000-0000-000000014003",
-            "TWO_BRAIN_REC_ORGANIZATION_ID": "00000000-0000-0000-0000-000000014001",
-            "TWO_BRAIN_REC_WORKSPACE_ID": "00000000-0000-0000-0000-000000014002",
-            "TWO_BRAIN_REC_DEVICE_ID": "00000000-0000-0000-0000-000000014004",
-            "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN": "secret-smoke-token"
+            "GRAF_CLIENT_VERSION": "smoke-014",
+            "GRAF_USER_ID": "00000000-0000-0000-0000-000000014003",
+            "GRAF_ORGANIZATION_ID": "00000000-0000-0000-0000-000000014001",
+            "GRAF_WORKSPACE_ID": "00000000-0000-0000-0000-000000014002",
+            "GRAF_DEVICE_ID": "00000000-0000-0000-0000-000000014004",
+            "GRAF_UPLOAD_BEARER_TOKEN": "secret-smoke-token"
         ])
 
         XCTAssertEqual(headers["X-Client-Version"], "smoke-014")
@@ -101,11 +101,23 @@ final class DesktopUploadClientTests: XCTestCase {
 
     func testConfiguredHeadersIgnoreGenericBearerFallback() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
-            "TWO_BRAIN_REC_CLIENT_VERSION": "smoke-014",
-            "TWO_BRAIN_REC_BEARER_TOKEN": "generic-token-that-must-not-be-used"
+            "GRAF_CLIENT_VERSION": "smoke-014",
+            "GRAF_BEARER_TOKEN": "generic-token-that-must-not-be-used"
         ])
 
         XCTAssertNil(headers["Authorization"])
+    }
+
+    func testConfiguredHeadersAcceptLegacyTwoBrainKeys() {
+        let headers = DesktopUploadClient.configuredHeaders(from: [
+            "TWO_BRAIN_REC_CLIENT_VERSION": "legacy-014",
+            "TWO_BRAIN_REC_USER_ID": "legacy-user",
+            "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN": "legacy-token"
+        ])
+
+        XCTAssertEqual(headers["X-Client-Version"], "legacy-014")
+        XCTAssertEqual(headers["X-User-Id"], "legacy-user")
+        XCTAssertEqual(headers["Authorization"], "Bearer legacy-token")
     }
 
     func testConfiguredFallsBackToPackagedProductionUploadOriginWithoutShellEnvironment() throws {
@@ -125,6 +137,77 @@ final class DesktopUploadClientTests: XCTestCase {
             DesktopUploadClient.desktopCalendarUpcomingPath,
             "/api/v1/desktop/calendar/upcoming"
         )
+    }
+
+    func testSupportIncidentRequestUsesDesktopEndpointTimeoutAndIdempotency() throws {
+        let report = try XCTUnwrap(makeSupportIncidentReport())
+        let client = DesktopUploadClient(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
+            headers: [
+                "X-Client-Version": "test-client",
+                "Authorization": "Bearer test-token"
+            ]
+        )
+
+        let request = try client.supportIncidentRequest(for: report)
+        let body = String(data: try XCTUnwrap(request.httpBody), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(request.url?.path, DesktopUploadClient.supportIncidentPath)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.timeoutInterval, DesktopUploadClient.supportIncidentTimeoutSeconds)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Idempotency-Key"),
+            "support-incident:\(report.safeReportFingerprint)"
+        )
+        XCTAssertTrue(body.contains("\"schema_version\":\"desktop-support-incident.v1\""))
+        XCTAssertTrue(body.contains("\"normal_user_action\":\"send_support_report\""))
+        XCTAssertTrue(body.contains("\"redaction_state\":\"metadata_only\""))
+        XCTAssertFalse(body.contains("/tmp/directory"))
+        XCTAssertFalse(body.contains("test-token"))
+    }
+
+    func testSupportIncidentContextFingerprintsDesktopScopeHeaders() throws {
+        let client = DesktopUploadClient(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
+            headers: [
+                "X-Workspace-Id": "workspace-raw",
+                "X-User-Id": "user-raw",
+                "X-Device-Id": "device-raw"
+            ]
+        )
+
+        let context = client.supportIncidentContext()
+
+        XCTAssertEqual(context.environmentBaseURLIdentity, "rec.2brain.pro")
+        XCTAssertTrue(context.workspaceFingerprint.hasPrefix("ws_fpr_"))
+        XCTAssertTrue(context.userFingerprint.hasPrefix("usr_fpr_"))
+        XCTAssertTrue(context.deviceFingerprint.hasPrefix("dev_fpr_"))
+        XCTAssertEqual(context.safeDeviceIdentifier, "device:\(context.deviceFingerprint)")
+        XCTAssertFalse(context.workspaceFingerprint.contains("workspace-raw"))
+        XCTAssertFalse(context.userFingerprint.contains("user-raw"))
+        XCTAssertFalse(context.deviceFingerprint.contains("device-raw"))
+    }
+
+    func testSupportIncidentResponseDecodesCustodyNumber() throws {
+        let payload = """
+        {
+          "incident_id": "CUST-123",
+          "incident_status": "created",
+          "github_issue_number": 123,
+          "github_issue_url": "https://github.com/yshishenya/crisp/issues/123",
+          "dedupe_status": "created",
+          "affected_count": 1,
+          "copy_fallback_available": true,
+          "user_message": "Отчет отправлен. Мы разберемся. Номер: CUST-123"
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(DesktopSupportIncidentResponse.self, from: payload)
+
+        XCTAssertEqual(response.incidentId, "CUST-123")
+        XCTAssertEqual(response.githubIssueNumber, 123)
+        XCTAssertEqual(response.userMessage, DesktopSupportIncidentFixture.successMessage)
     }
 
     func testQueueItemPreservesOptionalCalendarContextEventId() throws {
@@ -192,6 +275,39 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(
             DesktopUploadClientError.failureCategory(forHTTPStatus: 409, code: "storage_unavailable"),
             .network
+        )
+        XCTAssertEqual(
+            DesktopUploadClientError.failureCategory(
+                forHTTPStatus: 503,
+                code: "support_incident.github_unavailable"
+            ),
+            .network
+        )
+    }
+
+    private func makeSupportIncidentReport() -> DesktopSupportIncidentReport? {
+        var item = makeQueueItem()
+        item = item.withTransition(
+            to: .blocked,
+            now: Date(timeIntervalSince1970: 20),
+            failureCategory: .serverValidation,
+            failureReason: "http_status_503:support_incident.github_unavailable",
+            retryMode: .manualOnly,
+            syncConflictState: .retentionExpired
+        )
+        let projection = DesktopUploadCustodyProjection(item: item, now: Date(timeIntervalSince1970: 20))
+        return DesktopSupportIncidentReport(
+            item: item,
+            projection: projection,
+            context: DesktopSupportIncidentReportContext(
+                appVersion: "2026.06.27",
+                buildVersion: "1234",
+                environmentBaseURLIdentity: "rec.2brain.pro",
+                workspaceFingerprint: "ws_fpr_7e57",
+                userFingerprint: "usr_fpr_7e57",
+                deviceFingerprint: "dev_fpr_7e57",
+                safeDeviceIdentifier: "device:dev_fpr_7e57"
+            )
         )
     }
 

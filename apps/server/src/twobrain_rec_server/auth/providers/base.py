@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from base64 import urlsafe_b64encode
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -142,11 +143,14 @@ class ProviderAdapter:
         self,
         *,
         client_id: str,
+        client_secret: str | None = None,
         redirect_uri: str,
         state: str,
         return_url: str | None,
         workspace_id: str,
+        auth_provider: str | None = None,
     ) -> str:
+        _ = client_secret, auth_provider
         params: dict[str, str] = {
             "response_type": "code",
             "client_id": client_id,
@@ -270,10 +274,37 @@ class VkAdapter(ProviderAdapter):
     provider = PROVIDER_VK
     label = "VK ID"
     requires_email = True
-    auth_base_url = "https://id.vk.com/authorize"
-    token_url = "https://oauth.vk.com/access_token"
-    user_info_url = "https://api.vk.com/method/users.get"
-    api_version = "5.199"
+    auth_base_url = "https://id.vk.ru/authorize"
+    token_url = "https://id.vk.ru/oauth2/auth"
+    user_info_url = "https://id.vk.ru/oauth2/user_info"
+    supported_auth_providers = {"vkid", "ok_ru", "mail_ru"}
+
+    def build_authorization_url(
+        self,
+        *,
+        client_id: str,
+        client_secret: str | None = None,
+        redirect_uri: str,
+        state: str,
+        return_url: str | None,
+        workspace_id: str,
+        auth_provider: str | None = None,
+    ) -> str:
+        params: dict[str, str] = {
+            "response_type": "code",
+            "client_id": client_id,
+            "state": state,
+            "redirect_uri": redirect_uri,
+            "scope": "email phone",
+            "code_challenge": _vk_code_challenge(client_id=client_id, client_secret=client_secret, state=state),
+            "code_challenge_method": "S256",
+            "workspace_id": workspace_id,
+        }
+        if return_url:
+            params["workspace_return_url"] = return_url
+        if auth_provider in self.supported_auth_providers:
+            params["provider"] = auth_provider
+        return f"{self.auth_base_url}?{urlencode(params)}"
 
     def verify_callback(
         self,
@@ -286,43 +317,50 @@ class VkAdapter(ProviderAdapter):
     ) -> ProviderIdentity:
         _assert_state(query, expected_state)
         code = _required_query_value(query, "code")
-        secret = _required_secret(credentials)
-        token = http_client.get_json(
+        device_id = _required_query_value(query, "device_id")
+        token = http_client.post_form(
             self.token_url,
-            params={
+            {
+                "grant_type": "authorization_code",
                 "client_id": credentials.client_id,
-                "client_secret": secret,
+                "code_verifier": _vk_code_verifier(
+                    client_id=credentials.client_id,
+                    client_secret=credentials.client_secret,
+                    state=expected_state,
+                ),
+                "device_id": device_id,
                 "redirect_uri": credentials.redirect_uri,
                 "code": code,
+                "state": expected_state,
             },
         )
         if "error" in token:
             raise ProviderVerificationError("VK authorization code exchange failed")
+        if token.get("state") not in {None, "", expected_state}:
+            raise ProviderVerificationError("VK token response state mismatch")
         access_token = _required_payload_value(token, "access_token")
-        subject = str(token.get("user_id") or token.get("id") or "").strip()
-        if not subject:
-            raise ProviderVerificationError("VK token response is missing subject")
-        profile_payload = http_client.get_json(
+        profile_payload = http_client.post_form(
             self.user_info_url,
-            params={
-                "user_ids": subject,
+            {
+                "client_id": credentials.client_id,
                 "access_token": access_token,
-                "fields": "screen_name,contacts",
-                "v": self.api_version,
             },
         )
         if "error" in profile_payload:
             raise ProviderVerificationError("VK profile request failed")
-        profile = _first_response_item(profile_payload)
+        profile = _required_user_info(profile_payload)
+        subject = str(token.get("user_id") or profile.get("user_id") or "").strip()
+        if not subject:
+            raise ProviderVerificationError("VK token response is missing subject")
         first_name = _optional_str(profile.get("first_name"))
         last_name = _optional_str(profile.get("last_name"))
         display_name = " ".join(item for item in [first_name, last_name] if item) or None
         return ProviderIdentity(
             provider=self.provider,
             provider_subject=self.normalize_subject(subject),
-            provider_username=_optional_str(profile.get("screen_name") or profile.get("domain")),
-            email=_optional_str(token.get("email")),
-            phone=_optional_str(profile.get("mobile_phone") or profile.get("home_phone")),
+            provider_username=None,
+            email=_optional_str(profile.get("email")),
+            phone=_optional_str(profile.get("phone")),
             display_name=display_name,
             is_verified=True,
         )
@@ -408,6 +446,27 @@ def _optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _base64url(data: bytes) -> str:
+    return urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _vk_code_verifier(*, client_id: str, client_secret: str | None, state: str) -> str:
+    seed = (client_secret or client_id).encode("utf-8")
+    return _base64url(hmac.new(seed, f"{client_id}:{state}".encode(), hashlib.sha256).digest())
+
+
+def _vk_code_challenge(*, client_id: str, client_secret: str | None, state: str) -> str:
+    verifier = _vk_code_verifier(client_id=client_id, client_secret=client_secret, state=state)
+    return _base64url(hashlib.sha256(verifier.encode()).digest())
+
+
+def _required_user_info(payload: dict[str, Any]) -> dict[str, Any]:
+    user = payload.get("user")
+    if not isinstance(user, dict):
+        raise ProviderVerificationError("provider response is missing profile item")
+    return user
 
 
 def _first_response_item(payload: dict[str, Any]) -> dict[str, Any]:

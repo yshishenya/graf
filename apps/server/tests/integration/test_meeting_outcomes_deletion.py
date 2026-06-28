@@ -9,7 +9,7 @@ from tests.fixtures.cabinet import create_outcome_ready_meeting
 from twobrain_rec_server.db.models import MeetingOutcomeItem, MeetingOutcomeSet
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_meeting
 
-BOUNDED_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 
 
 def test_deletion_report_accounts_for_stored_outcomes_without_content(client) -> None:

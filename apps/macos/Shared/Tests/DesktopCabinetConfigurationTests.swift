@@ -31,10 +31,10 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
 
     func testConfiguredHeadersReuseDesktopMetadataAndRedactSecretValues() {
         let headers = DesktopCabinetConfiguration.configuredHeaders(from: [
-            "TWO_BRAIN_REC_CLIENT_VERSION": "desktop-033",
-            "TWO_BRAIN_REC_USER_ID": "user-033",
-            "TWO_BRAIN_REC_WORKSPACE_ID": "workspace-033",
-            "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN": "secret-token"
+            "GRAF_CLIENT_VERSION": "desktop-033",
+            "GRAF_USER_ID": "user-033",
+            "GRAF_WORKSPACE_ID": "workspace-033",
+            "GRAF_UPLOAD_BEARER_TOKEN": "secret-token"
         ])
 
         XCTAssertEqual(headers["X-Client-Version"], "desktop-033")
@@ -92,6 +92,20 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
 
         XCTAssertEqual(configuration.baseURL.absoluteString, "https://env.rec.example")
         XCTAssertEqual(configuration.source, DesktopCabinetConfiguration.baseURLEnvironmentKey)
+    }
+
+    func testConfiguredAcceptsLegacyTwoBrainCabinetOrigin() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DesktopCabinetConfigurationTests.legacy-env"))
+        defaults.removePersistentDomain(forName: "DesktopCabinetConfigurationTests.legacy-env")
+
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(
+            from: [DesktopCabinetConfiguration.legacyBaseURLEnvironmentKey: "https://legacy.rec.example"],
+            defaults: defaults,
+            includePackagedDefault: false
+        ))
+
+        XCTAssertEqual(configuration.baseURL.absoluteString, "https://legacy.rec.example")
+        XCTAssertEqual(configuration.source, DesktopCabinetConfiguration.legacyBaseURLEnvironmentKey)
     }
 
     func testUnavailableMessagesDoNotExposeSecretsOrLivePaths() {

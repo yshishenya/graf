@@ -54,7 +54,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             return .expiredSession
         case .meetingList, .meetingDetail, .meetingDeletionReport, .calendarSettings:
             return .ready
-        case .unsupported, .external, .forbiddenAction:
+        case .admin, .unsupported, .external, .forbiddenAction:
             return .blockedRoute
         }
     }

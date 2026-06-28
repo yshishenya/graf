@@ -390,7 +390,7 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertEqual(
             CaptureControlView.recordingMicrophoneRecoveryCopy(for: rejected),
-            "Выберите обычный микрофон. Виртуальные устройства 2brain нельзя использовать как микрофон записи."
+            "Выберите обычный микрофон. Виртуальные устройства GRAF нельзя использовать как микрофон записи."
         )
     }
 
@@ -521,9 +521,59 @@ final class CaptureControlTests: XCTestCase {
         let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
         let report = try XCTUnwrap(summary.safeReport)
 
-        XCTAssertEqual(report.normalUserAction, .copySafeReport)
+        XCTAssertEqual(report.normalUserAction, .sendSupportReport)
         XCTAssertFalse(report.clipboardText.contains("/Users/private"))
         XCTAssertFalse(report.clipboardText.contains("Bearer"))
+    }
+
+    func testSupportIncidentActionCopyUsesRequiredSuccessAndFailureText() {
+        let sent = DesktopSupportIncidentSubmissionState.sent(
+            reportFingerprint: "report_fpr_test",
+            dedupeKey: "support_dedupe_test",
+            incidentNumber: "CUST-123",
+            githubIssueNumber: 123,
+            attemptedAt: Date(timeIntervalSince1970: 1),
+            copyFallbackAvailable: true
+        )
+        let failed = DesktopSupportIncidentSubmissionState.failedWithCopyFallback(
+            reportFingerprint: "report_fpr_test",
+            dedupeKey: "support_dedupe_test",
+            attemptedAt: Date(timeIntervalSince1970: 1),
+            failureCategory: "network",
+            failureCode: "support_incident.github_unavailable"
+        )
+
+        XCTAssertEqual(
+            DesktopSupportIncidentActionCopy.visibleMessage(for: sent),
+            DesktopSupportIncidentFixture.successMessage
+        )
+        XCTAssertEqual(
+            DesktopSupportIncidentActionCopy.visibleMessage(for: failed),
+            DesktopSupportIncidentFixture.failureMessage
+        )
+        XCTAssertEqual(DesktopSupportIncidentActionCopy.sendTitle, DesktopSupportIncidentFixture.sendReportTitle)
+        XCTAssertEqual(DesktopSupportIncidentActionCopy.copyTitle, DesktopSupportIncidentFixture.copyFallbackTitle)
+    }
+
+    func testCompactCustodySurfaceUsesAccessibleSupportIncidentActions() throws {
+        let root = try repositoryRootForCaptureTests()
+        let stripSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Upload/DesktopSupportIncidentActionStrip.swift"),
+            encoding: .utf8
+        )
+        let captureSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(captureSource.contains("DesktopSupportIncidentActionStrip("))
+        XCTAssertTrue(captureSource.contains("onSubmit: onSupportIncidentReport"))
+        XCTAssertTrue(stripSource.contains("Label(sendButtonTitle, systemImage: \"paperplane\")"))
+        XCTAssertTrue(stripSource.contains("Label(copyButtonTitle, systemImage: \"doc.on.doc\")"))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(\"Отправить отчет разработчикам\")"))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)"))
+        XCTAssertTrue(stripSource.contains("lineLimit(3)"))
+        XCTAssertTrue(stripSource.contains("fixedSize(horizontal: false, vertical: true)"))
     }
 
     func testConflictStateCopyIsSafeAndActionable() throws {
@@ -549,7 +599,7 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertEqual(
             deletedSummary.detail,
-            "Скопируйте отчет и отправьте администратору или поддержке. Локальные копии сохранены."
+            "Нужна проверка доступа или политики рабочего пространства. Отправьте отчет, мы передадим детали поддержке/администратору."
         )
         XCTAssertFalse(deletedSummary.detail.contains("/Users/test"))
         XCTAssertNil(deletedSummary.primaryItem.nextActionLabel)

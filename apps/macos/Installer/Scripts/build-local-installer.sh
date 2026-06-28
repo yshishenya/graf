@@ -9,15 +9,20 @@ REPO_ROOT=$(git -C "$MACOS_DIR" rev-parse --show-toplevel 2>/dev/null || true)
 if [ -z "$REPO_ROOT" ]; then
   REPO_ROOT=$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)
 fi
-BUILD_DIR="${TWO_BRAIN_REC_INSTALLER_BUILD_DIR:-"$MACOS_DIR/.build/installer"}"
+BUILD_DIR="${GRAF_INSTALLER_BUILD_DIR:-${TWO_BRAIN_REC_INSTALLER_BUILD_DIR:-"$MACOS_DIR/.build/installer"}}"
 STAGE_DIR="$BUILD_DIR/stage"
 COMPONENT_DIR="$BUILD_DIR/components"
 SCRIPTS_DIR="$BUILD_DIR/scripts"
-APP_BUNDLE="$MACOS_DIR/RecApp/.build/2brain Rec.app"
-OUTPUT_PKG="${1:-"$BUILD_DIR/2brain-rec-local.pkg"}"
-APP_SIGN_IDENTITY="${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}"
-ALLOW_ADHOC_APP_SIGNING="${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}"
-INCLUDE_DRIVER_COMPONENT="${TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT:-0}"
+APP_BUNDLE="$MACOS_DIR/RecApp/.build/GRAF.app"
+APP_ICON="$MACOS_DIR/RecApp/Resources/AppIcon.icns"
+WORDMARK_DARK="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark.png"
+WORDMARK_DARK_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark@2x.png"
+WORDMARK_LIGHT="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight.png"
+WORDMARK_LIGHT_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight@2x.png"
+OUTPUT_PKG="${1:-"$BUILD_DIR/graf-local.pkg"}"
+APP_SIGN_IDENTITY="${GRAF_APP_SIGN_IDENTITY:-${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}}"
+ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}}"
+INCLUDE_DRIVER_COMPONENT="${GRAF_INCLUDE_DRIVER_COMPONENT:-${TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT:-0}}"
 DEVELOPER_TOOLS_STATUS=$(DevToolsSecurity -status 2>&1 || true)
 DEVELOPER_TOOLS_ENABLED=0
 case "$DEVELOPER_TOOLS_STATUS" in
@@ -48,29 +53,30 @@ default_product_version() {
   fi
 }
 
-VERSION="${TWO_BRAIN_REC_VERSION:-$(default_product_version)}"
+VERSION="${GRAF_VERSION:-${TWO_BRAIN_REC_VERSION:-$(default_product_version)}}"
 case "$VERSION" in
   [0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*)
     ;;
   *)
     cat >&2 <<EOF
-Invalid 2brain Rec product version: $VERSION
+Invalid GRAF product version: $VERSION
 
 macOS bundle and package fields use the numeric CalVer release train without
 the git tag prefix. Use:
 
-  TWO_BRAIN_REC_VERSION=YYYY.MM.DD.N sh apps/macos/Installer/Scripts/build-local-installer.sh
+  GRAF_VERSION=YYYY.MM.DD.N sh apps/macos/Installer/Scripts/build-local-installer.sh
 
 The matching git tag/GitHub Release adds the leading v: vYYYY.MM.DD.N.
 EOF
     exit 1
     ;;
 esac
-echo "Building 2brain Rec version $VERSION" >&2
+echo "Building GRAF version $VERSION" >&2
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"
 mkdir -p "$COMPONENT_DIR"
+mkdir -p "$SCRIPTS_DIR/desktop-app"
 if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
   mkdir -p "$STAGE_DIR/driver/Library/Audio/Plug-Ins/HAL"
   mkdir -p "$SCRIPTS_DIR/audio-driver"
@@ -83,12 +89,22 @@ swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
 
 BIN_DIR=$(swift build --package-path "$MACOS_DIR" -c release --show-bin-path)
 APP_EXECUTABLE="$BIN_DIR/TwoBrainRecApp"
-DRIVER_BUNDLE="$MACOS_DIR/AudioDriver/.build/proof/2brainRecProof.driver"
+DRIVER_BUNDLE="$MACOS_DIR/AudioDriver/.build/proof/GrafProof.driver"
 
 if [ ! -x "$APP_EXECUTABLE" ]; then
   echo "Missing app executable at $APP_EXECUTABLE" >&2
   exit 1
 fi
+if [ ! -f "$APP_ICON" ]; then
+  echo "Missing app icon at $APP_ICON" >&2
+  exit 1
+fi
+for resource in "$WORDMARK_DARK" "$WORDMARK_DARK_2X" "$WORDMARK_LIGHT" "$WORDMARK_LIGHT_2X"; do
+  if [ ! -f "$resource" ]; then
+    echo "Missing app wordmark resource at $resource" >&2
+    exit 1
+  fi
+done
 
 if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ] && [ ! -d "$DRIVER_BUNDLE" ]; then
   echo "Missing proof driver bundle at $DRIVER_BUNDLE" >&2
@@ -98,7 +114,12 @@ fi
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
-cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/2brain Rec"
+cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/GRAF"
+cp "$APP_ICON" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp "$WORDMARK_DARK" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark.png"
+cp "$WORDMARK_DARK_2X" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark@2x.png"
+cp "$WORDMARK_LIGHT" "$APP_BUNDLE/Contents/Resources/GrafWordmarkLight.png"
+cp "$WORDMARK_LIGHT_2X" "$APP_BUNDLE/Contents/Resources/GrafWordmarkLight@2x.png"
 cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -107,13 +128,17 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>2brain Rec</string>
+  <string>GRAF</string>
+  <key>CFBundleDisplayName</key>
+  <string>GRAF</string>
   <key>CFBundleIdentifier</key>
-  <string>pro.2brain.rec</string>
+  <string>pro.2brain.graf</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>2brain Rec</string>
+  <string>GRAF</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -129,9 +154,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <key>NSQuitAlwaysKeepsWindows</key>
   <false/>
   <key>NSMicrophoneUsageDescription</key>
-  <string>2brain Rec needs microphone access to verify and capture meeting audio.</string>
+  <string>GRAF использует доступ к микрофону, чтобы проверить и записать звук встречи.</string>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>2brain Rec needs Screen/System Audio access to capture incoming meeting audio into a local recording.</string>
+  <string>GRAF использует доступ к записи экрана и системного звука, чтобы сохранить входящий звук встречи локально.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>
@@ -156,12 +181,12 @@ Then rerun:
 For a signed pre-release build, install an Apple Development or Developer ID
 Application certificate, then run:
 
-  TWO_BRAIN_REC_APP_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
+  GRAF_APP_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
     sh apps/macos/Installer/Scripts/build-local-installer.sh
 
 For packaging-only tests on locked-down hosts, set:
 
-  TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 \
+  GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
     sh apps/macos/Installer/Scripts/build-local-installer.sh
 EOF
   exit 1
@@ -202,6 +227,18 @@ fi
 
 cp -R "$APP_BUNDLE" "$STAGE_DIR/app/Applications/"
 xattr -cr "$STAGE_DIR/app" 2>/dev/null || true
+cat > "$SCRIPTS_DIR/desktop-app/preinstall" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+
+LEGACY_APP="/Applications/2brain Rec.app"
+if [ -d "$LEGACY_APP" ]; then
+  rm -rf "$LEGACY_APP" || true
+fi
+exit 0
+EOF
+chmod 755 "$SCRIPTS_DIR/desktop-app/preinstall"
+
 if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
   cp -R "$DRIVER_BUNDLE" "$STAGE_DIR/driver/Library/Audio/Plug-Ins/HAL/"
   xattr -cr "$STAGE_DIR/driver" 2>/dev/null || true
@@ -210,29 +247,30 @@ if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
 
   pkgbuild \
     --root "$STAGE_DIR/driver" \
-    --identifier "pro.2brain.rec.audio-driver" \
+    --identifier "pro.2brain.graf.audio-driver" \
     --version "$VERSION" \
     --install-location "/" \
     --scripts "$SCRIPTS_DIR/audio-driver" \
     --ownership recommended \
-    "$COMPONENT_DIR/2brain-rec-audio-driver.pkg"
+    "$COMPONENT_DIR/graf-audio-driver.pkg"
 fi
 
 pkgbuild \
   --root "$STAGE_DIR/app" \
-  --identifier "pro.2brain.rec.desktop-app" \
+  --identifier "pro.2brain.graf.desktop-app" \
   --version "$VERSION" \
   --install-location "/" \
+  --scripts "$SCRIPTS_DIR/desktop-app" \
   --ownership recommended \
-  "$COMPONENT_DIR/2brain-rec-desktop-app.pkg"
+  "$COMPONENT_DIR/graf-desktop-app.pkg"
 
 if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
   DRIVER_CHOICE_LINE='      <line choice="audio-driver"/>'
-  DRIVER_DEFAULT_REF='    <pkg-ref id="pro.2brain.rec.audio-driver"/>'
-  DRIVER_CHOICE_BLOCK='  <choice id="audio-driver" title="2brain Rec Audio Driver" start_selected="true" start_enabled="false">
-    <pkg-ref id="pro.2brain.rec.audio-driver"/>
+  DRIVER_DEFAULT_REF='    <pkg-ref id="pro.2brain.graf.audio-driver"/>'
+  DRIVER_CHOICE_BLOCK='  <choice id="audio-driver" title="GRAF Audio Driver" start_selected="true" start_enabled="false">
+    <pkg-ref id="pro.2brain.graf.audio-driver"/>
   </choice>'
-  DRIVER_PKG_REF="  <pkg-ref id=\"pro.2brain.rec.audio-driver\" version=\"$VERSION\" auth=\"Root\">2brain-rec-audio-driver.pkg</pkg-ref>"
+  DRIVER_PKG_REF="  <pkg-ref id=\"pro.2brain.graf.audio-driver\" version=\"$VERSION\" auth=\"Root\">graf-audio-driver.pkg</pkg-ref>"
 else
   DRIVER_CHOICE_LINE=''
   DRIVER_DEFAULT_REF=''
@@ -243,7 +281,7 @@ fi
 cat > "$BUILD_DIR/distribution.xml" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>2brain Rec</title>
+  <title>GRAF</title>
   <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
   <installation-check script="InstallationCheck()"/>
@@ -252,7 +290,7 @@ function InstallationCheck() {
   if(system.compareVersions(system.version.ProductVersion, "14.5") &lt; 0) {
     my.result.type = "Fatal";
     my.result.title = "Unsupported macOS";
-    my.result.message = "2brain Rec requires macOS 14.5 or later.";
+    my.result.message = "GRAF requires macOS 14.5 or later.";
     return false;
   }
   return true;
@@ -264,16 +302,16 @@ $DRIVER_CHOICE_LINE
       <line choice="desktop-app"/>
     </line>
   </choices-outline>
-  <choice id="default" title="2brain Rec" start_selected="true" start_enabled="false" start_visible="false">
+  <choice id="default" title="GRAF" start_selected="true" start_enabled="false" start_visible="false">
 $DRIVER_DEFAULT_REF
-    <pkg-ref id="pro.2brain.rec.desktop-app"/>
+    <pkg-ref id="pro.2brain.graf.desktop-app"/>
   </choice>
 $DRIVER_CHOICE_BLOCK
-  <choice id="desktop-app" title="2brain Rec Desktop App" start_selected="true" start_enabled="false">
-    <pkg-ref id="pro.2brain.rec.desktop-app"/>
+  <choice id="desktop-app" title="GRAF Desktop App" start_selected="true" start_enabled="false">
+    <pkg-ref id="pro.2brain.graf.desktop-app"/>
   </choice>
 $DRIVER_PKG_REF
-  <pkg-ref id="pro.2brain.rec.desktop-app" version="$VERSION" auth="Root">2brain-rec-desktop-app.pkg</pkg-ref>
+  <pkg-ref id="pro.2brain.graf.desktop-app" version="$VERSION" auth="Root">graf-desktop-app.pkg</pkg-ref>
 </installer-gui-script>
 EOF
 

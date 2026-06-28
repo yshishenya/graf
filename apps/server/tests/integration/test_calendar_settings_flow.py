@@ -39,7 +39,7 @@ from twobrain_rec_server.db.models import (
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = (
     REPO_ROOT
-    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0012_calendar_settings_preferences.py"
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0014_calendar_settings_preferences.py"
 )
 
 

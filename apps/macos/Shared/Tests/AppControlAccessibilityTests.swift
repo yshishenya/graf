@@ -130,7 +130,7 @@ final class AppControlAccessibilityTests: XCTestCase {
             "Оставить отзыв",
             "Сообщество Slack",
             "Выйти",
-            "Закрыть 2brain Rec полностью"
+            "Закрыть GRAF полностью"
         ] {
             XCTAssertTrue(labels.contains(expected), "Missing profile menu label \(expected)")
         }

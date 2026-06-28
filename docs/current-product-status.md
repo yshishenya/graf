@@ -9,8 +9,11 @@ metadata-only evidence остаются подробной историей ре
 ## Accepted Now
 
 - macOS is the selected MVP platform.
-- The Core Audio HAL component publishes `2brain Rec Microphone` and
-  `2brain Rec Speaker`.
+- The current macOS product identity is `GRAF.app` with bundle id
+  `pro.2brain.graf`.
+- The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
+  with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
+  paths are kept only for cleanup and local data compatibility.
 - The installed local package can be upgraded, `coreaudiod` can be restarted,
   and both virtual devices return visible/alive in default-safe idle state.
 - Low-resource routing is the current local default: public virtual devices
@@ -143,8 +146,8 @@ metadata-only evidence остаются подробной историей ре
   `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
   excluded until P1 launch blockers are closed.
 - Feature `035-mvp-loop-live-evidence` is implemented as the current
-  validation-only evidence pack after `022`. It proves the installed
-  `/Applications/2brain Rec.app` desktop loop with Record, Pause, Resume, Stop,
+  validation-only evidence pack after `022`. It covers the installed
+  `/Applications/GRAF.app` desktop loop with Record, Pause, Resume, Stop,
   metadata-safe screenshots, and latest local artifact validation. It also
   checks the production web owner route on `rec.2brain.pro`: `/meetings` exists
   but live owner review remains blocked by `401 missing_auth_context`, while
@@ -365,13 +368,14 @@ metadata-only evidence остаются подробной историей ре
   recordings. Desktop unavailable/auth copy keeps provider credentials
   server-owned and keeps native manual Record/Stop reachable. Local validation
   on 2026-06-28 passed focused server calendar settings checks (`77 passed`),
-  server Ruff, focused macOS calendar/cabinet checks (`96 tests`), full macOS
-  suite (`678 tests`), forbidden-content scan with only safe passcode-detector
+  server Ruff, focused macOS calendar/cabinet checks (`97 tests`), full macOS
+  suite (`693 tests`), forbidden-content scan with only safe passcode-detector
   source references, removed-provider catalog scan with no matches in the
   calendar feature surface, and full local CI
-  (`862 passed, 4 skipped, 103 warnings`, `ci_local_result=pass`). This slice
-  is not merged, released, deployed, or user-rollout validated yet; moderated
-  usability/comprehension targets still need real participant evidence.
+  (`968 passed, 4 skipped, 148 warnings`, `ci_local_result=pass`). This slice
+  still needs merge/release/deploy closeout evidence and is not
+  user-rollout validated yet; moderated usability/comprehension targets still
+  need real participant evidence.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed

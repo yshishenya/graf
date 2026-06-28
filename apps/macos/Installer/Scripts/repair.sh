@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
 set -eu
 
-HAL_SRC=${2BRAIN_REC_HAL_SOURCE:-"/Library/Audio/Plug-Ins/HAL/.2brain-rec-driver-staged/2brainRecProof.driver"}
-HAL_DEST=${2BRAIN_REC_HAL_PATH:-"/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"}
-STATE_PATH=${2BRAIN_REC_INSTALLER_STATE:-"/var/tmp/2brain-rec-installer-state"}
-REPORT_PATH=${2BRAIN_REC_REPAIR_REPORT:-"/var/tmp/2brain-rec-repair-report.json"}
+HAL_SRC=${GRAF_HAL_SOURCE:-"/Library/Audio/Plug-Ins/HAL/.graf-driver-staged/GrafProof.driver"}
+HAL_DEST=${GRAF_HAL_PATH:-"/Library/Audio/Plug-Ins/HAL/GrafProof.driver"}
+STATE_PATH=${GRAF_INSTALLER_STATE:-"/var/tmp/graf-installer-state"}
+REPORT_PATH=${GRAF_REPAIR_REPORT:-"/var/tmp/graf-repair-report.json"}
 
 mkdir -p "/Library/Audio/Plug-Ins/HAL"
 mkdir -p "$(dirname "$REPORT_PATH")"
@@ -33,10 +33,10 @@ fi
 xattr -cr "$HAL_DEST" || true
 xattr -dr com.apple.provenance "$HAL_DEST" || true
 xattr -dr com.apple.quarantine "$HAL_DEST" || true
-if [ "${TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART:-0}" = "1" ]; then
+if [ "${GRAF_ALLOW_COREAUDIOD_RESTART:-${TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART:-0}}" = "1" ]; then
   killall coreaudiod >/dev/null 2>&1 || true
 else
-  echo "coreaudiod restart skipped; set TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART=1 for driver diagnostics" >&2
+  echo "coreaudiod restart skipped; set GRAF_ALLOW_COREAUDIOD_RESTART=1 for driver diagnostics" >&2
 fi
 echo "repaired" > "$STATE_PATH"
 

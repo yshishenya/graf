@@ -41,7 +41,7 @@
 - [X] T008 Allow `SelectCalendarsRequest.selected_provider_calendar_ids` to be empty while preserving forbidden extra fields in `apps/server/src/twobrain_rec_server/api/schemas.py`
 - [X] T009 Add calendar settings read-model dataclasses and shared safe-label/redaction helpers for provider presets, source summaries, selectable calendars, preferences, preview items, safe errors, metadata-only event fields, duplicate groups, and overlap groups in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
 - [X] T010 Add `CalendarSettingsPreference` persistence for prompt and event-category settings in `apps/server/src/twobrain_rec_server/db/models/calendar.py`
-- [X] T011 Add Alembic migration for calendar settings preferences with safe defaults in `apps/server/src/twobrain_rec_server/db/migrations/versions/0012_calendar_settings_preferences.py`
+- [X] T011 Add Alembic migration for calendar settings preferences with safe defaults in `apps/server/src/twobrain_rec_server/db/migrations/versions/0014_calendar_settings_preferences.py`
 - [X] T012 Add calendar settings preference load/save helpers that use existing tenant scope and do not touch provider credentials in `apps/server/src/twobrain_rec_server/calendar/service.py`
 - [X] T013 Add calendar settings query helpers that assemble provider presets, sources, calendars, preferences, sync state, and preview inputs from existing 060 tables in `apps/server/src/twobrain_rec_server/cabinet/queries.py`
 - [X] T014 Add calendar settings rendering entrypoints and fragment helper names in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`

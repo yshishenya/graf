@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-RUN_UI=${TWO_BRAIN_REC_RUN_UI_NO_HANG:-0}
+RUN_UI=${GRAF_RUN_UI_NO_HANG:-${TWO_BRAIN_REC_RUN_UI_NO_HANG:-0}}
 TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-5}
 
 emit_metadata_only() {
@@ -61,13 +61,13 @@ if [ "$target" = "all" ]; then
   exit 0
 fi
 
-if [ "${TWO_BRAIN_REC_LOW_RESOURCE_MODE:-0}" = "1" ]; then
+if [ "${GRAF_LOW_RESOURCE_MODE:-${TWO_BRAIN_REC_LOW_RESOURCE_MODE:-0}}" = "1" ]; then
   echo "low_resource_mode=1"
   echo "startup_timeout_ms=3000"
 fi
 
 if [ "$RUN_UI" != "1" ]; then
-  emit_metadata_only "$target" "ui_launch_disabled_set_TWO_BRAIN_REC_RUN_UI_NO_HANG_1"
+  emit_metadata_only "$target" "ui_launch_disabled_set_GRAF_RUN_UI_NO_HANG_1"
   exit 0
 fi
 

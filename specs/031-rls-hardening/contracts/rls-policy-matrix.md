@@ -73,6 +73,19 @@ Tables:
 - `calendar_reminder_states`
 - `calendar_settings_preferences`
 - `calendar_audit_events`
+- `support_incidents`
+- `support_incident_rate_limit_buckets`
+- `workspace_quota_policies`
+- `workspace_usage_daily`
+- `user_usage_daily`
+- `admin_audit_events`
+
+`workspace_invitations` and `admin_audit_events` use the direct workspace policy
+for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
+`workspace_id = current_workspace_id()` and the bootstrap workspace belongs to
+the current organization. This lets provider callback completion find matching
+pending invitations and write the metadata-only completion audit event without
+exposing quota, usage, or other admin tables to auth bootstrap contexts.
 
 ## Inherited Workspace Tables
 

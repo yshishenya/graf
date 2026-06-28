@@ -9,7 +9,6 @@ def test_openapi_scope_does_not_include_future_product_surfaces(client) -> None:
     forbidden_fragments = (
         "dashboard",
         "billing",
-        "/admin",
         "desktop/capture",
         "mediascribe/direct",
     )

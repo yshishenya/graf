@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     ExternalIdentity,
     UserIdentity,
+    WorkspaceAuthPolicy,
     WorkspaceMembership,
 )
 
@@ -37,6 +39,26 @@ async def _link_owner_email_identity(client) -> None:
                 is_verified=True,
             )
         )
+        await db.commit()
+
+
+async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        if policy is None:
+            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            db.add(policy)
+        policy.allow_yandex = enabled
+        await db.commit()
+
+
+async def _set_workspace_vk_policy(client, enabled: bool) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        if policy is None:
+            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            db.add(policy)
+        policy.allow_vk = enabled
         await db.commit()
 
 
@@ -82,8 +104,8 @@ def test_browser_icon_probe_routes_do_not_pollute_cabinet_with_404(client) -> No
     for path in ("/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"):
         response = client.get(path)
 
-        assert response.status_code == 204
-        assert response.content == b""
+        assert response.status_code == 200
+        assert response.content
 
 
 def test_meetings_page_accepts_owner_session_cookie_without_legacy_headers(client) -> None:
@@ -135,12 +157,23 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert "Войти в кабинет" in response.text
     assert 'action="/login/email/start"' in response.text
     assert 'type="email"' in response.text
-    assert "Продолжить" in response.text
-    assert "Другие способы входа" in response.text
-    assert "Продолжить через Яндекс ID" in response.text
-    assert "Продолжить через VK ID" in response.text
-    assert "Продолжить через Telegram" in response.text
+    assert "Способ входа" in response.text
+    assert "Яндекс ID" in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert "VK ID" in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+    assert "Mail.ru" in response.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=mail_ru" in response.text
+    assert "Одноклассники" in response.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=ok_ru" in response.text
+    assert "T-Банк ID" in response.text
+    assert "Sber ID" in response.text
+    assert "Госуслуги" in response.text
+    assert "Alfa ID" in response.text
     assert "скоро" in response.text
+    assert "Telegram" not in response.text
+    assert "TG" not in response.text
+    assert "Продолжить через" not in response.text
     assert "Workspace ID" not in response.text
     assert 'name="workspace_id"' not in response.text
     assert str(WORKSPACE_ID) not in response.text
@@ -152,8 +185,18 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
 
     assert first_step.status_code == 200
     assert "Зарегистрируйтесь бесплатно" in first_step.text
-    assert "Продолжить через Яндекс ID" in first_step.text
-    assert "Продолжить с email" in first_step.text
+    assert "Яндекс ID" in first_step.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in first_step.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in first_step.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=mail_ru" in first_step.text
+    assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=ok_ru" in first_step.text
+    assert "T-Банк ID" in first_step.text
+    assert "Sber ID" in first_step.text
+    assert "Госуслуги" in first_step.text
+    assert "Alfa ID" in first_step.text
+    assert "Рабочая почта" in first_step.text
+    assert "Telegram" not in first_step.text
+    assert "Продолжить через" not in first_step.text
     assert "Workspace ID" not in first_step.text
     assert 'name="workspace_id"' not in first_step.text
     assert email_step.status_code == 200
@@ -162,15 +205,86 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert "Зарегистрироваться" in email_step.text
 
 
-def test_browser_provider_login_routes_are_explicit_stubs(client) -> None:
+def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     response = client.get(
         "/login/yandex/start?next=/meetings",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("https://oauth.yandex.ru/authorize?")
+    assert "state=" in response.headers["location"]
+    assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex" in response.headers["location"]
+
+
+def test_browser_vk_login_start_redirects_to_provider(client) -> None:
+    response = client.get(
+        "/login/vk/start?next=/meetings",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("https://id.vk.ru/authorize?")
+    assert "client_id=twobrain-vk-client-id" in response.headers["location"]
+    assert "state=" in response.headers["location"]
+    assert "scope=email+phone" in response.headers["location"]
+    assert "code_challenge_method=S256" in response.headers["location"]
+    assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fvk" in response.headers["location"]
+
+
+def test_browser_vk_login_start_supports_mail_and_ok_provider_hints(client) -> None:
+    mail = client.get(
+        "/login/vk/start?next=/meetings&auth_provider=mail_ru",
+        follow_redirects=False,
+    )
+    ok = client.get(
+        "/login/vk/start?next=/meetings&auth_provider=ok_ru",
+        follow_redirects=False,
+    )
+
+    assert mail.status_code == 303
+    assert "provider=mail_ru" in mail.headers["location"]
+    assert ok.status_code == 303
+    assert "provider=ok_ru" in ok.headers["location"]
+
+
+def test_browser_telegram_provider_login_route_remains_stub(client) -> None:
+    response = client.get(
+        "/login/telegram/start?next=/meetings",
         follow_redirects=False,
     )
 
     assert response.status_code == 501
     assert "Этот способ входа появится позже" in response.text
     assert "location" not in response.headers
+
+
+def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
+    client.portal.call(_set_workspace_yandex_policy, client, False)
+
+    page = client.get("/login?next=/meetings")
+    assert page.status_code == 200
+    assert "Яндекс ID" not in page.text
+    assert 'action="/login/email/start"' in page.text
+
+    start = client.get("/login/yandex/start?next=/meetings", follow_redirects=False)
+    assert start.status_code == 403
+    assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
+    assert 'action="/login/email/start"' in start.text
+
+
+def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
+    client.portal.call(_set_workspace_vk_policy, client, False)
+
+    page = client.get("/login?next=/meetings")
+    assert page.status_code == 200
+    assert "VK ID" not in page.text
+    assert 'action="/login/email/start"' in page.text
+
+    start = client.get("/login/vk/start?next=/meetings", follow_redirects=False)
+    assert start.status_code == 403
+    assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
+    assert 'action="/login/email/start"' in start.text
 
 
 def test_browser_email_login_start_rejects_unknown_workspace_without_code(client) -> None:

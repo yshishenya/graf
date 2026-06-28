@@ -8,8 +8,8 @@ import XCTest
 final class LowResourcePhysicalDevicePolicyTests: XCTestCase {
     func testRejectsTwoBrainVirtualDevicesAsWorkingDevices() {
         let selection = SelfRoutingGuard().physicalWorkingDeviceSelection(
-            input: device(id: SelfRoutingGuard.microphoneUID, name: "2brain Rec Microphone", direction: .input),
-            output: device(id: SelfRoutingGuard.speakerUID, name: "2brain Rec Speaker", direction: .output)
+            input: device(id: SelfRoutingGuard.microphoneUID, name: "GRAF Microphone", direction: .input),
+            output: device(id: SelfRoutingGuard.speakerUID, name: "GRAF Speaker", direction: .output)
         )
 
         XCTAssertEqual(selection.selectionResult, .rejected)

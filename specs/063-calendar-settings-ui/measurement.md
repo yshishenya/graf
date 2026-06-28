@@ -126,8 +126,8 @@ final usability evidence for the 90% comprehension targets.
 - Result: prompt copy and unavailable-state copy state that manual Record/Stop
   remains available without calendar connection and that disabling prompts does
   not disable manual recording.
-- Evidence: focused macOS calendar/cabinet checks passed `96 tests`; full
-  macOS validation passed `678 tests`; full local CI passed with
-  `862 passed, 4 skipped, 103 warnings` and
+- Evidence: focused macOS calendar/cabinet checks passed `97 tests`; full
+  macOS validation passed `693 tests`; full local CI passed with
+  `968 passed, 4 skipped, 148 warnings` and
   `ci_local_result=pass`.
 - Blockers: needs real participant comprehension check before beta rollout.

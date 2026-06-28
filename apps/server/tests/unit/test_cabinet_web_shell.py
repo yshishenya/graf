@@ -36,6 +36,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_deletion_report_page,
     render_meeting_detail_page,
     render_meeting_list_page,
+    render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
@@ -70,7 +71,7 @@ def _governance() -> GovernanceActionSummary:
         retention=GovernanceActionState(state="planned", label="Retention policy planned", reason="future", destructive=False),
         delete=GovernanceActionState(
             state="planned",
-            label="Delete this meeting everywhere 2brain Rec controls",
+            label="Delete this meeting everywhere GRAF controls",
             reason="future",
             destructive=True,
         ),
@@ -181,7 +182,7 @@ def _review() -> MeetingReviewResponse:
         artifacts=_artifacts(),
         activity=MeetingActivityResponse(meeting_id=item.meeting_id, items=[]),
         notes_action_truth=_notes_truth(),
-        deletion_truth_copy="Files already downloaded or exported are outside 2brain Rec deletion control.",
+        deletion_truth_copy="Files already downloaded or exported are outside GRAF deletion control.",
         assistant=SlotState(state="planned", label="Assistant", reason="future"),
         template=SlotState(state="planned", label="Template", reason="future"),
     )
@@ -224,7 +225,7 @@ def _deletion_report() -> DeletionVerificationReport:
                 artifact_class="post_egress_copy",
                 control_scope=DeletionControlScope.POST_EGRESS,
                 state=DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL,
-                label="Delivered copies are outside 2brain Rec control",
+                label="Delivered copies are outside GRAF control",
                 safe_reason="outside_control",
             )
         ],
@@ -286,6 +287,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
 
     assert "Мои встречи" in page
     assert "Ближайшие" in page
+    assert "Ближайшие встречи появятся после подключения календаря." in page
+    assert 'href="/settings/integrations/calendar"' in page
+    assert "Подключить календари" in page
+    assert "Командный синк" not in page
     assert "Записи встреч" in page
     assert "Новая" in page
     assert "Недавно обновленные" in page
@@ -294,7 +299,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "max-width: min(1120px, calc(100vw - 48px))" in css
     assert "min-height: 46px;" in css
     assert ".meeting-title { display: block; min-width: 0;" in css
-    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 16px minmax(0, 1fr) 28px auto;" in css
+    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;" in css
+    assert ".desktop-embedded .cabinet-list-controls {" in css
+    assert "grid-template-columns: minmax(0, 1fr) 32px;" in css
     assert ":focus-visible" in css
     assert "hero" not in page.lower()
     assert 'data-selection-toolbar' in page
@@ -317,10 +324,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "selectionToggle.indeterminate = rows.length > 0 && !allSelected" in _cabinet_js()
     assert ".row-check {\n  appearance: none;" not in css
     assert ".row-check:checked::after" not in css
-    assert "line-height: 28px;" in css
-    assert ".icon-control {\n  width: 28px;\n  height: 28px;\n  min-height: 28px;" in css
+    assert "line-height: 32px;" in css
+    assert ".icon-control {\n  width: 32px;\n  height: 32px;\n  min-height: 32px;" in css
     assert "padding: 0;" in css
-    assert "width: 12px;" in css
+    assert ".ui-icon {\n  width: 16px;\n  height: 16px;" in css
+    assert ".row-icon .ui-icon { width: 14px; height: 14px; }" in css
     assert "stroke-width: 2;" in css
     assert 'data-icon="audio"' in page
     assert 'data-icon="bookmark"' in page
@@ -364,6 +372,10 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in page
     assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in page
     assert f'src="{CABINET_STATIC_URL}/cabinet.js"' in page
+    assert f'src="{CABINET_STATIC_URL}/graf-wordmark-dark.png"' in page
+    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' not in page
+    assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
+    assert "Бесплатный" not in page
     assert '<body data-surface-mode="standalone_browser">' in page
     assert 'data-icon="audio"' in page
     assert 'fill="none" stroke="currentColor" stroke-width="2"' in page
@@ -416,8 +428,81 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
 def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     css = _cabinet_css()
 
+    assert (
+        ".app-shell.desktop-embedded {\n"
+        "  grid-template-columns: 184px minmax(0, 1fr);\n"
+        "  height: 100vh;\n"
+        "  min-height: 0;\n"
+        "  overflow: hidden;\n"
+        "}"
+    ) in css
     assert ".sidebar {\n  position: sticky;" in css
     assert "  height: 100vh;\n  overflow: hidden;" in css
+    assert (
+        ".desktop-embedded .main,\n"
+        ".desktop-embedded .cabinet-main {\n"
+        "  height: 100vh;\n"
+        "  min-height: 0;\n"
+        "  overflow-y: auto;\n"
+        "}"
+    ) in css
+    assert ".desktop-embedded .main {\n  padding: 22px" in css
+    assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
+
+
+def test_embedded_window_breakpoint_keeps_compact_rail_visible() -> None:
+    css = _cabinet_css()
+
+    assert (
+        "@media (max-width: 980px) {\n"
+        "  .app-shell { grid-template-columns: 1fr; }\n"
+        "  .app-shell.desktop-embedded { grid-template-columns: 52px minmax(0, 1fr); }"
+    ) in css
+    assert ".desktop-embedded .sidebar {\n    display: flex;" in css
+    assert "    width: 52px;" in css
+    assert ".desktop-embedded .sidebar:hover," in css
+    assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
+    assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
+
+
+def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        embedded=True,
+    )
+
+    assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in page
+    assert 'data-cabinet-rail-toggle' in page
+    assert 'aria-controls="cabinet-sidebar"' in page
+    assert 'aria-expanded="false"' in page
+    assert 'data-icon="panel-left-open"' in page
+    assert 'aria-current="page"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' in page
+    for icon in ("search", "calendar-days", "users-round", "list-checks", "activity", "settings"):
+        assert f'data-icon="{icon}"' in page
+
+
+def test_settings_shell_renders_calendar_connection_anchor() -> None:
+    page = render_settings_page()
+
+    assert 'data-active-nav="settings"' in page
+    assert 'id="calendar-connections"' in page
+    assert "Подключить календари" in page
+    assert 'href="/settings/integrations/calendar"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' not in page
+
+
+def test_cabinet_rail_toggle_js_contract() -> None:
+    js = _cabinet_js()
+
+    assert "data-cabinet-rail-toggle" in js
+    assert "is-rail-pinned" in js
+    assert 'event.key === "Escape"' in js
+    assert 'toggle.setAttribute("aria-expanded"' in js
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
@@ -475,8 +560,8 @@ def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
         )
     )
 
-    assert "2brain Rec" in page
-    assert "везде, где ее контролирует 2brain Rec" in page
+    assert "GRAF" in page
+    assert "везде, где ее контролирует GRAF" in page
     assert "Это действие нельзя отменить" in page
     assert "Обсудили запуск кабинета встреч" not in page
     assert "fixture-mediascribe-private-job-id" not in page
@@ -520,7 +605,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Публичные ссылки" in page
     assert "Уже скачанные или экспортированные файлы" in page
     assert 'data-boundary-copy="Files already downloaded' in page
-    assert "Удалить встречу в системах 2brain Rec" in page
+    assert "Удалить встречу в системах GRAF" in page
     assert "Request deletion" not in page
     assert "Запросить удаление" in page
 
@@ -990,7 +1075,7 @@ def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:
     page = render_deletion_report_page("Sensitive customer sync", _deletion_report())
 
     assert "Отчет удаления" in page
-    assert "Файлы под контролем 2brain Rec" in page
+    assert "Файлы под контролем GRAF" in page
     assert "Внешние зависимости" in page
     assert "Ограничения после выгрузки" in page
     assert "Очистка на устройстве" in page

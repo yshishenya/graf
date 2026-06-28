@@ -1,7 +1,7 @@
 import Foundation
 import CShmHelpers
 
-public let kShmName = "/2brain-rec-audio-bridge"
+public let kShmName = "/graf-audio-bridge"
 public let kSharedRingCapacity = 16384
 
 public enum SharedRingPolicy {

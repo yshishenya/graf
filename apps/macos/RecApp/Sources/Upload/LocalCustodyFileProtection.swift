@@ -8,7 +8,7 @@ public enum LocalCustodyFileProtection {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         try apply(to: url)
     }
 
@@ -38,13 +38,13 @@ public enum LocalCustodyFileProtection {
         }
         let protection = attributes[.protectionKey] as? String
         let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
-        return protection == FileProtectionType.complete.rawValue &&
+        return protection == FileProtectionType.completeUntilFirstUserAuthentication.rawValue &&
             permissions == userOnlyPermissions
     }
 
     private static var protectedAttributes: [FileAttributeKey: Any] {
         [
-            .protectionKey: FileProtectionType.complete,
+            .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication,
             .posixPermissions: NSNumber(value: userOnlyPermissions)
         ]
     }

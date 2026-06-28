@@ -64,6 +64,13 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "calendar_reminder_states",
         "calendar_settings_preferences",
         "calendar_audit_events",
+        "support_incidents",
+        "support_incident_rate_limit_buckets",
+        "workspace_invitations",
+        "workspace_quota_policies",
+        "workspace_usage_daily",
+        "user_usage_daily",
+        "admin_audit_events",
     }
 )
 

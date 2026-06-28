@@ -53,12 +53,474 @@
 ### Операции
 - Local validation для `063-calendar-settings-ui` на 2026-06-28: focused server
   calendar settings checks passed `77 passed`; server Ruff passed; focused
-  macOS calendar/cabinet checks passed `96 tests`; full macOS suite passed
-  `678 tests`; forbidden-content scan found only safe `contains_passcode`
+  macOS calendar/cabinet checks passed `97 tests`; full macOS suite passed
+  `693 tests`; forbidden-content scan found only safe `contains_passcode`
   source-code detector references; removed-provider catalog scan found no
-  matches in the calendar feature surface; full local CI passed `862 passed, 4
-  skipped, 103 warnings` with `ci_local_result=pass`.
-  Production deploy/release is not part of 063 implementation closeout.
+  matches in the calendar feature surface; full local CI passed `968 passed, 4
+  skipped, 148 warnings` with `ci_local_result=pass`.
+  Release and production deploy evidence will be recorded by the release
+  closeout after merge.
+
+## [2026.06.28.5] - 2026-06-28
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- В web cabinet sidebar оставлен только логотип `ГРАФ`: убраны отдельная
+  пиктограмма и подпись `Бесплатный план` из верхнего бренд-блока.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.28.4] - 2026-06-28
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- В browser admin UI убран лишний правый logo lockup: основной логотип теперь
+  находится слева в sidebar.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.28.3] - 2026-06-28
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Локальная custody-защита файлов macOS использует устойчивый для macOS режим
+  `completeUntilFirstUserAuthentication` с правами `0600`, чтобы защищенные
+  временные пакеты оставались читаемыми для владельца после записи.
+- Старый `graf-logo.svg` заменен на выбранный `ГРАФ`-брендинг: web/sidebar и
+  admin используют wordmark, а favicon, apple-touch icon и macOS app icon
+  пересобраны из компактной `Ф`-пиктограммы с микрофоном.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.28.2] - 2026-06-28
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Техническая идентичность macOS-приложения переведена на `GRAF`: app bundle
+  `GRAF.app`, bundle id `pro.2brain.graf`, HAL-драйвер `GrafProof.driver`,
+  виртуальные устройства `GRAF Microphone`/`GRAF Speaker` и новые runtime
+  paths/logs/shared-memory names.
+- В web/auth и macOS sidebar добавлен выбранный кириллический wordmark
+  `ГРАФ` из `i-1-cyrillic-mic.png`; подготовлены светлая и темная PNG-версии
+  нужного размера.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.28.1] - 2026-06-28
+
+
+### Добавлено
+- Набор вариантов кириллического `ГРАФ` logo lockup с микрофоном для темной
+  темы browser admin UI.
+
+### Изменено
+- Шапка browser admin UI теперь использует выбранный инвертированный PNG
+  `ГРАФ` вместо текстового wordmark.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.17] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Email-вход, admin shell и macOS предупреждения доочищены под бренд `GRAF`;
+  favicon/app icon остаются пиктограммой, а письмо использует текстовый
+  wordmark без внешних изображений.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.16] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- В шапке browser admin UI теперь показывается wordmark `GRAF` с надписью,
+  без переиспользования обычной app-icon из кабинета.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.15] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Browser admin UI теперь использует основной `2brain Rec` cabinet shell,
+  темную тему, sidebar-навигацию и плотность элементов приложения.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.14] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Видимый бренд macOS-приложения, web-кабинета, писем входа, favicon/app
+  icon и installer copy обновлен на `GRAF`; технические пути, bundle id и
+  virtual audio device names оставлены совместимыми.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.13] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Browser `/admin` без активной сессии теперь ведет на `/login?next=/admin`,
+  а не показывает JSON-ошибку авторизации.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.12] - 2026-06-27
+
+
+### Добавлено
+- Feature `064-workspace-admin-panel`: добавлена browser-owned workspace
+  admin-панель без support/Analyst/billing ролей: обзор, пользователи и
+  приглашения, файлы/встречи, read-only баланс/usage/quotas, продуктовые
+  метрики и metadata-only audit journal.
+- Feature `064-workspace-admin-panel`: добавлены admin API routes под
+  `/api/v1/admin` и отдельный server-rendered `/admin` shell, не завязанный на
+  `cabinet/web.py`.
+
+### Изменено
+- Desktop cabinet route policy открывает `/admin` во внешнем браузере и не
+  встраивает админку в native recorder shell.
+
+### Исправлено
+- Feature `064-workspace-admin-panel`: исправлены admin deletion source/audit
+  path, invite completion RLS для audit event, truthful file unavailable states,
+  file type filtering и role/reason controls в browser admin UI.
+
+### Безопасность
+- Feature `064-workspace-admin-panel`: добавлены RLS-покрытые таблицы
+  `workspace_invitations`, `workspace_quota_policies`,
+  `workspace_usage_daily`, `user_usage_daily`, `admin_audit_events`; Owner/Admin
+  доступ проверяется поверх активного workspace membership.
+- Feature `064-workspace-admin-panel`: sensitive admin actions пишут
+  metadata-only audit evidence; API/HTML тесты запрещают storage keys, signed
+  URLs, transcript/raw audio/private content и secret markers.
+- Feature `064-workspace-admin-panel`: last active Owner нельзя downgrade,
+  block, revoke, deactivate или убрать; Admin может управлять только Members.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Feature `064-workspace-admin-panel`: добавлены focused unit/contract/
+  integration проверки для admin permissions, invitations, RLS inventory,
+  browser UX, workspace access, file governance, usage/quota, metrics/audit и
+  desktop handoff policy.
+
+## [2026.06.27.11] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Страница авторизации сохраняет двухколоночный список способов входа в узком
+  окне браузера, чтобы соответствовать выбранному макету.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.10] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Web-cabinet обновил страницу авторизации: способы входа показываются в
+  компактной двухколоночной сетке, будущие провайдеры отображаются неактивными,
+  а Telegram скрыт с экрана до готовности.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.9] - 2026-06-27
+
+
+### Добавлено
+- Feature `066-vk-id-web-login`: web-cabinet показывает активный вход через
+  VK ID и ведет `/login/vk/start` в существующий provider flow.
+- Feature `066-vk-id-web-login`: web-cabinet добавляет вход через Mail.ru и
+  Одноклассники как VK ID provider hints, без отдельных backend OAuth
+  провайдеров.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- Feature `066-vk-id-web-login`: VK callback обновлен на OAuth VK ID 2.1 с
+  PKCE, `device_id` и серверной проверкой `state` при обмене кода.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Feature `066-vk-id-web-login`: production compose прокидывает
+  `TWOBRAIN_VK_CLIENT_ID` и монтирует `twobrain_vk_client_secret` только в
+  `rec-api`.
+
+## [2026.06.27.8] - 2026-06-27
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Production compose монтирует Yandex OAuth secret file с uid/gid runtime
+  пользователя `rec-api`, чтобы контейнер мог прочитать секрет при smoke.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.7] - 2026-06-27
+
+
+### Добавлено
+- Feature `065-yandex-id-web-login`: web-cabinet теперь показывает активный
+  вход через Яндекс ID и ведет `/login/yandex/start` в реальный provider flow,
+  а не в заглушку `скоро`.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- Feature `065-yandex-id-web-login`: callback `redirect_uri` для провайдеров
+  использует публичный `TWOBRAIN_AUTH_BASE_URL`, когда он настроен, чтобы
+  self-hosted reverse proxy не подставлял внутренний host в OAuth-flow.
+- Feature `065-yandex-id-web-login`: production compose передает Yandex
+  `client_secret` только через Docker secret file и падает на пустом
+  provider-secret файле.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Feature `065-yandex-id-web-login`: production compose прокидывает
+  `TWOBRAIN_YANDEX_CLIENT_ID` и монтирует
+  `twobrain_yandex_client_secret` только в `rec-api`.
+
+## [2026.06.27.6] - 2026-06-27
+
+
+### Добавлено
+- Web-cabinet получил точку входа в настройки календарей: из блока
+  "Ближайшие" можно перейти в секцию подключения календарей.
+
+### Изменено
+- Web-cabinet унифицировал compact action controls: toolbar/list actions
+  используют 32px hit target и lucide-style 16px icons.
+
+### Исправлено
+- Web-cabinet больше не показывает захардкоженные будущие встречи; до
+  подключения календаря отображается честное empty state.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.27.5] - 2026-06-27
+
+
+### Добавлено
+- Feature `061-support-incident-reporting`: в native custody UI добавлено
+  действие `Отправить отчет` для локальных записей, которые больше не могут
+  отправиться автоматически; успешная отправка показывает пользователю номер
+  вида `CUST-*`, а `Скопировать отчет` остается fallback-действием.
+- Feature `061-support-incident-reporting`: backend принимает desktop
+  metadata-only support incidents, сохраняет redacted incident и создает или
+  обновляет deduped private GitHub issue через серверный токен.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Embedded web-cabinet держит левый sidebar неподвижным, а вертикальную
+  прокрутку списка/detail переносит в правую рабочую область.
+- Embedded web-cabinet в оконном режиме больше не сжимает рабочую область до
+  скрытой колонки sidebar на узком breakpoint.
+- Embedded web-cabinet на узком окне показывает compact rail левого меню с
+  lucide-иконками и доступной кнопкой раскрытия, вместо бесследного скрытия
+  навигации.
+
+### Безопасность
+- Feature `061-support-incident-reporting`: support incident payload и GitHub
+  issue body проходят server-side redaction validation; аудио, transcript text,
+  raw local paths, tokens, signed URLs и private meeting content запрещены в
+  payload, storage, logs и evidence.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Feature `061-support-incident-reporting`: одинаковые пользовательские
+  custody-проблемы агрегируются через dedupe key, `affected_count` и bounded
+  safe affected identities, чтобы support/agent разбирал один incident вместо
+  пачки дублей.
 
 ## [2026.06.27.4] - 2026-06-27
 

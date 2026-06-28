@@ -37,8 +37,8 @@ Modes:
   --latest-artifact-directory
       Print the newest completed local recording directory containing
       manifest.json, mic.wav, and incoming.wav. Uses
-      TWO_BRAIN_REC_RECORDINGS_DIR when set; otherwise uses the app's default
-      ~/Library/Application Support/2brain Rec/Recordings directory.
+      GRAF_RECORDINGS_DIR when set; otherwise uses the app's default
+      ~/Library/Application Support/GRAF/Recordings directory.
       When SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME is set to an epoch
       second, older completed directories are ignored.
 
@@ -147,7 +147,7 @@ append_run_header() {
 }
 
 recordings_root() {
-    printf '%s\n' "${TWO_BRAIN_REC_RECORDINGS_DIR:-$HOME/Library/Application Support/2brain Rec/Recordings}"
+    printf '%s\n' "${GRAF_RECORDINGS_DIR:-${TWO_BRAIN_REC_RECORDINGS_DIR:-$HOME/Library/Application Support/GRAF/Recordings}}"
 }
 
 file_mtime() {
@@ -507,7 +507,7 @@ validate_cpu_evaluation_passed() {
     esac
 
     if [ "$max_unexpected_app_process_count" != "0" ]; then
-        printf '%s\n' "$source_label observed an unexpected extra 2brain Rec process: $evaluation"
+        printf '%s\n' "$source_label observed an unexpected extra GRAF process: $evaluation"
         return 1
     fi
 
@@ -816,7 +816,7 @@ self_test_latest_artifact_selection() {
     touch "$partial_dir/manifest.json" "$partial_dir/mic.wav" "$partial_dir"
 
     selected="$(
-        TWO_BRAIN_REC_RECORDINGS_DIR="$temp_root" \
+        GRAF_RECORDINGS_DIR="$temp_root" \
         SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$min_epoch" \
         "$0" --latest-artifact-directory
     )" || fail_invalid "synthetic latest artifact selection did not find fresh complete artifact"
@@ -824,14 +824,14 @@ self_test_latest_artifact_selection() {
     [ "$selected" = "$fresh_dir" ] ||
         fail_invalid "synthetic latest artifact selection chose unexpected directory: $selected"
 
-    TWO_BRAIN_REC_RECORDINGS_DIR="$temp_root" \
+    GRAF_RECORDINGS_DIR="$temp_root" \
     SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$min_epoch" \
     SYSTEM_AUDIO_CAPTURE_PIVOT_NO_APPEND=1 \
         "$0" --validate-latest-artifact >/dev/null ||
         fail_invalid "synthetic latest artifact validation did not validate fresh complete artifact"
 
     future_epoch=$((min_epoch + 3600))
-    if TWO_BRAIN_REC_RECORDINGS_DIR="$temp_root" \
+    if GRAF_RECORDINGS_DIR="$temp_root" \
         SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$future_epoch" \
         "$0" --latest-artifact-directory >/dev/null 2>&1; then
         fail_invalid "synthetic latest artifact selection accepted stale artifacts after future gate epoch"
@@ -1356,8 +1356,8 @@ validate_installer_app_only() {
     stage_sidecars="$build_output.stage-sidecars"
     trap 'rm -f "$build_output" "$failure_file" "$stage_sidecars"' EXIT
 
-    if ! TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 \
-        TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=0 \
+    if ! GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
+        GRAF_INCLUDE_DRIVER_COMPONENT=0 \
         sh "$ROOT_DIR/apps/macos/Installer/Scripts/build-local-installer.sh" >"$build_output" 2>&1; then
         printf '%s\n' "default app-only package build failed" >> "$failure_file"
     fi
@@ -1365,15 +1365,15 @@ validate_installer_app_only() {
     component_dir="$ROOT_DIR/apps/macos/.build/installer/components"
     stage_app_dir="$ROOT_DIR/apps/macos/.build/installer/stage/app"
     distribution="$ROOT_DIR/apps/macos/.build/installer/distribution.xml"
-    package="$ROOT_DIR/apps/macos/.build/installer/2brain-rec-local.pkg"
+    package="$ROOT_DIR/apps/macos/.build/installer/graf-local.pkg"
 
     [ -f "$package" ] || printf '%s\n' "missing local product package" >> "$failure_file"
-    [ -f "$component_dir/2brain-rec-desktop-app.pkg" ] ||
+    [ -f "$component_dir/graf-desktop-app.pkg" ] ||
         printf '%s\n' "missing desktop app component package" >> "$failure_file"
     if find "$component_dir" -maxdepth 1 -type f -name '*audio-driver*.pkg' | grep . >/dev/null 2>&1; then
         printf '%s\n' "audio-driver component package is present in default build" >> "$failure_file"
     fi
-    if [ -f "$distribution" ] && rg -n "audio-driver|2brain-rec-audio-driver" "$distribution" >/dev/null 2>&1; then
+    if [ -f "$distribution" ] && rg -n "audio-driver|graf-audio-driver" "$distribution" >/dev/null 2>&1; then
         printf '%s\n' "distribution.xml contains audio-driver package references" >> "$failure_file"
     fi
     if find "$stage_app_dir" \( -name '._*' -o -name '.DS_Store' \) -print > "$stage_sidecars" &&

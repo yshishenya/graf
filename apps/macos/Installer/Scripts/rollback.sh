@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-HAL_PATH=${2BRAIN_REC_HAL_PATH:-"/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"}
-BACKUP_DIR=${2BRAIN_REC_DRIVER_BACKUP_DIR:-"/var/tmp/2brain-rec-driver-backups"}
-REPORT_PATH=${2BRAIN_REC_ROLLBACK_REPORT:-"/var/tmp/2brain-rec-rollback-report.json"}
+HAL_PATH=${GRAF_HAL_PATH:-"/Library/Audio/Plug-Ins/HAL/GrafProof.driver"}
+BACKUP_DIR=${GRAF_DRIVER_BACKUP_DIR:-"/var/tmp/graf-driver-backups"}
+REPORT_PATH=${GRAF_ROLLBACK_REPORT:-"/var/tmp/graf-rollback-report.json"}
 
 echo "rollback-start"
 
@@ -14,7 +14,7 @@ if [ -d "$HAL_PATH" ]; then
   rm -rf "$HAL_PATH"
 fi
 
-if latest_backup="$(ls -1dt "$BACKUP_DIR"/2brainRecProof.driver.* 2>/dev/null | head -n 1)"; then
+if latest_backup="$(ls -1dt "$BACKUP_DIR"/GrafProof.driver.* 2>/dev/null | head -n 1)"; then
   restore_path="$latest_backup"
   cp -R "$latest_backup" "$HAL_PATH"
 fi

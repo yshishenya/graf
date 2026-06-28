@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT="${TWO_BRAIN_REC_RECORDINGS_DIR:-$HOME/Library/Application Support/2brain Rec/Recordings}"
+ROOT="${GRAF_RECORDINGS_DIR:-${TWO_BRAIN_REC_RECORDINGS_DIR:-$HOME/Library/Application Support/GRAF/Recordings}}"
 MODE="dry-run"
 
 usage() {

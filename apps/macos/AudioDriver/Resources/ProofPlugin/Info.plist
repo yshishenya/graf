@@ -16,13 +16,13 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>2brainRecProof</string>
+  <string>GrafProof</string>
   <key>CFBundleIdentifier</key>
-  <string>pro.2brain.rec.proof.driver</string>
+  <string>pro.2brain.graf.proof.driver</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>2brain Rec Proof Driver</string>
+  <string>GRAF Proof Driver</string>
   <key>CFBundlePackageType</key>
   <string>BNDL</string>
   <key>CFBundleSignature</key>
@@ -42,7 +42,7 @@
   <key>CFPlugInFactories</key>
   <dict>
     <key>7F0B7A5E-0E91-4C6C-B97D-2B5D5E4E7A21</key>
-    <string>TwoBrainRecProofDriverFactory</string>
+    <string>GrafProofDriverFactory</string>
   </dict>
   <key>CFPlugInTypes</key>
   <dict>

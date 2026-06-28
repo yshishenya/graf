@@ -1,6 +1,10 @@
 <main class="auth-page">
   <section class="auth-panel" aria-label="Вход в кабинет">
-    <div class="auth-brand-wordmark">2brain Rec</div>
+    <div class="auth-brand-lockup">
+      <picture class="brand-wordmark brand-wordmark--auth">
+        <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-dark.png" srcset="{{ cabinet_static_url }}/graf-wordmark-dark@2x.png 2x" alt="ГРАФ">
+      </picture>
+    </div>
     <div>
       <h1>Войти в кабинет</h1>
       <div class="auth-subtitle">Используйте корпоративный способ входа или получите одноразовый код на рабочую почту.</div>
@@ -8,18 +12,25 @@
     {% if error_message %}
     <div class="auth-alert" role="alert">{{ error_message }}</div>
     {% endif %}
-    <div class="state-list">
-      <div class="muted">Другие способы входа</div>
-      <div class="auth-actions">
+    <div class="auth-methods">
+      <div class="auth-method-title">Способ входа</div>
+      <div class="auth-actions{% if providers %} auth-provider-grid{% endif %}">
         {% if not workspace_configured %}
         <div class="truth-copy">Кабинет входа не настроен. Проверьте серверные настройки.</div>
         {% elif providers %}
         {% for provider in providers %}
+        {% if provider.active %}
+        <a class="auth-provider" href="{{ provider.href }}">
+          <span class="provider-mark">{{ provider.mark }}</span>
+          <span>{{ provider.label }}</span>
+        </a>
+        {% else %}
         <span class="auth-provider" aria-disabled="true">
           <span class="provider-mark">{{ provider.mark }}</span>
           <span>{{ provider.label }}</span>
           <span class="provider-pill">скоро</span>
         </span>
+        {% endif %}
         {% endfor %}
         {% else %}
         <span class="chip disabled">OAuth позже</span>
@@ -33,7 +44,7 @@
         <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
       </label>
       <input type="hidden" name="next" value="{{ next_path }}">
-      <button class="primary" type="submit">Продолжить</button>
+      <button class="primary" type="submit">Войти</button>
     </form>
     <div class="auth-secondary">
       <a class="mini-link" href="{{ login_sso_href }}" aria-disabled="true">Войти через SSO</a>

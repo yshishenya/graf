@@ -5,21 +5,35 @@
 <nav class="cabinet-sidebar-nav" aria-label="Навигация кабинета">
   {%- for item in items -%}
   {%- set enabled = item.enabled|default(true) -%}
-  <a class="cabinet-sidebar-nav__item{% if item.id == active %} is-selected{% endif %}{% if not enabled %} is-disabled{% endif %}" href="{{ item.href }}" data-state="{{ 'selected' if item.id == active else 'disabled' if not enabled else 'normal' }}"{% if not enabled %} aria-disabled="true"{% endif %}>
+  <a class="cabinet-sidebar-nav__item{% if item.id == active %} is-selected{% endif %}{% if not enabled %} is-disabled{% endif %}" href="{{ item.href }}" data-state="{{ 'selected' if item.id == active else 'disabled' if not enabled else 'normal' }}"{% if item.id == active %} aria-current="page"{% endif %}{% if not enabled %} aria-disabled="true" tabindex="-1"{% endif %}>
     {{ icons.icon(item.icon) }}
-    <span>{{ item.label }}</span>
+    <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
     {%- if item.count is defined and item.count is not none -%}<span class="cabinet-sidebar-nav__count">{{ item.count }}</span>{%- endif -%}
   </a>
   {%- endfor -%}
 </nav>
 {%- endmacro %}
 
-{% macro workspace_header(name, subtitle, initials="2B") -%}
-<header class="cabinet-workspace-header">
-  <span class="cabinet-workspace-header__avatar" aria-hidden="true">{{ initials }}</span>
+{% macro workspace_header(name, subtitle, initials="2B", mark_src=None, wordmark_src=None, wordmark_srcset=None) -%}
+<header class="cabinet-workspace-header{% if wordmark_src and not mark_src %} cabinet-workspace-header--wordmark-only{% endif %}">
+  {%- if mark_src or not wordmark_src -%}
+  <span class="cabinet-workspace-header__avatar" aria-hidden="true">
+    {%- if mark_src -%}
+    <img class="brand-logo" src="{{ mark_src }}" alt="">
+    {%- else -%}
+    {{ initials }}
+    {%- endif -%}
+  </span>
+  {%- endif -%}
   <span class="cabinet-workspace-header__text">
+    {%- if wordmark_src -%}
+    <img class="cabinet-workspace-header__wordmark" src="{{ wordmark_src }}"{% if wordmark_srcset %} srcset="{{ wordmark_srcset }}"{% endif %} alt="{{ name }}">
+    {%- else -%}
     <strong>{{ name }}</strong>
+    {%- endif -%}
+    {%- if subtitle -%}
     <span>{{ subtitle }}</span>
+    {%- endif -%}
   </span>
 </header>
 {%- endmacro %}

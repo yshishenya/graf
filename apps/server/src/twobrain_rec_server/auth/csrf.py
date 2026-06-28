@@ -32,7 +32,7 @@ def require_csrf_token(token: str | None, *, session_id: UUID | None, secret: st
             status=403,
             code="csrf_token_missing",
             title="CSRF token is required",
-            detail="Повторите действие из кабинета 2brain Rec.",
+            detail="Повторите действие из кабинета GRAF.",
         )
     if session_id is None or not secret or not verify_csrf_token(token, session_id=session_id, secret=secret):
         raise ProblemDetail(

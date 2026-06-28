@@ -107,6 +107,48 @@ def test_empty_calendar_credential_key_file_is_unset() -> None:
     assert settings.calendar_credential_key_file is None
 
 
+def test_empty_support_incident_github_token_file_is_unset() -> None:
+    settings = _production_settings(support_incident_github_token_file="")
+
+    assert settings.support_incident_github_token_file is None
+
+
+def test_production_rejects_wrong_support_incident_repo() -> None:
+    with pytest.raises(ValidationError, match="yshishenya/crisp"):
+        _production_settings(support_incident_github_repo="public-triage")
+
+
+def test_production_rejects_empty_support_incident_github_token_file(tmp_path) -> None:
+    token_file = tmp_path / "support-token"
+    token_file.write_text("")
+
+    with pytest.raises(ValidationError, match="GitHub token file"):
+        _production_settings(support_incident_github_token_file=token_file)
+
+
+def test_production_rejects_empty_yandex_client_secret_file(tmp_path) -> None:
+    secret_file = tmp_path / "yandex-client-secret"
+    secret_file.write_text("")
+
+    with pytest.raises(ValidationError, match="yandex_client_secret_file"):
+        _production_settings(yandex_client_secret_file=secret_file)
+
+
+def test_production_rejects_empty_vk_client_secret_file(tmp_path) -> None:
+    secret_file = tmp_path / "vk-client-secret"
+    secret_file.write_text("")
+
+    with pytest.raises(ValidationError, match="vk_client_secret_file"):
+        _production_settings(vk_client_secret_file=secret_file)
+
+
+def test_production_rejects_missing_vk_client_secret_file(tmp_path) -> None:
+    missing = tmp_path / "missing-vk-client-secret"
+
+    with pytest.raises(ValidationError, match="vk_client_secret_file"):
+        _production_settings(vk_client_secret_file=missing)
+
+
 def test_production_reads_runtime_credentials_from_secret_files(tmp_path) -> None:
     postgres_password = tmp_path / "postgres-password"
     minio_access_key = tmp_path / "minio-access-key"

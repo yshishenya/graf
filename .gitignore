@@ -71,6 +71,9 @@ out/
 # Spec Kit workflow run logs
 .specify/workflows/runs/
 
+# Local brainstorming companion runtime
+.superpowers/
+
 # Private reference captures supplied during product audits. These may contain
 # real account names, meeting titles, transcripts, local paths, or screenshots.
 specs/**/reference/private-appshots/

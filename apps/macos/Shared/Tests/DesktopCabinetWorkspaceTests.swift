@@ -327,11 +327,11 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     func testInstalledRuntimeEvidenceUsesApplicationsBundlePath() {
-        let acceptedRuntimePath = "/Applications/2brain Rec.app"
+        let acceptedRuntimePath = "/Applications/GRAF.app"
 
-        XCTAssertEqual(acceptedRuntimePath, "/Applications/2brain Rec.app")
+        XCTAssertEqual(acceptedRuntimePath, "/Applications/GRAF.app")
         XCTAssertFalse(acceptedRuntimePath.hasPrefix("/Users/"))
-        XCTAssertTrue(acceptedRuntimePath.hasSuffix("2brain Rec.app"))
+        XCTAssertTrue(acceptedRuntimePath.hasSuffix("GRAF.app"))
     }
 
     func testConfiguredCabinetDoesNotShowHealthyShellStatusBeforeRuntimeProof() {

@@ -987,7 +987,7 @@ class CabinetNavigationModel:
     active: str
     items: tuple[CabinetNavigationItem, ...]
     workspace_title: str = "Личный"
-    workspace_subtitle: str = "Бесплатный план"
+    workspace_subtitle: str = ""
 
 
 def cabinet_navigation(
@@ -1000,14 +1000,12 @@ def cabinet_navigation(
     return CabinetNavigationModel(
         active=active,
         items=(
-            CabinetNavigationItem("search", "Поиск", "#", "filter", enabled=False),
-            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "audio"),
-            CabinetNavigationItem("shared", "Общие", "#", "bookmark", enabled=False),
-            CabinetNavigationItem(
-                "actions", "Действия", "#", "check", enabled=False, count=pending_actions
-            ),
-            CabinetNavigationItem("activity", "Активность", "#", "sort", enabled=False),
-            CabinetNavigationItem("settings", "Настройки", settings_href, "filter"),
+            CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
+            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
+            CabinetNavigationItem("shared", "Общие", "#", "users-round", enabled=False),
+            CabinetNavigationItem("actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions),
+            CabinetNavigationItem("activity", "Активность", "#", "activity", enabled=False),
+            CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
         ),
     )
 
@@ -1220,8 +1218,8 @@ def governance_summary(
         ),
         delete=GovernanceActionState(
             state="planned",
-            label="Delete this meeting everywhere 2brain Rec controls",
-            reason="Planned; this does not promise deletion outside 2brain Rec control.",
+            label="Delete this meeting everywhere GRAF controls",
+            reason="Planned; this does not promise deletion outside GRAF control.",
             destructive=True,
         ),
     )

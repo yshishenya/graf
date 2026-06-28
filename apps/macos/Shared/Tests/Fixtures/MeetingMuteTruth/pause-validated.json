@@ -23,7 +23,7 @@
     "productPauseSupported": true,
     "meetingAppMuteAdapterSupported": false,
     "firstMatrixStatus": "pause_validated",
-    "releaseClaim": "2brain Pause/Stop keeps local speech out; Telemost/browser mute is unproven"
+    "releaseClaim": "GRAF Pause/Stop keeps local speech out; Telemost/browser mute is unproven"
   },
   "meetingMuteTruthEvidence": [
     {

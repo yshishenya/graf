@@ -100,8 +100,8 @@ final class DiagnosticRedactionTests: XCTestCase {
                 PassthroughBrowserCallEvidence(
                     targetName: "Chrome",
                     targetVersion: "local",
-                    selectedMicrophone: "2brain Rec Microphone",
-                    selectedSpeaker: "2brain Rec Speaker",
+                    selectedMicrophone: "GRAF Microphone",
+                    selectedSpeaker: "GRAF Speaker",
                     localSpeechUsable: true,
                     remoteAudioUsable: true,
                     status: .passed,
@@ -140,8 +140,8 @@ final class DiagnosticRedactionTests: XCTestCase {
             shortSmokeEvidence: [
                 ShortSmokeEvidence(
                     targetApp: "Chrome",
-                    selectedInput: "2brain Rec Microphone",
-                    selectedOutput: "2brain Rec Speaker",
+                    selectedInput: "GRAF Microphone",
+                    selectedOutput: "GRAF Speaker",
                     localSpeechObserved: true,
                     remoteAudioObserved: true,
                     loopbackObserved: false,

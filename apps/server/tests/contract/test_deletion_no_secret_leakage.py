@@ -22,9 +22,9 @@ from twobrain_rec_server.domain.statuses import (
 
 
 def test_deletion_request_requires_bounded_confirmation_copy() -> None:
-    request = CreateDeletionRequest(confirmation_boundary="Delete this meeting everywhere 2brain Rec controls.")
+    request = CreateDeletionRequest(confirmation_boundary="Delete this meeting everywhere GRAF controls.")
 
-    assert request.confirmation_boundary == "Delete this meeting everywhere 2brain Rec controls."
+    assert request.confirmation_boundary == "Delete this meeting everywhere GRAF controls."
 
     with pytest.raises(ValidationError):
         CreateDeletionRequest(confirmation_boundary="Delete this meeting everywhere.")
@@ -38,7 +38,7 @@ def test_deletion_report_schema_serializes_metadata_only_states() -> None:
         meeting_id=meeting_id,
         request_id=request_id,
         overall_state=DeletionState.DELETING,
-        bounded_copy="Delete this meeting everywhere 2brain Rec controls.",
+        bounded_copy="Delete this meeting everywhere GRAF controls.",
         artifact_states=[
             ArtifactDeletionState(
                 artifact_class="audio_object",
@@ -76,14 +76,14 @@ def test_deletion_report_schema_serializes_metadata_only_states() -> None:
                 artifact_class="post_egress_copy",
                 control_scope=DeletionControlScope.POST_EGRESS,
                 state=DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL,
-                label="Outside 2brain Rec control after delivery",
+                label="Outside GRAF control after delivery",
             )
         ],
     )
 
     payload = report.model_dump_json().lower()
 
-    assert "2brain rec controls" in payload
+    assert "graf controls" in payload
     for forbidden in [
         "object_key",
         "signed_url",

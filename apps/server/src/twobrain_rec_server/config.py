@@ -9,6 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
 FORBIDDEN_READINESS_VERDICTS = ("production_ready", "user_rollout_ready", "internal_user_pilot_ready")
 SMOKE_IDENTITY_CLASS = "internal_smoke"
+SUPPORT_INCIDENT_GITHUB_OWNER = "yshishenya"
+SUPPORT_INCIDENT_GITHUB_REPO = "crisp"
 
 LOCAL_DEV_SMOKE_IDS = {
     UUID("10000000-0000-0000-0000-000000000001"),
@@ -49,6 +51,7 @@ class Settings(BaseSettings):
     smoke_credential_file: Path | None = None
     calendar_credential_key_file: Path | None = None
     web_csrf_secret_file: Path | None = None
+    support_incident_github_token_file: Path | None = None
 
     smoke_identity_class: str | None = None
     smoke_organization_id: UUID | None = None
@@ -58,11 +61,16 @@ class Settings(BaseSettings):
     web_login_workspace_id: UUID | None = None
     email_login_delivery_enabled: bool = False
     email_login_from_address: str | None = None
-    email_login_from_name: str = "2brain Rec"
+    email_login_from_name: str = "GRAF"
     postal_api_url: AnyUrl | None = None
     postal_api_key_file: Path | None = None
     postal_host_header: str | None = None
     postal_request_timeout_seconds: PositiveInt = Field(default=10)
+    support_incident_github_owner: str = SUPPORT_INCIDENT_GITHUB_OWNER
+    support_incident_github_repo: str = SUPPORT_INCIDENT_GITHUB_REPO
+    support_incident_github_timeout_seconds: PositiveInt = Field(default=4)
+    support_incident_rate_limit_window_seconds: PositiveInt = Field(default=3600)
+    support_incident_rate_limit_max_attempts: PositiveInt = Field(default=10)
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None
@@ -122,6 +130,7 @@ class Settings(BaseSettings):
         "postal_host_header",
         "calendar_credential_key_file",
         "web_csrf_secret_file",
+        "support_incident_github_token_file",
         mode="before",
     )
     @classmethod
@@ -142,6 +151,7 @@ class Settings(BaseSettings):
             "mediascribe_api_key_file": self.mediascribe_api_key_file,
             "calendar_credential_key_file": self.calendar_credential_key_file,
             "web_csrf_secret_file": self.web_csrf_secret_file,
+            "support_incident_github_token_file": self.support_incident_github_token_file,
         }
         for field_name, path in required_secret_files.items():
             if path is None:
@@ -165,6 +175,16 @@ class Settings(BaseSettings):
             and self.calendar_credential_key_file.read_text(encoding="utf-8").strip() == ""
         ):
             raise ValueError("production calendar credential key file must be non-empty")
+        if (
+            self.support_incident_github_token_file is not None
+            and self.support_incident_github_token_file.read_text(encoding="utf-8").strip() == ""
+        ):
+            raise ValueError("production support incident GitHub token file must be non-empty")
+        if (
+            self.support_incident_github_owner != SUPPORT_INCIDENT_GITHUB_OWNER
+            or self.support_incident_github_repo != SUPPORT_INCIDENT_GITHUB_REPO
+        ):
+            raise ValueError("production support incidents must target yshishenya/crisp")
         if self.email_login_delivery_enabled:
             if self.web_login_workspace_id is None:
                 raise ValueError("production email login delivery requires web_login_workspace_id")
@@ -187,12 +207,18 @@ class Settings(BaseSettings):
             self.minio_secret_key = self.minio_secret_key_file.read_text(encoding="utf-8").strip()
         if self.web_csrf_secret_file is not None:
             self.web_csrf_secret = self.web_csrf_secret_file.read_text(encoding="utf-8").strip()
-        if self.yandex_client_secret_file is not None:
-            _ = self.yandex_client_secret_file.read_text(encoding="utf-8").strip()
-        if self.vk_client_secret_file is not None:
-            _ = self.vk_client_secret_file.read_text(encoding="utf-8").strip()
-        if self.telegram_client_secret_file is not None:
-            _ = self.telegram_client_secret_file.read_text(encoding="utf-8").strip()
+        provider_secret_files = {
+            "yandex_client_secret_file": self.yandex_client_secret_file,
+            "vk_client_secret_file": self.vk_client_secret_file,
+            "telegram_client_secret_file": self.telegram_client_secret_file,
+        }
+        for field_name, path in provider_secret_files.items():
+            if path is None:
+                continue
+            if not path.is_file():
+                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}")
+            if path.read_text(encoding="utf-8").strip() == "":
+                raise ValueError(f"production auth provider secret file must be non-empty: {field_name}")
         placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
         insecure_client_ids = {
             self.yandex_client_id.lower(),

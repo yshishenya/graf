@@ -1,4 +1,4 @@
-# 2brain Rec macOS Installer
+# GRAF macOS Installer
 
 This directory owns the local macOS installer package and recovery scripts.
 
@@ -20,22 +20,22 @@ Use the native Apple `pkgbuild`/`productbuild` flow for local development:
 sudo DevToolsSecurity -enable
 spctl developer-mode enable-terminal
 sh apps/macos/Installer/Scripts/build-local-installer.sh
-open apps/macos/.build/installer/2brain-rec-local.pkg
+open apps/macos/.build/installer/graf-local.pkg
 ```
 
 By default, the script builds:
 
-- the local SwiftUI app bundle at `apps/macos/RecApp/.build/2brain Rec.app`;
+- the local SwiftUI app bundle at `apps/macos/RecApp/.build/GRAF.app`;
 - a desktop-app component package;
-- an interactive product installer at `apps/macos/.build/installer/2brain-rec-local.pkg`.
+- an interactive product installer at `apps/macos/.build/installer/graf-local.pkg`.
 
 The app bundle and package version use the product CalVer release train without
-the git tag prefix: `YYYY.MM.DD.N`. When `TWO_BRAIN_REC_VERSION` is not set, the
-script selects the next same-day CalVer counter from `CHANGELOG.md`. For a
-deliberate release candidate, pass the exact version explicitly:
+the git tag prefix: `YYYY.MM.DD.N`. When `GRAF_VERSION` is not set, the script
+selects the next same-day CalVer counter from `CHANGELOG.md`. For a deliberate
+release candidate, pass the exact version explicitly:
 
 ```sh
-TWO_BRAIN_REC_VERSION=YYYY.MM.DD.N \
+GRAF_VERSION=YYYY.MM.DD.N \
   sh apps/macos/Installer/Scripts/build-local-installer.sh
 ```
 
@@ -48,14 +48,14 @@ restart `coreaudiod`. This is intentional for the system-audio MVP pivot.
 After installing, verify the local result with:
 
 ```sh
-open "/Applications/2brain Rec.app"
+open "/Applications/GRAF.app"
 ```
 
 To build the parked driver diagnostics package explicitly, opt in:
 
 ```sh
-TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=1 \
-  TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART=1 \
+GRAF_INCLUDE_DRIVER_COMPONENT=1 \
+  GRAF_ALLOW_COREAUDIOD_RESTART=1 \
   sh apps/macos/Installer/Scripts/build-local-installer.sh
 ```
 
@@ -81,20 +81,22 @@ security find-identity -v -p codesigning
 Then build with:
 
 ```sh
-TWO_BRAIN_REC_APP_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
+GRAF_APP_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
   sh apps/macos/Installer/Scripts/build-local-installer.sh
 ```
 
 For packaging-only tests on locked-down hosts, use:
 
 ```sh
-TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 \
+GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
   sh apps/macos/Installer/Scripts/build-local-installer.sh
 ```
 
-Do not run `packagesbuild` on `Packages/2brain-rec.pkgproj`. That file is not
-a Packages.app project in the format expected by the `packagesbuild` CLI. The
-working local path is `Scripts/build-local-installer.sh`.
+Legacy `TWO_BRAIN_REC_*` environment names are still accepted as fallbacks for
+older local runbooks, but new commands should use `GRAF_*`.
+
+Do not run `packagesbuild` for the local installer path. The working local
+path is `Scripts/build-local-installer.sh`.
 
 ## Signing Policy
 

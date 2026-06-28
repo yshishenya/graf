@@ -42,6 +42,24 @@ def test_cabinet_static_assets_do_not_reference_runtime_cdns_or_build_outputs() 
         assert not [marker for marker in forbidden if marker in content]
 
 
+def test_cabinet_brand_assets_are_local_and_nonempty() -> None:
+    for filename in [
+        "graf-icon.png",
+        "graf-icon@2x.png",
+        "favicon.ico",
+        "favicon-16.png",
+        "favicon-32.png",
+        "apple-touch-icon.png",
+        "graf-wordmark-dark.png",
+        "graf-wordmark-dark@2x.png",
+        "graf-wordmark-light.png",
+        "graf-wordmark-light@2x.png",
+    ]:
+        path = STATIC_DIR / filename
+        assert path.is_file()
+        assert path.stat().st_size > 0
+
+
 def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 

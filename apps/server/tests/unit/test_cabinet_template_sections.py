@@ -16,7 +16,7 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
         {{ sections.selection_toolbar(2, 5, destructive_enabled=True) }}
         {{ sections.playback_controls("Запись встречи", available=True, duration="12:40") }}
         {{ sections.detail_side_panel("Доступ", "Только безопасные сведения") }}
-        {{ sections.confirmation_dialog("Удалить запись?", "Действие ограничено 2brain Rec") }}
+        {{ sections.confirmation_dialog("Удалить запись?", "Действие ограничено GRAF") }}
         {{ sections.status_banner("Готово", "Запись доступна", "normal") }}
         {{ sections.empty_state("Нет записей", "Создайте первую запись") }}
         {{ sections.unavailable_state("Сервер недоступен", "Запись остается локальной") }}

@@ -7,15 +7,15 @@ constexpr VirtualDeviceDescriptor kDevices[] = {
     {
         kMicrophoneDeviceObjectID,
         kMicrophoneStreamObjectID,
-        "2brain Rec Microphone",
-        "pro.2brain.rec.microphone",
+        "GRAF Microphone",
+        "pro.2brain.graf.microphone",
         true
     },
     {
         kSpeakerDeviceObjectID,
         kSpeakerStreamObjectID,
-        "2brain Rec Speaker",
-        "pro.2brain.rec.speaker",
+        "GRAF Speaker",
+        "pro.2brain.graf.speaker",
         false
     }
 };
@@ -122,21 +122,21 @@ const char* VirtualDeviceName(AudioObjectID device_id) {
     if (const auto* device = FindVirtualDevice(device_id)) {
         return device->display_name;
     }
-    return "2brain Rec Unknown Device";
+    return "GRAF Unknown Device";
 }
 
 const char* VirtualDeviceUID(AudioObjectID device_id) {
     if (const auto* device = FindVirtualDevice(device_id)) {
         return device->uid;
     }
-    return "pro.2brain.rec.unknown";
+    return "pro.2brain.graf.unknown";
 }
 
 const char* VirtualStreamName(AudioObjectID stream_id) {
     if (const auto* stream = FindVirtualStream(stream_id)) {
-        return stream->is_input ? "2brain Rec Microphone Stream" : "2brain Rec Speaker Stream";
+        return stream->is_input ? "GRAF Microphone Stream" : "GRAF Speaker Stream";
     }
-    return "2brain Rec Unknown Stream";
+    return "GRAF Unknown Stream";
 }
 
 }  // namespace TwoBrainRec::AudioDriver

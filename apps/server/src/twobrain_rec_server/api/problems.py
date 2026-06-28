@@ -42,6 +42,12 @@ def problem_response(problem: ProblemDetail, request: Request | None = None) -> 
     body["retry_class"] = problem.retry_class or defaults["retry_class"]
     body["normal_user_action"] = problem.normal_user_action or defaults["normal_user_action"]
     body["metadata_safety"] = problem.metadata_safety or defaults["metadata_safety"]
+    body["custody"] = {
+        "owner": body["custody_owner"],
+        "retry_class": body["retry_class"],
+        "normal_user_action": body["normal_user_action"],
+        "metadata_safety": body["metadata_safety"],
+    }
     if request is not None:
         body["request_id"] = getattr(request.state, "request_id", None)
     return JSONResponse(
@@ -161,11 +167,23 @@ def _is_browser_cabinet_path(path: str) -> bool:
     )
 
 
+def _is_browser_admin_path(path: str) -> bool:
+    return path == "/admin" or path.startswith("/admin/")
+
+
 def _wants_html(request: Request) -> bool:
     return "text/html" in request.headers.get("accept", "").lower()
 
 
 async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSONResponse | RedirectResponse:
+    if exc.status == 401 and _is_browser_admin_path(request.url.path):
+        next_path = request.url.path
+        if request.url.query:
+            next_path = f"{next_path}?{request.url.query}"
+        return RedirectResponse(
+            "/login?" + urlencode({"next": next_path, "error": exc.code}),
+            status_code=303,
+        )
     if exc.status in {401, 403} and _is_browser_cabinet_path(request.url.path) and _wants_html(request):
         next_path = request.url.path
         if request.url.query:

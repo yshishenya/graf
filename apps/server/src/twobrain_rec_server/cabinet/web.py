@@ -6,10 +6,11 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.auth import build_provider_callback_url
 from twobrain_rec_server.api.calendar import _credential_key as calendar_credential_key
 from twobrain_rec_server.api.ingest import get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -30,9 +31,10 @@ from twobrain_rec_server.auth.dependencies import (
     set_desktop_calendar_auth_cookie,
 )
 from twobrain_rec_server.auth.policy import read_auth_providers
-from twobrain_rec_server.auth.providers import build_provider_registry
+from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.sessions import (
     callback_expiry,
+    create_callback_state,
     hash_token,
     issue_auth_session,
 )
@@ -58,10 +60,12 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_detail_page,
     render_meeting_list_fragment,
     render_meeting_list_page,
+    render_settings_page,
     render_signup_page,
 )
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
+    cabinet_static_dir,
 )
 from twobrain_rec_server.cabinet.view_models import CALENDAR_PROVIDER_UI
 from twobrain_rec_server.calendar.audit import write_calendar_audit_event
@@ -116,6 +120,7 @@ LoginWorkspaceQuery = Query(default=None)
 LoginNextQuery = Query(default="/meetings", alias="next", max_length=512)
 LoginErrorQuery = Query(default=None, max_length=120)
 SignupModeQuery = Query(default=None, max_length=32, alias="mode")
+LoginAuthProviderQuery = Query(default=None, alias="auth_provider", max_length=32)
 LoginEmailForm = Form(..., max_length=240)
 LoginCodeForm = Form(..., max_length=32)
 LoginStateForm = Form(..., max_length=160)
@@ -134,10 +139,20 @@ def _is_hx_request(request: Request) -> bool:
 
 
 @router.get("/favicon.ico", include_in_schema=False)
+async def browser_favicon() -> FileResponse:
+    return FileResponse(
+        f"{cabinet_static_dir()}/favicon.ico",
+        media_type="image/x-icon",
+    )
+
+
 @router.get("/apple-touch-icon.png", include_in_schema=False)
 @router.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
-async def browser_icon_probe() -> Response:
-    return Response(status_code=204)
+async def browser_apple_touch_icon() -> FileResponse:
+    return FileResponse(
+        f"{cabinet_static_dir()}/apple-touch-icon.png",
+        media_type="image/png",
+    )
 
 
 async def get_web_request_db_session(
@@ -557,9 +572,9 @@ async def browser_login_provider_start(
     request: Request,
     workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
+    auth_provider: str | None = LoginAuthProviderQuery,
     db: AsyncSession | None = LoginDbDependency,
-) -> HTMLResponse:
-    _ = provider
+) -> HTMLResponse | RedirectResponse:
     safe_next = _safe_browser_next_path(next_path)
     resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
     if resolved_workspace_id is None:
@@ -572,21 +587,106 @@ async def browser_login_provider_start(
             ),
             status_code=400,
         )
+    normalized_provider = provider.strip().lower()
+    if normalized_provider not in {"yandex", "vk"}:
+        providers = []
+        if db is not None:
+            try:
+                providers = await _load_browser_login_providers(db, resolved_workspace_id)
+            except ProblemDetail:
+                providers = []
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=providers,
+                next_path=safe_next,
+                error="provider_future",
+            ),
+            status_code=501,
+        )
+    if db is None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="auth_dependency_unavailable",
+            ),
+            status_code=503,
+        )
     providers = []
-    if db is not None:
-        try:
-            providers = await _load_browser_login_providers(db, resolved_workspace_id)
-        except ProblemDetail:
-            providers = []
-    return HTMLResponse(
-        render_login_page(
-            workspace_id=resolved_workspace_id,
-            providers=providers,
-            next_path=safe_next,
-            error="provider_future",
-        ),
-        status_code=501,
+    try:
+        await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=resolved_workspace_id))
+        adapter = get_provider_adapter(normalized_provider)
+        snapshot = await read_auth_providers(
+            db,
+            resolved_workspace_id,
+            adapters=build_provider_registry(),
+            persist_defaults=True,
+        )
+        providers = list(snapshot.providers)
+        provider_policy = next((entry for entry in snapshot.providers if entry.provider == normalized_provider), None)
+        if provider_policy is None or not provider_policy.enabled:
+            await write_auth_audit_event(
+                db,
+                workspace_id=resolved_workspace_id,
+                event_type="provider_auth_started",
+                actor_ip=request.client.host if request.client else None,
+                provider=normalized_provider,
+                outcome="failure",
+                metadata={"error_code": "provider_disabled"},
+                request_id=getattr(request.state, "request_id", None),
+            )
+            await db.commit()
+            return HTMLResponse(
+                render_login_page(
+                    workspace_id=resolved_workspace_id,
+                    providers=providers,
+                    next_path=safe_next,
+                    error="provider_disabled",
+                ),
+                status_code=403,
+            )
+    except ValueError:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=providers,
+                next_path=safe_next,
+                error="provider_missing",
+            ),
+            status_code=403,
+        )
+    state = create_callback_state(
+        db,
+        provider=normalized_provider,
+        workspace_id=resolved_workspace_id,
+        requested_redirect=safe_next,
+        ttl_seconds=request.app.state.settings.auth_callback_state_ttl_seconds,
     )
+    settings = request.app.state.settings
+    callback_url = build_provider_callback_url(request, normalized_provider)
+    client_secret = _provider_client_secret(settings, normalized_provider)
+    authorization_url = adapter.build_authorization_url(
+        client_id=getattr(settings, f"{normalized_provider}_client_id"),
+        client_secret=client_secret,
+        redirect_uri=callback_url,
+        state=state.state_nonce,
+        return_url=safe_next,
+        workspace_id=str(resolved_workspace_id),
+        auth_provider=_safe_vk_auth_provider(auth_provider) if normalized_provider == "vk" else None,
+    )
+    await write_auth_audit_event(
+        db,
+        workspace_id=resolved_workspace_id,
+        event_type="provider_auth_started",
+        actor_ip=request.client.host if request.client else None,
+        provider=normalized_provider,
+        metadata={"state_nonce": state.state_nonce},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await db.commit()
+    return RedirectResponse(authorization_url, status_code=303)
 
 
 @router.get("/meetings", response_class=HTMLResponse, include_in_schema=False)
@@ -692,6 +792,19 @@ async def calendar_settings_page(
     return cabinet_html_response(
         render_calendar_settings_page(
             surface,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
+
+
+@router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
+async def settings_page(
+    request: Request,
+    _tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+) -> HTMLResponse:
+    return cabinet_html_response(
+        render_settings_page(
             csrf_token=_csrf_token_for_principal(request, principal),
         )
     )
@@ -1187,6 +1300,20 @@ async def embedded_calendar_settings_page(
         tenant_scope=tenant_scope,
     )
     return response
+
+
+@router.get("/desktop/settings", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_settings_page(
+    request: Request,
+    _tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+) -> HTMLResponse:
+    return cabinet_html_response(
+        render_settings_page(
+            embedded=True,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    )
 
 
 @router.get(
@@ -1921,6 +2048,21 @@ def _issue_email_login_code() -> str:
 
 def _normalize_email_code(value: str) -> str:
     return "".join(char for char in value.strip() if char.isdigit())
+
+
+def _safe_vk_auth_provider(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in {"vkid", "mail_ru", "ok_ru"} else None
+
+
+def _provider_client_secret(settings, provider: str) -> str | None:
+    path = getattr(settings, f"{provider}_client_secret_file", None)
+    if path is None:
+        return None
+    try:
+        return path.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
 
 
 def _should_echo_email_code(request: Request) -> bool:

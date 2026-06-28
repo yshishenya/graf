@@ -151,7 +151,7 @@ Focused macOS validation:
 swift test --package-path apps/macos --disable-swift-testing --filter 'Calendar|Cabinet|DesktopCalendarReminder'
 ```
 
-Result: `96 tests, 0 failures`.
+Result: `97 tests, 0 failures`.
 
 Full macOS validation:
 
@@ -159,7 +159,7 @@ Full macOS validation:
 swift test --package-path apps/macos
 ```
 
-Result: `678 tests, 0 failures`.
+Result: `693 tests, 0 failures`.
 
 Forbidden-content scan:
 
@@ -196,7 +196,7 @@ Full high-risk local gate:
 infra/scripts/ci-local.sh
 ```
 
-Result: `ci_local_result=pass`; server tests `862 passed, 4 skipped,
-103 warnings`; server lint passed; Python compile passed; production compose
+Result: `ci_local_result=pass`; server tests `968 passed, 4 skipped,
+148 warnings`; server lint passed; Python compile passed; production compose
 config rendered; deployment evidence scan passed. RLS validation remains a
 local `postgres_test` boundary with `live_production_enforcement=not_inspected`.

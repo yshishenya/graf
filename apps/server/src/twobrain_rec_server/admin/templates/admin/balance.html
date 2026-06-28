@@ -1,0 +1,57 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-panel">
+    <h2>Использование</h2>
+    <form class="admin-toolbar" method="get" action="/admin/balance">
+      <label>С даты
+        <input name="date_from" type="date" value="{{ view.usage.totals.date_window['from'] or '' }}">
+      </label>
+      <label>По дату
+        <input name="date_to" type="date" value="{{ view.usage.totals.date_window['to'] or '' }}">
+      </label>
+      <button type="submit">Применить</button>
+    </form>
+    <dl class="admin-metrics">
+      <div><dt>Минуты записи</dt><dd>{{ view.usage.totals.recording_minutes }}</dd></div>
+      <div><dt>Хранилище, байт</dt><dd>{{ view.usage.totals.storage_bytes }}</dd></div>
+      <div><dt>Задачи обработки</dt><dd>{{ view.usage.totals.processing_jobs }}</dd></div>
+      <div><dt>Свежесть</dt><dd>{{ view.usage.totals.freshness }}</dd></div>
+      <div><dt>Окно дат</dt><dd>{{ view.usage.totals.date_window['from'] or "нет данных" }} - {{ view.usage.totals.date_window['to'] or "нет данных" }}</dd></div>
+    </dl>
+  </section>
+  <section class="admin-panel">
+    <h2>Лимиты</h2>
+    <dl class="admin-metrics">
+      <div><dt>Статус</dt><dd>{{ view.usage.policy.status }}</dd></div>
+      <div><dt>Минуты</dt><dd>{{ view.usage.quota_risk.recording_minutes }}</dd></div>
+      <div><dt>Хранилище</dt><dd>{{ view.usage.quota_risk.storage_bytes }}</dd></div>
+      <div><dt>Обработка</dt><dd>{{ view.usage.quota_risk.processing_jobs }}</dd></div>
+    </dl>
+  </section>
+  <section class="admin-panel">
+    <h2>Топ потребителей</h2>
+    {% if view.usage.top_consumers %}
+      <table class="admin-table">
+        <thead><tr><th>Пользователь</th><th>Минуты</th><th>Хранилище</th><th>Обработка</th><th>Файлы</th></tr></thead>
+        <tbody>
+          {% for consumer in view.usage.top_consumers %}
+            <tr>
+              <td><a href="/admin/users/{{ consumer.user_id }}">{{ consumer.user_id }}</a></td>
+              <td>{{ consumer.recording_minutes }}</td>
+              <td>{{ consumer.storage_bytes }}</td>
+              <td>{{ consumer.processing_jobs }}</td>
+              <td>{{ consumer.file_count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="admin-empty">Нет usage rows за выбранный период.</p>
+    {% endif %}
+  </section>
+{% endblock %}

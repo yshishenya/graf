@@ -213,7 +213,7 @@ class SmokeEvidenceRecord(BaseModel):
 
     def safe_markdown(self) -> str:
         lines = [
-            "# 2brain Rec Infrastructure Smoke Evidence",
+            "# GRAF Infrastructure Smoke Evidence",
             "",
             f"- run_id: `{self.run_id}`",
             f"- date: `{self.date}`",

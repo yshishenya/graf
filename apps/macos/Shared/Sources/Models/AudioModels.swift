@@ -194,7 +194,7 @@ public struct MicrophonePassthroughPath: Codable, Equatable, Sendable {
     public init(
         physicalInputId: String,
         physicalInputName: String,
-        virtualInputName: String = "2brain Rec Microphone",
+        virtualInputName: String = "GRAF Microphone",
         status: LivePassthroughStatus,
         validFrameObserved: Bool,
         lastFrameAt: Date? = nil,
@@ -220,7 +220,7 @@ public struct SpeakerPassthroughPath: Codable, Equatable, Sendable {
     public var failureReason: PassthroughFailureReason
 
     public init(
-        virtualOutputName: String = "2brain Rec Speaker",
+        virtualOutputName: String = "GRAF Speaker",
         physicalOutputId: String,
         physicalOutputName: String,
         status: LivePassthroughStatus,
@@ -344,7 +344,7 @@ public struct MicrophonePathEvidence: Codable, Equatable, Sendable {
     public init(
         selectedPhysicalDeviceId: String,
         selectedPhysicalDeviceName: String,
-        virtualMicrophoneName: String = "2brain Rec Microphone",
+        virtualMicrophoneName: String = "GRAF Microphone",
         status: RouteEvidenceStatus,
         validFrameCount: UInt64,
         emptyBufferCount: UInt64,
@@ -381,7 +381,7 @@ public struct SpeakerPathEvidence: Codable, Equatable, Sendable {
     public init(
         selectedPhysicalOutputId: String,
         selectedPhysicalOutputName: String,
-        virtualSpeakerName: String = "2brain Rec Speaker",
+        virtualSpeakerName: String = "GRAF Speaker",
         status: RouteEvidenceStatus,
         stimulusObserved: Bool,
         validFrameCount: UInt64,
@@ -1822,6 +1822,138 @@ public struct RetentionDecision: Codable, Equatable, Sendable {
     }
 }
 
+public enum DesktopSupportIncidentSubmissionStatus: String, Codable, CaseIterable, Sendable {
+    case notSent = "not_sent"
+    case sending
+    case sent
+    case failedWithCopyFallback = "failed_with_copy_fallback"
+    case unavailable
+}
+
+public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendable {
+    public var state: DesktopSupportIncidentSubmissionStatus
+    public var localReportFingerprint: String?
+    public var dedupeKey: String?
+    public var incidentNumber: String?
+    public var githubIssueNumber: Int?
+    public var lastSubmissionAttemptAt: Date?
+    public var lastFailureCategory: String?
+    public var lastFailureCode: String?
+    public var copyFallbackAvailable: Bool
+    public var accessibilityLabel: String
+
+    public init(
+        state: DesktopSupportIncidentSubmissionStatus,
+        localReportFingerprint: String? = nil,
+        dedupeKey: String? = nil,
+        incidentNumber: String? = nil,
+        githubIssueNumber: Int? = nil,
+        lastSubmissionAttemptAt: Date? = nil,
+        lastFailureCategory: String? = nil,
+        lastFailureCode: String? = nil,
+        copyFallbackAvailable: Bool = true,
+        accessibilityLabel: String? = nil
+    ) {
+        self.state = state
+        self.localReportFingerprint = localReportFingerprint
+        self.dedupeKey = dedupeKey
+        self.incidentNumber = incidentNumber
+        self.githubIssueNumber = githubIssueNumber
+        self.lastSubmissionAttemptAt = lastSubmissionAttemptAt
+        self.lastFailureCategory = lastFailureCategory
+        self.lastFailureCode = lastFailureCode
+        self.copyFallbackAvailable = copyFallbackAvailable
+        self.accessibilityLabel = accessibilityLabel ?? Self.defaultAccessibilityLabel(
+            state: state,
+            incidentNumber: incidentNumber,
+            copyFallbackAvailable: copyFallbackAvailable
+        )
+    }
+
+    public static func sending(
+        reportFingerprint: String,
+        dedupeKey: String,
+        attemptedAt: Date
+    ) -> DesktopSupportIncidentSubmissionState {
+        DesktopSupportIncidentSubmissionState(
+            state: .sending,
+            localReportFingerprint: reportFingerprint,
+            dedupeKey: dedupeKey,
+            lastSubmissionAttemptAt: attemptedAt,
+            accessibilityLabel: "Отправляем отчет разработчикам."
+        )
+    }
+
+    public static func sent(
+        reportFingerprint: String,
+        dedupeKey: String,
+        incidentNumber: String,
+        githubIssueNumber: Int,
+        attemptedAt: Date,
+        copyFallbackAvailable: Bool
+    ) -> DesktopSupportIncidentSubmissionState {
+        DesktopSupportIncidentSubmissionState(
+            state: .sent,
+            localReportFingerprint: reportFingerprint,
+            dedupeKey: dedupeKey,
+            incidentNumber: incidentNumber,
+            githubIssueNumber: githubIssueNumber,
+            lastSubmissionAttemptAt: attemptedAt,
+            copyFallbackAvailable: copyFallbackAvailable,
+            accessibilityLabel: "Отчет отправлен. Мы разберемся. Номер: \(incidentNumber)."
+        )
+    }
+
+    public static func failedWithCopyFallback(
+        reportFingerprint: String,
+        dedupeKey: String,
+        attemptedAt: Date,
+        failureCategory: String,
+        failureCode: String
+    ) -> DesktopSupportIncidentSubmissionState {
+        DesktopSupportIncidentSubmissionState(
+            state: .failedWithCopyFallback,
+            localReportFingerprint: reportFingerprint,
+            dedupeKey: dedupeKey,
+            lastSubmissionAttemptAt: attemptedAt,
+            lastFailureCategory: failureCategory,
+            lastFailureCode: failureCode,
+            copyFallbackAvailable: true,
+            accessibilityLabel: "Не удалось отправить отчет. Скопируйте отчет и отправьте в поддержку."
+        )
+    }
+
+    public static func unavailable(attemptedAt: Date) -> DesktopSupportIncidentSubmissionState {
+        DesktopSupportIncidentSubmissionState(
+            state: .unavailable,
+            lastSubmissionAttemptAt: attemptedAt,
+            copyFallbackAvailable: false,
+            accessibilityLabel: "Отчет сейчас недоступен."
+        )
+    }
+
+    private static func defaultAccessibilityLabel(
+        state: DesktopSupportIncidentSubmissionStatus,
+        incidentNumber: String?,
+        copyFallbackAvailable: Bool
+    ) -> String {
+        switch state {
+        case .notSent:
+            return "Отчет еще не отправлен."
+        case .sending:
+            return "Отправляем отчет разработчикам."
+        case .sent:
+            return "Отчет отправлен. Мы разберемся. Номер: \(incidentNumber ?? "неизвестен")."
+        case .failedWithCopyFallback:
+            return copyFallbackAvailable
+                ? "Не удалось отправить отчет. Скопируйте отчет и отправьте в поддержку."
+                : "Не удалось отправить отчет."
+        case .unavailable:
+            return "Отчет сейчас недоступен."
+        }
+    }
+}
+
 public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var sessionId: String
@@ -1852,6 +1984,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var serverTruth: ServerTruthFingerprint
     public var retryRecords: [RetryRecord]
     public var retentionDecision: RetentionDecision
+    public var supportIncidentSubmission: DesktopSupportIncidentSubmissionState?
 
     public init(
         id: String,
@@ -1882,7 +2015,8 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         artifactProfile: ArtifactCompletenessProfile,
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         retryRecords: [RetryRecord] = [],
-        retentionDecision: RetentionDecision
+        retentionDecision: RetentionDecision,
+        supportIncidentSubmission: DesktopSupportIncidentSubmissionState? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -1913,6 +2047,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.serverTruth = serverTruth
         self.retryRecords = retryRecords
         self.retentionDecision = retentionDecision
+        self.supportIncidentSubmission = supportIncidentSubmission
     }
 
     public var progressFraction: Double {
@@ -2009,6 +2144,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case serverTruth
         case retryRecords
         case retentionDecision
+        case supportIncidentSubmission
     }
 
     public init(from decoder: Decoder) throws {
@@ -2044,7 +2180,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             artifactProfile: try container.decode(ArtifactCompletenessProfile.self, forKey: .artifactProfile),
             serverTruth: serverTruth,
             retryRecords: try container.decodeIfPresent([RetryRecord].self, forKey: .retryRecords) ?? [],
-            retentionDecision: try container.decode(RetentionDecision.self, forKey: .retentionDecision)
+            retentionDecision: try container.decode(RetentionDecision.self, forKey: .retentionDecision),
+            supportIncidentSubmission: try container.decodeIfPresent(
+                DesktopSupportIncidentSubmissionState.self,
+                forKey: .supportIncidentSubmission
+            )
         )
     }
 }

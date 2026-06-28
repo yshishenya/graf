@@ -5,6 +5,8 @@ import TwoBrainRecShared
 public protocol DesktopUploadClientProtocol: Sendable {
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
     func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult
+    func supportIncidentContext() -> DesktopSupportIncidentReportContext
+    func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
     func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask]
     func acknowledgeLocalPurgeTask(
         _ task: DesktopLocalPurgeTask,
@@ -17,6 +19,14 @@ public protocol DesktopUploadClientProtocol: Sendable {
 public extension DesktopUploadClientProtocol {
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
         nil
+    }
+
+    func supportIncidentContext() -> DesktopSupportIncidentReportContext {
+        .unknown
+    }
+
+    func submitSupportIncident(report _: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
+        throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
     }
 }
 
@@ -227,13 +237,20 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
 
 public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let defaultPartSizeBytes = 1024 * 1024 * 1024
-    public static let baseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
-    public static let fallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
-    public static let baseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
-    public static let fallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let baseURLEnvironmentKey = "GRAF_UPLOAD_BASE_URL"
+    public static let fallbackBaseURLEnvironmentKey = "GRAF_CABINET_BASE_URL"
+    public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let legacyFallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let baseURLUserDefaultsKey = "GRAF_UPLOAD_BASE_URL"
+    public static let fallbackBaseURLUserDefaultsKey = "GRAF_CABINET_BASE_URL"
+    public static let legacyBaseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let legacyFallbackBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
     public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
-    public static let uploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
+    public static let uploadBearerTokenEnvironmentKey = "GRAF_UPLOAD_BEARER_TOKEN"
+    public static let legacyUploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
+    public static let supportIncidentPath = "/api/v1/desktop/support-incidents"
+    public static let supportIncidentTimeoutSeconds: TimeInterval = 5
 
     private let baseURL: URL
     private let headers: [String: String]
@@ -292,21 +309,28 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     public static func configuredHeaders(from environment: [String: String]) -> [String: String] {
         var headers: [String: String] = [
-            "X-Client-Version": environment["TWO_BRAIN_REC_CLIENT_VERSION"] ?? "local-macos"
+            "X-Client-Version": firstEnvironmentValue(
+                from: environment,
+                keys: ["GRAF_CLIENT_VERSION", "TWO_BRAIN_REC_CLIENT_VERSION"]
+            ) ?? "local-macos"
         ]
         let headerEnvironmentKeys: [(String, String)] = [
-            ("TWO_BRAIN_REC_USER_ID", "X-User-Id"),
-            ("TWO_BRAIN_REC_ORGANIZATION_ID", "X-Organization-Id"),
-            ("TWO_BRAIN_REC_WORKSPACE_ID", "X-Workspace-Id"),
-            ("TWO_BRAIN_REC_DEVICE_ID", "X-Device-Id")
+            ("GRAF_USER_ID", "X-User-Id"),
+            ("GRAF_ORGANIZATION_ID", "X-Organization-Id"),
+            ("GRAF_WORKSPACE_ID", "X-Workspace-Id"),
+            ("GRAF_DEVICE_ID", "X-Device-Id")
         ]
         for (environmentKey, header) in headerEnvironmentKeys {
-            if let value = environment[environmentKey], !value.isEmpty {
+            let legacyKey = environmentKey.replacingOccurrences(of: "GRAF_", with: "TWO_BRAIN_REC_")
+            if let value = firstEnvironmentValue(from: environment, keys: [environmentKey, legacyKey]) {
                 headers[header] = value
             }
         }
 
-        let rawBearerToken = environment[uploadBearerTokenEnvironmentKey]
+        let rawBearerToken = firstEnvironmentValue(
+            from: environment,
+            keys: [uploadBearerTokenEnvironmentKey, legacyUploadBearerTokenEnvironmentKey]
+        )
         if let authorization = authorizationHeaderValue(forBearerToken: rawBearerToken) {
             headers["Authorization"] = authorization
         }
@@ -331,13 +355,27 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let candidates = [
             environment[baseURLEnvironmentKey],
             environment[fallbackBaseURLEnvironmentKey],
+            environment[legacyBaseURLEnvironmentKey],
+            environment[legacyFallbackBaseURLEnvironmentKey],
             defaults.string(forKey: baseURLUserDefaultsKey),
             defaults.string(forKey: fallbackBaseURLUserDefaultsKey),
+            defaults.string(forKey: legacyBaseURLUserDefaultsKey),
+            defaults.string(forKey: legacyFallbackBaseURLUserDefaultsKey),
             includePackagedDefault ? packagedDefaultBaseURL : nil
         ]
         return candidates.lazy
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
+    }
+
+    private static func firstEnvironmentValue(from environment: [String: String], keys: [String]) -> String? {
+        for key in keys {
+            let trimmed = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 
     private static func normalizedHTTPOrigin(_ rawURL: String) -> URL? {
@@ -482,6 +520,44 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let request = try request(path: "/api/v1/desktop/local-purge-tasks", method: "GET")
         let response: LocalPurgeTaskListResponse = try await perform(request)
         return response.tasks
+    }
+
+    public func supportIncidentContext() -> DesktopSupportIncidentReportContext {
+        let deviceFingerprint = Self.safeFingerprint(
+            for: headers["X-Device-Id"],
+            prefix: "dev_fpr",
+            length: 12
+        )
+        return DesktopSupportIncidentReportContext(
+            environmentBaseURLIdentity: baseOrigin.host ?? "unknown",
+            workspaceFingerprint: Self.safeFingerprint(
+                for: headers["X-Workspace-Id"],
+                prefix: "ws_fpr",
+                length: 12
+            ),
+            userFingerprint: Self.safeFingerprint(
+                for: headers["X-User-Id"],
+                prefix: "usr_fpr",
+                length: 12
+            ),
+            deviceFingerprint: deviceFingerprint,
+            safeDeviceIdentifier: deviceFingerprint == "unknown" ? "unknown" : "device:\(deviceFingerprint)"
+        )
+    }
+
+    public func supportIncidentRequest(for report: DesktopSupportIncidentReport) throws -> URLRequest {
+        var request = try jsonRequest(
+            path: Self.supportIncidentPath,
+            method: "POST",
+            body: report,
+            timeoutInterval: Self.supportIncidentTimeoutSeconds
+        )
+        request.setValue("support-incident:\(report.safeReportFingerprint)", forHTTPHeaderField: "Idempotency-Key")
+        return request
+    }
+
+    public func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
+        try await perform(supportIncidentRequest(for: report))
     }
 
     public func listDesktopCalendarUpcoming(
@@ -751,8 +827,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
     }
 
-    private func jsonRequest<T: Encodable>(path: String, method: String, body: T) throws -> URLRequest {
-        var request = try request(path: path, method: method)
+    private func jsonRequest<T: Encodable>(
+        path: String,
+        method: String,
+        body: T,
+        timeoutInterval: TimeInterval = 60
+    ) throws -> URLRequest {
+        var request = try request(path: path, method: method, timeoutInterval: timeoutInterval)
         request.httpBody = try encoder.encode(body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
@@ -761,7 +842,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private func request(
         path: String,
         method: String,
-        queryItems: [URLQueryItem] = []
+        queryItems: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval = 60
     ) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw DesktopUploadClientError.invalidBaseURL
@@ -777,7 +859,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 60
+        request.timeoutInterval = timeoutInterval
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
@@ -807,6 +889,14 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     public static func sha256Hex(data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func safeFingerprint(for value: String?, prefix: String, length: Int) -> String {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "unknown"
+        }
+        let hex = SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        return "\(prefix)_\(String(hex.prefix(max(8, length))))"
     }
 }
 

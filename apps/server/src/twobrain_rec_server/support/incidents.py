@@ -1,0 +1,414 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models.support import (
+    SUPPORT_INCIDENT_GITHUB_REPO,
+    SupportIncident,
+    SupportIncidentRateLimitBucket,
+)
+from twobrain_rec_server.support.github_issues import (
+    GitHubIssueClientError,
+    build_github_issue_draft,
+    updated_deduped_issue_body,
+)
+from twobrain_rec_server.support.redaction import (
+    SupportIncidentRedactionError,
+    build_server_redacted_report,
+    derive_affected_identity,
+    derive_dedupe_key,
+    stable_report_fingerprint,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SupportIncidentSubmissionResult:
+    incident_id: str
+    incident_status: str
+    github_issue_number: int
+    github_issue_url: str
+    dedupe_status: str
+    affected_count: int
+
+
+class SupportIncidentSubmissionError(RuntimeError):
+    def __init__(self, *, status: int, code: str, title: str, detail: str | None = None) -> None:
+        super().__init__(code)
+        self.status = status
+        self.code = code
+        self.title = title
+        self.detail = detail
+
+
+async def submit_support_incident(
+    *,
+    settings: Settings,
+    tenant_scope: TenantScope,
+    db: AsyncSession | None,
+    payload: Mapping[str, Any],
+    github_client: Any,
+    idempotency_key: str | None = None,
+    received_at: datetime | None = None,
+) -> SupportIncidentSubmissionResult:
+    if db is None:
+        raise SupportIncidentSubmissionError(
+            status=503,
+            code="support_incident.configuration_invalid",
+            title="Support incident store unavailable",
+        )
+    now = received_at or datetime.now(UTC)
+    try:
+        report = build_server_redacted_report(payload, received_at=now)
+    except SupportIncidentRedactionError as exc:
+        raise _redaction_error(exc) from exc
+    report = _apply_server_scope(report, tenant_scope)
+
+    idempotency_fingerprint = _idempotency_fingerprint(idempotency_key)
+    idempotency_report_fingerprint = (
+        str(report["safe_report_fingerprint"]) if idempotency_fingerprint else None
+    )
+    idempotent_incident = await _load_idempotent_incident(
+        tenant_scope=tenant_scope,
+        db=db,
+        idempotency_fingerprint=idempotency_fingerprint,
+    )
+    if idempotent_incident is not None:
+        stored_report_fingerprint = idempotent_incident.last_idempotency_report_fingerprint
+        if (
+            stored_report_fingerprint is not None
+            and stored_report_fingerprint != idempotency_report_fingerprint
+        ) or (
+            stored_report_fingerprint is None
+            and idempotent_incident.dedupe_key != str(report["dedupe_key"])
+        ):
+            raise SupportIncidentSubmissionError(
+                status=409,
+                code="support_incident.idempotency_conflict",
+                title="Idempotency key conflict",
+            )
+        if (
+            idempotent_incident.github_issue_number is not None
+            and idempotent_incident.incident_number is not None
+        ):
+            return _result_from_incident(idempotent_incident, dedupe_status="updated")
+
+    await _touch_rate_limit(
+        settings=settings, tenant_scope=tenant_scope, db=db, report=report, now=now
+    )
+    incident, dedupe_status = await _upsert_incident(
+        tenant_scope=tenant_scope,
+        db=db,
+        report=report,
+        now=now,
+        idempotency_fingerprint=idempotency_fingerprint,
+        idempotency_report_fingerprint=idempotency_report_fingerprint,
+    )
+    owner = settings.support_incident_github_owner
+    repo = settings.support_incident_github_repo
+    try:
+        await github_client.validate_repository_ready(owner=owner, repo=repo)
+        issue = await _create_or_update_issue(
+            github_client=github_client,
+            owner=owner,
+            repo=repo,
+            incident=incident,
+            report=report,
+            dedupe_status=dedupe_status,
+        )
+    except GitHubIssueClientError as exc:
+        incident.status = _failure_status(exc.reason_code)
+        incident.github_failure_code = exc.reason_code
+        await db.flush()
+        raise SupportIncidentSubmissionError(
+            status=503,
+            code=exc.reason_code,
+            title="Support incident unavailable",
+            detail="Private support issue could not be created or updated.",
+        ) from exc
+
+    issue_number = int(issue["number"])
+    incident.github_issue_number = issue_number
+    incident.github_issue_url = str(issue.get("html_url") or "")
+    incident.github_issue_state = str(issue.get("state") or "open")
+    incident.github_last_synced_at = now
+    incident.github_failure_code = None
+    incident.incident_number = f"CUST-{issue_number}"
+    incident.status = "open"
+    await db.flush()
+    return _result_from_incident(incident, dedupe_status=dedupe_status)
+
+
+def _redaction_error(exc: SupportIncidentRedactionError) -> SupportIncidentSubmissionError:
+    if exc.code == "support_incident.unsupported_schema":
+        return SupportIncidentSubmissionError(
+            status=422,
+            code=exc.code,
+            title="Unsupported support incident schema",
+        )
+    return SupportIncidentSubmissionError(
+        status=400,
+        code="support_incident.unsafe_payload",
+        title="Unsafe support incident payload",
+    )
+
+
+async def _touch_rate_limit(
+    *,
+    settings: Settings,
+    tenant_scope: TenantScope,
+    db: AsyncSession,
+    report: Mapping[str, Any],
+    now: datetime,
+) -> None:
+    dedupe_key = str(report["dedupe_key"])
+    bucket = await db.scalar(
+        select(SupportIncidentRateLimitBucket).where(
+            SupportIncidentRateLimitBucket.workspace_id == tenant_scope.workspace_id,
+            SupportIncidentRateLimitBucket.reporter_user_id == tenant_scope.user_id,
+            SupportIncidentRateLimitBucket.device_id == tenant_scope.device_id,
+            SupportIncidentRateLimitBucket.dedupe_key == dedupe_key,
+        )
+    )
+    window = timedelta(seconds=int(settings.support_incident_rate_limit_window_seconds))
+    blocked_until = (
+        _aware(bucket.blocked_until)
+        if bucket is not None and bucket.blocked_until is not None
+        else None
+    )
+    if blocked_until is not None and blocked_until > now:
+        raise _rate_limited()
+    if bucket is None:
+        bucket = SupportIncidentRateLimitBucket(
+            workspace_id=tenant_scope.workspace_id,
+            reporter_user_id=tenant_scope.user_id,
+            device_id=tenant_scope.device_id,
+            dedupe_key=dedupe_key,
+            window_started_at=now,
+            attempt_count=1,
+            last_attempt_at=now,
+        )
+        db.add(bucket)
+    elif now - _aware(bucket.window_started_at) >= window:
+        bucket.window_started_at = now
+        bucket.attempt_count = 1
+        bucket.last_attempt_at = now
+        bucket.blocked_until = None
+    else:
+        bucket.attempt_count += 1
+        bucket.last_attempt_at = now
+    if bucket.attempt_count > int(settings.support_incident_rate_limit_max_attempts):
+        bucket.blocked_until = now + window
+        await db.flush()
+        raise _rate_limited()
+    await db.flush()
+
+
+def _rate_limited() -> SupportIncidentSubmissionError:
+    return SupportIncidentSubmissionError(
+        status=429,
+        code="support_incident.rate_limited",
+        title="Support incident rate limited",
+        detail="Support intake is temporarily rate limited.",
+    )
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _apply_server_scope(report: Mapping[str, Any], tenant_scope: TenantScope) -> dict[str, Any]:
+    scoped = dict(report)
+    device_fingerprint = _scope_fingerprint(tenant_scope.device_id, prefix="dev_fpr")
+    scoped["workspace_fingerprint"] = _scope_fingerprint(tenant_scope.workspace_id, prefix="ws_fpr")
+    scoped["user_fingerprint"] = _scope_fingerprint(tenant_scope.user_id, prefix="usr_fpr")
+    scoped["device_fingerprint"] = device_fingerprint
+    scoped["safe_device_identifier"] = f"device:{device_fingerprint}"
+    scoped["safe_report_fingerprint"] = stable_report_fingerprint(scoped)
+    scoped["dedupe_key"] = derive_dedupe_key(scoped)
+    scoped["affected_identity_fingerprint"] = derive_affected_identity(scoped)
+    return scoped
+
+
+def _scope_fingerprint(value: object, *, prefix: str) -> str:
+    return prefix + "_" + sha256(str(value).encode("utf-8")).hexdigest()[:12]
+
+
+async def _upsert_incident(
+    *,
+    tenant_scope: TenantScope,
+    db: AsyncSession,
+    report: Mapping[str, Any],
+    now: datetime,
+    idempotency_fingerprint: str | None,
+    idempotency_report_fingerprint: str | None,
+) -> tuple[SupportIncident, str]:
+    dedupe_key = str(report["dedupe_key"])
+    incident = await db.scalar(
+        select(SupportIncident).where(
+            SupportIncident.workspace_id == tenant_scope.workspace_id,
+            SupportIncident.dedupe_key == dedupe_key,
+        )
+    )
+    affected_count = _reported_affected_count(report)
+    report_identities = _reported_safe_identities(report)
+    identity = str(report.get("affected_identity_fingerprint") or "unknown")
+    identities_to_merge = report_identities or [identity]
+    if incident is None:
+        incident = SupportIncident(
+            workspace_id=tenant_scope.workspace_id,
+            reporter_user_id=tenant_scope.user_id,
+            device_id=tenant_scope.device_id,
+            dedupe_key=dedupe_key,
+            problem_code=str(report.get("problem_code") or "unknown"),
+            failure_category=str(report.get("failure_category") or "unknown"),
+            retry_class=str(report.get("retry_class") or "unknown"),
+            status="pending_github",
+            affected_count=affected_count,
+            safe_affected_identities=identities_to_merge[:5],
+            latest_safe_report_json=dict(report),
+            latest_safe_report_fingerprint=str(report["safe_report_fingerprint"]),
+            last_idempotency_key_fingerprint=idempotency_fingerprint,
+            last_idempotency_report_fingerprint=idempotency_report_fingerprint,
+            first_received_at=now,
+            last_received_at=now,
+            redaction_result=str(report.get("redaction_result") or "accepted"),
+            github_repo=SUPPORT_INCIDENT_GITHUB_REPO,
+        )
+        db.add(incident)
+        await db.flush()
+        return incident, "created"
+
+    is_replay = (
+        idempotency_fingerprint is not None
+        and incident.last_idempotency_key_fingerprint == idempotency_fingerprint
+        and (
+            incident.last_idempotency_report_fingerprint is None
+            or incident.last_idempotency_report_fingerprint == idempotency_report_fingerprint
+        )
+    )
+    if not is_replay:
+        incident.affected_count += affected_count
+    identities = list(incident.safe_affected_identities or [])
+    for identity in identities_to_merge:
+        if identity not in identities and len(identities) < 5:
+            identities.append(identity)
+    incident.safe_affected_identities = identities
+    incident.latest_safe_report_json = dict(report)
+    incident.latest_safe_report_fingerprint = str(report["safe_report_fingerprint"])
+    incident.last_idempotency_key_fingerprint = (
+        idempotency_fingerprint or incident.last_idempotency_key_fingerprint
+    )
+    incident.last_idempotency_report_fingerprint = (
+        idempotency_report_fingerprint or incident.last_idempotency_report_fingerprint
+    )
+    incident.last_received_at = now
+    if not is_replay:
+        incident.last_duplicate_received_at = now
+    incident.redaction_result = str(report.get("redaction_result") or incident.redaction_result)
+    await db.flush()
+    return incident, "updated"
+
+
+async def _load_idempotent_incident(
+    *,
+    tenant_scope: TenantScope,
+    db: AsyncSession,
+    idempotency_fingerprint: str | None,
+) -> SupportIncident | None:
+    if idempotency_fingerprint is None:
+        return None
+    return await db.scalar(
+        select(SupportIncident).where(
+            SupportIncident.workspace_id == tenant_scope.workspace_id,
+            SupportIncident.last_idempotency_key_fingerprint == idempotency_fingerprint,
+        )
+    )
+
+
+def _reported_affected_count(report: Mapping[str, Any]) -> int:
+    value = report.get("affected_count")
+    if isinstance(value, int) and value > 0:
+        return value
+    return 1
+
+
+def _reported_safe_identities(report: Mapping[str, Any]) -> list[str]:
+    value = report.get("safe_affected_identities")
+    if not isinstance(value, list):
+        return []
+    identities: list[str] = []
+    for item in value[:5]:
+        if isinstance(item, str) and item and item != "redacted_metadata":
+            identities.append(item)
+    return identities
+
+
+def _result_from_incident(
+    incident: SupportIncident, *, dedupe_status: str
+) -> SupportIncidentSubmissionResult:
+    if incident.incident_number is None or incident.github_issue_number is None:
+        raise RuntimeError("Support incident is missing a synced GitHub issue")
+    return SupportIncidentSubmissionResult(
+        incident_id=incident.incident_number,
+        incident_status="created" if dedupe_status == "created" else "updated",
+        github_issue_number=incident.github_issue_number,
+        github_issue_url=str(incident.github_issue_url or ""),
+        dedupe_status=dedupe_status,
+        affected_count=incident.affected_count,
+    )
+
+
+def _idempotency_fingerprint(idempotency_key: str | None) -> str | None:
+    if not idempotency_key:
+        return None
+    return "idem_fpr_" + sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
+
+
+async def _create_or_update_issue(
+    *,
+    github_client: Any,
+    owner: str,
+    repo: str,
+    incident: SupportIncident,
+    report: Mapping[str, Any],
+    dedupe_status: str,
+) -> Mapping[str, Any]:
+    draft = build_github_issue_draft(
+        report,
+        affected_count=incident.affected_count,
+        safe_affected_identities=incident.safe_affected_identities,
+        github_issue_number=incident.github_issue_number,
+    )
+    if dedupe_status == "updated" and incident.github_issue_number is not None:
+        existing = await github_client.get_issue(
+            owner=owner, repo=repo, issue_number=incident.github_issue_number
+        )
+        body = updated_deduped_issue_body(
+            str(existing.get("body") or ""),
+            report,
+            affected_count=incident.affected_count,
+            safe_affected_identities=incident.safe_affected_identities,
+            github_issue_number=incident.github_issue_number,
+        )
+        return await github_client.update_issue(
+            owner=owner,
+            repo=repo,
+            issue_number=incident.github_issue_number,
+            draft=replace(draft, body=body),
+        )
+    return await github_client.create_issue(owner=owner, repo=repo, draft=draft)
+
+
+def _failure_status(reason_code: str) -> str:
+    if reason_code == "support_incident.configuration_invalid":
+        return "configuration_invalid"
+    return "github_unavailable"

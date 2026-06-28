@@ -139,7 +139,7 @@ def validate_payload(payload, source):
 
 def latest_default_artifact_dir():
     roots = [
-        pathlib.Path.home() / "Library" / "Application Support" / "2brain Rec" / "Recordings",
+        pathlib.Path.home() / "Library" / "Application Support" / "GRAF" / "Recordings",
         pathlib.Path.home() / "Library" / "Application Support" / "2brainRec" / "Recordings",
     ]
     candidates = []

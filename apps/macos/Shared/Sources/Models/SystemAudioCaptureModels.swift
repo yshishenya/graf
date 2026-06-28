@@ -2265,7 +2265,7 @@ public enum SystemAudioStatusLabels {
     public static let localRecordingPausedStatus =
         "Запись на паузе. Остановить можно в любой момент."
     public static let meetingMuteTruthLimitationCopy =
-        "2brain не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в 2brain."
+        "GRAF не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в GRAF."
     public static let captureAudioTitle = "Уровни записи"
     public static let microphoneTitle = "Микрофон"
     public static let incomingTitle = "Встреча"

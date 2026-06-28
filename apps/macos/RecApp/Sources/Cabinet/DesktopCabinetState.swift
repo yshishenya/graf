@@ -17,7 +17,7 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     public var userMessage: String {
         switch self {
         case .notConfigured:
-            return "Подключите рабочее пространство 2brain Rec. \(Self.calendarCredentialBoundary)"
+            return "Подключите рабочее пространство GRAF, чтобы просматривать встречи здесь. \(Self.calendarCredentialBoundary)"
         case .loading:
             return "Загружаем рабочее пространство встреч. Управление записью остается в приложении."
         case .ready:

@@ -113,7 +113,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private let manifestService: LocalRecordingManifestService
     private let client: DesktopUploadClientProtocol?
     private let clock: Clock
-    private let queue = DispatchQueue(label: "pro.2brain.rec.desktop-upload-queue", qos: .utility)
+    private let queue = DispatchQueue(label: "pro.2brain.graf.desktop-upload-queue", qos: .utility)
     private var document: DesktopUploadQueueDocument?
 
     public init(
@@ -135,10 +135,19 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     public static func defaultQueueURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
             FileManager.default.temporaryDirectory
-        return base
+        let current = base
+            .appendingPathComponent("GRAF", isDirectory: true)
+            .appendingPathComponent("UploadQueue", isDirectory: true)
+            .appendingPathComponent("upload-queue.json")
+        let legacy = base
             .appendingPathComponent("2brain Rec", isDirectory: true)
             .appendingPathComponent("UploadQueue", isDirectory: true)
             .appendingPathComponent("upload-queue.json")
+        if !FileManager.default.fileExists(atPath: current.path),
+           FileManager.default.fileExists(atPath: legacy.path) {
+            return legacy
+        }
+        return current
     }
 
     public func loadItems() throws -> [DesktopUploadQueueItem] {
@@ -235,6 +244,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 merged.serverTruth = existing.serverTruth
                 merged.retryRecords = existing.retryRecords
                 merged.createdAt = existing.createdAt
+                merged.supportIncidentSubmission = existing.supportIncidentSubmission
                 merged.calendarContextEventId = existing.calendarContextEventId ?? merged.calendarContextEventId
                 merged.recordingMetadata = existing.recordingMetadata ?? merged.recordingMetadata
                 document.items[index] = merged
@@ -330,6 +340,31 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 try saveDocumentOnQueue(document)
             }
             return document.items.sortedForDisplay()
+        }
+    }
+
+    @discardableResult
+    public func submitSupportIncident(itemId: String) async throws -> DesktopSupportIncidentResponse {
+        try await submitSupportIncident(itemIds: [itemId])
+    }
+
+    @discardableResult
+    public func submitSupportIncident(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
+        let context = client?.supportIncidentContext() ?? .unknown
+        let submission = try markSupportIncidentSending(itemIds: itemIds, context: context)
+        guard let client else {
+            let error = DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
+            try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
+            throw error
+        }
+
+        do {
+            let response = try await client.submitSupportIncident(report: submission.report)
+            try markSupportIncidentSent(itemIds: submission.itemIds, report: submission.report, response: response)
+            return response
+        } catch {
+            try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
+            throw error
         }
     }
 
@@ -1033,6 +1068,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.serverTruth = existing.serverTruth
         merged.retryRecords = existing.retryRecords
         merged.createdAt = existing.createdAt
+        merged.supportIncidentSubmission = existing.supportIncidentSubmission
         merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
         merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
         if refreshed.artifactProfile.isUploadable && existing.syncConflictState == .localFilesMissing {
@@ -1063,6 +1099,140 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             )
         }
         return merged
+    }
+
+    private struct SupportIncidentSubmissionDraft {
+        var itemIds: [String]
+        var report: DesktopSupportIncidentReport
+    }
+
+    private func markSupportIncidentSending(
+        itemIds: [String],
+        context: DesktopSupportIncidentReportContext
+    ) throws -> SupportIncidentSubmissionDraft {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard let primaryItemId = itemIds.first,
+                  let index = document.items.firstIndex(where: { $0.id == primaryItemId })
+            else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
+            }
+            let now = clock()
+            let item = document.items[index]
+            let projection = DesktopUploadCustodyProjection(item: item, now: now)
+            let affectedItems = itemIds.compactMap { itemId in
+                document.items.first { $0.id == itemId }
+            }
+            guard let report = DesktopSupportIncidentReport(
+                item: item,
+                projection: projection,
+                context: context,
+                affectedItems: affectedItems
+            ) else {
+                var next = item
+                next.updatedAt = now
+                next.supportIncidentSubmission = .unavailable(attemptedAt: now)
+                document.items[index] = next
+                document.updatedAt = now
+                try saveDocumentOnQueue(document)
+                throw DesktopUploadClientError.httpStatus(422, "support_incident.unavailable")
+            }
+
+            let changedIds = Set(affectedItems.map(\.id))
+            document.items = document.items.map { candidate in
+                guard changedIds.contains(candidate.id) else { return candidate }
+                var next = candidate
+                next.updatedAt = now
+                next.supportIncidentSubmission = .sending(
+                    reportFingerprint: report.safeReportFingerprint,
+                    dedupeKey: report.dedupeKey,
+                    attemptedAt: now
+                )
+                return next
+            }
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return SupportIncidentSubmissionDraft(itemIds: Array(changedIds), report: report)
+        }
+    }
+
+    private func markSupportIncidentSent(
+        itemIds: [String],
+        report: DesktopSupportIncidentReport,
+        response: DesktopSupportIncidentResponse
+    ) throws {
+        let changedIds = Set(itemIds)
+        try updateSupportIncidentSubmission(itemIds: changedIds) { item, now in
+            item.supportIncidentSubmission = .sent(
+                reportFingerprint: report.safeReportFingerprint,
+                dedupeKey: report.dedupeKey,
+                incidentNumber: response.incidentId,
+                githubIssueNumber: response.githubIssueNumber,
+                attemptedAt: now,
+                copyFallbackAvailable: response.copyFallbackAvailable
+            )
+        }
+    }
+
+    private func markSupportIncidentFailed(
+        itemIds: [String],
+        report: DesktopSupportIncidentReport,
+        error: Error
+    ) throws {
+        let failure = Self.supportIncidentFailure(error)
+        let changedIds = Set(itemIds)
+        try updateSupportIncidentSubmission(itemIds: changedIds) { item, now in
+            item.supportIncidentSubmission = .failedWithCopyFallback(
+                reportFingerprint: report.safeReportFingerprint,
+                dedupeKey: report.dedupeKey,
+                attemptedAt: now,
+                failureCategory: failure.category,
+                failureCode: failure.code
+            )
+        }
+    }
+
+    private func updateSupportIncidentSubmission(
+        itemIds: Set<String>,
+        update: (inout DesktopUploadQueueItem, Date) -> Void
+    ) throws {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            let now = clock()
+            var changed = false
+            document.items = document.items.map { item in
+                guard itemIds.contains(item.id) else { return item }
+                var next = item
+                next.updatedAt = now
+                update(&next, now)
+                changed = true
+                return next
+            }
+            if changed {
+                document.items = document.items.sortedForDisplay()
+                document.updatedAt = now
+                try saveDocumentOnQueue(document)
+            }
+        }
+    }
+
+    private static func supportIncidentFailure(_ error: Error) -> (category: String, code: String) {
+        if let clientError = error as? DesktopUploadClientError {
+            switch clientError {
+            case .httpStatus(_, let code):
+                return (clientError.failureCategory.rawValue, code)
+            case .invalidBaseURL:
+                return (clientError.failureCategory.rawValue, "support_incident.invalid_base_url")
+            case .invalidResponse:
+                return (clientError.failureCategory.rawValue, "support_incident.invalid_response")
+            case .localFileMissing:
+                return (clientError.failureCategory.rawValue, "support_incident.local_file_missing")
+            case .serverStillMissingRanges:
+                return (clientError.failureCategory.rawValue, "support_incident.server_still_missing_ranges")
+            }
+        }
+        return (UploadFailureCategory.network.rawValue, "support_incident.unavailable")
     }
 
     private static func blockedFailureReason(
@@ -1216,13 +1386,32 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             return quarantined
         }
         var loaded = loadedDocument
+        let now = clock()
         let needsSchemaMigration = loaded.schemaVersion != DesktopUploadQueueDocument.schemaVersion
         if needsSchemaMigration {
             loaded.schemaVersion = DesktopUploadQueueDocument.schemaVersion
         }
-        loaded.items = loaded.items.sortedForDisplay()
-        if needsSchemaMigration {
-            loaded.updatedAt = clock()
+        var needsSave = needsSchemaMigration
+        loaded.items = loaded.items.map { item in
+            guard let submission = item.supportIncidentSubmission,
+                  submission.state == .sending
+            else {
+                return item
+            }
+            var next = item
+            next.updatedAt = now
+            next.supportIncidentSubmission = .failedWithCopyFallback(
+                reportFingerprint: submission.localReportFingerprint ?? "unknown",
+                dedupeKey: submission.dedupeKey ?? "unknown",
+                attemptedAt: now,
+                failureCategory: UploadFailureCategory.network.rawValue,
+                failureCode: "support_incident.interrupted"
+            )
+            needsSave = true
+            return next
+        }.sortedForDisplay()
+        if needsSave {
+            loaded.updatedAt = now
             try saveDocumentOnQueue(loaded)
         }
         document = loaded

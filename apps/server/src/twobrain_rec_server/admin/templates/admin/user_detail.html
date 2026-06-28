@@ -1,0 +1,92 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-panel">
+    <h2>{{ view.user.display_name or "Пользователь" }}</h2>
+    <dl class="admin-metrics">
+      <div><dt>Роль</dt><dd>{{ view.user.role }}</dd></div>
+      <div><dt>Статус</dt><dd>{{ view.user.status }}</dd></div>
+      <div><dt>Файлы</dt><dd>{{ view.user.files.server_known }}</dd></div>
+      <div><dt>Активные сессии</dt><dd>{{ view.user.sessions.active }}</dd></div>
+    </dl>
+    {% if view.actor_role == "owner" or view.user.role == "member" %}
+      <form class="admin-form admin-form--inline" method="post" action="/admin/users/{{ view.user.user_id }}/membership">
+        <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">
+        <label>Роль
+          <select name="role">
+            <option value="">Не менять</option>
+            {% for role in ["owner", "admin", "member"] %}
+              {% if view.actor_role == "owner" or role == "member" %}
+                <option value="{{ role }}">{{ role }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+        <label>Статус
+          <select name="status">
+            <option value="">Не менять</option>
+            {% for status in ["active", "inactive", "blocked", "revoked"] %}
+              <option value="{{ status }}">{{ status }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Причина
+          <input name="reason_code" type="text" maxlength="120" placeholder="например policy_violation">
+        </label>
+        <button type="submit">Сохранить</button>
+      </form>
+    {% else %}
+      <p class="admin-empty">Администратор может менять только участников с ролью member.</p>
+    {% endif %}
+  </section>
+  <section class="admin-grid" aria-label="Детали пользователя">
+    <article class="admin-panel">
+      <h2>Устройства</h2>
+      {% if view.user.devices %}
+        <ul class="admin-list">
+          {% for device in view.user.devices %}
+            <li>{{ device.device_public_id }} · {{ device.platform }} · {{ device.status }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="admin-empty">Нет зарегистрированных устройств.</p>
+      {% endif %}
+    </article>
+    <article class="admin-panel">
+      <h2>Сессии</h2>
+      {% if view.user.sessions.recent %}
+        <ul class="admin-list">
+          {% for session in view.user.sessions.recent %}
+            <li>{{ session.provider }} · {{ session.status }} · до {{ session.expires_at }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="admin-empty">Нет недавних сессий.</p>
+      {% endif %}
+    </article>
+    <article class="admin-panel">
+      <h2>Использование</h2>
+      <dl class="admin-metrics">
+        <div><dt>Минуты</dt><dd>{{ view.user.usage.recording_minutes }}</dd></div>
+        <div><dt>Хранилище</dt><dd>{{ view.user.usage.storage_bytes }}</dd></div>
+        <div><dt>Обработка</dt><dd>{{ view.user.usage.processing_jobs }}</dd></div>
+      </dl>
+    </article>
+    <article class="admin-panel">
+      <h2>Аудит</h2>
+      {% if view.user.recent_audit %}
+        <ul class="admin-list">
+          {% for event in view.user.recent_audit %}
+            <li>{{ event.action }} · {{ event.outcome }} · {{ event.target_kind }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="admin-empty">Нет недавних событий.</p>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

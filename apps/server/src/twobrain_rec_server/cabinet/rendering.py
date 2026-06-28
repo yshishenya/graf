@@ -23,31 +23,74 @@ from twobrain_rec_server.cabinet.templates import (
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
+_PLANNED_LOGIN_PROVIDER_ACTIONS: tuple[dict[str, str | bool], ...] = (
+    {"provider": "tbank", "label": "T-Банк ID", "mark": "T", "active": False},
+    {"provider": "sber", "label": "Sber ID", "mark": "S", "active": False},
+    {"provider": "gosuslugi", "label": "Госуслуги", "mark": "Г", "active": False},
+    {"provider": "alfa", "label": "Alfa ID", "mark": "A", "active": False},
+)
 
-def _login_provider_actions(providers: list) -> list[dict[str, str]]:
-    actions: list[dict[str, str]] = []
+
+def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str, str | bool]]:
+    active_actions: dict[str, dict[str, str | bool]] = {}
+    safe_next = _safe_browser_next_path(next_path)
     for provider in providers:
         provider_id = str(getattr(provider, "provider", "") or "").strip()
+        if not provider_id or not bool(getattr(provider, "enabled", True)):
+            continue
+        if provider_id == "telegram":
+            continue
         label = _login_provider_label(provider_id, str(getattr(provider, "label", "") or provider_id))
         mark = _login_provider_mark(provider_id, label)
-        actions.append({"label": label, "mark": mark})
+        active = provider_id in {"yandex", "vk"}
+        if not active:
+            continue
+        action: dict[str, str | bool] = {
+            "provider": provider_id,
+            "label": label,
+            "mark": mark,
+            "active": active,
+            "href": f"/login/{provider_id}/start?{urlencode({'next': safe_next})}",
+        }
+        active_actions[provider_id] = action
+
+    actions = [active_actions[provider_id] for provider_id in ("yandex", "vk") if provider_id in active_actions]
+    actions.extend(dict(action) for action in _PLANNED_LOGIN_PROVIDER_ACTIONS[:2])
+    if "vk" in active_actions:
+        actions.extend(
+            [
+                {
+                    "provider": "mail_ru",
+                    "label": "Mail.ru",
+                    "mark": "@",
+                    "active": True,
+                    "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'mail_ru'})}",
+                },
+                {
+                    "provider": "ok_ru",
+                    "label": "Одноклассники",
+                    "mark": "OK",
+                    "active": True,
+                    "href": f"/login/vk/start?{urlencode({'next': safe_next, 'auth_provider': 'ok_ru'})}",
+                },
+            ]
+        )
+    actions.extend(dict(action) for action in _PLANNED_LOGIN_PROVIDER_ACTIONS[2:])
     return actions
 
 
 def _login_provider_label(provider_id: str, fallback: str) -> str:
     labels = {
-        "yandex": "Продолжить через Яндекс ID",
-        "vk": "Продолжить через VK ID",
-        "telegram": "Продолжить через Telegram",
+        "yandex": "Яндекс ID",
+        "vk": "VK ID",
     }
-    return labels.get(provider_id, f"Продолжить через {fallback}")
+    return labels.get(provider_id, fallback)
 
 
 def _login_provider_mark(provider_id: str, label: str) -> str:
     marks = {
         "yandex": "Я",
         "vk": "VK",
-        "telegram": "TG",
     }
     return marks.get(provider_id, label[:2].upper())
 
@@ -63,7 +106,7 @@ def render_login_page(
     content = render_template(
         "cabinet/auth/login.html",
         workspace_configured=workspace_id is not None,
-        providers=_login_provider_actions(providers),
+        providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
         login_sso_href=f"/login/sso/start?{urlencode({'next': safe_next})}",
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
@@ -85,7 +128,7 @@ def render_signup_page(
     content = render_template(
         "cabinet/auth/signup.html",
         workspace_configured=workspace_id is not None,
-        providers=_login_provider_actions(providers),
+        providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
         email_mode=email_mode,
         error_message=_login_error_message(error),
@@ -155,7 +198,20 @@ def render_meeting_list_page(
         status_value=response.filters.status or "",
         access_value=response.filters.access or "",
         sort_value=response.filters.sort,
+        calendar_settings_href=_settings_path(embedded),
         visible_total=len(response.items),
+    )
+
+
+def render_settings_page(*, embedded: bool = False, csrf_token: str | None = None) -> str:
+    return _page_shell(
+        "Настройки",
+        embedded=embedded,
+        active="settings",
+        active_nav="settings",
+        csrf_token=csrf_token,
+        content_template="cabinet/pages/settings_content.html",
+        calendar_settings_href=_settings_path(embedded),
     )
 
 
@@ -419,7 +475,7 @@ def _render_deletion_report_content(
         bounded_copy=report.bounded_copy,
         bounded_copy_text=_ui_text(report.bounded_copy),
         artifact_band=trusted_component_html(
-            _render_report_band("Файлы под контролем 2brain Rec", report.artifact_states),
+            _render_report_band("Файлы под контролем GRAF", report.artifact_states),
             source="deletion_report.band",
         ),
         backup_band=trusted_component_html(
@@ -444,6 +500,7 @@ def _page_shell(
     content: str | None = None,
     *,
     embedded: bool,
+    active: str = "meetings",
     page_template: str = "cabinet/pages/meetings.html",
     csrf_token: str | None = None,
     content_source: str = "cabinet.shell",
@@ -520,8 +577,8 @@ UI_TEXT: dict[str, str] = {
     "Copy link": "Ссылка",
     "Decisions": "Решения",
     "Delete planned": "Удаление запланировано",
-    "Delete this meeting everywhere 2brain Rec controls": "Удалить встречу в системах 2brain Rec",
-    "Delete this meeting everywhere 2brain Rec controls.": "Удалить встречу везде, где ее контролирует 2brain Rec.",
+    "Delete this meeting everywhere GRAF controls": "Удалить встречу в системах GRAF",
+    "Delete this meeting everywhere GRAF controls.": "Удалить встречу везде, где ее контролирует GRAF.",
     "Disabled": "Выключено",
     "Disabled by policy": "Заблокировано",
     "Download": "Скачать",
@@ -530,8 +587,8 @@ UI_TEXT: dict[str, str] = {
     "Export package": "Экспорт",
     "Export ready": "Экспорт готов",
     "Failed": "Сбой",
-    "Files already downloaded or exported are outside 2brain Rec deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в 2brain Rec.",
-    "Files already downloaded or exported are outside later 2brain Rec revocation. Deleting a meeting can remove what 2brain Rec controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в 2brain Rec. Удаление встречи может убрать то, что контролирует 2brain Rec, но не копии, уже сохраненные где-то еще.",
+    "Files already downloaded or exported are outside GRAF deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в GRAF.",
+    "Files already downloaded or exported are outside later GRAF revocation. Deleting a meeting can remove what GRAF controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в GRAF. Удаление встречи может убрать то, что контролирует GRAF, но не копии, уже сохраненные где-то еще.",
     "Follow-ups": "Продолжение",
     "Incoming system": "Входящий звук",
     "Key points": "Ключевое",
@@ -619,10 +676,12 @@ UI_TEXT: dict[str, str] = {
     "local_buffers_purged": "локальные буферы очищены",
     "metadata only": "только метаданные",
     "Owner/Admin": "Владелец/админ",
-    "outside 2brain rec control": "вне контроля 2brain Rec",
-    "outside_control": "вне контроля 2brain Rec",
+    "outside graf control": "вне контроля GRAF",
+    "outside_control": "вне контроля GRAF",
     "pending": "ожидает",
-    "Planned; this does not promise deletion outside 2brain Rec control.": "Запланировано; это не обещает удаление вне контроля 2brain Rec.",
+    "Outside GRAF control after delivery": "Вне контроля GRAF после передачи",
+    "Delivered copies are outside GRAF control": "Переданные копии находятся вне контроля GRAF",
+    "Planned; this does not promise deletion outside GRAF control.": "Запланировано; это не обещает удаление вне контроля GRAF.",
     "policy blocked": "по политике",
     "policy_blocked": "по политике",
     "processing": "обработка",
@@ -719,7 +778,7 @@ def _meeting_media_icon(item: MeetingListItem) -> tuple[str, str]:
 
 
 def _render_list_delete_dialog() -> str:
-    bounded_copy = "Запись будет удалена везде, где ее контролирует 2brain Rec. Уже скачанные или экспортированные копии могут оставаться вне контроля 2brain Rec."
+    bounded_copy = "Запись будет удалена везде, где ее контролирует GRAF. Уже скачанные или экспортированные копии могут оставаться вне контроля GRAF."
     return f"""
       <dialog class="delete-dialog" data-delete-dialog data-title-one="Удалить запись?" data-title-many="Удалить записи?">
         <h2 data-delete-title>Удалить запись?</h2>
@@ -926,7 +985,7 @@ def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool
     report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
       <div class="delete-confirmation">
-        <strong>{escape(_ui_text("Delete this meeting everywhere 2brain Rec controls"))}</strong>
+        <strong>{escape(_ui_text("Delete this meeting everywhere GRAF controls"))}</strong>
         <div class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</div>
         <div class="state-row">
           <span class="muted">Резервные копии, локальные буферы, метаданные провайдера и уже переданные копии показываются отдельно.</span>
@@ -1119,3 +1178,7 @@ def _sort_label(sort: str) -> str:
 
 def _base_path(embedded: bool) -> str:
     return "/desktop/meetings" if embedded else "/meetings"
+
+
+def _settings_path(embedded: bool) -> str:
+    return "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
