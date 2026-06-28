@@ -36,3 +36,13 @@ def test_cabinet_navigation_can_activate_settings() -> None:
 
     assert navigation.active == "settings"
     assert next(item for item in navigation.items if item.id == "settings").label == "Настройки"
+
+
+def test_cabinet_navigation_falls_back_to_enabled_destination() -> None:
+    navigation = view_models.cabinet_navigation(active="search")
+    disabled = next(item for item in navigation.items if item.id == "search")
+    meetings = next(item for item in navigation.items if item.id == "meetings")
+
+    assert disabled.enabled is False
+    assert meetings.enabled is True
+    assert navigation.active == "meetings"

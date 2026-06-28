@@ -179,7 +179,6 @@ private struct ContentView: View {
         DesktopMeetingShellView(
             session: captureSession,
             uploadQueueItems: uploadQueueItems,
-            pendingUploadCount: uploadQueueItems.filter { !$0.state.isTerminal }.count,
             cabinetConfigured: desktopCabinetConfiguration != nil,
             cabinetState: desktopCabinetState,
             statusSummary: snapshot.summary,
@@ -187,16 +186,6 @@ private struct ContentView: View {
             isChecking: isChecking,
             onRefresh: refresh,
             onRunCheck: runCheck,
-            onOpenMeetingsList: {
-                selectedCabinetRoute = desktopCabinetConfiguration.map {
-                    DesktopCabinetWorkspace.defaultRoute(configuration: $0)
-                }
-            },
-            onOpenCalendarSettings: {
-                selectedCabinetRoute = desktopCabinetConfiguration.map {
-                    $0.calendarSettingsURL()
-                }
-            },
             onSupportIncidentReport: { itemIds in
                 try await submitSupportIncidentReport(itemIds: itemIds)
             }

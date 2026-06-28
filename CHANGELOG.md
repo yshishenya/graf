@@ -12,7 +12,10 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Feature `069-universal-sidebar`: пользовательский cabinet теперь собирает
+  левую навигацию через один server-owned shell/sidebar contract для web и
+  desktop embedded поверхностей; страницы владеют только content region, а
+  fragments остаются content-only и не дублируют sidebar.
 
 ### Исправлено
 - _Пока нет записей._
@@ -21,7 +24,8 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Feature `069-universal-sidebar`: добавлены Spec Kit артефакты, quickstart,
+  shell contract и GitHub issue sync для архитектурного среза единой sidebar.
 
 ### Операции
 - _Пока нет записей._

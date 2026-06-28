@@ -997,16 +997,18 @@ def cabinet_navigation(
     settings_href = (
         "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
     )
+    items = (
+        CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
+        CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
+        CabinetNavigationItem("shared", "Общие", "#", "users-round", enabled=False),
+        CabinetNavigationItem("actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions),
+        CabinetNavigationItem("activity", "Активность", "#", "activity", enabled=False),
+        CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
+    )
+    enabled_ids = {item.id for item in items if item.enabled}
     return CabinetNavigationModel(
-        active=active,
-        items=(
-            CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
-            CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
-            CabinetNavigationItem("shared", "Общие", "#", "users-round", enabled=False),
-            CabinetNavigationItem("actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions),
-            CabinetNavigationItem("activity", "Активность", "#", "activity", enabled=False),
-            CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
-        ),
+        active=active if active in enabled_ids else "meetings",
+        items=items,
     )
 
 

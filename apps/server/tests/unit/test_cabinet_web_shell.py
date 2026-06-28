@@ -33,12 +33,14 @@ from twobrain_rec_server.api.schemas import (
     TranscriptSegmentView,
 )
 from twobrain_rec_server.cabinet.rendering import (
+    render_calendar_settings_page,
     render_deletion_report_page,
     render_meeting_detail_page,
     render_meeting_list_page,
     render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
+from twobrain_rec_server.cabinet.view_models import calendar_settings_surface
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.statuses import (
     DeletionArtifactState,
@@ -360,6 +362,22 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
 
 
+def test_meeting_list_dynamic_selection_keeps_one_shell_boundary() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert page.count("data-cabinet-shell") == 1
+    assert page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert page.count('id="meeting-list-region"') == 1
+    assert 'data-hx-target="#meeting-list-region"' in page
+    assert 'data-hx-select="#meeting-list-region"' in page
+
+
 def test_web_shell_uses_base_template_and_static_assets() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
@@ -382,6 +400,47 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert "<style>" not in page
     assert "max-width: min(1120px, calc(100vw - 48px))" not in page
     assert ".meeting-row.cabinet-row" not in page
+
+
+def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
+    list_page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+    detail_page = render_meeting_detail_page(_review())
+    deletion_page = render_deletion_report_page("Синтетическая встреча", _deletion_report())
+    settings_page = render_settings_page()
+    calendar_settings_page = render_calendar_settings_page(
+        calendar_settings_surface(provider_payloads=[], sources=[]),
+    )
+
+    for page in (list_page, detail_page, deletion_page):
+        assert page.count("data-cabinet-shell") == 1
+        assert page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+        assert page.count('aria-label="Навигация кабинета"') == 1
+        assert page.count('aria-current="page"') == 1
+        assert 'data-active-nav="meetings"' in page
+        assert 'href="/meetings"' in page
+        assert 'href="/settings/integrations/calendar"' in page
+        assert "Пробный период 7 дней" in page
+        assert "GRAF" in page
+
+    assert settings_page.count("data-cabinet-shell") == 1
+    assert settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert settings_page.count('aria-label="Навигация кабинета"') == 1
+    assert settings_page.count('aria-current="page"') == 1
+    assert 'data-active-nav="settings"' in settings_page
+    assert 'href="/settings/integrations/calendar"' in settings_page
+
+    assert calendar_settings_page.count("data-cabinet-shell") == 1
+    assert calendar_settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert calendar_settings_page.count('aria-label="Навигация кабинета"') == 1
+    assert calendar_settings_page.count('aria-current="page"') == 1
+    assert 'data-active-nav="settings"' in calendar_settings_page
+    assert 'href="/settings/integrations/calendar"' in calendar_settings_page
 
 
 def test_legacy_render_helpers_keep_full_page_contract_after_template_refactor() -> None:
@@ -476,11 +535,15 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     )
 
     assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in page
+    assert page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert page.count('aria-label="Навигация кабинета"') == 1
+    assert page.count('aria-current="page"') == 1
     assert 'data-cabinet-rail-toggle' in page
     assert 'aria-controls="cabinet-sidebar"' in page
     assert 'aria-expanded="false"' in page
     assert 'data-icon="panel-left-open"' in page
     assert 'aria-current="page"' in page
+    assert 'href="/desktop/meetings"' in page
     assert 'href="/desktop/settings/integrations/calendar"' in page
     for icon in ("search", "calendar-days", "users-round", "list-checks", "activity", "settings"):
         assert f'data-icon="{icon}"' in page
