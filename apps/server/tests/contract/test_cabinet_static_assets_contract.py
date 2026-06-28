@@ -44,7 +44,8 @@ def test_cabinet_static_assets_do_not_reference_runtime_cdns_or_build_outputs() 
 
 def test_cabinet_brand_assets_are_local_and_nonempty() -> None:
     for filename in [
-        "graf-logo.svg",
+        "graf-icon.png",
+        "graf-icon@2x.png",
         "favicon.ico",
         "favicon-16.png",
         "favicon-32.png",
@@ -57,10 +58,6 @@ def test_cabinet_brand_assets_are_local_and_nonempty() -> None:
         path = STATIC_DIR / filename
         assert path.is_file()
         assert path.stat().st_size > 0
-
-    logo = (STATIC_DIR / "graf-logo.svg").read_text()
-    assert "<svg" in logo
-    assert "<script" not in logo.lower()
 
 
 def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:

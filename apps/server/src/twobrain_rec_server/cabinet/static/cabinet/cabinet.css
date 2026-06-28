@@ -87,6 +87,11 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
   gap: 14px;
 }
 .brand { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; align-items: center; }
+.brand--wordmark {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  align-items: start;
+}
 .workspace { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: center; }
 .brand-mark, .avatar {
   width: 34px;
@@ -113,6 +118,10 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+.brand-wordmark--sidebar {
+  width: 86px;
+  height: 32px;
 }
 .workspace-title { font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-subtitle, .muted { color: var(--muted); font-size: 12px; }
@@ -1337,6 +1346,14 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cabinet-workspace-header__wordmark {
+  display: block;
+  width: 78px;
+  height: 29px;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .cabinet-meeting-row {

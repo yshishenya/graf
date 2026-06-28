@@ -28,7 +28,7 @@ def test_cabinet_template_package_smoke_renders_base_shell() -> None:
     assert "<title>Проверка - GRAF</title>" in html
     assert '<meta name="robots" content="noindex,nofollow">' in html
     assert f'href="{CABINET_STATIC_URL}/favicon.ico"' in html
-    assert f'href="{CABINET_STATIC_URL}/graf-logo.svg"' in html
+    assert f'href="{CABINET_STATIC_URL}/favicon-32.png"' in html
     assert f'href="{CABINET_STATIC_URL}/apple-touch-icon.png"' in html
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in html
     assert '<meta name="htmx-config" content=\'{"allowEval":false,"allowScriptTags":false}\'' in html
