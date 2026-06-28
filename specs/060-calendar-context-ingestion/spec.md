@@ -23,7 +23,7 @@
 The first layer is calendar context ingestion, not messaging or auto-send. Provider research on 2026-06-26 found three practical integration families:
 
 - **Generic CalDAV/iCalendar**: broadest coverage for Russian and self-hosted providers. Target presets include Yandex Calendar, Mail.ru Calendar, VK WorkSpace where a CalDAV endpoint is available, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Nextcloud/SOGo-like deployments, and manually supplied CalDAV URLs.
-- **Rich calendar APIs**: Google Calendar, Microsoft Graph/Exchange, and Bitrix24 expose richer event objects, delta/list methods, attendee state, conferencing fields, and organization-specific context.
+- **Rich calendar APIs**: Exchange EWS and Bitrix24 expose richer event objects, attendee state, conferencing fields, and organization-specific context.
 - **Conference/calendar companion products**: Fireflies, Fathom, Otter, MTS Link, Kontur.Talk, TrueConf, and similar products use calendar data to show upcoming meetings, detect meeting links, match scheduled meetings, and drive later join/send behavior. For 2brain Rec, only ingestion, recording-time context selection, naming, participant roster, and privacy-safe context are in this feature.
 
 Message sending, summary delivery, transcript delivery, calendar invite mutation, bot auto-join, and auto-record start are explicitly deferred to later feature slices.
@@ -42,7 +42,7 @@ As a workspace user, I want to connect my calendar source to 2brain Rec so that 
 
 1. **Given** a user has calendar access credentials or authorization, **When** they connect a supported calendar source, **Then** 2brain Rec stores a server-owned connection record, shows the provider family, and starts in read-only calendar ingestion mode.
 2. **Given** the provider is CalDAV-compatible, **When** the user supplies provider preset credentials or a custom CalDAV URL, **Then** 2brain Rec discovers readable calendars and lets the user choose which calendars to ingest.
-3. **Given** the provider is a rich API provider such as Google Calendar, Microsoft Graph/Exchange, or Bitrix24, **When** authorization succeeds, **Then** 2brain Rec records provider capabilities and syncs events through the provider's supported read path.
+3. **Given** the provider is a rich API provider such as Exchange EWS or Bitrix24, **When** authorization succeeds, **Then** 2brain Rec records provider capabilities and syncs events through the provider's supported read path.
 4. **Given** connection setup fails, expires, is revoked, or provider rate limits requests, **When** sync runs, **Then** the calendar source fails closed with a visible recoverable state and no recording, messaging, or hidden egress occurs.
 
 ---
@@ -129,7 +129,7 @@ As a user, I want 2brain Rec to show upcoming and current calendar meetings so t
 2. **Given** the user selects an upcoming event, **When** they start a recording manually, **Then** the recording is seeded with the selected calendar event context and visible local Record/Stop control remains authoritative.
 3. **Given** a synced event is one minute from its scheduled start time and has a meeting link, **When** the desktop app can notify the user, **Then** 2brain Rec can prompt the user to join or open the meeting without starting recording.
 4. **Given** a synced event reaches its scheduled start time, **When** the user is active and recording is allowed by workspace policy, **Then** 2brain Rec can prompt the user to start recording with that event context.
-5. **Given** an event contains a conference URL for Yandex Telemost, Kontur.Talk, TrueConf, MTS Link, VK Calls, Zoom, Google Meet, Microsoft Teams, Webex, or another recognized target, **When** it is parsed, **Then** the URL is classified as meeting context only and does not cause bot auto-join or hidden capture behavior in this feature.
+5. **Given** an event contains a conference URL for Yandex Telemost, Kontur.Talk, TrueConf, MTS Link, VK Calls, Zoom, Webex, or another recognized target, **When** it is parsed, **Then** the URL is classified as meeting context only and does not cause bot auto-join or hidden capture behavior in this feature.
 
 ---
 
@@ -173,7 +173,7 @@ As the product owner, I want participant emails to be prepared for a later shari
 - **FR-001**: The system MUST support a calendar source connection model that records provider family, account owner, workspace scope, selected calendars, connection state, sync state, and safe error reason.
 - **FR-002**: The system MUST ingest calendar events through a provider-neutral read-only layer before any later calendar-write, auto-join, auto-record, message-send, or summary-delivery layer is allowed.
 - **FR-003**: The system MUST support generic CalDAV/iCalendar ingestion for provider presets and custom provider URLs, with first-class support targets for Yandex Calendar, Mail.ru Calendar, VK WorkSpace-compatible CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Nextcloud/SOGo-like deployments, and manually supplied CalDAV endpoints.
-- **FR-004**: The system MUST support rich provider capability records for Google Calendar, Microsoft Graph/Exchange, and Bitrix24 so planning can use provider-specific event fields where available without weakening the provider-neutral model.
+- **FR-004**: The system MUST support rich provider capability records for Exchange EWS and Bitrix24 so planning can use provider-specific event fields where available without weakening the provider-neutral model.
 - **FR-005**: The system MUST store all available event identity fields required to reconcile updates, including provider, calendar identity, event identity, iCalendar UID, recurrence instance identity, provider version/etag/sequence where available, source updated time, and deletion/cancellation state.
 - **FR-006**: The system MUST store all available schedule fields, including start, end, duration, timezone, all-day state, recurrence rules, recurrence exceptions, event status, transparency/free-busy state, and reminder metadata when available.
 - **FR-007**: The system MUST store all available content/context fields, including title, description or agenda, location, conference/join metadata, categories, color/tags where available, attachments metadata, privacy/sensitivity, and provider-specific extras that are safe to retain.
@@ -189,7 +189,7 @@ As the product owner, I want participant emails to be prepared for a later shari
 - **FR-017**: The system MUST keep provider secrets, OAuth tokens, app passwords, service-app keys, refresh tokens, signed URLs, meeting passcodes, and live credential paths out of logs, diagnostics, API responses, screenshots, specs, plans, and committed evidence.
 - **FR-018**: The system MUST support calendar source disconnect and credential purge/revocation accounting, purge unmatched and future-event cache on disconnect, and retain already matched meeting context only under the matched meeting's retention/deletion policy.
 - **FR-019**: The system MUST provide provider capability and limitation state so users can tell whether a source supports attendees, recurrence, private events, conference links, updates/deletes, free/busy-only responses, and rich provider extras.
-- **FR-020**: The system MUST recognize common conference URL families from calendar events as context, including Yandex Telemost, Kontur.Talk, TrueConf, MTS Link, VK Calls, Zoom, Google Meet, Microsoft Teams, Webex, and provider-generic meeting links.
+- **FR-020**: The system MUST recognize common conference URL families from calendar events as context, including Yandex Telemost, Kontur.Talk, TrueConf, MTS Link, VK Calls, Zoom, Webex, and provider-generic meeting links.
 - **FR-021**: The system MUST fail closed when calendar sync cannot prove event freshness, event identity, or provider authorization; stale calendar data MUST NOT overwrite user titles, access policy, or meeting lifecycle state.
 - **FR-022**: The system MUST ingest selected calendars on a rolling 12-month future horizon with no past events and without retrospective matching of past recordings; recurring expansion and event volume MUST be controlled so calendar sync cannot block recording upload, processing, playback, or review availability.
 - **FR-023**: The system MUST provide a one-minute-before-start prompt to join or open a meeting link where available, and an at-start-time prompt to start recording with the event context, while preserving visible local Record/Stop control and workspace policy enforcement.
@@ -213,7 +213,7 @@ As the product owner, I want participant emails to be prepared for a later shari
 ### Measurable Outcomes
 
 - **SC-001**: A test workspace can connect and sync at least one generic CalDAV calendar source and ingest selected calendars on a rolling 12-month future horizon with no past events, connection state, event count, sync time, and safe failure state visible.
-- **SC-002**: Provider research and validation cover Yandex Calendar, Mail.ru Calendar, VK WorkSpace-compatible calendar surfaces, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Nextcloud/SOGo-like CalDAV, Bitrix24, Google Calendar, Microsoft Graph/Exchange, and at least one generic CalDAV/custom URL source.
+- **SC-002**: Provider research and validation cover Yandex Calendar, Mail.ru Calendar, VK WorkSpace-compatible calendar surfaces, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Nextcloud/SOGo-like CalDAV, Bitrix24/Exchange, and at least one generic CalDAV/custom URL source.
 - **SC-003**: For fixture events containing all supported normalized fields, 100% of available identity, schedule, context, participant, recurrence, status, privacy, and provider-version fields are stored or explicitly marked as unavailable/unsupported.
 - **SC-004**: For private/free-busy-only events, unauthorized contexts and evidence outputs expose 0 private titles, descriptions, attendee emails, meeting URLs, passcodes, attachment links, or agenda text.
 - **SC-005**: Recording-time calendar context validation covers high-confidence selected event, ambiguous current events, no-context, manually selected future event, recurring-instance, cancelled-event, duplicate-calendar, and stale-sync cases with deterministic confidence and fallback outcomes.

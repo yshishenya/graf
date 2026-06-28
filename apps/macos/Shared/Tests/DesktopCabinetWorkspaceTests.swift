@@ -50,6 +50,10 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             DesktopMeetingShellSidebarItem.meetings.destinationRoute(configuration: configuration)?.absoluteString,
             "https://rec.2brain.dev/desktop/meetings"
         )
+        XCTAssertEqual(
+            DesktopMeetingShellSidebarItem.settings.destinationRoute(configuration: configuration)?.absoluteString,
+            "https://rec.2brain.dev/desktop/settings/integrations/calendar"
+        )
         XCTAssertEqual(DesktopMeetingShellSidebarItem.meetings.accessibilityLabel, "Открыть список встреч")
     }
 
@@ -65,6 +69,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     func testSuccessfulLoginPageLoadDoesNotMarkCabinetReady() {
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingList), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingDetail), .ready)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .calendarSettings), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
     }
@@ -429,6 +434,65 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertNotEqual(loading.menuStatusText, "Кабинет доступен")
         XCTAssertEqual(ready.menuStatusText, "Кабинет доступен")
         XCTAssertEqual(ready.systemImage, "checkmark.circle")
+    }
+
+    func testCalendarSettingsUnavailableStatesKeepCredentialBoundaryAndManualRecording() {
+        let unavailableStates: [DesktopCabinetState] = [
+            .notConfigured,
+            .offline,
+            .timeout,
+            .expiredSession,
+            .accessDenied,
+            .notFound,
+            .malformedResponse,
+            .blockedRoute
+        ]
+
+        for state in unavailableStates {
+            let message = state.userMessage
+            let invariant = NativeShellInvariant(
+                recordVisible: true,
+                stopVisible: true,
+                uploadTruthVisible: true,
+                focusCanReachStop: true,
+                embeddedSurfaceLoaded: false
+            )
+
+            XCTAssertTrue(message.contains("Mac не хранит пароли календаря"), "\(state)")
+            XCTAssertTrue(message.contains("ручная запись доступна без календаря"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("token"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("password"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("app password"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("refresh"), "\(state)")
+            XCTAssertTrue(invariant.satisfiesActiveRecordingSafety(cabinetState: state), "\(state)")
+        }
+    }
+
+    func testCalendarSettingsExpiredSessionRecoveryReturnsToEmbeddedSettings() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: ["X-Workspace-Id": "workspace-063"]
+        ))
+        let target = DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
+            for: .expiredSession,
+            configuration: configuration
+        )
+        guard case let .embedded(route)? = target else {
+            XCTFail("Expected embedded calendar settings login recovery target")
+            return
+        }
+        let components = try XCTUnwrap(URLComponents(url: route, resolvingAgainstBaseURL: false))
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        XCTAssertEqual(route.path, "/login")
+        XCTAssertEqual(query["next"], "/desktop/settings/integrations/calendar")
+        XCTAssertEqual(query["workspace_id"], "workspace-063")
+        XCTAssertNil(DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
+            for: .offline,
+            configuration: configuration
+        ))
     }
 }
 #endif

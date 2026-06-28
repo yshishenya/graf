@@ -23,8 +23,6 @@ PROVIDER_HOST_MARKERS = (
     ("trueconf", "trueconf"),
     ("calls.vk.", "vk_calls"),
     ("zoom.", "zoom"),
-    ("meet.google.", "google_meet"),
-    ("teams.microsoft.", "microsoft_teams"),
     ("webex.", "webex"),
 )
 

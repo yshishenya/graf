@@ -17,6 +17,7 @@ def test_production_disables_interactive_docs_and_openapi_json(tmp_path) -> None
             minio_access_key="twobrain_rec_api",
             minio_secret_key="prod-api-secret",
             minio_bucket="test-bucket",
+            web_csrf_secret="prod-web-csrf-secret-32-bytes-minimum",
             auth_ru_local_storage_attested=True,
         )
     )

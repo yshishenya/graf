@@ -47,7 +47,16 @@ public struct DesktopCalendarReminderService: Sendable {
             }
         }
 
-        for event in events.sorted(by: { $0.startsAt < $1.startsAt }) where isJoinPromptDue(for: event, now: now) {
+        let joinCandidates = events
+            .filter { isJoinPromptDue(for: $0, now: now) }
+            .sorted { $0.startsAt < $1.startsAt }
+
+        if joinCandidates.count > 1 {
+            let prompt = overlapJoinPrompt(for: joinCandidates)
+            return dismissedPromptIDs.contains(prompt.id) ? nil : prompt
+        }
+
+        if let event = joinCandidates.first {
             let prompt = joinPrompt(for: event)
             if !dismissedPromptIDs.contains(prompt.id) {
                 return prompt
@@ -90,6 +99,30 @@ public struct DesktopCalendarReminderService: Sendable {
         )
     }
 
+    public static func overlapJoinPrompt(for events: [DesktopCalendarPromptEvent]) -> DesktopCalendarPrompt {
+        let choices = events.sorted { $0.startsAt < $1.startsAt }.map { event in
+            DesktopCalendarPromptChoice(
+                id: "event:\(event.eventId)",
+                eventId: event.eventId,
+                title: event.safeDisplayTitle(),
+                openMeetingURL: event.openMeetingURL
+            )
+        }
+        return DesktopCalendarPrompt(
+            id: promptID(kind: .join, eventIDs: events.map(\.eventId)),
+            kind: .join,
+            eventId: nil,
+            title: SystemAudioStatusLabels.calendarGenericMeetingTitle,
+            message: SystemAudioStatusLabels.calendarJoinOverlapPromptMessage,
+            primaryActionTitle: SystemAudioStatusLabels.calendarPromptJoinActionTitle,
+            accessibilityLabel: SystemAudioStatusLabels.calendarPromptAccessibilityLabel(
+                title: SystemAudioStatusLabels.calendarGenericMeetingTitle,
+                action: SystemAudioStatusLabels.calendarPromptJoinActionTitle
+            ),
+            choices: choices
+        )
+    }
+
     public static func recordPrompt(for event: DesktopCalendarPromptEvent) -> DesktopCalendarPrompt {
         let title = event.safeDisplayTitle()
         return DesktopCalendarPrompt(
@@ -107,17 +140,32 @@ public struct DesktopCalendarReminderService: Sendable {
     }
 
     public static func overlapRecordPrompt(for events: [DesktopCalendarPromptEvent]) -> DesktopCalendarPrompt {
-        DesktopCalendarPrompt(
+        let eventChoices = events.sorted { $0.startsAt < $1.startsAt }.map { event in
+            DesktopCalendarPromptChoice(
+                id: "event:\(event.eventId)",
+                eventId: event.eventId,
+                title: event.safeDisplayTitle()
+            )
+        }
+        let choices = eventChoices + [
+            DesktopCalendarPromptChoice(
+                id: "without-calendar-context",
+                eventId: nil,
+                title: SystemAudioStatusLabels.calendarPromptRecordWithoutContextActionTitle
+            )
+        ]
+        return DesktopCalendarPrompt(
             id: promptID(kind: .record, eventIDs: events.map(\.eventId)),
             kind: .record,
             eventId: nil,
             title: SystemAudioStatusLabels.calendarGenericMeetingTitle,
             message: SystemAudioStatusLabels.calendarOverlapPromptMessage,
-            primaryActionTitle: SystemAudioStatusLabels.calendarPromptRecordActionTitle,
+            primaryActionTitle: SystemAudioStatusLabels.calendarPromptRecordWithoutContextActionTitle,
             accessibilityLabel: SystemAudioStatusLabels.calendarPromptAccessibilityLabel(
                 title: SystemAudioStatusLabels.calendarGenericMeetingTitle,
-                action: SystemAudioStatusLabels.calendarPromptRecordActionTitle
-            )
+                action: SystemAudioStatusLabels.calendarPromptRecordWithoutContextActionTitle
+            ),
+            choices: choices
         )
     }
 

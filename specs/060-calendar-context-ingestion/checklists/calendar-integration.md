@@ -10,7 +10,6 @@
 
 - [x] CHK001 Are read-only calendar ingestion boundaries fully defined before any messaging, calendar-write, auto-join, auto-record, or retrospective matching behavior is allowed? [Completeness, Spec §FR-002, Spec §FR-025, Spec §FR-026]
 - [x] CHK002 Are all required calendar source states documented, including connection state, selected calendars, sync state, capability state, safe error state, and disconnect state? [Completeness, Spec §FR-001, Spec §Key Entities]
-- [x] CHK003 Are provider coverage requirements complete for Russian, self-hosted, Google, Microsoft Graph, Exchange, Bitrix24, and generic CalDAV/custom URL sources? [Completeness, Spec §FR-003, Spec §FR-004, Spec §SC-002]
 - [x] CHK004 Are requirements defined for preserving unavailable or unsupported provider fields without fabricating titles, attendees, organizer data, or meeting links? [Completeness, Spec §User Story 2, Spec §FR-019]
 - [x] CHK005 Are calendar event fields grouped clearly enough across identity, schedule, content, people/resources, provider versions, and limitation states? [Completeness, Spec §FR-005 through FR-008]
 - [x] CHK006 Are future-recipient candidate requirements complete while excluding access grants, notifications, shares, and message sending? [Completeness, Spec §User Story 7, Spec §FR-010, Spec §FR-025]
@@ -68,7 +67,6 @@
 - [x] CHK037 Are provider capability assumptions documented for SaaS/on-prem differences, admin policy, licenses, app-password policy, tenant settings, and CalDAV availability? [Assumption, Spec §Assumptions, Spec §FR-019]
 - [x] CHK038 Are credential ownership assumptions clear that the server owns provider credentials and the desktop client never stores provider OAuth refresh tokens, app passwords, or service-app keys? [Assumption, Spec §Assumptions, Plan §Constraints]
 - [x] CHK039 Are dependencies on existing user/session/workspace identity, meeting access, deletion, upload, processing, and review foundations stated clearly enough for task generation? [Dependency, Spec §Assumptions]
-- [x] CHK040 Are provider research outputs traceable to requirements for Yandex, Mail.ru, VK WorkSpace, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Bitrix24, Google, Microsoft Graph, and Exchange? [Traceability, Spec §Provider Research Summary, Spec §SC-002]
 
 ## Ambiguities & Conflicts
 

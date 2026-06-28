@@ -1,7 +1,13 @@
-from datetime import UTC, datetime
+import base64
+import binascii
+import hmac
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from uuid import UUID
 
-from fastapi import Cookie, Depends, Header, Request
+from fastapi import Cookie, Depends, Header, Request, Response
 from sqlalchemy import and_, select
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -23,6 +29,17 @@ from twobrain_rec_server.db.tenant_context import (
 )
 
 AUTH_SESSION_COOKIE_NAME = "__Host-twobrain_rec_owner_session"
+DESKTOP_CALENDAR_AUTH_COOKIE_NAME = "twobrain_rec_desktop_calendar_auth"
+DESKTOP_CALENDAR_AUTH_COOKIE_PATH = "/desktop/settings/integrations/calendar"
+DESKTOP_CALENDAR_AUTH_COOKIE_MAX_AGE_SECONDS = 15 * 60
+
+
+@dataclass(frozen=True, slots=True)
+class _DesktopCalendarAuthContext:
+    user_id: UUID
+    organization_id: UUID
+    workspace_id: UUID
+    device_id: UUID
 
 
 def _parse_uuid(value: str | None, header_name: str) -> UUID:
@@ -81,6 +98,110 @@ def _ensure_legacy_header_auth_allowed(request: Request) -> None:
         code="legacy_header_auth_disabled",
         title="Legacy header authentication is disabled",
         detail="Use a validated auth session token in production.",
+    )
+
+
+def _desktop_calendar_auth_secret(request: Request) -> str:
+    secret = getattr(request.app.state, "web_csrf_secret", None)
+    if not secret:
+        raise ProblemDetail(
+            status=503,
+            code="csrf_secret_unavailable",
+            title="CSRF protection unavailable",
+        )
+    return str(secret)
+
+
+def _is_desktop_calendar_request(request: Request) -> bool:
+    return request.url.path.startswith(DESKTOP_CALENDAR_AUTH_COOKIE_PATH)
+
+
+def _urlsafe_encode(payload: bytes) -> str:
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _urlsafe_decode(payload: str) -> bytes:
+    return base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+
+
+def _sign_desktop_calendar_payload(payload: str, *, secret: str) -> str:
+    return hmac.new(secret.encode(), payload.encode(), sha256).hexdigest()
+
+
+def _desktop_calendar_cookie_value(
+    *,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+    secret: str,
+    now: datetime | None = None,
+) -> str:
+    issued_at = now or datetime.now(UTC)
+    payload = {
+        "d": str(tenant_scope.device_id),
+        "exp": int((issued_at + timedelta(seconds=DESKTOP_CALENDAR_AUTH_COOKIE_MAX_AGE_SECONDS)).timestamp()),
+        "o": str(principal.organization_id),
+        "u": str(principal.user_id),
+        "w": str(tenant_scope.workspace_id),
+    }
+    encoded = _urlsafe_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    return f"{encoded}.{_sign_desktop_calendar_payload(encoded, secret=secret)}"
+
+
+def _desktop_calendar_context_from_cookie(
+    request: Request,
+    token: str | None,
+) -> _DesktopCalendarAuthContext | None:
+    if not token or not _is_desktop_calendar_request(request):
+        return None
+    try:
+        payload, signature = token.rsplit(".", 1)
+    except ValueError as exc:
+        raise ProblemDetail(status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid") from exc
+    expected = _sign_desktop_calendar_payload(payload, secret=_desktop_calendar_auth_secret(request))
+    if not hmac.compare_digest(signature, expected):
+        raise ProblemDetail(status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid")
+    try:
+        decoded = json.loads(_urlsafe_decode(payload))
+        if int(decoded["exp"]) < int(datetime.now(UTC).timestamp()):
+            raise ValueError("expired")
+        return _DesktopCalendarAuthContext(
+            user_id=UUID(str(decoded["u"])),
+            organization_id=UUID(str(decoded["o"])),
+            workspace_id=UUID(str(decoded["w"])),
+            device_id=UUID(str(decoded["d"])),
+        )
+    except (
+        binascii.Error,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as exc:
+        raise ProblemDetail(status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid") from exc
+
+
+def set_desktop_calendar_auth_cookie(
+    response: Response,
+    *,
+    request: Request,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+) -> None:
+    if principal.auth_via_session or not _is_desktop_calendar_request(request):
+        return
+    response.set_cookie(
+        key=DESKTOP_CALENDAR_AUTH_COOKIE_NAME,
+        value=_desktop_calendar_cookie_value(
+            principal=principal,
+            tenant_scope=tenant_scope,
+            secret=_desktop_calendar_auth_secret(request),
+        ),
+        max_age=DESKTOP_CALENDAR_AUTH_COOKIE_MAX_AGE_SECONDS,
+        path=DESKTOP_CALENDAR_AUTH_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
     )
 
 
@@ -144,10 +265,38 @@ async def get_principal(
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
     x_organization_id: str | None = Header(default=None, alias="X-Organization-Id"),
     x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
+    desktop_calendar_auth_cookie: str | None = Cookie(
+        default=None,
+        alias=DESKTOP_CALENDAR_AUTH_COOKIE_NAME,
+        include_in_schema=False,
+    ),
 ) -> AuthenticatedPrincipal:
     session_token = _extract_session_token(authorization, x_auth_session, auth_session_cookie)
     if session_token is not None:
         return await _principal_from_session_token(request, session_token)
+
+    desktop_context = _desktop_calendar_context_from_cookie(request, desktop_calendar_auth_cookie)
+    if desktop_context is not None:
+        return AuthenticatedPrincipal(
+            user_id=desktop_context.user_id,
+            organization_id=desktop_context.organization_id,
+            workspace_ids=frozenset({desktop_context.workspace_id}),
+            subject=str(desktop_context.user_id),
+            auth_via_session=False,
+        )
+
+    if any(value is not None for value in (x_user_id, x_organization_id, x_workspace_id)):
+        _ensure_legacy_header_auth_allowed(request)
+        user_id = _parse_uuid(x_user_id, "X-User-Id")
+        organization_id = _parse_uuid(x_organization_id, "X-Organization-Id")
+        workspace_id = _parse_uuid(x_workspace_id, "X-Workspace-Id")
+        return AuthenticatedPrincipal(
+            user_id=user_id,
+            organization_id=organization_id,
+            workspace_ids=frozenset({workspace_id}),
+            subject=str(user_id),
+            auth_via_session=False,
+        )
 
     _ensure_legacy_header_auth_allowed(request)
     user_id = _parse_uuid(x_user_id, "X-User-Id")
@@ -227,16 +376,25 @@ async def require_web_csrf(
     request: Request,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     x_csrf_token: str | None = Header(default=None, alias=CSRF_HEADER_NAME, include_in_schema=False),
+    desktop_calendar_auth_cookie: str | None = Cookie(
+        default=None,
+        alias=DESKTOP_CALENDAR_AUTH_COOKIE_NAME,
+        include_in_schema=False,
+    ),
     csrf_secret: str = Depends(get_web_csrf_secret),
 ) -> None:
+    csrf_subject_id = principal.session_id
     if not principal.auth_via_session:
+        desktop_context = _desktop_calendar_context_from_cookie(request, desktop_calendar_auth_cookie)
+        csrf_subject_id = desktop_context.device_id if desktop_context is not None else None
+    if csrf_subject_id is None:
         return
     form_token: str | None = None
     if x_csrf_token is None and request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
         form = await request.form()
         value = form.get(CSRF_FORM_FIELD_NAME)
         form_token = str(value) if value is not None else None
-    require_csrf_token(x_csrf_token or form_token, session_id=principal.session_id, secret=csrf_secret)
+    require_csrf_token(x_csrf_token or form_token, session_id=csrf_subject_id, secret=csrf_secret)
 
 
 async def get_tenant_scope(
@@ -257,6 +415,11 @@ async def get_web_owner_tenant_scope(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
     x_device_id: str | None = Header(default=None, alias="X-Device-Id"),
+    desktop_calendar_auth_cookie: str | None = Cookie(
+        default=None,
+        alias=DESKTOP_CALENDAR_AUTH_COOKIE_NAME,
+        include_in_schema=False,
+    ),
 ) -> TenantScope:
     if principal.auth_via_session:
         if principal.session_workspace_id is None or principal.session_device_id is None:
@@ -270,6 +433,23 @@ async def get_web_owner_tenant_scope(
             principal=principal,
             workspace_id=principal.session_workspace_id,
             device_id=principal.session_device_id,
+        )
+
+    desktop_context = _desktop_calendar_context_from_cookie(request, desktop_calendar_auth_cookie)
+    if desktop_context is not None:
+        return await _validate_tenant_scope(
+            request,
+            principal=principal,
+            workspace_id=desktop_context.workspace_id,
+            device_id=desktop_context.device_id,
+        )
+
+    if x_workspace_id is not None or x_device_id is not None:
+        return await _validate_tenant_scope(
+            request,
+            principal=principal,
+            workspace_id=_parse_uuid(x_workspace_id, "X-Workspace-Id"),
+            device_id=_parse_uuid(x_device_id, "X-Device-Id"),
         )
 
     return await _validate_tenant_scope(

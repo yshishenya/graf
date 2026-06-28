@@ -1,4 +1,3 @@
-import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -54,8 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db_engine = engine
     app.state.db_sessionmaker = create_sessionmaker(engine)
     app.state.storage = storage
-    # ponytail: per-process secret; use a shared secret if multiple replicas need stable CSRF tokens.
-    app.state.web_csrf_secret = secrets.token_urlsafe(32)
+    app.state.web_csrf_secret = settings.web_csrf_secret
     app.middleware("http")(request_logging_middleware)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)

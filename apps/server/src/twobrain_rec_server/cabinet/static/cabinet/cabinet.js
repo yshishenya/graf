@@ -326,12 +326,24 @@
     });
   };
 
+  const initCalendarSettings = () => {
+    document.querySelectorAll("[data-calendar-disconnect-cancel]").forEach((button) => {
+      if (button.dataset.calendarCancelReady === "true") return;
+      button.dataset.calendarCancelReady = "true";
+      button.addEventListener("click", () => {
+        const details = button.closest("details");
+        if (details) details.open = false;
+      });
+    });
+  };
+
   const initCabinet = () => {
     initAuthTransition();
     initCodeForms();
     initMeetingList();
     initDetailTabs();
     initPlayback();
+    initCalendarSettings();
   };
 
   document.body.addEventListener("htmx:afterSwap", (event) => {

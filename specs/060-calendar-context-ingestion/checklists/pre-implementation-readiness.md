@@ -9,7 +9,6 @@
 ## Requirement Completeness
 
 - [x] CHK001 Are the read-only calendar boundaries still complete after the latest master merge, including no calendar mutation, no sending, no auto-join, no auto-record, and no retrospective matching? [Completeness, Spec §FR-002, Spec §FR-025, Spec §FR-026]
-- [x] CHK002 Are provider coverage requirements still complete for Russian, self-hosted, Google, Microsoft Graph, Exchange EWS, Bitrix24, and generic CalDAV/custom URL sources? [Completeness, Spec §FR-003, Spec §FR-004, Spec §SC-002]
 - [x] CHK003 Are recording-time context, safe title fallback, participant roster, privacy lifecycle, and desktop prompt scenarios all represented in tasks with exact file paths? [Completeness, Tasks §Phases 3-8]
 
 ## Requirement Clarity

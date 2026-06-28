@@ -9,22 +9,56 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `063-calendar-settings-ui`: добавлен рабочий экран
+  `Настройки -> Интеграции -> Календари` для web cabinet и embedded macOS
+  cabinet. Экран показывает read-only границу, поддерживаемых провайдеров,
+  подключенные источники, выбор календарей внутри источника, sync health,
+  manual sync, disconnect confirmation, preview ближайших встреч, настройки
+  prompt-поведения и явное решение для пересекающихся событий.
 
 ### Изменено
-- _Пока нет записей._
+- Calendar settings теперь сохраняют пользовательские prompt/preference
+  настройки отдельно от backend calendar context: календарь после подключения
+  не становится активным автоматически, пока пользователь явно не выберет
+  конкретные календари.
+- Feature `063-calendar-settings-ui`: неподдерживаемые записи убраны из
+  пользовательского provider catalog; экран показывает только app-password,
+  CalDAV и provider-limited варианты.
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `063-calendar-settings-ui`: embedded macOS cabinet теперь пропускает
+  только известные child routes настроек календаря и переустанавливает desktop
+  headers для GET-навигации настроек.
+- Feature `063-calendar-settings-ui`: upcoming/preview события теперь
+  фильтруются по пользовательским категориям до применения лимита; события с
+  участниками, но без ссылки, входят в дефолт как meeting-like.
+- Feature `063-calendar-settings-ui`: provider-result больше не показывает
+  ложный success без созданного источника, app-password flow сохраняет логин в
+  server-owned sealed payload, а preview уважает настройки скрытия времени и
+  названия.
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `063-calendar-settings-ui`: UI и measurement contract закрепляют, что
+  календарный доступ остается read-only; desktop app не хранит provider
+  credentials; private/free-busy события показывают только безопасный минимум;
+  участники календаря не становятся получателями саммари или share grants; 063
+  не включает auto-record, bot join, calendar mutation, отправку сообщений или
+  retrospective matching.
 
 ### Документы
-- _Пока нет записей._
+- Обновлены Spec Kit evidence для `063-calendar-settings-ui`: quickstart,
+  measurement, design QA и текущий статус продукта фиксируют проверенный scope,
+  ограничения и validation evidence.
 
 ### Операции
-- _Пока нет записей._
+- Local validation для `063-calendar-settings-ui` на 2026-06-28: focused server
+  calendar settings checks passed `77 passed`; server Ruff passed; focused
+  macOS calendar/cabinet checks passed `96 tests`; full macOS suite passed
+  `678 tests`; forbidden-content scan found only safe `contains_passcode`
+  source-code detector references; removed-provider catalog scan found no
+  matches in the calendar feature surface; full local CI passed `862 passed, 4
+  skipped, 103 warnings` with `ci_local_result=pass`.
+  Production deploy/release is not part of 063 implementation closeout.
 
 ## [2026.06.27.4] - 2026-06-27
 

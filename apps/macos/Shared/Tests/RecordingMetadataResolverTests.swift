@@ -79,7 +79,7 @@ final class RecordingMetadataResolverTests: XCTestCase {
             stoppedAt: nil,
             directoryId: "recording-directory",
             sessionId: "session-id",
-            approvedAppName: "meet.google.com/abc-defg-hij"
+            approvedAppName: "meet.example.test/abc-defg-hij"
         )
         XCTAssertEqual(bareMeetingLink.title, "Meeting - 2026-06-26 11:30")
         XCTAssertEqual(bareMeetingLink.titleSource, .generic)

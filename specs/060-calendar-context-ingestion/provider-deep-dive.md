@@ -21,7 +21,7 @@ with two adapter families:
 - **Generic CalDAV/iCalendar adapter** for breadth across Russian, on-prem, and
   self-hosted providers.
 - **Rich API adapters** for providers that expose better event objects and sync
-  semantics: Google Calendar, Microsoft Graph, Exchange Server through EWS, and
+  semantics: Exchange Server through EWS, and
   Bitrix24.
 
 The first product layer should ingest and normalize all available context, but
@@ -40,8 +40,6 @@ no past-event ingestion or retrospective matching of older recordings.
 - Generic CalDAV/iCalendar normalization covers Yandex, Mail.ru, custom
   Russian/on-prem provider presets, private/free-busy limitations, recurrence
   movement/cancellation, attendees/resources, and conference-link extraction.
-- Native provider mappers now exist for Google Calendar event resources,
-  Microsoft Graph events, Exchange EWS-style payloads, and Bitrix24 calendar
   events. They map into the common normalized event contract instead of keeping
   raw provider payloads.
 - Rich provider adapters in 060 are read/normalize boundaries only. OAuth
@@ -61,7 +59,6 @@ return a field, store an explicit `unsupported`, `not_returned`,
 ### Identity Fields
 
 - `provider_family`: `caldav`, `yandex`, `mail_ru`, `vk_workspace`,
-  `google_calendar`, `microsoft_graph`, `exchange_ews`, `bitrix24`,
   `mailion_myoffice`, `r7_office`, `communigate`, `rupost`, `custom_caldav`.
 - `provider_account_id`: stable account/mailbox identifier where available.
 - `calendar_id`: provider calendar collection identity.
@@ -95,7 +92,6 @@ return a field, store an explicit `unsupported`, `not_returned`,
 - `location` and `locations`.
 - `conference_links`: parsed links and provider conference metadata.
 - `conference_provider_family`: Telemost, MTS Link, Kontur.Talk, TrueConf,
-  VK Calls, Zoom, Google Meet, Microsoft Teams, Webex, generic.
 - `dial_in_metadata`: phone/SIP/dial code metadata, sensitive by default.
 - `categories`, `color`, `tags`.
 - `attachments_metadata`: names/types/provider ids only; do not fetch files in
@@ -132,9 +128,6 @@ return a field, store an explicit `unsupported`, `not_returned`,
 |---|---|---|---|
 | P1 | Yandex Calendar | CalDAV preset | Russian default; official CalDAV sync and app passwords. |
 | P1 | Mail.ru Calendar | CalDAV preset | Russian consumer/default mailbox; official CalDAV settings. |
-| P1 | Google Calendar | Rich API plus optional CalDAV | Strong event model, Meet metadata, attendees, recurrence. |
-| P1 | Microsoft 365 / Outlook | Microsoft Graph | Strong event model, Teams metadata, delta sync, enterprise auth. |
-| P1.5 | Exchange Server on-prem | EWS | Required for self-hosted/on-prem Microsoft customers; richer than generic ICS. |
 | P1.5 | Bitrix24 | REST API | Popular RU business stack; calendar has participants, CRM links, recurrence. |
 | P2 | VK WorkSpace / VK WorkMail | CalDAV/custom endpoint until vendor proof | Important RU suite, but no stable public external calendar API found in this pass. |
 | P2 | Mailion / MyOffice | CalDAV/custom URL | Official docs expose CalDAV links; common enterprise replacement stack. |
@@ -541,14 +534,10 @@ Sources:
 - https://wiki.astralinux.ru/kb/rupost-sinhronizatsiya-kalendarya-kontur-tolk-po-protokolu-caldav-326831820.html
 - https://wiki.astralinux.ru/kb/rupost-216542210.html
 
-### Google Calendar
 
-**Recommended adapter**: `google_calendar_api` rich adapter. Optional CalDAV is
 fallback only.
 
-**Evidence**: Google Calendar Events API exposes rich event resources including
 start/end/timezone, recurrence, recurring event ids, organizer, attendees,
-response status, location, event types, and conference data. Google also has a
 CalDAV interface, but the Events API gives better sync and metadata control.
 
 **Auth / connection model**:
@@ -567,7 +556,6 @@ CalDAV interface, but the Events API gives better sync and metadata control.
 - `organizer`, `creator`.
 - `attendees`: email, displayName, optional, resource, organizer, self,
   responseStatus, comments, additional guests.
-- `conferenceData`: Google Meet or third-party add-on type, entry points,
   meeting codes, passcodes, phones, SIP, notes.
 - `attachments`, `extendedProperties`, reminders, transparency, visibility.
 
@@ -576,14 +564,12 @@ CalDAV interface, but the Events API gives better sync and metadata control.
 - All above fields that are returned by scopes/permissions.
 - Conference passcodes as sensitive fields; never log or show in evidence.
 - Attendees as roster/candidates only.
-- Google Meet entry points as conference-link candidates.
 
 **Limitations / risks**:
 
 - Attendees may be omitted or truncated depending on API parameters.
 - Service account attendee population requires domain-wide delegation; not a
   first-layer assumption.
-- Google warns about conference data reuse causing access/privacy issues; 060
   does not create conference data.
 - Consumer vs Workspace permissions/admin approval differ.
 
@@ -595,74 +581,9 @@ CalDAV interface, but the Events API gives better sync and metadata control.
 
 Sources:
 
-- https://developers.google.com/workspace/calendar/api/v3/reference/events
-- https://developers.google.com/workspace/calendar/api/guides/create-events
-- https://developers.google.com/workspace/calendar/caldav/v2/guide
-
-### Microsoft 365 / Outlook Calendar Through Microsoft Graph
-
-**Recommended adapter**: `microsoft_graph_calendar`.
-
-**Evidence**: Microsoft Graph `event` resource includes attendees, body/body
-preview, all-day/cancelled/draft flags, recurrence, instances, categories,
-locations, organizer, online meeting info, join URL through `onlineMeeting`,
-change keys, extensions, and more. Graph calendar APIs support Microsoft 365
-calendar access and are the primary cloud route.
-
-**Auth / connection model**:
-
-- OAuth user delegated permissions for individual calendar sync.
-- Application permissions/admin consent only for a later enterprise feature.
-- Store refresh tokens server-side only.
-- Tenant/admin approval must be visible as a recoverable connection state.
-
-**Expected fields through Graph**:
-
-- `id`, `iCalUId`, `changeKey`, created/lastModified times.
-- `subject`, `body`, `bodyPreview`, `importance`, `sensitivity`.
-- `start`, `end`, original time zones, `isAllDay`.
-- `isCancelled`, `isDraft`, `showAs`, `responseStatus`.
-- `organizer`, `attendees`.
-- `location`, `locations`.
-- `isOnlineMeeting`, `onlineMeetingProvider`, `onlineMeeting`, `onlineMeetingUrl`.
-- `recurrence`, `seriesMasterId`, `instances`, cancelled occurrences where
-  selected/expanded.
-- `categories`, `hasAttachments`, extensions, extended properties.
-
-**What to ingest for 060**:
-
-- All event identity/schedule/content/participants returned by selected scope.
-- Teams join URL only as sensitive conference metadata.
-- Body/bodyPreview as sensitive agenda text.
-- Sensitivity and `hideAttendees` as privacy flags.
-
-**Limitations / risks**:
-
-- Admin consent is common in enterprise tenants.
-- `onlineMeetingUrl` is deprecated in favor of `onlineMeeting.joinUrl`;
-  normalize both but prefer the modern join URL when returned.
-- Extended properties are useful but can contain tenant-specific sensitive data.
-- Exchange Online vs Outlook consumer behavior can differ.
-
-**2brain implementation stance**:
-
-- P1 rich adapter.
-- Read-only events first.
-- Use Graph for Microsoft 365/Outlook cloud; do not force on-prem Exchange into
-  Graph if the customer is self-hosted.
-
-Sources:
-
-- https://learn.microsoft.com/en-us/graph/api/resources/event?view=graph-rest-1.0
-- https://learn.microsoft.com/en-us/graph/outlook-calendar-concept-overview
-- https://learn.microsoft.com/en-us/graph/api/resources/calendar?view=graph-rest-1.0
-- https://learn.microsoft.com/en-us/graph/api/resources/onlinemeeting?view=graph-rest-1.0
-
-### Microsoft Exchange Server On-Prem Through EWS
 
 **Recommended adapter**: `exchange_ews_calendar`.
 
-**Evidence**: Microsoft EWS docs describe EWS as a cross-platform SOAP/XML API
 for mailbox items including meetings and contacts, usable against Exchange
 Online and on-prem Exchange Server 2007+. EWS calendar docs cover calendar
 folders/items, appointments, meetings, attendees, resources, rooms,
@@ -692,7 +613,6 @@ cancellations.
 
 **What to ingest for 060**:
 
-- Rich event data for on-prem organizations that cannot use Microsoft Graph.
 - Meeting attendees/resources as roster/candidates only.
 - Calendar view bounded by date range for efficient sync.
 - Change keys for update reconciliation.
@@ -704,21 +624,17 @@ cancellations.
 - Impersonation and service account access are high-risk and out of the first
   individual-user flow.
 - EWS supports write/send operations; 060 must not create or update meetings.
-- Some Exchange Online deployments may prefer Graph over EWS.
+- Some Exchange Online deployments may prefer another enterprise read API over EWS.
 
 **2brain implementation stance**:
 
 - P1.5 because the user explicitly asked not to forget Exchange Server.
-- Separate from Microsoft Graph in UX and capability reporting.
 - Start with user-provided EWS endpoint or Autodiscover spike in planning.
 - Add fixtures for recurrence exceptions, attendee/resource rooms, cancellation,
   private sensitivity, and NTLM/OAuth connection errors.
 
 Sources:
 
-- https://learn.microsoft.com/en-us/exchange/client-developer/exchange-web-services/ews-applications-and-the-exchange-architecture
-- https://learn.microsoft.com/en-us/exchange/client-developer/exchange-web-services/calendars-and-ews-in-exchange
-- https://learn.microsoft.com/en-us/exchange/client-developer/exchange-web-services/properties-and-extended-properties-in-ews-in-exchange
 
 ## Conference And Calendar-Companion References
 
@@ -727,7 +643,6 @@ their auto-join/auto-send behavior in 060.
 
 ### Fireflies
 
-- Supports Google Calendar and Outlook Calendar.
 - Shows upcoming meetings from the connected calendar.
 - Requires meeting links in the calendar to detect/join meetings.
 - Has auto-join toggles and recap behavior.
@@ -742,7 +657,6 @@ Sources:
 
 ### Fathom
 
-- Connects Google or Microsoft calendars.
 - Uses calendar schedule to show upcoming meetings and support auto-join.
 - Its quick start also promotes auto-record and auto-share.
 
@@ -755,14 +669,11 @@ Sources:
 
 ### Otter
 
-- Connects Google Calendar and Microsoft Outlook calendar; iOS can connect a
   device calendar.
 - Calendar events sync into Otter; Otter notes can later be connected to
-  Google calendar events.
 - Otter explicitly does not support on-prem Exchange calendars, which is a
   gap 2brain can cover through EWS for self-hosted customers.
 
-2brain takeaway: support Microsoft 365/Google for common SaaS users and keep
 Exchange Server as a differentiator for controlled/on-prem customers.
 
 Sources:
@@ -832,8 +743,6 @@ Sources:
 
 ### Phase C: Rich API Adapters
 
-1. Google Calendar Events API.
-2. Microsoft Graph Calendar.
 3. Exchange Server EWS.
 4. Bitrix24 Calendar REST.
 
@@ -866,8 +775,6 @@ Sources:
 - Duplicate organizer/attendee calendar copies.
 - Overlapping personal/work events.
 - Bitrix24 event with CRM links.
-- Google event with Meet conference data.
-- Microsoft Graph event with Teams onlineMeeting.
 - Exchange EWS recurring exception.
 
 ## Hard Product Rules For All Providers

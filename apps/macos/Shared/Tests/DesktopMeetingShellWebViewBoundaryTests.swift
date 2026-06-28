@@ -38,6 +38,23 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         }
     }
 
+    func testCalendarSettingsEmbeddedSurfaceKeepsNativeStopReachableDuringActiveRecording() throws {
+        let configuration = CalendarSettingsFixtures.cabinetConfiguration()
+        let settingsURL = CalendarSettingsFixtures.embeddedCalendarSettingsURL()
+        let session = makeActiveSession()
+        let invariant = CalendarSettingsFixtures.activeRecordingInvariant(embeddedLoaded: true)
+
+        XCTAssertEqual(settingsURL.path, "/desktop/settings/integrations/calendar")
+        XCTAssertEqual(
+            DesktopMeetingShellSidebarItem.settings.destinationRoute(configuration: configuration),
+            settingsURL
+        )
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: session))
+        XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
+        XCTAssertTrue(invariant.satisfiesActiveRecordingSafety(cabinetState: .ready))
+        XCTAssertTrue(invariant.embeddedSurfaceLoaded)
+    }
+
     func testLocalQueueTruthStaysInLocalModeUntilServerMeetingIsConfirmed() {
         let localQueued = makeQueueItem(
             id: "local-queued",

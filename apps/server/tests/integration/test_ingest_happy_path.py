@@ -124,7 +124,7 @@ def test_create_meeting_unsafe_legacy_title_retry_returns_existing_meeting(clien
                     created_by_user_id=USER_ID,
                     device_id=DEVICE_ID,
                     local_recording_id="legacy-unsafe-title-retry",
-                    title="meet.google.com/abc-defg-hij",
+                    title="meet.example.test/abc-defg-hij",
                     started_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
                     duration_seconds=60,
                     status=MeetingStatus.DRAFT.value,
@@ -140,7 +140,7 @@ def test_create_meeting_unsafe_legacy_title_retry_returns_existing_meeting(clien
         headers=auth_headers(),
         json={
             "local_recording_id": "legacy-unsafe-title-retry",
-            "title": "meet.google.com/abc-defg-hij",
+            "title": "meet.example.test/abc-defg-hij",
             "started_at": "2026-06-26T21:30:00Z",
             "duration_seconds": 60,
         },

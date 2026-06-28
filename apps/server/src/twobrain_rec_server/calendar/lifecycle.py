@@ -34,6 +34,7 @@ async def disconnect_source(db: AsyncSession, source: CalendarSource) -> dict[st
     source.connection_state = "disconnected"
     source.credential_state = "purged"
     source.sync_state = "failed_closed"
+    source.selected_calendar_count = 0
     source.disconnected_at = now
     envelopes = await db.scalars(
         select(CalendarCredentialEnvelope).where(CalendarCredentialEnvelope.calendar_source_id == source.id)
@@ -43,6 +44,7 @@ async def disconnect_source(db: AsyncSession, source: CalendarSource) -> dict[st
         envelope.purged_at = envelope.purged_at or now
     calendars = await db.scalars(select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id))
     for calendar in calendars:
+        calendar.selected = False
         calendar.visibility = "disconnected"
     linked_event_ids = select(RecordingCalendarContextLink.calendar_event_snapshot_id).where(
         RecordingCalendarContextLink.workspace_id == source.workspace_id,

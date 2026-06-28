@@ -114,7 +114,7 @@ public struct RecordingMetadataResolver: Sendable {
             return true
         }
         if value.range(
-            of: #"\b(?:meet\.google\.com/[A-Z0-9_-]+|zoom\.us/(?:j|my)/[A-Z0-9._-]+|teams\.microsoft\.com/l/meetup-join|whereby\.com/[A-Z0-9_-]+|webex\.com/meet/[A-Z0-9._-]+)"#,
+            of: #"\b(?:[A-Z0-9-]+\.)+[A-Z]{2,}/[^\s<>'"]+"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil {
             return true

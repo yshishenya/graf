@@ -52,7 +52,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         switch routeKind {
         case .authLogin, .authSignup:
             return .expiredSession
-        case .meetingList, .meetingDetail, .meetingDeletionReport:
+        case .meetingList, .meetingDetail, .meetingDeletionReport, .calendarSettings:
             return .ready
         case .unsupported, .external, .forbiddenAction:
             return .blockedRoute

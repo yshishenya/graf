@@ -49,14 +49,13 @@ def test_provider_adapters_map_required_families_with_bounds() -> None:
     expected = {
         "caldav_yandex": "caldav",
         "caldav_mail_ru": "caldav",
+        "custom_caldav": "caldav",
         "custom_caldav_vk_workspace": "caldav",
         "caldav_mailion_myoffice": "caldav",
         "caldav_r7_office": "caldav",
         "caldav_communigate_pro": "caldav",
         "caldav_rupost": "caldav",
         "caldav_nextcloud_sogo": "caldav",
-        "google_calendar": "google_calendar",
-        "microsoft_graph": "microsoft_graph",
         "exchange_ews": "exchange_ews",
         "bitrix24": "bitrix24",
     }
@@ -105,62 +104,6 @@ END:VCALENDAR
     assert "private.pdf" not in str(normalized.provider_extras)
 
 
-def test_google_calendar_adapter_maps_native_event_resource() -> None:
-    normalized = adapter_for_provider("google_calendar").map_event(
-        {
-            "id": "google-native-event",
-            "iCalUID": "google-native@example.test",
-            "etag": '"etag-2"',
-            "status": "confirmed",
-            "calendarId": "primary",
-            "summary": "Google Planning",
-            "visibility": "default",
-            "start": {"dateTime": "2026-07-01T09:00:00Z", "timeZone": "UTC"},
-            "end": {"dateTime": "2026-07-01T10:00:00Z", "timeZone": "UTC"},
-            "organizer": {"email": "organizer@example.test", "displayName": "Organizer"},
-            "attendees": [{"email": "person@example.test", "responseStatus": "accepted"}],
-            "conferenceData": {
-                "entryPoints": [{"entryPointType": "video", "uri": "https://meet.google.com/aaa-bbbb-ccc"}]
-            },
-        }
-    )
-
-    assert normalized.provider_event_id == "google-native-event"
-    assert normalized.ical_uid == "google-native@example.test"
-    assert normalized.title == "Google Planning"
-    assert normalized.participant_count == 2
-    assert normalized.conference_links[0]["provider_family"] == "google_meet"
-
-
-def test_microsoft_graph_adapter_maps_native_event_resource() -> None:
-    normalized = adapter_for_provider("microsoft_graph").map_event(
-        {
-            "id": "graph-event",
-            "iCalUId": "graph@example.test",
-            "changeKey": "change-1",
-            "isCancelled": False,
-            "subject": "Graph Planning",
-            "sensitivity": "normal",
-            "start": {"dateTime": "2026-07-01T09:00:00", "timeZone": "UTC"},
-            "end": {"dateTime": "2026-07-01T10:00:00", "timeZone": "UTC"},
-            "organizer": {"emailAddress": {"address": "organizer@example.test", "name": "Organizer"}},
-            "attendees": [
-                {
-                    "type": "required",
-                    "status": {"response": "accepted"},
-                    "emailAddress": {"address": "person@example.test", "name": "Person"},
-                }
-            ],
-            "onlineMeeting": {"joinUrl": "https://teams.microsoft.com/l/meetup-join/synthetic"},
-        }
-    )
-
-    assert normalized.provider_event_id == "graph-event"
-    assert normalized.title == "Graph Planning"
-    assert normalized.participants[1]["participant_kind"] == "required_attendee"
-    assert normalized.conference_links[0]["provider_family"] == "microsoft_teams"
-
-
 def test_exchange_ews_adapter_maps_native_event_resource() -> None:
     normalized = adapter_for_provider("exchange_ews").map_event(
         {
@@ -174,7 +117,7 @@ def test_exchange_ews_adapter_maps_native_event_resource() -> None:
             "RequiredAttendees": [
                 {"Mailbox": {"EmailAddress": "person@example.test", "Name": "Person"}, "ResponseType": "Accept"}
             ],
-            "Location": "https://teams.microsoft.com/l/meetup-join/ews",
+            "Location": "https://telemost.yandex.ru/j/00000000000000",
         }
     )
 
@@ -182,7 +125,7 @@ def test_exchange_ews_adapter_maps_native_event_resource() -> None:
     assert normalized.source_version == "ews-change"
     assert normalized.title == "Exchange Planning"
     assert normalized.participants[1]["response_status"] == "accepted"
-    assert normalized.conference_links[0]["provider_family"] == "microsoft_teams"
+    assert normalized.conference_links[0]["provider_family"] == "yandex_telemost"
 
 
 def test_bitrix24_adapter_maps_native_event_resource() -> None:

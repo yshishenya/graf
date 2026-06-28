@@ -191,6 +191,11 @@ private struct ContentView: View {
                 selectedCabinetRoute = desktopCabinetConfiguration.map {
                     DesktopCabinetWorkspace.defaultRoute(configuration: $0)
                 }
+            },
+            onOpenCalendarSettings: {
+                selectedCabinetRoute = desktopCabinetConfiguration.map {
+                    $0.calendarSettingsURL()
+                }
             }
         ) {
             CaptureControlView(

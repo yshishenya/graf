@@ -43,6 +43,25 @@ public enum DesktopCalendarPromptKind: String, Codable, Sendable {
     case record
 }
 
+public struct DesktopCalendarPromptChoice: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var eventId: String?
+    public var title: String
+    public var openMeetingURL: URL?
+
+    public init(
+        id: String,
+        eventId: String?,
+        title: String,
+        openMeetingURL: URL? = nil
+    ) {
+        self.id = id
+        self.eventId = eventId
+        self.title = title
+        self.openMeetingURL = openMeetingURL
+    }
+}
+
 public struct DesktopCalendarPromptResponse: Codable, Equatable, Sendable {
     public var events: [DesktopCalendarPromptEvent]
 
@@ -140,8 +159,6 @@ public struct DesktopCalendarPromptEvent: Codable, Equatable, Identifiable, Send
             "http://",
             "https://",
             "zoom.us/",
-            "meet.google.com/",
-            "teams.microsoft.com/",
             "passcode",
             "password",
             "парол",
@@ -161,6 +178,12 @@ public struct DesktopCalendarPrompt: Equatable, Identifiable, Sendable {
     public var dismissActionTitle: String
     public var accessibilityLabel: String
     public var openMeetingURL: URL?
+    public var choices: [DesktopCalendarPromptChoice]
+
+    public var requiresExplicitCalendarChoice: Bool {
+        choices.contains { $0.eventId != nil } &&
+            choices.contains { $0.eventId == nil }
+    }
 
     public init(
         id: String,
@@ -171,7 +194,8 @@ public struct DesktopCalendarPrompt: Equatable, Identifiable, Sendable {
         primaryActionTitle: String,
         dismissActionTitle: String = SystemAudioStatusLabels.calendarPromptDismissActionTitle,
         accessibilityLabel: String,
-        openMeetingURL: URL? = nil
+        openMeetingURL: URL? = nil,
+        choices: [DesktopCalendarPromptChoice] = []
     ) {
         self.id = id
         self.kind = kind
@@ -182,5 +206,6 @@ public struct DesktopCalendarPrompt: Equatable, Identifiable, Sendable {
         self.dismissActionTitle = dismissActionTitle
         self.accessibilityLabel = accessibilityLabel
         self.openMeetingURL = openMeetingURL
+        self.choices = choices
     }
 }

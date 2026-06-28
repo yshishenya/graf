@@ -2,6 +2,7 @@ import json
 
 from twobrain_rec_server.api.problems import ProblemDetail, problem_response
 from twobrain_rec_server.calendar.credentials import (
+    calendar_connection_secret,
     credential_fingerprint,
     generate_credential_key,
     safe_credential_failure,
@@ -36,7 +37,6 @@ def test_sealed_credential_round_trips_without_plaintext_payload() -> None:
 def test_safe_credential_failures_never_include_provider_secrets() -> None:
     expected_codes = {
         "invalid_app_password": "invalid_credentials",
-        "oauth_unavailable": "tenant_policy_denied",
         "tenant_denied": "tenant_policy_denied",
         "provider_timeout": "provider_timeout",
         "rate_limited": "rate_limited",
@@ -46,6 +46,30 @@ def test_safe_credential_failures_never_include_provider_secrets() -> None:
         failure = safe_credential_failure(reason)
         assert failure["safe_error_code"] == expected_code
         assert "synthetic-secret" not in str(failure)
+
+
+def test_calendar_connection_secret_packs_manual_url_without_url_credentials() -> None:
+    packed = calendar_connection_secret(
+        method_category="manual_url",
+        caldav_url="https://calendar.example.test/dav/",
+        username="owner@example.test",
+        credential_input="synthetic-secret",
+    )
+
+    assert json.loads(packed) == {
+        "caldav_url": "https://calendar.example.test/dav/",
+        "username": "owner@example.test",
+        "credential_input": "synthetic-secret",
+    }
+    assert (
+        calendar_connection_secret(
+            method_category="manual_url",
+            caldav_url="https://owner:secret@calendar.example.test/dav/",
+            username=None,
+            credential_input="synthetic-secret",
+        )
+        is None
+    )
 
 
 def test_calendar_provider_problem_codes_are_retryable_and_metadata_only() -> None:

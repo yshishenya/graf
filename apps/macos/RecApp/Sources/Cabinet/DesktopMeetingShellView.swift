@@ -193,6 +193,8 @@ public enum DesktopMeetingShellSidebarItem: String, CaseIterable, Identifiable, 
         switch self {
         case .meetings:
             return DesktopCabinetWorkspace.defaultRoute(configuration: configuration)
+        case .settings:
+            return configuration.calendarSettingsURL()
         default:
             return nil
         }
@@ -244,6 +246,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onRefresh: () -> Void
     private let onRunCheck: () -> Void
     private let onOpenMeetingsList: () -> Void
+    private let onOpenCalendarSettings: () -> Void
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     private let diagnosticsContent: DiagnosticsContent
@@ -263,6 +266,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         onRefresh: @escaping () -> Void,
         onRunCheck: @escaping () -> Void,
         onOpenMeetingsList: @escaping () -> Void = {},
+        onOpenCalendarSettings: @escaping () -> Void = {},
         @ViewBuilder captureControls: () -> CaptureControls,
         @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace,
         @ViewBuilder diagnosticsContent: () -> DiagnosticsContent
@@ -278,6 +282,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onRefresh = onRefresh
         self.onRunCheck = onRunCheck
         self.onOpenMeetingsList = onOpenMeetingsList
+        self.onOpenCalendarSettings = onOpenCalendarSettings
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
         self.diagnosticsContent = diagnosticsContent()
@@ -364,6 +369,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             selectedSidebarItem = item
             if item == .meetings {
                 onOpenMeetingsList()
+            } else if item == .settings {
+                onOpenCalendarSettings()
             }
         } label: {
             HStack(spacing: 9) {

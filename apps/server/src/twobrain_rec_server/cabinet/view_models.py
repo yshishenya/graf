@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import cast
 
@@ -39,9 +39,18 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.calendar.service import (
+    SELECTABLE_CALENDAR_VISIBILITIES,
+    calendar_duplicate_group_key,
+    dedupe_calendar_events,
+)
 from twobrain_rec_server.db.models import (
+    CalendarEventSnapshot,
     CalendarParticipant,
+    CalendarSettingsPreference,
+    CalendarSource,
     DiarizationSegment,
+    ExternalCalendar,
     MediaRevision,
     Meeting,
     MeetingOutcomeItem,
@@ -95,9 +104,872 @@ PROCESSING_STATUSES = {
 }
 
 UNSAFE_TITLE_RE = re.compile(
-    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:meet\.google\.com/[A-Z0-9_-]+|zoom\.us/(?:j|my)/[A-Z0-9._-]+|teams\.microsoft\.com/l/meetup-join|whereby\.com/[A-Z0-9_-]+|webex\.com/meet/[A-Z0-9._-]+)",
+    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:[A-Z0-9-]+\.)+[A-Z]{2,}/[^\s<>'\"]+",
     re.IGNORECASE,
 )
+
+CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
+    "caldav_yandex": (
+        "Яндекс Календарь",
+        "app_password",
+        "Пароль приложения или CalDAV-доступ из настроек Яндекса.",
+    ),
+    "caldav_mail_ru": (
+        "Mail.ru Календарь",
+        "app_password",
+        "Пароль приложения или доступ календаря в настройках Mail.ru.",
+    ),
+    "exchange_ews": (
+        "Exchange / Exchange Server / EWS",
+        "provider_specific_limited",
+        "Подключение может требовать настройки организации или администратора.",
+    ),
+    "bitrix24": (
+        "Bitrix24",
+        "provider_specific_limited",
+        "Доступ зависит от прав пользователя и политики портала.",
+    ),
+    "custom_caldav_vk_workspace": (
+        "VK WorkSpace / custom CalDAV",
+        "manual_url",
+        "CalDAV URL из настроек рабочего пространства.",
+    ),
+    "caldav_mailion_myoffice": (
+        "Mailion / MyOffice",
+        "manual_url",
+        "CalDAV URL или готовая настройка провайдера из параметров организации.",
+    ),
+    "caldav_r7_office": (
+        "R7-Office",
+        "manual_url",
+        "CalDAV URL из портала или настроек организации.",
+    ),
+    "caldav_communigate_pro": (
+        "CommuniGate Pro",
+        "manual_url",
+        "CalDAV доступ зависит от прав почтового ящика и сервера.",
+    ),
+    "caldav_rupost": ("RuPost", "manual_url", "Синхронизация CalDAV зависит от конфигурации организации."),
+    "caldav_nextcloud_sogo": (
+        "Nextcloud / SOGo-like CalDAV",
+        "manual_url",
+        "CalDAV URL сервера и выбранные календари.",
+    ),
+    "custom_caldav": (
+        "Другой CalDAV",
+        "manual_url",
+        "Пользователь указывает URL; синхронизация работает только на чтение, насколько это позволяет сервер.",
+    ),
+}
+
+CALENDAR_METHOD_LABELS = {
+    "app_password": "Пароль приложения",
+    "manual_url": "Ручной CalDAV URL",
+    "provider_specific_limited": "Может требовать администратора",
+}
+
+CALENDAR_BOUNDARY_COPY = (
+    "2brain Rec читает выбранные будущие события календаря, чтобы показать встречи и предложить начать запись. "
+    "2brain Rec не меняет события календаря, не отправляет письма и не рассылает саммари. "
+    "Участники календаря не получают доступ к записи автоматически. "
+    "Данные для подключения хранятся на сервере 2brain Rec; приложение на Mac не хранит пароль календаря."
+)
+
+CALENDAR_BOUNDARY_ITEMS: tuple[tuple[str, str], ...] = (
+    (
+        "Только чтение",
+        "Мы читаем выбранные будущие события. События календаря не меняются, приглашения не обновляются.",
+    ),
+    (
+        "Доступы остаются у владельца",
+        "Участники встречи не становятся получателями саммари и не получают доступ к записи автоматически.",
+    ),
+    (
+        "Пароли не живут на Mac",
+        "Пароли приложений и CalDAV-данные остаются на сервере 2brain Rec. Приложение на Mac их не хранит.",
+    ),
+    (
+        "Запись остается под контролем",
+        "Календарь может показать подсказку, но 2brain Rec не включает скрытую или автоматическую запись.",
+    ),
+)
+
+CALENDAR_FORBIDDEN_ACTION_LABELS: tuple[str, ...] = (
+    "не меняет события календаря",
+    "не отправляет письма",
+    "не рассылает саммари",
+    "не выдает доступ участникам",
+    "не включает автоматическую запись",
+)
+
+CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
+    "connect_success": (
+        "Календарь подключен",
+        "Теперь выберите конкретные календари. До выбора событий источник не влияет на подсказки.",
+        "success",
+    ),
+    "connect_cancelled": (
+        "Подключение отменено",
+        "Источник не добавлен. Можно повторить подключение или продолжить ручную запись без календаря.",
+        "warning",
+    ),
+    "connect_denied": (
+        "Календарь не подключен",
+        "Провайдер не дал доступ только для чтения. Проверьте разрешения или выберите другой способ подключения.",
+        "warning",
+    ),
+    "connect_failed": (
+        "Не удалось подключить календарь",
+        "Мы скрыли технические детали ошибки. Проверьте данные подключения или попробуйте позже.",
+        "error",
+    ),
+    "no_readable_calendars": (
+        "Нет доступных для чтения календарей",
+        "Источник подключен, но провайдер не вернул календари, которые можно читать. Проверьте права доступа.",
+        "warning",
+    ),
+    "policy_limited": (
+        "Ограничено политикой организации",
+        "Некоторые способы подключения или календари может включить только администратор организации.",
+        "warning",
+    ),
+    "provider_limited": (
+        "Есть ограничение провайдера",
+        "Для этого провайдера могут понадобиться настройки организации. 2brain Rec все равно работает только на чтение.",
+        "warning",
+    ),
+    "selection_saved": (
+        "Выбор календарей сохранен",
+        "Будущие встречи и подсказки будут использовать только выбранные календари.",
+        "success",
+    ),
+    "selection_empty": (
+        "Календари не выбраны",
+        "Источник остается подключенным, но не влияет на будущие встречи и подсказки.",
+        "warning",
+    ),
+    "preferences_saved": (
+        "Настройки сохранены",
+        "Будущие подсказки и preview будут учитывать выбранные типы событий. Ручная запись остается доступной.",
+        "success",
+    ),
+    "sync_accepted": (
+        "Синхронизация поставлена в очередь",
+        "Мы приняли запрос и обновим состояние источника после безопасной проверки провайдера. Не нужно ждать на этом экране.",
+        "success",
+    ),
+    "sync_already_running": (
+        "Синхронизация уже идет",
+        "Повторный запуск не нужен. Текущая синхронизация продолжит работу.",
+        "warning",
+    ),
+    "sync_reconnect_required": (
+        "Нужно действие",
+        "Переподключите календарь или обновите доступ. Детали ошибки скрыты безопасно.",
+        "warning",
+    ),
+    "sync_unavailable": (
+        "Синхронизация недоступна",
+        "Источник отключен или ограничен политикой. Ручная запись остается доступной.",
+        "warning",
+    ),
+    "sync_failed": (
+        "Синхронизация не запущена",
+        "Не удалось безопасно начать синхронизацию. Попробуйте позже или переподключите календарь.",
+        "error",
+    ),
+    "disconnect_success": (
+        "Календарь отключен",
+        "Будущая синхронизация остановлена, данные подключения удалены или отозваны там, где это контролирует 2brain Rec.",
+        "success",
+    ),
+    "disconnect_partial": (
+        "Отключение выполнено частично",
+        "Будущая синхронизация остановлена. Часть внешнего отзыва доступа может зависеть от провайдера или администратора.",
+        "warning",
+    ),
+    "disconnect_failed": (
+        "Не удалось отключить календарь",
+        "Мы скрыли технические детали ошибки. Попробуйте позже или обратитесь к администратору.",
+        "error",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class CalendarBoundaryItemView:
+    label: str
+    body: str
+
+
+@dataclass(frozen=True)
+class CalendarSettingsNoticeView:
+    code: str
+    title: str
+    body: str
+    tone: str
+
+
+@dataclass(frozen=True)
+class CalendarDisconnectConfirmationView:
+    title: str = "Отключить календарь?"
+    future_sync_copy: str = (
+        "Будущая синхронизация из этого источника остановится, и календарь перестанет влиять на подсказки."
+    )
+    credential_copy: str = (
+        "Данные подключения будут удалены или отозваны там, где это контролирует 2brain Rec."
+    )
+    retention_copy: str = (
+        "Уже связанный контекст встреч живет по политике хранения встречи. "
+        "2brain Rec не обещает удалить данные вне своего контроля."
+    )
+    confirm_label: str = "Отключить источник"
+    cancel_label: str = "Оставить подключенным"
+
+
+@dataclass(frozen=True)
+class CalendarSettingsProviderPreset:
+    provider_family: str
+    label: str
+    method_category: str
+    method_label: str
+    action_label: str
+    credential_label: str | None
+    url_label: str | None
+    limitation_copy: str | None
+    explanation: str
+
+
+@dataclass(frozen=True)
+class CalendarSettingsPreferencesView:
+    join_prompt_enabled: bool = True
+    record_prompt_enabled: bool = True
+    show_upcoming_time: bool = True
+    show_upcoming_title: bool = True
+    include_events_without_participants: bool = False
+    include_events_without_link_or_location: bool = False
+    include_all_day_events: bool = False
+    include_private_free_busy_prompt_candidates: bool = False
+    join_prompt_label: str = "Напоминать за 1 минуту до встречи с предложением подключиться"
+    record_prompt_label: str = "Предлагать начать запись в момент старта встречи"
+    disabled_auto_record_label: str = "Больше не спрашивать и записывать автоматически"
+    disabled_auto_record_copy: str = (
+        "Автоматическая запись пока недоступна. Если такое поведение понадобится, "
+        "его нужно включать отдельной безопасной настройкой."
+    )
+    prompt_policy_copy: str = "Если политика организации ограничит подсказки, настройка останется видимой и объяснит ограничение."
+    overlap_prompt_copy: str = (
+        "Если несколько выбранных событий идут одновременно, 2brain Rec попросит выбрать событие "
+        "или продолжить без календарного контекста."
+    )
+    manual_recording_copy: str = "Ручной старт и стоп записи остаются доступны всегда."
+
+
+@dataclass(frozen=True)
+class SelectableCalendarView:
+    calendar_id: str
+    display_label: str
+    selected: bool
+    selectable: bool
+    visibility: str
+    visibility_label: str
+    color: str | None = None
+
+
+@dataclass(frozen=True)
+class CalendarSourceSettingsView:
+    source_id: str
+    provider_label: str
+    safe_account_label: str
+    connection_state: str
+    connection_state_label: str
+    sync_health_state: str
+    sync_health_label: str
+    sync_recovery_label: str
+    selected_calendar_count: int
+    readable_calendar_count: int
+    last_successful_sync_label: str
+    safe_error_message: str | None
+    calendars: tuple[SelectableCalendarView, ...]
+    disconnect_confirmation: CalendarDisconnectConfirmationView
+
+
+@dataclass(frozen=True)
+class UpcomingPreviewItemView:
+    event_id: str
+    title: str
+    title_state: str
+    starts_at: datetime
+    ends_at: datetime
+    source_ids: tuple[str, ...]
+    meeting_link_present: bool
+    calendar_labels: tuple[str, ...] = ()
+    source_labels: tuple[str, ...] = ()
+    duplicate_source_count: int = 1
+    sync_confidence_state: str = "current"
+
+
+@dataclass(frozen=True)
+class OverlapConflictGroupView:
+    conflict_id: str
+    overlap_starts_at: datetime
+    overlap_ends_at: datetime
+    events: tuple[UpcomingPreviewItemView, ...]
+
+
+@dataclass(frozen=True)
+class CalendarSettingsSurfaceView:
+    breadcrumb: tuple[str, ...]
+    title: str
+    subtitle: str
+    read_only_boundary_copy: str
+    boundary_items: tuple[CalendarBoundaryItemView, ...]
+    forbidden_action_labels: tuple[str, ...]
+    notices: tuple[CalendarSettingsNoticeView, ...]
+    providers: tuple[CalendarSettingsProviderPreset, ...]
+    sources: tuple[CalendarSourceSettingsView, ...]
+    preferences: CalendarSettingsPreferencesView
+    preview: tuple[UpcomingPreviewItemView, ...] = ()
+    conflicts: tuple[OverlapConflictGroupView, ...] = ()
+    preview_empty_reason: str = "Пока нет ближайших событий из выбранных календарей."
+    loading_state_copy: str = "Во время загрузки настроек ручная запись остается доступной."
+    unavailable_state_copy: str = "Если настройки календарей временно недоступны, секреты не показываются, ручная запись остается доступной."
+    policy_constrained_copy: str = "Если настройка ограничена политикой организации, интерфейс покажет причину и безопасное следующее действие."
+    no_readable_calendars_copy: str = (
+        "Источник подключен, но доступных для чтения календарей пока нет."
+    )
+    no_selected_calendars_copy: str = (
+        "Календари не выбраны: источник подключен, но не влияет на будущие встречи и подсказки."
+    )
+    no_matching_events_copy: str = "Нет будущих событий, которые подходят под выбранные настройки."
+    private_free_busy_copy: str = "Private/free-busy события показываются без названия, ссылок, участников, описания и вложений."
+    empty_state_title: str = "Календари пока не подключены"
+    empty_state_body: str = "Подключите источник календаря, затем выберите календари. Пока календарь не выбран, встречи из него не подтягиваются."
+
+
+def calendar_provider_presets(
+    provider_payloads: Iterable[dict[str, object]],
+) -> tuple[CalendarSettingsProviderPreset, ...]:
+    presets = []
+    for payload in provider_payloads:
+        family = str(payload.get("provider_family") or "")
+        provider_copy = CALENDAR_PROVIDER_UI.get(family)
+        if provider_copy is None:
+            continue
+        label, method, explanation = provider_copy
+        presets.append(
+            CalendarSettingsProviderPreset(
+                provider_family=family,
+                label=label,
+                method_category=method,
+                method_label=CALENDAR_METHOD_LABELS.get(
+                    method, "Способ подключения зависит от провайдера"
+                ),
+                action_label=calendar_provider_action_label(method),
+                credential_label=calendar_provider_credential_label(method),
+                url_label="CalDAV URL" if method == "manual_url" else None,
+                limitation_copy=calendar_provider_limitation_copy(
+                    method, payload.get("capability_state") or {}
+                ),
+                explanation=explanation,
+            )
+        )
+    return tuple(presets)
+
+
+def calendar_settings_preferences_view(
+    preference: CalendarSettingsPreference | None,
+) -> CalendarSettingsPreferencesView:
+    if preference is None:
+        return CalendarSettingsPreferencesView()
+    return CalendarSettingsPreferencesView(
+        join_prompt_enabled=preference.join_prompt_enabled,
+        record_prompt_enabled=preference.record_prompt_enabled,
+        show_upcoming_time=preference.show_upcoming_time,
+        show_upcoming_title=preference.show_upcoming_title,
+        include_events_without_participants=preference.include_events_without_participants,
+        include_events_without_link_or_location=preference.include_events_without_link_or_location,
+        include_all_day_events=preference.include_all_day_events,
+        include_private_free_busy_prompt_candidates=preference.include_private_free_busy_prompt_candidates,
+    )
+
+
+def calendar_settings_surface(
+    *,
+    provider_payloads: Iterable[dict[str, object]],
+    sources: Iterable[CalendarSource],
+    calendars_by_source: dict[object, list[ExternalCalendar]] | None = None,
+    preference: CalendarSettingsPreference | None = None,
+    preview_events: Iterable[CalendarEventSnapshot] = (),
+    notice_codes: Iterable[str] = (),
+    now: datetime | None = None,
+    ) -> CalendarSettingsSurfaceView:
+    calendars_by_source = calendars_by_source or {}
+    source_rows = tuple(sources)
+    preferences = calendar_settings_preferences_view(preference)
+    preview_event_rows = tuple(preview_events)
+    rendered_sources = tuple(
+        calendar_source_settings_view(
+            source,
+            calendars=calendars_by_source.get(source.id, []),
+            now=now,
+        )
+        for source in source_rows
+    )
+    source_labels_by_id = {
+        source.id: safe_calendar_label(source.provider_label, fallback=source.provider_family)
+        for source in source_rows
+    }
+    source_sync_by_id = {
+        source.id: calendar_sync_health_state(source, now=now) for source in source_rows
+    }
+    calendar_labels_by_id = {
+        calendar.id: safe_calendar_label(calendar.display_label, fallback="Календарь")
+        for calendars in calendars_by_source.values()
+        for calendar in calendars
+    }
+    has_selected_calendar = any(
+        source.selected_calendar_count > 0 for source in rendered_sources
+    )
+    return CalendarSettingsSurfaceView(
+        breadcrumb=("Настройки", "Интеграции", "Календари"),
+        title="Календари",
+        subtitle="Подключите календарь, выберите нужные календари и настройте подсказки перед встречами.",
+        read_only_boundary_copy=CALENDAR_BOUNDARY_COPY,
+        boundary_items=calendar_boundary_items(),
+        forbidden_action_labels=CALENDAR_FORBIDDEN_ACTION_LABELS,
+        notices=calendar_settings_notices(notice_codes),
+        providers=calendar_provider_presets(provider_payloads),
+        sources=rendered_sources,
+        preferences=preferences,
+        preview=preview_items(
+            preview_event_rows,
+            source_labels_by_id=source_labels_by_id,
+            calendar_labels_by_id=calendar_labels_by_id,
+            source_sync_by_id=source_sync_by_id,
+        ),
+        conflicts=overlap_conflict_groups(preview_event_rows, at=now or datetime.now(UTC)),
+        preview_empty_reason=calendar_preview_empty_reason(
+            has_sources=bool(source_rows),
+            has_selected_calendar=has_selected_calendar,
+            has_matching_events=bool(preview_event_rows),
+        ),
+    )
+
+
+def calendar_source_settings_view(
+    source: CalendarSource,
+    *,
+    calendars: Iterable[ExternalCalendar] = (),
+    now: datetime | None = None,
+) -> CalendarSourceSettingsView:
+    calendar_rows = list(calendars)
+    safe_labels = [
+        safe_calendar_label(calendar.display_label, fallback="Календарь")
+        for calendar in calendar_rows
+    ]
+    duplicate_labels = {label for label in safe_labels if safe_labels.count(label) > 1}
+    calendar_views = tuple(
+        selectable_calendar_view(calendar, duplicate_label=safe_label in duplicate_labels)
+        for calendar, safe_label in zip(calendar_rows, safe_labels, strict=True)
+    )
+    provider_label = CALENDAR_PROVIDER_UI.get(
+        source.provider_family, (source.provider_label or source.provider_family, "", "")
+    )[0]
+    readable_count = sum(1 for calendar in calendar_views if calendar.selectable)
+    selected_count = sum(
+        1 for calendar in calendar_views if calendar.selected and calendar.selectable
+    )
+    sync_health_state = calendar_sync_health_state(source, now=now)
+    connection_state = calendar_connection_state(
+        source, selected_count=selected_count, readable_count=readable_count
+    )
+    return CalendarSourceSettingsView(
+        source_id=str(source.id),
+        provider_label=provider_label,
+        safe_account_label=safe_calendar_label(
+            source.provider_label or provider_label, fallback=provider_label
+        ),
+        connection_state=connection_state,
+        connection_state_label=calendar_connection_state_label(connection_state),
+        sync_health_state=sync_health_state,
+        sync_health_label=calendar_sync_health_label(sync_health_state),
+        sync_recovery_label=calendar_sync_recovery_label(sync_health_state),
+        selected_calendar_count=selected_count,
+        readable_calendar_count=readable_count,
+        last_successful_sync_label=calendar_sync_time_label(source.last_successful_sync_at),
+        safe_error_message=safe_calendar_error_message(source.last_safe_error_code),
+        calendars=calendar_views,
+        disconnect_confirmation=CalendarDisconnectConfirmationView(),
+    )
+
+
+def selectable_calendar_view(
+    calendar: ExternalCalendar, *, duplicate_label: bool = False
+) -> SelectableCalendarView:
+    selectable = calendar.visibility in SELECTABLE_CALENDAR_VISIBILITIES
+    selected = calendar.selected and selectable
+    label = safe_calendar_label(calendar.display_label, fallback="Календарь")
+    if duplicate_label:
+        detail = safe_calendar_label(
+            calendar.owner_display_name or calendar.provider_calendar_id,
+            fallback="другой календарь",
+        )
+        if detail == label:
+            detail = "другой календарь"
+        label = f"{label} - {detail}"
+    return SelectableCalendarView(
+        calendar_id=calendar.provider_calendar_id,
+        display_label=label,
+        selected=selected,
+        selectable=selectable,
+        visibility=calendar.visibility,
+        visibility_label=calendar_visibility_label(calendar.visibility),
+        color=calendar.color if _safe_color(calendar.color) else None,
+    )
+
+
+def calendar_visibility_label(visibility: str) -> str:
+    labels = {
+        "available": "доступен",
+        "selected": "выбран",
+        "hidden": "скрыт провайдером",
+        "unavailable": "недоступен",
+        "private": "private/free-busy",
+        "shared": "общий календарь",
+        "delegated": "делегированный календарь",
+        "removed": "удален у провайдера",
+        "disconnected": "источник отключен",
+    }
+    return labels.get(visibility, "состояние неизвестно")
+
+
+def calendar_connection_state(
+    source: CalendarSource, *, selected_count: int, readable_count: int
+) -> str:
+    if source.disconnected_at is not None or source.connection_state == "disconnected":
+        return "disconnected"
+    if source.connection_state in {"disabled", "disabled_by_policy"}:
+        return "disabled_by_policy"
+    if source.connection_state in {"connecting", "disconnecting", "error", "needs_action"}:
+        return source.connection_state
+    if readable_count == 0:
+        return "no_readable_calendars"
+    if readable_count > 0 and selected_count == 0:
+        return "connected_selection_needed"
+    return "connected"
+
+
+def calendar_connection_state_label(state: str) -> str:
+    labels = {
+        "connected": "Подключено",
+        "connected_selection_needed": "Нужно выбрать календари",
+        "connecting": "Подключаем",
+        "needs_action": "Нужно действие",
+        "error": "Ошибка подключения",
+        "disabled_by_policy": "Отключено политикой",
+        "disconnecting": "Отключаем",
+        "disconnected": "Отключено",
+        "no_readable_calendars": "Нет календарей для чтения",
+    }
+    return labels.get(state, "Состояние неизвестно")
+
+
+def calendar_sync_health_state(source: CalendarSource, *, now: datetime | None = None) -> str:
+    if source.disconnected_at is not None or source.connection_state == "disconnected":
+        return "disconnected"
+    if source.sync_state in {
+        "syncing",
+        "queued",
+        "never_synced",
+        "partial_sync",
+        "rate_limited",
+        "credential_failed",
+        "failed_closed",
+    }:
+        return source.sync_state
+    if source.sync_state in {"failed", "stale", "error", "provider_unavailable"}:
+        return "stale"
+    if source.last_successful_sync_at is not None:
+        current = now or datetime.now(UTC)
+        synced_at = source.last_successful_sync_at
+        if synced_at.tzinfo is None:
+            synced_at = synced_at.replace(tzinfo=UTC)
+        if current - synced_at > timedelta(hours=24):
+            return "stale"
+    return "synced" if source.last_successful_sync_at else "never_synced"
+
+
+def calendar_sync_time_label(value: datetime | None) -> str:
+    if value is None:
+        return "успешной синхронизации еще не было"
+    return value.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def calendar_sync_health_label(state: str) -> str:
+    labels = {
+        "never_synced": "успешной синхронизации еще не было",
+        "queued": "синхронизация в очереди",
+        "syncing": "синхронизация идет",
+        "synced": "синхронизация актуальна",
+        "partial_sync": "синхронизация частичная",
+        "stale": "синхронизация устарела",
+        "provider_unavailable": "провайдер недоступен",
+        "rate_limited": "провайдер ограничил синхронизацию",
+        "credential_failed": "нужно переподключить",
+        "failed_closed": "синхронизация остановлена безопасно",
+        "disconnected": "источник отключен",
+    }
+    return labels.get(state, "состояние синхронизации неизвестно")
+
+
+def calendar_sync_recovery_label(state: str) -> str:
+    labels = {
+        "never_synced": "Запустите синхронизацию после выбора календарей.",
+        "queued": "Дождитесь текущей синхронизации.",
+        "syncing": "Дождитесь текущей синхронизации.",
+        "partial_sync": "Запустите синхронизацию еще раз или проверьте источник.",
+        "stale": "Запустите синхронизацию вручную.",
+        "provider_unavailable": "Попробуйте позже.",
+        "rate_limited": "Попробуйте позже.",
+        "credential_failed": "Переподключите календарь.",
+        "failed_closed": "Проверьте подключение или переподключите источник.",
+        "disconnected": "Подключите источник заново.",
+    }
+    return labels.get(state, "Если встреч не видно, запустите синхронизацию или переподключите источник.")
+
+
+def safe_calendar_error_message(code: str | None) -> str | None:
+    if not code:
+        return None
+    messages = {
+        "credential_failed": "Нужно переподключить календарь.",
+        "invalid_credentials": "Нужно переподключить календарь.",
+        "tenant_policy_denied": "Подключение ограничено политикой организации.",
+        "provider_timeout": "Провайдер календаря не ответил вовремя. Попробуйте позже.",
+        "rate_limited": "Провайдер временно ограничил синхронизацию. Попробуйте позже.",
+        "provider_unavailable": "Провайдер календаря временно недоступен.",
+        "calendar_sync_stale": "Синхронизация устарела; встречи могут быть неактуальны.",
+    }
+    return messages.get(code, "Синхронизация не прошла. Проверьте подключение или повторите позже.")
+
+
+def calendar_provider_action_label(method_category: str) -> str:
+    labels = {
+        "app_password": "Подключить по паролю приложения",
+        "manual_url": "Подключить CalDAV",
+        "provider_specific_limited": "Показать условия подключения",
+    }
+    return labels.get(method_category, "Подключить календарь")
+
+
+def calendar_provider_credential_label(method_category: str) -> str | None:
+    if method_category == "app_password":
+        return "Пароль приложения"
+    if method_category == "manual_url":
+        return "Пароль приложения или секрет CalDAV"
+    return None
+
+
+def calendar_provider_limitation_copy(method_category: str, capability_state: object) -> str | None:
+    if method_category == "provider_specific_limited":
+        return "Может понадобиться настройка организации или администратор."
+    if isinstance(capability_state, dict) and "admin_policy_dependent" in set(
+        capability_state.values()
+    ):
+        return "Часть возможностей зависит от политики организации."
+    if method_category == "manual_url":
+        return "Если URL или пароль неверны, мы покажем безопасную ошибку без деталей провайдера."
+    return None
+
+
+def calendar_boundary_items() -> tuple[CalendarBoundaryItemView, ...]:
+    return tuple(
+        CalendarBoundaryItemView(label=label, body=body) for label, body in CALENDAR_BOUNDARY_ITEMS
+    )
+
+
+def calendar_settings_notices(
+    notice_codes: Iterable[str],
+) -> tuple[CalendarSettingsNoticeView, ...]:
+    notices = []
+    seen: set[str] = set()
+    for code in notice_codes:
+        if code in seen:
+            continue
+        copy = CALENDAR_NOTICE_COPY.get(code)
+        if copy is None:
+            continue
+        title, body, tone = copy
+        notices.append(CalendarSettingsNoticeView(code=code, title=title, body=body, tone=tone))
+        seen.add(code)
+    return tuple(notices)
+
+
+def safe_calendar_label(raw: str | None, *, fallback: str) -> str:
+    safe = safe_title_candidate(raw)
+    return safe if safe else fallback
+
+
+def preview_items(
+    events: Iterable[CalendarEventSnapshot],
+    *,
+    source_labels_by_id: dict[object, str] | None = None,
+    calendar_labels_by_id: dict[object, str] | None = None,
+    source_sync_by_id: dict[object, str] | None = None,
+) -> tuple[UpcomingPreviewItemView, ...]:
+    source_labels_by_id = source_labels_by_id or {}
+    calendar_labels_by_id = calendar_labels_by_id or {}
+    source_sync_by_id = source_sync_by_id or {}
+    return tuple(
+        upcoming_preview_item(
+            group[0],
+            source_ids=tuple(str(event.calendar_source_id) for event in group),
+            source_labels=tuple(
+                source_labels_by_id.get(event.calendar_source_id, "Календарь") for event in group
+            ),
+            calendar_labels=tuple(
+                calendar_labels_by_id.get(event.external_calendar_id, "Календарь")
+                for event in group
+            ),
+            duplicate_source_count=len(group),
+            sync_confidence_state=calendar_preview_sync_confidence(
+                source_sync_by_id.get(event.calendar_source_id, "current") for event in group
+            ),
+        )
+        for group in calendar_preview_groups(events)
+    )
+
+
+def calendar_preview_groups(
+    events: Iterable[CalendarEventSnapshot],
+) -> tuple[tuple[CalendarEventSnapshot, ...], ...]:
+    groups: dict[str, list[CalendarEventSnapshot]] = defaultdict(list)
+    indexed_events = list(enumerate(events))
+    for _, event in sorted(indexed_events, key=lambda item: (_as_utc(item[1].starts_at), item[0])):
+        groups[calendar_duplicate_group_key(event)].append(event)
+    return tuple(tuple(group) for group in groups.values())
+
+
+def calendar_preview_sync_confidence(states: Iterable[str]) -> str:
+    state_set = set(states)
+    if state_set & {
+        "stale",
+        "credential_failed",
+        "failed_closed",
+        "provider_unavailable",
+        "rate_limited",
+        "disconnected",
+    }:
+        return "stale"
+    if state_set & {"queued", "syncing", "never_synced", "partial_sync"}:
+        return "updating"
+    return "current"
+
+
+def calendar_preview_empty_reason(
+    *,
+    has_sources: bool,
+    has_selected_calendar: bool,
+    has_matching_events: bool,
+) -> str:
+    if not has_sources:
+        return "Подключите источник календаря, чтобы увидеть будущие встречи."
+    if not has_selected_calendar:
+        return "Выберите хотя бы один календарь: без выбора будущие встречи и подсказки не подтягиваются."
+    if not has_matching_events:
+        return "Нет будущих событий, которые подходят под выбранные настройки."
+    return "Пока нет ближайших событий из выбранных календарей."
+
+
+def upcoming_preview_item(
+    event: CalendarEventSnapshot,
+    *,
+    source_ids: tuple[str, ...] | None = None,
+    source_labels: tuple[str, ...] = (),
+    calendar_labels: tuple[str, ...] = (),
+    duplicate_source_count: int = 1,
+    sync_confidence_state: str = "current",
+) -> UpcomingPreviewItemView:
+    title = safe_calendar_label(
+        event.title if event.safe_to_show_in_list else None, fallback="Скрытое событие"
+    )
+    title_state = (
+        "available"
+        if event.safe_to_show_in_list and title != "Скрытое событие"
+        else event.privacy_class
+    )
+    meeting_link_present = bool((event.conference_summary_json or {}).get("meeting_link_present"))
+    if _is_private_or_free_busy(event):
+        meeting_link_present = False
+    return UpcomingPreviewItemView(
+        event_id=str(event.id),
+        title=title,
+        title_state=title_state,
+        starts_at=event.starts_at,
+        ends_at=event.ends_at,
+        source_ids=source_ids or (str(event.calendar_source_id),),
+        meeting_link_present=meeting_link_present,
+        calendar_labels=calendar_labels,
+        source_labels=source_labels,
+        duplicate_source_count=duplicate_source_count,
+        sync_confidence_state=sync_confidence_state,
+    )
+
+
+def overlap_conflict_groups(
+    events: Iterable[CalendarEventSnapshot], *, at: datetime
+) -> tuple[OverlapConflictGroupView, ...]:
+    current = [
+        event
+        for event in dedupe_calendar_events(events)
+        if _as_utc(event.starts_at) <= _as_utc(at) < _as_utc(event.ends_at)
+    ]
+    if len(current) < 2:
+        return ()
+    overlap_start = max(_as_utc(event.starts_at) for event in current)
+    overlap_end = min(_as_utc(event.ends_at) for event in current)
+    return (
+        OverlapConflictGroupView(
+            conflict_id="overlap:" + ",".join(sorted(str(event.id) for event in current)),
+            overlap_starts_at=overlap_start,
+            overlap_ends_at=overlap_end,
+            events=tuple(upcoming_preview_item(event) for event in current),
+        ),
+    )
+
+
+def _safe_color(value: str | None) -> bool:
+    return bool(value and re.fullmatch(r"#[0-9a-fA-F]{6}", value))
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _event_participant_count(event: CalendarEventSnapshot) -> int:
+    conference = event.conference_summary_json or {}
+    provider_extras = event.provider_extras_json or {}
+    raw = conference.get("participant_count", provider_extras.get("participant_count", 0))
+    try:
+        return max(int(raw or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _event_has_meeting_link_or_location(event: CalendarEventSnapshot) -> bool:
+    if (event.conference_summary_json or {}).get("meeting_link_present"):
+        return True
+    return bool(event.location)
+
+
+def _is_private_or_free_busy(event: CalendarEventSnapshot) -> bool:
+    return (
+        event.privacy_class in {"private", "free_busy", "free_busy_only"}
+        or not event.safe_to_show_in_list
+    )
 
 
 @dataclass(frozen=True)
@@ -118,17 +990,24 @@ class CabinetNavigationModel:
     workspace_subtitle: str = "Бесплатный план"
 
 
-def cabinet_navigation(*, active: str = "meetings", pending_actions: int = 6, embedded: bool = False) -> CabinetNavigationModel:
+def cabinet_navigation(
+    *, active: str = "meetings", pending_actions: int = 6, embedded: bool = False
+) -> CabinetNavigationModel:
     meetings_href = "/desktop/meetings" if embedded else "/meetings"
+    settings_href = (
+        "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
+    )
     return CabinetNavigationModel(
         active=active,
         items=(
             CabinetNavigationItem("search", "Поиск", "#", "filter", enabled=False),
             CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "audio"),
             CabinetNavigationItem("shared", "Общие", "#", "bookmark", enabled=False),
-            CabinetNavigationItem("actions", "Действия", "#", "check", enabled=False, count=pending_actions),
+            CabinetNavigationItem(
+                "actions", "Действия", "#", "check", enabled=False, count=pending_actions
+            ),
             CabinetNavigationItem("activity", "Активность", "#", "sort", enabled=False),
-            CabinetNavigationItem("settings", "Настройки", "#", "filter", enabled=False),
+            CabinetNavigationItem("settings", "Настройки", settings_href, "filter"),
         ),
     )
 
@@ -164,7 +1043,11 @@ def format_duration(seconds: int) -> str:
 def date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
         return "Без даты"
-    started_at = item.started_at if item.started_at.tzinfo is not None else item.started_at.replace(tzinfo=UTC)
+    started_at = (
+        item.started_at
+        if item.started_at.tzinfo is not None
+        else item.started_at.replace(tzinfo=UTC)
+    )
     offset = item.recording_display_timezone_offset_minutes
     if offset is not None and -14 * 60 <= offset <= 14 * 60:
         started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
@@ -194,9 +1077,13 @@ def meeting_media_kind(item: MeetingListItem) -> str:
         return "upload"
     if item.source == "video_recording":
         return "video"
-    has_audio = any(artifact.artifact_class == "audio" and artifact.state == "available" for artifact in item.artifacts)
+    has_audio = any(
+        artifact.artifact_class == "audio" and artifact.state == "available"
+        for artifact in item.artifacts
+    )
     has_transcript = item.transcript_available or any(
-        artifact.artifact_class == "transcript" and artifact.state == "available" for artifact in item.artifacts
+        artifact.artifact_class == "transcript" and artifact.state == "available"
+        for artifact in item.artifacts
     )
     if has_transcript and not has_audio:
         return "transcript"
@@ -267,7 +1154,10 @@ def review_status(
         return "submitted"
     if lifecycle_status == ProcessingStatus.BLOCKED.value:
         return "blocked"
-    if lifecycle_status in {ProcessingStatus.FAILED_RETRYABLE.value, ProcessingStatus.FAILED_TERMINAL.value}:
+    if lifecycle_status in {
+        ProcessingStatus.FAILED_RETRYABLE.value,
+        ProcessingStatus.FAILED_TERMINAL.value,
+    }:
         return "failed"
     if lifecycle_status == ProcessingStatus.CANCELED.value:
         return "unavailable"
@@ -289,7 +1179,8 @@ def governance_summary(
     access = access or owner_access_state()
     artifacts = artifacts or []
     download_available = any(
-        artifact.artifact_class in {"audio", "transcript", "summary"} and artifact.state == "available"
+        artifact.artifact_class in {"audio", "transcript", "summary"}
+        and artifact.state == "available"
         for artifact in artifacts
     )
     export_available = any(
@@ -300,7 +1191,9 @@ def governance_summary(
         share=GovernanceActionState(
             state="available" if access.can_share else "disabled",
             label="Share",
-            reason="Login-required sharing is available." if access.can_share else "Only permitted owners can manage sharing.",
+            reason="Login-required sharing is available."
+            if access.can_share
+            else "Only permitted owners can manage sharing.",
             destructive=False,
         ),
         export=GovernanceActionState(
@@ -361,7 +1254,9 @@ def build_list_item(
     status = review_status(meeting, result=result, workflow=workflow)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
-    notes_truth = notes_action_truth_state(status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or [])
+    notes_truth = notes_action_truth_state(
+        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
+    )
     return MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting),
@@ -372,7 +1267,9 @@ def build_list_item(
         source=_meeting_source(media_revision),
         status=status,
         status_label=STATUS_LABELS[status],
-        status_reason=workflow.last_reason_code if workflow is not None and status in {"blocked", "failed"} else None,
+        status_reason=workflow.last_reason_code
+        if workflow is not None and status in {"blocked", "failed"}
+        else None,
         primary_action=primary_action_for_status(status),
         transcript_available=transcript_available(result),
         diarization_available=diarization_available(result),
@@ -399,7 +1296,10 @@ def primary_action_for_status(status: MeetingReviewStatus) -> str:
 
 
 def _meeting_source(media_revision: MediaRevision | None) -> str:
-    if media_revision is not None and media_revision.source_kind == MediaRevisionSourceKind.VIDEO_CAPTURE.value:
+    if (
+        media_revision is not None
+        and media_revision.source_kind == MediaRevisionSourceKind.VIDEO_CAPTURE.value
+    ):
         return "video_recording"
     return "desktop_recording"
 
@@ -413,11 +1313,19 @@ def processing_state(
     status = review_status(meeting, result=result, workflow=workflow)
     has_transcript = transcript_available(result)
     has_diarization = diarization_available(result)
-    summary_available = bool(result is not None and result.summary_status == SummaryStatus.AVAILABLE.value)
-    reason_code = workflow.last_reason_code if workflow is not None and status in {"blocked", "failed"} else None
+    summary_available = bool(
+        result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
+    )
+    reason_code = (
+        workflow.last_reason_code
+        if workflow is not None and status in {"blocked", "failed"}
+        else None
+    )
     return ProcessingReviewState(
         state=status,
-        stage=stage_for_status(status, workflow.status if workflow is not None else meeting.processing_status),
+        stage=stage_for_status(
+            status, workflow.status if workflow is not None else meeting.processing_status
+        ),
         reason_code=reason_code,
         reason_label=reason_label(reason_code),
         content_available=has_transcript or has_diarization or summary_available,
@@ -485,7 +1393,9 @@ def transcript_state(
         return TranscriptReviewState(
             available=False,
             language=language,
-            degraded_reason="processing" if status in {"processing", "submitted"} else "unavailable",
+            degraded_reason="processing"
+            if status in {"processing", "submitted"}
+            else "unavailable",
             search_enabled=False,
             segments=[],
         )
@@ -498,21 +1408,23 @@ def transcript_state(
         )
         segments.append(
             TranscriptSegmentView(
-            segment_id=str(segment.id),
-            sequence=segment.sequence,
-            start_seconds=float(segment.start_seconds),
-            end_seconds=float(segment.end_seconds),
-            timestamp_label=format_timestamp(segment.start_seconds),
-            speaker_label=speaker_label_for_segment(
-                segment,
-                diarization_by_segment_key.get((segment.sequence, source_role_label(segment.source_role))),
-            ),
-            source_role=source_role_label(segment.source_role),
-            text=segment.text,
-            confidence_label="unknown",
-            seekable=seek_seconds is not None,
-            seek_seconds=seek_seconds,
-        )
+                segment_id=str(segment.id),
+                sequence=segment.sequence,
+                start_seconds=float(segment.start_seconds),
+                end_seconds=float(segment.end_seconds),
+                timestamp_label=format_timestamp(segment.start_seconds),
+                speaker_label=speaker_label_for_segment(
+                    segment,
+                    diarization_by_segment_key.get(
+                        (segment.sequence, source_role_label(segment.source_role))
+                    ),
+                ),
+                source_role=source_role_label(segment.source_role),
+                text=segment.text,
+                confidence_label="unknown",
+                seekable=seek_seconds is not None,
+                seek_seconds=seek_seconds,
+            )
         )
     return TranscriptReviewState(
         available=True,
@@ -539,7 +1451,9 @@ def _seek_seconds(
     return seconds
 
 
-def speaker_label_for_segment(segment: TranscriptSegment, diarization: DiarizationSegment | None) -> str:
+def speaker_label_for_segment(
+    segment: TranscriptSegment, diarization: DiarizationSegment | None
+) -> str:
     if diarization is not None and diarization.speaker_label:
         return diarization.speaker_label
     source_role = source_role_label(segment.source_role)
@@ -566,7 +1480,9 @@ def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> Speaker
     total = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in rows) or 1.0
     speakers: list[SpeakerLane] = []
     for speaker_label, speaker_rows in grouped.items():
-        duration = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows)
+        duration = sum(
+            max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows
+        )
         source_roles = _unique(source_role_label(row.source_role) for row in speaker_rows)
         speakers.append(
             SpeakerLane(
@@ -575,13 +1491,17 @@ def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> Speaker
                 talk_time_percent=round(duration / total * 100),
                 source_roles=source_roles,
                 segments=[
-                    SpeakerLaneSegment(start_seconds=float(row.start_seconds), end_seconds=float(row.end_seconds))
+                    SpeakerLaneSegment(
+                        start_seconds=float(row.start_seconds), end_seconds=float(row.end_seconds)
+                    )
                     for row in speaker_rows
                 ],
                 confidence_label="unknown",
             )
         )
-    return SpeakerReviewState(available=True, assignment_state="reserved", degraded_reason=None, speakers=speakers)
+    return SpeakerReviewState(
+        available=True, assignment_state="reserved", degraded_reason=None, speakers=speakers
+    )
 
 
 def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> CalendarRosterReviewState:
@@ -607,7 +1527,9 @@ def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> Calend
 
 def notes_state(status: MeetingReviewStatus) -> NotesReviewState:
     if status in {"ready", "partial"}:
-        return NotesReviewState(available=False, sections=[], unavailable_reason="generation_future")
+        return NotesReviewState(
+            available=False, sections=[], unavailable_reason="generation_future"
+        )
     if status in {"processing", "submitted", "uploading"}:
         return NotesReviewState(available=False, sections=[], unavailable_reason="processing")
     return NotesReviewState(available=False, sections=[], unavailable_reason="not_requested")
@@ -762,7 +1684,9 @@ def stored_outcome_truth_state(
             state=state,
             label=_outcome_state_label(state, label),
             reason=_outcome_state_reason(state),
-            readiness_impact="closes_gap" if state in {"available", "not_found", "not_inferable"} else "keeps_gap_open",
+            readiness_impact="closes_gap"
+            if state in {"available", "not_found", "not_inferable"}
+            else "keeps_gap_open",
             copy_key=f"notes.{category}.{state}",
             items=by_category.get(category, []),
         )
@@ -866,7 +1790,9 @@ def playback_state(
             policy_label="Аудио недоступно",
         )
     if review_playback.state in {"policy_blocked", "owner_only"}:
-        reason = "access_denied" if review_playback.label == "Access required" else "policy_disabled"
+        reason = (
+            "access_denied" if review_playback.label == "Access required" else "policy_disabled"
+        )
         return PlaybackReviewState(
             available=False,
             duration_seconds=duration_seconds,
@@ -911,7 +1837,9 @@ def provenance_state(
     )
     return MeetingProvenance(
         media_revision_id=media_revision.id if media_revision is not None else None,
-        local_media_revision_id=media_revision.local_media_revision_id if media_revision is not None else None,
+        local_media_revision_id=media_revision.local_media_revision_id
+        if media_revision is not None
+        else None,
         source_roles=roles,
         processing_dependency=dependency.dependency if dependency is not None else None,
         content_policy="authorized_detail_only",
@@ -947,7 +1875,9 @@ def build_review_response(
         artifacts=artifact_states,
     )
     status = cast(MeetingReviewStatus, item.status)
-    notes_truth = notes_action_truth_state(status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or [])
+    notes_truth = notes_action_truth_state(
+        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
+    )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth
     playback = playback_state(meeting, status, review_playback)

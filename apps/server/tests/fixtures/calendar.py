@@ -9,8 +9,6 @@ BASE_START = datetime(2026, 7, 1, 9, 0, tzinfo=UTC)
 PROVIDER_CASES = (
     "caldav_yandex",
     "caldav_mail_ru",
-    "google_calendar",
-    "microsoft_graph",
     "exchange_ews",
     "bitrix24",
     "custom_caldav_vk_workspace",
@@ -19,6 +17,7 @@ PROVIDER_CASES = (
     "caldav_communigate_pro",
     "caldav_rupost",
     "caldav_nextcloud_sogo",
+    "custom_caldav",
 )
 
 
@@ -126,7 +125,7 @@ def attendee_heavy_event_fixture(count: int = 25) -> dict[str, Any]:
         )
         for index in range(count)
     ]
-    return calendar_event_fixture("google_calendar", participants=participants)
+    return calendar_event_fixture("bitrix24", participants=participants)
 
 
 def recurrence_exception_fixture(provider_family: str = "exchange_ews") -> dict[str, Any]:

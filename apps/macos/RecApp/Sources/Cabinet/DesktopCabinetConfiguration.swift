@@ -84,6 +84,14 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         baseURL.appending(path: "desktop").appending(path: "meetings")
     }
 
+    public func calendarSettingsURL() -> URL {
+        baseURL
+            .appending(path: "desktop")
+            .appending(path: "settings")
+            .appending(path: "integrations")
+            .appending(path: "calendar")
+    }
+
     public func meetingDetailURL(meetingId: String) -> URL {
         meetingsURL().appending(path: Self.safePathComponent(meetingId))
     }
