@@ -195,6 +195,8 @@ public enum DesktopMeetingShellSidebarItem: String, CaseIterable, Identifiable, 
         switch self {
         case .meetings:
             return DesktopCabinetWorkspace.defaultRoute(configuration: configuration)
+        case .settings:
+            return configuration.calendarSettingsURL()
         default:
             return nil
         }
@@ -265,6 +267,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onRefresh: () -> Void
     private let onRunCheck: () -> Void
     private let onOpenMeetingsList: () -> Void
+    private let onOpenCalendarSettings: () -> Void
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
@@ -284,6 +287,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         onRefresh: @escaping () -> Void,
         onRunCheck: @escaping () -> Void,
         onOpenMeetingsList: @escaping () -> Void = {},
+        onOpenCalendarSettings: @escaping () -> Void = {},
         onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
@@ -302,6 +306,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onRefresh = onRefresh
         self.onRunCheck = onRunCheck
         self.onOpenMeetingsList = onOpenMeetingsList
+        self.onOpenCalendarSettings = onOpenCalendarSettings
         self.onSupportIncidentReport = onSupportIncidentReport
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
@@ -380,6 +385,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             selectedSidebarItem = item
             if item == .meetings {
                 onOpenMeetingsList()
+            } else if item == .settings {
+                onOpenCalendarSettings()
             }
         } label: {
             HStack(spacing: 9) {

@@ -13,6 +13,10 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
 
         XCTAssertEqual(configuration.meetingsURL().absoluteString, "https://rec.2brain.dev/desktop/meetings")
         XCTAssertEqual(
+            configuration.calendarSettingsURL().absoluteString,
+            "https://rec.2brain.dev/desktop/settings/integrations/calendar"
+        )
+        XCTAssertEqual(
             configuration.meetingDetailURL(meetingId: "meeting-033").absoluteString,
             "https://rec.2brain.dev/desktop/meetings/meeting-033"
         )
@@ -111,6 +115,27 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         XCTAssertFalse(message.localizedCaseInsensitiveContains("token"))
         XCTAssertFalse(message.localizedCaseInsensitiveContains("bearer"))
         XCTAssertTrue(message.localizedCaseInsensitiveContains("войдите"))
+    }
+
+    func testCalendarUnavailableMessagesExplainCredentialBoundaryAndManualRecording() {
+        let states: [DesktopCabinetState] = [
+            .notConfigured,
+            .offline,
+            .timeout,
+            .expiredSession,
+            .accessDenied,
+            .notFound,
+            .malformedResponse,
+            .blockedRoute
+        ]
+
+        for state in states {
+            let message = state.userMessage
+            XCTAssertTrue(message.localizedCaseInsensitiveContains("mac не хранит пароли календаря"), "\(state)")
+            XCTAssertTrue(message.localizedCaseInsensitiveContains("ручная запись"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("oauth"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("provider"), "\(state)")
+        }
     }
 
     func testAllCabinetStateMessagesStayMetadataOnly() {

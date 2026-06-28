@@ -48,20 +48,6 @@ PROVIDER_PRESETS = (
         _capabilities(supports_recurrence="supported", supports_free_busy_only="supported"),
     ),
     CalendarProviderPreset(
-        "google_calendar",
-        "Google Calendar",
-        "rich_api",
-        True,
-        _capabilities(supports_attendees="supported", supports_conference_metadata="supported", supports_delta_sync="supported"),
-    ),
-    CalendarProviderPreset(
-        "microsoft_graph",
-        "Microsoft Graph Calendar",
-        "rich_api",
-        True,
-        _capabilities(supports_attendees="supported", supports_conference_metadata="supported", supports_delta_sync="supported"),
-    ),
-    CalendarProviderPreset(
         "exchange_ews",
         "Exchange Server EWS",
         "ews",

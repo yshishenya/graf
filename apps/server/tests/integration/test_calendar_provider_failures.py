@@ -12,8 +12,10 @@ def test_provider_timeout_marks_calendar_stale_without_blocking_meeting_creation
         "/api/v1/calendar/sources",
         headers=auth_headers(),
         json={
-            "provider_family": "google_calendar",
-            "auth_mode": "oauth",
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
     )

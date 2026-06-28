@@ -288,7 +288,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Мои встречи" in page
     assert "Ближайшие" in page
     assert "Ближайшие встречи появятся после подключения календаря." in page
-    assert 'href="/settings#calendar-connections"' in page
+    assert 'href="/settings/integrations/calendar"' in page
     assert "Подключить календари" in page
     assert "Командный синк" not in page
     assert "Записи встреч" in page
@@ -481,7 +481,7 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     assert 'aria-expanded="false"' in page
     assert 'data-icon="panel-left-open"' in page
     assert 'aria-current="page"' in page
-    assert 'href="/desktop/settings#calendar-connections"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' in page
     for icon in ("search", "calendar-days", "users-round", "list-checks", "activity", "settings"):
         assert f'data-icon="{icon}"' in page
 
@@ -492,8 +492,8 @@ def test_settings_shell_renders_calendar_connection_anchor() -> None:
     assert 'data-active-nav="settings"' in page
     assert 'id="calendar-connections"' in page
     assert "Подключить календари" in page
-    assert 'href="/settings#calendar-connections"' in page
-    assert 'href="/desktop/settings#calendar-connections"' not in page
+    assert 'href="/settings/integrations/calendar"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' not in page
 
 
 def test_cabinet_rail_toggle_js_contract() -> None:

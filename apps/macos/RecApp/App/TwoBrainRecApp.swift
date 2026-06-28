@@ -192,6 +192,11 @@ private struct ContentView: View {
                     DesktopCabinetWorkspace.defaultRoute(configuration: $0)
                 }
             },
+            onOpenCalendarSettings: {
+                selectedCabinetRoute = desktopCabinetConfiguration.map {
+                    $0.calendarSettingsURL()
+                }
+            },
             onSupportIncidentReport: { itemIds in
                 try await submitSupportIncidentReport(itemIds: itemIds)
             }

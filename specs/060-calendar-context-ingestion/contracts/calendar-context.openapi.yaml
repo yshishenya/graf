@@ -291,7 +291,7 @@ components:
         provider_family:
           type: string
         auth_mode:
-          enum: [oauth, app_password, manual_url]
+          enum: [app_password, manual_url]
         display_label:
           type: [string, "null"]
           maxLength: 160

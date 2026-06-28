@@ -71,6 +71,7 @@ Tables:
 - `conference_link_candidates`
 - `recording_calendar_context_links`
 - `calendar_reminder_states`
+- `calendar_settings_preferences`
 - `calendar_audit_events`
 - `support_incidents`
 - `support_incident_rate_limit_buckets`

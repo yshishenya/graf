@@ -10,14 +10,12 @@
 
 - Build the first 060 layer around a **provider-neutral calendar event contract**.
 - Use **CalDAV/iCalendar first** for Russian and self-hosted provider breadth.
-- Add **rich capability adapters** where the provider exposes stronger event APIs: Google Calendar, Microsoft Graph/Exchange, and Bitrix24.
 - Treat attendee emails as **calendar roster and future recipient candidates only**.
 - Treat calendar event descriptions, URLs, passcodes, attachment links, and attendee emails as **sensitive meeting-adjacent content**.
 - Sync selected calendars as a **rolling 12-month future horizon with no past-event ingestion**.
 - Keep **message sending, share grants, report delivery, calendar invite updates, bot auto-join, and auto-record** out of scope.
 
 See [provider-deep-dive.md](./provider-deep-dive.md) for the detailed
-provider-by-provider plan, including Google Calendar, Microsoft Graph,
 Exchange Server through EWS, Bitrix24, Yandex, Mail.ru, VK WorkSpace,
 Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and conference-link
 companion products.
@@ -26,8 +24,7 @@ companion products.
 
 ### Decision: Use a provider-neutral calendar domain layer
 
-Rationale: The feature spans CalDAV/iCalendar, Google Calendar, Microsoft
-Graph, Exchange EWS, and Bitrix24. A shared normalized event contract keeps
+Exchange EWS and Bitrix24. A shared normalized event contract keeps
 meeting naming, prompts, roster, retention, deletion, and audit behavior
 consistent while letting adapters expose richer provider capabilities.
 
@@ -35,7 +32,6 @@ Alternatives considered:
 
 - Provider-specific models per integration: rejected because meeting review,
   deletion, audit, and desktop prompt logic would duplicate provider rules.
-- CalDAV-only model: rejected because Google, Microsoft, Exchange, and Bitrix24
   expose richer identity/version/conference/attendee fields that should be
   preserved when available.
 
@@ -211,30 +207,12 @@ Sources:
 - https://wiki.astralinux.ru/kb/rupost-sinhronizatsiya-kalendarya-kontur-tolk-po-protokolu-caldav-326831820.html
 - https://wiki.astralinux.ru/kb/rupost-216542210.html
 
-### Google Calendar
 
-- Google Calendar Events API exposes event resources; Google also offers a CalDAV interface.
-- Event API supports richer event resource fields and conference data for Google Meet.
 - 060 implication: rich adapter can provide better event metadata and sync behavior than generic CalDAV.
 
 Sources:
 
-- https://developers.google.com/workspace/calendar/api/v3/reference/events
-- https://developers.google.com/workspace/calendar/api/guides/create-events
-- https://developers.google.com/workspace/calendar/caldav/v2/guide
 
-### Microsoft Graph / Exchange
-
-- Microsoft Graph event resource represents events in user or Microsoft 365 group calendars and supports list/delta/update operations.
-- Graph calendar APIs can read event collections in time ranges and include attendee/organizer/online meeting data depending on permissions and tenant policy.
-- 060 implication: rich adapter for Microsoft 365/Exchange Online; on-prem Exchange may require a separate EWS/enterprise route if Graph is not available.
-
-Sources:
-
-- https://learn.microsoft.com/en-us/graph/api/resources/event?view=graph-rest-1.0
-- https://learn.microsoft.com/en-us/graph/outlook-calendar-concept-overview
-- https://learn.microsoft.com/en-us/graph/api/resources/calendar?view=graph-rest-1.0
-- https://learn.microsoft.com/en-us/graph/api/resources/onlinemeeting?view=graph-rest-1.0
 
 ### Standards: iCalendar and CalDAV
 
@@ -254,7 +232,6 @@ Sources:
 
 ### Fireflies
 
-- Supports Google Calendar and Outlook Calendar.
 - Detects upcoming meetings from the connected calendar and needs valid meeting links to join.
 - Supports manual calendar invitation of its bot and auto-join preferences.
 - 2brain takeaway: useful pattern is upcoming-meeting detection from calendar and meeting-link requirement; 060 should not implement bot join or auto-send.
@@ -267,7 +244,6 @@ Sources:
 
 ### Fathom
 
-- Quick start asks users to connect Google or Microsoft calendar so Fathom can show upcoming meetings and automatically join meetings.
 - Fathom docs note limits such as primary-calendar-only behavior and meeting link detection in calendar fields.
 - 2brain takeaway: calendar-driven upcoming context is valuable, but 2brain should preserve local manual Record/Stop authority and avoid auto-join in 060.
 
@@ -280,8 +256,6 @@ Sources:
 
 ### Otter
 
-- Otter can connect Google and Microsoft calendars, plus device calendars on iOS.
-- Connected calendar events populate the Home page; events with valid Zoom/Google Meet/Microsoft Teams URLs show notetaker controls.
 - Otter supports recurring meeting management and calendar-linked notes.
 - 2brain takeaway: recurring series settings and meeting-link detection matter, but sending notes back to calendar or auto-adding notetaker is later scope.
 
@@ -290,13 +264,11 @@ Sources:
 - https://help.otter.ai/hc/en-us/articles/360048070154-Connect-your-Calendar-and-Contacts-to-Otter
 - https://help.otter.ai/hc/en-us/articles/13676368852631-Manage-your-calendar-meeting-events
 - https://help.otter.ai/hc/en-us/articles/25947061277975-Manage-recurring-meetings
-- https://help.otter.ai/hc/en-us/articles/34963639460119-Add-Otter-meeting-notes-to-Google-calendar-events
 
 ### Russian conference/calendar companions
 
 - MTS Link documents Yandex Calendar integration through CalDAV.
 - Kontur.Talk documents integrations with calendars.
-- TrueConf documents Calendar Connector integration for corporate calendars such as Microsoft Exchange, Thunderbird, R7-Office, and RuPost.
 - 2brain takeaway: Russian conference tools often integrate through CalDAV or Exchange-style calendar bridges. For 060, parse their meeting links from calendar events as conference-link candidates only.
 
 Sources:

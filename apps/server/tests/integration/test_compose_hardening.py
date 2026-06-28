@@ -112,12 +112,19 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
         "twobrain_minio_api_access_key",
         "twobrain_minio_api_secret_key",
         "twobrain_smoke_credential",
+        "twobrain_web_csrf_secret",
     ]:
         assert secret_name in secrets
 
     api = compose["services"]["rec-api"]
     api_secret_sources = {secret["source"] for secret in api["secrets"]}
-    assert {"twobrain_postgres_password", "twobrain_minio_api_access_key", "twobrain_minio_api_secret_key", "twobrain_smoke_credential"} <= api_secret_sources
+    assert {
+        "twobrain_postgres_password",
+        "twobrain_minio_api_access_key",
+        "twobrain_minio_api_secret_key",
+        "twobrain_smoke_credential",
+        "twobrain_web_csrf_secret",
+    } <= api_secret_sources
 
     postgres = compose["services"]["rec-postgres"]
     assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])

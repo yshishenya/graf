@@ -29,6 +29,100 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(prompt.openMeetingURL?.absoluteString, "https://meet.example.test/room")
     }
 
+    func testOverlappingJoinPromptsRequireChoice() throws {
+        let firstURL = try XCTUnwrap(URL(string: "https://meet.example.test/first"))
+        let secondURL = try XCTUnwrap(URL(string: "https://meet.example.test/second"))
+        let events = [
+            makeEvent(
+                eventId: "first",
+                startsAt: date(120),
+                endsAt: date(300),
+                title: "First",
+                meetingLinkPresent: true,
+                joinPromptDueAt: date(60),
+                openMeetingURL: firstURL
+            ),
+            makeEvent(
+                eventId: "second",
+                startsAt: date(120),
+                endsAt: date(300),
+                title: "Second",
+                meetingLinkPresent: true,
+                joinPromptDueAt: date(60),
+                openMeetingURL: secondURL
+            )
+        ]
+
+        let prompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: events, now: date(60), isRecordingActive: false)
+        )
+
+        XCTAssertEqual(prompt.kind, .join)
+        XCTAssertNil(prompt.eventId)
+        XCTAssertEqual(prompt.message, SystemAudioStatusLabels.calendarJoinOverlapPromptMessage)
+        XCTAssertEqual(prompt.choices.map(\.eventId), ["first", "second"])
+        XCTAssertEqual(prompt.choices.map(\.openMeetingURL), [firstURL, secondURL])
+    }
+
+    func testDismissedOverlappingJoinPromptDoesNotFallBackToSingleMeeting() throws {
+        let firstURL = try XCTUnwrap(URL(string: "https://meet.example.test/first"))
+        let secondURL = try XCTUnwrap(URL(string: "https://meet.example.test/second"))
+        let events = [
+            makeEvent(
+                eventId: "first",
+                startsAt: date(120),
+                endsAt: date(300),
+                meetingLinkPresent: true,
+                joinPromptDueAt: date(60),
+                openMeetingURL: firstURL
+            ),
+            makeEvent(
+                eventId: "second",
+                startsAt: date(120),
+                endsAt: date(300),
+                meetingLinkPresent: true,
+                joinPromptDueAt: date(60),
+                openMeetingURL: secondURL
+            )
+        ]
+        let prompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(from: events, now: date(60), isRecordingActive: false)
+        )
+
+        XCTAssertNil(
+            DesktopCalendarReminderService.activePrompt(
+                from: events,
+                now: date(60),
+                isRecordingActive: false,
+                dismissedPromptIDs: [prompt.id]
+            )
+        )
+    }
+
+    func testSelectedJoinChoiceOpensSelectedMeetingURL() throws {
+        let firstURL = try XCTUnwrap(URL(string: "https://meet.example.test/first"))
+        let secondURL = try XCTUnwrap(URL(string: "https://meet.example.test/second"))
+        let prompt = DesktopCalendarReminderService.overlapJoinPrompt(for: [
+            makeEvent(eventId: "first", startsAt: date(120), endsAt: date(300), title: "First", openMeetingURL: firstURL),
+            makeEvent(eventId: "second", startsAt: date(120), endsAt: date(300), title: "Second", openMeetingURL: secondURL)
+        ])
+        var selectedPrompt = prompt
+        selectedPrompt.eventId = prompt.choices[1].eventId
+        selectedPrompt.openMeetingURL = prompt.choices[1].openMeetingURL
+        var openedURL: URL?
+        var dismissedPromptID: String?
+
+        let actions = DesktopCalendarPromptActions(
+            openURL: { openedURL = $0 },
+            startRecording: { XCTFail("Join choice must not start recording") },
+            dismiss: { dismissedPromptID = $0.id }
+        )
+        actions.performPrimaryAction(for: selectedPrompt)
+
+        XCTAssertEqual(openedURL, secondURL)
+        XCTAssertEqual(dismissedPromptID, prompt.id)
+    }
+
     func testRecordPromptAtEventStartDoesNotAutoRecord() throws {
         let event = makeEvent(startsAt: date(120), endsAt: date(300), recordPromptDueAt: date(120))
         var recordStarts = 0
@@ -104,6 +198,52 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertNil(prompt.eventId)
         XCTAssertEqual(prompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
         XCTAssertEqual(prompt.message, SystemAudioStatusLabels.calendarOverlapPromptMessage)
+        XCTAssertTrue(prompt.requiresExplicitCalendarChoice)
+        XCTAssertEqual(prompt.primaryActionTitle, SystemAudioStatusLabels.calendarPromptRecordWithoutContextActionTitle)
+        XCTAssertEqual(prompt.choices.compactMap(\.eventId), ["first", "second"])
+        XCTAssertNil(prompt.choices.last?.eventId)
+    }
+
+    func testOverlapPrimaryActionStartsManualRecordingWithoutSelectingCalendarContext() throws {
+        let now = date(160)
+        let prompt = try XCTUnwrap(
+            DesktopCalendarReminderService.activePrompt(
+                from: CalendarSettingsFixtures.overlappingPromptEvents(now: now),
+                now: now,
+                isRecordingActive: false
+            )
+        )
+        var recordStarts = 0
+        var openedURL: URL?
+        var dismissedPromptID: String?
+
+        let actions = DesktopCalendarPromptActions(
+            openURL: { openedURL = $0 },
+            startRecording: { recordStarts += 1 },
+            dismiss: { dismissedPromptID = $0.id }
+        )
+
+        XCTAssertEqual(recordStarts, 0)
+        XCTAssertNil(prompt.eventId)
+        XCTAssertTrue(prompt.requiresExplicitCalendarChoice)
+
+        actions.performPrimaryAction(for: prompt)
+
+        XCTAssertEqual(recordStarts, 1)
+        XCTAssertNil(openedURL)
+        XCTAssertEqual(dismissedPromptID, prompt.id)
+    }
+
+    func testActiveRecordingDoesNotSwitchCalendarContextWhenOverlapAppears() {
+        let now = date(160)
+
+        XCTAssertNil(
+            DesktopCalendarReminderService.activePrompt(
+                from: CalendarSettingsFixtures.overlappingPromptEvents(now: now),
+                now: now,
+                isRecordingActive: true
+            )
+        )
     }
 
     func testDismissedPromptDoesNotReturn() throws {

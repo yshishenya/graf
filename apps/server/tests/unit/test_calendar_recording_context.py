@@ -55,5 +55,62 @@ def test_recording_context_avoids_ambiguous_and_missing_matches() -> None:
     assert none_reason == "no_context"
 
 
-def _event(*, starts_at: datetime, ends_at: datetime) -> SimpleNamespace:
-    return SimpleNamespace(id=uuid4(), starts_at=starts_at, ends_at=ends_at)
+def test_recording_context_dedupes_same_meeting_link_before_ambiguity() -> None:
+    now = datetime(2026, 7, 1, 9, 30, tzinfo=UTC)
+    first = _event(
+        starts_at=now - timedelta(minutes=10),
+        ends_at=now + timedelta(minutes=30),
+        provider_event_id="yandex-event",
+        url_hash="same-link",
+    )
+    second = _event(
+        starts_at=now - timedelta(minutes=10),
+        ends_at=now + timedelta(minutes=30),
+        provider_event_id="mail-ru-event",
+        url_hash="same-link",
+    )
+
+    selected, reason = choose_recording_context([first, second], recording_started_at=now)
+
+    assert selected == first
+    assert reason == "current_event"
+
+
+def test_recording_context_keeps_same_provider_id_from_different_sources_ambiguous() -> None:
+    now = datetime(2026, 7, 1, 9, 30, tzinfo=UTC)
+    first = _event(
+        starts_at=now - timedelta(minutes=10),
+        ends_at=now + timedelta(minutes=30),
+        provider_event_id="same-event",
+        calendar_source_id=uuid4(),
+    )
+    second = _event(
+        starts_at=now - timedelta(minutes=5),
+        ends_at=now + timedelta(minutes=25),
+        provider_event_id="same-event",
+        calendar_source_id=uuid4(),
+    )
+
+    selected, reason = choose_recording_context([first, second], recording_started_at=now)
+
+    assert selected is None
+    assert reason == "ambiguous_current_events"
+
+
+def _event(
+    *,
+    starts_at: datetime,
+    ends_at: datetime,
+    provider_event_id: str | None = None,
+    url_hash: str | None = None,
+    calendar_source_id=None,
+) -> SimpleNamespace:
+    conference_summary_json = {"url_hash": url_hash} if url_hash else {}
+    return SimpleNamespace(
+        id=uuid4(),
+        starts_at=starts_at,
+        ends_at=ends_at,
+        calendar_source_id=calendar_source_id,
+        provider_event_id=provider_event_id,
+        conference_summary_json=conference_summary_json,
+    )

@@ -21,7 +21,6 @@
 ## Validation And Evidence Readiness
 
 - [x] PMR008 Are validation expectations still mapped to tests that cover the 059/060 interaction: create-meeting metadata, calendar context link, cabinet list/review, desktop queue/client, and no-egress boundaries? [Traceability, Tasks §T075, §T079-T082, §T085, §T123-T133]
-- [x] PMR009 Are provider research and fixture requirements unaffected by 059, with Yandex/Mail.ru, Russian/on-prem CalDAV, Google, Microsoft Graph, Exchange EWS, and Bitrix24 still in scope? [Traceability, Spec §SC-002, Tasks §T014, §T023, §T031-T035, §T051-T057]
 - [x] PMR010 Is evidence wording required to be refreshed after the new master baseline so old local CI results are not presented as post-refresh proof? [Evidence, Tasks §T001, §T127-T136]
 
 ## Notes

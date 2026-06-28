@@ -28,11 +28,16 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.dependencies import get_principal, get_tenant_scope
-from twobrain_rec_server.calendar.credentials import generate_credential_key
+from twobrain_rec_server.calendar.credentials import (
+    calendar_connection_secret,
+    generate_credential_key,
+)
 from twobrain_rec_server.calendar.service import (
     calendars_for_source,
     connect_source,
+    dedupe_calendar_events,
     disconnect_calendar_source,
+    get_calendar_settings_preferences,
     get_source,
     link_meeting_calendar_context,
     list_provider_presets,
@@ -40,9 +45,15 @@ from twobrain_rec_server.calendar.service import (
     list_upcoming_events,
     replace_selected_calendars,
     request_source_sync,
+    require_supported_auth_mode,
     unlink_meeting_calendar_context,
 )
-from twobrain_rec_server.db.models import CalendarEventSnapshot, CalendarSource, ExternalCalendar
+from twobrain_rec_server.db.models import (
+    CalendarEventSnapshot,
+    CalendarSettingsPreference,
+    CalendarSource,
+    ExternalCalendar,
+)
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 
 router = APIRouter(prefix="/api/v1", tags=["calendar"])
@@ -73,7 +84,9 @@ async def commit_if_available(db: AsyncSession | None) -> None:
 
 def require_db(db: AsyncSession | None) -> AsyncSession:
     if db is None:
-        raise ProblemDetail(status=503, code="calendar_store_unavailable", title="Calendar store unavailable")
+        raise ProblemDetail(
+            status=503, code="calendar_store_unavailable", title="Calendar store unavailable"
+        )
     return db
 
 
@@ -104,6 +117,43 @@ def _credential_key(request: Request) -> bytes:
     return key
 
 
+def _connect_credential_input(payload: ConnectCalendarSourceRequest) -> str | None:
+    require_supported_auth_mode(payload.provider_family, payload.auth_mode)
+    if payload.auth_mode == "manual_url":
+        secret = calendar_connection_secret(
+            method_category="manual_url",
+            caldav_url=payload.caldav_url,
+            username=payload.username,
+            credential_input=payload.credential_input,
+        )
+        if secret is None:
+            raise ProblemDetail(
+                status=400,
+                code="invalid_calendar_connection_fields",
+                title="Invalid calendar connection fields",
+            )
+        return secret
+    if payload.auth_mode == "app_password":
+        secret = calendar_connection_secret(
+            method_category="app_password",
+            caldav_url=None,
+            username=payload.username,
+            credential_input=payload.credential_input,
+        )
+        if secret is None:
+            raise ProblemDetail(
+                status=400,
+                code="invalid_calendar_connection_fields",
+                title="Invalid calendar connection fields",
+            )
+        return secret
+    raise ProblemDetail(
+        status=400,
+        code="unsupported_calendar_auth_mode",
+        title="Unsupported calendar authentication mode",
+    )
+
+
 def _source_summary(source: CalendarSource) -> CalendarSourceSummary:
     return CalendarSourceSummary(
         source_id=source.id,
@@ -123,20 +173,32 @@ def _calendar_summary(calendar: ExternalCalendar) -> ExternalCalendarSummary:
     return ExternalCalendarSummary(
         calendar_id=calendar.provider_calendar_id,
         display_label=calendar.display_label,
-        selected=calendar.visibility == "selected",
+        selected=calendar.selected,
         color=calendar.color,
         visibility=calendar.visibility,
     )
 
 
-async def _source_response(db: AsyncSession | None, source: CalendarSource) -> CalendarSourceResponse:
+async def _source_response(
+    db: AsyncSession | None, source: CalendarSource
+) -> CalendarSourceResponse:
     calendars = await calendars_for_source(require_db(db), source.id)
-    return CalendarSourceResponse(source=_source_summary(source), calendars=[_calendar_summary(calendar) for calendar in calendars])
+    return CalendarSourceResponse(
+        source=_source_summary(source),
+        calendars=[_calendar_summary(calendar) for calendar in calendars],
+    )
 
 
 def _event_title_state(event: CalendarEventSnapshot) -> str:
-    title_state = str((event.provider_extras_json or {}).get("title_state") or ("available" if event.safe_to_show_in_list else "policy_hidden"))
-    return title_state if title_state in {"available", "private_redacted", "free_busy_only", "policy_hidden"} else "policy_hidden"
+    title_state = str(
+        (event.provider_extras_json or {}).get("title_state")
+        or ("available" if event.safe_to_show_in_list else "policy_hidden")
+    )
+    return (
+        title_state
+        if title_state in {"available", "private_redacted", "free_busy_only", "policy_hidden"}
+        else "policy_hidden"
+    )
 
 
 def _event_summary(event: CalendarEventSnapshot) -> CalendarEventSummary:
@@ -157,54 +219,78 @@ def _event_summary(event: CalendarEventSnapshot) -> CalendarEventSummary:
     )
 
 
-def _desktop_event(event: CalendarEventSnapshot) -> DesktopCalendarPromptEvent:
+def _desktop_event(
+    event: CalendarEventSnapshot, *, join_enabled: bool = True, record_enabled: bool = True
+) -> DesktopCalendarPromptEvent:
     summary = _event_summary(event)
     open_meeting_url = (event.provider_extras_json or {}).get("open_meeting_url")
     return DesktopCalendarPromptEvent(
         **summary.model_dump(),
         join_prompt_due_at=event.starts_at - timedelta(minutes=1),
         record_prompt_due_at=event.starts_at,
-        join_prompt_state="not_due",
-        record_prompt_state="not_due",
+        join_prompt_state="not_due" if join_enabled else "not_available",
+        record_prompt_state="not_due" if record_enabled else "not_available",
         open_meeting_url=open_meeting_url if summary.meeting_link_present else None,
     )
 
 
-@router.get("/calendar/providers", response_model=CalendarProviderListResponse, dependencies=[PrincipalDependency])
+@router.get(
+    "/calendar/providers",
+    response_model=CalendarProviderListResponse,
+    dependencies=[PrincipalDependency],
+)
 async def list_calendar_providers() -> CalendarProviderListResponse:
     return CalendarProviderListResponse(providers=list_provider_presets())
 
 
-@router.get("/calendar/sources", response_model=CalendarSourceListResponse, dependencies=[PrincipalDependency])
+@router.get(
+    "/calendar/sources",
+    response_model=CalendarSourceListResponse,
+    dependencies=[PrincipalDependency],
+)
 async def list_calendar_sources(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> CalendarSourceListResponse:
-    return CalendarSourceListResponse(sources=[_source_summary(source) for source in await list_sources(require_db(db), tenant_scope)])
+    return CalendarSourceListResponse(
+        sources=[
+            _source_summary(source) for source in await list_sources(require_db(db), tenant_scope)
+        ]
+    )
 
 
-@router.post("/calendar/sources", status_code=201, response_model=CalendarSourceResponse, dependencies=[PrincipalDependency])
+@router.post(
+    "/calendar/sources",
+    status_code=201,
+    response_model=CalendarSourceResponse,
+    dependencies=[PrincipalDependency],
+)
 async def connect_calendar_source(
     payload: ConnectCalendarSourceRequest,
     request: Request,
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> CalendarSourceResponse:
+    credential_input = _connect_credential_input(payload)
     source = await connect_source(
         require_db(db),
         tenant_scope,
         provider_family=payload.provider_family,
         auth_mode=payload.auth_mode,
         display_label=payload.display_label,
-        credential_input=payload.credential_input,
+        credential_input=credential_input,
         selected_provider_calendar_ids=payload.selected_provider_calendar_ids,
-        credential_key=_credential_key(request) if payload.credential_input else None,
+        credential_key=_credential_key(request) if credential_input else None,
     )
     await commit_if_available(db)
     return await _source_response(db, source)
 
 
-@router.get("/calendar/sources/{source_id}", response_model=CalendarSourceResponse, dependencies=[PrincipalDependency])
+@router.get(
+    "/calendar/sources/{source_id}",
+    response_model=CalendarSourceResponse,
+    dependencies=[PrincipalDependency],
+)
 async def get_calendar_source(
     source_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
@@ -226,12 +312,19 @@ async def select_calendar_source_calendars(
     db: AsyncSession | None = DbDependency,
 ) -> CalendarSourceResponse:
     source = await get_source(require_db(db), tenant_scope, source_id)
-    await replace_selected_calendars(db, tenant_scope, source, payload.selected_provider_calendar_ids)
+    await replace_selected_calendars(
+        db, tenant_scope, source, payload.selected_provider_calendar_ids
+    )
     await commit_if_available(db)
     return await _source_response(db, source)
 
 
-@router.post("/calendar/sources/{source_id}/sync", status_code=202, response_model=CalendarSyncResponse, dependencies=[PrincipalDependency])
+@router.post(
+    "/calendar/sources/{source_id}/sync",
+    status_code=202,
+    response_model=CalendarSyncResponse,
+    dependencies=[PrincipalDependency],
+)
 async def sync_calendar_source(
     source_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
@@ -239,7 +332,9 @@ async def sync_calendar_source(
 ) -> CalendarSyncResponse:
     source = await request_source_sync(require_db(db), tenant_scope, source_id)
     await commit_if_available(db)
-    return CalendarSyncResponse(source_id=source.id, sync_state=source.sync_state, accepted=True, event_count=0)
+    return CalendarSyncResponse(
+        source_id=source.id, sync_state=source.sync_state, accepted=True, event_count=0
+    )
 
 
 @router.post(
@@ -257,7 +352,11 @@ async def disconnect_calendar_source_endpoint(
     return result
 
 
-@router.get("/calendar/events/upcoming", response_model=UpcomingCalendarEventsResponse, dependencies=[PrincipalDependency])
+@router.get(
+    "/calendar/events/upcoming",
+    response_model=UpcomingCalendarEventsResponse,
+    dependencies=[PrincipalDependency],
+)
 async def list_upcoming_calendar_events(
     starts_from: Annotated[datetime | None, Query(alias="from")] = None,
     starts_to: Annotated[datetime | None, Query(alias="to")] = None,
@@ -265,17 +364,26 @@ async def list_upcoming_calendar_events(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> UpcomingCalendarEventsResponse:
+    session = require_db(db)
+    preference = await _calendar_settings_preference_or_default(session, tenant_scope)
     events, truncated = await list_upcoming_events(
-        require_db(db),
+        session,
         tenant_scope,
         starts_from=starts_from,
         starts_to=starts_to,
         limit=limit,
+        preference=preference,
     )
-    return UpcomingCalendarEventsResponse(events=[_event_summary(event) for event in events], truncated=truncated)
+    return UpcomingCalendarEventsResponse(
+        events=[_event_summary(event) for event in events], truncated=truncated
+    )
 
 
-@router.get("/desktop/calendar/upcoming", response_model=DesktopCalendarPromptResponse, dependencies=[PrincipalDependency])
+@router.get(
+    "/desktop/calendar/upcoming",
+    response_model=DesktopCalendarPromptResponse,
+    dependencies=[PrincipalDependency],
+)
 async def list_desktop_calendar_upcoming(
     before_minutes: Annotated[int, Query(ge=1, le=1440)] = 15,
     after_minutes: Annotated[int, Query(ge=0, le=1440)] = 60,
@@ -283,14 +391,26 @@ async def list_desktop_calendar_upcoming(
     db: AsyncSession | None = DbDependency,
 ) -> DesktopCalendarPromptResponse:
     now = datetime.now(UTC)
+    session = require_db(db)
+    preference = await _calendar_settings_preference_or_default(session, tenant_scope)
     events, _truncated = await list_upcoming_events(
-        require_db(db),
+        session,
         tenant_scope,
         starts_from=now - timedelta(minutes=before_minutes),
         starts_to=now + timedelta(minutes=after_minutes),
         limit=50,
+        preference=preference,
     )
-    return DesktopCalendarPromptResponse(events=[_desktop_event(event) for event in events])
+    return DesktopCalendarPromptResponse(
+        events=[
+            _desktop_event(
+                event,
+                join_enabled=preference.join_prompt_enabled if preference else True,
+                record_enabled=preference.record_prompt_enabled if preference else True,
+            )
+            for event in dedupe_calendar_events(events)
+        ]
+    )
 
 
 @router.put(
@@ -331,7 +451,9 @@ async def delete_meeting_calendar_context(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> MeetingCalendarContextResponse:
-    link = await unlink_meeting_calendar_context(require_db(db), tenant_scope, meeting_id=meeting_id)
+    link = await unlink_meeting_calendar_context(
+        require_db(db), tenant_scope, meeting_id=meeting_id
+    )
     await commit_if_available(db)
     return MeetingCalendarContextResponse(
         meeting_id=meeting_id,
@@ -339,4 +461,22 @@ async def delete_meeting_calendar_context(
         context_state="unlinked",
         context_confidence=link.context_confidence if link is not None else None,
         title_source=link.title_source if link is not None else None,
+    )
+
+
+async def _calendar_settings_preference_or_default(
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+) -> CalendarSettingsPreference:
+    return await get_calendar_settings_preferences(db, tenant_scope) or CalendarSettingsPreference(
+        workspace_id=tenant_scope.workspace_id,
+        owner_user_id=tenant_scope.user_id,
+        join_prompt_enabled=True,
+        record_prompt_enabled=True,
+        show_upcoming_time=True,
+        show_upcoming_title=True,
+        include_events_without_participants=False,
+        include_events_without_link_or_location=False,
+        include_all_day_events=False,
+        include_private_free_busy_prompt_candidates=False,
     )

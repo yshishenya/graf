@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from hashlib import sha256
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 
 SAFE_CREDENTIAL_FAILURES = {
     "invalid_app_password": ("invalid_credentials", "invalid"),
-    "oauth_unavailable": ("tenant_policy_denied", "pending"),
     "tenant_denied": ("tenant_policy_denied", "revoked"),
     "provider_timeout": ("provider_timeout", "sealed"),
     "rate_limited": ("rate_limited", "sealed"),
@@ -37,6 +38,39 @@ def sealed_credential_metadata(*, secret: str, secret_kind: str) -> dict[str, st
     }
 
 
+def calendar_connection_secret(
+    *,
+    method_category: str,
+    caldav_url: str | None,
+    username: str | None,
+    credential_input: str | None,
+) -> str | None:
+    secret = (credential_input or "").strip()
+    if not secret:
+        return None
+    if method_category == "app_password":
+        user = (username or "").strip()
+        if not user:
+            return None
+        return json.dumps(
+            {"username": user, "credential_input": secret},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    url = _safe_caldav_url(caldav_url)
+    if method_category != "manual_url" or url is None:
+        return None
+    return json.dumps(
+        {
+            "caldav_url": url,
+            "username": (username or "").strip(),
+            "credential_input": secret,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 def safe_credential_failure(reason: str) -> dict[str, str]:
     safe_error_code, credential_state = SAFE_CREDENTIAL_FAILURES.get(reason, ("provider_unavailable", "sealed"))
     return {
@@ -44,3 +78,13 @@ def safe_credential_failure(reason: str) -> dict[str, str]:
         "credential_state": credential_state,
         "detail": "Calendar connection could not be verified.",
     }
+
+
+def _safe_caldav_url(value: str | None) -> str | None:
+    url = (value or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    if parsed.username or parsed.password:
+        return None
+    return url

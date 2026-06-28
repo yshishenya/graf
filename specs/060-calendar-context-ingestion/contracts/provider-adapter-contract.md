@@ -9,8 +9,6 @@ Every provider adapter maps external calendar data into the same 2brain Rec even
 ## Adapter Families
 
 - `caldav`: Yandex, Mail.ru, custom CalDAV, VK WorkSpace-compatible endpoints, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost.
-- `google_calendar`: Google Calendar Events API.
-- `microsoft_graph`: Microsoft 365/Outlook calendar through Graph.
 - `exchange_ews`: on-prem Exchange through EWS.
 - `bitrix24`: Bitrix24 Calendar REST.
 
@@ -119,8 +117,7 @@ Do not fabricate attendees, organizer, title, or meeting links.
 ## Provider-Specific Notes
 
 - Yandex and Mail.ru are P1 CalDAV presets.
-- Google Calendar and Microsoft Graph are rich adapters because they expose stronger event/conference fields.
-- Exchange Server on-prem uses EWS when Graph is unavailable.
+- Exchange Server on-prem uses EWS.
 - Bitrix24 is a rich business-stack adapter.
 - VK WorkSpace is CalDAV/custom only until official external calendar API proof exists.
-- MTS Link, Kontur.Talk, TrueConf, Telemost, Teams, Meet, Zoom, Webex, VK Calls are conference-link families, not calendar source-of-truth adapters in 060.
+- MTS Link, Kontur.Talk, TrueConf, Telemost, Zoom, Webex, VK Calls, and generic meeting URLs are conference-link families, not calendar source-of-truth adapters in 060.

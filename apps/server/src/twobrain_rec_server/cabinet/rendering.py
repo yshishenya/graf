@@ -208,13 +208,121 @@ def render_settings_page(*, embedded: bool = False, csrf_token: str | None = Non
         "Настройки",
         embedded=embedded,
         active="settings",
+        active_nav="settings",
         csrf_token=csrf_token,
         content_template="cabinet/pages/settings_content.html",
+        calendar_settings_href=_settings_path(embedded),
     )
 
 
 def render_meeting_list_fragment(response: MeetingListResponse, *, embedded: bool = False) -> str:
     return _render_meeting_list_region(response, embedded=embedded)
+
+
+def render_calendar_settings_page(
+    surface: cabinet_view_models.CalendarSettingsSurfaceView,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
+    return _page_shell(
+        surface.title,
+        embedded=embedded,
+        page_template="cabinet/pages/calendar_settings.html",
+        csrf_token=csrf_token,
+        content_template="cabinet/fragments/calendar_settings.html",
+        active_nav="settings",
+        base_path="/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar",
+        surface=surface,
+    )
+
+
+def render_calendar_settings_fragment(
+    surface: cabinet_view_models.CalendarSettingsSurfaceView,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
+    return render_template(
+        "cabinet/fragments/calendar_settings.html",
+        surface=surface,
+        embedded=embedded,
+        base_path="/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar",
+        csrf_token=csrf_token,
+    )
+
+
+def calendar_settings_notice_codes(
+    *,
+    connect_result: str | None = None,
+    policy_limited: str | None = None,
+    selection_result: str | None = None,
+    preferences_result: str | None = None,
+    sync_result: str | None = None,
+    disconnect_result: str | None = None,
+) -> tuple[str, ...]:
+    codes: list[str] = []
+    result_map = {
+        "success": "connect_success",
+        "cancelled": "connect_cancelled",
+        "denied": "connect_denied",
+        "failed": "connect_failed",
+        "no_readable_calendars": "no_readable_calendars",
+    }
+    if connect_result:
+        code = result_map.get(connect_result.strip().lower())
+        if code:
+            codes.append(code)
+    if policy_limited:
+        normalized = policy_limited.strip().lower()
+        if normalized in {"admin_required", "workspace_policy", "tenant_policy"}:
+            codes.append("policy_limited")
+        elif normalized in {"provider_limited", "unsupported_provider"}:
+            codes.append("provider_limited")
+    if selection_result:
+        normalized_selection = selection_result.strip().lower()
+        if normalized_selection == "saved":
+            codes.append("selection_saved")
+        elif normalized_selection == "empty":
+            codes.append("selection_empty")
+    if preferences_result and preferences_result.strip().lower() == "saved":
+        codes.append("preferences_saved")
+    if sync_result:
+        normalized_sync = sync_result.strip().lower()
+        sync_codes = {
+            "accepted": "sync_accepted",
+            "already_running": "sync_already_running",
+            "reconnect_required": "sync_reconnect_required",
+            "unavailable": "sync_unavailable",
+            "failed": "sync_failed",
+        }
+        code = sync_codes.get(normalized_sync)
+        if code:
+            codes.append(code)
+    if disconnect_result:
+        normalized_disconnect = disconnect_result.strip().lower()
+        disconnect_codes = {
+            "success": "disconnect_success",
+            "partial": "disconnect_partial",
+            "failed": "disconnect_failed",
+        }
+        code = disconnect_codes.get(normalized_disconnect)
+        if code:
+            codes.append(code)
+    return tuple(codes)
+
+
+def calendar_connection_result_from_problem(code: str | None) -> str:
+    result_map = {
+        "unsupported_calendar_provider": "failed",
+        "calendar_credential_key_unavailable": "failed",
+        "invalid_credentials": "denied",
+        "tenant_policy_denied": "denied",
+        "provider_timeout": "failed",
+        "rate_limited": "failed",
+        "no_readable_calendars": "no_readable_calendars",
+    }
+    return result_map.get(code or "", "failed")
 
 
 def _render_meeting_list_region(
@@ -396,6 +504,7 @@ def _page_shell(
     page_template: str = "cabinet/pages/meetings.html",
     csrf_token: str | None = None,
     content_source: str = "cabinet.shell",
+    active_nav: str = "meetings",
     **context,
 ) -> str:
     if content is not None:
@@ -403,7 +512,8 @@ def _page_shell(
     shell = render_template(
         page_template,
         embedded=embedded,
-        navigation=cabinet_view_models.cabinet_navigation(active=active, embedded=embedded),
+        navigation=cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded),
+        csrf_token=csrf_token,
         **context,
     )
     return render_template(
@@ -1071,4 +1181,4 @@ def _base_path(embedded: bool) -> str:
 
 
 def _settings_path(embedded: bool) -> str:
-    return "/desktop/settings#calendar-connections" if embedded else "/settings#calendar-connections"
+    return "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"

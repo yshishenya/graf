@@ -176,6 +176,8 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("CalendarPromptView("))
         XCTAssertTrue(source.contains("onCalendarPromptPrimary"))
         XCTAssertTrue(source.contains("onCalendarPromptDismiss"))
+        XCTAssertTrue(source.contains("ForEach(prompt.choices)"))
+        XCTAssertTrue(source.contains("selectedPrompt.eventId = choice.eventId"))
         XCTAssertTrue(source.contains("SystemAudioAccessibilityIdentifier.calendarPromptPrimaryButton"))
         XCTAssertTrue(source.contains("SystemAudioAccessibilityIdentifier.calendarPromptDismissButton"))
         XCTAssertFalse(source.contains("calendarPrompt") && source.contains(".task { await startManualRecording() }"))

@@ -21,7 +21,7 @@
 - [X] T001 Create the implementation evidence log at `specs/060-calendar-context-ingestion/validation/implementation-evidence.md` with sections for tests, provider fixtures, privacy scan, RLS proof, desktop proof, and known limitations.
 - [X] T002 Resolve and check off requirement-quality gaps in `specs/060-calendar-context-ingestion/checklists/calendar-integration.md`, updating `specs/060-calendar-context-ingestion/spec.md` or `specs/060-calendar-context-ingestion/plan.md` first if any checklist item is still not objectively testable.
 - [X] T003 [P] Create synthetic provider fixture guidance at `apps/server/tests/fixtures/calendar/README.md` describing no-private-calendar-content rules, attendee caps, passcode redaction, and provider limitation markers.
-- [X] T004 [P] Create the synthetic calendar fixture module at `apps/server/tests/fixtures/calendar.py` for Yandex, Mail.ru, Google Calendar, Microsoft Graph, Exchange EWS, Bitrix24, Nextcloud/SOGo-like CalDAV, and custom CalDAV/on-prem samples.
+- [X] T004 [P] Create the synthetic calendar fixture module at `apps/server/tests/fixtures/calendar.py` for Yandex, Mail.ru, Exchange EWS, Bitrix24, Nextcloud/SOGo-like CalDAV, and custom CalDAV/on-prem samples.
 - [X] T005 [P] Create forbidden-content evidence notes at `specs/060-calendar-context-ingestion/validation/forbidden-content-notes.md` listing the exact strings and patterns that must never appear in logs, API responses, screenshots, or evidence.
 - [X] T006 Record the selected risk/validation lane and the no-deploy implementation boundary in `specs/060-calendar-context-ingestion/validation/implementation-evidence.md`.
 
@@ -41,8 +41,8 @@
 - [X] T010 [P] Add calendar no-secret/no-content-egress tests in `apps/server/tests/contract/test_calendar_no_secret_content_egress.py` covering credentials, attendee dumps, passcodes, full meeting URLs, agenda text, attachment links, and raw provider payloads.
 - [X] T011 [P] Add calendar credential envelope tests in `apps/server/tests/unit/test_calendar_credentials.py` for sealed storage, fingerprint-only API responses, purge behavior, and redacted error messages.
 - [X] T012 [P] Add calendar normalization tests in `apps/server/tests/unit/test_calendar_normalization.py` for unsupported, not-returned, private-redacted, free-busy-only, unknown, and admin-policy-dependent field states.
-- [X] T013 [P] Add conference-link classifier tests in `apps/server/tests/unit/test_calendar_conference_links.py` for Telemost, MTS Link, Kontur.Talk, TrueConf, VK Calls, Zoom, Google Meet, Microsoft Teams, Webex, and generic links.
-- [X] T014 [P] Add provider fixture tests in `apps/server/tests/unit/test_calendar_provider_fixtures.py` that prove fixture coverage for Yandex, Mail.ru, Google Calendar, Microsoft Graph, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV.
+- [X] T013 [P] Add conference-link classifier tests in `apps/server/tests/unit/test_calendar_conference_links.py` for Telemost, MTS Link, Kontur.Talk, TrueConf, VK Calls, Zoom, Webex, and generic links.
+- [X] T014 [P] Add provider fixture tests in `apps/server/tests/unit/test_calendar_provider_fixtures.py` that prove fixture coverage for Yandex, Mail.ru, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV.
 
 ### Implementation
 
@@ -54,7 +54,7 @@
 - [X] T020 Add Pydantic request/response schemas to `apps/server/src/twobrain_rec_server/api/schemas.py` for provider presets, calendar sources, selected calendars, sync responses, upcoming events, desktop prompts, and meeting calendar context links.
 - [X] T021 Create the calendar package entrypoint in `apps/server/src/twobrain_rec_server/calendar/__init__.py` with stable exports for services and adapters.
 - [X] T022 Add `cryptography` to `apps/server/pyproject.toml` and `apps/server/uv.lock`, then implement sealed credential-envelope helpers in `apps/server/src/twobrain_rec_server/calendar/credentials.py`.
-- [X] T023 Implement provider capability presets in `apps/server/src/twobrain_rec_server/calendar/capabilities.py` for Yandex, Mail.ru, Google Calendar, Microsoft Graph, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV.
+- [X] T023 Implement provider capability presets in `apps/server/src/twobrain_rec_server/calendar/capabilities.py` for Yandex, Mail.ru, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV.
 - [X] T024 Implement metadata-only calendar audit helpers in `apps/server/src/twobrain_rec_server/calendar/audit.py`.
 - [X] T025 Implement normalized event mapping helpers in `apps/server/src/twobrain_rec_server/calendar/normalize.py`.
 - [X] T026 Implement conference-link parsing and safe URL handling in `apps/server/src/twobrain_rec_server/calendar/conference_links.py`.
@@ -63,8 +63,6 @@
 - [X] T029 Implement disconnect, purge, and meeting-retention lifecycle helpers in `apps/server/src/twobrain_rec_server/calendar/lifecycle.py`.
 - [X] T030 Create provider adapter protocol and registry in `apps/server/src/twobrain_rec_server/calendar/adapters.py`.
 - [X] T031 Implement the generic CalDAV/iCalendar adapter in `apps/server/src/twobrain_rec_server/calendar/adapters.py` with explicit timeouts, pagination/report bounds, and no attachment-file fetching.
-- [X] T032 Implement the Google Calendar read-only adapter in `apps/server/src/twobrain_rec_server/calendar/adapters.py` with event mapping and safe limitation states.
-- [X] T033 Implement the Microsoft Graph read-only adapter in `apps/server/src/twobrain_rec_server/calendar/adapters.py` with event mapping and safe tenant-policy limitation states.
 - [X] T034 Implement the Exchange EWS read-only adapter in `apps/server/src/twobrain_rec_server/calendar/adapters.py` with event mapping and safe enterprise limitation states.
 - [X] T035 Implement the Bitrix24 read-only adapter in `apps/server/src/twobrain_rec_server/calendar/adapters.py` with event mapping and safe REST capability states.
 - [X] T036 Add the calendar FastAPI router in `apps/server/src/twobrain_rec_server/api/calendar.py` using the existing auth/session patterns from `apps/server/src/twobrain_rec_server/api/ingest.py`.
@@ -113,8 +111,6 @@
 
 - [X] T051 [P] [US2] Add Yandex CalDAV fixture cases in `apps/server/tests/fixtures/calendar.py` and assertions in `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
 - [X] T052 [P] [US2] Add Mail.ru CalDAV fixture cases in `apps/server/tests/fixtures/calendar.py` and assertions in `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
-- [X] T053 [P] [US2] Add Google Calendar event-resource fixture cases in `apps/server/tests/fixtures/calendar.py` and assertions in `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
-- [X] T054 [P] [US2] Add Microsoft Graph event fixture cases in `apps/server/tests/fixtures/calendar.py` and assertions in `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
 - [X] T055 [P] [US2] Add Exchange EWS fixture cases in `apps/server/tests/fixtures/calendar.py` and assertions in `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
 - [X] T056 [P] [US2] Add Bitrix24 REST calendar fixture cases in `apps/server/tests/fixtures/calendar.py` and assertions in `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
 - [X] T057 [P] [US2] Add custom CalDAV fixture cases for VK WorkSpace, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV in `apps/server/tests/fixtures/calendar.py` and assertions in `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
@@ -125,8 +121,6 @@
 ### Implementation for User Story 2
 
 - [X] T061 [US2] Implement iCalendar field extraction and limitation-state mapping in `apps/server/src/twobrain_rec_server/calendar/normalize.py`.
-- [X] T062 [US2] Implement Google Calendar event-resource normalization in `apps/server/src/twobrain_rec_server/calendar/adapters.py`.
-- [X] T063 [US2] Implement Microsoft Graph event-resource normalization in `apps/server/src/twobrain_rec_server/calendar/adapters.py`.
 - [X] T064 [US2] Implement Exchange EWS event normalization in `apps/server/src/twobrain_rec_server/calendar/adapters.py`.
 - [X] T065 [US2] Implement Bitrix24 event normalization in `apps/server/src/twobrain_rec_server/calendar/adapters.py`.
 - [X] T066 [US2] Implement custom CalDAV provider-label mapping for VK WorkSpace, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV in `apps/server/src/twobrain_rec_server/calendar/adapters.py`.

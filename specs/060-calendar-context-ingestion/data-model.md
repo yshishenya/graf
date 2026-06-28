@@ -19,7 +19,7 @@ Fields:
 - `id`: UUID primary key.
 - `workspace_id`: FK to `workspaces.id`.
 - `owner_user_id`: FK to `user_identities.id`.
-- `provider_family`: enum/string, e.g. `caldav_yandex`, `caldav_mail_ru`, `custom_caldav`, `google_calendar`, `microsoft_graph`, `exchange_ews`, `bitrix24`.
+- `provider_family`: enum/string, e.g. `caldav_yandex`, `caldav_mail_ru`, `custom_caldav`, `exchange_ews`, `bitrix24`.
 - `provider_label`: safe display label, no private event content.
 - `auth_mode`: `oauth`, `app_password`, `service_account_future`, `manual_url`.
 - `credential_state`: `pending`, `sealed`, `expired`, `revoked`, `purged`, `invalid`.
@@ -177,7 +177,7 @@ Fields:
 - `calendar_event_snapshot_id`: FK.
 - `workspace_id`: FK.
 - `source_field`: `location`, `description`, `provider_conference`, `dial_in`, `unknown`.
-- `provider_family`: `yandex_telemost`, `mts_link`, `kontur_talk`, `trueconf`, `vk_calls`, `zoom`, `google_meet`, `microsoft_teams`, `webex`, `generic`.
+- `provider_family`: `yandex_telemost`, `mts_link`, `kontur_talk`, `trueconf`, `vk_calls`, `zoom`, `webex`, `generic`.
 - `url_hash`: hash for correlation without exposing full URL.
 - `redacted_url_preview`: optional safe domain/provider preview.
 - `contains_passcode`: boolean.

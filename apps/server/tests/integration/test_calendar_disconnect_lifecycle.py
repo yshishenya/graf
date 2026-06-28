@@ -25,6 +25,7 @@ def test_disconnect_purges_credentials_and_unmatched_future_cache(client) -> Non
         json={
             "provider_family": "caldav_yandex",
             "auth_mode": "app_password",
+            "username": "owner@example.test",
             "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },

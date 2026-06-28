@@ -6085,7 +6085,6 @@ components:
         auth_mode:
           type: string
           enum:
-          - oauth
           - app_password
           - manual_url
           title: Auth Mode
@@ -8563,12 +8562,9 @@ components:
           items:
             type: string
           type: array
-          minItems: 1
           title: Selected Provider Calendar Ids
       additionalProperties: false
       type: object
-      required:
-      - selected_provider_calendar_ids
       title: SelectCalendarsRequest
     ShareGrantResponse:
       properties:
