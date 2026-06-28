@@ -4,7 +4,6 @@ from pathlib import Path
 from uuid import UUID
 
 import yaml
-from fastapi.routing import APIRoute
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -24,7 +23,7 @@ CONTRACT_PATH = REPO_ROOT / "specs/060-calendar-context-ingestion/contracts/cale
 
 def test_calendar_openapi_contract_paths_are_registered() -> None:
     app = create_app(Settings())
-    route_paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
+    route_paths = set(app.openapi()["paths"])
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
 
     assert set(contract["paths"]) <= route_paths

@@ -3,28 +3,22 @@ import SwiftUI
 import TwoBrainRecShared
 
 public enum DesktopMeetingShellChrome {
-    public static let sidebarMinimumWidth: CGFloat = 176
-    public static let sidebarMaximumWidth: CGFloat = 224
-    public static let sidebarWidth = sidebarMinimumWidth
     public static let collapsedInspectorWidth: CGFloat = 52
     public static let expandedInspectorWidth: CGFloat = 288
     public static let shellBackgroundHex = "#191a1c"
-    public static let shellSidebarHex = "#202224"
-    public static let shellRailHex = shellSidebarHex
+    public static let shellRailHex = "#202224"
     public static let shellSurfaceHex = "#242629"
     public static let recordingStripHex = "#342087"
     public static let shellAccentHex = "#8c73ff"
     public static let webEmbeddedBackgroundHex = shellBackgroundHex
     public static let shellBackgroundColor = Color(red: 0.098, green: 0.102, blue: 0.110)
-    public static let shellSidebarColor = Color(red: 0.125, green: 0.133, blue: 0.141)
-    public static let shellRailColor = shellSidebarColor
+    public static let shellRailColor = Color(red: 0.125, green: 0.133, blue: 0.141)
     public static let shellSurfaceColor = Color(red: 0.141, green: 0.149, blue: 0.161)
     public static let shellStrokeColor = Color.white.opacity(0.08)
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
     public static let recordingStripHeight: CGFloat = 36
     public static let idleShowsNativeTopBar = false
-    public static let showsNativeProductSidebar = false
     public static let fontStackDescription = "SF Pro Text / system"
     public static let compactRailLabels = ["Запись", "Сохранность"]
     public static let webEmbeddedBackgroundNSColor = NSColor(
@@ -41,165 +35,9 @@ public enum DesktopMeetingShellChrome {
     public static let inspectorToggleExpandedSymbol = "chevron.right.2"
     public static let inspectorToggleCollapsedLabel = "Показать панель управления"
     public static let inspectorToggleExpandedLabel = "Скрыть панель управления"
-    public static func sidebarWidth(pendingUploadCount: Int, availableWindowWidth: CGFloat) -> CGFloat {
-        let contentWidth = measuredSidebarWidth(pendingUploadCount: pendingUploadCount)
-        let clampedContentWidth = min(max(contentWidth, sidebarMinimumWidth), sidebarMaximumWidth)
-        let safeAvailableWidth = availableWindowWidth.isFinite && availableWindowWidth > 0
-            ? availableWindowWidth
-            : 1_200
-        let responsiveCap = min(
-            sidebarMaximumWidth,
-            max(sidebarMinimumWidth, floor(safeAvailableWidth * 0.20))
-        )
-        return min(clampedContentWidth, responsiveCap)
-    }
 
     public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActiveRecording: Bool) -> Bool {
         manualExpanded || hasActiveRecording
-    }
-    public static let profileMenuLabels = [
-        "Внешний вид",
-        "Настройки",
-        "Диагностика",
-        "Ресурсы",
-        "Связаться с поддержкой",
-        "Оставить отзыв",
-        "Сообщество Slack",
-        "Выйти",
-        "Закрыть GRAF полностью"
-    ]
-
-    private static func measuredSidebarWidth(pendingUploadCount: Int) -> CGFloat {
-        let outerHorizontalPadding: CGFloat = 20
-        let rowHorizontalPadding: CGFloat = 16
-        let iconWidth: CGFloat = 17
-        let iconTextSpacing: CGFloat = 9
-        let spacerWidth: CGFloat = 6
-        let safetyPadding: CGFloat = 10
-        let headerWordmarkWidth: CGFloat = 64
-        let profileWordmarkWidth: CGFloat = 55
-
-        let navLabels = [
-            "Поиск",
-            "Мои встречи",
-            "Общие",
-            "Действия",
-            "Активность",
-            "Настройки"
-        ]
-        let navFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let navWidth = navLabels.map { label in
-            let badgeWidth = label == "Действия" && pendingUploadCount > 0
-                ? max(textWidth("\(pendingUploadCount)", font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)) + 12, 20)
-                : 0
-            return outerHorizontalPadding
-                + rowHorizontalPadding
-                + iconWidth
-                + iconTextSpacing
-                + textWidth(label, font: navFont)
-                + spacerWidth
-                + badgeWidth
-                + safetyPadding
-        }.max() ?? sidebarMinimumWidth
-
-        let headerWidth = outerHorizontalPadding
-            + 34
-            + 10
-            + max(
-                headerWordmarkWidth,
-                textWidth("Рабочее место", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
-                textWidth("Локальный режим", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
-                textWidth("Сервер недоступен", font: NSFont.systemFont(ofSize: 11, weight: .medium)),
-                textWidth("Нужен вход", font: NSFont.systemFont(ofSize: 11, weight: .medium))
-            )
-            + safetyPadding
-
-        let profileWidth = outerHorizontalPadding
-            + 16
-            + 28
-            + 8
-            + max(
-                profileWordmarkWidth,
-                textWidth("Кабинет не подключен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
-                textWidth("Кабинет доступен", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
-                textWidth("Проверяем кабинет", font: NSFont.systemFont(ofSize: 10, weight: .medium)),
-                textWidth("Сервер недоступен", font: NSFont.systemFont(ofSize: 10, weight: .medium))
-            )
-            + 2
-            + 12
-            + safetyPadding
-
-        return ceil(max(navWidth, headerWidth, profileWidth))
-    }
-
-    private static func textWidth(_ text: String, font: NSFont) -> CGFloat {
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        return (text as NSString).size(withAttributes: attributes).width
-    }
-}
-
-public enum DesktopMeetingShellSidebarItem: String, CaseIterable, Identifiable, Sendable {
-    case search
-    case meetings
-    case shared
-    case actions
-    case activity
-    case settings
-
-    public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .search:
-            return "Поиск"
-        case .meetings:
-            return "Мои встречи"
-        case .shared:
-            return "Общие"
-        case .actions:
-            return "Действия"
-        case .activity:
-            return "Активность"
-        case .settings:
-            return "Настройки"
-        }
-    }
-
-    public var systemImage: String {
-        switch self {
-        case .search:
-            return "magnifyingglass"
-        case .meetings:
-            return "rectangle.stack"
-        case .shared:
-            return "person.2"
-        case .actions:
-            return "checkmark.circle"
-        case .activity:
-            return "waveform.path.ecg"
-        case .settings:
-            return "gearshape"
-        }
-    }
-
-    public var accessibilityLabel: String {
-        switch self {
-        case .meetings:
-            return "Открыть список встреч"
-        default:
-            return "Открыть раздел \(title)"
-        }
-    }
-
-    public func destinationRoute(configuration: DesktopCabinetConfiguration) -> URL? {
-        switch self {
-        case .meetings:
-            return DesktopCabinetWorkspace.defaultRoute(configuration: configuration)
-        case .settings:
-            return configuration.calendarSettingsURL()
-        default:
-            return nil
-        }
     }
 }
 
@@ -216,25 +54,6 @@ public enum DesktopMeetingShellLocalQueuePolicy {
         limit: Int = 12
     ) -> [DesktopUploadQueueItem] {
         Array(items.sortedForNativeLocalDisplay().prefix(limit))
-    }
-}
-
-private struct GrafWordmark: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        if let image = NSImage(named: colorScheme == .dark ? "GrafWordmarkDark" : "GrafWordmarkLight") {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .accessibilityLabel("ГРАФ")
-        } else {
-            Text("ГРАФ")
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.86)
-                .accessibilityLabel("ГРАФ")
-        }
     }
 }
 
@@ -258,7 +77,6 @@ private extension Array where Element == DesktopUploadQueueItem {
 public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View, DiagnosticsContent: View>: View {
     private let session: CaptureSession?
     private let uploadQueueItems: [DesktopUploadQueueItem]
-    private let pendingUploadCount: Int
     private let cabinetConfigured: Bool
     private let cabinetState: DesktopCabinetState
     private let statusSummary: String
@@ -266,19 +84,15 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let isChecking: Bool
     private let onRefresh: () -> Void
     private let onRunCheck: () -> Void
-    private let onOpenMeetingsList: () -> Void
-    private let onOpenCalendarSettings: () -> Void
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     private let diagnosticsContent: DiagnosticsContent
     @State private var inspectorExpanded = false
-    @State private var selectedSidebarItem = DesktopMeetingShellSidebarItem.meetings
 
     public init(
         session: CaptureSession?,
         uploadQueueItems: [DesktopUploadQueueItem],
-        pendingUploadCount: Int,
         cabinetConfigured: Bool,
         cabinetState: DesktopCabinetState,
         statusSummary: String,
@@ -286,8 +100,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         isChecking: Bool,
         onRefresh: @escaping () -> Void,
         onRunCheck: @escaping () -> Void,
-        onOpenMeetingsList: @escaping () -> Void = {},
-        onOpenCalendarSettings: @escaping () -> Void = {},
         onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
@@ -297,7 +109,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     ) {
         self.session = session
         self.uploadQueueItems = uploadQueueItems
-        self.pendingUploadCount = pendingUploadCount
         self.cabinetConfigured = cabinetConfigured
         self.cabinetState = cabinetState
         self.statusSummary = statusSummary
@@ -305,8 +116,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.isChecking = isChecking
         self.onRefresh = onRefresh
         self.onRunCheck = onRunCheck
-        self.onOpenMeetingsList = onOpenMeetingsList
-        self.onOpenCalendarSettings = onOpenCalendarSettings
         self.onSupportIncidentReport = onSupportIncidentReport
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
@@ -314,187 +123,30 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                if DesktopMeetingShellChrome.showsNativeProductSidebar {
-                    let sidebarWidth = DesktopMeetingShellChrome.sidebarWidth(
-                        pendingUploadCount: meetingOwnerCustodyActionCount,
-                        availableWindowWidth: geometry.size.width
-                    )
-                    sidebar
-                        .frame(width: sidebarWidth)
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                if let recordingStripSession {
+                    recordingStrip(for: recordingStripSession)
                     Divider()
                 }
-                VStack(spacing: 0) {
-                    if let recordingStripSession {
-                        recordingStrip(for: recordingStripSession)
-                        Divider()
+                HStack(alignment: .top, spacing: 0) {
+                    meetingsSurface
+                    Divider()
+                    inspectorContainer
+                }
+                .overlay(alignment: .topTrailing) {
+                    InspectorDisclosureButton(isExpanded: expandedInspectorVisible) {
+                        inspectorExpanded = !expandedInspectorVisible
                     }
-                    HStack(alignment: .top, spacing: 0) {
-                        meetingsSurface
-                        Divider()
-                        inspectorContainer
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        InspectorDisclosureButton(isExpanded: expandedInspectorVisible) {
-                            inspectorExpanded = !expandedInspectorVisible
-                        }
-                        .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
-                        .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
-                    }
+                    .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
+                    .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(DesktopMeetingShellChrome.shellBackgroundColor)
         .animation(.easeInOut(duration: 0.18), value: expandedInspectorVisible)
         .accessibilityIdentifier("desktop-meeting-shell")
-    }
-
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                GrafWordmark()
-                    .frame(width: 72, height: 27, alignment: .leading)
-                Text(cabinetStatusPresentation.sidebarSubtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.top, 6)
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(DesktopMeetingShellSidebarItem.allCases) { item in
-                    navRow(
-                        item,
-                        selected: selectedSidebarItem == item,
-                        badge: item == .actions ? meetingOwnerCustodyActionCount : 0
-                    )
-                }
-            }
-
-            Spacer()
-
-            profileMenu
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .background(DesktopMeetingShellChrome.shellSidebarColor)
-    }
-
-    private func navRow(_ item: DesktopMeetingShellSidebarItem, selected: Bool, badge: Int = 0) -> some View {
-        Button {
-            selectedSidebarItem = item
-            if item == .meetings {
-                onOpenMeetingsList()
-            } else if item == .settings {
-                onOpenCalendarSettings()
-            }
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: item.systemImage)
-                    .frame(width: 17)
-                Text(item.title)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.86)
-                    .layoutPriority(1)
-                Spacer(minLength: 6)
-                if badge > 0 {
-                    Text("\(badge)")
-                        .font(.caption2.monospacedDigit())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.22)))
-                }
-            }
-            .font(.system(size: 12, weight: selected ? .semibold : .medium))
-            .foregroundStyle(selected ? .primary : .secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(selected ? Color.primary.opacity(0.08) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .help(item.accessibilityLabel)
-        .accessibilityLabel(item.accessibilityLabel)
-    }
-
-    private var profileMenu: some View {
-        Menu {
-            Button("GRAF") {}
-                .disabled(true)
-            Button(cabinetStatusPresentation.menuStatusText) {}
-                .disabled(true)
-            Divider()
-            ForEach(DesktopMeetingShellChrome.profileMenuLabels, id: \.self) { label in
-                if label == "Закрыть GRAF полностью" {
-                    Button(role: .destructive) {
-                        NSApplication.shared.terminate(nil)
-                    } label: {
-                        Label(label, systemImage: "power")
-                    }
-                } else {
-                    Button {} label: {
-                        Label(label, systemImage: profileMenuIcon(for: label))
-                    }
-                }
-                if label == "Сообщество Slack" || label == "Оставить отзыв" {
-                    Divider()
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    GrafWordmark()
-                        .frame(width: 60, height: 22, alignment: .leading)
-                    Text(cabinetStatusPresentation.menuStatusText)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(cabinetStatusColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                }
-                .layoutPriority(1)
-                Spacer(minLength: 2)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(0.06))
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .buttonStyle(.plain)
-        .help("Профиль и настройки")
-        .accessibilityLabel("Профиль и настройки")
-    }
-
-    private func profileMenuIcon(for label: String) -> String {
-        switch label {
-        case "Внешний вид":
-            return "display"
-        case "Настройки":
-            return "gearshape"
-        case "Диагностика":
-            return "stethoscope"
-        case "Ресурсы":
-            return "book"
-        case "Связаться с поддержкой":
-            return "bubble.left.and.bubble.right"
-        case "Оставить отзыв":
-            return "square.and.pencil"
-        case "Сообщество Slack":
-            return "number"
-        case "Выйти":
-            return "rectangle.portrait.and.arrow.right"
-        default:
-            return "circle"
-        }
     }
 
     private func recordingStrip(for session: CaptureSession) -> some View {
@@ -528,17 +180,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var meetingsSurface: some View {
         VStack(alignment: .leading, spacing: 0) {
-            switch selectedSidebarItem {
-            case .meetings:
-                if cabinetConfigured {
-                    cabinetMeetingsWorkspace
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                } else {
-                    localMeetingsWorkspace
+            if cabinetConfigured {
+                cabinetMeetingsWorkspace
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                }
-            default:
-                sidebarPlaceholder(for: selectedSidebarItem)
+            } else {
+                localMeetingsWorkspace
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
@@ -557,36 +203,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             meetingsWorkspace
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-    }
-
-    private func sidebarPlaceholder(for item: DesktopMeetingShellSidebarItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(item.title, systemImage: item.systemImage)
-                .font(.title3)
-                .fontWeight(.semibold)
-            Text("Раздел появится в следующих версиях. Сейчас рабочий экран записи и транскриптов находится в моих встречах.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button {
-                selectedSidebarItem = .meetings
-                onOpenMeetingsList()
-            } label: {
-                Label("Мои встречи", systemImage: DesktopMeetingShellSidebarItem.meetings.systemImage)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .padding(22)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
-        )
-        .padding(18)
     }
 
     private var localMeetingsWorkspace: some View {
@@ -1294,8 +910,6 @@ public enum DesktopMeetingShellCabinetStatusTone: Equatable, Sendable {
 }
 
 public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable {
-    public let sidebarSubtitle: String
-    public let menuStatusText: String
     public let tileTitle: String
     public let tileDetail: String
     public let systemImage: String
@@ -1307,8 +921,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
     ) -> DesktopMeetingShellCabinetStatusPresentation {
         guard cabinetConfigured else {
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Локальный режим",
-                menuStatusText: "Кабинет не подключен",
                 tileTitle: "Локальный режим",
                 tileDetail: "Сохраняются здесь",
                 systemImage: "wifi.slash",
@@ -1319,8 +931,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
         switch cabinetState {
         case .ready:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Рабочее место",
-                menuStatusText: "Кабинет доступен",
                 tileTitle: "Сервер доступен",
                 tileDetail: "Вход подтвержден",
                 systemImage: "checkmark.circle",
@@ -1328,8 +938,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .loading:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Рабочее место",
-                menuStatusText: "Проверяем кабинет",
                 tileTitle: "Проверяем сервер",
                 tileDetail: "Ждем ответ кабинета",
                 systemImage: "clock",
@@ -1337,8 +945,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .offline, .timeout:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Сервер недоступен",
-                menuStatusText: "Сервер недоступен",
                 tileTitle: "Сервер недоступен",
                 tileDetail: "Запись работает локально",
                 systemImage: "wifi.slash",
@@ -1346,8 +952,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .expiredSession:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Нужен вход",
-                menuStatusText: "Нужен вход",
                 tileTitle: "Нужен вход",
                 tileDetail: "Откройте кабинет заново",
                 systemImage: "person.crop.circle.badge.exclamationmark",
@@ -1355,8 +959,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .accessDenied:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Нет доступа",
-                menuStatusText: "Нет доступа",
                 tileTitle: "Нет доступа",
                 tileDetail: "Проверьте права",
                 systemImage: "lock.trianglebadge.exclamationmark",
@@ -1364,8 +966,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .notFound:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Не найдено",
-                menuStatusText: "Обзор не найден",
                 tileTitle: "Обзор не найден",
                 tileDetail: "Проверьте встречу",
                 systemImage: "questionmark.folder",
@@ -1373,8 +973,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .malformedResponse:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Нужна проверка",
-                menuStatusText: "Нужна проверка",
                 tileTitle: "Нужна проверка",
                 tileDetail: "Ответ сервера неожиданный",
                 systemImage: "exclamationmark.triangle",
@@ -1382,8 +980,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .blockedRoute:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Ограничено",
-                menuStatusText: "Ограничено",
                 tileTitle: "Ограничено",
                 tileDetail: "Откройте снаружи",
                 systemImage: "hand.raised",
@@ -1391,8 +987,6 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .notConfigured:
             return DesktopMeetingShellCabinetStatusPresentation(
-                sidebarSubtitle: "Локальный режим",
-                menuStatusText: "Кабинет не подключен",
                 tileTitle: "Локальный режим",
                 tileDetail: "Сохраняются здесь",
                 systemImage: "wifi.slash",

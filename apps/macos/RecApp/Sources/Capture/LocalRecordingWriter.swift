@@ -375,6 +375,13 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         )
         remoteWriterForCleanup = remoteWriter
         let incomingSampleSource = incomingSampleSourceFactory()
+        let reviewAudioWriter = if microphoneSampleSource != nil && incomingSampleSource != nil {
+            try? CaptureRateAACReviewAudioWriter(
+                url: directory.directoryURL.appendingPathComponent("meeting-review.m4a")
+            )
+        } else {
+            Optional<CaptureRateAACReviewAudioWriter>.none
+        }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
         scratchForCleanup = scratch
@@ -387,6 +394,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 if read > 0 {
                     do {
                         try microphoneWriter.write(samples: active.scratch, count: read)
+                        self.appendReviewMicrophoneSamples(for: active, count: read)
                         let level = Self.rmsLevel(samples: active.scratch, count: read)
                         active.updateMicrophoneLevel(
                             level,
@@ -403,6 +411,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             if incomingRead > 0 {
                 do {
                     try active.remoteWriter.write(samples: active.scratch, count: incomingRead)
+                    self.appendReviewIncomingSamples(for: active, count: incomingRead)
                     active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: incomingRead)
                     active.lastIncomingFrameAt = Date()
                 } catch {
@@ -420,6 +429,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             microphoneSampleSource: microphoneSampleSource,
             remoteWriter: remoteWriter,
             incomingSampleSource: incomingSampleSource,
+            reviewAudioWriter: reviewAudioWriter,
             timer: timer,
             scratch: scratch,
             scratchCapacity: 8192,
@@ -553,6 +563,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         let elapsedDurationMs = Int(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 1000))
         let elapsedFrameCount = Int64(max(0, stoppedAt.timeIntervalSince(active.startedAt) * 16_000))
         let paddingResult = try padTimelineSilence(for: active, targetFrameCount: Int(elapsedFrameCount))
+        finalizeReviewAudio(for: active, paddingResult: paddingResult)
         try active.microphoneWriter?.close()
         try active.remoteWriter.close()
 
@@ -790,6 +801,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 scratch: active.scratch,
                 capacity: active.scratchCapacity
             ) { count in
+                self.appendReviewMicrophoneSamples(for: active, count: count)
                 let level = Self.rmsLevel(samples: active.scratch, count: count)
                 active.updateMicrophoneLevel(
                     level,
@@ -806,6 +818,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 scratch: active.scratch,
                 capacity: active.scratchCapacity
             ) { count in
+                self.appendReviewIncomingSamples(for: active, count: count)
                 active.lastIncomingLevel = Self.rmsLevel(samples: active.scratch, count: count)
                 active.lastIncomingFrameAt = Date()
             }
@@ -831,6 +844,56 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             updateLevel(read)
             iterations += 1
         }
+    }
+
+    private func appendReviewMicrophoneSamples(for active: ActiveRecording, count: Int) {
+        guard !active.reviewAudioWriteFailed else { return }
+        do {
+            try active.reviewAudioWriter?.appendMicrophone(
+                samples: active.scratch,
+                count: count,
+                channelCount: microphoneInputChannelCount
+            )
+        } catch {
+            disableReviewAudio(for: active)
+        }
+    }
+
+    private func appendReviewIncomingSamples(for active: ActiveRecording, count: Int) {
+        guard !active.reviewAudioWriteFailed else { return }
+        do {
+            try active.reviewAudioWriter?.appendIncoming(
+                samples: active.scratch,
+                count: count,
+                channelCount: incomingInputChannelCount
+            )
+        } catch {
+            disableReviewAudio(for: active)
+        }
+    }
+
+    private func finalizeReviewAudio(for active: ActiveRecording, paddingResult: PaddingResult) {
+        guard !active.reviewAudioWriteFailed, let reviewAudioWriter = active.reviewAudioWriter else { return }
+        do {
+            if paddingResult.microphonePaddedFrameCount > 0 {
+                try reviewAudioWriter.appendMicrophoneSilence(frameCount: paddingResult.microphonePaddedFrameCount * 3)
+            }
+            if paddingResult.incomingPaddedFrameCount > 0 {
+                try reviewAudioWriter.appendIncomingSilence(frameCount: paddingResult.incomingPaddedFrameCount * 3)
+            }
+            try reviewAudioWriter.finish()
+            active.reviewAudioWriter = nil
+        } catch {
+            disableReviewAudio(for: active)
+        }
+    }
+
+    private func disableReviewAudio(for active: ActiveRecording) {
+        active.reviewAudioWriteFailed = true
+        active.reviewAudioWriter = nil
+        try? FileManager.default.removeItem(
+            at: active.directory.directoryURL.appendingPathComponent("meeting-review.m4a")
+        )
     }
 
     public func currentDirectoryURL() -> URL? {
@@ -980,6 +1043,7 @@ private final class ActiveRecording {
     let microphoneSampleSource: LocalRecordingSampleSource?
     let remoteWriter: PCM16MonoWAVFileWriter
     let incomingSampleSource: LocalRecordingSampleSource?
+    var reviewAudioWriter: CaptureRateAACReviewAudioWriter?
     let timer: DispatchSourceTimer
     let scratch: UnsafeMutablePointer<Float>
     let scratchCapacity: Int
@@ -1002,6 +1066,7 @@ private final class ActiveRecording {
     var microphoneNonSilentFrameObserved: Bool
     var microphoneWriteFailed: Bool
     var incomingWriteFailed: Bool
+    var reviewAudioWriteFailed: Bool
     var privacySegments: [ProductPrivacySegment]
     var activePrivacySegment: ProductPrivacySegment?
 
@@ -1014,6 +1079,7 @@ private final class ActiveRecording {
         microphoneSampleSource: LocalRecordingSampleSource?,
         remoteWriter: PCM16MonoWAVFileWriter,
         incomingSampleSource: LocalRecordingSampleSource?,
+        reviewAudioWriter: CaptureRateAACReviewAudioWriter?,
         timer: DispatchSourceTimer,
         scratch: UnsafeMutablePointer<Float>,
         scratchCapacity: Int,
@@ -1035,6 +1101,7 @@ private final class ActiveRecording {
         self.microphoneSampleSource = microphoneSampleSource
         self.remoteWriter = remoteWriter
         self.incomingSampleSource = incomingSampleSource
+        self.reviewAudioWriter = reviewAudioWriter
         self.timer = timer
         self.scratch = scratch
         self.scratchCapacity = scratchCapacity
@@ -1057,6 +1124,7 @@ private final class ActiveRecording {
         self.microphoneNonSilentFrameObserved = false
         self.microphoneWriteFailed = false
         self.incomingWriteFailed = false
+        self.reviewAudioWriteFailed = false
         self.privacySegments = []
         self.activePrivacySegment = nil
     }
@@ -1195,6 +1263,177 @@ private final class PCM16MonoWAVFileWriter {
         try handle.write(contentsOf: header)
         try handle.close()
         isClosed = true
+    }
+}
+
+final class CaptureRateAACReviewAudioWriter {
+    static let maxBufferedSkewFrames = 48_000 * 2
+    private let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+    private var file: AVAudioFile?
+    private var microphoneSamples: [Float] = []
+    private var incomingSamples: [Float] = []
+    private var microphoneOffset = 0
+    private var incomingOffset = 0
+
+    init(url: URL) throws {
+        file = try AVAudioFile(
+            forWriting: url,
+            settings: [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 48_000.0,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 64_000
+            ]
+        )
+        try LocalCustodyFileProtection.apply(to: url)
+    }
+
+    func appendMicrophone(
+        samples: UnsafePointer<Float>,
+        count: Int,
+        channelCount: Int
+    ) throws {
+        append(samples: samples, count: count, channelCount: channelCount, to: &microphoneSamples)
+        try writeAvailableFrames()
+    }
+
+    func appendIncoming(
+        samples: UnsafePointer<Float>,
+        count: Int,
+        channelCount: Int
+    ) throws {
+        append(samples: samples, count: count, channelCount: channelCount, to: &incomingSamples)
+        try writeAvailableFrames()
+    }
+
+    func appendMicrophoneSilence(frameCount: Int) throws {
+        appendSilence(frameCount: frameCount, to: &microphoneSamples)
+        try writeAvailableFrames()
+    }
+
+    func appendIncomingSilence(frameCount: Int) throws {
+        appendSilence(frameCount: frameCount, to: &incomingSamples)
+        try writeAvailableFrames()
+    }
+
+    func finish() throws {
+        try writeRemainingFrames()
+        file = nil
+    }
+
+    var pendingFrameCounts: (microphone: Int, incoming: Int) {
+        (
+            max(0, microphoneSamples.count - microphoneOffset),
+            max(0, incomingSamples.count - incomingOffset)
+        )
+    }
+
+    private func append(
+        samples: UnsafePointer<Float>,
+        count: Int,
+        channelCount: Int,
+        to output: inout [Float]
+    ) {
+        let channels = max(1, channelCount)
+        let frameCount = count / channels
+        guard frameCount > 0 else { return }
+        output.reserveCapacity(output.count + frameCount)
+        if channels == 1 {
+            for index in 0..<frameCount {
+                output.append(samples[index])
+            }
+            return
+        }
+        for frame in 0..<frameCount {
+            var sum: Float = 0
+            for channel in 0..<channels {
+                sum += samples[(frame * channels) + channel]
+            }
+            output.append(sum / Float(channels))
+        }
+    }
+
+    private func appendSilence(frameCount: Int, to output: inout [Float]) {
+        guard frameCount > 0 else { return }
+        output.append(contentsOf: repeatElement(0, count: frameCount))
+    }
+
+    private func writeAvailableFrames() throws {
+        try writeSharedFrames()
+        try writeExcessSkewFrames()
+    }
+
+    private func writeSharedFrames() throws {
+        let available = min(
+            microphoneSamples.count - microphoneOffset,
+            incomingSamples.count - incomingOffset
+        )
+        guard available > 0 else { return }
+        try writeMixedFrames(count: available)
+    }
+
+    private func writeExcessSkewFrames() throws {
+        let microphonePending = microphoneSamples.count - microphoneOffset
+        let incomingPending = incomingSamples.count - incomingOffset
+        if microphonePending > incomingPending + Self.maxBufferedSkewFrames {
+            appendSilence(frameCount: microphonePending - incomingPending - Self.maxBufferedSkewFrames, to: &incomingSamples)
+            try writeSharedFrames()
+        } else if incomingPending > microphonePending + Self.maxBufferedSkewFrames {
+            appendSilence(frameCount: incomingPending - microphonePending - Self.maxBufferedSkewFrames, to: &microphoneSamples)
+            try writeSharedFrames()
+        }
+    }
+
+    private func writeRemainingFrames() throws {
+        let available = max(
+            microphoneSamples.count - microphoneOffset,
+            incomingSamples.count - incomingOffset
+        )
+        guard available > 0 else { return }
+        try writeMixedFrames(count: available)
+    }
+
+    private func writeMixedFrames(count: Int) throws {
+        var mixed = [Float]()
+        mixed.reserveCapacity(count)
+        for index in 0..<count {
+            let micIndex = microphoneOffset + index
+            let incomingIndex = incomingOffset + index
+            let mic = micIndex < microphoneSamples.count ? microphoneSamples[micIndex] : 0
+            let incoming = incomingIndex < incomingSamples.count ? incomingSamples[incomingIndex] : 0
+            mixed.append(max(-1, min(1, (mic + incoming) * 0.5)))
+        }
+        microphoneOffset = min(microphoneSamples.count, microphoneOffset + mixed.count)
+        incomingOffset = min(incomingSamples.count, incomingOffset + mixed.count)
+        compactBuffersIfNeeded()
+        try write(samples: mixed)
+    }
+
+    private func write(samples: [Float]) throws {
+        guard let file, !samples.isEmpty else { return }
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        ) else { return }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        guard let channel = buffer.floatChannelData?[0] else { return }
+        samples.withUnsafeBufferPointer { source in
+            if let baseAddress = source.baseAddress {
+                channel.update(from: baseAddress, count: samples.count)
+            }
+        }
+        try file.write(from: buffer)
+    }
+
+    private func compactBuffersIfNeeded() {
+        if microphoneOffset > 16_384, microphoneOffset > microphoneSamples.count / 2 {
+            microphoneSamples.removeFirst(microphoneOffset)
+            microphoneOffset = 0
+        }
+        if incomingOffset > 16_384, incomingOffset > incomingSamples.count / 2 {
+            incomingSamples.removeFirst(incomingOffset)
+            incomingOffset = 0
+        }
     }
 }
 

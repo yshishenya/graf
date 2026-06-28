@@ -678,6 +678,7 @@ async def get_desktop_recording_sync_state(
         upload_session=DesktopSyncUploadSessionState(
             session_id=session.id if session is not None else None,
             status=session.status if session is not None else None,
+            expected_tracks=session.expected_track_roles if session is not None else [],
             accepted_bytes_by_track=accepted_bytes_by_track,
             missing_ranges_by_track=missing_ranges_by_track,
         ),

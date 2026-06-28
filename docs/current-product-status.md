@@ -372,10 +372,11 @@ metadata-only evidence остаются подробной историей ре
   suite (`693 tests`), forbidden-content scan with only safe passcode-detector
   source references, removed-provider catalog scan with no matches in the
   calendar feature surface, and full local CI
-  (`968 passed, 4 skipped, 148 warnings`, `ci_local_result=pass`). This slice
-  still needs merge/release/deploy closeout evidence and is not
-  user-rollout validated yet; moderated usability/comprehension targets still
-  need real participant evidence.
+  (`968 passed, 4 skipped, 148 warnings`, `ci_local_result=pass`). It was
+  merged through PR #2498 and prepared for release `v2026.06.28.6`; release and
+  production deploy evidence are recorded in the release closeout notes. This
+  slice is not user-rollout validated yet; moderated
+  usability/comprehension targets still need real participant evidence.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed

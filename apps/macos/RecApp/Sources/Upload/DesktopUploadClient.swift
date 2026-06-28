@@ -214,7 +214,7 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
         case "checksum_mismatch", "checksum_conflict", "range_conflict", "range_overlap",
              "expected_track_size_exceeded", "invalid_expected_track_size",
              "unexpected_expected_track_size_role", "invalid_part_number", "invalid_byte_offset",
-             "idempotency_conflict", "active_upload_session_exists", "media_revision_conflict",
+             "unexpected_track_role", "idempotency_conflict", "active_upload_session_exists", "media_revision_conflict",
              "session_terminal", "meeting_deletion_active":
             return .serverValidation
         default:
@@ -402,8 +402,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     public func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
-        try ensureLocalFilesExist(item)
-
         let meeting = if let meetingId = item.meetingId {
             MeetingResponse(
                 meeting_id: meetingId,
@@ -422,14 +420,30 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
         await linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
 
-        let uploadSession = if let sessionId = item.uploadSessionId {
-            try await getUploadSession(sessionId: sessionId)
+        let uploadSession: UploadSessionResponse
+        let newSessionExpectedRoles: Set<DesktopUploadTransportRole>?
+        if let sessionId = item.uploadSessionId {
+            uploadSession = try await getUploadSession(sessionId: sessionId)
+            newSessionExpectedRoles = nil
         } else {
-            try await createUploadSession(item, meetingId: meeting.meeting_id)
+            let sessionDescriptors = Self.uploadSessionFileDescriptors(for: item)
+            try ensureLocalFilesExist(sessionDescriptors)
+            uploadSession = try await createUploadSession(
+                item,
+                meetingId: meeting.meeting_id,
+                descriptors: sessionDescriptors
+            )
+            newSessionExpectedRoles = Set(sessionDescriptors.map(\.transportRole))
         }
 
+        let descriptors = Self.uploadFileDescriptors(
+            for: item,
+            expectedRoles: uploadSession.expectedTransportRoles ?? newSessionExpectedRoles
+        )
+        try ensureLocalFilesExist(descriptors)
+
         var acceptedBytes = uploadSession.accepted_bytes_by_track ?? [:]
-        for descriptor in Self.uploadFileDescriptors(for: item) {
+        for descriptor in descriptors {
             let uploaded = try await uploadFile(
                 descriptor: descriptor,
                 sessionId: uploadSession.session_id,
@@ -443,7 +457,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
         let missing = try await missingRanges(sessionId: uploadSession.session_id)
         if !missing.missing_ranges_by_track.isEmpty {
-            for descriptor in Self.uploadFileDescriptors(for: item) {
+            for descriptor in descriptors {
                 for range in missing.missing_ranges_by_track[descriptor.transportRole.rawValue] ?? [] {
                     _ = try await uploadRange(
                         descriptor: descriptor,
@@ -462,7 +476,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let finalize = try await finalizeUpload(
             item: item,
             sessionId: uploadSession.session_id,
-            meetingId: meeting.meeting_id
+            meetingId: meeting.meeting_id,
+            descriptors: descriptors
         )
         let finalSession = finalize.upload_session
         let finalMediaRevisionId = finalSession.media_revision_id ??
@@ -476,9 +491,12 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             serverStatus: finalSession.status,
             processingStatus: finalSession.processing_status,
             acceptedBytesByTrack: finalSession.accepted_bytes_by_track ?? acceptedBytes,
-            requiredTrackSha256: item.artifactProfile.trackCompleteness.reduce(into: [:]) { result, track in
-                result[track.transportRole.rawValue] = track.sha256
+            requiredTrackSha256: descriptors.reduce(into: [:]) { result, descriptor in
+                if let sha256 = descriptor.sha256 {
+                    result[descriptor.transportRole.rawValue] = sha256
+                }
             },
+            expectedTrackRoles: descriptors.map(\.transportRole.rawValue),
             finalizedAt: Date(),
             desktopTruthRule: finalSession.desktop_truth_rule
         )
@@ -502,6 +520,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 processingStatus: response.processing.status,
                 acceptedBytesByTrack: response.upload_session.accepted_bytes_by_track,
                 requiredTrackSha256: response.media_revision.track_sha256_by_role,
+                expectedTrackRoles: response.upload_session.expected_tracks,
                 desktopTruthRule: response.upload_session.desktop_truth_rule
             )
             return DesktopUploadReconciliation(
@@ -616,8 +635,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         status == 404 && code == "recording_not_found"
     }
 
-    public static func uploadFileDescriptors(for item: DesktopUploadQueueItem) -> [DesktopUploadFileDescriptor] {
-        [
+    public static func uploadFileDescriptors(
+        for item: DesktopUploadQueueItem,
+        expectedRoles: Set<DesktopUploadTransportRole>? = nil
+    ) -> [DesktopUploadFileDescriptor] {
+        var descriptors = [
             DesktopUploadFileDescriptor(
                 transportRole: .microphone,
                 url: URL(fileURLWithPath: item.microphonePath),
@@ -649,6 +671,27 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 durationSeconds: 1
             )
         ]
+        if let playback = item.artifactProfile.trackCompleteness.first(where: { $0.transportRole == .playback && $0.uploadable }) {
+            descriptors.append(DesktopUploadFileDescriptor(
+                transportRole: .playback,
+                url: URL(fileURLWithPath: item.directoryPath).appendingPathComponent(playback.fileName),
+                byteCount: playback.byteCount,
+                sha256: playback.sha256,
+                codec: "m4a-aac-lc",
+                sampleRateHz: 48_000,
+                channelCount: 1,
+                durationSeconds: playback.durationSeconds ?? item.artifactProfile.durationSeconds
+            ))
+        }
+        guard let expectedRoles, !expectedRoles.isEmpty else { return descriptors }
+        return descriptors.filter { expectedRoles.contains($0.transportRole) }
+    }
+
+    static func uploadSessionFileDescriptors(for item: DesktopUploadQueueItem) -> [DesktopUploadFileDescriptor] {
+        uploadFileDescriptors(for: item).filter { descriptor in
+            descriptor.transportRole != .playback ||
+                localFileSize(descriptor.url) == descriptor.byteCount
+        }
     }
 
     public static func createMeetingPayload(for item: DesktopUploadQueueItem) -> DesktopCreateMeetingPayload {
@@ -675,23 +718,24 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     private func createUploadSession(
         _ item: DesktopUploadQueueItem,
-        meetingId: String
+        meetingId: String,
+        descriptors: [DesktopUploadFileDescriptor]
     ) async throws -> UploadSessionResponse {
         var request = try jsonRequest(
             path: "/api/v1/meetings/\(meetingId)/upload-sessions",
             method: "POST",
             body: CreateUploadSessionRequest(
-                expected_tracks: DesktopUploadTransportRole.allCases.map(\.rawValue),
-                expected_track_sizes: [
-                    DesktopUploadTransportRole.microphone.rawValue: item.artifactProfile.microphoneSizeBytes,
-                    DesktopUploadTransportRole.system.rawValue: item.artifactProfile.systemAudioSizeBytes,
-                    DesktopUploadTransportRole.manifest.rawValue: item.artifactProfile.manifestSizeBytes
-                ],
+                expected_tracks: descriptors.map(\.transportRole.rawValue),
+                expected_track_sizes: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.transportRole.rawValue, $0.byteCount) }),
                 manifest_sha256: item.artifactProfile.manifestSha256
             )
         )
         request.setValue(Self.idempotencyKey(item: item, scope: "upload-session"), forHTTPHeaderField: "Idempotency-Key")
         return try await perform(request)
+    }
+
+    private static func localFileSize(_ url: URL) -> Int64? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
     }
 
     private func linkCalendarContextIfNeeded(_ item: DesktopUploadQueueItem, meetingId: String) async {
@@ -728,9 +772,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private func finalizeUpload(
         item: DesktopUploadQueueItem,
         sessionId: String,
-        meetingId _: String
+        meetingId _: String,
+        descriptors: [DesktopUploadFileDescriptor]
     ) async throws -> FinalizeUploadResponse {
-        let descriptors = Self.uploadFileDescriptors(for: item).map {
+        let trackDescriptors = descriptors.map {
             TrackDescriptor(
                 track_role: $0.transportRole.rawValue,
                 codec: $0.codec,
@@ -746,7 +791,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             method: "POST",
             body: FinalizeUploadRequest(
                 manifest_sha256: item.artifactProfile.manifestSha256 ?? "",
-                tracks: descriptors
+                tracks: trackDescriptors
             )
         )
         return try await perform(request)
@@ -819,8 +864,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return try await perform(request)
     }
 
-    private func ensureLocalFilesExist(_ item: DesktopUploadQueueItem) throws {
-        for descriptor in Self.uploadFileDescriptors(for: item) {
+    private func ensureLocalFilesExist(_ descriptors: [DesktopUploadFileDescriptor]) throws {
+        for descriptor in descriptors {
             guard FileManager.default.fileExists(atPath: descriptor.url.path) else {
                 throw DesktopUploadClientError.localFileMissing(descriptor.url.path)
             }
@@ -973,8 +1018,13 @@ private struct UploadSessionResponse: Decodable {
     let status: String
     let expires_at: Date?
     let accepted_bytes_by_track: [String: Int64]?
+    let expected_tracks: [String]?
     let processing_status: String?
     let desktop_truth_rule: String?
+
+    var expectedTransportRoles: Set<DesktopUploadTransportRole>? {
+        expected_tracks.map { Set($0.compactMap(DesktopUploadTransportRole.init(rawValue:))) }
+    }
 }
 
 private struct DesktopRecordingSyncStateResponse: Decodable {
@@ -1001,6 +1051,7 @@ private struct DesktopSyncMediaRevisionState: Decodable {
 private struct DesktopSyncUploadSessionState: Decodable {
     let session_id: String?
     let status: String?
+    let expected_tracks: [String]?
     let accepted_bytes_by_track: [String: Int64]
     let missing_ranges_by_track: [String: [MissingRange]]
     let desktop_truth_rule: String?

@@ -9,6 +9,91 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.28.8] - 2026-06-28
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Feature `069-universal-sidebar`: пользовательский cabinet теперь собирает
+  левую навигацию через один server-owned shell/sidebar contract для web и
+  desktop embedded поверхностей; страницы владеют только content region, а
+  fragments остаются content-only и не дублируют sidebar.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `069-universal-sidebar`: добавлены Spec Kit артефакты, quickstart,
+  shell contract и GitHub issue sync для архитектурного среза единой sidebar.
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.28.7] - 2026-06-28
+
+
+### Добавлено
+- Feature `067-dual-audio-formats`: macOS recording package now writes a local
+  `meeting-review.m4a` playback derivative from the capture-rate writer queue
+  while preserving `mic.wav` and `incoming.wav` for transcription; desktop
+  upload now sends the optional playback artifact, and cabinet playback,
+  shared review access, and audio download prefer the stored M4A with WAV-mix
+  fallback.
+
+### Изменено
+- Feature `068-dependency-refresh`: backend runtime and validation toolchain
+  dependencies refreshed to latest stable versions resolved by `uv`; production
+  `constraints.txt` now comes from the lockfile so Docker installs the validated
+  runtime package set.
+
+### Исправлено
+- Feature `068-dependency-refresh`: server tests no longer emit Python 3.14
+  deprecation warnings from old async test tooling or deprecated per-request
+  cookie usage.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `067-dual-audio-formats`: добавлены недостающие Spec Kit артефакты
+  для high-risk audio/storage slice: plan, data model, contracts, quickstart,
+  checklists, tasks и analyze evidence.
+- Feature `068-dependency-refresh`: release/validation guidance now requires
+  latest stable dependencies by default and keeps `pyproject.toml`, `uv.lock`,
+  and production constraints in sync.
+
+### Операции
+- Feature `068-dependency-refresh`: local CI passed on the refreshed dependency
+  set with `983 passed, 4 skipped`, Ruff pass, compile pass, production compose
+  config pass, deployment evidence scan pass, and expected local RLS boundary
+  `postgres_test_database_required`.
+
+## [2026.06.28.6] - 2026-06-28
+
+
+### Добавлено
 - Feature `063-calendar-settings-ui`: добавлен рабочий экран
   `Настройки -> Интеграции -> Календари` для web cabinet и embedded macOS
   cabinet. Экран показывает read-only границу, поддерживаемых провайдеров,
@@ -58,8 +143,8 @@
   source-code detector references; removed-provider catalog scan found no
   matches in the calendar feature surface; full local CI passed `968 passed, 4
   skipped, 148 warnings` with `ci_local_result=pass`.
-  Release and production deploy evidence will be recorded by the release
-  closeout after merge.
+  Release and production deploy evidence is recorded in the GitHub Release
+  notes for `v2026.06.28.6`.
 
 ## [2026.06.28.5] - 2026-06-28
 

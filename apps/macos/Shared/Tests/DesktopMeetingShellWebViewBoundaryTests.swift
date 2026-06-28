@@ -8,7 +8,6 @@ import XCTest
 @MainActor
 final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
     func testOnlineProductSidebarIsWebOwnedWhileNativeCaptureChromeRemainsNative() {
-        XCTAssertFalse(DesktopMeetingShellChrome.showsNativeProductSidebar)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
         XCTAssertGreaterThan(DesktopMeetingShellChrome.recordingStripHeight, 0)
@@ -17,6 +16,23 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             manualExpanded: false,
             hasActiveRecording: true
         ))
+    }
+
+    func testNativeProductSidebarImplementationIsRemovedFromShellSource() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(shellSource.contains("showsNativeProductSidebar"))
+        XCTAssertFalse(shellSource.contains("DesktopMeetingShellSidebarItem"))
+        XCTAssertFalse(shellSource.contains("selectedSidebarItem"))
+        XCTAssertFalse(shellSource.contains("onOpenMeetingsList"))
+        XCTAssertFalse(shellSource.contains("onOpenCalendarSettings"))
+        XCTAssertFalse(shellSource.contains("private var sidebar"))
+        XCTAssertFalse(shellSource.contains("sidebarPlaceholder"))
+        XCTAssertFalse(shellSource.contains("menuStatusText"))
     }
 
     func testActiveRecordingStopBoundaryDoesNotDependOnEmbeddedSurfaceState() {
@@ -43,12 +59,11 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         let settingsURL = CalendarSettingsFixtures.embeddedCalendarSettingsURL()
         let session = makeActiveSession()
         let invariant = CalendarSettingsFixtures.activeRecordingInvariant(embeddedLoaded: true)
+        let decision = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(for: settingsURL)
 
         XCTAssertEqual(settingsURL.path, "/desktop/settings/integrations/calendar")
-        XCTAssertEqual(
-            DesktopMeetingShellSidebarItem.settings.destinationRoute(configuration: configuration),
-            settingsURL
-        )
+        XCTAssertEqual(decision.decision, .allow)
+        XCTAssertEqual(decision.route.kind, .calendarSettings)
         XCTAssertTrue(CaptureStatusItem.showsStopButton(for: session))
         XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
         XCTAssertTrue(invariant.satisfiesActiveRecordingSafety(cabinetState: .ready))

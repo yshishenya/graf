@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from tests.fixtures.cabinet_access import add_retained_playback_m4a
 
 
 def test_ready_detail_exposes_server_mediated_combined_playback_contract(client) -> None:
@@ -24,6 +25,16 @@ def test_ready_detail_exposes_server_mediated_combined_playback_contract(client)
     audio_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio")
     assert audio_artifact["state"] == "policy_blocked"
     assert audio_artifact["action"] == "disabled"
+
+
+def test_ready_detail_exposes_stored_m4a_playback_source_mode(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A detail")
+
+    response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert response.json()["playback"]["source_mode"] == "stored_review_m4a"
 
 
 def test_ready_detail_exposes_seekable_transcript_segments_when_playback_available(client) -> None:

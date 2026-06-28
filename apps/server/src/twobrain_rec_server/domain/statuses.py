@@ -388,6 +388,7 @@ class TrackRole(StrEnum):
     MICROPHONE = "microphone"
     SYSTEM = "system"
     MANIFEST = "manifest"
+    PLAYBACK = "playback"
 
 
 class DeviceStatus(StrEnum):

@@ -291,7 +291,7 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         ))
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
-        XCTAssertNotEqual(presentation.menuStatusText, "Кабинет доступен")
+        XCTAssertNotEqual(presentation.tileTitle, "Сервер доступен")
         XCTAssertNotEqual(presentation.systemImage, "checkmark.circle")
     }
 }

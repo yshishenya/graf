@@ -317,6 +317,39 @@ def test_upload_session_status_can_be_loaded_after_process_store_reset(client) -
     assert missing.json()["missing_ranges_by_track"] == {"system": [{"start": 4, "end": 16}]}
 
 
+def test_legacy_empty_expected_roles_rehydrate_to_required_upload_roles(client) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "persistent-legacy-empty-roles", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"microphone": 16}},
+    ).json()
+
+    async def clear_expected_roles() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            model = await db.get(UploadSession, UUID(session["session_id"]))
+            assert model is not None
+            model.expected_track_roles = []
+            await db.commit()
+
+    client.portal.call(clear_expected_roles)
+    store_module.store = InMemoryIngestStore()
+    data = deterministic_wav_bytes(4)
+    digest = sha256(data).hexdigest()
+
+    response = client.put(
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0",
+        headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+        content=data,
+    )
+
+    assert response.status_code == 200
+
+
 def test_finalize_can_reload_upload_session_after_process_store_reset(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",

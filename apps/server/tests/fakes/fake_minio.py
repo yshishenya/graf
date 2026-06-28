@@ -31,5 +31,8 @@ class FakeMinioStorage:
     def get_bytes(self, object_key: str) -> bytes:
         return self.objects[object_key]
 
+    async def get_bytes_async(self, object_key: str) -> bytes:
+        return self.get_bytes(object_key)
+
     def delete_object(self, object_key: str) -> None:
         self.objects.pop(object_key, None)

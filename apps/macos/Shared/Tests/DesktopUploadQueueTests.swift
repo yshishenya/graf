@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -1075,6 +1076,53 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(reenqueue.serverTruth.acceptedBytesByTrack["manifest"], 32)
     }
 
+    func testRefreshWithNewPlaybackTrackPreservesExistingUploadSession() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(root: root, directoryId: "reenqueue-package-m4a", sessionId: "reenqueue-session-m4a")
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let linked = item.withTransition(
+            to: .retrying,
+            now: Date(timeIntervalSince1970: 120),
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-m4a",
+                mediaRevisionId: "server-media-revision-m4a",
+                uploadSessionId: "server-upload-session-without-m4a",
+                acceptedBytesByTrack: ["manifest": 32],
+                desktopTruthRule: "server_ranges_authoritative"
+            )
+        )
+        let document = DesktopUploadQueueDocument(
+            updatedAt: Date(timeIntervalSince1970: 120),
+            items: [linked]
+        )
+        let encoded = try JSONEncoder.uploadQueueTestEncoder.encode(document)
+        try encoded.write(to: queueURL, options: [.atomic])
+        try writeTestReviewAudio(to: package.directoryURL.appendingPathComponent("meeting-review.m4a"))
+        let refreshService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 140) }
+        )
+
+        let refreshed = try XCTUnwrap(refreshService.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(refreshed.meetingId, "server-meeting-m4a")
+        XCTAssertEqual(refreshed.mediaRevisionId, "server-media-revision-m4a")
+        XCTAssertEqual(refreshed.uploadSessionId, "server-upload-session-without-m4a")
+        XCTAssertEqual(refreshed.serverTruth.uploadSessionId, "server-upload-session-without-m4a")
+        XCTAssertEqual(refreshed.serverTruth.acceptedBytesByTrack["manifest"], 32)
+        XCTAssertTrue(refreshed.artifactProfile.trackCompleteness.contains { $0.transportRole == .playback })
+    }
+
     func testProcessDueItemsReconcilesBeforeUploadAndPersistsServerRanges() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1459,6 +1507,81 @@ final class DesktopUploadQueueTests: XCTestCase {
             descriptors.map { $0.url.lastPathComponent },
             ["mic.wav", "incoming.wav", "manifest.json"]
         )
+    }
+
+    func testCompletedPackageWithReviewM4AAddsPlaybackDescriptorWithoutChangingRequiredTracks() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "package-review-m4a",
+            sessionId: "session-review-m4a",
+            includeReviewAudio: true
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(for: item)
+
+        XCTAssertTrue(item.artifactProfile.isUploadable)
+        XCTAssertEqual(item.artifactProfile.trackCompleteness.map(\.transportRole), [.microphone, .system, .manifest, .playback])
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest, .playback])
+        XCTAssertEqual(descriptors.last?.url.lastPathComponent, "meeting-review.m4a")
+        XCTAssertEqual(descriptors.last?.codec, "m4a-aac-lc")
+        XCTAssertEqual(descriptors.last?.sampleRateHz, 48_000)
+    }
+
+    func testCompletedPackageWithInvalidReviewM4AIgnoresPlaybackDescriptor() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "package-invalid-review-m4a",
+            sessionId: "session-invalid-review-m4a"
+        )
+        try Data(repeating: 4, count: 256).write(to: package.directoryURL.appendingPathComponent("meeting-review.m4a"))
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(for: item)
+
+        XCTAssertTrue(item.artifactProfile.isUploadable)
+        XCTAssertEqual(item.artifactProfile.trackCompleteness.map(\.transportRole), [.microphone, .system, .manifest])
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
+    }
+
+    func testCompletedPackageWithRenamedWAVReviewAudioIgnoresPlaybackDescriptor() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "package-renamed-wav-review-m4a",
+            sessionId: "session-renamed-wav-review-m4a"
+        )
+        try writeTestReviewWAV(to: package.directoryURL.appendingPathComponent("meeting-review.m4a"))
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(for: item)
+
+        XCTAssertTrue(item.artifactProfile.isUploadable)
+        XCTAssertEqual(item.artifactProfile.trackCompleteness.map(\.transportRole), [.microphone, .system, .manifest])
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
     }
 
     func testIncompletePackageBecomesBlockedAndManualOnly() throws {
@@ -1852,6 +1975,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         includeIncoming: Bool = true,
         includeMuteTruth: Bool = false,
         includeMicrophoneGraphMetadata: Bool = false,
+        includeReviewAudio: Bool = false,
         leakageFinalization: LeakageFinalization? = nil,
         status: LocalRecordingSessionStatus = .saved,
         transcriptionReadiness: TranscriptionReadinessState = .ready,
@@ -1871,6 +1995,9 @@ final class DesktopUploadQueueTests: XCTestCase {
         if includeIncoming {
             try Data(repeating: 2, count: 128).write(to: package.remoteSpeakerURL)
         }
+        if includeReviewAudio {
+            try writeTestReviewAudio(to: directoryURL.appendingPathComponent("meeting-review.m4a"))
+        }
         let manifest = makeManifest(
             directoryId: directoryId,
             sessionId: sessionId,
@@ -1885,6 +2012,60 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
         try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
         return package
+    }
+
+    private func writeTestReviewAudio(to url: URL) throws {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 48_000.0,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 64_000
+            ]
+        )
+        let frameCount = 4_800
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount))!
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+        if let channel = buffer.floatChannelData?[0] {
+            for index in 0..<frameCount {
+                channel[index] = 0.05
+            }
+        }
+        try file.write(from: buffer)
+    }
+
+    private func writeTestReviewWAV(to url: URL) throws {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let wavURL = url
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(UUID().uuidString)-review.wav")
+        defer { try? FileManager.default.removeItem(at: wavURL) }
+        var file: AVAudioFile? = try AVAudioFile(
+            forWriting: wavURL,
+            settings: [
+                AVFormatIDKey: Int(kAudioFormatLinearPCM),
+                AVSampleRateKey: 48_000.0,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false
+            ]
+        )
+        let frameCount = 4_800
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount))!
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+        if let channel = buffer.floatChannelData?[0] {
+            for index in 0..<frameCount {
+                channel[index] = 0.05
+            }
+        }
+        try file?.write(from: buffer)
+        file = nil
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.moveItem(at: wavURL, to: url)
     }
 
     private func makeManifest(

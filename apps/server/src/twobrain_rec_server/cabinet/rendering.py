@@ -503,12 +503,23 @@ def _page_shell(
     active_nav: str = "meetings",
     **context,
 ) -> str:
+    navigation = cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded)
+    content_template = context.pop("content_template", None)
+    if content is None and content_template:
+        content = render_template(
+            content_template,
+            embedded=embedded,
+            navigation=navigation,
+            csrf_token=csrf_token,
+            **context,
+        )
+        content_source = "cabinet.shell"
     if content is not None:
         context["content"] = trusted_component_html(content, source=content_source)
     shell = render_template(
         page_template,
         embedded=embedded,
-        navigation=cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded),
+        navigation=navigation,
         csrf_token=csrf_token,
         **context,
     )

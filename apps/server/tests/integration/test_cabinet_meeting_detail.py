@@ -123,6 +123,9 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert ready.status_code == 200
     assert 'data-cabinet-shell' in ready.text
     assert 'data-cabinet-navigation' in ready.text
+    assert ready.text.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert ready.text.count('aria-label="Навигация кабинета"') == 1
+    assert ready.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in ready.text
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in ready.text
     assert "<style>" not in ready.text
@@ -172,7 +175,11 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert "desktop-embedded" in response.text
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
+    assert response.text.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert response.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in response.text
+    assert 'href="/desktop/meetings"' in response.text
+    assert 'href="/desktop/settings/integrations/calendar"' in response.text
     assert "Расшифровка" in response.text
     assert "Recording &amp; Transcript" not in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text

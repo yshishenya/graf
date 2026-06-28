@@ -1,5 +1,8 @@
 from pathlib import Path
 
+from markupsafe import Markup
+
+from twobrain_rec_server.cabinet import view_models
 from twobrain_rec_server.cabinet.templates import get_cabinet_templates
 
 SERVER_ROOT = Path(__file__).resolve().parents[2] / "src" / "twobrain_rec_server"
@@ -51,6 +54,47 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
     assert 'data-state="selected"' in html
     assert 'data-state="destructive"' in html
     assert "Запись остается локальной" in html
+
+
+def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
+    template = get_cabinet_templates().from_string(
+        """
+        {% import "cabinet/components/sections.html" as sections %}
+        {{ sections.cabinet_shell(navigation, embedded=embedded, content=content, static_url=cabinet_static_url) }}
+        """
+    )
+    navigation = view_models.CabinetNavigationModel(
+        active="meetings",
+        items=(
+            view_models.CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
+            view_models.CabinetNavigationItem("meetings", "Мои встречи", "/meetings", "calendar-days"),
+            view_models.CabinetNavigationItem(
+                "settings",
+                "Настройки",
+                "/settings/integrations/calendar",
+                "settings",
+            ),
+        ),
+    )
+
+    html = template.render(
+        cabinet_static_url="/static/cabinet",
+        navigation=navigation,
+        embedded=False,
+        content=Markup('<main class="cabinet-main" id="content">Контент</main>'),
+    )
+
+    assert html.count("data-cabinet-shell") == 1
+    assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in html
+    assert 'aria-label="Навигация кабинета"' in html
+    assert html.count('aria-current="page"') == 1
+    assert 'href="/meetings"' in html
+    assert 'href="/settings/integrations/calendar"' in html
+    assert 'aria-disabled="true" tabindex="-1"' in html
+    assert 'src="/static/cabinet/graf-wordmark-dark.png"' in html
+    assert 'data-cabinet-rail-toggle' in html
+    assert "Пробный период 7 дней" in html
+    assert '<main class="cabinet-main" id="content">Контент</main>' in html
 
 
 def test_section_css_covers_interaction_and_overflow_states() -> None:

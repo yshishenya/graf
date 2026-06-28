@@ -167,6 +167,9 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Проектный синк" in response.text
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
+    assert response.text.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert response.text.count('aria-label="Навигация кабинета"') == 1
+    assert response.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in response.text
     assert 'id="meeting-list-region"' in response.text
     assert 'class="cabinet-list-controls"' in response.text
@@ -214,8 +217,11 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert "desktop-embedded" in response.text
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
+    assert response.text.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
+    assert response.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in response.text
     assert 'href="/desktop/meetings"' in response.text
+    assert 'href="/desktop/settings/integrations/calendar"' in response.text
     assert 'href="/meetings"' not in response.text
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in response.text
     assert "Записи встреч" in response.text

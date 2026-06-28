@@ -105,6 +105,7 @@ def _custody_defaults(problem: ProblemDetail) -> dict[str, str]:
         "range_overlap",
         "expected_track_size_exceeded",
         "invalid_expected_track_size",
+        "unexpected_track_role",
         "unexpected_expected_track_size_role",
         "invalid_part_number",
         "invalid_byte_offset",
