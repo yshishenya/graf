@@ -184,7 +184,6 @@ def render_meeting_list_page(
     return _page_shell(
         "Мои встречи",
         embedded=embedded,
-        page_template="cabinet/pages/desktop_meetings.html" if embedded else "cabinet/pages/meetings.html",
         csrf_token=csrf_token,
         content_template="cabinet/pages/meeting_list_content.html",
         filter_action=_base_path(embedded),
@@ -228,7 +227,6 @@ def render_calendar_settings_page(
     return _page_shell(
         surface.title,
         embedded=embedded,
-        page_template="cabinet/pages/calendar_settings.html",
         csrf_token=csrf_token,
         content_template="cabinet/fragments/calendar_settings.html",
         active_nav="settings",
@@ -359,7 +357,6 @@ def render_meeting_detail_page(
         review.meeting.title,
         content,
         embedded=embedded,
-        page_template="cabinet/pages/meeting_detail.html",
         csrf_token=csrf_token,
         content_source="meeting_detail.content",
     )
@@ -433,7 +430,6 @@ def render_deletion_report_page(
         "Отчет удаления",
         content,
         embedded=embedded,
-        page_template="cabinet/pages/meeting_detail.html",
         csrf_token=csrf_token,
         content_source="deletion_report.content",
     )
@@ -501,7 +497,7 @@ def _page_shell(
     *,
     embedded: bool,
     active: str = "meetings",
-    page_template: str = "cabinet/pages/meetings.html",
+    page_template: str = "cabinet/pages/shell.html",
     csrf_token: str | None = None,
     content_source: str = "cabinet.shell",
     active_nav: str = "meetings",

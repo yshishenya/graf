@@ -168,6 +168,20 @@ CALENDAR_METHOD_LABELS = {
     "provider_specific_limited": "Может требовать администратора",
 }
 
+CALENDAR_PROVIDER_MARKS = {
+    "caldav_yandex": "Я",
+    "caldav_mail_ru": "M",
+    "exchange_ews": "Ex",
+    "bitrix24": "B24",
+    "custom_caldav_vk_workspace": "VK",
+    "caldav_mailion_myoffice": "My",
+    "caldav_r7_office": "R7",
+    "caldav_communigate_pro": "CP",
+    "caldav_rupost": "RP",
+    "caldav_nextcloud_sogo": "NC",
+    "custom_caldav": "CV",
+}
+
 CALENDAR_BOUNDARY_COPY = (
     "2brain Rec читает выбранные будущие события календаря, чтобы показать встречи и предложить начать запись. "
     "2brain Rec не меняет события календаря, не отправляет письма и не рассылает саммари. "
@@ -331,6 +345,7 @@ class CalendarDisconnectConfirmationView:
 class CalendarSettingsProviderPreset:
     provider_family: str
     label: str
+    mark: str
     method_category: str
     method_label: str
     action_label: str
@@ -429,6 +444,7 @@ class CalendarSettingsSurfaceView:
     providers: tuple[CalendarSettingsProviderPreset, ...]
     sources: tuple[CalendarSourceSettingsView, ...]
     preferences: CalendarSettingsPreferencesView
+    selected_calendar_count_total: int = 0
     preview: tuple[UpcomingPreviewItemView, ...] = ()
     conflicts: tuple[OverlapConflictGroupView, ...] = ()
     preview_empty_reason: str = "Пока нет ближайших событий из выбранных календарей."
@@ -446,6 +462,19 @@ class CalendarSettingsSurfaceView:
     empty_state_title: str = "Календари пока не подключены"
     empty_state_body: str = "Подключите источник календаря, затем выберите календари. Пока календарь не выбран, встречи из него не подтягиваются."
 
+    @property
+    def source_count_word(self) -> str:
+        return _russian_count_word(len(self.sources), "источник", "источника", "источников")
+
+    @property
+    def selected_calendar_count_total_word(self) -> str:
+        return _russian_count_word(
+            self.selected_calendar_count_total,
+            "календарь",
+            "календаря",
+            "календарей",
+        )
+
 
 def calendar_provider_presets(
     provider_payloads: Iterable[dict[str, object]],
@@ -461,6 +490,7 @@ def calendar_provider_presets(
             CalendarSettingsProviderPreset(
                 provider_family=family,
                 label=label,
+                mark=CALENDAR_PROVIDER_MARKS.get(family, label[:2]),
                 method_category=method,
                 method_label=CALENDAR_METHOD_LABELS.get(
                     method, "Способ подключения зависит от провайдера"
@@ -475,6 +505,17 @@ def calendar_provider_presets(
             )
         )
     return tuple(presets)
+
+
+def _russian_count_word(value: int, one: str, few: str, many: str) -> str:
+    normalized = abs(value)
+    if 11 <= normalized % 100 <= 14:
+        return many
+    if normalized % 10 == 1:
+        return one
+    if 2 <= normalized % 10 <= 4:
+        return few
+    return many
 
 
 def calendar_settings_preferences_view(
@@ -534,7 +575,7 @@ def calendar_settings_surface(
     return CalendarSettingsSurfaceView(
         breadcrumb=("Настройки", "Интеграции", "Календари"),
         title="Календари",
-        subtitle="Подключите календарь, выберите нужные календари и настройте подсказки перед встречами.",
+        subtitle="Подключите источник, выберите календари и получите подсказку перед встречей.",
         read_only_boundary_copy=CALENDAR_BOUNDARY_COPY,
         boundary_items=calendar_boundary_items(),
         forbidden_action_labels=CALENDAR_FORBIDDEN_ACTION_LABELS,
@@ -542,6 +583,9 @@ def calendar_settings_surface(
         providers=calendar_provider_presets(provider_payloads),
         sources=rendered_sources,
         preferences=preferences,
+        selected_calendar_count_total=sum(
+            source.selected_calendar_count for source in rendered_sources
+        ),
         preview=preview_items(
             preview_event_rows,
             source_labels_by_id=source_labels_by_id,

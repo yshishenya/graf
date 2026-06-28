@@ -152,6 +152,22 @@ def test_calendar_settings_boundary_rendering_explains_privacy_and_recording_lim
     assert_no_forbidden_calendar_settings_content(html)
 
 
+def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -> None:
+    response = client.get("/settings/integrations/calendar", headers=auth_headers())
+
+    assert response.status_code == 200
+    html = response.text
+    assert '<section class="calendar-boundary"' not in html
+    assert 'class="calendar-connect-details"' in html
+    assert 'class="calendar-provider-mark"' in html
+    assert 'class="calendar-advanced-fields"' in html
+    assert "Поля появятся только для выбранного варианта" in html
+    assert html.index('id="calendar-sources-title"') < html.index('id="calendar-providers-title"')
+    assert html.index('id="calendar-providers-title"') < html.index('id="calendar-boundary-title"')
+    assert html.index('class="calendar-advanced-fields"') < html.index('name="account_label"')
+    assert_no_forbidden_calendar_settings_content(html)
+
+
 def test_calendar_settings_disconnect_confirmation_copy_is_truthful_and_safe() -> None:
     source = calendar_settings_source(connection_state="active", sync_state="synced")
     calendar = calendar_settings_calendar(source, selected=True)

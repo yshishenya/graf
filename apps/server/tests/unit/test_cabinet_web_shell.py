@@ -33,12 +33,14 @@ from twobrain_rec_server.api.schemas import (
     TranscriptSegmentView,
 )
 from twobrain_rec_server.cabinet.rendering import (
+    render_calendar_settings_page,
     render_deletion_report_page,
     render_meeting_detail_page,
     render_meeting_list_page,
     render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
+from twobrain_rec_server.cabinet.view_models import calendar_settings_surface
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.statuses import (
     DeletionArtifactState,
@@ -494,6 +496,28 @@ def test_settings_shell_renders_calendar_connection_anchor() -> None:
     assert "Подключить календари" in page
     assert 'href="/settings/integrations/calendar"' in page
     assert 'href="/desktop/settings/integrations/calendar"' not in page
+
+
+def test_calendar_settings_reuses_common_cabinet_shell() -> None:
+    page = render_calendar_settings_page(calendar_settings_surface(provider_payloads=[], sources=[]), embedded=True)
+
+    assert page.count('data-cabinet-shell') == 1
+    assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in page
+    assert 'data-cabinet-rail-toggle' in page
+    assert 'data-active-nav="settings"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' in page
+    assert page.count('class="sidebar-foot"') == 1
+    assert "Пробный период 7 дней" in page
+    assert "GRAF" in page
+
+
+def test_sidebar_markup_lives_in_single_template() -> None:
+    pages_dir = SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "pages"
+    sidebar_templates = [
+        path.name for path in pages_dir.glob("*.html") if '<aside class="sidebar"' in path.read_text()
+    ]
+
+    assert sidebar_templates == ["shell.html"]
 
 
 def test_cabinet_rail_toggle_js_contract() -> None:
