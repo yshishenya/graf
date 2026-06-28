@@ -217,25 +217,6 @@ public enum DesktopMeetingShellLocalQueuePolicy {
     }
 }
 
-private struct GrafLogoMark: View {
-    var body: some View {
-        if let icon = NSImage(named: "AppIcon") {
-            Image(nsImage: icon)
-                .resizable()
-                .scaledToFit()
-                .accessibilityHidden(true)
-        } else {
-            Text("Г")
-                .font(.system(size: 15, weight: .black))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(red: 0.067, green: 0.094, blue: 0.125))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .accessibilityHidden(true)
-        }
-    }
-}
-
 private struct GrafWordmark: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -366,16 +347,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                GrafLogoMark()
-                    .frame(width: 34, height: 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    GrafWordmark()
-                        .frame(width: 64, height: 24, alignment: .leading)
-                    Text(cabinetStatusPresentation.sidebarSubtitle)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 2) {
+                GrafWordmark()
+                    .frame(width: 72, height: 27, alignment: .leading)
+                Text(cabinetStatusPresentation.sidebarSubtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
             .padding(.top, 6)
 
@@ -462,11 +439,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             }
         } label: {
             HStack(spacing: 8) {
-                GrafLogoMark()
-                    .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
                     GrafWordmark()
-                        .frame(width: 55, height: 20, alignment: .leading)
+                        .frame(width: 60, height: 22, alignment: .leading)
                     Text(cabinetStatusPresentation.menuStatusText)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(cabinetStatusColor)
