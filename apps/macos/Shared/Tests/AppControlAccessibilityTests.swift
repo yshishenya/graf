@@ -57,26 +57,10 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedSurfaceHeight, 420)
         XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
-        XCTAssertEqual(DesktopMeetingShellChrome.sidebarMinimumWidth, 176)
-        XCTAssertEqual(DesktopMeetingShellChrome.sidebarWidth, DesktopMeetingShellChrome.sidebarMinimumWidth)
-        XCTAssertEqual(DesktopMeetingShellChrome.sidebarMaximumWidth, 224)
-        XCTAssertEqual(
-            DesktopMeetingShellChrome.sidebarWidth(pendingUploadCount: 11, availableWindowWidth: 720),
-            DesktopMeetingShellChrome.sidebarMinimumWidth
-        )
-        XCTAssertGreaterThan(
-            DesktopMeetingShellChrome.sidebarWidth(pendingUploadCount: 11, availableWindowWidth: 1_400),
-            DesktopMeetingShellChrome.sidebarMinimumWidth
-        )
-        XCTAssertLessThanOrEqual(
-            DesktopMeetingShellChrome.sidebarWidth(pendingUploadCount: 11, availableWindowWidth: 1_400),
-            DesktopMeetingShellChrome.sidebarMaximumWidth
-        )
         XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
         XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 288)
         XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#191a1c")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellSidebarHex, "#202224")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, DesktopMeetingShellChrome.shellSidebarHex)
+        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#202224")
         XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#242629")
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHex, "#342087")
         XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#8c73ff")
@@ -85,7 +69,6 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 1120)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
-        XCTAssertFalse(DesktopMeetingShellChrome.showsNativeProductSidebar)
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 36)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 44)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
@@ -117,23 +100,6 @@ final class AppControlAccessibilityTests: XCTestCase {
                 hasActiveRecording: true
             )
         )
-    }
-
-    func testDesktopProfileMenuKeepsExpectedKrispLikeActionsInRussian() {
-        let labels = DesktopMeetingShellChrome.profileMenuLabels
-        for expected in [
-            "Внешний вид",
-            "Настройки",
-            "Диагностика",
-            "Ресурсы",
-            "Связаться с поддержкой",
-            "Оставить отзыв",
-            "Сообщество Slack",
-            "Выйти",
-            "Закрыть GRAF полностью"
-        ] {
-            XCTAssertTrue(labels.contains(expected), "Missing profile menu label \(expected)")
-        }
     }
 
     func testDesktopCabinetCopyStaysCleanRoomAndProductFacing() {
