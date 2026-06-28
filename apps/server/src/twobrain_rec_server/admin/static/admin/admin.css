@@ -18,10 +18,12 @@
   display: inline-flex;
   align-items: center;
   min-height: 34px;
-  color: var(--text);
-  font-size: 18px;
-  font-weight: 850;
-  letter-spacing: 0;
+}
+
+.admin-header-brand__logo {
+  display: block;
+  width: auto;
+  height: 36px;
 }
 
 .admin-kicker,

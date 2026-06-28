@@ -26,8 +26,8 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert 'href="/static/cabinet/graf-logo.svg"' in response.text
     assert '<p class="admin-kicker">GRAF</p>' in response.text
     assert "/static/cabinet/cabinet.css" in response.text
-    assert 'src="/static/cabinet/graf-logo.svg"' in response.text
-    assert 'aria-label="GRAF">GRAF</div>' in response.text
+    assert "/static/admin/graf-cyrillic-mic-inverted.png" in response.text
+    assert 'alt="ГРАФ"' in response.text
     assert "app-shell admin-app-shell" in response.text
     assert "sidebar admin-sidebar" in response.text
     assert "2brain Rec" not in response.text
@@ -40,6 +40,10 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert "Analyst" not in response.text
     for marker in FORBIDDEN_MARKERS:
         assert marker not in response.text
+
+    logo = client.get("/static/admin/graf-cyrillic-mic-inverted.png")
+    assert logo.status_code == 200
+    assert logo.headers["content-type"].startswith("image/png")
 
 
 def test_admin_browser_without_session_redirects_to_login(client) -> None:
