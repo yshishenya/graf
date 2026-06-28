@@ -113,6 +113,7 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
         "twobrain_minio_api_secret_key",
         "twobrain_smoke_credential",
         "twobrain_web_csrf_secret",
+        "twobrain_support_incident_github_token",
     ]:
         assert secret_name in secrets
 
@@ -124,7 +125,12 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
         "twobrain_minio_api_secret_key",
         "twobrain_smoke_credential",
         "twobrain_web_csrf_secret",
+        "twobrain_support_incident_github_token",
     } <= api_secret_sources
+    assert (
+        api["environment"]["TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE"]
+        == "/run/secrets/twobrain_support_incident_github_token"
+    )
 
     postgres = compose["services"]["rec-postgres"]
     assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])
@@ -141,6 +147,7 @@ def test_production_env_template_does_not_broadcast_service_specific_secret_file
             "TWOBRAIN_MEDIASCRIBE_CREDENTIAL_FILE",
             "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE",
             "TWOBRAIN_LANGFUSE_CREDENTIAL_FILE",
+            "TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE",
         }
     )
 

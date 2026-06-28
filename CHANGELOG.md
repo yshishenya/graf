@@ -15,7 +15,9 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `061-support-incident-reporting`: production `rec-api` теперь получает
+  GitHub token как Docker secret file, поэтому действие `Отправить отчет`
+  может создавать private support issue и возвращать пользователю `CUST-*`.
 
 ### Безопасность
 - _Пока нет записей._
@@ -24,7 +26,8 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Добавлены regression checks, которые не дают снова выкатить support incident
+  endpoint без GitHub token secret wiring в production compose/env contract.
 
 ## [2026.06.28.8] - 2026-06-28
 
