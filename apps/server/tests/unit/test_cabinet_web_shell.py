@@ -572,13 +572,16 @@ def test_calendar_settings_reuses_common_cabinet_shell() -> None:
     assert "GRAF" in page
 
 
-def test_sidebar_markup_lives_in_single_template() -> None:
+def test_sidebar_markup_lives_in_reusable_sections_macro() -> None:
     pages_dir = SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "pages"
-    sidebar_templates = [
-        path.name for path in pages_dir.glob("*.html") if '<aside class="sidebar"' in path.read_text()
-    ]
+    sections_template = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
 
-    assert sidebar_templates == ["shell.html"]
+    assert all('<aside class="sidebar"' not in path.read_text() for path in pages_dir.glob("*.html"))
+    assert sections_template.count('<aside class="sidebar"') == 1
+    assert "{% macro cabinet_sidebar(" in sections_template
+    assert "{{ cabinet_sidebar(" in sections_template
 
 
 def test_cabinet_rail_toggle_js_contract() -> None:
