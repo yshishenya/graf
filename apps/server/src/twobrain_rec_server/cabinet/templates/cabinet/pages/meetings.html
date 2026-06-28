@@ -4,7 +4,12 @@
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-cabinet-shell data-active-nav="{{ navigation.active }}">
   <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
     <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Развернуть меню" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
-    {{ sections.workspace_header(navigation.workspace_title, navigation.workspace_subtitle, "2", cabinet_static_url ~ "/graf-logo.svg") }}
+    {{ sections.workspace_header(
+      navigation.workspace_title,
+      navigation.workspace_subtitle,
+      wordmark_src=cabinet_static_url ~ "/graf-wordmark-light.png",
+      wordmark_srcset=cabinet_static_url ~ "/graf-wordmark-light@2x.png 2x"
+    ) }}
     <button class="primary" type="button" disabled>Пригласить</button>
     {{ sections.sidebar_navigation(navigation.items, active=navigation.active) }}
     <div class="sidebar-foot"><div class="trial">Пробный период 7 дней</div><div class="muted">GRAF</div></div>

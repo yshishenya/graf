@@ -6,31 +6,24 @@
   gap: 18px;
 }
 
+.admin-brand {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  align-items: start;
+}
+
+.admin-sidebar-wordmark {
+  width: 84px;
+  height: 32px;
+}
+
 .admin-main {
   padding-bottom: 72px;
 }
 
 .admin-header {
   margin-bottom: 18px;
-}
-
-.admin-header-brand {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  width: 92px;
-  min-height: 34px;
-}
-
-.admin-header-brand__logo {
-  display: block;
-  width: auto;
-  height: 36px;
-}
-
-.admin-header-brand__image {
-  width: 92px;
-  height: 34px;
 }
 
 .admin-kicker,

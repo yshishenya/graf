@@ -13,12 +13,11 @@
   <body data-surface-mode="standalone_browser">
     <div class="app-shell admin-app-shell">
       <aside class="sidebar admin-sidebar">
-        <div class="brand">
-          <div class="brand-mark"><img class="brand-logo" src="{{ cabinet_static_url }}/graf-logo.svg" alt="" aria-hidden="true"></div>
-          <div>
-            <div class="workspace-title">GRAF</div>
-            <div class="workspace-subtitle">Админка</div>
-          </div>
+        <div class="brand admin-brand">
+          <picture class="brand-wordmark admin-sidebar-wordmark">
+            <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-light.png" srcset="{{ cabinet_static_url }}/graf-wordmark-light@2x.png 2x" alt="ГРАФ">
+          </picture>
+          <div class="workspace-subtitle">Админка</div>
         </div>
         {% if view is defined and view.navigation is defined %}
           <nav class="nav admin-nav" aria-label="Админ-навигация">
@@ -34,9 +33,6 @@
             <p class="admin-kicker">GRAF</p>
             <h1>{% block title %}{{ page_title }}{% endblock %}</h1>
             {% block subtitle %}{% endblock %}
-          </div>
-          <div class="admin-header-brand">
-            <img class="admin-header-brand__logo" src="{{ admin_static_url }}/graf-cyrillic-mic-inverted.png" alt="ГРАФ">
           </div>
         </header>
         {% block content %}{% endblock %}

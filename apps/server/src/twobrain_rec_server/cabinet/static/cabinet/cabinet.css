@@ -114,6 +114,14 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
   height: 100%;
   object-fit: contain;
 }
+.cabinet-workspace-header.cabinet-workspace-header--wordmark {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.cabinet-workspace-header__wordmark {
+  width: 84px;
+  height: 32px;
+}
 .workspace-title { font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-subtitle, .muted { color: var(--muted); font-size: 12px; }
 .nav { display: grid; gap: 4px; }
@@ -973,11 +981,15 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .desktop-embedded.is-rail-pinned .sidebar .sidebar-foot {
     display: grid;
   }
+  .desktop-embedded .cabinet-workspace-header__wordmark,
   .desktop-embedded .cabinet-workspace-header__text,
   .desktop-embedded .cabinet-sidebar-nav__label {
     opacity: 0;
     pointer-events: none;
   }
+  .desktop-embedded .sidebar:hover .cabinet-workspace-header__wordmark,
+  .desktop-embedded .sidebar:focus-within .cabinet-workspace-header__wordmark,
+  .desktop-embedded.is-rail-pinned .cabinet-workspace-header__wordmark,
   .desktop-embedded .sidebar:hover .cabinet-workspace-header__text,
   .desktop-embedded .sidebar:focus-within .cabinet-workspace-header__text,
   .desktop-embedded.is-rail-pinned .cabinet-workspace-header__text,
