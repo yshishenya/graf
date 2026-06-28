@@ -75,12 +75,12 @@ final class DesktopUploadClientTests: XCTestCase {
 
     func testConfiguredHeadersIncludeBearerTokenWithoutPersistingSecrets() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
-            "TWO_BRAIN_REC_CLIENT_VERSION": "smoke-014",
-            "TWO_BRAIN_REC_USER_ID": "00000000-0000-0000-0000-000000014003",
-            "TWO_BRAIN_REC_ORGANIZATION_ID": "00000000-0000-0000-0000-000000014001",
-            "TWO_BRAIN_REC_WORKSPACE_ID": "00000000-0000-0000-0000-000000014002",
-            "TWO_BRAIN_REC_DEVICE_ID": "00000000-0000-0000-0000-000000014004",
-            "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN": "secret-smoke-token"
+            "GRAF_CLIENT_VERSION": "smoke-014",
+            "GRAF_USER_ID": "00000000-0000-0000-0000-000000014003",
+            "GRAF_ORGANIZATION_ID": "00000000-0000-0000-0000-000000014001",
+            "GRAF_WORKSPACE_ID": "00000000-0000-0000-0000-000000014002",
+            "GRAF_DEVICE_ID": "00000000-0000-0000-0000-000000014004",
+            "GRAF_UPLOAD_BEARER_TOKEN": "secret-smoke-token"
         ])
 
         XCTAssertEqual(headers["X-Client-Version"], "smoke-014")
@@ -101,11 +101,23 @@ final class DesktopUploadClientTests: XCTestCase {
 
     func testConfiguredHeadersIgnoreGenericBearerFallback() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
-            "TWO_BRAIN_REC_CLIENT_VERSION": "smoke-014",
-            "TWO_BRAIN_REC_BEARER_TOKEN": "generic-token-that-must-not-be-used"
+            "GRAF_CLIENT_VERSION": "smoke-014",
+            "GRAF_BEARER_TOKEN": "generic-token-that-must-not-be-used"
         ])
 
         XCTAssertNil(headers["Authorization"])
+    }
+
+    func testConfiguredHeadersAcceptLegacyTwoBrainKeys() {
+        let headers = DesktopUploadClient.configuredHeaders(from: [
+            "TWO_BRAIN_REC_CLIENT_VERSION": "legacy-014",
+            "TWO_BRAIN_REC_USER_ID": "legacy-user",
+            "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN": "legacy-token"
+        ])
+
+        XCTAssertEqual(headers["X-Client-Version"], "legacy-014")
+        XCTAssertEqual(headers["X-User-Id"], "legacy-user")
+        XCTAssertEqual(headers["Authorization"], "Bearer legacy-token")
     }
 
     func testConfiguredFallsBackToPackagedProductionUploadOriginWithoutShellEnvironment() throws {

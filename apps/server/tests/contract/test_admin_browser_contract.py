@@ -26,6 +26,7 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert 'href="/static/cabinet/graf-logo.svg"' in response.text
     assert '<p class="admin-kicker">GRAF</p>' in response.text
     assert "/static/cabinet/cabinet.css" in response.text
+    assert 'src="/static/cabinet/graf-logo.svg"' in response.text
     assert "/static/admin/graf-cyrillic-mic-inverted.png" in response.text
     assert 'alt="ГРАФ"' in response.text
     assert "app-shell admin-app-shell" in response.text

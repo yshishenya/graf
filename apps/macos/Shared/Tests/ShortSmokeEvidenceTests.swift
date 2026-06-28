@@ -8,8 +8,8 @@ final class ShortSmokeEvidenceTests: XCTestCase {
     func testShortSmokeEvidenceCannotRepresentRecordingAcceptance() {
         let evidence = ShortSmokeEvidence(
             targetApp: "Chrome",
-            selectedInput: "2brain Rec Microphone",
-            selectedOutput: "2brain Rec Speaker",
+            selectedInput: "GRAF Microphone",
+            selectedOutput: "GRAF Speaker",
             localSpeechObserved: true,
             remoteAudioObserved: true,
             loopbackObserved: false,
@@ -25,8 +25,8 @@ final class ShortSmokeEvidenceTests: XCTestCase {
     func testBlockedShortSmokeEvidenceCanRepresentUnknownAudioObservation() {
         let evidence = ShortSmokeEvidence(
             targetApp: "Opera",
-            selectedInput: "2brain Rec Microphone",
-            selectedOutput: "2brain Rec Speaker",
+            selectedInput: "GRAF Microphone",
+            selectedOutput: "GRAF Speaker",
             localSpeechObserved: nil,
             remoteAudioObserved: nil,
             loopbackObserved: nil,

@@ -61,7 +61,7 @@ public enum WorkspaceZoomMenu {
 }
 
 public final class WorkspaceZoomStore: ObservableObject {
-    public static let preferenceKey = "pro.2brain.rec.workspaceZoom"
+    public static let preferenceKey = "pro.2brain.graf.workspaceZoom"
 
     @Published public private(set) var preference: WorkspaceZoomPreference
 

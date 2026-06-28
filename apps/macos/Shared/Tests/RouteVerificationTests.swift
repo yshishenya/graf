@@ -27,7 +27,7 @@ final class RouteVerificationTests: XCTestCase {
             id: "route-mic-001",
             path: .micToVirtualInput,
             validationType: .syntheticSignal,
-            target: "2brain Rec Microphone",
+            target: "GRAF Microphone",
             status: .passed,
             failureReason: nil,
             recoveryAction: nil,
@@ -41,7 +41,7 @@ final class RouteVerificationTests: XCTestCase {
         XCTAssertEqual(object["id"] as? String, "route-mic-001")
         XCTAssertEqual(object["path"] as? String, "mic_to_virtual_input")
         XCTAssertEqual(object["validationType"] as? String, "synthetic_signal")
-        XCTAssertEqual(object["target"] as? String, "2brain Rec Microphone")
+        XCTAssertEqual(object["target"] as? String, "GRAF Microphone")
         XCTAssertEqual(object["status"] as? String, "passed")
         XCTAssertNotNil(object["startedAt"])
         XCTAssertNotNil(object["finishedAt"])
@@ -106,7 +106,7 @@ final class RouteVerificationTests: XCTestCase {
         let decision = SelfRoutingGuard().evaluate(
             physicalInput: physicalDevice(
                 id: SelfRoutingGuard.microphoneUID,
-                displayName: "2brain Rec Microphone",
+                displayName: "GRAF Microphone",
                 direction: .input
             ),
             physicalOutput: physicalDevice(
@@ -133,7 +133,7 @@ final class RouteVerificationTests: XCTestCase {
             ),
             physicalOutput: physicalDevice(
                 id: SelfRoutingGuard.speakerUID,
-                displayName: "2brain Rec Speaker",
+                displayName: "GRAF Speaker",
                 direction: .output
             )
         )
@@ -169,7 +169,7 @@ final class RouteVerificationTests: XCTestCase {
             availableInputs: [
                 physicalDevice(
                     id: SelfRoutingGuard.microphoneUID,
-                    displayName: "2brain Rec Microphone",
+                    displayName: "GRAF Microphone",
                     direction: .input
                 )
             ],
@@ -310,7 +310,7 @@ final class RouteVerificationTests: XCTestCase {
     func testRouteVerificationServiceLiveReadinessRejectsSelfRouting() async {
         let input = physicalDevice(
             id: SelfRoutingGuard.microphoneUID,
-            displayName: "2brain Rec Microphone",
+            displayName: "GRAF Microphone",
             direction: .input
         )
         let output = physicalDevice(id: "built-in-output", displayName: "MacBook Pro Speakers", direction: .output)

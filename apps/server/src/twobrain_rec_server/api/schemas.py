@@ -427,7 +427,7 @@ class ProcessingStatusResponse(BaseModel):
 class CreateDeletionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    confirmation_boundary: Literal["Delete this meeting everywhere 2brain Rec controls."]
+    confirmation_boundary: Literal["Delete this meeting everywhere GRAF controls."]
     reason_code: DeletionReasonCode = DeletionReasonCode.USER_REQUEST
 
 

@@ -467,8 +467,8 @@ UI_TEXT: dict[str, str] = {
     "Copy link": "Ссылка",
     "Decisions": "Решения",
     "Delete planned": "Удаление запланировано",
-    "Delete this meeting everywhere 2brain Rec controls": "Удалить встречу в системах GRAF",
-    "Delete this meeting everywhere 2brain Rec controls.": "Удалить встречу везде, где ее контролирует GRAF.",
+    "Delete this meeting everywhere GRAF controls": "Удалить встречу в системах GRAF",
+    "Delete this meeting everywhere GRAF controls.": "Удалить встречу везде, где ее контролирует GRAF.",
     "Disabled": "Выключено",
     "Disabled by policy": "Заблокировано",
     "Download": "Скачать",
@@ -477,8 +477,8 @@ UI_TEXT: dict[str, str] = {
     "Export package": "Экспорт",
     "Export ready": "Экспорт готов",
     "Failed": "Сбой",
-    "Files already downloaded or exported are outside 2brain Rec deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в GRAF.",
-    "Files already downloaded or exported are outside later 2brain Rec revocation. Deleting a meeting can remove what 2brain Rec controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в GRAF. Удаление встречи может убрать то, что контролирует GRAF, но не копии, уже сохраненные где-то еще.",
+    "Files already downloaded or exported are outside GRAF deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в GRAF.",
+    "Files already downloaded or exported are outside later GRAF revocation. Deleting a meeting can remove what GRAF controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в GRAF. Удаление встречи может убрать то, что контролирует GRAF, но не копии, уже сохраненные где-то еще.",
     "Follow-ups": "Продолжение",
     "Incoming system": "Входящий звук",
     "Key points": "Ключевое",
@@ -566,12 +566,12 @@ UI_TEXT: dict[str, str] = {
     "local_buffers_purged": "локальные буферы очищены",
     "metadata only": "только метаданные",
     "Owner/Admin": "Владелец/админ",
-    "outside 2brain rec control": "вне контроля GRAF",
+    "outside graf control": "вне контроля GRAF",
     "outside_control": "вне контроля GRAF",
     "pending": "ожидает",
-    "Outside 2brain Rec control after delivery": "Вне контроля GRAF после передачи",
-    "Delivered copies are outside 2brain Rec control": "Переданные копии находятся вне контроля GRAF",
-    "Planned; this does not promise deletion outside 2brain Rec control.": "Запланировано; это не обещает удаление вне контроля GRAF.",
+    "Outside GRAF control after delivery": "Вне контроля GRAF после передачи",
+    "Delivered copies are outside GRAF control": "Переданные копии находятся вне контроля GRAF",
+    "Planned; this does not promise deletion outside GRAF control.": "Запланировано; это не обещает удаление вне контроля GRAF.",
     "policy blocked": "по политике",
     "policy_blocked": "по политике",
     "processing": "обработка",
@@ -875,7 +875,7 @@ def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool
     report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
       <div class="delete-confirmation">
-        <strong>{escape(_ui_text("Delete this meeting everywhere 2brain Rec controls"))}</strong>
+        <strong>{escape(_ui_text("Delete this meeting everywhere GRAF controls"))}</strong>
         <div class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</div>
         <div class="state-row">
           <span class="muted">Резервные копии, локальные буферы, метаданные провайдера и уже переданные копии показываются отдельно.</span>

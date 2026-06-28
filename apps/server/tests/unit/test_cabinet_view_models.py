@@ -444,7 +444,7 @@ def test_governance_states_are_non_mutating_and_truthful() -> None:
     assert governance.download.state == "disabled"
     assert governance.retention.state == "planned"
     assert governance.delete.destructive is True
-    assert "2brain Rec" in governance.delete.label
+    assert "GRAF" in governance.delete.label
 
 
 def test_processing_state_uses_safe_reason_and_next_action() -> None:

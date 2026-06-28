@@ -113,7 +113,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private let manifestService: LocalRecordingManifestService
     private let client: DesktopUploadClientProtocol?
     private let clock: Clock
-    private let queue = DispatchQueue(label: "pro.2brain.rec.desktop-upload-queue", qos: .utility)
+    private let queue = DispatchQueue(label: "pro.2brain.graf.desktop-upload-queue", qos: .utility)
     private var document: DesktopUploadQueueDocument?
 
     public init(
@@ -135,10 +135,19 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     public static func defaultQueueURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
             FileManager.default.temporaryDirectory
-        return base
+        let current = base
+            .appendingPathComponent("GRAF", isDirectory: true)
+            .appendingPathComponent("UploadQueue", isDirectory: true)
+            .appendingPathComponent("upload-queue.json")
+        let legacy = base
             .appendingPathComponent("2brain Rec", isDirectory: true)
             .appendingPathComponent("UploadQueue", isDirectory: true)
             .appendingPathComponent("upload-queue.json")
+        if !FileManager.default.fileExists(atPath: current.path),
+           FileManager.default.fileExists(atPath: legacy.path) {
+            return legacy
+        }
+        return current
     }
 
     public func loadItems() throws -> [DesktopUploadQueueItem] {

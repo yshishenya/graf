@@ -6127,7 +6127,7 @@ components:
       properties:
         confirmation_boundary:
           type: string
-          const: Delete this meeting everywhere 2brain Rec controls.
+          const: Delete this meeting everywhere GRAF controls.
           title: Confirmation Boundary
         reason_code:
           $ref: '#/components/schemas/DeletionReasonCode'

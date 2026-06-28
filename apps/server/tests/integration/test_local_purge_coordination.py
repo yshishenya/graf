@@ -3,7 +3,7 @@ from __future__ import annotations
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import seed_cabinet_meetings
 
-BOUNDED_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 
 
 def test_local_purge_acknowledgement_updates_task_and_deletion_report(client) -> None:

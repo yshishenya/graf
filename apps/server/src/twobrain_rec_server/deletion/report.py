@@ -17,7 +17,7 @@ from twobrain_rec_server.domain.statuses import (
     LifecycleAuditOutcome,
 )
 
-BOUNDED_DELETE_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_DELETE_COPY = "Delete this meeting everywhere GRAF controls."
 
 STATE_LABELS = {
     DeletionState.NONE: "Available",

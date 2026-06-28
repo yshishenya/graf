@@ -26,10 +26,10 @@ rg -n "(BEGIN (RSA|OPENSSH|PRIVATE) KEY|AKIA[0-9A-Z]{16}|xox[baprs]-|ghp_|sk-[A-
 
 echo "== 005 passthrough release hardening: pending gates =="
 echo "- Installed runtime package build/install probe: pending final packaging run"
-echo "- Audio settings no-hang helper defaults to metadata-only; set TWO_BRAIN_REC_RUN_UI_NO_HANG=1 for actual UI launch evidence"
+echo "- Audio settings no-hang helper defaults to metadata-only; set GRAF_RUN_UI_NO_HANG=1 for actual UI launch evidence"
 echo "- Route recovery checklists are available; physical/coreaudiod/sleep-wake evidence still requires environment execution"
-echo "- Low-resource route recovery gates run metadata-safe by default; set TWO_BRAIN_REC_RUN_LOW_RESOURCE_COREAUDIOD_RESTART=1 for local restart evidence"
-echo "- Installer lifecycle helper defaults to metadata-only; set TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE=1 for destructive lifecycle evidence"
+echo "- Low-resource route recovery gates run metadata-safe by default; set GRAF_RUN_LOW_RESOURCE_COREAUDIOD_RESTART=1 for local restart evidence"
+echo "- Installer lifecycle helper defaults to metadata-only; set GRAF_RUN_INSTALLER_LIFECYCLE=1 for destructive lifecycle evidence"
 echo "- Diagnostics scan is metadata-only; matches must be policy text or deliberate fixtures"
 echo "- Deferred recording-assisted acceptance: pending T072-T075"
 echo "validate-passthrough-release-hardening: completed available baseline checks"

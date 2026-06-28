@@ -648,8 +648,8 @@ public struct CoreAudioVirtualDeviceActivityDetector: VirtualDeviceActivityDetec
     private let snapshotProvider: @Sendable () -> [DeviceSnapshot]
 
     public init(
-        expectedMicrophoneNames: Set<String> = ["2brain Rec Microphone"],
-        expectedSpeakerNames: Set<String> = ["2brain Rec Speaker"],
+        expectedMicrophoneNames: Set<String> = ["GRAF Microphone"],
+        expectedSpeakerNames: Set<String> = ["GRAF Speaker"],
         snapshotProvider: (@Sendable () -> [DeviceSnapshot])? = nil
     ) {
         self.expectedMicrophoneNames = expectedMicrophoneNames

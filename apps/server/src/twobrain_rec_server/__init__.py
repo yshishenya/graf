@@ -1,4 +1,4 @@
-"""2brain Rec backend ingest service."""
+"""GRAF backend ingest service."""
 
 __all__ = ["__version__"]
 

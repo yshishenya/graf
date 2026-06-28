@@ -17,6 +17,8 @@
 .admin-header-brand {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  width: 92px;
   min-height: 34px;
 }
 
@@ -24,6 +26,11 @@
   display: block;
   width: auto;
   height: 36px;
+}
+
+.admin-header-brand__image {
+  width: 92px;
+  height: 34px;
 }
 
 .admin-kicker,

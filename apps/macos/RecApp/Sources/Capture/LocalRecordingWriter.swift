@@ -172,7 +172,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private let microphoneInputChannelCount: Int
     private let incomingInputChannelCount: Int
     private let recordMicrophone: Bool
-    private let queue = DispatchQueue(label: "pro.2brain.rec.local-recording-writer", qos: .utility)
+    private let queue = DispatchQueue(label: "pro.2brain.graf.local-recording-writer", qos: .utility)
     private var active: ActiveRecording?
 
     public init(

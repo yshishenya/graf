@@ -10,8 +10,8 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         let evidence = BrowserTargetEvidence(
             target: "chrome",
             status: .passed,
-            microphoneSelected: "2brain Rec Microphone",
-            speakerSelected: "2brain Rec Speaker",
+            microphoneSelected: "GRAF Microphone",
+            speakerSelected: "GRAF Speaker",
             localSpeechUsable: true,
             remoteAudioUsable: true,
             checkedAt: Date(timeIntervalSince1970: 1_779_887_120)
@@ -22,7 +22,7 @@ final class BrowserTargetEvidenceTests: XCTestCase {
 
         XCTAssertEqual(object["target"] as? String, "chrome")
         XCTAssertEqual(object["status"] as? String, "passed")
-        XCTAssertEqual(object["microphoneSelected"] as? String, "2brain Rec Microphone")
+        XCTAssertEqual(object["microphoneSelected"] as? String, "GRAF Microphone")
         XCTAssertNil(object["rawAudio"])
         XCTAssertNil(object["transcriptText"])
         XCTAssertNil(object["meetingContent"])
@@ -32,8 +32,8 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         let evidence = BrowserTargetEvidence(
             target: "yandex_telemost_browser",
             status: .blocked,
-            microphoneSelected: "2brain Rec Microphone",
-            speakerSelected: "2brain Rec Speaker",
+            microphoneSelected: "GRAF Microphone",
+            speakerSelected: "GRAF Speaker",
             localSpeechUsable: false,
             remoteAudioUsable: false,
             failureReason: "target_does_not_expose_device_selection",
@@ -48,8 +48,8 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         let evidence = BrowserTargetEvidence(
             target: "chrome",
             status: .passed,
-            microphoneSelected: "2brain Rec Microphone",
-            speakerSelected: "2brain Rec Speaker",
+            microphoneSelected: "GRAF Microphone",
+            speakerSelected: "GRAF Speaker",
             localSpeechUsable: true,
             remoteAudioUsable: true,
             checkedAt: Date(timeIntervalSince1970: 1_779_887_120)
@@ -73,8 +73,8 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         let evidence = BrowserTargetEvidence(
             target: "opera",
             status: .blocked,
-            microphoneSelected: "2brain Rec Microphone",
-            speakerSelected: "2brain Rec Speaker",
+            microphoneSelected: "GRAF Microphone",
+            speakerSelected: "GRAF Speaker",
             localSpeechUsable: false,
             remoteAudioUsable: false,
             failureReason: "manual_validation_unavailable",
@@ -93,8 +93,8 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         let evidence = PassthroughBrowserCallEvidence(
             targetName: "Yandex Telemost",
             targetVersion: "browser",
-            selectedMicrophone: "2brain Rec Microphone",
-            selectedSpeaker: "2brain Rec Speaker",
+            selectedMicrophone: "GRAF Microphone",
+            selectedSpeaker: "GRAF Speaker",
             localSpeechUsable: false,
             remoteAudioUsable: false,
             status: .notAccepted,
@@ -110,8 +110,8 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         let evidence = PassthroughBrowserCallEvidence(
             targetName: "Chrome",
             targetVersion: "125",
-            selectedMicrophone: "2brain Rec Microphone",
-            selectedSpeaker: "2brain Rec Speaker",
+            selectedMicrophone: "GRAF Microphone",
+            selectedSpeaker: "GRAF Speaker",
             localSpeechUsable: true,
             remoteAudioUsable: true,
             status: .passed,

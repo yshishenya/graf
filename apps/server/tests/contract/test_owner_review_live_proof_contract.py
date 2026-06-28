@@ -65,5 +65,5 @@ def test_owner_review_live_proof_contract_keeps_private_artifacts_out_of_git() -
     assert "private meeting titles or transcript text" in docs
     assert "bearer/session token values" in docs
     assert "cookies" in docs
-    assert "/Applications/2brain Rec.app" in docs
+    assert "/Applications/GRAF.app" in docs
     assert "Krisp" not in docs

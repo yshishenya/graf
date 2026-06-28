@@ -10,7 +10,7 @@ from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 from twobrain_rec_server.db.models import Meeting, UploadSession
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
 
-BOUNDED_DELETE_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_DELETE_COPY = "Delete this meeting everywhere GRAF controls."
 
 
 def _create_meeting(client, local_recording_id: str = "lifecycle") -> dict:

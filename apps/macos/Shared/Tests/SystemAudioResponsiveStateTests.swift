@@ -5,7 +5,7 @@ import XCTest
 
 final class SystemAudioResponsiveStateTests: XCTestCase {
     func testLongRecordingLocationAccessibilityKeepsFullPath() {
-        let path = "/Users/example/Library/Application Support/2brain Rec/Recordings/2026-06-08/a-very-long-meeting-session-directory-name/manifest.json"
+        let path = "/Users/example/Library/Application Support/GRAF/Recordings/2026-06-08/a-very-long-meeting-session-directory-name/manifest.json"
 
         let label = SystemAudioStatusLabels.localRecordingLocationAccessibilityLabel(path)
 

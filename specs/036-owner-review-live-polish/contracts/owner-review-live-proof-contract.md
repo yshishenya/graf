@@ -50,7 +50,7 @@ Committed evidence must not include:
 - private account identifiers or emails;
 - signed URLs;
 - local private absolute paths except approved installed app path
-  `/Applications/2brain Rec.app`.
+  `/Applications/GRAF.app`.
 
 ## Acceptance
 

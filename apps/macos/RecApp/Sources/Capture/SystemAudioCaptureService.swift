@@ -374,7 +374,7 @@ private final class RuntimeStopCompletion: @unchecked Sendable {
 #if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox)
 public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCaptureRuntime, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let sampleHandler: @Sendable ([Float]) -> Void
-    private let outputQueue = DispatchQueue(label: "pro.2brain.rec.screencapturekit.audio", qos: .userInitiated)
+    private let outputQueue = DispatchQueue(label: "pro.2brain.graf.screencapturekit.audio", qos: .userInitiated)
     private let streamLock = NSLock()
     private var stream: SCStream?
 

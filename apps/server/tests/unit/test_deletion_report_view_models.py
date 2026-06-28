@@ -34,7 +34,7 @@ def test_empty_report_uses_bounded_copy_and_metadata_only_rows() -> None:
         backup=backup,
     ).model_dump_json()
 
-    assert "2brain Rec controls" in payload
+    assert "GRAF controls" in payload
     assert "object_key" not in payload
     assert "transcript text" not in payload
 
@@ -71,7 +71,7 @@ def test_verification_report_partitions_dependencies_post_egress_and_summary_row
             artifact_class="post_egress_copy",
             control_scope=DeletionControlScope.POST_EGRESS,
             state=DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL,
-            label="Delivered copies are outside 2brain Rec control",
+            label="Delivered copies are outside GRAF control",
         ),
     ]
 

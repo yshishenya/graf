@@ -40,7 +40,7 @@ rg -n "(BEGIN (RSA|OPENSSH|PRIVATE) KEY|AKIA[0-9A-Z]{16}|xox[baprs]-|ghp_|sk-[A-
   "$MACOS_DIR" "$REPO_ROOT/tests/macos" "$REPO_ROOT/qa/macos" "$FEATURE_DIR" || true
 
 echo "-- Coreaudiod restart recovery gate --"
-if [ "${TWO_BRAIN_REC_RUN_LOW_RESOURCE_COREAUDIOD_RESTART:-0}" = "1" ]; then
+if [ "${GRAF_RUN_LOW_RESOURCE_COREAUDIOD_RESTART:-${TWO_BRAIN_REC_RUN_LOW_RESOURCE_COREAUDIOD_RESTART:-0}}" = "1" ]; then
   sh "$SCRIPT_DIR/coreaudiod-cpu-sample.sh"
   echo "coreaudiod_restart_recovery=accepted"
 else
@@ -56,10 +56,10 @@ echo "-- P1 gate aggregation --"
 NO_HANG_GATE="not_accepted"
 CPU_GATE="not_accepted"
 RECOVERY_GATE="not_accepted"
-if [ "${TWO_BRAIN_REC_RUN_LOW_RESOURCE_NO_HANG:-0}" = "1" ]; then
+if [ "${GRAF_RUN_LOW_RESOURCE_NO_HANG:-${TWO_BRAIN_REC_RUN_LOW_RESOURCE_NO_HANG:-0}}" = "1" ]; then
   NO_HANG_GATE="passed"
 fi
-if [ "${TWO_BRAIN_REC_RUN_LOW_RESOURCE_COREAUDIOD_RESTART:-0}" = "1" ]; then
+if [ "${GRAF_RUN_LOW_RESOURCE_COREAUDIOD_RESTART:-${TWO_BRAIN_REC_RUN_LOW_RESOURCE_COREAUDIOD_RESTART:-0}}" = "1" ]; then
   CPU_GATE="passed"
   RECOVERY_GATE="passed"
 fi
@@ -79,25 +79,25 @@ echo "p1_gate.cpu=$CPU_GATE"
 echo "p1_gate.recovery=$RECOVERY_GATE"
 
 echo "== 006 low-resource audio: optional local gates =="
-echo "- Set TWO_BRAIN_REC_RUN_LOW_RESOURCE_NO_HANG=1 to run UI no-hang surfaces."
-echo "- Set TWO_BRAIN_REC_RUN_LOW_RESOURCE_COREAUDIOD_RESTART=1 to collect local coreaudiod restart evidence."
-echo "- Set TWO_BRAIN_REC_RUN_LOW_RESOURCE_INSTALLER=1 to build/install local package."
-echo "- Set TWO_BRAIN_REC_RUN_LOW_RESOURCE_BROWSER_SMOKE=1 after browser/meeting smoke fixtures exist."
+echo "- Set GRAF_RUN_LOW_RESOURCE_NO_HANG=1 to run UI no-hang surfaces."
+echo "- Set GRAF_RUN_LOW_RESOURCE_COREAUDIOD_RESTART=1 to collect local coreaudiod restart evidence."
+echo "- Set GRAF_RUN_LOW_RESOURCE_INSTALLER=1 to build/install local package."
+echo "- Set GRAF_RUN_LOW_RESOURCE_BROWSER_SMOKE=1 after browser/meeting smoke fixtures exist."
 
-if [ "${TWO_BRAIN_REC_RUN_LOW_RESOURCE_NO_HANG:-0}" = "1" ]; then
+if [ "${GRAF_RUN_LOW_RESOURCE_NO_HANG:-${TWO_BRAIN_REC_RUN_LOW_RESOURCE_NO_HANG:-0}}" = "1" ]; then
   sh "$SCRIPT_DIR/validate-low-resource-no-hang.sh"
 else
   echo "low-resource no-hang gate: not_accepted (env flag not set)"
 fi
 
-if [ "${TWO_BRAIN_REC_RUN_LOW_RESOURCE_INSTALLER:-0}" = "1" ]; then
-  TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh "$MACOS_DIR/Installer/Scripts/build-local-installer.sh"
+if [ "${GRAF_RUN_LOW_RESOURCE_INSTALLER:-${TWO_BRAIN_REC_RUN_LOW_RESOURCE_INSTALLER:-0}}" = "1" ]; then
+  GRAF_ALLOW_ADHOC_APP_SIGNING=1 sh "$MACOS_DIR/Installer/Scripts/build-local-installer.sh"
   echo "Install manually with sudo installer when ready; script avoids implicit privilege escalation."
 else
   echo "installed package gate: not_accepted (env flag not set)"
 fi
 
-if [ "${TWO_BRAIN_REC_RUN_LOW_RESOURCE_BROWSER_SMOKE:-0}" = "1" ]; then
+if [ "${GRAF_RUN_LOW_RESOURCE_BROWSER_SMOKE:-${TWO_BRAIN_REC_RUN_LOW_RESOURCE_BROWSER_SMOKE:-0}}" = "1" ]; then
   echo "browser/meeting smoke gate: blocked until low-resource smoke fixtures are implemented"
   exit 1
 else

@@ -181,8 +181,8 @@ final class LivePassthroughPolicyTests: XCTestCase {
     func testCoreAudioDetectorBuildsPerSideClientActivitySnapshots() {
         let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
             [
-                .init(name: "2brain Rec Microphone", isRunning: true),
-                .init(name: "2brain Rec Speaker", isRunning: false)
+                .init(name: "GRAF Microphone", isRunning: true),
+                .init(name: "GRAF Speaker", isRunning: false)
             ]
         })
 
@@ -199,7 +199,7 @@ final class LivePassthroughPolicyTests: XCTestCase {
 
     func testCoreAudioDetectorDoesNotUseAggregateFallbackForMissingSide() {
         let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
-            [.init(name: "2brain Rec Microphone", isRunning: true)]
+            [.init(name: "GRAF Microphone", isRunning: true)]
         })
 
         let snapshot = detector.expectedVirtualDeviceClientActivity()
@@ -213,8 +213,8 @@ final class LivePassthroughPolicyTests: XCTestCase {
     func testCoreAudioDetectorDoesNotTreatInstalledIdleDevicesAsOpenClients() {
         let detector = CoreAudioVirtualDeviceActivityDetector(snapshotProvider: {
             [
-                .init(name: "2brain Rec Microphone", isRunning: false),
-                .init(name: "2brain Rec Speaker", isRunning: false)
+                .init(name: "GRAF Microphone", isRunning: false),
+                .init(name: "GRAF Speaker", isRunning: false)
             ]
         })
 

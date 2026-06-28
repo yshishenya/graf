@@ -1084,7 +1084,7 @@ private struct ContentView: View {
     private func startUploadQueueNetworkMonitorIfNeeded() {
         guard uploadQueueNetworkMonitor == nil else { return }
         let monitor = NWPathMonitor()
-        let queue = DispatchQueue(label: "pro.2brain.rec.upload-network-monitor", qos: .utility)
+        let queue = DispatchQueue(label: "pro.2brain.graf.upload-network-monitor", qos: .utility)
         monitor.pathUpdateHandler = { path in
             Task { @MainActor in
                 let isSatisfied = path.status == .satisfied
@@ -1383,7 +1383,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         window.minSize = NSSize(width: 1040, height: 680)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
-        window.identifier = NSUserInterfaceItemIdentifier("2brain-rec-main-window")
+        window.identifier = NSUserInterfaceItemIdentifier("graf-main-window")
         configureMainWindowCollectionBehavior(window)
         window.contentViewController = NSHostingController(
             rootView: AppContentRoot(workspaceZoomStore: workspaceZoomStore)
@@ -1437,8 +1437,8 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
 }
 
 private extension Notification.Name {
-    static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.rec.applicationShouldTerminate")
-    static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.rec.applicationTerminationCleanupFinished")
+    static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
+    static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
 }
 
 private struct AppContentRoot: View {
@@ -1496,7 +1496,7 @@ fileprivate struct LocalAudioSnapshot {
 
     static func placeholder(lastEventSummary: String = "Приложение открыто") -> LocalAudioSnapshot {
         let driverExists = FileManager.default.fileExists(
-            atPath: "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"
+            atPath: "/Library/Audio/Plug-Ins/HAL/GrafProof.driver"
         )
         let driverState: DriverInstallationState = driverExists ? .installed : .notInstalled
         let virtualDeviceState: VirtualDeviceAvailabilityState = driverExists ? .requiresRestart : .missing
@@ -1575,7 +1575,7 @@ fileprivate struct LocalAudioSnapshot {
         let hasMic = system.hasVirtualMicrophone
         let hasSpeaker = system.hasVirtualSpeaker
         let driverExists = FileManager.default.fileExists(
-            atPath: "/Library/Audio/Plug-Ins/HAL/2brainRecProof.driver"
+            atPath: "/Library/Audio/Plug-Ins/HAL/GrafProof.driver"
         )
 
         let micState: VirtualDeviceAvailabilityState = hasMic ? .available : (driverExists ? .requiresRestart : .missing)
@@ -1764,7 +1764,7 @@ private struct CoreAudioDeviceInfo: Equatable {
     let outputChannels: Int
 
     var isTwoBrainVirtual: Bool {
-        name.localizedCaseInsensitiveContains("2brain Rec")
+        name.localizedCaseInsensitiveContains("GRAF")
     }
 
     var usablePhysicalOutput: CoreAudioDeviceInfo? {
@@ -1789,11 +1789,11 @@ private struct CoreAudioSystemSnapshot {
     let defaultSystemOutputID: AudioDeviceID?
 
     var hasVirtualMicrophone: Bool {
-        devices.contains { $0.name == "2brain Rec Microphone" }
+        devices.contains { $0.name == "GRAF Microphone" }
     }
 
     var hasVirtualSpeaker: Bool {
-        devices.contains { $0.name == "2brain Rec Speaker" }
+        devices.contains { $0.name == "GRAF Speaker" }
     }
 
     var deviceLogSummary: String {
@@ -2009,8 +2009,8 @@ private struct DiagnosticLogView: View {
 private enum AppLog {
     static let fileURL: URL = {
         let base = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/2brain Rec", isDirectory: true)
-        return base.appendingPathComponent("2brain-rec.log")
+            .appendingPathComponent("Library/Logs/GRAF", isDirectory: true)
+        return base.appendingPathComponent("graf.log")
     }()
 
     static func write(event: String, snapshot: LocalAudioSnapshot) {
@@ -2061,7 +2061,7 @@ private enum AppLog {
                 try line.write(to: fileURL, atomically: true, encoding: .utf8)
             }
         } catch {
-            print("2brain Rec log write failed: \(error)")
+            print("GRAF log write failed: \(error)")
         }
     }
 
