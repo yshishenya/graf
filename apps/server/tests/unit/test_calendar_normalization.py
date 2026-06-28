@@ -12,9 +12,9 @@ from twobrain_rec_server.calendar.normalize import (
 
 
 def test_normalization_preserves_available_fields() -> None:
-    normalized = normalize_calendar_event(calendar_event_fixture("google_calendar"))
+    normalized = normalize_calendar_event(calendar_event_fixture("caldav_yandex"))
 
-    assert normalized.provider_family == "google_calendar"
+    assert normalized.provider_family == "caldav_yandex"
     assert normalized.title == "Synthetic Planning Sync"
     assert normalized.description == "Synthetic agenda"
     assert normalized.location == "Synthetic Room"
@@ -69,9 +69,9 @@ def test_normalization_handles_all_day_floating_and_missing_dtend() -> None:
 def test_normalization_rejects_raw_provider_payload_extras() -> None:
     normalized = normalize_calendar_event(
         calendar_event_fixture(
-            "google_calendar",
+            "caldav_yandex",
             provider_extras={
-                "source_kind": "synthetic_google_event",
+                "source_kind": "synthetic_caldav_event",
                 "raw_event_payload": {"summary": "private"},
                 "access_token": "secret",
             },
@@ -79,7 +79,7 @@ def test_normalization_rejects_raw_provider_payload_extras() -> None:
     )
 
     assert normalized.provider_extras == {
-        "source_kind": "synthetic_google_event",
+        "source_kind": "synthetic_caldav_event",
         "raw_payload_retained": False,
     }
 
@@ -142,10 +142,10 @@ END:VCALENDAR
 
 def test_normalization_preserves_cancelled_and_duplicate_identity_without_fabricating_match() -> None:
     cancelled = normalize_calendar_event(
-        calendar_event_fixture("microsoft_graph", provider_event_id="cancelled-instance", source_status="cancelled")
+        calendar_event_fixture("exchange_ews", provider_event_id="cancelled-instance", source_status="cancelled")
     )
     duplicate_copy = normalize_calendar_event(
-        calendar_event_fixture("google_calendar", provider_event_id="organizer-copy", ical_uid=cancelled.ical_uid)
+        calendar_event_fixture("caldav_yandex", provider_event_id="organizer-copy", ical_uid=cancelled.ical_uid)
     )
 
     assert cancelled.source_status == "cancelled"

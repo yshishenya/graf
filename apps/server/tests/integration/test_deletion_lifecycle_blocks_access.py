@@ -3,7 +3,7 @@ from __future__ import annotations
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 
-BOUNDED_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 
 
 def test_deleting_meeting_is_hidden_from_list_and_blocks_original_content_routes(client) -> None:
@@ -41,6 +41,6 @@ def test_deleting_meeting_is_hidden_from_list_and_blocks_original_content_routes
     report_page = client.get(f"/meetings/{seeds.ready_id}/deletion-report", headers=auth_headers())
     assert report_page.status_code == 200
     assert "Отчет удаления" in report_page.text
-    assert "Файлы под контролем 2brain Rec" in report_page.text
+    assert "Файлы под контролем GRAF" in report_page.text
     assert SAFE_TRANSCRIPT_TEXT not in report_page.text
     assert "storage_object_key" not in report_page.text

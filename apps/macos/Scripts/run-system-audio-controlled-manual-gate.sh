@@ -4,9 +4,9 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 MACOS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)"
-APP_BUNDLE="${SYSTEM_AUDIO_MANUAL_GATE_APP_BUNDLE:-$MACOS_DIR/RecApp/.build/2brain Rec.app}"
-APP_BINARY="$APP_BUNDLE/Contents/MacOS/2brain Rec"
-APP_LOG="${SYSTEM_AUDIO_MANUAL_GATE_APP_LOG:-$HOME/Library/Logs/2brain Rec/2brain-rec.log}"
+APP_BUNDLE="${SYSTEM_AUDIO_MANUAL_GATE_APP_BUNDLE:-$MACOS_DIR/RecApp/.build/GRAF.app}"
+APP_BINARY="$APP_BUNDLE/Contents/MacOS/GRAF"
+APP_LOG="${SYSTEM_AUDIO_MANUAL_GATE_APP_LOG:-$HOME/Library/Logs/GRAF/graf.log}"
 
 usage() {
   cat <<'USAGE'
@@ -50,7 +50,7 @@ Environment:
   SYSTEM_AUDIO_MANUAL_GATE_SKIP_ARTIFACT=1
       Skip latest artifact validation. Use only for permission/blocker rows
       where no accepted artifact is expected.
-  SYSTEM_AUDIO_MANUAL_GATE_APP_BUNDLE='/Applications/2brain Rec.app'
+  SYSTEM_AUDIO_MANUAL_GATE_APP_BUNDLE='/Applications/GRAF.app'
       Launch and measure the installed app instead of the repo-built app bundle.
       Use this for user-facing manual gates where the tester records from the
       installed application in /Applications.
@@ -83,8 +83,8 @@ app_process_count() {
     '
 }
 
-any_2brain_rec_process_count() {
-  pgrep -x "2brain Rec" 2>/dev/null | wc -l | tr -d ' '
+any_graf_process_count() {
+  pgrep -x "GRAF" 2>/dev/null | wc -l | tr -d ' '
 }
 
 running_meeting_processes() {
@@ -297,7 +297,7 @@ stop_caffeinate() {
 cleanup_runtime() {
   cleanup_status=$?
   trap - EXIT
-  quit_any_2brain_rec_app
+  quit_any_graf_app
   stop_caffeinate
   exit "$cleanup_status"
 }
@@ -317,7 +317,7 @@ quit_app() {
   if [ "$(app_process_count)" -eq 0 ]; then
     return 0
   fi
-  osascript -e 'tell application "2brain Rec" to quit' >/dev/null 2>&1 || true
+  osascript -e 'tell application "GRAF" to quit' >/dev/null 2>&1 || true
   remaining=10
   while [ "$remaining" -gt 0 ]; do
     if [ "$(app_process_count)" -eq 0 ]; then
@@ -326,23 +326,23 @@ quit_app() {
     sleep 1
     remaining=$((remaining - 1))
   done
-  pkill -x "2brain Rec" 2>/dev/null || true
+  pkill -x "GRAF" 2>/dev/null || true
 }
 
-quit_any_2brain_rec_app() {
-  if [ "$(any_2brain_rec_process_count)" -eq 0 ]; then
+quit_any_graf_app() {
+  if [ "$(any_graf_process_count)" -eq 0 ]; then
     return 0
   fi
-  osascript -e 'tell application "2brain Rec" to quit' >/dev/null 2>&1 || true
+  osascript -e 'tell application "GRAF" to quit' >/dev/null 2>&1 || true
   remaining=10
   while [ "$remaining" -gt 0 ]; do
-    if [ "$(any_2brain_rec_process_count)" -eq 0 ]; then
+    if [ "$(any_graf_process_count)" -eq 0 ]; then
       return 0
     fi
     sleep 1
     remaining=$((remaining - 1))
   done
-  pkill -x "2brain Rec" 2>/dev/null || true
+  pkill -x "GRAF" 2>/dev/null || true
 }
 
 wait_for_app_launch() {
@@ -406,7 +406,7 @@ launch_packaged_app() {
     printf '%s\n' "app_launch=blocked reason=missing_app_bundle bundle=$APP_BUNDLE" >&2
     exit 2
   }
-  quit_any_2brain_rec_app
+  quit_any_graf_app
   open -n "$APP_BUNDLE"
   wait_for_app_launch
 }
@@ -471,7 +471,7 @@ printf '%s\n' "artifact_min_mtime_epoch=$manual_gate_started_epoch"
 start_caffeinate
 
 run_app_only_package_boundary
-quit_any_2brain_rec_app
+quit_any_graf_app
 if [ "$MODE" != "--preflight" ]; then
   require_clean_baseline_context
 fi
@@ -485,7 +485,7 @@ fi
 
 record_prompt_epoch="$(date +%s)"
 record_prompt_log_offset="$(app_log_byte_count)"
-prompt_continue "Start a controlled non-sensitive audio source, press Record System Audio in 2brain Rec, and wait until the app shows recording is active."
+prompt_continue "Start a controlled non-sensitive audio source, press Record System Audio in GRAF, and wait until the app shows recording is active."
 wait_for_app_log_event_since_epoch "event=recording\\.started" "$record_prompt_epoch" "recording_started" 20 "$record_prompt_log_offset"
 block_if_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$record_prompt_epoch" "recording_still_active_before_cpu" "$record_prompt_log_offset"
 
@@ -501,7 +501,7 @@ block_if_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\
 
 stop_prompt_epoch="$(date +%s)"
 stop_prompt_log_offset="$(app_log_byte_count)"
-prompt_continue "Press Stop in 2brain Rec and wait until the recording status settles and the local recording status is visible."
+prompt_continue "Press Stop in GRAF and wait until the recording status settles and the local recording status is visible."
 wait_for_app_log_event_since_epoch "event=(recording\\.stopped|local_recording\\.(saved|degraded|failed))" "$stop_prompt_epoch" "recording_stopped_or_saved" 20 "$stop_prompt_log_offset"
 
 printf '\n%s\n' "-- stop CPU immediately after Stop --"

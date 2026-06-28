@@ -93,7 +93,7 @@ def test_create_meeting_rejects_unsafe_title_without_echoing_raw_input(client) -
     assert control_response.json()["code"] in {"unsafe_meeting_title", "request_validation_error"}
     assert "\\u0000" not in control_response.text
 
-    bare_link = "meet.google.com/abc-defg-hij"
+    bare_link = "meet.example.test/abc-defg-hij"
     bare_link_response = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),

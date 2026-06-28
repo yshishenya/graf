@@ -4,6 +4,8 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingList
     case meetingDetail
     case meetingDeletionReport
+    case calendarSettings
+    case admin
     case authLogin
     case authSignup
     case unsupported
@@ -33,6 +35,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingList = "allowed_meeting_list"
     case allowedMeetingDetail = "allowed_meeting_detail"
     case allowedMeetingDeletionReport = "allowed_meeting_deletion_report"
+    case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedAuthLogin = "allowed_auth_login"
     case allowedAuthSignup = "allowed_auth_signup"
     case blockedFutureGovernance = "blocked_future_governance"
@@ -41,6 +44,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case blockedReviewUnavailable = "blocked_review_unavailable"
     case blockedUnknownRoute = "blocked_unknown_route"
     case openExternalSafeLink = "open_external_safe_link"
+    case openBrowserOwnedAdmin = "open_browser_owned_admin"
     case invalidURL = "invalid_url"
 }
 
@@ -127,6 +131,22 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Meeting deletion report"
             )
         }
+        if isCalendarSettingsRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .calendarSettings),
+                decision: .allow,
+                reason: .allowedCalendarSettings,
+                userMessage: "Calendar settings"
+            )
+        }
+        if isAdminRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .admin),
+                decision: .openExternally,
+                reason: .openBrowserOwnedAdmin,
+                userMessage: "Open workspace admin in your browser."
+            )
+        }
         if isFutureGovernanceRoute(components) {
             return block(path: path, kind: .unsupported, reason: .blockedFutureGovernance, message: "This action opens in a future browser-owned release.")
         }
@@ -211,6 +231,39 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         components.first == "sign-up"
     }
 
+    private func isCalendarSettingsRoute(_ components: [String]) -> Bool {
+        guard components.count >= 4,
+              components[0] == "desktop",
+              components[1] == "settings",
+              components[2] == "integrations",
+              components[3] == "calendar"
+        else {
+            return false
+        }
+        if components.count == 4 {
+            return true
+        }
+        if components == ["desktop", "settings", "integrations", "calendar", "provider-result"] {
+            return true
+        }
+        if components == ["desktop", "settings", "integrations", "calendar", "preferences"] {
+            return true
+        }
+        if components.count == 7,
+           components[4] == "providers",
+           isSafeMeetingId(components[5]),
+           components[6] == "connect" {
+            return true
+        }
+        if components.count == 7,
+           components[4] == "sources",
+           isSafeMeetingId(components[5]),
+           ["calendars", "sync", "disconnect"].contains(components[6]) {
+            return true
+        }
+        return false
+    }
+
     private func isFutureGovernanceRoute(_ components: [String]) -> Bool {
         hasAnySegment(
             components,
@@ -226,6 +279,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 "share"
             ]
         )
+    }
+
+    private func isAdminRoute(_ components: [String]) -> Bool {
+        components.first?.lowercased() == "admin"
     }
 
     private func isNativeCaptureControlRoute(_ components: [String]) -> Bool {

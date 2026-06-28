@@ -23,7 +23,7 @@ class PostalEmailLoginClient:
     api_url: str
     api_key: str
     from_address: str
-    from_name: str = "2brain Rec"
+    from_name: str = "GRAF"
     host_header: str | None = None
     timeout_seconds: int = 10
     transport: httpx.AsyncBaseTransport | None = None
@@ -46,7 +46,7 @@ class PostalEmailLoginClient:
             api_url=str(settings.postal_api_url).rstrip("/"),
             api_key=api_key,
             from_address=settings.email_login_from_address.strip(),
-            from_name=settings.email_login_from_name.strip() or "2brain Rec",
+            from_name=settings.email_login_from_name.strip() or "GRAF",
             host_header=settings.postal_host_header.strip() if settings.postal_host_header else None,
             timeout_seconds=settings.postal_request_timeout_seconds,
         )
@@ -56,7 +56,7 @@ class PostalEmailLoginClient:
         payload = {
             "to": [recipient_email],
             "from": formataddr((self.from_name, self.from_address)),
-            "subject": "Код входа в 2brain Rec",
+            "subject": "Код входа в GRAF",
             "plain_body": _plain_login_code_body(code=code, ttl_minutes=ttl_minutes),
             "html_body": _html_login_code_body(code=code, ttl_minutes=ttl_minutes),
             "tag": "email-login-code",
@@ -106,7 +106,7 @@ async def send_email_login_code(
 
 def _plain_login_code_body(*, code: str, ttl_minutes: int) -> str:
     return (
-        "Подтвердите вход в 2brain Rec\n\n"
+        "Подтвердите вход в GRAF\n\n"
         "Ваш код подтверждения:\n\n"
         f"{code}\n\n"
         f"Код действует {ttl_minutes} минут. "
@@ -126,7 +126,8 @@ def _html_login_code_body(*, code: str, ttl_minutes: int) -> str:
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:0;padding:0;">
                 <tr>
                   <td align="center" style="padding:36px 36px 16px;">
-                    <div style="width:38px;height:38px;border-radius:8px;background:#17143a;color:#ffffff;display:inline-block;line-height:38px;font-weight:800;font-size:22px;">2</div>
+                    <div style="display:inline-block;color:#111820;font-size:24px;line-height:1;font-weight:850;letter-spacing:0;">GRAF</div>
+                    <div style="width:42px;height:4px;border-radius:999px;background:#8b5cf6;margin:10px auto 0;"></div>
                   </td>
                 </tr>
                 <tr>
@@ -134,13 +135,13 @@ def _html_login_code_body(*, code: str, ttl_minutes: int) -> str:
                     <h1 style="margin:0 0 22px;font-size:28px;line-height:1.2;font-weight:760;color:#42434a;">Подтвердите вход</h1>
                     <p style="margin:0 0 18px;font-size:16px;line-height:1.5;color:#555862;">Ваш код подтверждения:</p>
                     <div style="background:#f0f0f2;border-radius:4px;padding:18px 24px;margin:0 auto 24px;max-width:360px;font-size:28px;line-height:1;font-weight:780;letter-spacing:3px;color:#3a3c43;">{escaped_code}</div>
-                    <p style="margin:0 0 18px;font-size:16px;line-height:1.5;color:#555862;">Код действует {ttl_minutes} минут. Не пересылайте это письмо: оно открывает доступ к вашему кабинету 2brain Rec.</p>
+                    <p style="margin:0 0 18px;font-size:16px;line-height:1.5;color:#555862;">Код действует {ttl_minutes} минут. Не пересылайте это письмо: оно открывает доступ к вашему кабинету GRAF.</p>
                     <p style="margin:0 0 28px;font-size:15px;line-height:1.5;color:#555862;">Если вы не запрашивали вход или регистрацию, просто проигнорируйте это письмо.</p>
                   </td>
                 </tr>
                 <tr>
                   <td align="center" style="border-top:1px solid #e5e5e7;padding:18px 36px 34px;color:#777b84;font-size:12px;line-height:1.5;">
-                    <div>Made by 2brain Rec</div>
+                    <div style="font-weight:700;color:#555862;">GRAF</div>
                     <div>Самостоятельный кабинет записи и расшифровки встреч</div>
                   </td>
                 </tr>

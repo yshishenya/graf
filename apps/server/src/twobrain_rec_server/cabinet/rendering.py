@@ -208,13 +208,121 @@ def render_settings_page(*, embedded: bool = False, csrf_token: str | None = Non
         "Настройки",
         embedded=embedded,
         active="settings",
+        active_nav="settings",
         csrf_token=csrf_token,
         content_template="cabinet/pages/settings_content.html",
+        calendar_settings_href=_settings_path(embedded),
     )
 
 
 def render_meeting_list_fragment(response: MeetingListResponse, *, embedded: bool = False) -> str:
     return _render_meeting_list_region(response, embedded=embedded)
+
+
+def render_calendar_settings_page(
+    surface: cabinet_view_models.CalendarSettingsSurfaceView,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
+    return _page_shell(
+        surface.title,
+        embedded=embedded,
+        page_template="cabinet/pages/calendar_settings.html",
+        csrf_token=csrf_token,
+        content_template="cabinet/fragments/calendar_settings.html",
+        active_nav="settings",
+        base_path="/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar",
+        surface=surface,
+    )
+
+
+def render_calendar_settings_fragment(
+    surface: cabinet_view_models.CalendarSettingsSurfaceView,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
+    return render_template(
+        "cabinet/fragments/calendar_settings.html",
+        surface=surface,
+        embedded=embedded,
+        base_path="/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar",
+        csrf_token=csrf_token,
+    )
+
+
+def calendar_settings_notice_codes(
+    *,
+    connect_result: str | None = None,
+    policy_limited: str | None = None,
+    selection_result: str | None = None,
+    preferences_result: str | None = None,
+    sync_result: str | None = None,
+    disconnect_result: str | None = None,
+) -> tuple[str, ...]:
+    codes: list[str] = []
+    result_map = {
+        "success": "connect_success",
+        "cancelled": "connect_cancelled",
+        "denied": "connect_denied",
+        "failed": "connect_failed",
+        "no_readable_calendars": "no_readable_calendars",
+    }
+    if connect_result:
+        code = result_map.get(connect_result.strip().lower())
+        if code:
+            codes.append(code)
+    if policy_limited:
+        normalized = policy_limited.strip().lower()
+        if normalized in {"admin_required", "workspace_policy", "tenant_policy"}:
+            codes.append("policy_limited")
+        elif normalized in {"provider_limited", "unsupported_provider"}:
+            codes.append("provider_limited")
+    if selection_result:
+        normalized_selection = selection_result.strip().lower()
+        if normalized_selection == "saved":
+            codes.append("selection_saved")
+        elif normalized_selection == "empty":
+            codes.append("selection_empty")
+    if preferences_result and preferences_result.strip().lower() == "saved":
+        codes.append("preferences_saved")
+    if sync_result:
+        normalized_sync = sync_result.strip().lower()
+        sync_codes = {
+            "accepted": "sync_accepted",
+            "already_running": "sync_already_running",
+            "reconnect_required": "sync_reconnect_required",
+            "unavailable": "sync_unavailable",
+            "failed": "sync_failed",
+        }
+        code = sync_codes.get(normalized_sync)
+        if code:
+            codes.append(code)
+    if disconnect_result:
+        normalized_disconnect = disconnect_result.strip().lower()
+        disconnect_codes = {
+            "success": "disconnect_success",
+            "partial": "disconnect_partial",
+            "failed": "disconnect_failed",
+        }
+        code = disconnect_codes.get(normalized_disconnect)
+        if code:
+            codes.append(code)
+    return tuple(codes)
+
+
+def calendar_connection_result_from_problem(code: str | None) -> str:
+    result_map = {
+        "unsupported_calendar_provider": "failed",
+        "calendar_credential_key_unavailable": "failed",
+        "invalid_credentials": "denied",
+        "tenant_policy_denied": "denied",
+        "provider_timeout": "failed",
+        "rate_limited": "failed",
+        "no_readable_calendars": "no_readable_calendars",
+    }
+    return result_map.get(code or "", "failed")
 
 
 def _render_meeting_list_region(
@@ -367,7 +475,7 @@ def _render_deletion_report_content(
         bounded_copy=report.bounded_copy,
         bounded_copy_text=_ui_text(report.bounded_copy),
         artifact_band=trusted_component_html(
-            _render_report_band("Файлы под контролем 2brain Rec", report.artifact_states),
+            _render_report_band("Файлы под контролем GRAF", report.artifact_states),
             source="deletion_report.band",
         ),
         backup_band=trusted_component_html(
@@ -396,6 +504,7 @@ def _page_shell(
     page_template: str = "cabinet/pages/meetings.html",
     csrf_token: str | None = None,
     content_source: str = "cabinet.shell",
+    active_nav: str = "meetings",
     **context,
 ) -> str:
     if content is not None:
@@ -403,7 +512,8 @@ def _page_shell(
     shell = render_template(
         page_template,
         embedded=embedded,
-        navigation=cabinet_view_models.cabinet_navigation(active=active, embedded=embedded),
+        navigation=cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded),
+        csrf_token=csrf_token,
         **context,
     )
     return render_template(
@@ -467,8 +577,8 @@ UI_TEXT: dict[str, str] = {
     "Copy link": "Ссылка",
     "Decisions": "Решения",
     "Delete planned": "Удаление запланировано",
-    "Delete this meeting everywhere 2brain Rec controls": "Удалить встречу в системах 2brain Rec",
-    "Delete this meeting everywhere 2brain Rec controls.": "Удалить встречу везде, где ее контролирует 2brain Rec.",
+    "Delete this meeting everywhere GRAF controls": "Удалить встречу в системах GRAF",
+    "Delete this meeting everywhere GRAF controls.": "Удалить встречу везде, где ее контролирует GRAF.",
     "Disabled": "Выключено",
     "Disabled by policy": "Заблокировано",
     "Download": "Скачать",
@@ -477,8 +587,8 @@ UI_TEXT: dict[str, str] = {
     "Export package": "Экспорт",
     "Export ready": "Экспорт готов",
     "Failed": "Сбой",
-    "Files already downloaded or exported are outside 2brain Rec deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в 2brain Rec.",
-    "Files already downloaded or exported are outside later 2brain Rec revocation. Deleting a meeting can remove what 2brain Rec controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в 2brain Rec. Удаление встречи может убрать то, что контролирует 2brain Rec, но не копии, уже сохраненные где-то еще.",
+    "Files already downloaded or exported are outside GRAF deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в GRAF.",
+    "Files already downloaded or exported are outside later GRAF revocation. Deleting a meeting can remove what GRAF controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в GRAF. Удаление встречи может убрать то, что контролирует GRAF, но не копии, уже сохраненные где-то еще.",
     "Follow-ups": "Продолжение",
     "Incoming system": "Входящий звук",
     "Key points": "Ключевое",
@@ -566,10 +676,12 @@ UI_TEXT: dict[str, str] = {
     "local_buffers_purged": "локальные буферы очищены",
     "metadata only": "только метаданные",
     "Owner/Admin": "Владелец/админ",
-    "outside 2brain rec control": "вне контроля 2brain Rec",
-    "outside_control": "вне контроля 2brain Rec",
+    "outside graf control": "вне контроля GRAF",
+    "outside_control": "вне контроля GRAF",
     "pending": "ожидает",
-    "Planned; this does not promise deletion outside 2brain Rec control.": "Запланировано; это не обещает удаление вне контроля 2brain Rec.",
+    "Outside GRAF control after delivery": "Вне контроля GRAF после передачи",
+    "Delivered copies are outside GRAF control": "Переданные копии находятся вне контроля GRAF",
+    "Planned; this does not promise deletion outside GRAF control.": "Запланировано; это не обещает удаление вне контроля GRAF.",
     "policy blocked": "по политике",
     "policy_blocked": "по политике",
     "processing": "обработка",
@@ -666,7 +778,7 @@ def _meeting_media_icon(item: MeetingListItem) -> tuple[str, str]:
 
 
 def _render_list_delete_dialog() -> str:
-    bounded_copy = "Запись будет удалена везде, где ее контролирует 2brain Rec. Уже скачанные или экспортированные копии могут оставаться вне контроля 2brain Rec."
+    bounded_copy = "Запись будет удалена везде, где ее контролирует GRAF. Уже скачанные или экспортированные копии могут оставаться вне контроля GRAF."
     return f"""
       <dialog class="delete-dialog" data-delete-dialog data-title-one="Удалить запись?" data-title-many="Удалить записи?">
         <h2 data-delete-title>Удалить запись?</h2>
@@ -873,7 +985,7 @@ def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool
     report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
       <div class="delete-confirmation">
-        <strong>{escape(_ui_text("Delete this meeting everywhere 2brain Rec controls"))}</strong>
+        <strong>{escape(_ui_text("Delete this meeting everywhere GRAF controls"))}</strong>
         <div class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</div>
         <div class="state-row">
           <span class="muted">Резервные копии, локальные буферы, метаданные провайдера и уже переданные копии показываются отдельно.</span>
@@ -1069,4 +1181,4 @@ def _base_path(embedded: bool) -> str:
 
 
 def _settings_path(embedded: bool) -> str:
-    return "/desktop/settings#calendar-connections" if embedded else "/settings#calendar-connections"
+    return "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"

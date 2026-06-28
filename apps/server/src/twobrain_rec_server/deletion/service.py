@@ -431,7 +431,7 @@ def _initial_artifact_states(
     *,
     local_purge_requested: bool = False,
     backup_expiry_days: int | None = DEFAULT_BACKUP_EXPIRY_DAYS,
-    post_egress_safe_reason: str = "Delivered copies are outside 2brain Rec control",
+    post_egress_safe_reason: str = "Delivered copies are outside GRAF control",
     outcomes_materialized: bool = False,
     purged_artifact_classes: set[DeletionArtifactClass] | None = None,
 ) -> list[MeetingDeletionArtifactState]:
@@ -550,7 +550,7 @@ async def _post_egress_safe_reason(db: AsyncSession, *, meeting: Meeting) -> str
     ).all()
     unique_event_types = list(dict.fromkeys(events))
     if not unique_event_types:
-        return "Delivered copies are outside 2brain Rec control"
+        return "Delivered copies are outside GRAF control"
     return "post_egress_events:" + ",".join(unique_event_types)
 
 

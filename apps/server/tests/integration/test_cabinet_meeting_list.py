@@ -154,7 +154,7 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Мои встречи" in response.text
     assert "Ближайшие" in response.text
     assert "Ближайшие встречи появятся после подключения календаря." in response.text
-    assert 'href="/settings#calendar-connections"' in response.text
+    assert 'href="/settings/integrations/calendar"' in response.text
     assert "Подключить календари" in response.text
     assert "Командный синк" not in response.text
     assert "Записи встреч" in response.text
@@ -234,7 +234,7 @@ def test_cabinet_settings_calendar_anchor_renders_in_web_and_embedded(client) ->
     assert embedded.status_code == 200
     assert 'data-active-nav="settings"' in web.text
     assert 'id="calendar-connections"' in web.text
-    assert 'href="/settings#calendar-connections"' in web.text
+    assert 'href="/settings/integrations/calendar"' in web.text
     assert "Подключить календари" in web.text
     assert "desktop-embedded" in embedded.text
-    assert 'href="/desktop/settings#calendar-connections"' in embedded.text
+    assert 'href="/desktop/settings/integrations/calendar"' in embedded.text

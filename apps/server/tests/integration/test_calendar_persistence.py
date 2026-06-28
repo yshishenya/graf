@@ -1,3 +1,5 @@
+import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
@@ -6,6 +8,7 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.calendar import calendar_event_fixture
+from twobrain_rec_server.calendar.credentials import unseal_credential
 from twobrain_rec_server.calendar.normalize import (
     normalize_calendar_event,
     normalize_icalendar_event,
@@ -17,6 +20,7 @@ from twobrain_rec_server.db.models import (
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarReminderState,
+    CalendarSettingsPreference,
     CalendarSource,
     ConferenceLinkCandidate,
     ExternalCalendar,
@@ -79,6 +83,7 @@ def test_calendar_source_selected_calendars_and_sync_persist(client) -> None:
         json={
             "provider_family": "caldav_yandex",
             "auth_mode": "app_password",
+            "username": "owner@example.test",
             "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
@@ -98,8 +103,69 @@ def test_calendar_source_selected_calendars_and_sync_persist(client) -> None:
     assert synced.status_code == 202
     assert fetched.status_code == 200
     assert fetched.json()["source"]["selected_calendar_count"] == 2
-    assert fetched.json()["source"]["sync_state"] == "synced"
+    assert fetched.json()["source"]["sync_state"] == "queued"
     assert fetched.json()["source"]["sync_horizon_end"] is not None
+
+
+def test_calendar_source_manual_url_api_seals_url_username_and_secret(client) -> None:
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "custom_caldav",
+            "auth_mode": "manual_url",
+            "display_label": "Manual CalDAV",
+            "caldav_url": "https://calendar.example.test/dav/user/",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
+        },
+    )
+
+    assert created.status_code == 201
+    assert "synthetic-secret" not in created.text
+    assert "calendar.example.test" not in created.text
+
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def load_secret() -> dict[str, str]:
+        async with sessionmaker() as session:
+            envelope = await session.scalar(
+                select(CalendarCredentialEnvelope).where(
+                    CalendarCredentialEnvelope.calendar_source_id == source_id
+                )
+            )
+            return json.loads(
+                unseal_credential(
+                    envelope.sealed_payload,
+                    client.app.state.calendar_credential_key,
+                )
+            )
+
+    sealed_payload = asyncio.run(load_secret())
+
+    assert sealed_payload == {
+        "caldav_url": "https://calendar.example.test/dav/user/",
+        "username": "owner@example.test",
+        "credential_input": "synthetic-secret",
+    }
+
+
+def test_calendar_source_manual_url_api_rejects_unsafe_url_without_echoing_secret(client) -> None:
+    response = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "custom_caldav",
+            "auth_mode": "manual_url",
+            "caldav_url": "file:///tmp/calendar.ics",
+            "credential_input": "synthetic-secret",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_calendar_connection_fields"
+    assert "synthetic-secret" not in response.text
 
 
 def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
@@ -107,8 +173,10 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
         "/api/v1/calendar/sources",
         headers=auth_headers(),
         json={
-            "provider_family": "google_calendar",
-            "auth_mode": "oauth",
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
     )
@@ -126,7 +194,7 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
                 tenant_scope=client.app_state.get("tenant_scope") or _tenant_scope(),
                 source=source,
                 calendar=external_calendar,
-                event=normalize_calendar_event(calendar_event_fixture("google_calendar")),
+                event=normalize_calendar_event(calendar_event_fixture("caldav_yandex")),
             )
             starts_at = datetime.now(UTC) + timedelta(minutes=5)
             await upsert_event_snapshot(
@@ -136,7 +204,7 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
                 calendar=external_calendar,
                 event=normalize_calendar_event(
                     calendar_event_fixture(
-                        "google_calendar",
+                        "caldav_yandex",
                         provider_event_id="desktop-event",
                         ical_uid="desktop-event@example.test",
                         starts_at=starts_at,
@@ -158,7 +226,7 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
     assert upcoming.status_code == 200
     body = upcoming.json()
     assert body["truncated"] is False
-    assert body["events"][0]["provider_family"] == "google_calendar"
+    assert body["events"][0]["provider_family"] == "caldav_yandex"
     assert body["events"][0]["title"] == "Synthetic Planning Sync"
     assert body["events"][0]["meeting_link_present"] is True
     assert body["events"][0]["attendee_count"] == 2
@@ -167,11 +235,316 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
     assert "organizer@example.test" not in upcoming.text
     assert "attendee@example.test" not in upcoming.text
 
-    desktop = client.get("/api/v1/desktop/calendar/upcoming?before_minutes=15&after_minutes=60", headers=auth_headers())
+    desktop = client.get(
+        "/api/v1/desktop/calendar/upcoming?before_minutes=15&after_minutes=60",
+        headers=auth_headers(),
+    )
 
     assert desktop.status_code == 200
     assert desktop.json()["events"][0]["join_prompt_due_at"] is not None
     assert desktop.json()["events"][0]["record_prompt_due_at"] is not None
+    assert desktop.json()["events"][0]["join_prompt_state"] == "not_due"
+    assert desktop.json()["events"][0]["record_prompt_state"] == "not_due"
+
+
+def test_calendar_upcoming_ignores_selected_unavailable_calendar(client) -> None:
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+    now = datetime.now(UTC)
+
+    async def seed_unavailable_event() -> None:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            external_calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
+            external_calendar.visibility = "unavailable"
+            session.add(
+                CalendarEventSnapshot(
+                    workspace_id=source.workspace_id,
+                    calendar_source_id=source.id,
+                    external_calendar_id=external_calendar.id,
+                    provider_event_id="selected-but-unavailable",
+                    starts_at=now + timedelta(minutes=10),
+                    ends_at=now + timedelta(minutes=40),
+                    title="Unavailable selected meeting",
+                    privacy_class="public",
+                    source_status="confirmed",
+                    conference_summary_json={"meeting_link_present": True},
+                    attachments_metadata_json=[],
+                    provider_extras_json={},
+                    safe_to_show_in_list=True,
+                    safe_to_use_as_title=True,
+                    sensitivity_reasons_json=[],
+                )
+            )
+            await session.commit()
+
+    import asyncio
+
+    asyncio.run(seed_unavailable_event())
+
+    upcoming = client.get(
+        "/api/v1/calendar/events/upcoming?limit=10",
+        headers=auth_headers(),
+    )
+
+    assert upcoming.status_code == 200
+    assert upcoming.json()["events"] == []
+    assert "Unavailable selected meeting" not in upcoming.text
+
+
+def test_desktop_calendar_upcoming_respects_selection_and_prompt_preferences(client) -> None:
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
+            "selected_provider_calendar_ids": ["selected"],
+        },
+    )
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+    now = datetime.now(UTC)
+
+    async def seed_events_and_preferences() -> None:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            selected_calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
+            unselected_calendar = ExternalCalendar(
+                workspace_id=source.workspace_id,
+                calendar_source_id=source.id,
+                provider_calendar_id="unselected",
+                display_label="Unselected calendar",
+                visibility="available",
+            )
+            session.add(unselected_calendar)
+            await session.flush()
+            for calendar, event_id, title, privacy_class in (
+                (selected_calendar, "selected-event", "Selected meeting", "public"),
+                (unselected_calendar, "unselected-event", "Unselected meeting", "public"),
+                (selected_calendar, "private-event", None, "free_busy_only"),
+            ):
+                private_overrides = (
+                    {"participants": [], "conference_links": []}
+                    if privacy_class == "free_busy_only"
+                    else {}
+                )
+                await upsert_event_snapshot(
+                    session,
+                    tenant_scope=client.app_state.get("tenant_scope") or _tenant_scope(),
+                    source=source,
+                    calendar=calendar,
+                    event=normalize_calendar_event(
+                        calendar_event_fixture(
+                            "caldav_yandex",
+                            provider_event_id=event_id,
+                            ical_uid=f"{event_id}@example.test",
+                            starts_at=now + timedelta(minutes=5),
+                            ends_at=now + timedelta(minutes=45),
+                            title=title,
+                            title_state="free_busy_only"
+                            if privacy_class == "free_busy_only"
+                            else "available",
+                            privacy_class=privacy_class,
+                            **private_overrides,
+                        )
+                    ),
+                )
+            session.add(
+                CalendarSettingsPreference(
+                    workspace_id=source.workspace_id,
+                    owner_user_id=source.owner_user_id,
+                    join_prompt_enabled=False,
+                    record_prompt_enabled=False,
+                )
+            )
+            await session.commit()
+
+    import asyncio
+
+    asyncio.run(seed_events_and_preferences())
+
+    desktop = client.get(
+        "/api/v1/desktop/calendar/upcoming?before_minutes=15&after_minutes=60",
+        headers=auth_headers(),
+    )
+
+    assert desktop.status_code == 200
+    body = desktop.json()
+    assert [event["title"] for event in body["events"]] == ["Selected meeting"]
+    assert body["events"][0]["join_prompt_state"] == "not_available"
+    assert body["events"][0]["record_prompt_state"] == "not_available"
+    assert "Unselected meeting" not in desktop.text
+    assert "private-event" not in desktop.text
+
+
+def test_desktop_calendar_upcoming_includes_events_overlapping_lookup_window(client) -> None:
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+    now = datetime.now(UTC)
+
+    async def seed_events() -> None:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
+            for event_id, starts_at, ends_at in (
+                ("already-running", now - timedelta(minutes=45), now + timedelta(minutes=15)),
+                ("new-overlap", now - timedelta(minutes=5), now + timedelta(minutes=30)),
+            ):
+                session.add(
+                    CalendarEventSnapshot(
+                        workspace_id=source.workspace_id,
+                        calendar_source_id=source.id,
+                        external_calendar_id=calendar.id,
+                        provider_event_id=event_id,
+                        starts_at=starts_at,
+                        ends_at=ends_at,
+                        title=event_id,
+                        privacy_class="public",
+                        source_status="confirmed",
+                        conference_summary_json={"meeting_link_present": True},
+                        attachments_metadata_json=[],
+                        provider_extras_json={},
+                        safe_to_show_in_list=True,
+                        safe_to_use_as_title=True,
+                        sensitivity_reasons_json=[],
+                    )
+                )
+            await session.commit()
+
+    asyncio.run(seed_events())
+
+    desktop = client.get(
+        "/api/v1/desktop/calendar/upcoming?before_minutes=15&after_minutes=60",
+        headers=auth_headers(),
+    )
+
+    assert desktop.status_code == 200
+    assert {event["title"] for event in desktop.json()["events"]} == {
+        "already-running",
+        "new-overlap",
+    }
+
+
+def test_calendar_upcoming_applies_default_preferences_before_limit(client) -> None:
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+    now = datetime.now(UTC)
+
+    async def seed_events() -> None:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
+            noisy_events = [
+                CalendarEventSnapshot(
+                    workspace_id=source.workspace_id,
+                    calendar_source_id=source.id,
+                    external_calendar_id=calendar.id,
+                    provider_event_id=f"all-day-noise-{index}",
+                    starts_at=now + timedelta(minutes=index + 1),
+                    ends_at=now + timedelta(minutes=index + 61),
+                    title=f"All-day noise {index}",
+                    all_day=True,
+                    privacy_class="public",
+                    source_status="confirmed",
+                    conference_summary_json={"meeting_link_present": True},
+                    attachments_metadata_json=[],
+                    provider_extras_json={"provider_family": "caldav_yandex"},
+                    safe_to_show_in_list=True,
+                    safe_to_use_as_title=True,
+                    sensitivity_reasons_json=[],
+                )
+                for index in range(51)
+            ]
+            valid_event = CalendarEventSnapshot(
+                workspace_id=source.workspace_id,
+                calendar_source_id=source.id,
+                external_calendar_id=calendar.id,
+                provider_event_id="valid-meeting-after-noise",
+                starts_at=now + timedelta(hours=2),
+                ends_at=now + timedelta(hours=3),
+                title="Valid meeting after noise",
+                privacy_class="public",
+                source_status="confirmed",
+                conference_summary_json={
+                    "meeting_link_present": False,
+                    "participant_count": 2,
+                },
+                attachments_metadata_json=[],
+                provider_extras_json={
+                    "provider_family": "caldav_yandex",
+                    "participant_count": 2,
+                },
+                safe_to_show_in_list=True,
+                safe_to_use_as_title=True,
+                sensitivity_reasons_json=[],
+            )
+            session.add_all([*noisy_events, valid_event])
+            await session.commit()
+
+    import asyncio
+
+    asyncio.run(seed_events())
+
+    upcoming = client.get(
+        "/api/v1/calendar/events/upcoming",
+        headers=auth_headers(),
+        params={
+            "from": now.isoformat().replace("+00:00", "Z"),
+            "to": (now + timedelta(hours=4)).isoformat().replace("+00:00", "Z"),
+            "limit": "1",
+        },
+    )
+
+    assert upcoming.status_code == 200
+    body = upcoming.json()
+    assert body["events"][0]["title"] == "Valid meeting after noise"
+    assert body["events"][0]["meeting_link_present"] is False
+    assert body["events"][0]["attendee_count"] == 2
+    assert "All-day noise" not in upcoming.text
 
 
 def test_calendar_event_snapshot_persists_context_fields_and_recurrence_instances(client) -> None:
@@ -181,6 +554,8 @@ def test_calendar_event_snapshot_persists_context_fields_and_recurrence_instance
         json={
             "provider_family": "caldav_yandex",
             "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
     )
@@ -294,13 +669,85 @@ def test_calendar_context_link_does_not_match_past_event_to_later_recording(clie
     assert linked.json()["code"] == "calendar_event_not_linkable"
 
 
+def test_calendar_context_link_rejects_unselected_calendar_event(client) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "calendar-unselected-link",
+            "duration_seconds": 900,
+            "started_at": "2026-07-01T09:00:00Z",
+        },
+    )
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def seed_unselected_event() -> str:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            unselected_calendar = ExternalCalendar(
+                workspace_id=source.workspace_id,
+                calendar_source_id=source.id,
+                provider_calendar_id="not-selected",
+                display_label="Not selected",
+                visibility="available",
+                selected=False,
+            )
+            session.add(unselected_calendar)
+            await session.flush()
+            event = CalendarEventSnapshot(
+                workspace_id=source.workspace_id,
+                calendar_source_id=source.id,
+                external_calendar_id=unselected_calendar.id,
+                provider_event_id="not-selected-event",
+                starts_at=datetime(2026, 7, 1, 9, 0, tzinfo=UTC),
+                ends_at=datetime(2026, 7, 1, 10, 0, tzinfo=UTC),
+                title="Should not link",
+                privacy_class="public",
+                source_status="confirmed",
+                conference_summary_json={"meeting_link_present": True},
+                attachments_metadata_json=[],
+                provider_extras_json={},
+                safe_to_show_in_list=True,
+                safe_to_use_as_title=True,
+                sensitivity_reasons_json=[],
+            )
+            session.add(event)
+            await session.commit()
+            return str(event.id)
+
+    event_id = asyncio.run(seed_unselected_event())
+    linked = client.put(
+        f"/api/v1/meetings/{meeting.json()['meeting_id']}/calendar-context",
+        headers=auth_headers(),
+        json={"event_id": event_id, "context_reason": "manual_selection"},
+    )
+
+    assert linked.status_code == 404
+    assert linked.json()["code"] == "calendar_event_not_found"
+    assert _meeting_title(client, UUID(meeting.json()["meeting_id"])) is None
+
+
 def test_calendar_sync_result_updates_token_and_marks_missing_future_events_deleted(client) -> None:
     created = client.post(
         "/api/v1/calendar/sources",
         headers=auth_headers(),
         json={
-            "provider_family": "google_calendar",
-            "auth_mode": "oauth",
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
     )
@@ -310,11 +757,13 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
     async def sync_twice() -> tuple[str, datetime | None, str | None]:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            calendar = await session.scalar(select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id))
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
             tenant_scope = client.app_state.get("tenant_scope") or _tenant_scope()
             first = normalize_calendar_event(
                 calendar_event_fixture(
-                    "google_calendar",
+                    "caldav_yandex",
                     provider_event_id="kept-event",
                     ical_uid="kept-event@example.test",
                     starts_at=datetime(2026, 7, 2, 9, 0, tzinfo=UTC),
@@ -322,7 +771,7 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
             )
             stale = normalize_calendar_event(
                 calendar_event_fixture(
-                    "google_calendar",
+                    "caldav_yandex",
                     provider_event_id="missing-event",
                     ical_uid="missing-event@example.test",
                     starts_at=datetime(2026, 7, 3, 9, 0, tzinfo=UTC),
@@ -339,7 +788,7 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
             )
             updated = normalize_calendar_event(
                 calendar_event_fixture(
-                    "google_calendar",
+                    "caldav_yandex",
                     provider_event_id="kept-event",
                     ical_uid="kept-event@example.test",
                     source_version="etag-2",
@@ -356,9 +805,15 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
                 synced_at=datetime(2026, 7, 1, 8, 5, tzinfo=UTC),
             )
             missing = await session.scalar(
-                select(CalendarEventSnapshot).where(CalendarEventSnapshot.provider_event_id == "missing-event")
+                select(CalendarEventSnapshot).where(
+                    CalendarEventSnapshot.provider_event_id == "missing-event"
+                )
             )
-            kept = await session.scalar(select(CalendarEventSnapshot).where(CalendarEventSnapshot.provider_event_id == "kept-event"))
+            kept = await session.scalar(
+                select(CalendarEventSnapshot).where(
+                    CalendarEventSnapshot.provider_event_id == "kept-event"
+                )
+            )
             await session.commit()
             return kept.source_version, missing.source_deleted_at, calendar.sync_token
 
@@ -371,11 +826,17 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
     assert sync_token == "token-2"
 
 
-def test_calendar_title_fallback_preserves_manual_title_and_names_untitled_recording(client) -> None:
+def test_calendar_title_fallback_preserves_manual_title_and_names_untitled_recording(
+    client,
+) -> None:
     manual = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
-        json={"local_recording_id": "calendar-manual-title", "duration_seconds": 900, "title": "Manual title"},
+        json={
+            "local_recording_id": "calendar-manual-title",
+            "duration_seconds": 900,
+            "title": "Manual title",
+        },
     )
     untitled = client.post(
         "/api/v1/meetings",
@@ -415,8 +876,10 @@ def _seed_calendar_event_at(client, *, starts_at: datetime, ends_at: datetime) -
         "/api/v1/calendar/sources",
         headers=auth_headers(),
         json={
-            "provider_family": "google_calendar",
-            "auth_mode": "oauth",
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
     )
@@ -436,7 +899,7 @@ def _seed_calendar_event_at(client, *, starts_at: datetime, ends_at: datetime) -
                 calendar=external_calendar,
                 event=normalize_calendar_event(
                     calendar_event_fixture(
-                        "google_calendar",
+                        "caldav_yandex",
                         provider_event_id="past-event",
                         ical_uid="past-event@example.test",
                         starts_at=starts_at,
@@ -469,4 +932,6 @@ def _tenant_scope():
     from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
     from twobrain_rec_server.auth.context import TenantScope
 
-    return TenantScope(organization_id=ORG_ID, workspace_id=WORKSPACE_ID, user_id=USER_ID, device_id=DEVICE_ID)
+    return TenantScope(
+        organization_id=ORG_ID, workspace_id=WORKSPACE_ID, user_id=USER_ID, device_id=DEVICE_ID
+    )

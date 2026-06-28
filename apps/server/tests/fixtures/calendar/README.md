@@ -28,8 +28,7 @@ calendar payloads.
 - Mark provider limitations explicitly instead of fabricating missing organizer,
   attendee, title, recurrence, or conference-link data.
 - Use hashed or redacted URL fields for conference-link assertions.
-- Treat Yandex and Mail.ru as CalDAV presets; treat Google Calendar, Microsoft
-  Graph, Exchange EWS, and Bitrix24 as rich provider examples; treat VK WorkSpace,
-  Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like
-  deployments as custom/generic CalDAV examples unless later vendor proof changes
-  that boundary.
+- Treat Yandex and Mail.ru as CalDAV presets; treat Exchange EWS and Bitrix24 as
+  richer provider examples; treat VK WorkSpace, Mailion/MyOffice, R7-Office,
+  CommuniGate Pro, RuPost, Nextcloud/SOGo-like deployments, and custom CalDAV as
+  generic CalDAV examples unless later vendor proof changes that boundary.

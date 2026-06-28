@@ -32,7 +32,7 @@ The implementation approach is server-owned and provider-neutral: add a calendar
 
 **Constraints**: Read-only provider access; server owns credentials; desktop never stores provider app passwords/OAuth refresh tokens; logs/evidence never include provider secrets, private event text, attendee dumps, passcodes, signed links, or live credential paths; no retrospective matching of past recordings; no auto-record in 060; active capture visibility and one-action Stop remain mandatory for any later auto-record feature.
 
-**Scale/Scope**: MVP/internal workspace scale with selected calendars per user/workspace, rolling 12-month future sync, recurrence bounded by provider time-range queries, and fixture coverage for attendee-heavy events, recurrence exceptions, private/free-busy events, duplicate calendars, Google/Microsoft/Bitrix rich payloads, and Yandex/Mail.ru-style CalDAV.
+**Scale/Scope**: MVP/internal workspace scale with selected calendars per user/workspace, rolling 12-month future sync, recurrence bounded by provider time-range queries, and fixture coverage for attendee-heavy events, recurrence exceptions, private/free-busy events, duplicate calendars, Exchange/Bitrix rich payloads, and Yandex/Mail.ru-style CalDAV.
 
 ## Constitution Check
 
@@ -61,7 +61,7 @@ Focused validation during implementation:
 - Server unit tests for provider-neutral event normalization, iCalendar field extraction, conference-link detection, capability mapping, sensitive-field redaction, lifecycle/disconnect behavior, and credential-envelope boundaries.
 - Server contract tests for `/api/v1/calendar` OpenAPI additions and desktop upcoming-context responses.
 - Server integration tests for Postgres persistence, tenant scoping/RLS readiness where applicable, disconnect purge behavior, and deletion accounting.
-- Fixture tests for Yandex/Mail.ru-style CalDAV, generic CalDAV, Nextcloud/SOGo-like CalDAV, private/free-busy-only events, recurrence exceptions, attendee-heavy events, duplicate event copies, Bitrix24 payloads, Google Meet conference data, Microsoft Teams onlineMeeting data, and Exchange EWS-style recurrence exceptions.
+- Fixture tests for Yandex/Mail.ru-style CalDAV, generic CalDAV, Nextcloud/SOGo-like CalDAV, private/free-busy-only events, recurrence exceptions, attendee-heavy events, duplicate event copies, Bitrix24 payloads, generic conference-link data, and Exchange EWS-style recurrence exceptions.
 - macOS focused tests for one-minute join prompt state, event-start record prompt state, no auto-record, visible Record/Stop authority, metadata-safe reminder copy, accessibility, localization, and brand-distance evidence.
 - Forbidden-content scans covering logs, diagnostics, committed docs/evidence, and API/cabinet surfaces.
 

@@ -100,7 +100,7 @@ class ConnectCalendarSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider_family: str
-    auth_mode: Literal["oauth", "app_password", "manual_url"]
+    auth_mode: Literal["app_password", "manual_url"]
     display_label: str | None = Field(default=None, max_length=160)
     caldav_url: str | None = Field(default=None, max_length=1000)
     username: str | None = Field(default=None, max_length=240)
@@ -111,7 +111,7 @@ class ConnectCalendarSourceRequest(BaseModel):
 class SelectCalendarsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    selected_provider_calendar_ids: list[str] = Field(min_length=1)
+    selected_provider_calendar_ids: list[str] = Field(default_factory=list)
 
 
 class CalendarSourceSummary(BaseModel):
@@ -430,7 +430,7 @@ class ProcessingStatusResponse(BaseModel):
 class CreateDeletionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    confirmation_boundary: Literal["Delete this meeting everywhere 2brain Rec controls."]
+    confirmation_boundary: Literal["Delete this meeting everywhere GRAF controls."]
     reason_code: DeletionReasonCode = DeletionReasonCode.USER_REQUEST
 
 

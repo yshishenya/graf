@@ -33,7 +33,7 @@ final class LowResourceRouteTruthTests: XCTestCase {
         var snapshot = LowResourceTestFixtures.readySnapshot(clientOpen: true)
         snapshot.physicalDevices = PhysicalWorkingDeviceSelection(
             inputDeviceId: SelfRoutingGuard.microphoneUID,
-            inputDeviceName: "2brain Rec Microphone",
+            inputDeviceName: "GRAF Microphone",
             outputDeviceId: "built-in-output",
             outputDeviceName: "MacBook Speakers",
             inputKind: .twoBrainVirtual,

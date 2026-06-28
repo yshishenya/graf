@@ -1,0 +1,29 @@
+{
+  "brand_name": "Graf / Граф",
+  "selected_route": "phi-equalizer-elegant-v3",
+  "selected_label": "Larger thin circular Ф symbol with purple equalizer",
+  "public_url": "graf.2brain.pro",
+  "rationale": "The v3 symbol keeps the selected circular Ф container from the reference image, enlarges the Ф silhouette, and uses a thinner ring, narrower tabs, and compact purple equalizer bars so the mark feels bigger without getting heavy.",
+  "preserve": [
+    "large, thin circular Ф-like graphite/white container",
+    "three soft purple equalizer bars inside the mark",
+    "flat vector-friendly shapes",
+    "light and dark mode variants"
+  ],
+  "avoid": [
+    "literal standalone microphone icon",
+    "full purple mark",
+    "gradients and 3D effects",
+    "folklore or decorative Russian motifs"
+  ],
+  "files": {
+    "symbol_light": "final-symbol/svg/graf-symbol-light.svg",
+    "symbol_dark": "final-symbol/svg/graf-symbol-dark.svg",
+    "app_icon_light": "final-symbol/app-icon/graf-app-icon-light.svg",
+    "app_icon_dark": "final-symbol/app-icon/graf-app-icon-dark.svg",
+    "favicon_svg": "favicon/favicon.svg",
+    "favicon_light_svg": "favicon/favicon-light.svg",
+    "final_manifest": "final-symbol/data/manifest.json"
+  },
+  "next_step": "Use the final-symbol SVG files as the working logo/app icon/favicon source; the previous elegant v2 draft is preserved in final-symbol-elegant-v2-backup."
+}

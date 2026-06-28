@@ -12,6 +12,7 @@ def _production_settings(**overrides):
         "minio_access_key": "twobrain_rec_api",
         "minio_secret_key": "prod-api-secret",
         "minio_bucket": "twobrain-rec-ingest",
+        "web_csrf_secret": "prod-web-csrf-secret-32-bytes-minimum",
         "auth_ru_local_storage_attested": True,
     }
     values.update(overrides)
@@ -60,6 +61,23 @@ def test_production_rejects_default_dev_minio_credentials(
 ) -> None:
     with pytest.raises(ValidationError, match="development defaults"):
         _production_settings(minio_access_key=minio_access_key, minio_secret_key=minio_secret_key)
+
+
+def test_production_rejects_default_dev_web_csrf_secret() -> None:
+    with pytest.raises(ValidationError, match="web_csrf_secret"):
+        _production_settings(web_csrf_secret="twobrain_rec_dev_web_csrf_secret")
+
+
+def test_production_reads_web_csrf_secret_from_file(tmp_path) -> None:
+    secret = tmp_path / "web-csrf-secret"
+    secret.write_text("prod-web-csrf-secret-from-file-32-bytes")
+
+    settings = _production_settings(
+        web_csrf_secret="will-be-replaced-by-file",
+        web_csrf_secret_file=secret,
+    )
+
+    assert settings.web_csrf_secret == "prod-web-csrf-secret-from-file-32-bytes"
 
 
 def test_production_rejects_root_minio_api_credentials() -> None:

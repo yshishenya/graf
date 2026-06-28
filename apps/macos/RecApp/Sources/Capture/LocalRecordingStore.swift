@@ -2,20 +2,35 @@ import Foundation
 import TwoBrainRecShared
 
 public struct LocalRecordingStore: Sendable {
+    public static let appSupportFolderName = "GRAF"
+    public static let legacyAppSupportFolderName = "2brain Rec"
+
     public let rootURL: URL
 
     public init(rootURL: URL? = nil) {
         if let rootURL {
             self.rootURL = rootURL
         } else {
-            let base = FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first ?? FileManager.default.temporaryDirectory
-            self.rootURL = base
-                .appendingPathComponent("2brain Rec", isDirectory: true)
-                .appendingPathComponent("Recordings", isDirectory: true)
+            self.rootURL = Self.defaultRootURL()
         }
+    }
+
+    public static func defaultRootURL(fileManager: FileManager = .default) -> URL {
+        let base = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+        let current = base
+            .appendingPathComponent(appSupportFolderName, isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+        let legacy = base
+            .appendingPathComponent(legacyAppSupportFolderName, isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+        if !fileManager.fileExists(atPath: current.path),
+           fileManager.fileExists(atPath: legacy.path) {
+            return legacy
+        }
+        return current
     }
 
     public func createDirectory(sessionId: String) throws -> LocalRecordingDirectory {

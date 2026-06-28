@@ -20,6 +20,24 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(deletionReport.route.meetingId, "meeting-033")
         XCTAssertEqual(deletionReport.reason, .allowedMeetingDeletionReport)
 
+        let calendarSettings = policy.decision(for: try url("/desktop/settings/integrations/calendar"))
+        XCTAssertEqual(calendarSettings.decision, .allow)
+        XCTAssertEqual(calendarSettings.route.kind, .calendarSettings)
+        XCTAssertEqual(calendarSettings.reason, .allowedCalendarSettings)
+        for route in [
+            "/desktop/settings/integrations/calendar/provider-result?provider_family=caldav_yandex&result=success",
+            "/desktop/settings/integrations/calendar/preferences",
+            "/desktop/settings/integrations/calendar/providers/caldav_yandex/connect",
+            "/desktop/settings/integrations/calendar/sources/source-033/calendars",
+            "/desktop/settings/integrations/calendar/sources/source-033/sync",
+            "/desktop/settings/integrations/calendar/sources/source-033/disconnect"
+        ] {
+            let decision = policy.decision(for: try url(route))
+            XCTAssertEqual(decision.decision, .allow, route)
+            XCTAssertEqual(decision.route.kind, .calendarSettings, route)
+            XCTAssertEqual(decision.reason, .allowedCalendarSettings, route)
+        }
+
         let login = policy.decision(for: try url("/login?next=/desktop/meetings"))
         XCTAssertEqual(login.decision, .allow)
         XCTAssertEqual(login.route.kind, .authLogin)
@@ -38,6 +56,11 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
 
     func testBlocksFutureGovernanceAndNativeCaptureRoutes() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+
+        let admin = policy.decision(for: try url("/admin"))
+        XCTAssertEqual(admin.decision, .openExternally)
+        XCTAssertEqual(admin.route.kind, .admin)
+        XCTAssertEqual(admin.reason, .openBrowserOwnedAdmin)
 
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/share")).decision, .blockWithMessage)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/download")).reason, .blockedFutureGovernance)

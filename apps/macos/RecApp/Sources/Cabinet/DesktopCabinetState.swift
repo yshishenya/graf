@@ -12,28 +12,30 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     case malformedResponse
     case blockedRoute
 
+    private static let calendarCredentialBoundary = "Mac не хранит пароли календаря; ручная запись доступна без календаря."
+
     public var userMessage: String {
         switch self {
         case .notConfigured:
-            return "Подключите рабочее пространство 2brain Rec, чтобы просматривать встречи здесь. Локальная запись остается доступной."
+            return "Подключите рабочее пространство GRAF, чтобы просматривать встречи здесь. \(Self.calendarCredentialBoundary)"
         case .loading:
             return "Загружаем рабочее пространство встреч. Управление записью остается в приложении."
         case .ready:
             return "Рабочее пространство встреч готово."
         case .offline:
-            return "Кабинет встреч недоступен. Проверьте соединение с сервером Rec; локальная запись продолжит работать."
+            return "Кабинет недоступен. Проверьте соединение с сервером Rec. \(Self.calendarCredentialBoundary)"
         case .timeout:
-            return "Кабинет встреч слишком долго отвечает. Попробуйте еще раз; локальная запись остается доступной."
+            return "Кабинет долго отвечает. Попробуйте еще раз. \(Self.calendarCredentialBoundary)"
         case .expiredSession:
-            return "Войдите снова, чтобы просматривать встречи. Локальная запись и статус загрузок остаются в приложении."
+            return "Войдите снова. \(Self.calendarCredentialBoundary)"
         case .accessDenied:
-            return "Не удалось подтвердить доступ из этой сессии. Локальная запись и статус загрузок не меняются."
+            return "Не удалось подтвердить доступ. \(Self.calendarCredentialBoundary)"
         case .notFound:
-            return "Не удалось подтвердить доступ к этому обзору из текущей сессии."
+            return "Не удалось подтвердить доступ к этому разделу. \(Self.calendarCredentialBoundary)"
         case .malformedResponse:
-            return "Кабинет встреч вернул неожиданный ответ. Статус локальной записи не изменился."
+            return "Кабинет вернул неожиданный ответ. \(Self.calendarCredentialBoundary)"
         case .blockedRoute:
-            return "Это действие остается за пределами встроенного кабинета встреч."
+            return "Это действие вне встроенного кабинета. \(Self.calendarCredentialBoundary)"
         }
     }
 
@@ -216,6 +218,18 @@ public enum DesktopCabinetWorkspace {
             return .embedded(loginRoute(configuration: configuration))
         default:
             return nil
+        }
+    }
+
+    public static func calendarSettingsRecoveryTarget(
+        for state: DesktopCabinetState,
+        configuration: DesktopCabinetConfiguration
+    ) -> DesktopCabinetRecoveryTarget? {
+        switch state {
+        case .expiredSession:
+            return .embedded(loginRoute(configuration: configuration, next: "/desktop/settings/integrations/calendar"))
+        default:
+            return recoveryTarget(for: state, configuration: configuration)
         }
     }
 

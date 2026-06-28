@@ -72,6 +72,7 @@ class ExternalCalendar(Base):
     owner_display_name: Mapped[str | None] = mapped_column(String(240))
     color: Mapped[str | None] = mapped_column(String(40))
     visibility: Mapped[str] = mapped_column(String(64), nullable=False, default="available")
+    selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sync_token: Mapped[str | None] = mapped_column(String(500))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -183,6 +184,25 @@ class CalendarReminderState(Base):
     join_prompt_state: Mapped[str] = mapped_column(String(64), nullable=False, default="not_due")
     record_prompt_state: Mapped[str] = mapped_column(String(64), nullable=False, default="not_due")
     last_client_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class CalendarSettingsPreference(Base):
+    __tablename__ = "calendar_settings_preferences"
+    __table_args__ = (UniqueConstraint("workspace_id", "owner_user_id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    join_prompt_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    record_prompt_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_upcoming_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_upcoming_title: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_events_without_participants: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    include_events_without_link_or_location: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    include_all_day_events: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    include_private_free_busy_prompt_candidates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

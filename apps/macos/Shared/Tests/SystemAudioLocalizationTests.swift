@@ -58,7 +58,7 @@ final class SystemAudioLocalizationTests: XCTestCase {
     func testMuteTruthLimitationCopyDoesNotClaimMeetingAppMuteSupport() {
         XCTAssertEqual(
             SystemAudioStatusLabels.meetingMuteTruthLimitationCopy,
-            "2brain не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в 2brain."
+            "GRAF не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в GRAF."
         )
         XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("Паузу или Остановить"))
         XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("не может проверить"))

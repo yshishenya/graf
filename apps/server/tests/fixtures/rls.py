@@ -46,9 +46,15 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "conference_link_candidates",
     "recording_calendar_context_links",
     "calendar_reminder_states",
+    "calendar_settings_preferences",
     "calendar_audit_events",
     "support_incidents",
     "support_incident_rate_limit_buckets",
+    "workspace_invitations",
+    "workspace_quota_policies",
+    "workspace_usage_daily",
+    "user_usage_daily",
+    "admin_audit_events",
 }
 
 RLS_INHERITED_WORKSPACE_TABLES = {

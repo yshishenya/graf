@@ -1,4 +1,4 @@
-# 2brain Rec macOS MVP Architecture
+# GRAF macOS MVP Architecture
 
 This document is the architecture reference for the macOS-only MVP slice.
 
@@ -19,8 +19,8 @@ This document is the architecture reference for the macOS-only MVP slice.
 - **Driver**: parked for future passthrough diagnostics and experiments. It can
   publish and manage two virtual devices, but those devices are not MVP
   recording prerequisites:
-  - `2brain Rec Microphone`
-  - `2brain Rec Speaker`
+  - `GRAF Microphone`
+  - `GRAF Speaker`
 - **App core (Swift)**: route verification, permission/device state, capture control surface, track/buffer continuity snapshots, local recovery hints, and diagnostics.
 - **Storage in this slice**: local encrypted buffer artifacts and manifests only.
 - **No backend audio responsibilities in client**: app does not send raw audio directly to MediaScribe and does not store API credentials.
@@ -49,7 +49,7 @@ Not accepted yet:
 Accepted:
 
 - local development installer builds successfully;
-- app launches from `/Applications/2brain Rec.app` when Developer Tools Security
+- app launches from `/Applications/GRAF.app` when Developer Tools Security
   is enabled for ad-hoc development builds;
 - the HAL driver is loaded by Core Audio;
 - both virtual devices are visible in macOS;
@@ -58,7 +58,7 @@ Accepted:
 - low-resource routing is the local default after automated gates and manual
   smoke;
 - Telemost, Chrome, Opera, and Zoom manual smoke passed with
-  `2brain Rec Microphone` and `2brain Rec Speaker`;
+  `GRAF Microphone` and `GRAF Speaker`;
 - `Run Check` is retained as recheck/repair and is no longer required for normal
   non-recording passthrough startup.
 

@@ -10,8 +10,8 @@ struct VirtualDeviceExpectation {
 
 std::vector<VirtualDeviceExpectation> ExpectedMVPDevices() {
     return {
-        {"2brain Rec Microphone", "input"},
-        {"2brain Rec Speaker", "output"},
+        {"GRAF Microphone", "input"},
+        {"GRAF Speaker", "output"},
     };
 }
 

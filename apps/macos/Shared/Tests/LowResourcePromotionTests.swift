@@ -81,7 +81,7 @@ final class LowResourcePromotionTests: XCTestCase {
             ],
             realtimeSafety: RealtimeSafetyEvidence(
                 scanId: "rt",
-                checkedPaths: ["apps/macos/AudioDriver/Sources/Plugin/TwoBrainRecProofDriver.cpp"],
+                checkedPaths: ["apps/macos/AudioDriver/Sources/Plugin/GrafProofDriver.cpp"],
                 result: .passed
             ),
             result: result

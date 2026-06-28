@@ -13,6 +13,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingReviewResponse,
     MeetingReviewStatus,
 )
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.cabinet.access import decide_meeting_access, share_panel_state
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
@@ -20,9 +21,19 @@ from twobrain_rec_server.cabinet.egress import (
     review_playback_state,
 )
 from twobrain_rec_server.cabinet.view_models import build_list_item, build_review_response
+from twobrain_rec_server.calendar.service import (
+    SELECTABLE_CALENDAR_VISIBILITIES,
+    calendar_event_matches_preferences,
+    get_calendar_settings_preferences,
+    list_provider_presets,
+)
 from twobrain_rec_server.db.models import (
+    CalendarEventSnapshot,
     CalendarParticipant,
+    CalendarSettingsPreference,
+    CalendarSource,
     DiarizationSegment,
+    ExternalCalendar,
     MediaRevision,
     Meeting,
     MeetingOutcomeSet,
@@ -34,6 +45,108 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.domain.statuses import DeletionState
 from twobrain_rec_server.outcomes.service import load_outcome_items
+
+
+async def get_calendar_settings_surface(
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+    *,
+    notice_codes: tuple[str, ...] = (),
+):
+    from twobrain_rec_server.cabinet.view_models import calendar_settings_surface
+
+    sources = list(
+        await db.scalars(
+            select(CalendarSource)
+            .where(
+                CalendarSource.workspace_id == tenant_scope.workspace_id,
+                CalendarSource.owner_user_id == tenant_scope.user_id,
+            )
+            .order_by(CalendarSource.created_at.desc())
+        )
+    )
+    source_ids = [source.id for source in sources]
+    calendars_by_source: dict[object, list[ExternalCalendar]] = {source.id: [] for source in sources}
+    if source_ids:
+        calendars = list(
+            await db.scalars(
+                select(ExternalCalendar)
+                .where(
+                    ExternalCalendar.workspace_id == tenant_scope.workspace_id,
+                    ExternalCalendar.calendar_source_id.in_(source_ids),
+                )
+                .order_by(ExternalCalendar.display_label.asc())
+            )
+        )
+        for calendar in calendars:
+            calendars_by_source.setdefault(calendar.calendar_source_id, []).append(calendar)
+    preference = await get_calendar_settings_preferences(db, tenant_scope)
+    preview = await _calendar_settings_preview_events(
+        db,
+        tenant_scope,
+        source_ids=source_ids,
+        preference=preference,
+    )
+    return calendar_settings_surface(
+        provider_payloads=list_provider_presets(),
+        sources=sources,
+        calendars_by_source=calendars_by_source,
+        preference=preference,
+        preview_events=preview,
+        notice_codes=notice_codes,
+    )
+
+
+async def _calendar_settings_preview_events(
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+    *,
+    source_ids: list[UUID],
+    preference: CalendarSettingsPreference | None,
+) -> list[CalendarEventSnapshot]:
+    if not source_ids:
+        return []
+    selected_calendar_ids = list(
+        await db.scalars(
+            select(ExternalCalendar.id).where(
+                ExternalCalendar.workspace_id == tenant_scope.workspace_id,
+                ExternalCalendar.calendar_source_id.in_(source_ids),
+                ExternalCalendar.selected.is_(True),
+                ExternalCalendar.visibility.in_(SELECTABLE_CALENDAR_VISIBILITIES),
+            )
+        )
+    )
+    if not selected_calendar_ids:
+        return []
+    now = datetime.now(UTC)
+    query = (
+        select(CalendarEventSnapshot)
+        .where(
+            CalendarEventSnapshot.workspace_id == tenant_scope.workspace_id,
+            CalendarEventSnapshot.calendar_source_id.in_(source_ids),
+            CalendarEventSnapshot.external_calendar_id.in_(selected_calendar_ids),
+            CalendarEventSnapshot.source_deleted_at.is_(None),
+            CalendarEventSnapshot.ends_at > now,
+        )
+        .order_by(CalendarEventSnapshot.starts_at.asc())
+    )
+    if preference is None or not preference.include_all_day_events:
+        query = query.where(CalendarEventSnapshot.all_day.is_(False))
+    if preference is None or not preference.include_private_free_busy_prompt_candidates:
+        query = query.where(
+            CalendarEventSnapshot.safe_to_show_in_list.is_(True),
+            CalendarEventSnapshot.privacy_class.notin_(
+                {"private", "free_busy", "free_busy_only"}
+            ),
+        )
+    rows = list(
+        await db.scalars(
+            query.limit(81)
+        )
+    )
+    return [
+        event for event in rows if calendar_event_matches_preferences(event, preference)
+    ][:8]
 
 
 async def list_cabinet_meetings(

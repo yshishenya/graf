@@ -405,7 +405,7 @@ public struct CaptureControlView: View {
         guard let selection else { return nil }
         switch selection.rejectionReason {
         case .unsupportedSelfRoutingInput:
-            return "Выберите обычный микрофон. Виртуальные устройства 2brain нельзя использовать как микрофон записи."
+            return "Выберите обычный микрофон. Виртуальные устройства GRAF нельзя использовать как микрофон записи."
         case .unsupportedVirtualInput:
             return "Выберите встроенный, USB, проводной или Bluetooth-микрофон для записи."
         case .deviceUnavailable:
@@ -666,17 +666,37 @@ private struct CalendarPromptView: View {
                 iconColor: prompt.kind == .join ? .blue : .orange
             )
 
-            HStack(spacing: 8) {
-                Button {
-                    onPrimary(prompt)
-                } label: {
-                    Label(prompt.primaryActionTitle, systemImage: prompt.kind == .join ? "arrow.up.right.square" : "record.circle")
+            VStack(alignment: .leading, spacing: 8) {
+                if prompt.choices.isEmpty {
+                    Button {
+                        onPrimary(prompt)
+                    } label: {
+                        Label(prompt.primaryActionTitle, systemImage: prompt.kind == .join ? "arrow.up.right.square" : "record.circle")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityLabel(prompt.primaryActionTitle)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.calendarPromptPrimaryButton)
+                } else {
+                    ForEach(prompt.choices) { choice in
+                        Button {
+                            var selectedPrompt = prompt
+                            selectedPrompt.eventId = choice.eventId
+                            selectedPrompt.openMeetingURL = choice.openMeetingURL
+                            onPrimary(selectedPrompt)
+                        } label: {
+                            Label(
+                                choice.title,
+                                systemImage: prompt.kind == .join ? "arrow.up.right.square" : choice.eventId == nil ? "record.circle" : "calendar"
+                            )
+                        }
+                        .font(.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityLabel(choice.title)
+                    }
                 }
-                .font(.caption)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .accessibilityLabel(prompt.primaryActionTitle)
-                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.calendarPromptPrimaryButton)
 
                 Button {
                     onDismiss(prompt)

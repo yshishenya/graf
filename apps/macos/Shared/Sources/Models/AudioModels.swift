@@ -194,7 +194,7 @@ public struct MicrophonePassthroughPath: Codable, Equatable, Sendable {
     public init(
         physicalInputId: String,
         physicalInputName: String,
-        virtualInputName: String = "2brain Rec Microphone",
+        virtualInputName: String = "GRAF Microphone",
         status: LivePassthroughStatus,
         validFrameObserved: Bool,
         lastFrameAt: Date? = nil,
@@ -220,7 +220,7 @@ public struct SpeakerPassthroughPath: Codable, Equatable, Sendable {
     public var failureReason: PassthroughFailureReason
 
     public init(
-        virtualOutputName: String = "2brain Rec Speaker",
+        virtualOutputName: String = "GRAF Speaker",
         physicalOutputId: String,
         physicalOutputName: String,
         status: LivePassthroughStatus,
@@ -344,7 +344,7 @@ public struct MicrophonePathEvidence: Codable, Equatable, Sendable {
     public init(
         selectedPhysicalDeviceId: String,
         selectedPhysicalDeviceName: String,
-        virtualMicrophoneName: String = "2brain Rec Microphone",
+        virtualMicrophoneName: String = "GRAF Microphone",
         status: RouteEvidenceStatus,
         validFrameCount: UInt64,
         emptyBufferCount: UInt64,
@@ -381,7 +381,7 @@ public struct SpeakerPathEvidence: Codable, Equatable, Sendable {
     public init(
         selectedPhysicalOutputId: String,
         selectedPhysicalOutputName: String,
-        virtualSpeakerName: String = "2brain Rec Speaker",
+        virtualSpeakerName: String = "GRAF Speaker",
         status: RouteEvidenceStatus,
         stimulusObserved: Bool,
         validFrameCount: UInt64,

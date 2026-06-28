@@ -13,6 +13,10 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
 
         XCTAssertEqual(configuration.meetingsURL().absoluteString, "https://rec.2brain.dev/desktop/meetings")
         XCTAssertEqual(
+            configuration.calendarSettingsURL().absoluteString,
+            "https://rec.2brain.dev/desktop/settings/integrations/calendar"
+        )
+        XCTAssertEqual(
             configuration.meetingDetailURL(meetingId: "meeting-033").absoluteString,
             "https://rec.2brain.dev/desktop/meetings/meeting-033"
         )
@@ -27,10 +31,10 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
 
     func testConfiguredHeadersReuseDesktopMetadataAndRedactSecretValues() {
         let headers = DesktopCabinetConfiguration.configuredHeaders(from: [
-            "TWO_BRAIN_REC_CLIENT_VERSION": "desktop-033",
-            "TWO_BRAIN_REC_USER_ID": "user-033",
-            "TWO_BRAIN_REC_WORKSPACE_ID": "workspace-033",
-            "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN": "secret-token"
+            "GRAF_CLIENT_VERSION": "desktop-033",
+            "GRAF_USER_ID": "user-033",
+            "GRAF_WORKSPACE_ID": "workspace-033",
+            "GRAF_UPLOAD_BEARER_TOKEN": "secret-token"
         ])
 
         XCTAssertEqual(headers["X-Client-Version"], "desktop-033")
@@ -90,6 +94,20 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.source, DesktopCabinetConfiguration.baseURLEnvironmentKey)
     }
 
+    func testConfiguredAcceptsLegacyTwoBrainCabinetOrigin() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DesktopCabinetConfigurationTests.legacy-env"))
+        defaults.removePersistentDomain(forName: "DesktopCabinetConfigurationTests.legacy-env")
+
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(
+            from: [DesktopCabinetConfiguration.legacyBaseURLEnvironmentKey: "https://legacy.rec.example"],
+            defaults: defaults,
+            includePackagedDefault: false
+        ))
+
+        XCTAssertEqual(configuration.baseURL.absoluteString, "https://legacy.rec.example")
+        XCTAssertEqual(configuration.source, DesktopCabinetConfiguration.legacyBaseURLEnvironmentKey)
+    }
+
     func testUnavailableMessagesDoNotExposeSecretsOrLivePaths() {
         let message = DesktopCabinetState.expiredSession.userMessage
 
@@ -97,6 +115,27 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         XCTAssertFalse(message.localizedCaseInsensitiveContains("token"))
         XCTAssertFalse(message.localizedCaseInsensitiveContains("bearer"))
         XCTAssertTrue(message.localizedCaseInsensitiveContains("войдите"))
+    }
+
+    func testCalendarUnavailableMessagesExplainCredentialBoundaryAndManualRecording() {
+        let states: [DesktopCabinetState] = [
+            .notConfigured,
+            .offline,
+            .timeout,
+            .expiredSession,
+            .accessDenied,
+            .notFound,
+            .malformedResponse,
+            .blockedRoute
+        ]
+
+        for state in states {
+            let message = state.userMessage
+            XCTAssertTrue(message.localizedCaseInsensitiveContains("mac не хранит пароли календаря"), "\(state)")
+            XCTAssertTrue(message.localizedCaseInsensitiveContains("ручная запись"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("oauth"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("provider"), "\(state)")
+        }
     }
 
     func testAllCabinetStateMessagesStayMetadataOnly() {

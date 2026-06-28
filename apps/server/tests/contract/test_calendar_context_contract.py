@@ -45,8 +45,6 @@ def test_calendar_provider_endpoint_lists_supported_presets(client) -> None:
     assert {
         "caldav_yandex",
         "caldav_mail_ru",
-        "google_calendar",
-        "microsoft_graph",
         "exchange_ews",
         "bitrix24",
         "custom_caldav_vk_workspace",
@@ -67,6 +65,7 @@ def test_calendar_source_lifecycle_contract_never_returns_credentials(client) ->
             "provider_family": "caldav_yandex",
             "auth_mode": "app_password",
             "display_label": "Synthetic calendar",
+            "username": "owner@example.test",
             "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
@@ -93,7 +92,8 @@ def test_calendar_source_lifecycle_contract_never_returns_credentials(client) ->
 
     sync = client.post(f"/api/v1/calendar/sources/{source_id}/sync", headers=auth_headers())
     assert sync.status_code == 202
-    assert sync.json()["sync_state"] == "synced"
+    assert sync.json()["sync_state"] == "queued"
+    assert sync.json()["accepted"] is True
 
     disconnected = client.post(f"/api/v1/calendar/sources/{source_id}/disconnect", headers=auth_headers())
     assert disconnected.status_code == 200
@@ -107,6 +107,7 @@ def test_calendar_source_contract_rejects_unsupported_provider_without_echoing_s
         json={
             "provider_family": "unknown_provider",
             "auth_mode": "app_password",
+            "username": "owner@example.test",
             "credential_input": "synthetic-secret",
         },
     )
@@ -126,6 +127,7 @@ def test_calendar_source_contract_requires_stable_credential_key_in_production(c
         json={
             "provider_family": "caldav_yandex",
             "auth_mode": "app_password",
+            "username": "owner@example.test",
             "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
@@ -149,6 +151,7 @@ def test_calendar_source_contract_uses_configured_stable_credential_key_in_produ
         json={
             "provider_family": "caldav_yandex",
             "auth_mode": "app_password",
+            "username": "owner@example.test",
             "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
@@ -220,8 +223,10 @@ def _seed_calendar_event(client) -> str:
         "/api/v1/calendar/sources",
         headers=auth_headers(),
         json={
-            "provider_family": "google_calendar",
-            "auth_mode": "oauth",
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
     )
@@ -240,7 +245,7 @@ def _seed_calendar_event(client) -> str:
                 calendar,
                 normalize_calendar_event(
                     calendar_event_fixture(
-                        "google_calendar",
+                        "caldav_yandex",
                         starts_at=starts_at,
                         ends_at=starts_at + timedelta(hours=1),
                     )

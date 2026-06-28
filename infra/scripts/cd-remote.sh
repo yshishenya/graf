@@ -114,7 +114,7 @@ set -a
 . ./.env
 set +a
 docker compose -f infra/docker-compose.yml config >/tmp/twobrain-rec-compose-deploy.yml
-if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY|POSTAL_API_KEY):|MINIO_ROOT_PASSWORD:|MINIO_ROOT_USER:|POSTGRES_PWD:' /tmp/twobrain-rec-compose-deploy.yml; then
+if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY|POSTAL_API_KEY|WEB_CSRF_SECRET):|MINIO_ROOT_PASSWORD:|MINIO_ROOT_USER:|POSTGRES_PWD:' /tmp/twobrain-rec-compose-deploy.yml; then
   echo "deploy_result=blocked"
   echo "reason=secret_env_exposure"
   exit 1
@@ -134,7 +134,7 @@ if [ -z "$rec_api_container" ]; then
   exit 1
 fi
 docker inspect "$rec_api_container" --format '{{range .Config.Env}}{{println .}}{{end}}' >/tmp/twobrain-rec-api-env.txt
-if grep -Eq '^(TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY|POSTAL_API_KEY)|MINIO_ROOT_PASSWORD|MINIO_ROOT_USER)=' /tmp/twobrain-rec-api-env.txt; then
+if grep -Eq '^(TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY|POSTAL_API_KEY|WEB_CSRF_SECRET)|MINIO_ROOT_PASSWORD|MINIO_ROOT_USER)=' /tmp/twobrain-rec-api-env.txt; then
   echo "deploy_result=blocked"
   echo "reason=runtime_secret_env_exposure"
   exit 1

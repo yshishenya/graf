@@ -542,7 +542,7 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     public var ownerLabel: String {
         switch primaryProjection.owner {
         case .productAutomatic:
-            return "2brain Rec"
+            return "GRAF"
         case .meetingOwner:
             return "Владелец встречи"
         case .workspaceAdmin:
@@ -728,8 +728,8 @@ public struct DesktopSupportIncidentReportContext: Equatable, Sendable {
     public let safeDeviceIdentifier: String
 
     public init(
-        appName: String = "2brain Rec",
-        bundleID: String = Bundle.main.bundleIdentifier ?? "pro.2brain.rec",
+        appName: String = "GRAF",
+        bundleID: String = Bundle.main.bundleIdentifier ?? "pro.2brain.graf",
         appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "local",
         buildVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local",
         macOSVersion: String = Self.currentMacOSVersion(),
@@ -1368,14 +1368,14 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
 
     public var clipboardText: String {
         [
-            "2brain Rec: безопасный отчет о локальной записи",
+            "GRAF: безопасный отчет о локальной записи",
             "Что произошло: \(humanProblemText).",
             "Что делать: \(humanActionText)",
             "Локальное хранение: \(localMediaRetained ? "политика считает локальные данные удерживаемыми на этом Mac" : "политика не удерживает локальные данные на этом Mac").",
             "Связь с сервером: \(serverIdentityPresent ? "есть серверный идентификатор записи" : "серверная запись не подтверждена").",
             "Безопасность: отчет содержит только метаданные, без звука, текста встречи, локальных путей и токенов.",
             "",
-            "2brain Rec custody safe report",
+            "GRAF custody safe report",
             "schema_version=\(schemaVersion)",
             "safe_recording_identity=\(safeRecordingIdentity)",
             "reason_category=\(reasonCategory)",

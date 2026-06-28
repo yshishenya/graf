@@ -54,7 +54,7 @@
 ## US1 Source Management Evidence
 
 - T022 completed: `cryptography` is present in `apps/server/pyproject.toml` and `apps/server/uv.lock`; `apps/server/src/twobrain_rec_server/calendar/credentials.py` seals credentials with Fernet, exposes fingerprint-only metadata, and has no plaintext API response path.
-- T040/T044 completed: `GET /api/v1/calendar/providers` returns provider presets for Yandex, Mail.ru, Google Calendar, Microsoft Graph, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Nextcloud/SOGo-like CalDAV, and custom CalDAV.
+- T040/T044 completed: `GET /api/v1/calendar/providers` returns provider presets for Yandex, Mail.ru, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, Nextcloud/SOGo-like CalDAV, and custom CalDAV.
 - T041/T045/T047 completed: source connect/list/get/select/sync/disconnect routes use `calendar.service` and tenant-scoped persistence. Missing sources return `calendar_source_not_found`; unsupported providers return `unsupported_calendar_provider` without echoing submitted secret material.
 - T042 completed: selected-calendar persistence deduplicates selected provider calendar ids, stores selected calendars, and records a rolling future sync horizon on sync request.
 - T043/T046 completed: safe credential failure mapping covers invalid app password, OAuth unavailable, tenant denial, provider timeout, and rate limit without provider secret content.
@@ -64,11 +64,11 @@
 
 ## US2 Event Context Evidence
 
-- T051-T057 completed: `apps/server/tests/fixtures/calendar.py` and `apps/server/tests/unit/test_calendar_provider_fixtures.py` cover Yandex CalDAV, Mail.ru CalDAV, Google Calendar, Microsoft Graph, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV fixtures.
+- T051-T057 completed: `apps/server/tests/fixtures/calendar.py` and `apps/server/tests/unit/test_calendar_provider_fixtures.py` cover Yandex CalDAV, Mail.ru CalDAV, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV fixtures.
 - T058 completed: `apps/server/tests/unit/test_calendar_normalization.py` covers recurrence, all-day events, floating-time input, missing `DTEND`, duplicate `UID` copies, cancelled instances, and moved recurrence instances.
 - T059 completed: `apps/server/tests/unit/test_calendar_conference_links.py` covers sensitive description/passcode redaction, multiple links, attachment URL exclusion, and cancelled/stale event link suppression.
 - T060/T061 completed: normalization rejects raw provider payload/token extras, parses minimal iCalendar `VEVENT` identity/schedule/recurrence/link fields, and marks private/free-busy limitations without fabricating title/participants.
-- T062-T067 completed: provider adapters map native Google Calendar, Microsoft Graph, Exchange EWS, Bitrix24, generic iCalendar/CalDAV, and custom CalDAV-style Russian/on-prem provider families into the normalized event contract. Conference-link extraction returns only provider family, URL hash, redacted preview, and passcode presence.
+- T062-T067 completed: provider adapters map native Exchange EWS, Bitrix24, generic iCalendar/CalDAV, and custom CalDAV-style Russian/on-prem provider families into the normalized event contract. Conference-link extraction returns only provider family, URL hash, redacted preview, and passcode presence.
 - T068 completed: `apply_calendar_sync_result` upserts event snapshots, participant rows, conference-link rows, source versions, provider deletion markers, and external-calendar sync tokens.
 - T069/T070/T107 completed: upcoming calendar event and desktop prompt endpoints shape stored future snapshots into safe API responses.
 - `cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_calendar_credentials.py tests/unit/test_calendar_normalization.py tests/unit/test_calendar_conference_links.py tests/unit/test_calendar_provider_fixtures.py tests/contract/test_calendar_context_contract.py tests/contract/test_calendar_no_secret_content_egress.py tests/contract/test_calendar_rls_contract.py tests/integration/test_calendar_persistence.py`
@@ -146,7 +146,7 @@
 - Fixture guidance: `apps/server/tests/fixtures/calendar/README.md`.
 - Fixture module: `apps/server/tests/fixtures/calendar.py`.
 - Fixture tests: `apps/server/tests/unit/test_calendar_provider_fixtures.py`.
-- Provider coverage requirement remains Yandex, Mail.ru, Google Calendar, Microsoft Graph, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV.
+- Provider coverage requirement remains Yandex, Mail.ru, Exchange EWS, Bitrix24, VK WorkSpace/custom CalDAV, Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost, and Nextcloud/SOGo-like CalDAV.
 
 ## Privacy Scan
 
@@ -194,7 +194,7 @@
 - T123 completed: `docs/current-product-status.md` records the 060 local feature-branch status, provider families, validation evidence, and explicit out-of-scope boundaries for auto-record, auto-join, calendar mutation, sending, share grants, attachments, retrospective matching, live provider credentials, PR/release/deploy, and production smoke.
 - T124 completed: `CHANGELOG.md` records 060 behavior, privacy/security impact, validation summary, compatibility/known-limitations boundary, final local CI evidence, and pending PR/release/deploy status.
 - T125 completed: `quickstart.md` now includes `tests/integration/test_persistent_ingest_storage.py` in the persistence/lifecycle check because meeting create responses expose `title` and `title_source`.
-- T126 completed: `provider-deep-dive.md` now records implementation corrections: synthetic metadata-only provider fixtures are the evidence surface; native mappers exist for Google Calendar, Microsoft Graph, Exchange EWS, and Bitrix24; Russian/on-prem providers without verified rich APIs stay on CalDAV/iCalendar capability labels.
+- T126 completed: `provider-deep-dive.md` now records implementation corrections: synthetic metadata-only provider fixtures are the evidence surface; native mappers exist for Exchange EWS, and Bitrix24; Russian/on-prem providers without verified rich APIs stay on CalDAV/iCalendar capability labels.
 - T127-T129 completed through the combined backend focused checkpoint below. The command covered the exact unit, contract, OpenAPI drift, RLS, persistence/lifecycle/access/provider-failure/share, and persistent ingest tests required by the final task set.
 - T130-T132 completed through the macOS and forbidden-content focused checkpoints below.
 

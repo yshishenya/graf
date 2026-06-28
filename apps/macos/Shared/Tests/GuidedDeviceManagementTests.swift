@@ -20,7 +20,7 @@ final class GuidedDeviceManagementTests: XCTestCase {
 
     func testGuidedManagementRejectsSelfRouting() {
         let decision = GuidedDeviceManagementService().prepareRoute(
-            physicalInput: physicalDevice(id: SelfRoutingGuard.microphoneUID, name: "2brain Rec Microphone", direction: .input),
+            physicalInput: physicalDevice(id: SelfRoutingGuard.microphoneUID, name: "GRAF Microphone", direction: .input),
             physicalOutput: physicalDevice(id: "built-in-output", direction: .output),
             previousInputId: nil,
             previousOutputId: nil,

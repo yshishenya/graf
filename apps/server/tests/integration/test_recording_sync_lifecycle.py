@@ -14,7 +14,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.domain.statuses import MediaRevisionStatus
 
-BOUNDED_COPY = "Delete this meeting everywhere 2brain Rec controls."
+BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 
 
 def _create_meeting(client, local_recording_id: str) -> dict:

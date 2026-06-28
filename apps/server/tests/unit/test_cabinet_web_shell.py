@@ -71,7 +71,7 @@ def _governance() -> GovernanceActionSummary:
         retention=GovernanceActionState(state="planned", label="Retention policy planned", reason="future", destructive=False),
         delete=GovernanceActionState(
             state="planned",
-            label="Delete this meeting everywhere 2brain Rec controls",
+            label="Delete this meeting everywhere GRAF controls",
             reason="future",
             destructive=True,
         ),
@@ -182,7 +182,7 @@ def _review() -> MeetingReviewResponse:
         artifacts=_artifacts(),
         activity=MeetingActivityResponse(meeting_id=item.meeting_id, items=[]),
         notes_action_truth=_notes_truth(),
-        deletion_truth_copy="Files already downloaded or exported are outside 2brain Rec deletion control.",
+        deletion_truth_copy="Files already downloaded or exported are outside GRAF deletion control.",
         assistant=SlotState(state="planned", label="Assistant", reason="future"),
         template=SlotState(state="planned", label="Template", reason="future"),
     )
@@ -225,7 +225,7 @@ def _deletion_report() -> DeletionVerificationReport:
                 artifact_class="post_egress_copy",
                 control_scope=DeletionControlScope.POST_EGRESS,
                 state=DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL,
-                label="Delivered copies are outside 2brain Rec control",
+                label="Delivered copies are outside GRAF control",
                 safe_reason="outside_control",
             )
         ],
@@ -288,7 +288,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Мои встречи" in page
     assert "Ближайшие" in page
     assert "Ближайшие встречи появятся после подключения календаря." in page
-    assert 'href="/settings#calendar-connections"' in page
+    assert 'href="/settings/integrations/calendar"' in page
     assert "Подключить календари" in page
     assert "Командный синк" not in page
     assert "Записи встреч" in page
@@ -372,6 +372,10 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in page
     assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in page
     assert f'src="{CABINET_STATIC_URL}/cabinet.js"' in page
+    assert f'src="{CABINET_STATIC_URL}/graf-wordmark-dark.png"' in page
+    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' not in page
+    assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
+    assert "Бесплатный" not in page
     assert '<body data-surface-mode="standalone_browser">' in page
     assert 'data-icon="audio"' in page
     assert 'fill="none" stroke="currentColor" stroke-width="2"' in page
@@ -477,7 +481,7 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     assert 'aria-expanded="false"' in page
     assert 'data-icon="panel-left-open"' in page
     assert 'aria-current="page"' in page
-    assert 'href="/desktop/settings#calendar-connections"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' in page
     for icon in ("search", "calendar-days", "users-round", "list-checks", "activity", "settings"):
         assert f'data-icon="{icon}"' in page
 
@@ -488,8 +492,8 @@ def test_settings_shell_renders_calendar_connection_anchor() -> None:
     assert 'data-active-nav="settings"' in page
     assert 'id="calendar-connections"' in page
     assert "Подключить календари" in page
-    assert 'href="/settings#calendar-connections"' in page
-    assert 'href="/desktop/settings#calendar-connections"' not in page
+    assert 'href="/settings/integrations/calendar"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' not in page
 
 
 def test_cabinet_rail_toggle_js_contract() -> None:
@@ -556,8 +560,8 @@ def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
         )
     )
 
-    assert "2brain Rec" in page
-    assert "везде, где ее контролирует 2brain Rec" in page
+    assert "GRAF" in page
+    assert "везде, где ее контролирует GRAF" in page
     assert "Это действие нельзя отменить" in page
     assert "Обсудили запуск кабинета встреч" not in page
     assert "fixture-mediascribe-private-job-id" not in page
@@ -601,7 +605,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Публичные ссылки" in page
     assert "Уже скачанные или экспортированные файлы" in page
     assert 'data-boundary-copy="Files already downloaded' in page
-    assert "Удалить встречу в системах 2brain Rec" in page
+    assert "Удалить встречу в системах GRAF" in page
     assert "Request deletion" not in page
     assert "Запросить удаление" in page
 
@@ -1071,7 +1075,7 @@ def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:
     page = render_deletion_report_page("Sensitive customer sync", _deletion_report())
 
     assert "Отчет удаления" in page
-    assert "Файлы под контролем 2brain Rec" in page
+    assert "Файлы под контролем GRAF" in page
     assert "Внешние зависимости" in page
     assert "Ограничения после выгрузки" in page
     assert "Очистка на устройстве" in page

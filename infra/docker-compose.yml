@@ -21,7 +21,7 @@ services:
       TWOBRAIN_WEB_LOGIN_WORKSPACE_ID: ${TWOBRAIN_WEB_LOGIN_WORKSPACE_ID:-}
       TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED: ${TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED:-false}
       TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS: ${TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS:-}
-      TWOBRAIN_EMAIL_LOGIN_FROM_NAME: ${TWOBRAIN_EMAIL_LOGIN_FROM_NAME:-2brain Rec}
+      TWOBRAIN_EMAIL_LOGIN_FROM_NAME: ${TWOBRAIN_EMAIL_LOGIN_FROM_NAME:-GRAF}
       TWOBRAIN_POSTAL_API_URL: ${TWOBRAIN_POSTAL_API_URL:-}
       TWOBRAIN_POSTAL_API_KEY_FILE: ${TWOBRAIN_POSTAL_API_KEY_FILE:-/run/secrets/twobrain_postal_api_key}
       TWOBRAIN_POSTAL_HOST_HEADER: ${TWOBRAIN_POSTAL_HOST_HEADER:-postal.2brain.pro}
@@ -43,6 +43,8 @@ services:
         target: twobrain_minio_api_secret_key
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
+      - source: twobrain_web_csrf_secret
+        target: twobrain_web_csrf_secret
       - source: twobrain_postal_api_key
         target: twobrain_postal_api_key
       - source: twobrain_yandex_client_secret
@@ -118,6 +120,8 @@ services:
         target: twobrain_minio_api_access_key
       - source: twobrain_minio_api_secret_key
         target: twobrain_minio_api_secret_key
+      - source: twobrain_web_csrf_secret
+        target: twobrain_web_csrf_secret
       - source: twobrain_mediascribe_api_key
         target: twobrain_mediascribe_api_key
     command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
@@ -208,6 +212,8 @@ services:
         target: twobrain_minio_api_secret_key
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
+      - source: twobrain_web_csrf_secret
+        target: twobrain_web_csrf_secret
     command: ["alembic", "upgrade", "head"]
     depends_on:
       rec-postgres:
@@ -359,6 +365,8 @@ secrets:
     file: ${TWOBRAIN_MINIO_API_SECRET_KEY_FILE:-./secrets/twobrain_minio_api_secret_key}
   twobrain_smoke_credential:
     file: ${TWOBRAIN_SMOKE_CREDENTIAL_FILE:-./secrets/twobrain_smoke_credential}
+  twobrain_web_csrf_secret:
+    file: ${TWOBRAIN_WEB_CSRF_SECRET_FILE:-./secrets/twobrain_web_csrf_secret}
   twobrain_mediascribe_api_key:
     file: ${TWOBRAIN_MEDIASCRIBE_API_KEY_FILE:-./secrets/twobrain_mediascribe_api_key}
   twobrain_postal_api_key:

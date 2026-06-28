@@ -31,10 +31,6 @@ class ProviderMappingAdapter:
                 provider_family=self.provider_family,
                 provider_calendar_id=event.get("provider_calendar_id"),
             )
-        if self.adapter_family == "google_calendar" and "start" in event:
-            return normalize_calendar_event(_google_event(event, self.provider_family))
-        if self.adapter_family == "microsoft_graph" and "start" in event:
-            return normalize_calendar_event(_graph_event(event, self.provider_family))
         if self.adapter_family == "exchange_ews" and "Start" in event:
             return normalize_calendar_event(_ews_event(event, self.provider_family))
         if self.adapter_family == "bitrix24" and "DATE_FROM" in event:
@@ -52,8 +48,6 @@ ADAPTER_FAMILIES = {
     "caldav_communigate_pro": "caldav",
     "caldav_rupost": "caldav",
     "caldav_nextcloud_sogo": "caldav",
-    "google_calendar": "google_calendar",
-    "microsoft_graph": "microsoft_graph",
     "exchange_ews": "exchange_ews",
     "bitrix24": "bitrix24",
 }
@@ -61,86 +55,6 @@ ADAPTER_FAMILIES = {
 
 def adapter_for_provider(provider_family: str) -> ProviderMappingAdapter:
     return ProviderMappingAdapter(provider_family, ADAPTER_FAMILIES.get(provider_family, "caldav"))
-
-
-def _google_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]:
-    private = str(event.get("visibility", "")).lower() == "private"
-    attendees = [] if private else [_google_organizer(event), *[_google_attendee(item) for item in event.get("attendees") or []]]
-    entry_points = (event.get("conferenceData") or {}).get("entryPoints") or []
-    links = [entry.get("uri") for entry in entry_points if entry.get("uri")]
-    return {
-        "provider_family": provider_family,
-        "provider_calendar_id": event.get("calendarId") or event.get("provider_calendar_id"),
-        "provider_event_id": event.get("id"),
-        "ical_uid": event.get("iCalUID"),
-        "source_version": event.get("etag"),
-        "source_status": event.get("status", "unknown"),
-        "source_created_at": event.get("created"),
-        "source_updated_at": event.get("updated"),
-        "starts_at": _google_time(event["start"]),
-        "ends_at": _google_time(event.get("end") or event["start"]),
-        "timezone": (event.get("start") or {}).get("timeZone"),
-        "all_day": "date" in (event.get("start") or {}),
-        "title": None if private else event.get("summary"),
-        "title_state": "private_redacted" if private else ("available" if event.get("summary") else "unknown"),
-        "description": None if private else event.get("description"),
-        "description_state": "private_redacted" if private else ("available" if event.get("description") else "unknown"),
-        "location": None if private else event.get("location"),
-        "transparency": event.get("transparency"),
-        "privacy_class": "private" if private else "public",
-        "participants": [participant for participant in attendees if participant],
-        "conference_links": _link_dicts("google_conference", *links),
-        "attachments_metadata": event.get("attachments") or [],
-        "provider_extras": {
-            "native_resource": "google_event",
-            "color_id": event.get("colorId"),
-            "event_type": event.get("eventType"),
-        },
-        "limitation_states": {"participants": "private_redacted"} if private else {},
-        "recurrence_rule": {"rules": event["recurrence"]} if event.get("recurrence") else None,
-        "recurring_series_id": event.get("recurringEventId"),
-        "recurrence_instance_id": _google_time(event["originalStartTime"]) if event.get("originalStartTime") else None,
-        "original_start": _google_time(event["originalStartTime"]) if event.get("originalStartTime") else None,
-    }
-
-
-def _graph_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]:
-    private = str(event.get("sensitivity", "")).lower() in {"private", "confidential"}
-    attendees = [] if private else [_graph_organizer(event), *[_graph_attendee(item) for item in event.get("attendees") or []]]
-    join_url = (event.get("onlineMeeting") or {}).get("joinUrl")
-    return {
-        "provider_family": provider_family,
-        "provider_calendar_id": event.get("calendarId") or event.get("calendar_id"),
-        "provider_event_id": event.get("id"),
-        "ical_uid": event.get("iCalUId") or event.get("iCalUID"),
-        "source_version": event.get("changeKey"),
-        "source_status": "cancelled" if event.get("isCancelled") else "confirmed",
-        "source_created_at": event.get("createdDateTime"),
-        "source_updated_at": event.get("lastModifiedDateTime"),
-        "starts_at": _graph_time(event["start"]),
-        "ends_at": _graph_time(event.get("end") or event["start"]),
-        "timezone": (event.get("start") or {}).get("timeZone"),
-        "title": None if private else event.get("subject"),
-        "title_state": "private_redacted" if private else ("available" if event.get("subject") else "unknown"),
-        "description": None if private else (event.get("bodyPreview") or (event.get("body") or {}).get("content")),
-        "description_state": "private_redacted" if private else (
-            "available" if event.get("bodyPreview") or (event.get("body") or {}).get("content") else "unknown"
-        ),
-        "location": None if private else (event.get("location") or {}).get("displayName"),
-        "transparency": event.get("showAs"),
-        "privacy_class": "private" if private else "public",
-        "participants": [participant for participant in attendees if participant],
-        "conference_links": _link_dicts("graph_online_meeting", join_url, event.get("onlineMeetingUrl")),
-        "attachments_metadata": event.get("attachments") or [],
-        "provider_extras": {
-            "native_resource": "microsoft_graph_event",
-            "categories": event.get("categories") or [],
-            "importance": event.get("importance"),
-        },
-        "limitation_states": {"participants": "private_redacted"} if private else {},
-        "recurrence_rule": event.get("recurrence"),
-        "recurring_series_id": event.get("seriesMasterId"),
-    }
 
 
 def _ews_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]:
@@ -214,62 +128,10 @@ def _bitrix_event(event: dict[str, Any], provider_family: str) -> dict[str, Any]
     }
 
 
-def _google_time(value: dict[str, Any]) -> str:
-    return str(value.get("dateTime") or value.get("date"))
-
-
-def _graph_time(value: dict[str, Any]) -> str:
-    return str(value.get("dateTime"))
-
-
 def _ews_body_text(value: Any) -> str | None:
     if isinstance(value, dict):
         return value.get("Text") or value.get("text")
     return str(value) if value else None
-
-
-def _google_organizer(event: dict[str, Any]) -> dict[str, Any] | None:
-    organizer = event.get("organizer") or {}
-    email = organizer.get("email")
-    if not email:
-        return None
-    return {
-        "participant_kind": "organizer",
-        "email": email,
-        "display_name": organizer.get("displayName"),
-        "response_status": "organizer",
-    }
-
-
-def _google_attendee(attendee: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "participant_kind": "resource" if attendee.get("resource") else ("optional_attendee" if attendee.get("optional") else "required_attendee"),
-        "email": attendee.get("email"),
-        "display_name": attendee.get("displayName"),
-        "response_status": _response_status(attendee.get("responseStatus")),
-    }
-
-
-def _graph_organizer(event: dict[str, Any]) -> dict[str, Any] | None:
-    email = ((event.get("organizer") or {}).get("emailAddress") or {})
-    if not email.get("address"):
-        return None
-    return {
-        "participant_kind": "organizer",
-        "email": email.get("address"),
-        "display_name": email.get("name"),
-        "response_status": "organizer",
-    }
-
-
-def _graph_attendee(attendee: dict[str, Any]) -> dict[str, Any]:
-    email = attendee.get("emailAddress") or {}
-    return {
-        "participant_kind": "optional_attendee" if attendee.get("type") == "optional" else "required_attendee",
-        "email": email.get("address"),
-        "display_name": email.get("name"),
-        "response_status": _response_status((attendee.get("status") or {}).get("response")),
-    }
 
 
 def _ews_organizer(event: dict[str, Any]) -> dict[str, Any] | None:

@@ -39,7 +39,7 @@
 **Alternatives considered**:
 
 - Silent local calendar lookup: rejected because it surprises users and expands sensitive metadata collection.
-- Build a full Google/Microsoft calendar connector inside 059: rejected as too broad while the user said the frontend is currently being refactored and 060 will own the integration.
+- Build a full external calendar connector inside 059: rejected as too broad while the user said the frontend is currently being refactored and 060 will own the integration.
 - Leave a calendar-ready contract in 059: rejected because it keeps 059 wider than necessary; 060 should own calendar matching contracts.
 
 ## Decision: Browser/window titles are deferred out of 059

@@ -41,7 +41,10 @@ public struct DesktopCabinetNavigationRequestPolicy: Equatable {
     }
 
     private func routeRequiresDesktopHeaders(_ kind: DesktopCabinetRouteKind) -> Bool {
-        kind == .meetingList || kind == .meetingDetail || kind == .meetingDeletionReport
+        kind == .meetingList ||
+            kind == .meetingDetail ||
+            kind == .meetingDeletionReport ||
+            kind == .calendarSettings
     }
 
     private func requestNeedsDesktopHeaders(_ request: URLRequest) -> Bool {

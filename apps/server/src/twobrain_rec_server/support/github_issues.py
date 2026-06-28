@@ -205,7 +205,7 @@ def _issue_body(
     issue_number = str(github_issue_number) if github_issue_number is not None else "new"
     return f"""## Кратко
 
-Пользовательская проблема из 2brain Rec: локальная запись не была отправлена автоматически. Отчет metadata-only, без аудио, транскрипта, raw paths, токенов, signed URL и private meeting content.
+Пользовательская проблема из GRAF: локальная запись не была отправлена автоматически. Отчет metadata-only, без аудио, транскрипта, raw paths, токенов, signed URL и private meeting content.
 
 ## Контекст
 

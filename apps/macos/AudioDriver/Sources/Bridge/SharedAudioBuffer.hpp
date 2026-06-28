@@ -7,7 +7,7 @@
 namespace TwoBrainRec {
 
 constexpr size_t kSharedRingCapacity = 16384;
-constexpr const char* kShmName = "/2brain-rec-audio-bridge";
+constexpr const char* kShmName = "/graf-audio-bridge";
 
 struct SharedAudioBuffer {
     std::atomic<size_t> mic_read_idx{0};

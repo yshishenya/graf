@@ -4,8 +4,8 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MACOS_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)
-RUN_LIFECYCLE=${TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE:-0}
-ALLOW_COREAUDIOD_RESTART=${TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART:-0}
+RUN_LIFECYCLE=${GRAF_RUN_INSTALLER_LIFECYCLE:-${TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE:-0}}
+ALLOW_COREAUDIOD_RESTART=${GRAF_ALLOW_COREAUDIOD_RESTART:-${TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART:-0}}
 OPERATION=${1:-all}
 
 emit_not_accepted() {
@@ -28,23 +28,23 @@ restart_coreaudiod_for_driver_diagnostics() {
   if [ "$ALLOW_COREAUDIOD_RESTART" = "1" ]; then
     sudo killall coreaudiod || true
   else
-    echo "coreaudiod_restart=skipped set_TWO_BRAIN_REC_ALLOW_COREAUDIOD_RESTART_1_for_driver_diagnostics"
+    echo "coreaudiod_restart=skipped set_GRAF_ALLOW_COREAUDIOD_RESTART_1_for_driver_diagnostics"
   fi
 }
 
 run_operation() {
   operation=$1
   if [ "$RUN_LIFECYCLE" != "1" ]; then
-    emit_not_accepted "$operation" "destructive_installer_lifecycle_disabled_set_TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE_1"
+    emit_not_accepted "$operation" "destructive_installer_lifecycle_disabled_set_GRAF_RUN_INSTALLER_LIFECYCLE_1"
     return 0
   fi
 
   case "$operation" in
     install|update|reinstall)
-      TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 \
-        TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT=1 \
+      GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
+        GRAF_INCLUDE_DRIVER_COMPONENT=1 \
         sh "$MACOS_DIR/Installer/Scripts/build-local-installer.sh"
-      sudo installer -pkg "$MACOS_DIR/.build/installer/2brain-rec-local.pkg" -target /
+      sudo installer -pkg "$MACOS_DIR/.build/installer/graf-local.pkg" -target /
       restart_coreaudiod_for_driver_diagnostics
       run_probe
       ;;

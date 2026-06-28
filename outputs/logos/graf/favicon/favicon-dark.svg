@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Graf favicon dark</title>
+  <desc id="desc">Dark favicon for Graf with white phi-inspired audio mark.</desc>
+  <rect x="28" y="28" width="456" height="456" rx="96" fill="#111820"/>
+  <circle cx="256" cy="256" r="163" fill="#111820" stroke="#FFFFFF" stroke-width="34"/>
+  <rect x="238" y="54" width="36" height="72" rx="8" fill="#FFFFFF"/>
+  <rect x="238" y="386" width="36" height="72" rx="8" fill="#FFFFFF"/>
+  <rect x="211" y="222" width="24" height="92" rx="8" fill="#8B5CF6"/>
+  <rect x="244" y="190" width="24" height="124" rx="8" fill="#8B5CF6"/>
+  <rect x="277" y="236" width="24" height="78" rx="8" fill="#8B5CF6"/>
+</svg>

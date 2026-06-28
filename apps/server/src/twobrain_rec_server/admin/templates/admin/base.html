@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }} · GRAF</title>
+    <link rel="icon" href="{{ cabinet_static_url }}/favicon.ico" sizes="any">
+    <link rel="icon" href="{{ cabinet_static_url }}/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
+    <link rel="stylesheet" href="/static/cabinet/cabinet.css">
+    <link rel="stylesheet" href="{{ admin_static_url }}/admin.css">
+  </head>
+  <body data-surface-mode="standalone_browser">
+    <div class="app-shell admin-app-shell">
+      <aside class="sidebar admin-sidebar">
+        <div class="brand brand--wordmark">
+          <picture class="brand-wordmark brand-wordmark--sidebar">
+            <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-dark.png" srcset="{{ cabinet_static_url }}/graf-wordmark-dark@2x.png 2x" alt="ГРАФ">
+          </picture>
+          <div>
+            <div class="workspace-subtitle">Админка</div>
+          </div>
+        </div>
+        {% if view is defined and view.navigation is defined %}
+          <nav class="nav admin-nav" aria-label="Админ-навигация">
+            {% for item in view.navigation.items %}
+              <a class="admin-nav__link{% if item.id == view.navigation.active %} active is-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+            {% endfor %}
+          </nav>
+        {% endif %}
+      </aside>
+      <main class="main admin-main">
+        <header class="topline admin-header">
+          <div class="page-title">
+            <p class="admin-kicker">GRAF</p>
+            <h1>{% block title %}{{ page_title }}{% endblock %}</h1>
+            {% block subtitle %}{% endblock %}
+          </div>
+        </header>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

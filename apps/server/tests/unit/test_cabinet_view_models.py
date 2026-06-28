@@ -159,7 +159,7 @@ def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
 
 def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
     meeting = _meeting()
-    meeting.title = "meet.google.com/abc-defg-hij"
+    meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "legacy-bare-link-title"
 
     assert view_models.safe_title(meeting) == "legacy-bare-link-title"
@@ -167,7 +167,7 @@ def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
 
 def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
     meeting = _meeting()
-    meeting.title = "meet.google.com/abc-defg-hij"
+    meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "john@example.com"
 
     assert view_models.safe_title(meeting) == "Untitled meeting"
@@ -444,7 +444,7 @@ def test_governance_states_are_non_mutating_and_truthful() -> None:
     assert governance.download.state == "disabled"
     assert governance.retention.state == "planned"
     assert governance.delete.destructive is True
-    assert "2brain Rec" in governance.delete.label
+    assert "GRAF" in governance.delete.label
 
 
 def test_processing_state_uses_safe_reason_and_next_action() -> None:

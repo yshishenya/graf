@@ -4,7 +4,7 @@ export LC_ALL=C
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 EVIDENCE_DIR="$ROOT_DIR/specs/025-system-audio-capture-pivot/evidence"
-DEFAULT_APP_BINARY="$ROOT_DIR/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec"
+DEFAULT_APP_BINARY="$ROOT_DIR/apps/macos/RecApp/.build/GRAF.app/Contents/MacOS/GRAF"
 APP_BINARY="${SYSTEM_AUDIO_CPU_GATE_APP_BINARY:-$DEFAULT_APP_BINARY}"
 PHASE="${1:-}"
 SAMPLES="${SYSTEM_AUDIO_CPU_GATE_SAMPLES:-3}"
@@ -26,7 +26,7 @@ Environment:
       Expected app binary to sample. Defaults to the packaged repo app bundle.
   SYSTEM_AUDIO_CPU_GATE_APP_LOG=<path>
       App log used to bind activeRecording/stop CPU evidence to fresh app-local
-      recording events. Defaults to ~/Library/Logs/2brain Rec/2brain-rec.log.
+      recording events. Defaults to ~/Library/Logs/GRAF/graf.log.
   SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH=<epoch seconds>
       Minimum event timestamp for activeRecording/stop event binding.
   SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET=<bytes>
@@ -119,7 +119,7 @@ helper_pids() {
   ps -axo pid=,command= |
     awk -v self="$$" '
       $1 != self &&
-      $0 ~ /(\/2brain|\/TwoBrain|\/TwoBrainRec)/ &&
+      $0 ~ /(\/GRAF|\/2brain|\/TwoBrain|\/TwoBrainRec)/ &&
       index($0, "Helper") > 0 &&
       $0 ~ /Helper$/ {
         print $1
@@ -136,7 +136,7 @@ unexpected_app_pids() {
         sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", line)
       }
       pid != self &&
-      line ~ /^\/.*\/2brain Rec\.app\/Contents\/MacOS\/2brain Rec([[:space:]]|$)/ &&
+      line ~ /^\/.*\/GRAF\.app\/Contents\/MacOS\/GRAF([[:space:]]|$)/ &&
       !(line == expected || index(line, expected " ") == 1) {
         print pid
       }
@@ -144,7 +144,7 @@ unexpected_app_pids() {
 }
 
 app_log_byte_count() {
-  app_log="${SYSTEM_AUDIO_CPU_GATE_APP_LOG:-$HOME/Library/Logs/2brain Rec/2brain-rec.log}"
+  app_log="${SYSTEM_AUDIO_CPU_GATE_APP_LOG:-$HOME/Library/Logs/GRAF/graf.log}"
   [ -f "$app_log" ] || {
     printf '%s' 0
     return
@@ -173,7 +173,7 @@ app_log_has_event_since_epoch() {
   pattern="$1"
   since_epoch="${SYSTEM_AUDIO_CPU_GATE_EVENT_SINCE_EPOCH:-0}"
   log_offset="${SYSTEM_AUDIO_CPU_GATE_EVENT_LOG_OFFSET:-0}"
-  app_log="${SYSTEM_AUDIO_CPU_GATE_APP_LOG:-$HOME/Library/Logs/2brain Rec/2brain-rec.log}"
+  app_log="${SYSTEM_AUDIO_CPU_GATE_APP_LOG:-$HOME/Library/Logs/GRAF/graf.log}"
 
   case "$since_epoch" in
     *[!0-9]*|"") since_epoch=0 ;;

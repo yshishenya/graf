@@ -2265,7 +2265,7 @@ public enum SystemAudioStatusLabels {
     public static let localRecordingPausedStatus =
         "Запись на паузе. Остановить можно в любой момент."
     public static let meetingMuteTruthLimitationCopy =
-        "2brain не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в 2brain."
+        "GRAF не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в GRAF."
     public static let captureAudioTitle = "Уровни записи"
     public static let microphoneTitle = "Микрофон"
     public static let incomingTitle = "Встреча"
@@ -2280,12 +2280,15 @@ public enum SystemAudioStatusLabels {
     public static let calendarGenericMeetingTitle = "Встреча из календаря"
     public static let calendarJoinPromptMessage =
         "Скоро начало. Можно открыть встречу; запись начнется только вручную."
+    public static let calendarJoinOverlapPromptMessage =
+        "Сейчас несколько встреч из календаря. Выберите, какую открыть."
     public static let calendarRecordPromptMessage =
         "Встреча началась. Нажмите «Начать запись», когда будете готовы."
     public static let calendarOverlapPromptMessage =
-        "Сейчас несколько событий календаря. Начните запись вручную без привязки к событию."
+        "Сейчас несколько событий календаря. Выберите событие или начните запись без календарного контекста."
     public static let calendarPromptJoinActionTitle = "Войти во встречу"
     public static let calendarPromptRecordActionTitle = "Начать запись"
+    public static let calendarPromptRecordWithoutContextActionTitle = "Начать запись без календаря"
     public static let calendarPromptDismissActionTitle = "Скрыть"
     public static let recordingMeterFreshnessWindowSeconds: TimeInterval = 1.5
 

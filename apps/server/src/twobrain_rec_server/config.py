@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     minio_secret_key_file: Path | None = None
     smoke_credential_file: Path | None = None
     calendar_credential_key_file: Path | None = None
+    web_csrf_secret_file: Path | None = None
     support_incident_github_token_file: Path | None = None
 
     smoke_identity_class: str | None = None
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
     web_login_workspace_id: UUID | None = None
     email_login_delivery_enabled: bool = False
     email_login_from_address: str | None = None
-    email_login_from_name: str = "2brain Rec"
+    email_login_from_name: str = "GRAF"
     postal_api_url: AnyUrl | None = None
     postal_api_key_file: Path | None = None
     postal_host_header: str | None = None
@@ -96,6 +97,7 @@ class Settings(BaseSettings):
     max_upload_spool_memory_bytes: PositiveInt = Field(default=8_388_608)
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
     auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
+    web_csrf_secret: str = "twobrain_rec_dev_web_csrf_secret"
     auth_callback_state_ttl_seconds: PositiveInt = Field(default=900)
     legacy_header_auth_enabled: bool = False
     retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
@@ -127,6 +129,7 @@ class Settings(BaseSettings):
         "web_login_workspace_id",
         "postal_host_header",
         "calendar_credential_key_file",
+        "web_csrf_secret_file",
         "support_incident_github_token_file",
         mode="before",
     )
@@ -147,6 +150,7 @@ class Settings(BaseSettings):
             "smoke_credential_file": self.smoke_credential_file,
             "mediascribe_api_key_file": self.mediascribe_api_key_file,
             "calendar_credential_key_file": self.calendar_credential_key_file,
+            "web_csrf_secret_file": self.web_csrf_secret_file,
             "support_incident_github_token_file": self.support_incident_github_token_file,
         }
         for field_name, path in required_secret_files.items():
@@ -201,6 +205,8 @@ class Settings(BaseSettings):
             self.minio_access_key = self.minio_access_key_file.read_text(encoding="utf-8").strip()
         if self.minio_secret_key_file is not None:
             self.minio_secret_key = self.minio_secret_key_file.read_text(encoding="utf-8").strip()
+        if self.web_csrf_secret_file is not None:
+            self.web_csrf_secret = self.web_csrf_secret_file.read_text(encoding="utf-8").strip()
         provider_secret_files = {
             "yandex_client_secret_file": self.yandex_client_secret_file,
             "vk_client_secret_file": self.vk_client_secret_file,
@@ -227,9 +233,18 @@ class Settings(BaseSettings):
             raise ValueError("production database_url must not point at localhost or wildcard hosts")
         if self.minio_endpoint.split(":", maxsplit=1)[0] in unsafe_hosts:
             raise ValueError("production minio_endpoint must not point at localhost or wildcard hosts")
-        dev_secrets = {"twobrain_rec", "twobrain_rec_dev_secret", "minioadmin", "password", "changeme"}
+        dev_secrets = {
+            "twobrain_rec",
+            "twobrain_rec_dev_secret",
+            "twobrain_rec_dev_web_csrf_secret",
+            "minioadmin",
+            "password",
+            "changeme",
+        }
         if self.minio_access_key in dev_secrets or self.minio_secret_key in dev_secrets:
             raise ValueError("production MinIO API credentials must not use development defaults")
+        if self.web_csrf_secret in dev_secrets or len(self.web_csrf_secret) < 32:
+            raise ValueError("production web_csrf_secret must be explicit and non-placeholder")
         root_markers = ("root", "admin")
         if any(marker in self.minio_access_key.lower() for marker in root_markers):
             raise ValueError("production MinIO API access key must not be a root/admin credential")

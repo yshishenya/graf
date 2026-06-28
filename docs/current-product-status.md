@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-06-27
+Date: 2026-06-28
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -9,8 +9,11 @@ metadata-only evidence остаются подробной историей ре
 ## Accepted Now
 
 - macOS is the selected MVP platform.
-- The Core Audio HAL component publishes `2brain Rec Microphone` and
-  `2brain Rec Speaker`.
+- The current macOS product identity is `GRAF.app` with bundle id
+  `pro.2brain.graf`.
+- The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
+  with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
+  paths are kept only for cleanup and local data compatibility.
 - The installed local package can be upgraded, `coreaudiod` can be restarted,
   and both virtual devices return visible/alive in default-safe idle state.
 - Low-resource routing is the current local default: public virtual devices
@@ -143,8 +146,8 @@ metadata-only evidence остаются подробной историей ре
   `internal_pilot_candidate`, `user_rollout_ready`, and `production_ready` stay
   excluded until P1 launch blockers are closed.
 - Feature `035-mvp-loop-live-evidence` is implemented as the current
-  validation-only evidence pack after `022`. It proves the installed
-  `/Applications/2brain Rec.app` desktop loop with Record, Pause, Resume, Stop,
+  validation-only evidence pack after `022`. It covers the installed
+  `/Applications/GRAF.app` desktop loop with Record, Pause, Resume, Stop,
   metadata-safe screenshots, and latest local artifact validation. It also
   checks the production web owner route on `rec.2brain.pro`: `/meetings` exists
   but live owner review remains blocked by `401 missing_auth_context`, while
@@ -326,8 +329,8 @@ metadata-only evidence остаются подробной историей ре
   CalDAV presets, custom CalDAV/iCalendar for Russian and on-prem providers
   such as VK WorkSpace-compatible tenants, Mailion/MyOffice, R7-Office,
   CommuniGate Pro, RuPost, Nextcloud/SOGo-like deployments, plus native
-  normalization adapters for Google Calendar, Microsoft Graph, Exchange EWS,
-  and Bitrix24. The slice deliberately does not auto-join, auto-record, mutate
+  normalization adapters for Exchange EWS and Bitrix24. The slice deliberately
+  does not auto-join, auto-record, mutate
   calendars, send summaries/transcripts/reports, create attendee share grants,
   fetch attachments, perform retrospective matching, or use live provider
   credentials in committed evidence. Production credential-bearing calendar
@@ -348,6 +351,32 @@ metadata-only evidence остаются подробной историей ре
   build passed for app/package version `2026.06.27.2`. The local installer is
   not Developer ID signed or notarized; external distribution still needs a
   separate signing/notarization gate.
+- Feature `063-calendar-settings-ui` is implemented locally in the current
+  feature branch as the user-facing calendar settings layer on top of `060`.
+  It adds the web and embedded macOS cabinet route
+  `Настройки -> Интеграции -> Календари`, provider selection for Yandex,
+  Mail.ru, Exchange/EWS, Bitrix24, VK WorkSpace/custom CalDAV,
+  Mailion/MyOffice, R7-Office, CommuniGate Pro, RuPost,
+  Nextcloud/SOGo-like CalDAV, and custom CalDAV, explicit calendar
+  selection with zero selected by default, sync health/manual sync, safe
+  disconnect confirmation, prompt preferences, upcoming preview, duplicate
+  grouping, and overlap conflict choices including partial overlaps such as
+  12:00-13:00 plus 12:30-13:30. The UI states plainly that access is read-only:
+  2brain Rec reads selected future events, does not mutate calendars, does not
+  send summaries/transcripts/reports, does not grant attendee access, does not
+  auto-record or bot-join in 063, and does not retrospectively match older
+  recordings. Desktop unavailable/auth copy keeps provider credentials
+  server-owned and keeps native manual Record/Stop reachable. Local validation
+  on 2026-06-28 passed focused server calendar settings checks (`77 passed`),
+  server Ruff, focused macOS calendar/cabinet checks (`97 tests`), full macOS
+  suite (`693 tests`), forbidden-content scan with only safe passcode-detector
+  source references, removed-provider catalog scan with no matches in the
+  calendar feature surface, and full local CI
+  (`968 passed, 4 skipped, 148 warnings`, `ci_local_result=pass`). It was
+  merged through PR #2498 and prepared for release `v2026.06.28.6`; release and
+  production deploy evidence are recorded in the release closeout notes. This
+  slice is not user-rollout validated yet; moderated
+  usability/comprehension targets still need real participant evidence.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed

@@ -11,6 +11,7 @@ def test_calendar_tables_are_in_rls_workspace_inventory() -> None:
         "conference_link_candidates",
         "recording_calendar_context_links",
         "calendar_reminder_states",
+        "calendar_settings_preferences",
         "calendar_audit_events",
     }
 

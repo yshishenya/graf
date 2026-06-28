@@ -1,9 +1,17 @@
+from twobrain_rec_server.db.models.admin import (
+    AdminAuditEvent,
+    UserUsageDaily,
+    WorkspaceInvitation,
+    WorkspaceQuotaPolicy,
+    WorkspaceUsageDaily,
+)
 from twobrain_rec_server.db.models.calendar import (
     CalendarAuditEvent,
     CalendarCredentialEnvelope,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarReminderState,
+    CalendarSettingsPreference,
     CalendarSource,
     ConferenceLinkCandidate,
     ExternalCalendar,
@@ -67,6 +75,7 @@ from twobrain_rec_server.db.models.processing import (
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
+    "AdminAuditEvent",
     "DiarizationSegment",
     "ExportPackage",
     "IngestAuditEvent",
@@ -99,8 +108,12 @@ __all__ = [
     "UploadPart",
     "UploadSession",
     "UserIdentity",
+    "UserUsageDaily",
     "Workspace",
+    "WorkspaceInvitation",
     "WorkspaceMembership",
+    "WorkspaceQuotaPolicy",
+    "WorkspaceUsageDaily",
     "AuthAuditEvent",
     "AuthCallbackState",
     "AuthSession",
@@ -110,6 +123,7 @@ __all__ = [
     "CalendarEventSnapshot",
     "CalendarParticipant",
     "CalendarReminderState",
+    "CalendarSettingsPreference",
     "CalendarSource",
     "ConferenceLinkCandidate",
     "ExternalCalendar",

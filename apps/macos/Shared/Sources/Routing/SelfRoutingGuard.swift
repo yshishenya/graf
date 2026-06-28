@@ -32,10 +32,10 @@ public enum SelfRoutingDecision: Codable, Equatable, Sendable {
 }
 
 public struct SelfRoutingGuard: Sendable {
-    public static let microphoneDisplayName = "2brain Rec Microphone"
-    public static let speakerDisplayName = "2brain Rec Speaker"
-    public static let microphoneUID = "pro.2brain.rec.microphone"
-    public static let speakerUID = "pro.2brain.rec.speaker"
+    public static let microphoneDisplayName = "GRAF Microphone"
+    public static let speakerDisplayName = "GRAF Speaker"
+    public static let microphoneUID = "pro.2brain.graf.microphone"
+    public static let speakerUID = "pro.2brain.graf.speaker"
 
     public init() {}
 

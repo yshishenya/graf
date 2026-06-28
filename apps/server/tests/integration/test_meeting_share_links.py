@@ -86,8 +86,10 @@ def _seed_calendar_event_with_external_attendee(client) -> str:
         "/api/v1/calendar/sources",
         headers=auth_headers(),
         json={
-            "provider_family": "google_calendar",
-            "auth_mode": "oauth",
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "owner@example.test",
+            "credential_input": "synthetic-secret",
             "selected_provider_calendar_ids": ["primary"],
         },
     )
@@ -106,7 +108,7 @@ def _seed_calendar_event_with_external_attendee(client) -> str:
                 calendar,
                 normalize_calendar_event(
                     calendar_event_fixture(
-                        "google_calendar",
+                        "caldav_yandex",
                         starts_at=starts_at,
                         ends_at=starts_at + timedelta(hours=1),
                         participants=[

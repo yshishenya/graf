@@ -15,17 +15,17 @@ def test_classifies_common_conference_links_without_full_url_preview() -> None:
 
 
 def test_safe_link_preview_drops_query_and_path_secret_material() -> None:
-    assert safe_link_preview("https://meet.google.com/abc-defg-hij?pwd=secret") == "meet.google.com/..."
+    assert safe_link_preview("https://zoom.us/j/123456789?pwd=secret") == "zoom.us/..."
 
 
 def test_extracts_multiple_links_and_keeps_redacted_diagnostics() -> None:
     links = extract_conference_link_candidates(
-        "Join https://meet.google.com/abc-defg-hij?pwd=secret",
+        "Join https://zoom.us/j/123456789?pwd=secret",
         "Backup https://telemost.yandex.ru/j/00000000000000?passcode=123",
-        "Duplicate https://meet.google.com/abc-defg-hij?pwd=secret",
+        "Duplicate https://zoom.us/j/123456789?pwd=secret",
     )
 
-    assert [link.provider_family for link in links] == ["google_meet", "yandex_telemost"]
+    assert [link.provider_family for link in links] == ["zoom", "yandex_telemost"]
     assert all(link.redacted_url_preview.endswith("/...") for link in links)
     assert all("secret" not in link.redacted_url_preview for link in links)
     assert any(link.contains_passcode for link in links)
@@ -61,7 +61,7 @@ DTSTART:20260701T090000Z
 DTEND:20260701T100000Z
 SUMMARY:Cancelled meeting
 STATUS:CANCELLED
-DESCRIPTION:Old link https://meet.google.com/abc-defg-hij?pwd=secret
+DESCRIPTION:Old link https://zoom.us/j/123456789?pwd=secret
 END:VEVENT
 END:VCALENDAR
 """,

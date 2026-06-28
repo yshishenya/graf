@@ -115,8 +115,6 @@ Fixture coverage must include:
 - Attendee-heavy event.
 - Duplicate organizer/attendee copies.
 - Bitrix24 event with CRM links.
-- Google event with Meet conference data.
-- Microsoft Graph event with Teams onlineMeeting.
 - Exchange EWS recurring exception.
 
 ## 6. Forbidden Content Scan

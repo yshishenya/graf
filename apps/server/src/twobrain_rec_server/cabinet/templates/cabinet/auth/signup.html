@@ -1,6 +1,10 @@
 <main class="auth-page">
   <section class="auth-panel" aria-label="Регистрация">
-    <div class="auth-brand-wordmark">2brain Rec</div>
+    <div class="auth-brand-lockup">
+      <picture class="brand-wordmark brand-wordmark--auth">
+        <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-dark.png" srcset="{{ cabinet_static_url }}/graf-wordmark-dark@2x.png 2x" alt="ГРАФ">
+      </picture>
+    </div>
     <div>
       <h1>Зарегистрируйтесь бесплатно</h1>
     </div>
@@ -42,7 +46,7 @@
         <span class="chip disabled">OAuth позже</span>
         {% endif %}
       </div>
-      <a class="mini-link auth-help" href="#" aria-disabled="true">Зачем 2brain Rec доступ к календарю?</a>
+      <a class="mini-link auth-help" href="#" aria-disabled="true">Зачем GRAF доступ к календарю?</a>
       <div class="auth-divider">или</div>
       <a class="email-mode-trigger" href="{{ signup_email_href }}">
         <span class="provider-mark">@</span><span>Рабочая почта</span>
