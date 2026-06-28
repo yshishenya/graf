@@ -12,10 +12,17 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Feature `070-cabinet-login-polish`: login, sign-up and email code
+  confirmation pages now use a narrower shared auth panel so provider tiles
+  no longer stretch across oversized desktop/app windows.
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `070-cabinet-login-polish`: embedded macOS cabinet login now keeps
+  the web-auth path inside the app for HTTPS provider authorization legs and
+  safe provider callbacks during active auth continuation, while external
+  navigation outside login remains blocked.
+- Feature `070-cabinet-login-polish`: six-digit email codes now auto-submit
+  once after typing or pasting the full code.
 
 ### Безопасность
 - _Пока нет записей._
@@ -24,7 +31,11 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Feature `070-cabinet-login-polish`: local validation passed focused macOS
+  auth route/workspace checks, focused server auth asset checks, and full
+  `infra/scripts/ci-local.sh` with `984 passed, 4 skipped` and
+  `ci_local_result=pass`; the local RLS probe remained blocked without a test
+  Postgres database as expected.
 
 ## [2026.06.28.7] - 2026-06-28
 

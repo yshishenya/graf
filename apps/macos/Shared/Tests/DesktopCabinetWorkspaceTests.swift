@@ -72,6 +72,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .calendarSettings), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authProvider), .expiredSession)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authCallback), .expiredSession)
     }
 
     func testExpiredSessionRecoveryUsesEmbeddedLoginForDesktopMeetings() throws {
@@ -105,10 +107,31 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             headers: [:]
         ))
         let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        let provider = try XCTUnwrap(URL(string: "https://oauth.yandex.ru/authorize?state=state"))
+        let futureProvider = try XCTUnwrap(URL(string: "https://id.future-provider.example/authorize?state=state"))
+        let callback = try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/auth/callback/yandex?state=state&code=code"))
 
         XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
             for: .expiredSession,
             currentRoute: login,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .expiredSession,
+            currentRoute: provider,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .expiredSession,
+            currentRoute: futureProvider,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .expiredSession,
+            currentRoute: callback,
             initialRoute: nil,
             configuration: configuration
         ))

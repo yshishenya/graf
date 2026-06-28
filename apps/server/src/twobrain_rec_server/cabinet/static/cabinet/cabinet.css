@@ -444,7 +444,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   pointer-events: none;
 }
 .auth-panel {
-  width: min(640px, 100%);
+  --auth-content-width: min(100%, 448px);
+  width: min(520px, 100%);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(35,37,40,.96);
@@ -477,6 +478,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .auth-brand-wordmark { text-align: center; font-size: 25px; line-height: 1; font-weight: 850; }
 .auth-subtitle { color: var(--muted); font-size: 12px; line-height: 1.35; text-align: center; }
 .auth-methods { display: grid; gap: 12px; }
+.auth-methods, .auth-divider, .auth-form, .auth-secondary, .auth-alert {
+  width: var(--auth-content-width);
+  justify-self: center;
+}
 .auth-method-title { color: #f0f2f6; font-size: 14px; font-weight: 800; }
 .auth-actions { display: grid; gap: 8px; }
 .auth-provider-grid {

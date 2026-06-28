@@ -8,6 +8,8 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case admin
     case authLogin
     case authSignup
+    case authProvider
+    case authCallback
     case unsupported
     case external
     case forbiddenAction
@@ -38,6 +40,8 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedAuthLogin = "allowed_auth_login"
     case allowedAuthSignup = "allowed_auth_signup"
+    case allowedAuthProvider = "allowed_auth_provider"
+    case allowedAuthCallback = "allowed_auth_callback"
     case blockedFutureGovernance = "blocked_future_governance"
     case blockedNativeCaptureControl = "blocked_native_capture_control"
     case blockedLocalFileOrDiagnostic = "blocked_local_file_or_diagnostic"
@@ -74,11 +78,19 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         self.baseURL = DesktopCabinetConfiguration(baseURL: baseURL).baseURL
     }
 
-    public func decision(for url: URL) -> DesktopCabinetRouteDecision {
+    public func decision(for url: URL, allowExternalAuthProvider: Bool = false) -> DesktopCabinetRouteDecision {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return block(path: url.path, kind: .unsupported, reason: .invalidURL, message: "This meeting route cannot be opened.")
         }
         guard sameOrigin(url) else {
+            if allowExternalAuthProvider && scheme == "https" {
+                return DesktopCabinetRouteDecision(
+                    route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .authProvider),
+                    decision: .allow,
+                    reason: .allowedAuthProvider,
+                    userMessage: "Auth provider"
+                )
+            }
             return externalDecision(for: url)
         }
 
@@ -98,6 +110,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedAuthSignup,
                 userMessage: "Sign up"
+            )
+        }
+        if isAuthCallbackRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .authCallback),
+                decision: .allow,
+                reason: .allowedAuthCallback,
+                userMessage: "Auth callback"
             )
         }
         if components == ["desktop", "meetings"] {
@@ -229,6 +249,19 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
     private func isSignupRoute(_ components: [String]) -> Bool {
         components.first == "sign-up"
+    }
+
+    private func isAuthCallbackRoute(_ components: [String]) -> Bool {
+        components.count == 5 &&
+            components[0] == "api" &&
+            components[1] == "v1" &&
+            components[2] == "auth" &&
+            components[3] == "callback" &&
+            isSafeProviderId(components[4])
+    }
+
+    private func isSafeProviderId(_ value: String) -> Bool {
+        !value.isEmpty && value.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil
     }
 
     private func isCalendarSettingsRoute(_ components: [String]) -> Bool {
