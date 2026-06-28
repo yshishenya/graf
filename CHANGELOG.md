@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.28.6] - 2026-06-28
+
+
+### Добавлено
 - Feature `063-calendar-settings-ui`: добавлен рабочий экран
   `Настройки -> Интеграции -> Календари` для web cabinet и embedded macOS
   cabinet. Экран показывает read-only границу, поддерживаемых провайдеров,
@@ -58,8 +79,8 @@
   source-code detector references; removed-provider catalog scan found no
   matches in the calendar feature surface; full local CI passed `968 passed, 4
   skipped, 148 warnings` with `ci_local_result=pass`.
-  Release and production deploy evidence will be recorded by the release
-  closeout after merge.
+  Release and production deploy evidence is recorded in the GitHub Release
+  notes for `v2026.06.28.6`.
 
 ## [2026.06.28.5] - 2026-06-28
 
