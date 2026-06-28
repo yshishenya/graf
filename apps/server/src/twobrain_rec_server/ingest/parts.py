@@ -124,6 +124,10 @@ async def accept_part(
         close_upload_stream()
         raise ProblemDetail(status=409, code=conflict_code, title=conflict_title)
 
+    if track_role not in set(session.expected_track_roles):
+        close_upload_stream()
+        raise ProblemDetail(status=409, code="unexpected_track_role", title="Track role is not expected for this session")
+
     new_start = byte_offset
     new_end = byte_offset + byte_length
     expected_size = session.expected_track_sizes.get(track_role)

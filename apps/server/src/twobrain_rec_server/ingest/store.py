@@ -399,7 +399,11 @@ async def load_upload_session_record(
         TrackRole(role): int(size)
         for role, size in (model.expected_track_sizes or {}).items()
     }
-    expected_roles = [TrackRole(role) for role in (model.expected_track_roles or [])]
+    expected_roles = [TrackRole(role) for role in (model.expected_track_roles or [])] or [
+        TrackRole.MANIFEST,
+        TrackRole.MICROPHONE,
+        TrackRole.SYSTEM,
+    ]
     record = UploadSessionRecord(
         id=model.id,
         meeting_id=model.meeting_id,

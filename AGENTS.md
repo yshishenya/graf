@@ -132,7 +132,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/066-vk-id-web-login/plan.md
+at specs/067-dual-audio-formats/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues

@@ -1,5 +1,6 @@
+import AVFoundation
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -109,6 +110,67 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         XCTAssertTrue(manifest.microphoneStreamHealth?.diagnosticSafe == true)
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)
+    }
+
+    func testAppOwnedCaptureWritesHighQualityM4AReviewAssetWithoutChangingTranscriptionTracks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-package-review-m4a-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let micSource = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let incomingSource = BufferedLocalRecordingSampleSource(channelCount: 1)
+        micSource.append(Array(repeating: 0.16, count: 96_000))
+        incomingSource.append(Array(repeating: 0.24, count: 96_000))
+
+        let writer = LocalRecordingWriter(
+            store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { micSource },
+            incomingSampleSourceFactory: { incomingSource },
+            microphoneInputChannelCount: 1,
+            incomingInputChannelCount: 1,
+            recordMicrophone: true
+        )
+
+        let directory = try writer.start(
+            sessionId: "session-review-m4a",
+            startedAt: Date(timeIntervalSince1970: 210),
+            scopeApproval: scopeApproval(id: "scope-review-m4a"),
+            permissions: grantedPermissions(),
+            microphoneSelection: systemAudioPackageRecordingMicrophoneSelection()
+        )
+        Thread.sleep(forTimeInterval: 0.2)
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 212))
+
+        let reviewURL = directory.directoryURL.appendingPathComponent("meeting-review.m4a")
+        let reviewFile = try AVAudioFile(forReading: reviewURL)
+        XCTAssertEqual(Set(manifest.tracks.map(\.role)), Set([.localMic, .remoteSpeaker]))
+        let byteCount = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: reviewURL.path)[.size] as? NSNumber)
+            .intValue
+        XCTAssertGreaterThan(byteCount, 1_000)
+        XCTAssertEqual(Int(reviewFile.fileFormat.sampleRate), 48_000)
+        XCTAssertEqual(Int(reviewFile.fileFormat.channelCount), 1)
+        XCTAssertGreaterThan(reviewFile.length, 0)
+    }
+
+    func testReviewAudioWriterCapsSingleSidedSkewBuffer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("system-audio-package-review-skew-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let reviewURL = root.appendingPathComponent("meeting-review.m4a")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let writer = try CaptureRateAACReviewAudioWriter(url: reviewURL)
+        let samples = Array(repeating: Float(0.24), count: 240_000)
+
+        try samples.withUnsafeBufferPointer { buffer in
+            try writer.appendIncoming(samples: try XCTUnwrap(buffer.baseAddress), count: samples.count, channelCount: 1)
+        }
+
+        XCTAssertLessThanOrEqual(writer.pendingFrameCounts.incoming, CaptureRateAACReviewAudioWriter.maxBufferedSkewFrames)
+        XCTAssertEqual(writer.pendingFrameCounts.microphone, 0)
+        try writer.finish()
+        let reviewFile = try AVAudioFile(forReading: reviewURL)
+        XCTAssertGreaterThan(reviewFile.length, 0)
     }
 
     func testAsyncStopProducesSameDualTrackPackageWithoutMainThreadFinalization() async throws {

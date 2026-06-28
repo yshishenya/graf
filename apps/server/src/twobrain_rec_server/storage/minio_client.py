@@ -7,6 +7,8 @@ from minio.error import S3Error
 
 from twobrain_rec_server.config import Settings, get_settings
 
+MISSING_OBJECT_CODES = {"NoSuchKey", "NoSuchObject"}
+
 
 class MinioStorage:
     def __init__(self, settings: Settings | None = None) -> None:
@@ -43,7 +45,12 @@ class MinioStorage:
         await to_thread.run_sync(self.put_stream, object_key, stream, length)
 
     def get_bytes(self, object_key: str) -> bytes:
-        response = self.client.get_object(self.settings.minio_bucket, object_key)
+        try:
+            response = self.client.get_object(self.settings.minio_bucket, object_key)
+        except S3Error as exc:
+            if exc.code in MISSING_OBJECT_CODES:
+                raise KeyError(object_key) from exc
+            raise
         try:
             return response.read()
         finally:
@@ -57,7 +64,7 @@ class MinioStorage:
         try:
             self.client.remove_object(self.settings.minio_bucket, object_key)
         except S3Error as exc:
-            if exc.code not in {"NoSuchKey", "NoSuchObject"}:
+            if exc.code not in MISSING_OBJECT_CODES:
                 raise
 
     async def delete_object_async(self, object_key: str) -> None:

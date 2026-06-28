@@ -37,6 +37,8 @@ def test_missing_ranges_uses_expected_track_sizes_from_session(client) -> None:
         headers=auth_headers(),
         json={"expected_track_sizes": {"microphone": 10, "system": 12}},
     ).json()
+    assert session["expected_tracks"] == ["manifest", "microphone", "system"]
+    assert session["expected_track_sizes"] == {"microphone": 10, "system": 12}
 
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
@@ -57,6 +59,32 @@ def test_missing_ranges_uses_expected_track_sizes_from_session(client) -> None:
         "microphone": [{"start": 0, "end": 10}],
         "system": [{"start": 4, "end": 12}],
     }
+
+
+def test_upload_rejects_track_role_not_declared_for_session(client) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "resume-unexpected-role", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_tracks": ["manifest", "microphone", "system"]},
+    ).json()
+    data = deterministic_wav_bytes(4)
+    digest = sha256(data).hexdigest()
+
+    response = client.put(
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
+        headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+        content=data,
+    )
+    status = client.get(f"/api/v1/upload-sessions/{session['session_id']}", headers=auth_headers())
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "unexpected_track_role"
+    assert "playback" not in status.json()["accepted_bytes_by_track"]
 
 
 def test_missing_ranges_omits_tracks_that_are_fully_uploaded(client) -> None:

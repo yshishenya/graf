@@ -1,5 +1,5 @@
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -31,6 +31,127 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
         XCTAssertEqual(descriptors.first { $0.transportRole == .manifest }?.codec, "json")
         XCTAssertEqual(descriptors.first { $0.transportRole == .microphone }?.sampleRateHz, 16_000)
+    }
+
+    func testUploadFileDescriptorsIncludeOptionalPlaybackM4AReviewArtifact() throws {
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(for: makeQueueItem(includePlaybackM4A: true))
+        let playback = try XCTUnwrap(descriptors.first(where: { $0.transportRole == .playback }))
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest, .playback])
+        XCTAssertEqual(playback.url.lastPathComponent, "meeting-review.m4a")
+        XCTAssertEqual(playback.byteCount, 1_024)
+        XCTAssertEqual(playback.sha256, String(repeating: "d", count: 64))
+        XCTAssertEqual(playback.codec, "m4a-aac-lc")
+        XCTAssertEqual(playback.sampleRateHz, 48_000)
+        XCTAssertEqual(playback.channelCount, 1)
+        XCTAssertEqual(playback.durationSeconds, 60)
+    }
+
+    func testUploadFileDescriptorsRespectExistingServerSessionRoles() {
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(
+            for: makeQueueItem(includePlaybackM4A: true),
+            expectedRoles: [.microphone, .system, .manifest]
+        )
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
+    }
+
+    func testUploadFileDescriptorsTreatEmptyExpectedRolesAsUnrestrictedLegacySession() {
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(
+            for: makeQueueItem(includePlaybackM4A: true),
+            expectedRoles: []
+        )
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest, .playback])
+    }
+
+    func testUploadSessionFileDescriptorsDropMissingOptionalPlaybackBeforeSessionCreation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("desktop-upload-client-missing-playback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let descriptors = DesktopUploadClient.uploadSessionFileDescriptors(
+            for: makeQueueItem(includePlaybackM4A: true, directoryURL: root)
+        )
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
+    }
+
+    func testUploadSessionFileDescriptorsKeepPresentOptionalPlaybackBeforeSessionCreation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("desktop-upload-client-present-playback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 1_024).write(to: root.appendingPathComponent("meeting-review.m4a"))
+
+        let descriptors = DesktopUploadClient.uploadSessionFileDescriptors(
+            for: makeQueueItem(includePlaybackM4A: true, directoryURL: root)
+        )
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest, .playback])
+    }
+
+    func testUploadSessionFileDescriptorsDropSizeMismatchedOptionalPlaybackBeforeSessionCreation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("desktop-upload-client-mismatched-playback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 1_023).write(to: root.appendingPathComponent("meeting-review.m4a"))
+
+        let descriptors = DesktopUploadClient.uploadSessionFileDescriptors(
+            for: makeQueueItem(includePlaybackM4A: true, directoryURL: root)
+        )
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
+    }
+
+    func testProgressFractionUsesServerExpectedRolesWhenPlaybackIsNotPartOfExistingSession() {
+        let item = makeQueueItem(includePlaybackM4A: true).withTransition(
+            to: .retrying,
+            now: Date(timeIntervalSince1970: 2),
+            serverTruth: ServerTruthFingerprint(
+                acceptedBytesByTrack: [
+                    "microphone": 256,
+                    "system": 512,
+                    "manifest": 128
+                ],
+                expectedTrackRoles: ["microphone", "system", "manifest"]
+            )
+        )
+
+        XCTAssertEqual(item.progressFraction, 1)
+    }
+
+    func testServerTruthHasAcceptedAllFallsBackToLegacyArtifactSizes() {
+        let incomplete = ServerTruthFingerprint(acceptedBytesByTrack: [
+            "manifest": 128,
+            "microphone": 256,
+            "system": 511
+        ])
+        let complete = ServerTruthFingerprint(acceptedBytesByTrack: [
+            "manifest": 128,
+            "microphone": 256,
+            "system": 512
+        ])
+        let profile = ArtifactCompletenessProfile(
+            schemaVersion: LocalRecordingManifest.schemaVersion,
+            manifestPresent: true,
+            microphonePresent: true,
+            systemAudioPresent: true,
+            manifestSha256: String(repeating: "a", count: 64),
+            microphoneSha256: String(repeating: "b", count: 64),
+            systemAudioSha256: String(repeating: "c", count: 64),
+            manifestSizeBytes: 128,
+            microphoneSizeBytes: 256,
+            systemAudioSizeBytes: 512,
+            durationSeconds: 60,
+            trackCompleteness: [],
+            isUploadable: true
+        )
+
+        XCTAssertFalse(incomplete.hasAcceptedAll(profile: profile))
+        XCTAssertTrue(complete.hasAcceptedAll(profile: profile))
     }
 
     func testCreateMeetingPayloadUsesPersistedRecordingTimes() {
@@ -261,6 +382,10 @@ final class DesktopUploadClientTests: XCTestCase {
             .serverValidation
         )
         XCTAssertEqual(
+            DesktopUploadClientError.failureCategory(forHTTPStatus: 409, code: "unexpected_track_role"),
+            .serverValidation
+        )
+        XCTAssertEqual(
             DesktopUploadClientError.failureCategory(forHTTPStatus: 409, code: "storage_unavailable"),
             .network
         )
@@ -299,7 +424,48 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
-    private func makeQueueItem(recordingMetadata: RecordingDisplayMetadata? = nil) -> DesktopUploadQueueItem {
+    private func makeQueueItem(
+        recordingMetadata: RecordingDisplayMetadata? = nil,
+        includePlaybackM4A: Bool = false,
+        directoryURL: URL? = nil
+    ) -> DesktopUploadQueueItem {
+        let directoryPath = directoryURL?.path ?? "/tmp/directory"
+        var tracks: [UploadTrackCompleteness] = [
+            UploadTrackCompleteness(
+                transportRole: .microphone,
+                fileName: "mic.wav",
+                present: true,
+                byteCount: 256,
+                sha256: String(repeating: "b", count: 64),
+                durationSeconds: 60
+            ),
+            UploadTrackCompleteness(
+                transportRole: .system,
+                fileName: "incoming.wav",
+                present: true,
+                byteCount: 512,
+                sha256: String(repeating: "c", count: 64),
+                durationSeconds: 60
+            ),
+            UploadTrackCompleteness(
+                transportRole: .manifest,
+                fileName: "manifest.json",
+                present: true,
+                byteCount: 128,
+                sha256: String(repeating: "a", count: 64),
+                durationSeconds: 1
+            )
+        ]
+        if includePlaybackM4A {
+            tracks.append(UploadTrackCompleteness(
+                transportRole: .playback,
+                fileName: "meeting-review.m4a",
+                present: true,
+                byteCount: 1_024,
+                sha256: String(repeating: "d", count: 64),
+                durationSeconds: 60
+            ))
+        }
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
             manifestPresent: true,
@@ -312,17 +478,17 @@ final class DesktopUploadClientTests: XCTestCase {
             microphoneSizeBytes: 256,
             systemAudioSizeBytes: 512,
             durationSeconds: 60,
-            trackCompleteness: [],
+            trackCompleteness: tracks,
             isUploadable: true
         )
         return DesktopUploadQueueItem(
             id: "queue-id",
             sessionId: "session",
             directoryId: "directory",
-            directoryPath: "/tmp/directory",
-            manifestPath: "/tmp/directory/manifest.json",
-            microphonePath: "/tmp/directory/mic.wav",
-            systemAudioPath: "/tmp/directory/incoming.wav",
+            directoryPath: directoryPath,
+            manifestPath: URL(fileURLWithPath: directoryPath).appendingPathComponent("manifest.json").path,
+            microphonePath: URL(fileURLWithPath: directoryPath).appendingPathComponent("mic.wav").path,
+            systemAudioPath: URL(fileURLWithPath: directoryPath).appendingPathComponent("incoming.wav").path,
             state: .queued,
             retryMode: .automatic,
             retentionDeadline: Date(timeIntervalSince1970: 1_000),

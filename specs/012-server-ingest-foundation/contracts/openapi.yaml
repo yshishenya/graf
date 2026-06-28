@@ -5392,6 +5392,11 @@ components:
           anyOf:
           - $ref: '#/components/schemas/UploadSessionStatus'
           - type: 'null'
+        expected_tracks:
+          items:
+            $ref: '#/components/schemas/TrackRole'
+          type: array
+          title: Expected Tracks
         accepted_bytes_by_track:
           additionalProperties:
             type: integer
@@ -6686,6 +6691,7 @@ components:
           - none
           - combined_review_stream
           - single_retained_track
+          - stored_review_m4a
           title: Source Mode
           default: none
         included_sources:
@@ -7378,6 +7384,7 @@ components:
       - microphone
       - system
       - manifest
+      - playback
       title: TrackRole
     TranscriptReviewState:
       properties:
@@ -7537,6 +7544,18 @@ components:
           type: string
           format: date-time
           title: Expires At
+        expected_tracks:
+          items:
+            $ref: '#/components/schemas/TrackRole'
+          type: array
+          title: Expected Tracks
+        expected_track_sizes:
+          additionalProperties:
+            type: integer
+          propertyNames:
+            $ref: '#/components/schemas/TrackRole'
+          type: object
+          title: Expected Track Sizes
         accepted_bytes_by_track:
           additionalProperties:
             type: integer

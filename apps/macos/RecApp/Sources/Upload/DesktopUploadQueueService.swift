@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import Foundation
 import TwoBrainRecShared
@@ -674,7 +675,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private static func localArtifactFiles(for item: DesktopUploadQueueItem) -> [String] {
-        [item.manifestPath, item.microphonePath, item.systemAudioPath].filter { !$0.isEmpty && $0 != "metadata-only" }
+        var files = [item.manifestPath, item.microphonePath, item.systemAudioPath]
+        if item.artifactProfile.trackCompleteness.contains(where: { $0.transportRole == .playback }) {
+            files.append(item.reviewAudioPath)
+        }
+        return files.filter { !$0.isEmpty && $0 != "metadata-only" }
     }
 
     private static func localPurgeTombstonePaths(for item: DesktopUploadQueueItem) -> [String] {
@@ -989,7 +994,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             manifest: manifest,
             manifestURL: manifestURL,
             microphoneURL: microphoneURL,
-            systemAudioURL: systemAudioURL
+            systemAudioURL: systemAudioURL,
+            reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a")
         )
         let state: UploadItemState = profile.isUploadable ? .queued : .blocked
         let failureCategory: UploadFailureCategory = profile.isUploadable ? .none : .schemaIncompatibility
@@ -1266,11 +1272,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         manifestURL: URL,
         microphoneURL: URL,
-        systemAudioURL: URL
+        systemAudioURL: URL,
+        reviewAudioURL: URL? = nil
     ) -> ArtifactCompletenessProfile {
         let manifestSize = fileSize(manifestURL)
         let microphoneSize = fileSize(microphoneURL)
         let systemAudioSize = fileSize(systemAudioURL)
+        let reviewAudio = reviewAudioURL.flatMap(reviewAudioArtifact)
         let durationSeconds = max(1, Int(ceil(Double(max(0, manifest.stoppedAt.timeIntervalSince(manifest.startedAt))))))
         let manifestTrack = UploadTrackCompleteness(
             transportRole: .manifest,
@@ -1296,12 +1304,22 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             sha256: sha256Hex(url: systemAudioURL),
             durationSeconds: durationSeconds
         )
-        let tracks = [microphoneTrack, systemTrack, manifestTrack]
+        var tracks = [microphoneTrack, systemTrack, manifestTrack]
+        if let reviewAudio {
+            tracks.append(UploadTrackCompleteness(
+                transportRole: .playback,
+                fileName: "meeting-review.m4a",
+                present: true,
+                byteCount: reviewAudio.byteCount,
+                sha256: reviewAudio.sha256,
+                durationSeconds: reviewAudio.durationSeconds
+            ))
+        }
         let manifestRoles = Set(manifest.tracks.compactMap { DesktopUploadTransportRole.role(forLocalTrackRole: $0.role) })
         let hasRequiredManifestRoles = manifestRoles.isSuperset(of: [.microphone, .system])
         let uploadable = manifest.isServerUploadEligible &&
             hasRequiredManifestRoles &&
-            tracks.allSatisfy(\.uploadable)
+            [microphoneTrack, systemTrack, manifestTrack].allSatisfy(\.uploadable)
         let qualityWarningReason = uploadable ? Self.qualityWarningReason(for: manifest) : nil
         return ArtifactCompletenessProfile(
             schemaVersion: manifest.schemaVersion,
@@ -1475,6 +1493,24 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private static func fileSize(_ url: URL) -> Int64 {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
+    private static func reviewAudioArtifact(_ url: URL) -> (byteCount: Int64, sha256: String?, durationSeconds: Int)? {
+        let byteCount = fileSize(url)
+        guard byteCount > 0,
+              let file = try? AVAudioFile(forReading: url),
+              (file.fileFormat.settings[AVFormatIDKey] as? NSNumber)?.intValue == Int(kAudioFormatMPEG4AAC),
+              Int(file.fileFormat.sampleRate.rounded()) == 48_000,
+              Int(file.fileFormat.channelCount) == 1,
+              file.length > 0
+        else {
+            return nil
+        }
+        return (
+            byteCount,
+            sha256Hex(url: url),
+            max(1, Int(ceil(Double(file.length) / file.fileFormat.sampleRate)))
+        )
     }
 
     private static func sha256Hex(url: URL) -> String? {

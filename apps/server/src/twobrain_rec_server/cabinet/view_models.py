@@ -888,13 +888,18 @@ def playback_state(
             unavailable_reason="review_audio_unavailable",
             policy_label="Аудио для проверки недоступно",
         )
+    playback_source_mode = (
+        review_playback.reason
+        if review_playback.reason in {"combined_review_stream", "stored_review_m4a", "single_retained_track"}
+        else "combined_review_stream"
+    )
     return PlaybackReviewState(
         available=True,
         duration_seconds=duration_seconds,
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{meeting.id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode="combined_review_stream",
+        source_mode=playback_source_mode,
         included_sources=["local_microphone", "incoming_system"],
     )
 

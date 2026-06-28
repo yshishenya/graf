@@ -31,6 +31,7 @@ def test_openapi_exposes_desktop_recording_sync_state(client: TestClient) -> Non
         assert field in properties
     assert "accepted_bytes_by_track" in upload_session_properties
     assert "missing_ranges_by_track" in upload_session_properties
+    assert "expected_tracks" in upload_session_properties
     assert "desktop_truth_rule" in upload_session_properties
 
 

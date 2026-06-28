@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from tests.fakes.auth_contexts import ORG_ID, WORKSPACE_ID
 from twobrain_rec_server.db.models import (
+    MediaRevision,
     Meeting,
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
@@ -203,6 +204,57 @@ async def _audit_events(client: TestClient, meeting_id: UUID) -> list[MeetingEgr
 
 def replace_retained_audio_with_test_wav(client: TestClient, meeting_id: UUID) -> None:
     asyncio.run(_replace_retained_audio_with_test_wav(client, meeting_id))
+
+
+def add_retained_playback_m4a(client: TestClient, meeting_id: UUID, body: bytes = b"fixture-m4a-review") -> bytes:
+    asyncio.run(_add_retained_playback_m4a(client, meeting_id, body))
+    return body
+
+
+async def _add_retained_playback_m4a(client: TestClient, meeting_id: UUID, body: bytes) -> None:
+    storage = client.app_state["storage"]
+    object_key = f"tests/cabinet/{meeting_id}/meeting-review.m4a"
+    storage.put_bytes(object_key, body)
+    async with client.app_state["sessionmaker"]() as db:
+        media_revision = await db.scalar(
+            select(MediaRevision).where(
+                MediaRevision.workspace_id == WORKSPACE_ID,
+                MediaRevision.meeting_id == meeting_id,
+            )
+        )
+        artifact = await db.scalar(
+            select(TrackArtifact).where(
+                TrackArtifact.workspace_id == WORKSPACE_ID,
+                TrackArtifact.meeting_id == meeting_id,
+                TrackArtifact.track_role == TrackRole.PLAYBACK.value,
+            )
+        )
+        if artifact is None:
+            artifact = TrackArtifact(
+                meeting_id=meeting_id,
+                media_revision_id=media_revision.id if media_revision is not None else None,
+                workspace_id=WORKSPACE_ID,
+                track_role=TrackRole.PLAYBACK.value,
+                codec="m4a-aac-lc",
+                sample_rate_hz=48_000,
+                channel_count=1,
+                duration_seconds=1,
+                byte_length=len(body),
+                sha256=sha256(body).hexdigest(),
+                storage_object_key=object_key,
+                status="stored",
+            )
+            db.add(artifact)
+        else:
+            artifact.codec = "m4a-aac-lc"
+            artifact.sample_rate_hz = 48_000
+            artifact.channel_count = 1
+            artifact.duration_seconds = 1
+            artifact.byte_length = len(body)
+            artifact.sha256 = sha256(body).hexdigest()
+            artifact.storage_object_key = object_key
+            artifact.status = "stored"
+        await db.commit()
 
 
 async def _replace_retained_audio_with_test_wav(client: TestClient, meeting_id: UUID) -> None:

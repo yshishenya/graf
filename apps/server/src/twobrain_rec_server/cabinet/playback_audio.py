@@ -13,7 +13,7 @@ class ReviewAudio:
     body: bytes
     media_type: str
     duration_seconds: int
-    source_mode: Literal["combined_review_stream"]
+    source_mode: Literal["combined_review_stream", "stored_review_m4a"]
     included_sources: list[SourceRoleView]
 
 

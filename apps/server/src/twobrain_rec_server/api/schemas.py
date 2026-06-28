@@ -268,6 +268,8 @@ class UploadSessionResponse(BaseModel):
     status: UploadSessionStatus
     upload_strategy: UploadStrategy = UploadStrategy.SERVER_MEDIATED
     expires_at: datetime
+    expected_tracks: list[TrackRole] = Field(default_factory=list)
+    expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
     accepted_bytes_by_track: dict[str, int] = Field(default_factory=dict)
     processing_status: ProcessingStatus = ProcessingStatus.NOT_SUBMITTED
     workflow_id: None = None
@@ -292,6 +294,7 @@ class MissingRange(BaseModel):
 class DesktopSyncUploadSessionState(BaseModel):
     session_id: UUID | None = None
     status: UploadSessionStatus | None = None
+    expected_tracks: list[TrackRole] = Field(default_factory=list)
     accepted_bytes_by_track: dict[str, int] = Field(default_factory=dict)
     missing_ranges_by_track: dict[str, list[MissingRange]] = Field(default_factory=dict)
     desktop_truth_rule: str = "server_ranges_authoritative"
@@ -552,7 +555,7 @@ PlaybackUnavailableReason = Literal[
     "review_audio_unavailable",
     "storage_unavailable",
 ]
-PlaybackSourceMode = Literal["none", "combined_review_stream", "single_retained_track"]
+PlaybackSourceMode = Literal["none", "combined_review_stream", "single_retained_track", "stored_review_m4a"]
 GovernanceState = Literal["available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"]
 SlotStateValue = Literal["available", "disabled", "planned", "policy_blocked", "out_of_scope"]
 NextAction = Literal["wait", "retry_future", "contact_operator", "open_desktop_queue", "none"]

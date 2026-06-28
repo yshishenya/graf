@@ -1457,6 +1457,7 @@ public enum DesktopUploadTransportRole: String, Codable, CaseIterable, Sendable 
     case microphone
     case system
     case manifest
+    case playback
 
     public static func role(forLocalTrackRole role: AudioTrackRole) -> DesktopUploadTransportRole? {
         switch role {
@@ -1654,8 +1655,32 @@ public struct ArtifactCompletenessProfile: Codable, Equatable, Sendable {
         self.qualityWarningReason = qualityWarningReason
     }
 
+    public func totalUploadBytes(limitedToRoles roles: Set<String>? = nil) -> Int64 {
+        let legacySizes: [DesktopUploadTransportRole: Int64] = [
+            .manifest: manifestSizeBytes,
+            .microphone: microphoneSizeBytes,
+            .system: systemAudioSizeBytes
+        ]
+        let roleMatches: (DesktopUploadTransportRole) -> Bool = { role in
+            roles?.contains(role.rawValue) ?? true
+        }
+        if !trackCompleteness.isEmpty {
+            let total = trackCompleteness.reduce(Int64(0)) { result, track in
+                guard roleMatches(track.transportRole) else { return result }
+                return result + max(0, track.byteCount)
+            }
+            if total > 0 || roles == nil {
+                return total
+            }
+        }
+        return legacySizes.reduce(Int64(0)) { result, item in
+            guard roleMatches(item.key) else { return result }
+            return result + max(0, item.value)
+        }
+    }
+
     public var totalUploadBytes: Int64 {
-        manifestSizeBytes + microphoneSizeBytes + systemAudioSizeBytes
+        totalUploadBytes(limitedToRoles: nil)
     }
 }
 
@@ -1701,6 +1726,7 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
     public var processingStatus: String?
     public var acceptedBytesByTrack: [String: Int64]
     public var requiredTrackSha256: [String: String]
+    public var expectedTrackRoles: [String]?
     public var finalizedAt: Date?
     public var desktopTruthRule: String?
 
@@ -1712,6 +1738,7 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         processingStatus: String? = nil,
         acceptedBytesByTrack: [String: Int64] = [:],
         requiredTrackSha256: [String: String] = [:],
+        expectedTrackRoles: [String]? = nil,
         finalizedAt: Date? = nil,
         desktopTruthRule: String? = nil
     ) {
@@ -1722,17 +1749,43 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         self.processingStatus = processingStatus
         self.acceptedBytesByTrack = acceptedBytesByTrack
         self.requiredTrackSha256 = requiredTrackSha256
+        self.expectedTrackRoles = expectedTrackRoles
         self.finalizedAt = finalizedAt
         self.desktopTruthRule = desktopTruthRule
     }
 
     public func hasAcceptedAll(profile: ArtifactCompletenessProfile) -> Bool {
-        for track in profile.trackCompleteness {
-            guard acceptedBytesByTrack[track.transportRole.rawValue, default: 0] >= track.byteCount else {
+        let roles = uploadProgressRoles
+        let tracks = profile.trackCompleteness.filter { roles?.contains($0.transportRole.rawValue) ?? true }
+        if !tracks.isEmpty {
+            for track in tracks {
+                guard acceptedBytesByTrack[track.transportRole.rawValue, default: 0] >= track.byteCount else {
+                    return false
+                }
+            }
+            return true
+        }
+        let legacySizes: [(String, Int64)] = [
+            (DesktopUploadTransportRole.manifest.rawValue, profile.manifestSizeBytes),
+            (DesktopUploadTransportRole.microphone.rawValue, profile.microphoneSizeBytes),
+            (DesktopUploadTransportRole.system.rawValue, profile.systemAudioSizeBytes)
+        ]
+        for (role, byteCount) in legacySizes where roles?.contains(role) ?? true {
+            guard acceptedBytesByTrack[role, default: 0] >= max(0, byteCount) else {
                 return false
             }
         }
         return true
+    }
+
+    public var uploadProgressRoles: Set<String>? {
+        if let expectedTrackRoles, !expectedTrackRoles.isEmpty {
+            return Set(expectedTrackRoles)
+        }
+        if !requiredTrackSha256.isEmpty {
+            return Set(requiredTrackSha256.keys)
+        }
+        return nil
     }
 }
 
@@ -1986,6 +2039,11 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var retentionDecision: RetentionDecision
     public var supportIncidentSubmission: DesktopSupportIncidentSubmissionState?
 
+    public var reviewAudioPath: String {
+        guard !directoryPath.isEmpty && directoryPath != "metadata-only" else { return "metadata-only" }
+        return URL(fileURLWithPath: directoryPath).appendingPathComponent("meeting-review.m4a").path
+    }
+
     public init(
         id: String,
         sessionId: String,
@@ -2051,9 +2109,14 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     }
 
     public var progressFraction: Double {
-        let total = artifactProfile.totalUploadBytes
+        if state == .uploaded { return 1 }
+        let roles = serverTruth.uploadProgressRoles
+        let total = artifactProfile.totalUploadBytes(limitedToRoles: roles)
         guard total > 0 else { return state == .uploaded ? 1 : 0 }
-        let accepted = serverTruth.acceptedBytesByTrack.values.reduce(Int64(0), +)
+        let accepted = serverTruth.acceptedBytesByTrack.reduce(Int64(0)) { result, item in
+            guard roles?.contains(item.key) ?? true else { return result }
+            return result + item.value
+        }
         return min(1, max(0, Double(accepted) / Double(total)))
     }
 

@@ -23,6 +23,7 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.cabinet.access import AccessDecision
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.cabinet.playback_audio import (
+    ReviewAudio,
     ReviewAudioBuildError,
     build_combined_review_wav,
 )
@@ -188,12 +189,23 @@ async def stored_audio_artifacts(
             .where(
                 TrackArtifact.workspace_id == workspace_id,
                 TrackArtifact.meeting_id == meeting_id,
-                TrackArtifact.track_role.in_([TrackRole.SYSTEM.value, TrackRole.MICROPHONE.value]),
+                TrackArtifact.track_role.in_(
+                    [TrackRole.PLAYBACK.value, TrackRole.SYSTEM.value, TrackRole.MICROPHONE.value]
+                ),
                 TrackArtifact.status == "stored",
             )
             .order_by(TrackArtifact.track_role.desc())
         )
     ).all()
+
+
+def _is_stored_review_m4a(artifact: TrackArtifact) -> bool:
+    return (
+        artifact.codec == "m4a-aac-lc"
+        and artifact.sample_rate_hz == 48_000
+        and artifact.channel_count == 1
+        and artifact.byte_length > 0
+    )
 
 
 async def review_playback_state(
@@ -234,6 +246,15 @@ async def review_playback_state(
         artifact.track_role: artifact
         for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     }
+    playback = artifacts.get(TrackRole.PLAYBACK.value)
+    if playback is not None and _is_stored_review_m4a(playback):
+        return ArtifactEgressState(
+            artifact_class="audio",
+            state="available",
+            label="Review playback",
+            reason="stored_review_m4a",
+            action="disabled",
+        )
     if TrackRole.MICROPHONE.value not in artifacts or TrackRole.SYSTEM.value not in artifacts:
         return ArtifactEgressState(
             artifact_class="audio",
@@ -246,7 +267,7 @@ async def review_playback_state(
         artifact_class="audio",
         state="available",
         label="Review playback",
-        reason="server_mediated_review_playback",
+        reason="combined_review_stream",
         action="disabled",
     )
 
@@ -275,6 +296,7 @@ async def download_artifact(
             policy_reason="meeting_deletion_active",
             metadata={"artifact_class": artifact_class, "outcome": "denied"},
         )
+        await db.commit()
         raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
     states = {
         state.artifact_class: state
@@ -310,13 +332,29 @@ async def download_artifact(
         metadata={"artifact_class": artifact_class, "viewer_access_state": access.state, "request_class": "download"},
     )
     if artifact_class == "audio":
-        artifact = (await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id))[0]
-        get_bytes = getattr(storage, "get_bytes", None)
-        if get_bytes is None:
-            raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable")
-        body = get_bytes(artifact.storage_object_key)
-        filename = "meeting-audio.bin"
-        media_type = "application/octet-stream"
+        try:
+            review_audio = await _load_review_audio(db, storage=storage, meeting=meeting)
+        except ReviewAudioBuildError as exc:
+            status = 503 if exc.reason == "storage_unavailable" else 409
+            code = "storage_unavailable" if status == 503 else "audio_unavailable"
+            title = "Storage unavailable" if status == 503 else "Audio unavailable"
+            await record_egress_audit_event(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                actor_user_id=actor_user_id,
+                device_id=device_id,
+                event_type="download_denied",
+                outcome="denied",
+                artifact_class=artifact_class,
+                policy_reason=exc.reason,
+                metadata={"artifact_class": artifact_class, "outcome": "denied", "request_class": "download"},
+            )
+            await db.commit()
+            raise ProblemDetail(status=status, code=code, title=title) from exc
+        body = review_audio.body
+        filename = _review_audio_filename(review_audio)
+        media_type = review_audio.media_type
     elif artifact_class == "transcript":
         body = (await _transcript_text(db, meeting=meeting, result=result)).encode("utf-8")
         filename = "meeting-transcript.txt"
@@ -336,7 +374,12 @@ async def download_artifact(
         outcome="completed",
         artifact_class=artifact_class,
         policy_reason="policy_allowed",
-        metadata={"artifact_class": artifact_class, "outcome": "completed", "byte_length": len(body)},
+        metadata={
+            "artifact_class": artifact_class,
+            "outcome": "completed",
+            "byte_length": len(body),
+            "source_mode": review_audio.source_mode if artifact_class == "audio" else None,
+        },
     )
     return DownloadArtifact(filename=filename, media_type=media_type, body=body)
 
@@ -374,44 +417,13 @@ async def playback_artifact(
         await db.commit()
         raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
 
-    artifacts = {
-        artifact.track_role: artifact
-        for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
-    }
-    mic = artifacts.get(TrackRole.MICROPHONE.value)
-    incoming = artifacts.get(TrackRole.SYSTEM.value)
-    if mic is None or incoming is None:
-        await _record_playback_denied(
-            db,
-            meeting=meeting,
-            actor_user_id=actor_user_id,
-            device_id=device_id,
-            reason="missing_audio_source",
-        )
-        await db.commit()
-        raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
-
-    get_bytes = getattr(storage, "get_bytes", None)
-    if get_bytes is None:
-        await _record_playback_denied(
-            db,
-            meeting=meeting,
-            actor_user_id=actor_user_id,
-            device_id=device_id,
-            reason="storage_unavailable",
-        )
-        await db.commit()
-        raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable")
-
     try:
-        review_audio = build_combined_review_wav(
-            [
-                ("local_microphone", get_bytes(mic.storage_object_key)),
-                ("incoming_system", get_bytes(incoming.storage_object_key)),
-            ]
-        )
+        review_audio = await _load_review_audio(db, storage=storage, meeting=meeting)
     except (KeyError, ReviewAudioBuildError) as exc:
         reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
+        status = 503 if reason == "storage_unavailable" else 409
+        code = "storage_unavailable" if status == 503 else "review_audio_unavailable"
+        title = "Storage unavailable" if status == 503 else "Review audio unavailable"
         await _record_playback_denied(
             db,
             meeting=meeting,
@@ -420,10 +432,14 @@ async def playback_artifact(
             reason=reason,
         )
         await db.commit()
-        raise ProblemDetail(status=409, code="review_audio_unavailable", title="Review audio unavailable") from exc
+        raise ProblemDetail(status=status, code=code, title=title) from exc
 
     try:
-        response_body, status_code, headers = _playback_response_for_range(review_audio.body, range_header)
+        response_body, status_code, headers = _playback_response_for_range(
+            review_audio.body,
+            range_header,
+            filename=_review_audio_filename(review_audio),
+        )
     except ProblemDetail:
         await _record_playback_denied(
             db,
@@ -477,10 +493,78 @@ async def playback_artifact(
     )
 
 
-def _playback_response_for_range(body: bytes, range_header: str | None) -> tuple[bytes, int, dict[str, str]]:
+async def _load_review_audio(
+    db: AsyncSession,
+    *,
+    storage: object,
+    meeting: Meeting,
+) -> ReviewAudio:
+    get_bytes_async = getattr(storage, "get_bytes_async", None)
+    get_bytes = getattr(storage, "get_bytes", None)
+    if get_bytes_async is None and get_bytes is None:
+        raise ReviewAudioBuildError("storage_unavailable")
+
+    async def read_object(object_key: str) -> bytes:
+        try:
+            if get_bytes_async is not None:
+                return await get_bytes_async(object_key)
+            return get_bytes(object_key)
+        except KeyError:
+            raise
+        except Exception as exc:
+            raise ReviewAudioBuildError("storage_unavailable") from exc
+
+    artifacts = {
+        artifact.track_role: artifact
+        for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    }
+    playback = artifacts.get(TrackRole.PLAYBACK.value)
+    if playback is not None and _is_stored_review_m4a(playback):
+        try:
+            body = await read_object(playback.storage_object_key)
+            return ReviewAudio(
+                body=body,
+                media_type="audio/mp4",
+                duration_seconds=playback.duration_seconds,
+                source_mode="stored_review_m4a",
+                included_sources=["local_microphone", "incoming_system"],
+            )
+        except KeyError:
+            pass
+
+    mic = artifacts.get(TrackRole.MICROPHONE.value)
+    incoming = artifacts.get(TrackRole.SYSTEM.value)
+    if mic is None or incoming is None:
+        raise ReviewAudioBuildError("missing_audio_source")
+
+    try:
+        mic_body = await read_object(mic.storage_object_key)
+        incoming_body = await read_object(incoming.storage_object_key)
+    except KeyError as exc:
+        raise ReviewAudioBuildError("missing_audio_source") from exc
+    return build_combined_review_wav(
+        [
+            ("local_microphone", mic_body),
+            ("incoming_system", incoming_body),
+        ]
+    )
+
+
+def _review_audio_filename(review_audio: ReviewAudio) -> str:
+    if review_audio.media_type == "audio/mp4":
+        return "meeting-review.m4a"
+    return "meeting-review.wav"
+
+
+def _playback_response_for_range(
+    body: bytes,
+    range_header: str | None,
+    *,
+    filename: str,
+) -> tuple[bytes, int, dict[str, str]]:
     headers = {
         "Accept-Ranges": "bytes",
-        "Content-Disposition": 'inline; filename="meeting-review.wav"',
+        "Content-Disposition": f'inline; filename="{filename}"',
     }
     if not range_header:
         headers["Content-Length"] = str(len(body))
