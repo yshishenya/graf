@@ -6,18 +6,6 @@
   gap: 18px;
 }
 
-.admin-brand {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-  align-items: start;
-}
-
-.admin-sidebar-wordmark {
-  width: 84px;
-  height: 32px;
-}
-
 .admin-main {
   padding-bottom: 72px;
 }

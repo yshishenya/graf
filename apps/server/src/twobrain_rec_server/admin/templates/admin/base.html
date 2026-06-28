@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ page_title }} · GRAF</title>
     <link rel="icon" href="{{ cabinet_static_url }}/favicon.ico" sizes="any">
-    <link rel="icon" href="{{ cabinet_static_url }}/graf-logo.svg" type="image/svg+xml">
+    <link rel="icon" href="{{ cabinet_static_url }}/favicon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/cabinet/cabinet.css">
     <link rel="stylesheet" href="{{ admin_static_url }}/admin.css">
@@ -13,11 +13,13 @@
   <body data-surface-mode="standalone_browser">
     <div class="app-shell admin-app-shell">
       <aside class="sidebar admin-sidebar">
-        <div class="brand admin-brand">
-          <picture class="brand-wordmark admin-sidebar-wordmark">
-            <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-light.png" srcset="{{ cabinet_static_url }}/graf-wordmark-light@2x.png 2x" alt="ГРАФ">
+        <div class="brand brand--wordmark">
+          <picture class="brand-wordmark brand-wordmark--sidebar">
+            <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-dark.png" srcset="{{ cabinet_static_url }}/graf-wordmark-dark@2x.png 2x" alt="ГРАФ">
           </picture>
-          <div class="workspace-subtitle">Админка</div>
+          <div>
+            <div class="workspace-subtitle">Админка</div>
+          </div>
         </div>
         {% if view is defined and view.navigation is defined %}
           <nav class="nav admin-nav" aria-label="Админ-навигация">

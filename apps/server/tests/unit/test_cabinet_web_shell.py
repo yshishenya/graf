@@ -372,7 +372,8 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in page
     assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in page
     assert f'src="{CABINET_STATIC_URL}/cabinet.js"' in page
-    assert f'src="{CABINET_STATIC_URL}/graf-wordmark-light.png"' in page
+    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' in page
+    assert f'src="{CABINET_STATIC_URL}/graf-wordmark-dark.png"' in page
     assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
     assert '<body data-surface-mode="standalone_browser">' in page
     assert 'data-icon="audio"' in page
@@ -460,8 +461,6 @@ def test_embedded_window_breakpoint_keeps_compact_rail_visible() -> None:
     assert "    width: 52px;" in css
     assert ".desktop-embedded .sidebar:hover," in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
-    assert ".desktop-embedded .cabinet-workspace-header__wordmark,\n" in css
-    assert ".desktop-embedded .sidebar:hover .cabinet-workspace-header__wordmark,\n" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
 
 

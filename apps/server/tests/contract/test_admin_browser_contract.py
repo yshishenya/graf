@@ -23,11 +23,11 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert response.status_code == 200
     assert "<title>Администрирование · GRAF</title>" in response.text
     assert 'href="/static/cabinet/favicon.ico"' in response.text
-    assert 'href="/static/cabinet/graf-logo.svg"' in response.text
+    assert 'href="/static/cabinet/favicon-32.png"' in response.text
     assert '<p class="admin-kicker">GRAF</p>' in response.text
     assert "/static/cabinet/cabinet.css" in response.text
-    assert 'src="/static/cabinet/graf-wordmark-light.png"' in response.text
-    assert 'src="/static/cabinet/graf-logo.svg"' not in response.text
+    assert "/static/cabinet/graf-wordmark-dark.png" in response.text
+    assert "/static/cabinet/graf-logo.svg" not in response.text
     assert "/static/admin/graf-cyrillic-mic-inverted.png" not in response.text
     assert "admin-header-brand" not in response.text
     assert 'alt="ГРАФ"' in response.text
