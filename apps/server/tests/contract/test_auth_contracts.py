@@ -382,10 +382,10 @@ def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_h
             return issued.token
 
     session_cookie = client.portal.call(issue_bound_cookie)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
 
     created = client.post(
         "/api/v1/meetings",
-        cookies={AUTH_SESSION_COOKIE_NAME: session_cookie},
         json={"local_recording_id": "cookie-auth-desktop-recording", "duration_seconds": 60},
     )
 
