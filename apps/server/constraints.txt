@@ -1,10 +1,125 @@
-alembic==1.14.1
-asyncpg==0.30.0
-fastapi==0.115.6
-minio==7.2.12
-pydantic==2.10.5
-pydantic-settings==2.7.1
-python-multipart==0.0.20
-sqlalchemy==2.0.37
-structlog==25.1.0
-uvicorn==0.34.0
+alembic==1.18.5
+    # via twobrain-rec-server
+annotated-doc==0.0.4
+    # via fastapi
+annotated-types==0.7.0
+    # via pydantic
+anyio==4.14.1
+    # via
+    #   httpx
+    #   starlette
+    #   watchfiles
+argon2-cffi==25.1.0
+    # via minio
+argon2-cffi-bindings==25.1.0
+    # via argon2-cffi
+asyncpg==0.31.0
+    # via twobrain-rec-server
+certifi==2026.6.17
+    # via
+    #   httpcore
+    #   httpx
+    #   minio
+cffi==2.0.0
+    # via
+    #   argon2-cffi-bindings
+    #   cryptography
+click==8.4.2
+    # via uvicorn
+colorama==0.4.6 ; sys_platform == 'win32'
+    # via
+    #   click
+    #   uvicorn
+cryptography==49.0.0
+    # via twobrain-rec-server
+fastapi==0.138.1
+    # via twobrain-rec-server
+greenlet==3.5.3
+    # via sqlalchemy
+h11==0.16.0
+    # via
+    #   httpcore
+    #   uvicorn
+httpcore==1.0.9
+    # via httpx
+httptools==0.8.0
+    # via uvicorn
+httpx==0.28.1
+    # via twobrain-rec-server
+idna==3.18
+    # via
+    #   anyio
+    #   httpx
+jinja2==3.1.6
+    # via twobrain-rec-server
+mako==1.3.12
+    # via alembic
+markupsafe==3.0.3
+    # via
+    #   jinja2
+    #   mako
+minio==7.2.20
+    # via twobrain-rec-server
+nexus-rpc==1.4.0
+    # via temporalio
+protobuf==6.33.6
+    # via temporalio
+pycparser==3.0 ; implementation_name != 'PyPy'
+    # via cffi
+pycryptodome==3.23.0
+    # via minio
+pydantic==2.13.4
+    # via
+    #   fastapi
+    #   pydantic-settings
+    #   twobrain-rec-server
+pydantic-core==2.46.4
+    # via pydantic
+pydantic-settings==2.14.2
+    # via twobrain-rec-server
+python-dotenv==1.2.2
+    # via
+    #   pydantic-settings
+    #   uvicorn
+python-multipart==0.0.32
+    # via twobrain-rec-server
+pyyaml==6.0.3
+    # via uvicorn
+sqlalchemy==2.0.51
+    # via
+    #   alembic
+    #   twobrain-rec-server
+starlette==1.3.1
+    # via fastapi
+structlog==26.1.0
+    # via twobrain-rec-server
+temporalio==1.29.0
+    # via twobrain-rec-server
+types-protobuf==6.32.1.20260221
+    # via temporalio
+typing-extensions==4.15.0
+    # via
+    #   alembic
+    #   fastapi
+    #   minio
+    #   nexus-rpc
+    #   pydantic
+    #   pydantic-core
+    #   sqlalchemy
+    #   temporalio
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via
+    #   fastapi
+    #   pydantic
+    #   pydantic-settings
+urllib3==2.7.0
+    # via minio
+uvicorn==0.49.0
+    # via twobrain-rec-server
+uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
+    # via uvicorn
+watchfiles==1.2.0
+    # via uvicorn
+websockets==16.0
+    # via uvicorn

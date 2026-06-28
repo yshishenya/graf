@@ -111,11 +111,9 @@ def test_browser_icon_probe_routes_do_not_pollute_cabinet_with_404(client) -> No
 def test_meetings_page_accepts_owner_session_cookie_without_legacy_headers(client) -> None:
     seed_cabinet_meetings(client)
     client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
 
-    response = client.get(
-        "/meetings",
-        cookies={AUTH_SESSION_COOKIE_NAME: OWNER_REVIEW_TEST_TOKEN},
-    )
+    response = client.get("/meetings")
 
     assert response.status_code == 200
     assert "Мои встречи" in response.text
@@ -125,11 +123,9 @@ def test_meetings_page_accepts_owner_session_cookie_without_legacy_headers(clien
 def test_desktop_meetings_page_accepts_owner_session_cookie_without_legacy_headers(client) -> None:
     seed_cabinet_meetings(client)
     client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
 
-    response = client.get(
-        "/desktop/meetings",
-        cookies={AUTH_SESSION_COOKIE_NAME: OWNER_REVIEW_TEST_TOKEN},
-    )
+    response = client.get("/desktop/meetings")
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
@@ -340,8 +336,9 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert callback.headers["location"] == "/meetings"
     session_cookie = callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
     assert session_cookie
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
 
-    meetings = client.get("/meetings", cookies={AUTH_SESSION_COOKIE_NAME: session_cookie})
+    meetings = client.get("/meetings")
     assert meetings.status_code == 200
     assert "Проектный синк" in meetings.text
     assert "missing_auth_context" not in meetings.text
@@ -418,8 +415,9 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
     assert callback.headers["location"] == "/meetings"
     session_cookie = callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
     assert session_cookie
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
 
-    meetings = client.get("/meetings", cookies={AUTH_SESSION_COOKIE_NAME: session_cookie})
+    meetings = client.get("/meetings")
     assert meetings.status_code == 200
     assert "Мои встречи" in meetings.text
 
@@ -488,7 +486,8 @@ def test_meetings_page_rejects_missing_web_session_without_legacy_headers(client
 
 
 def test_meetings_page_rejects_invalid_owner_session_cookie(client) -> None:
-    response = client.get("/meetings", cookies={AUTH_SESSION_COOKIE_NAME: "unknown-session-token"})
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, "unknown-session-token")
+    response = client.get("/meetings")
 
     assert response.status_code == 401
     assert response.json()["code"] == "auth_session_invalid"
@@ -503,7 +502,8 @@ def test_meetings_page_rejects_expired_owner_session_cookie(client) -> None:
         )
     )
 
-    response = client.get("/meetings", cookies={AUTH_SESSION_COOKIE_NAME: "expired-owner-review-token"})
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, "expired-owner-review-token")
+    response = client.get("/meetings")
 
     assert response.status_code == 401
     assert response.json()["code"] == "auth_session_expired"
@@ -518,7 +518,8 @@ def test_meetings_page_rejects_denied_owner_session_device_binding(client) -> No
         )
     )
 
-    response = client.get("/meetings", cookies={AUTH_SESSION_COOKIE_NAME: "denied-owner-review-token"})
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, "denied-owner-review-token")
+    response = client.get("/meetings")
 
     assert response.status_code == 403
     assert response.json()["code"] == "device_revoked"
