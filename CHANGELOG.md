@@ -15,9 +15,6 @@
 - Feature `070-cabinet-login-polish`: login, sign-up and email code
   confirmation pages now use a narrower shared auth panel so provider tiles
   no longer stretch across oversized desktop/app windows.
-- Feature `063-calendar-settings-ui`: экран календарных настроек упрощен под
-  короткий рабочий путь подключения, переиспользует общий cabinet shell/sidebar
-  и показывает счетчики источников/календарей с корректными русскими формами.
 
 ### Исправлено
 - Feature `070-cabinet-login-polish`: embedded macOS cabinet login now keeps
@@ -39,6 +36,29 @@
   `infra/scripts/ci-local.sh` with `992 passed, 4 skipped` and
   `ci_local_result=pass`; the local RLS probe remained blocked without a test
   Postgres database as expected.
+
+## [2026.06.30.2] - 2026-06-30
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Feature `063-calendar-settings-ui`: экран календарных настроек упрощен под
+  короткий рабочий путь подключения, переиспользует общий cabinet shell/sidebar
+  и показывает счетчики источников/календарей с корректными русскими формами.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
 
 ## [2026.06.30.1] - 2026-06-30
 
