@@ -67,7 +67,7 @@
 
 - [X] T019 [US1] Enable settings calendar navigation items and active state mapping in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
 - [X] T020 [US1] Implement web and embedded calendar settings routes in `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [X] T021 [US1] Render the Calendar settings page shell with breadcrumb, title, subtitle, and actionable empty state in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/calendar_settings.html`
+- [X] T021 [US1] Render the reusable cabinet page shell and Calendar settings content with breadcrumb, title, subtitle, and actionable empty state in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/shell.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html`
 - [X] T022 [US1] Render the Calendar settings fragment for HTMX refreshes and embedded cabinet reuse in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html`
 - [X] T023 [US1] Allow the embedded macOS route kind and same-origin decision for calendar settings in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`
 - [X] T024 [US1] Route the macOS sidebar Settings item to the embedded calendar settings destination while preserving meeting workspace fallback in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
@@ -90,7 +90,7 @@
 ### Implementation for User Story 2
 
 - [X] T027 [US2] Add reusable safe Russian boundary copy and forbidden-action labels to the calendar settings read model in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [X] T028 [US2] Render the read-only boundary block at the top of Calendar settings in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html`
+- [X] T028 [US2] Render the read-only boundary as a progressive disclosure below the primary setup path in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html`
 - [X] T029 [US2] Add provider-return and policy-limited boundary messages to calendar settings rendering in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
 - [X] T030 [US2] Ensure embedded unavailable/auth copy says desktop stores no provider credentials and manual recording remains available in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`
 

@@ -559,6 +559,31 @@ def test_settings_shell_renders_calendar_connection_anchor() -> None:
     assert 'href="/desktop/settings/integrations/calendar"' not in page
 
 
+def test_calendar_settings_reuses_common_cabinet_shell() -> None:
+    page = render_calendar_settings_page(calendar_settings_surface(provider_payloads=[], sources=[]), embedded=True)
+
+    assert page.count('data-cabinet-shell') == 1
+    assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in page
+    assert 'data-cabinet-rail-toggle' in page
+    assert 'data-active-nav="settings"' in page
+    assert 'href="/desktop/settings/integrations/calendar"' in page
+    assert page.count('class="sidebar-foot"') == 1
+    assert "Пробный период 7 дней" in page
+    assert "GRAF" in page
+
+
+def test_sidebar_markup_lives_in_reusable_sections_macro() -> None:
+    pages_dir = SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "pages"
+    sections_template = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
+
+    assert all('<aside class="sidebar"' not in path.read_text() for path in pages_dir.glob("*.html"))
+    assert sections_template.count('<aside class="sidebar"') == 1
+    assert "{% macro cabinet_sidebar(" in sections_template
+    assert "{{ cabinet_sidebar(" in sections_template
+
+
 def test_cabinet_rail_toggle_js_contract() -> None:
     js = _cabinet_js()
 

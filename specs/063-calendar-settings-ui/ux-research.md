@@ -84,7 +84,7 @@ Calendar settings succeed when the screen answers three questions immediately: w
 ### Fix This Week
 
 - Make `Настройки -> Интеграции -> Календари` reachable in web and embedded cabinet.
-- Add top read-only boundary block.
+- Keep the read-only boundary visible as progressive disclosure below the primary setup path, not as a top disclaimer.
 - Show connected source cards with selected count, sync state, last successful sync, and actions.
 - Add calendar picker where zero selected calendars is allowed and visibly inactive.
 

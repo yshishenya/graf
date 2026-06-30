@@ -124,6 +124,31 @@ def test_calendar_settings_safe_state_copy_covers_empty_loading_policy_and_priva
     assert "secret-" not in combined.lower()
 
 
+def test_calendar_settings_count_words_use_russian_forms() -> None:
+    one_source = calendar_settings_source()
+    one_calendar = calendar_settings_calendar(one_source, selected=True)
+    two_sources = [
+        calendar_settings_source(provider_label="Источник 1"),
+        calendar_settings_source(provider_label="Источник 2"),
+    ]
+    five_sources = [
+        calendar_settings_source(provider_label=f"Источник {index}") for index in range(5)
+    ]
+
+    one_surface = view_models.calendar_settings_surface(
+        provider_payloads=[],
+        sources=[one_source],
+        calendars_by_source={one_source.id: [one_calendar]},
+    )
+    two_surface = view_models.calendar_settings_surface(provider_payloads=[], sources=two_sources)
+    five_surface = view_models.calendar_settings_surface(provider_payloads=[], sources=five_sources)
+
+    assert one_surface.source_count_word == "источник"
+    assert one_surface.selected_calendar_count_total_word == "календарь"
+    assert two_surface.source_count_word == "источника"
+    assert five_surface.source_count_word == "источников"
+
+
 def test_calendar_settings_source_state_needs_selection_after_connect() -> None:
     source = calendar_settings_source(connection_state="active", sync_state="synced")
     calendars = [

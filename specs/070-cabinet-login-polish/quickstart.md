@@ -58,7 +58,7 @@ PYTHONPATH=src uv run --extra dev pytest -q tests/contract/test_cabinet_static_a
 
 Observed:
 
-- `31 passed in 23.09s`
+- `31 passed in 25.11s`
 
 ```sh
 swift test --package-path apps/macos --filter DesktopCabinetRoutePolicyTests
@@ -82,7 +82,7 @@ infra/scripts/ci-local.sh
 
 Observed:
 
-- `988 passed, 4 skipped`
+- `992 passed, 4 skipped`
 - server lint passed
 - python compile passed
 - deployment evidence scan passed
