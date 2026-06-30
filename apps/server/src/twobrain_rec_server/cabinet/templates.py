@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from functools import lru_cache
 from hashlib import sha256
-from importlib.resources import files
+from pathlib import Path
 from typing import Any
 
 from fastapi import Request
-from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
+from jinja2 import Environment
 from markupsafe import Markup
 from starlette.responses import HTMLResponse
+
+from twobrain_rec_server.templates import (
+    html_response,
+    package_path,
+    render_template_from,
+    template_environment,
+)
 
 CABINET_STATIC_URL = "/static/cabinet"
 
@@ -42,37 +49,29 @@ TRUSTED_HTML_SOURCES = frozenset(
 )
 
 
-def _cabinet_package_root() -> Any:
-    return files("twobrain_rec_server.cabinet")
-
-
 def cabinet_template_dir() -> str:
-    return str(_cabinet_package_root().joinpath("templates"))
+    return package_path("twobrain_rec_server.cabinet", "templates")
 
 
 def cabinet_static_dir() -> str:
-    return str(_cabinet_package_root().joinpath("static", "cabinet"))
+    return package_path("twobrain_rec_server.cabinet", "static", "cabinet")
 
 
 @lru_cache(maxsize=32)
 def cabinet_static_asset_url(filename: str) -> str:
-    path = _cabinet_package_root().joinpath("static", "cabinet", filename)
+    path = Path(cabinet_static_dir(), filename)
     version = sha256(path.read_bytes()).hexdigest()[:12]
     return f"{CABINET_STATIC_URL}/{filename}?v={version}"
 
 
-@lru_cache(maxsize=1)
 def get_cabinet_templates() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(cabinet_template_dir()),
-        autoescape=select_autoescape(("html", "xml"), default_for_string=True),
-        undefined=StrictUndefined,
-    )
+    return template_environment(cabinet_template_dir())
 
 
 def render_template(template_name: str, **context: Any) -> str:
-    template = get_cabinet_templates().get_template(template_name)
-    return template.render(
+    return render_template_from(
+        get_cabinet_templates(),
+        template_name,
         cabinet_static_asset_url=cabinet_static_asset_url,
         cabinet_static_url=CABINET_STATIC_URL,
         **context,
@@ -108,7 +107,7 @@ def cabinet_html_response(
     status_code: int = 200,
     hx_request: bool = False,
 ) -> HTMLResponse:
-    response = HTMLResponse(html, status_code=status_code)
+    response = html_response(html, status_code=status_code)
     if hx_request:
         response.headers["Vary"] = "HX-Request"
     return response
