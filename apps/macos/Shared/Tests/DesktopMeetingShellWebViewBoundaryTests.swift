@@ -12,10 +12,11 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
         XCTAssertGreaterThan(DesktopMeetingShellChrome.recordingStripHeight, 0)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
-        XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(
+        XCTAssertFalse(DesktopMeetingShellChrome.shouldShowExpandedInspector(
             manualExpanded: false,
             hasActiveRecording: true
         ))
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: makeActiveSession()))
     }
 
     func testNativeProductSidebarImplementationIsRemovedFromShellSource() throws {

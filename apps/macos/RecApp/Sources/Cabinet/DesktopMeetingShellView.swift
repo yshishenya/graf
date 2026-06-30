@@ -36,8 +36,8 @@ public enum DesktopMeetingShellChrome {
     public static let inspectorToggleCollapsedLabel = "Показать панель управления"
     public static let inspectorToggleExpandedLabel = "Скрыть панель управления"
 
-    public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActiveRecording: Bool) -> Bool {
-        manualExpanded || hasActiveRecording
+    public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActiveRecording _: Bool) -> Bool {
+        manualExpanded
     }
 }
 
