@@ -43,20 +43,6 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
-    func testMeetingsSidebarItemTargetsEmbeddedMeetingList() throws {
-        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
-
-        XCTAssertEqual(
-            DesktopMeetingShellSidebarItem.meetings.destinationRoute(configuration: configuration)?.absoluteString,
-            "https://rec.2brain.dev/desktop/meetings"
-        )
-        XCTAssertEqual(
-            DesktopMeetingShellSidebarItem.settings.destinationRoute(configuration: configuration)?.absoluteString,
-            "https://rec.2brain.dev/desktop/settings/integrations/calendar"
-        )
-        XCTAssertEqual(DesktopMeetingShellSidebarItem.meetings.accessibilityLabel, "Открыть список встреч")
-    }
-
     func testEmbeddedWebViewTracksMainFrameRouteChangesForNativeNavigation() throws {
         let list = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
         let detail = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033"))
@@ -177,8 +163,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 DesktopMeetingShellCabinetStatusPresentation.resolved(
                     cabinetConfigured: true,
                     cabinetState: state
-                ).menuStatusText,
-                "Кабинет доступен",
+                ).tileTitle,
+                "Сервер доступен",
                 "\(state)"
             )
         }
@@ -205,8 +191,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             DesktopMeetingShellCabinetStatusPresentation.resolved(
                 cabinetConfigured: true,
                 cabinetState: .expiredSession
-            ).menuStatusText,
-            "Кабинет доступен"
+            ).tileTitle,
+            "Сервер доступен"
         )
     }
 
@@ -315,8 +301,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             embeddedSurfaceLoaded: false
         )
 
-        XCTAssertEqual(presentation.sidebarSubtitle, "Нужен вход")
-        XCTAssertEqual(presentation.menuStatusText, "Нужен вход")
+        XCTAssertEqual(presentation.tileTitle, "Нужен вход")
         XCTAssertEqual(presentation.tileDetail, "Откройте кабинет заново")
         XCTAssertEqual(presentation.tone, .warning)
         XCTAssertFalse(DesktopCabinetState.expiredSession.shouldShowEmbeddedSurface)
@@ -363,11 +348,10 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             cabinetState: .loading
         )
 
-        XCTAssertEqual(presentation.menuStatusText, "Проверяем кабинет")
         XCTAssertEqual(presentation.tileTitle, "Проверяем сервер")
         XCTAssertEqual(presentation.systemImage, "clock")
         XCTAssertEqual(presentation.tone, .neutral)
-        XCTAssertFalse(presentation.menuStatusText.localizedCaseInsensitiveContains("задан"))
+        XCTAssertFalse(presentation.tileTitle.localizedCaseInsensitiveContains("задан"))
         XCTAssertNotEqual(presentation.systemImage, "checkmark.circle")
     }
 
@@ -378,8 +362,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 cabinetState: state
             )
 
-            XCTAssertEqual(presentation.sidebarSubtitle, "Сервер недоступен", "\(state)")
-            XCTAssertEqual(presentation.menuStatusText, "Сервер недоступен", "\(state)")
+            XCTAssertEqual(presentation.tileTitle, "Сервер недоступен", "\(state)")
             XCTAssertEqual(presentation.tileDetail, "Запись работает локально", "\(state)")
             XCTAssertEqual(presentation.systemImage, "wifi.slash", "\(state)")
             XCTAssertEqual(presentation.tone, .error, "\(state)")
@@ -396,11 +379,10 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             cabinetState: .expiredSession
         )
 
-        XCTAssertEqual(ready.menuStatusText, "Кабинет доступен")
         XCTAssertEqual(ready.tileTitle, "Сервер доступен")
         XCTAssertEqual(ready.systemImage, "checkmark.circle")
         XCTAssertEqual(ready.tone, .success)
-        XCTAssertEqual(expired.menuStatusText, "Нужен вход")
+        XCTAssertEqual(expired.tileTitle, "Нужен вход")
         XCTAssertEqual(expired.systemImage, "person.crop.circle.badge.exclamationmark")
         XCTAssertEqual(expired.tone, .warning)
     }
@@ -423,7 +405,6 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 cabinetState: state
             )
 
-            XCTAssertNotEqual(presentation.menuStatusText, "Кабинет доступен", "\(state)")
             XCTAssertNotEqual(presentation.tileTitle, "Сервер доступен", "\(state)")
             XCTAssertNotEqual(presentation.systemImage, "checkmark.circle", "\(state)")
             XCTAssertNotEqual(presentation.tone, .success, "\(state)")
@@ -454,8 +435,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
 
         XCTAssertEqual(route.path, "/desktop/meetings/meeting-051")
         XCTAssertNil(route.fragment)
-        XCTAssertNotEqual(loading.menuStatusText, "Кабинет доступен")
-        XCTAssertEqual(ready.menuStatusText, "Кабинет доступен")
+        XCTAssertNotEqual(loading.tileTitle, "Сервер доступен")
+        XCTAssertEqual(ready.tileTitle, "Сервер доступен")
         XCTAssertEqual(ready.systemImage, "checkmark.circle")
     }
 

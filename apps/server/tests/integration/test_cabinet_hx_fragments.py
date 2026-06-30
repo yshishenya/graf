@@ -3,6 +3,20 @@ from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
+def assert_no_shell_or_sidebar(html: str) -> None:
+    forbidden = [
+        "<!doctype html>",
+        "data-cabinet-shell",
+        "data-cabinet-navigation",
+        "cabinet-sidebar",
+        "cabinet-sidebar-nav",
+        "cabinet-rail-toggle",
+        'aria-label="Навигация кабинета"',
+    ]
+    for marker in forbidden:
+        assert marker not in html
+
+
 def test_hx_meeting_list_returns_only_approved_list_fragment(client) -> None:
     seed_cabinet_meetings(client)
 
@@ -16,8 +30,7 @@ def test_hx_meeting_list_returns_only_approved_list_fragment(client) -> None:
     assert '<div id="meeting-list-region"' in response.text
     assert 'data-cabinet-fragment="meeting-list"' in response.text
     assert "Проектный синк" in response.text
-    assert "<!doctype html>" not in response.text
-    assert "data-cabinet-shell" not in response.text
+    assert_no_shell_or_sidebar(response.text)
 
 
 def test_hx_desktop_meeting_list_uses_embedded_fragment_routes(client) -> None:
@@ -32,7 +45,7 @@ def test_hx_desktop_meeting_list_uses_embedded_fragment_routes(client) -> None:
     assert response.headers["Vary"] == "HX-Request"
     assert f'href="/desktop/meetings/{seeds.ready_id}"' in response.text
     assert '<div id="meeting-list-region"' in response.text
-    assert "<!doctype html>" not in response.text
+    assert_no_shell_or_sidebar(response.text)
 
 
 def test_hx_meeting_detail_returns_only_approved_detail_fragment(client) -> None:
@@ -48,8 +61,7 @@ def test_hx_meeting_detail_returns_only_approved_detail_fragment(client) -> None
     assert '<div id="meeting-detail-region"' in response.text
     assert 'data-cabinet-fragment="meeting-detail"' in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text
-    assert "<!doctype html>" not in response.text
-    assert "data-cabinet-shell" not in response.text
+    assert_no_shell_or_sidebar(response.text)
 
 
 def test_hx_deletion_report_returns_only_approved_report_fragment(client) -> None:
@@ -71,8 +83,7 @@ def test_hx_deletion_report_returns_only_approved_report_fragment(client) -> Non
     assert '<div id="deletion-report-region"' in response.text
     assert 'data-cabinet-fragment="deletion-report"' in response.text
     assert "Отчет удаления" in response.text
-    assert "<!doctype html>" not in response.text
-    assert "data-cabinet-shell" not in response.text
+    assert_no_shell_or_sidebar(response.text)
 
 
 def test_hx_desktop_deletion_report_uses_embedded_back_route(client) -> None:
@@ -93,4 +104,4 @@ def test_hx_desktop_deletion_report_uses_embedded_back_route(client) -> None:
     assert response.headers["Vary"] == "HX-Request"
     assert 'data-cabinet-fragment="deletion-report"' in response.text
     assert 'href="/desktop/meetings"' in response.text
-    assert "<!doctype html>" not in response.text
+    assert_no_shell_or_sidebar(response.text)

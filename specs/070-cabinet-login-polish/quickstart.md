@@ -49,7 +49,7 @@ Do not record real OAuth codes, tokens, account identifiers, or private email co
 
 ## Validation Evidence
 
-### 2026-06-28 focused validation
+### 2026-06-30 refreshed validation after master merge
 
 ```sh
 cd apps/server
@@ -58,7 +58,7 @@ PYTHONPATH=src uv run --extra dev pytest -q tests/contract/test_cabinet_static_a
 
 Observed:
 
-- `31 passed in 22.90s`
+- `31 passed in 23.09s`
 
 ```sh
 swift test --package-path apps/macos --filter DesktopCabinetRoutePolicyTests
@@ -74,7 +74,7 @@ swift test --package-path apps/macos --filter DesktopCabinetWorkspaceTests
 
 Observed:
 
-- `29 tests, 0 failures`
+- `28 tests, 0 failures`
 
 ```sh
 infra/scripts/ci-local.sh
@@ -82,7 +82,7 @@ infra/scripts/ci-local.sh
 
 Observed:
 
-- `984 passed, 4 skipped`
+- `988 passed, 4 skipped`
 - server lint passed
 - python compile passed
 - deployment evidence scan passed

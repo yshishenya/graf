@@ -33,9 +33,34 @@
 ### Операции
 - Feature `070-cabinet-login-polish`: local validation passed focused macOS
   auth route/workspace checks, focused server auth asset checks, and full
-  `infra/scripts/ci-local.sh` with `984 passed, 4 skipped` and
+  `infra/scripts/ci-local.sh` with `988 passed, 4 skipped` and
   `ci_local_result=pass`; the local RLS probe remained blocked without a test
   Postgres database as expected.
+
+## [2026.06.28.8] - 2026-06-28
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Feature `069-universal-sidebar`: пользовательский cabinet теперь собирает
+  левую навигацию через один server-owned shell/sidebar contract для web и
+  desktop embedded поверхностей; страницы владеют только content region, а
+  fragments остаются content-only и не дублируют sidebar.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `069-universal-sidebar`: добавлены Spec Kit артефакты, quickstart,
+  shell contract и GitHub issue sync для архитектурного среза единой sidebar.
+
+### Операции
+- _Пока нет записей._
 
 ## [2026.06.28.7] - 2026-06-28
 
