@@ -60,10 +60,20 @@ class GitHubIssueClient:
 
     async def label_names(self, *, owner: str, repo: str) -> set[str]:
         _validate_target_repo(owner=owner, repo=repo)
-        data = await self._request_json("GET", f"/repos/{owner}/{repo}/labels?per_page=100")
-        if not isinstance(data, list):
-            raise GitHubIssueClientError("support_incident.github_unavailable")
-        return {str(item.get("name")) for item in data if isinstance(item, dict) and item.get("name")}
+        names: set[str] = set()
+        page = 1
+        while True:
+            data = await self._request_json(
+                "GET",
+                f"/repos/{owner}/{repo}/labels",
+                params={"per_page": 100, "page": page},
+            )
+            if not isinstance(data, list):
+                raise GitHubIssueClientError("support_incident.github_unavailable")
+            names.update(str(item.get("name")) for item in data if isinstance(item, dict) and item.get("name"))
+            if len(data) < 100:
+                return names
+            page += 1
 
     async def get_issue(self, *, owner: str, repo: str, issue_number: int) -> dict[str, Any]:
         _validate_target_repo(owner=owner, repo=repo)
