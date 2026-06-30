@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from hashlib import sha256
 from importlib.resources import files
 from typing import Any
 
@@ -53,6 +54,13 @@ def cabinet_static_dir() -> str:
     return str(_cabinet_package_root().joinpath("static", "cabinet"))
 
 
+@lru_cache(maxsize=32)
+def cabinet_static_asset_url(filename: str) -> str:
+    path = _cabinet_package_root().joinpath("static", "cabinet", filename)
+    version = sha256(path.read_bytes()).hexdigest()[:12]
+    return f"{CABINET_STATIC_URL}/{filename}?v={version}"
+
+
 @lru_cache(maxsize=1)
 def get_cabinet_templates() -> Environment:
     return Environment(
@@ -64,7 +72,11 @@ def get_cabinet_templates() -> Environment:
 
 def render_template(template_name: str, **context: Any) -> str:
     template = get_cabinet_templates().get_template(template_name)
-    return template.render(cabinet_static_url=CABINET_STATIC_URL, **context)
+    return template.render(
+        cabinet_static_asset_url=cabinet_static_asset_url,
+        cabinet_static_url=CABINET_STATIC_URL,
+        **context,
+    )
 
 
 def trusted_component_html(html: str, *, source: str) -> Markup:

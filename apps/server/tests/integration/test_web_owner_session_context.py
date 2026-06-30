@@ -323,7 +323,7 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert 'class="auth-panel"' in start.text
     assert 'class="code-grid"' in start.text
     assert "data-code-form" in start.text
-    assert 'src="/static/cabinet/cabinet.js"' in start.text
+    assert 'src="/static/cabinet/cabinet.js?v=' in start.text
 
     callback = client.post(
         "/login/email/verify",

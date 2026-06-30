@@ -176,7 +176,7 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert 'method="get"' in response.text
     assert 'data-hx-target="#meeting-list-region"' in response.text
     assert 'data-hx-select="#meeting-list-region"' in response.text
-    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in response.text
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in response.text
     assert "<!doctype html>" in response.text
     assert "<style>" not in response.text
 
@@ -223,7 +223,7 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert 'href="/desktop/meetings"' in response.text
     assert 'href="/desktop/settings/integrations/calendar"' in response.text
     assert 'href="/meetings"' not in response.text
-    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in response.text
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in response.text
     assert "Записи встреч" in response.text
     assert "Проектный синк" in response.text
     assert "<style>" not in response.text
