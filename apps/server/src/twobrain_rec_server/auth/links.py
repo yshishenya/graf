@@ -89,13 +89,12 @@ async def _find_workspace_candidates(
 
 
 async def _anchor_identity_for_user(db: AsyncSession, user_id: UUID) -> UUID | None:
-    row = await db.scalar(
+    return await db.scalar(
         select(ExternalIdentity.id)
         .where(ExternalIdentity.user_id == user_id)
         .order_by(ExternalIdentity.created_at.asc())
         .limit(1)
     )
-    return row
 
 
 async def _membership_or_error(db: AsyncSession, user_id: UUID, workspace_id: UUID) -> None:

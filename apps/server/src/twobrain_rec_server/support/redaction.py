@@ -363,7 +363,7 @@ def _redact_safe_identity(
         return value, 0
     if (
         allow_recording_prefix
-        and (value.startswith("local:") or value.startswith("server:"))
+        and value.startswith(("local:", "server:"))
         and _is_safe_fingerprint(value.split(":", 1)[1])
     ):
         return value, 0

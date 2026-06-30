@@ -270,7 +270,7 @@ async def get_meeting_lifecycle_state_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    return lifecycle_state(await lifecycle_for_meeting(db, meeting=meeting))
+    return lifecycle_state(await lifecycle_for_meeting(meeting=meeting))
 
 
 @router.post(
@@ -294,7 +294,7 @@ async def retry_meeting_deletion_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    state = await lifecycle_for_meeting(db, meeting=meeting)
+    state = await lifecycle_for_meeting(meeting=meeting)
     raise ProblemDetail(
         status=409,
         code="deletion_retry_unavailable",

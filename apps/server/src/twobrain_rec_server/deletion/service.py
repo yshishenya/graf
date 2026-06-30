@@ -200,7 +200,7 @@ async def request_meeting_deletion(
     )
 
 
-async def lifecycle_for_meeting(db: AsyncSession, *, meeting: Meeting) -> DeletionState:
+async def lifecycle_for_meeting(*, meeting: Meeting) -> DeletionState:
     return DeletionState(meeting.deletion_state or DeletionState.NONE.value)
 
 

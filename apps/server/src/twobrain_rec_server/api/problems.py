@@ -120,7 +120,7 @@ def _custody_defaults(problem: ProblemDetail) -> dict[str, str]:
             retry_class=CustodyRetryClass.NOT_RETRYABLE,
             action=CustodyNormalUserAction.COPY_SAFE_REPORT,
         )
-    if problem.status == 401 or problem.status == 403:
+    if problem.status in {401, 403}:
         return _custody_default(
             owner=CustodyOwner.MEETING_OWNER,
             retry_class=CustodyRetryClass.PAUSED_UNTIL_USER_ACTION,
@@ -161,10 +161,8 @@ def _custody_default(
 
 def _is_browser_cabinet_path(path: str) -> bool:
     return (
-        path == "/meetings"
-        or path.startswith("/meetings/")
-        or path == "/desktop/meetings"
-        or path.startswith("/desktop/meetings/")
+        path in {"/meetings", "/desktop/meetings"}
+        or path.startswith(("/meetings/", "/desktop/meetings/"))
     )
 
 

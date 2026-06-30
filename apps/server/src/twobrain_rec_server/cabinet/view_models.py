@@ -851,8 +851,7 @@ def calendar_settings_notices(
 
 
 def safe_calendar_label(raw: str | None, *, fallback: str) -> str:
-    safe = safe_title_candidate(raw)
-    return safe if safe else fallback
+    return safe_title_candidate(raw) or fallback
 
 
 def preview_items(
@@ -1406,7 +1405,7 @@ def next_action_for_status(status: str) -> str:
         return "contact_operator"
     if status == "failed":
         return "contact_operator"
-    if status in {"local_only"}:
+    if status == "local_only":
         return "open_desktop_queue"
     return "none"
 

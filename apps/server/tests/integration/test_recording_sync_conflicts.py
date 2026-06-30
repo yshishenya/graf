@@ -185,7 +185,7 @@ def test_sync_state_maps_upload_session_dependency_failure_to_safe_conflict(clie
     local_id = "sync-conflict-dependency-001"
     create_finalized_meeting(client, local_id)
 
-    async def fail_session_lookup(*args, **kwargs):
+    async def fail_session_lookup(*_args, **_kwargs):
         raise RuntimeError("minio signed-url unavailable /private/path/mic.wav")
 
     monkeypatch.setattr(desktop_sync_module, "load_active_upload_session_for_meeting", fail_session_lookup)

@@ -72,7 +72,6 @@ def invitation_role_decision(
 def membership_mutation_decision(
     actor: AdminActor | None,
     *,
-    target_user_id: UUID,
     target_role: str,
     target_status: str,
     requested_role: str | None,

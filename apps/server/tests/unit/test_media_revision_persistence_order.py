@@ -13,7 +13,6 @@ class RecordingAsyncSession:
 
     async def get(self, model: type[object], _id: object) -> None:
         self.calls.append(f"get:{model.__name__}")
-        return None
 
     def add(self, model: object) -> None:
         self.calls.append(f"add:{type(model).__name__}")
