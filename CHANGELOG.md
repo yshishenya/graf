@@ -23,6 +23,9 @@
   navigation outside login remains blocked.
 - Feature `070-cabinet-login-polish`: six-digit email codes now auto-submit
   once after typing or pasting the full code.
+- Feature `061-support-incident-reporting`: production `rec-api` теперь получает
+  GitHub token как Docker secret file, поэтому действие `Отправить отчет`
+  может создавать private support issue и возвращать пользователю `CUST-*`.
 
 ### Безопасность
 - _Пока нет записей._
@@ -36,6 +39,8 @@
   `infra/scripts/ci-local.sh` with `988 passed, 4 skipped` and
   `ci_local_result=pass`; the local RLS probe remained blocked without a test
   Postgres database as expected.
+- Добавлены regression checks, которые не дают снова выкатить support incident
+  endpoint без GitHub token secret wiring в production compose/env contract.
 
 ## [2026.06.28.8] - 2026-06-28
 

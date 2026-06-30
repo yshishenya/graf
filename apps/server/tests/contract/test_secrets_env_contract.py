@@ -14,6 +14,7 @@ def test_production_env_template_lists_required_secret_sources_without_live_valu
         "TWOBRAIN_MINIO_SECRET_KEY_FILE",
         "TWOBRAIN_SMOKE_CREDENTIAL_FILE",
         "TWOBRAIN_WEB_CSRF_SECRET_FILE",
+        "TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE",
         "TWOBRAIN_AUTH_STORAGE_REGION_TAG",
         "TWOBRAIN_AUTH_RU_LOCAL_STORAGE_ATTESTED",
     ]:
