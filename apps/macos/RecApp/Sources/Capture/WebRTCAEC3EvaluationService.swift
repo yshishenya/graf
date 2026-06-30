@@ -5,27 +5,23 @@ public struct WebRTCAEC3EvaluationService: Sendable {
     public typealias Clock = @Sendable () -> Date
     public static let fallbackFeatureId = "040-speakerphone-recording-fallback-decision"
 
-    private let adapter: any WebRTCAEC3Adapter
     private let thresholdProfile: WebRTCAEC3AcceptanceThresholdProfile
     private let clock: Clock
 
     public init(
-        adapter: any WebRTCAEC3Adapter = UnavailableWebRTCAEC3Adapter(),
         thresholdProfile: WebRTCAEC3AcceptanceThresholdProfile = .standardV1,
         clock: @escaping Clock = Date.init
     ) {
-        self.adapter = adapter
         self.thresholdProfile = thresholdProfile
         self.clock = clock
     }
 
     public func adapterUnavailableRow(candidateId: String) -> WebRTCAEC3ValidationRow {
-        let report = adapter.readinessReport(candidateId: candidateId)
         return failClosedRow(
-            candidateId: report.candidateId,
+            candidateId: candidateId,
             routeClass: .builtInSpeakerphone,
             scenarioFamily: .unsafeReferenceNegativeControl,
-            reason: report.failureReason ?? .dependencyUnavailable
+            reason: .dependencyUnavailable
         )
     }
 

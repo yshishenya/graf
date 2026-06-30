@@ -6,13 +6,14 @@ from .base import (
     PROVIDER_YANDEX,
     ProviderAdapter,
     ProviderProfile,
+    TelegramAdapter,
+    VkAdapter,
+    YandexAdapter,
     normalize_provider,
 )
-from .telegram import TelegramAdapter
-from .vk import VkAdapter
-from .yandex import YandexAdapter
-
-SUPPORTED_PROVIDER_IDS = (PROVIDER_YANDEX, PROVIDER_VK, PROVIDER_TELEGRAM)
+from .base import (
+    SUPPORTED_PROVIDER_IDS as SUPPORTED_PROVIDER_IDS,
+)
 
 
 def build_provider_registry() -> dict[str, ProviderAdapter]:
