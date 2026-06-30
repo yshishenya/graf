@@ -81,7 +81,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleExpandedLabel, "Скрыть панель управления")
     }
 
-    func testDesktopInspectorAutoExpandsOnlyForActiveRecordingOrManualOpen() {
+    func testDesktopInspectorExpansionStaysManualDuringActiveRecording() {
         XCTAssertFalse(
             DesktopMeetingShellChrome.shouldShowExpandedInspector(
                 manualExpanded: false,
@@ -94,9 +94,15 @@ final class AppControlAccessibilityTests: XCTestCase {
                 hasActiveRecording: false
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             DesktopMeetingShellChrome.shouldShowExpandedInspector(
                 manualExpanded: false,
+                hasActiveRecording: true
+            )
+        )
+        XCTAssertTrue(
+            DesktopMeetingShellChrome.shouldShowExpandedInspector(
+                manualExpanded: true,
                 hasActiveRecording: true
             )
         )

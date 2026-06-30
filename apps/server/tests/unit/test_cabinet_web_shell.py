@@ -509,17 +509,24 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
 
 
-def test_embedded_window_breakpoint_keeps_compact_rail_visible() -> None:
+def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> None:
     css = _cabinet_css()
 
+    assert "  flex-wrap: wrap;\n  justify-content: space-between;" in css
+    assert "  width: min(760px, 100%);\n  min-width: 0;" in css
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
+        "  .app-shell.desktop-embedded { grid-template-columns: 184px minmax(0, 1fr); }"
+    ) in css
+    assert "  .desktop-embedded .sidebar { display: flex; }" in css
+    assert "  .desktop-embedded .cabinet-rail-toggle { display: none; }" in css
+    assert (
+        "@media (max-width: 720px) {\n"
         "  .app-shell.desktop-embedded { grid-template-columns: 52px minmax(0, 1fr); }"
     ) in css
-    assert ".desktop-embedded .sidebar {\n    display: flex;" in css
     assert "    width: 52px;" in css
-    assert ".desktop-embedded .sidebar:hover," in css
+    assert "  .desktop-embedded .sidebar:hover," in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
 
