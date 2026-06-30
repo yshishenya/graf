@@ -12,11 +12,32 @@
 - _Пока нет записей._
 
 ### Изменено
-- Feature `071-ponytail-refactor`: backend Ponytail cleanup удаляет только
-  доказанно неиспользуемые внутренние server-параметры, лишние call arguments и
-  локальные избыточные выражения без изменения поведения; dependency audit
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.30.9] - 2026-06-30
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Feature `071-ponytail-refactor`: серверный Ponytail cleanup удаляет только
+  доказанно неиспользуемые внутренние параметры, лишние вызовы и локальные
+  избыточные выражения без изменения поведения; проверка зависимостей
   подтверждает, что `structlog`, `httpx2`, `httpcore2` и `truststore` не
-  присутствуют в активной server dependency surface.
+  используются активным серверным кодом.
 
 ### Исправлено
 - _Пока нет записей._
@@ -26,12 +47,12 @@
 
 ### Документы
 - Feature `071-ponytail-refactor`: добавлены Spec Kit audit artifacts,
-  dependency evidence, retained-candidate notes и validation evidence для
+  evidence по зависимостям, retained-candidate notes и validation evidence для
   Ponytail cleanup batches.
 
 ### Операции
 - Feature `071-ponytail-refactor`: release-branch проверка прошла без deploy:
-  focused server regression tests `104 passed`, `infra/scripts/ci-local.sh`
+  точечные серверные regression tests `104 passed`, `infra/scripts/ci-local.sh`
   `989 passed, 4 skipped` с `deployment_evidence_scan=pass` и
   `ci_local_result=pass`, полный macOS `swift test` `708 tests, 0 failures`,
   Ruff/Vulture/lock/diff checks прошли.
