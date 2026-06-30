@@ -15,7 +15,9 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Support incident reports: backend теперь читает GitHub labels постранично, поэтому
+  production repo с большим количеством labels не блокирует отправку отчета
+  ошибкой `support_incident.configuration_invalid`.
 
 ### Безопасность
 - _Пока нет записей._

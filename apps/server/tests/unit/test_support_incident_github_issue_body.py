@@ -5,6 +5,7 @@ from tests.unit.test_support_incident_redaction import safe_report_payload
 from twobrain_rec_server.support.github_issues import (
     GENERATED_END,
     GENERATED_START,
+    REQUIRED_SUPPORT_LABELS,
     GitHubIssueClient,
     GitHubIssueClientError,
     build_github_issue_draft,
@@ -133,6 +134,29 @@ async def test_github_issue_client_validates_private_repo_and_required_labels() 
 
     with pytest.raises(GitHubIssueClientError, match="support_incident.configuration_invalid"):
         await client.validate_repository_ready(owner="yshishenya", repo="crisp")
+
+
+@pytest.mark.asyncio
+async def test_github_issue_client_paginates_labels_before_configuration_failure() -> None:
+    requested_pages: list[int] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/yshishenya/crisp":
+            return httpx.Response(200, json={"private": True})
+        if request.url.path == "/repos/yshishenya/crisp/labels":
+            page = int(request.url.params.get("page", "1"))
+            requested_pages.append(page)
+            if page == 1:
+                return httpx.Response(200, json=[{"name": f"existing-label-{index}"} for index in range(100)])
+            if page == 2:
+                return httpx.Response(200, json=[{"name": label} for label in REQUIRED_SUPPORT_LABELS])
+        return httpx.Response(404, json={})
+
+    client = GitHubIssueClient(token="server-token", transport=httpx.MockTransport(handler))
+
+    await client.validate_repository_ready(owner="yshishenya", repo="crisp")
+
+    assert requested_pages == [1, 2]
 
 
 @pytest.mark.asyncio
