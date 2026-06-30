@@ -127,7 +127,7 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert ready.text.count('aria-label="Навигация кабинета"') == 1
     assert ready.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in ready.text
-    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in ready.text
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in ready.text
     assert "<style>" not in ready.text
     assert "Итоги" in ready.text
     assert "Запись и расшифровка" in ready.text

@@ -11,10 +11,10 @@
   <link rel="icon" href="{{ cabinet_static_url }}/favicon.ico" sizes="any">
   <link rel="icon" href="{{ cabinet_static_url }}/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
-  <link rel="stylesheet" href="{{ cabinet_static_url }}/cabinet.css">
+  <link rel="stylesheet" href="{{ cabinet_static_asset_url('cabinet.css') }}">
   <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false}'>
   <script src="{{ cabinet_static_url }}/htmx-2.0.10.min.js" defer></script>
-  <script src="{{ cabinet_static_url }}/cabinet.js" defer></script>
+  <script src="{{ cabinet_static_asset_url('cabinet.js') }}" defer></script>
 </head>
 <body data-surface-mode="{{ surface_mode|default('standalone_browser') }}">
   {{ content }}

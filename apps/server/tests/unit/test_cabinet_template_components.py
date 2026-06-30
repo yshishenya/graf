@@ -30,10 +30,10 @@ def test_cabinet_template_package_smoke_renders_base_shell() -> None:
     assert f'href="{CABINET_STATIC_URL}/favicon.ico"' in html
     assert f'href="{CABINET_STATIC_URL}/favicon-32.png"' in html
     assert f'href="{CABINET_STATIC_URL}/apple-touch-icon.png"' in html
-    assert f'href="{CABINET_STATIC_URL}/cabinet.css"' in html
+    assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in html
     assert '<meta name="htmx-config" content=\'{"allowEval":false,"allowScriptTags":false}\'' in html
     assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in html
-    assert f'src="{CABINET_STATIC_URL}/cabinet.js"' in html
+    assert f'src="{CABINET_STATIC_URL}/cabinet.js?v=' in html
     assert "<main>ok</main>" in html
 
 
