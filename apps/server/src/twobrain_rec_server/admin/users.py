@@ -276,7 +276,6 @@ async def update_workspace_membership(
             workspace_id=context.workspace_id,
             role=context.actor_role,
         ),
-        target_user_id=target_user_id,
         target_role=membership.role,
         target_status=membership.status,
         requested_role=requested_role,

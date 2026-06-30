@@ -26,7 +26,6 @@ async def mark_media_revision_blocked_for_lifecycle(
     *,
     db: AsyncSession | None,
     meeting: object,
-    reason: str,
 ) -> None:
     meeting.media_revision_status = MediaRevisionStatus.BLOCKED
     if db is None or meeting.media_revision_id is None:
@@ -51,7 +50,6 @@ async def abort_upload_session(
     await mark_media_revision_blocked_for_lifecycle(
         db=db,
         meeting=meeting,
-        reason="upload_session_aborted",
     )
     event = record_audit_event(
         event_type="aborted",
@@ -79,7 +77,6 @@ async def expire_upload_session(*, tenant_scope: TenantScope, db: AsyncSession |
     await mark_media_revision_blocked_for_lifecycle(
         db=db,
         meeting=meeting,
-        reason="upload_session_expired",
     )
     event = record_audit_event(
         event_type="expired",

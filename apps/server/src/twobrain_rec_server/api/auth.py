@@ -383,7 +383,6 @@ def _policy_to_response(snapshot: AuthPolicySnapshot, *, include_disabled: bool 
 
 @router.get("/providers", response_model=AuthProvidersResponse)
 async def list_providers(
-    request: Request,
     workspace_id: UUID,
     db: AsyncSession | None = AuthDbDependency,
 ):
@@ -401,7 +400,6 @@ async def list_providers(
 
 @router.get("/policy", response_model=AuthProvidersResponse)
 async def get_workspace_auth_policy(
-    request: Request,
     workspace_id: UUID,
     db: AsyncSession | None = AuthDbDependency,
 ):
@@ -936,7 +934,6 @@ async def revoke_device(
 
 @router.get("/me", response_model=MeResponse)
 async def get_me(
-    request: Request,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
     db: AsyncSession | None = AuthDbDependency,

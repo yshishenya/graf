@@ -142,7 +142,6 @@ def render_signup_page(
 def render_email_code_page(
     *,
     email: str,
-    workspace_id: UUID | None,
     state_nonce: str,
     next_path: str,
     dev_code: str | None = None,
@@ -206,7 +205,6 @@ def render_settings_page(*, embedded: bool = False, csrf_token: str | None = Non
     return _page_shell(
         "Настройки",
         embedded=embedded,
-        active="settings",
         active_nav="settings",
         csrf_token=csrf_token,
         content_template="cabinet/pages/settings_content.html",
@@ -496,7 +494,6 @@ def _page_shell(
     content: str | None = None,
     *,
     embedded: bool,
-    active: str = "meetings",
     page_template: str = "cabinet/pages/shell.html",
     csrf_token: str | None = None,
     content_source: str = "cabinet.shell",

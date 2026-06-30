@@ -23,9 +23,9 @@ def test_app_lifespan_disposes_engine_and_closes_storage(monkeypatch, tmp_path) 
 
     engine = FakeEngine()
     storage = FakeStorage()
-    monkeypatch.setattr(main_module, "create_engine", lambda settings: engine)
-    monkeypatch.setattr(main_module, "create_sessionmaker", lambda created_engine: object())
-    monkeypatch.setattr(main_module, "get_storage", lambda settings: storage)
+    monkeypatch.setattr(main_module, "create_engine", lambda _settings: engine)
+    monkeypatch.setattr(main_module, "create_sessionmaker", lambda _created_engine: object())
+    monkeypatch.setattr(main_module, "get_storage", lambda _settings: storage)
 
     app = main_module.create_app(
         Settings(

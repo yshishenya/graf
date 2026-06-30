@@ -157,7 +157,7 @@ def _coerce_datetime(value: Any) -> datetime:
     if isinstance(value, date):
         return datetime.combine(value, time.min, tzinfo=UTC)
     if isinstance(value, str):
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     raise TypeError("calendar event datetime is required")
 

@@ -90,7 +90,7 @@ def test_link_provider_identity_maps_hidden_unique_identity_conflict(monkeypatch
             )
             await _seed_global_identity_conflict(db, provider="vk", provider_subject=provider_subject)
         async with client.app_state["sessionmaker"]() as db:
-            async def hidden_existing_identity(*args, **kwargs):
+            async def hidden_existing_identity(*_args, **_kwargs):
                 return None
 
             monkeypatch.setattr(

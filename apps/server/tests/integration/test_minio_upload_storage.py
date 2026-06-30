@@ -84,7 +84,7 @@ def test_upload_part_marks_orphaned_cleanup_accounting_after_persistence_failure
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
 
-    async def fail_persist_upload_part(*args, **kwargs) -> None:
+    async def fail_persist_upload_part(*_args, **_kwargs) -> None:
         raise RuntimeError("simulated database write failure")
 
     monkeypatch.setattr(

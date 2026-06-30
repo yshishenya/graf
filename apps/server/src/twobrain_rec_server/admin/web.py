@@ -482,7 +482,6 @@ async def admin_update_membership_form(
     await update_workspace_membership(
         session,
         context=context,
-        target_user_id=user_id,
         requested_role=_blank_to_none(role),
         requested_status=_blank_to_none(status),
         reason_code=_blank_to_none(reason_code),

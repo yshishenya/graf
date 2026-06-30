@@ -878,7 +878,7 @@ def _deleted_artifact_states() -> list[ArtifactEgressState]:
 
 
 def _audio_state(policy_value: str, access: AccessDecision, artifacts: list[TrackArtifact]) -> ArtifactEgressState:
-    blocked = _policy_blocked_state("audio", policy_value, access, action="download")
+    blocked = _policy_blocked_state("audio", policy_value, access)
     if blocked is not None:
         return blocked
     if not artifacts:
@@ -899,7 +899,7 @@ def _audio_state(policy_value: str, access: AccessDecision, artifacts: list[Trac
 
 
 def _transcript_state(policy_value: str, access: AccessDecision, result: ProcessingResult | None) -> ArtifactEgressState:
-    blocked = _policy_blocked_state("transcript", policy_value, access, action="download")
+    blocked = _policy_blocked_state("transcript", policy_value, access)
     if blocked is not None:
         return blocked
     if result is None:
@@ -939,7 +939,7 @@ def _transcript_state(policy_value: str, access: AccessDecision, result: Process
 
 
 def _summary_state(policy_value: str, access: AccessDecision, result: ProcessingResult | None) -> ArtifactEgressState:
-    blocked = _policy_blocked_state("summary", policy_value, access, action="download")
+    blocked = _policy_blocked_state("summary", policy_value, access)
     if blocked is not None:
         return blocked
     if result is not None and result.summary_status == SummaryStatus.AVAILABLE.value:
@@ -964,7 +964,7 @@ def _package_state(
     access: AccessDecision,
     artifact_states: list[ArtifactEgressState],
 ) -> ArtifactEgressState:
-    blocked = _policy_blocked_state("package", policy_value, access, action="export")
+    blocked = _policy_blocked_state("package", policy_value, access)
     if blocked is not None:
         return blocked
     if any(state.state == "available" for state in artifact_states):
@@ -988,8 +988,6 @@ def _policy_blocked_state(
     artifact_class: ArtifactClass,
     policy_value: str,
     access: AccessDecision,
-    *,
-    action: str,
 ) -> ArtifactEgressState | None:
     if not access.can_view:
         return ArtifactEgressState(

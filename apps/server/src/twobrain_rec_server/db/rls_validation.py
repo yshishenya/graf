@@ -125,11 +125,12 @@ class RLSValidationReport:
 
     @property
     def blocking_reasons(self) -> list[str]:
-        reasons: list[str] = []
         results = self.probe_results
-        for required_probe in REQUIRED_RLS_PROBES:
-            if results.get(required_probe) != "pass":
-                reasons.append(required_probe)
+        reasons = [
+            required_probe
+            for required_probe in REQUIRED_RLS_PROBES
+            if results.get(required_probe) != "pass"
+        ]
         if self.environment == "live_production" and self.live_production_enforcement != "enabled":
             reasons.append("production_read_only_state_required")
         return reasons

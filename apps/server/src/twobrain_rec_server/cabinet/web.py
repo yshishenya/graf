@@ -354,7 +354,6 @@ async def browser_email_login_start(
     return HTMLResponse(
         render_email_code_page(
             email=normalized_email,
-            workspace_id=resolved_workspace_id,
             state_nonce=state.state_nonce,
             next_path=safe_next,
             dev_code=dev_code,
@@ -462,7 +461,6 @@ async def browser_email_signup_start(
     return HTMLResponse(
         render_email_code_page(
             email=normalized_email,
-            workspace_id=resolved_workspace_id,
             state_nonce=state.state_nonce,
             next_path=safe_next,
             dev_code=dev_code,
@@ -494,7 +492,6 @@ async def browser_email_login_verify(
         return HTMLResponse(
             render_email_code_page(
                 email=normalized_email or "",
-                workspace_id=resolved_workspace_id,
                 state_nonce=state,
                 next_path=safe_next,
                 error="email_code_invalid",
@@ -540,7 +537,6 @@ async def browser_email_signup_verify(
         return HTMLResponse(
             render_email_code_page(
                 email=normalized_email or "",
-                workspace_id=resolved_workspace_id,
                 state_nonce=state,
                 next_path=safe_next,
                 error="email_code_invalid",
@@ -1452,7 +1448,7 @@ def _calendar_form_checkbox(form: object, key: str) -> bool:
 
 
 def _calendar_manual_sync_result(source, *, requested_at: datetime | None = None) -> str:
-    if source.connection_state in {"disconnected"} or source.disconnected_at is not None:
+    if source.connection_state == "disconnected" or source.disconnected_at is not None:
         return "unavailable"
     if source.connection_state in {"disabled", "disabled_by_policy"}:
         return "unavailable"
@@ -1656,7 +1652,6 @@ async def _consume_email_login_code(
     if state is None:
         return _email_code_error_response(
             email=email,
-            workspace_id=workspace_id,
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
@@ -1665,7 +1660,6 @@ async def _consume_email_login_code(
     if workspace_id is not None and state.workspace_id != workspace_id:
         return _email_code_error_response(
             email=email,
-            workspace_id=workspace_id,
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
@@ -1675,7 +1669,6 @@ async def _consume_email_login_code(
     if state.result != "pending":
         return _email_code_error_response(
             email=email,
-            workspace_id=workspace_id,
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
@@ -1698,7 +1691,6 @@ async def _consume_email_login_code(
         await db.commit()
         return _email_code_error_response(
             email=email,
-            workspace_id=workspace_id,
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_expired",
@@ -1718,7 +1710,6 @@ async def _consume_email_login_code(
         await db.commit()
         return _email_code_error_response(
             email=email,
-            workspace_id=workspace_id,
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
@@ -1746,7 +1737,6 @@ async def _consume_email_login_code(
         await db.commit()
         return _email_code_error_response(
             email=email,
-            workspace_id=workspace_id,
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
@@ -1997,7 +1987,6 @@ async def _resolve_email_browser_device(
 def _email_code_error_response(
     *,
     email: str,
-    workspace_id: UUID | None,
     state_nonce: str,
     next_path: str,
     error: str,
@@ -2006,7 +1995,6 @@ def _email_code_error_response(
     return HTMLResponse(
         render_email_code_page(
             email=email,
-            workspace_id=workspace_id,
             state_nonce=state_nonce,
             next_path=next_path,
             error=error,

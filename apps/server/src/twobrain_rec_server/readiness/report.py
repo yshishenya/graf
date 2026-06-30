@@ -263,11 +263,11 @@ def _launch_gap_table(report: ReadinessReport) -> str:
         "| Gap | Severity | Journey | Missing Evidence | Next Action |",
         "|-----|----------|---------|------------------|-------------|",
     ]
-    for gap in report.launch_gaps:
-        lines.append(
-            f"| `{gap.id}` | `{gap.severity}` | {gap.affected_journey} | "
-            f"{gap.missing_evidence} | {gap.recommended_next_action} |"
-        )
+    lines.extend(
+        f"| `{gap.id}` | `{gap.severity}` | {gap.affected_journey} | "
+        f"{gap.missing_evidence} | {gap.recommended_next_action} |"
+        for gap in report.launch_gaps
+    )
     return "\n".join(lines)
 
 

@@ -345,11 +345,11 @@ def _reported_safe_identities(report: Mapping[str, Any]) -> list[str]:
     value = report.get("safe_affected_identities")
     if not isinstance(value, list):
         return []
-    identities: list[str] = []
-    for item in value[:5]:
-        if isinstance(item, str) and item and item != "redacted_metadata":
-            identities.append(item)
-    return identities
+    return [
+        item
+        for item in value[:5]
+        if isinstance(item, str) and item and item != "redacted_metadata"
+    ]
 
 
 def _result_from_incident(

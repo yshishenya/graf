@@ -558,7 +558,7 @@ async def _validate_tenant_scope(
                     code="auth_session_expired",
                     title="Auth session has expired",
                 )
-            if session.status not in {"active"}:
+            if session.status != "active":
                 raise ProblemDetail(
                     status=403,
                     code="auth_session_invalid",

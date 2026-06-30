@@ -49,7 +49,6 @@ def test_admin_can_invite_and_manage_members_only() -> None:
     assert invitation_role_decision(_actor("admin"), invited_role="admin").outcome == AdminPermissionOutcome.DENIED_ADMIN_CANNOT_MANAGE_OWNER_ADMIN
     assert membership_mutation_decision(
         _actor("admin"),
-        target_user_id=MEMBER_ID,
         target_role="member",
         target_status="active",
         requested_role="member",
@@ -58,7 +57,6 @@ def test_admin_can_invite_and_manage_members_only() -> None:
     ).allowed is True
     assert membership_mutation_decision(
         _actor("admin"),
-        target_user_id=OWNER_ID,
         target_role="owner",
         target_status="active",
         requested_role="member",
@@ -77,7 +75,6 @@ def test_last_active_owner_cannot_be_downgraded_blocked_revoked_or_removed() -> 
     ]:
         decision = membership_mutation_decision(
             _actor("owner"),
-            target_user_id=OWNER_ID,
             target_role="owner",
             target_status="active",
             requested_role=requested_role,
@@ -91,7 +88,6 @@ def test_last_active_owner_cannot_be_downgraded_blocked_revoked_or_removed() -> 
 def test_owner_can_manage_owner_admin_member_when_last_owner_safety_holds() -> None:
     decision = membership_mutation_decision(
         _actor("owner"),
-        target_user_id=ADMIN_ID,
         target_role="admin",
         target_status="active",
         requested_role="owner",
