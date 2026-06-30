@@ -186,6 +186,15 @@ private struct ContentView: View {
             isChecking: isChecking,
             onRefresh: refresh,
             onRunCheck: runCheck,
+            onStopRecording: {
+                Task { await stopManualRecording() }
+            },
+            onPauseRecording: {
+                Task { await pauseManualRecording() }
+            },
+            onResumeRecording: {
+                Task { await resumeManualRecording() }
+            },
             onSupportIncidentReport: { itemIds in
                 try await submitSupportIncidentReport(itemIds: itemIds)
             }
