@@ -91,3 +91,14 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
         "new FormData(form)",
     ]:
         assert marker in script
+
+
+def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    assert "--auth-content-width: min(100%, 448px)" in css
+    assert "width: min(520px, 100%)" in css
+    assert "requestSubmit" in script
+    assert "slots.every((target) => target.value.length === 1)" in script
+    assert "submitted = true" in script

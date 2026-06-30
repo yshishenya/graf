@@ -173,14 +173,25 @@
       form.dataset.codeReady = "true";
       const slots = Array.from(form.querySelectorAll("[data-code-slot]"));
       const hidden = form.querySelector("[data-code-hidden]");
+      let submitted = false;
       const sync = () => {
         if (hidden) hidden.value = slots.map((slot) => slot.value).join("");
+      };
+      const maybeSubmit = () => {
+        if (submitted || !slots.every((target) => target.value.length === 1)) return;
+        submitted = true;
+        if (form.requestSubmit) {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
       };
       slots.forEach((slot, index) => {
         slot.addEventListener("input", () => {
           slot.value = slot.value.replace(/\D/g, "").slice(0, 1);
           sync();
           if (slot.value && slots[index + 1]) slots[index + 1].focus();
+          maybeSubmit();
         });
         slot.addEventListener("keydown", (event) => {
           if (event.key === "Backspace" && !slot.value && slots[index - 1]) slots[index - 1].focus();
@@ -193,9 +204,13 @@
           sync();
           const next = slots[Math.min(text.length, slots.length) - 1];
           if (next) next.focus();
+          maybeSubmit();
         });
       });
-      form.addEventListener("submit", sync);
+      form.addEventListener("submit", () => {
+        submitted = true;
+        sync();
+      });
       slots[0]?.focus();
     });
   };

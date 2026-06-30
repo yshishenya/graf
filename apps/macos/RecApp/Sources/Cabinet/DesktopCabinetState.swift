@@ -248,8 +248,16 @@ public enum DesktopCabinetWorkspace {
         guard let route = currentRoute ?? initialRoute else {
             return false
         }
-        let decision = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(for: route)
-        return decision.decision == .allow && (decision.route.kind == .authLogin || decision.route.kind == .authSignup)
+        let decision = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(
+            for: route,
+            allowExternalAuthProvider: true
+        )
+        return decision.decision == .allow && [
+            .authLogin,
+            .authSignup,
+            .authProvider,
+            .authCallback
+        ].contains(decision.route.kind)
     }
 }
 

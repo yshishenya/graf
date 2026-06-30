@@ -50,7 +50,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
     public nonisolated static func finishedState(for routeKind: DesktopCabinetRouteKind) -> DesktopCabinetState {
         switch routeKind {
-        case .authLogin, .authSignup:
+        case .authLogin, .authSignup, .authProvider, .authCallback:
             return .expiredSession
         case .meetingList, .meetingDetail, .meetingDeletionReport, .calendarSettings:
             return .ready
@@ -98,6 +98,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
+        private var authContinuationActive = false
         @Binding private var cabinetState: DesktopCabinetState
         @Binding private var currentRoute: URL?
 
@@ -138,9 +139,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 return
             }
 
-            let decision = routePolicy.decision(for: url)
+            let decision = routePolicy.decision(
+                for: url,
+                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
+            )
             switch decision.decision {
             case .allow:
+                updateAuthContinuation(for: decision.route.kind)
                 switch navigationRequestPolicy.decision(
                     forNavigationRequest: navigationAction.request,
                     isForMainFrame: navigationAction.targetFrame?.isMainFrame != false
@@ -156,9 +161,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 cabinetState = .loading
                 decisionHandler(.allow)
             case .openExternally:
+                authContinuationActive = false
                 NSWorkspace.shared.open(url)
                 decisionHandler(.cancel)
             case .blockWithMessage:
+                authContinuationActive = false
                 cabinetState = .blockedRoute
                 decisionHandler(.cancel)
             }
@@ -169,10 +176,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard let url = webView.url else {
                 return
             }
-            let routeDecision = routePolicy.decision(for: url)
+            let routeDecision = routePolicy.decision(for: url, allowExternalAuthProvider: authContinuationActive)
             guard routeDecision.decision == .allow else {
                 return
             }
+            updateAuthContinuation(for: routeDecision.route.kind)
             let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
             if let container = webView.superview as? WebViewContainer {
@@ -279,6 +287,26 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 .replacingOccurrences(of: " ", with: "_")
                 .replacingOccurrences(of: "\n", with: "_")
                 .replacingOccurrences(of: "\r", with: "_")
+        }
+
+        private func isAuthRoute(_ url: URL?) -> Bool {
+            guard let url else { return false }
+            let decision = routePolicy.decision(for: url, allowExternalAuthProvider: authContinuationActive)
+            return [
+                .authLogin,
+                .authSignup,
+                .authProvider,
+                .authCallback
+            ].contains(decision.route.kind)
+        }
+
+        private func updateAuthContinuation(for routeKind: DesktopCabinetRouteKind) {
+            authContinuationActive = [
+                .authLogin,
+                .authSignup,
+                .authProvider,
+                .authCallback
+            ].contains(routeKind)
         }
     }
 

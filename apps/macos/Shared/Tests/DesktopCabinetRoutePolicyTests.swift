@@ -44,6 +44,15 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(login.reason, .allowedAuthLogin)
         XCTAssertEqual(policy.decision(for: try url("/login/email/start")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/login/email/verify")).decision, .allow)
+        for route in [
+            "/api/v1/auth/callback/yandex?state=state&code=code",
+            "/api/v1/auth/callback/future-provider_1?state=state&code=code"
+        ] {
+            let callback = policy.decision(for: try url(route))
+            XCTAssertEqual(callback.decision, .allow, route)
+            XCTAssertEqual(callback.route.kind, .authCallback, route)
+            XCTAssertEqual(callback.reason, .allowedAuthCallback, route)
+        }
 
         let signup = policy.decision(for: try url("/sign-up?next=/desktop/meetings"))
         XCTAssertEqual(signup.decision, .allow)
@@ -52,6 +61,36 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try url("/sign-up?next=/desktop/meetings&mode=email")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/sign-up/email/start")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/sign-up/email/verify")).decision, .allow)
+    }
+
+    func testAllowsProviderLegsOnlyDuringAuthContinuation() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+
+        for target in [
+            "https://oauth.yandex.ru/authorize?state=state&redirect_uri=https%3A%2F%2Frec.2brain.dev%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex",
+            "https://passport.yandex.ru/auth?retpath=https%3A%2F%2Foauth.yandex.ru%2Fauthorize",
+            "https://id.vk.ru/authorize?state=state",
+            "https://id.future-provider.example/authorize?state=state"
+        ] {
+            let url = try XCTUnwrap(URL(string: target))
+            XCTAssertEqual(policy.decision(for: url).decision, .blockWithMessage, target)
+            let decision = policy.decision(for: url, allowExternalAuthProvider: true)
+            XCTAssertEqual(decision.decision, .allow, target)
+            XCTAssertEqual(decision.route.kind, .authProvider, target)
+            XCTAssertEqual(decision.reason, .allowedAuthProvider, target)
+        }
+
+        XCTAssertEqual(
+            policy.decision(for: try XCTUnwrap(URL(string: "https://unknown.example/authorize?state=state"))).decision,
+            .blockWithMessage
+        )
+    }
+
+    func testBlocksNonHTTPSProviderLegsEvenWhenAuthContinuationIsActive() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let insecureProvider = try XCTUnwrap(URL(string: "http://id.future-provider.example/authorize?state=state"))
+
+        XCTAssertEqual(policy.decision(for: insecureProvider, allowExternalAuthProvider: true).decision, .blockWithMessage)
     }
 
     func testBlocksFutureGovernanceAndNativeCaptureRoutes() throws {
