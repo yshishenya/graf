@@ -266,6 +266,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let isChecking: Bool
     private let onRefresh: () -> Void
     private let onRunCheck: () -> Void
+    private let onStopRecording: () -> Void
+    private let onPauseRecording: () -> Void
+    private let onResumeRecording: () -> Void
     private let onOpenMeetingsList: () -> Void
     private let onOpenCalendarSettings: () -> Void
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
@@ -286,6 +289,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         isChecking: Bool,
         onRefresh: @escaping () -> Void,
         onRunCheck: @escaping () -> Void,
+        onStopRecording: @escaping () -> Void = {},
+        onPauseRecording: @escaping () -> Void = {},
+        onResumeRecording: @escaping () -> Void = {},
         onOpenMeetingsList: @escaping () -> Void = {},
         onOpenCalendarSettings: @escaping () -> Void = {},
         onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
@@ -305,6 +311,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.isChecking = isChecking
         self.onRefresh = onRefresh
         self.onRunCheck = onRunCheck
+        self.onStopRecording = onStopRecording
+        self.onPauseRecording = onPauseRecording
+        self.onResumeRecording = onResumeRecording
         self.onOpenMeetingsList = onOpenMeetingsList
         self.onOpenCalendarSettings = onOpenCalendarSettings
         self.onSupportIncidentReport = onSupportIncidentReport
@@ -499,31 +508,69 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private func recordingStrip(for session: CaptureSession) -> some View {
         ZStack {
-            HStack(spacing: 10) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.green)
-                Text(recordingTitle)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                Spacer()
-                Label(recordingStatusText(for: session), systemImage: recordingStatusIcon(for: session))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(recordingStatusColor(for: session))
-                    .lineLimit(1)
-            }
-
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(recordingElapsedText(for: session, at: context.date))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.90))
             }
+            .frame(width: 60)
+
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.green)
+                    Text(recordingTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 72)
+
+                recordingStripControls(for: session)
+            }
+            .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 16)
         .frame(height: DesktopMeetingShellChrome.recordingStripHeight)
         .background(DesktopMeetingShellChrome.recordingStripColor)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Идет запись. \(recordingStatusText(for: session)).")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Идет запись. \(CaptureStatusItem.statusLabel(for: session)).")
+    }
+
+    @ViewBuilder
+    private func recordingStripControls(for session: CaptureSession) -> some View {
+        if CaptureStatusItem.showsPauseButton(for: session) {
+            Button(action: onPauseRecording) {
+                Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!session.stopActionAvailable)
+            .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
+            .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
+        } else if CaptureStatusItem.showsResumeButton(for: session) {
+            Button(action: onResumeRecording) {
+                Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!session.stopActionAvailable)
+            .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
+            .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
+        }
+
+        if CaptureStatusItem.showsStopButton(for: session) {
+            Button(role: .destructive, action: onStopRecording) {
+                Label("Стоп", systemImage: "stop.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(.red)
+            .disabled(!session.stopActionAvailable)
+            .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+            .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+        }
     }
 
     private var meetingsSurface: some View {
@@ -1184,37 +1231,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var recordingTitle: String {
         "Локальная запись"
-    }
-
-    private func recordingStatusText(for session: CaptureSession) -> String {
-        switch session.mode {
-        case .audioRecording:
-            return "Аудиозапись ..."
-        case .transcriptOnly:
-            return "Транскрипт ..."
-        }
-    }
-
-    private func recordingStatusIcon(for session: CaptureSession) -> String {
-        switch session.state {
-        case .paused:
-            return "pause.circle.fill"
-        case .degraded:
-            return "exclamationmark.triangle.fill"
-        default:
-            return "record.circle.fill"
-        }
-    }
-
-    private func recordingStatusColor(for session: CaptureSession) -> Color {
-        switch session.state {
-        case .paused:
-            return .orange
-        case .degraded:
-            return .red
-        default:
-            return .red
-        }
     }
 
     private func recordingElapsedText(for session: CaptureSession, at date: Date) -> String {
