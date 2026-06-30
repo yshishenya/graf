@@ -12,6 +12,27 @@
 - _Пока нет записей._
 
 ### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.06.30.3] - 2026-06-30
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
 - Feature `070-cabinet-login-polish`: login, sign-up and email code
   confirmation pages now use a narrower shared auth panel so provider tiles
   no longer stretch across oversized desktop/app windows.
