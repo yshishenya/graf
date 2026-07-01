@@ -311,6 +311,7 @@ def calendar_settings_notice_codes(
 def calendar_connection_result_from_problem(code: str | None) -> str:
     result_map = {
         "unsupported_calendar_provider": "failed",
+        "credential_encryption_key_unavailable": "failed",
         "calendar_credential_key_unavailable": "failed",
         "invalid_credentials": "denied",
         "tenant_policy_denied": "denied",

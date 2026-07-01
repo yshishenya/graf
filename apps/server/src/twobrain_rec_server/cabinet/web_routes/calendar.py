@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.api.calendar import _credential_key as calendar_credential_key
+from twobrain_rec_server.api.calendar import _credential_encryption_key
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.cabinet.queries import (
@@ -184,7 +184,7 @@ async def calendar_provider_connect(
             display_label=(account_label or "").strip() or provider_label,
             credential_input=secret_payload,
             selected_provider_calendar_ids=[],
-            credential_key=calendar_credential_key(request),
+            credential_encryption_key=_credential_encryption_key(request),
         )
     except ProblemDetail as exc:
         result = calendar_connection_result_from_problem(exc.code)

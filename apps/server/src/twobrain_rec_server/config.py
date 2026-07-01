@@ -3,7 +3,7 @@ from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID
 
-from pydantic import AnyUrl, Field, PositiveInt, field_validator, model_validator
+from pydantic import AliasChoices, AnyUrl, Field, PositiveInt, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
@@ -28,6 +28,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     env: str = "development"
@@ -49,7 +50,14 @@ class Settings(BaseSettings):
     minio_access_key_file: Path | None = None
     minio_secret_key_file: Path | None = None
     smoke_credential_file: Path | None = None
-    calendar_credential_key_file: Path | None = None
+    credential_encryption_key_file: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE",
+            "TWOBRAIN_CREDENTIAL_ENCRYPTION_KEY_FILE",
+            "TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE",
+        ),
+    )
     web_csrf_secret_file: Path | None = None
     support_incident_github_token_file: Path | None = None
 
@@ -128,7 +136,7 @@ class Settings(BaseSettings):
     @field_validator(
         "web_login_workspace_id",
         "postal_host_header",
-        "calendar_credential_key_file",
+        "credential_encryption_key_file",
         "web_csrf_secret_file",
         "support_incident_github_token_file",
         mode="before",
@@ -149,7 +157,7 @@ class Settings(BaseSettings):
             "minio_secret_key_file": self.minio_secret_key_file,
             "smoke_credential_file": self.smoke_credential_file,
             "mediascribe_api_key_file": self.mediascribe_api_key_file,
-            "calendar_credential_key_file": self.calendar_credential_key_file,
+            "credential_encryption_key_file": self.credential_encryption_key_file,
             "web_csrf_secret_file": self.web_csrf_secret_file,
             "support_incident_github_token_file": self.support_incident_github_token_file,
         }
@@ -171,10 +179,10 @@ class Settings(BaseSettings):
         ):
             raise ValueError("production MediaScribe API key file must be non-empty")
         if (
-            self.calendar_credential_key_file is not None
-            and self.calendar_credential_key_file.read_text(encoding="utf-8").strip() == ""
+            self.credential_encryption_key_file is not None
+            and self.credential_encryption_key_file.read_text(encoding="utf-8").strip() == ""
         ):
-            raise ValueError("production calendar credential key file must be non-empty")
+            raise ValueError("production credential encryption key file must be non-empty")
         if (
             self.support_incident_github_token_file is not None
             and self.support_incident_github_token_file.read_text(encoding="utf-8").strip() == ""

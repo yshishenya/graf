@@ -494,7 +494,7 @@ def test_calendar_settings_connect_app_password_creates_source_without_selected_
     assert sources[0].selected_calendar_count == 0
     assert len(envelopes) == 1
     sealed_payload = json.loads(
-        unseal_credential(envelopes[0].sealed_payload, client.app.state.calendar_credential_key)
+        unseal_credential(envelopes[0].sealed_payload, client.app.state.credential_encryption_key)
     )
     assert sealed_payload == {
         "username": "owner@example.test",
@@ -566,7 +566,7 @@ def test_calendar_settings_provider_limited_state_does_not_create_source(client)
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
     assert "Есть ограничение провайдера" in rendered.text
-    assert "2brain Rec все равно работает только на чтение" in rendered.text
+    assert "GRAF все равно работает только на чтение" in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -1042,7 +1042,7 @@ def test_calendar_settings_preview_shows_active_overlap_started_before_now(clien
 
     assert rendered.status_code == 200
     assert "Нужно выбрать событие для пересечения" in rendered.text
-    assert "2brain Rec не выбирает событие автоматически" in rendered.text
+    assert "GRAF не выбирает событие автоматически" in rendered.text
     assert "Можно продолжить без календарного контекста" in rendered.text
 
 

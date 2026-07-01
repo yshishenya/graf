@@ -44,9 +44,16 @@
 - macOS: активный индикатор записи в верхней части окна теперь закреплен через
   native titlebar accessory и не обрезается в неполноэкранном окне; правая
   панель управления прокручивается и не режет кнопки записи.
+- Подключение календарей больше не зависит от calendar-only имени
+  `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`: GRAF использует общий
+  `GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE` для server-owned provider credentials и
+  монтирует Docker secret `graf_credential_encryption_key` в `rec-api`.
 
 ### Безопасность
-- _Пока нет записей._
+- Старое имя `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE` оставлено как
+  совместимый alias, но canonical имя теперь описывает реальную границу:
+  устойчивый envelope-encryption key для внешних credentials GRAF, а не пароль
+  пользователя и не провайдерский secret.
 
 ### Документы
 - _Пока нет записей._
