@@ -1,5 +1,3 @@
-import Foundation
-
 public struct RecordingTimelineEvidenceBuilder: Sendable {
     public init() {}
 

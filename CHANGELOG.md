@@ -12,7 +12,9 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Feature `077-dead-code-batch-4`: удалены восемь доказанно неиспользуемых
+  Swift `Foundation` import из macOS audio/capture/shared model surface; batch
+  уменьшает Swift-код на 11 строк без новых зависимостей и без deploy-изменений.
 
 ### Исправлено
 - _Пока нет записей._
