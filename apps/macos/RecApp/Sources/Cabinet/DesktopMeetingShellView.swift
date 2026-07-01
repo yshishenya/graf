@@ -4,7 +4,7 @@ import TwoBrainRecShared
 
 public enum DesktopMeetingShellChrome {
     public static let collapsedInspectorWidth: CGFloat = 52
-    public static let expandedInspectorWidth: CGFloat = 288
+    public static let expandedInspectorWidth: CGFloat = 336
     public static let shellBackgroundHex = "#191a1c"
     public static let shellRailHex = "#202224"
     public static let shellSurfaceHex = "#242629"
@@ -17,7 +17,7 @@ public enum DesktopMeetingShellChrome {
     public static let shellStrokeColor = Color.white.opacity(0.08)
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
-    public static let recordingStripHeight: CGFloat = 36
+    public static let recordingStripHeight: CGFloat = 44
     public static let idleShowsNativeTopBar = false
     public static let fontStackDescription = "SF Pro Text / system"
     public static let compactRailLabels = ["Запись", "Сохранность"]
@@ -38,6 +38,15 @@ public enum DesktopMeetingShellChrome {
 
     public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActiveRecording _: Bool) -> Bool {
         manualExpanded
+    }
+
+    public static func recordingTitle(for mode: CaptureMode) -> String {
+        switch mode {
+        case .audioRecording:
+            return "Запись аудио"
+        case .transcriptOnly:
+            return "Транскрибация"
+        }
     }
 }
 
@@ -134,15 +143,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     public var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                if let recordingStripSession {
-                    recordingStrip(for: recordingStripSession)
-                    Divider()
-                }
                 HStack(alignment: .top, spacing: 0) {
                     meetingsSurface
                     Divider()
                     inspectorContainer
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .clipped()
                 .overlay(alignment: .topTrailing) {
                     InspectorDisclosureButton(isExpanded: expandedInspectorVisible) {
                         inspectorExpanded = !expandedInspectorVisible
@@ -154,75 +161,17 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(DesktopMeetingShellChrome.shellBackgroundColor)
+        .background {
+            RecordingTitlebarAccessory(
+                session: recordingStripSession,
+                onStop: onStopRecording,
+                onPause: onPauseRecording,
+                onResume: onResumeRecording
+            )
+            .frame(width: 0, height: 0)
+        }
         .animation(.easeInOut(duration: 0.18), value: expandedInspectorVisible)
         .accessibilityIdentifier("desktop-meeting-shell")
-    }
-
-    private func recordingStrip(for session: CaptureSession) -> some View {
-        ZStack {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(recordingElapsedText(for: session, at: context.date))
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.90))
-            }
-            .frame(width: 60)
-
-            HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.green)
-                    Text(recordingTitle)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 72)
-
-                recordingStripControls(for: session)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, 16)
-        .frame(height: DesktopMeetingShellChrome.recordingStripHeight)
-        .background(DesktopMeetingShellChrome.recordingStripColor)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Идет запись. \(CaptureStatusItem.statusLabel(for: session)).")
-    }
-
-    @ViewBuilder
-    private func recordingStripControls(for session: CaptureSession) -> some View {
-        if CaptureStatusItem.showsPauseButton(for: session) {
-            Button(action: onPauseRecording) {
-                Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(!session.stopActionAvailable)
-            .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
-            .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
-        } else if CaptureStatusItem.showsResumeButton(for: session) {
-            Button(action: onResumeRecording) {
-                Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(!session.stopActionAvailable)
-            .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
-            .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
-        }
-
-        if CaptureStatusItem.showsStopButton(for: session) {
-            Button(role: .destructive, action: onStopRecording) {
-                Label("Стоп", systemImage: "stop.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(.red)
-            .disabled(!session.stopActionAvailable)
-            .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
-            .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
-        }
     }
 
     private var meetingsSurface: some View {
@@ -580,9 +529,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         if expandedInspectorVisible {
             inspector
                 .frame(width: DesktopMeetingShellChrome.expandedInspectorWidth)
+                .frame(maxHeight: .infinity, alignment: .top)
         } else {
             compactInspector
                 .frame(width: DesktopMeetingShellChrome.collapsedInspectorWidth)
+                .frame(maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -659,68 +610,70 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var inspector: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Управление")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("Локальное управление")
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Управление")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("Локальное управление")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleHitSize)
+
+                captureControls
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                    )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Доверие записи", systemImage: "lock.shield")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(statusSummary)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(lastEventSummary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-            }
-            .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleHitSize)
-
-            captureControls
+                .padding(12)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                 )
-                .overlay(
+
+                if !custodyDetailSummaries.isEmpty {
+                    custodyDetailsDisclosure
+                }
+
+                DisclosureGroup {
+                    diagnosticsContent
+                        .padding(.top, 8)
+                } label: {
+                    Label("Диагностика", systemImage: "stethoscope")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .padding(12)
+                .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                        .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                 )
-
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Доверие записи", systemImage: "lock.shield")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(statusSummary)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(lastEventSummary)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-            )
-
-            if !custodyDetailSummaries.isEmpty {
-                custodyDetailsDisclosure
-            }
-
-            DisclosureGroup {
-                diagnosticsContent
-                    .padding(.top, 8)
-            } label: {
-                Label("Диагностика", systemImage: "stethoscope")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-            )
-
-            Spacer()
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(14)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(DesktopMeetingShellChrome.shellRailColor)
     }
 
@@ -843,24 +796,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             return nil
         }
         return session
-    }
-
-    private var recordingTitle: String {
-        "Локальная запись"
-    }
-
-    private func recordingElapsedText(for session: CaptureSession, at date: Date) -> String {
-        guard let startedAt = session.startedAt else {
-            return "0:00"
-        }
-        let elapsed = max(0, Int(date.timeIntervalSince(startedAt)))
-        let hours = elapsed / 3600
-        let minutes = (elapsed % 3600) / 60
-        let seconds = elapsed % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%d:%02d", minutes, seconds)
     }
 
     private var captureStatusText: String {
@@ -1009,6 +944,228 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
                 tone: .warning
             )
         }
+    }
+}
+
+private struct RecordingTitlebarAccessory: NSViewRepresentable {
+    let session: CaptureSession?
+    let onStop: () -> Void
+    let onPause: () -> Void
+    let onResume: () -> Void
+
+    func makeNSView(context _: Context) -> RecordingTitlebarAccessoryAnchor {
+        RecordingTitlebarAccessoryAnchor()
+    }
+
+    func updateNSView(_ nsView: RecordingTitlebarAccessoryAnchor, context _: Context) {
+        nsView.update(
+            session: session,
+            onStop: onStop,
+            onPause: onPause,
+            onResume: onResume
+        )
+    }
+
+    static func dismantleNSView(_ nsView: RecordingTitlebarAccessoryAnchor, coordinator _: ()) {
+        nsView.removeAccessory()
+    }
+}
+
+private final class RecordingTitlebarAccessoryAnchor: NSView {
+    private var session: CaptureSession?
+    private var onStop: () -> Void = {}
+    private var onPause: () -> Void = {}
+    private var onResume: () -> Void = {}
+    private weak var installedWindow: NSWindow?
+    private var accessoryController: NSTitlebarAccessoryViewController?
+    private var hostingView: NSHostingView<AnyView>?
+
+    func update(
+        session: CaptureSession?,
+        onStop: @escaping () -> Void,
+        onPause: @escaping () -> Void,
+        onResume: @escaping () -> Void
+    ) {
+        self.session = session
+        self.onStop = onStop
+        self.onPause = onPause
+        self.onResume = onResume
+        syncAccessory()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        syncAccessory()
+    }
+
+    func removeAccessory() {
+        guard let accessoryController else { return }
+        if let installedWindow,
+           let index = installedWindow.titlebarAccessoryViewControllers.firstIndex(where: { $0 === accessoryController }) {
+            installedWindow.removeTitlebarAccessoryViewController(at: index)
+        }
+        self.accessoryController = nil
+        self.hostingView = nil
+        self.installedWindow = nil
+    }
+
+    private func syncAccessory() {
+        guard let session, CaptureStatusItem.showsStopButton(for: session) else {
+            removeAccessory()
+            return
+        }
+        guard let window else { return }
+
+        if installedWindow !== window {
+            removeAccessory()
+        }
+
+        let rootView = AnyView(RecordingTitlebarHUD(
+            session: session,
+            onStop: onStop,
+            onPause: onPause,
+            onResume: onResume
+        ))
+        let host = hostingView ?? NSHostingView(rootView: rootView)
+        host.rootView = rootView
+        host.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: window.frame.width,
+            height: DesktopMeetingShellChrome.recordingStripHeight
+        )
+        host.autoresizingMask = [.width]
+        hostingView = host
+
+        if accessoryController == nil {
+            let controller = NSTitlebarAccessoryViewController()
+            controller.layoutAttribute = .bottom
+            controller.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight
+            controller.view = host
+            accessoryController = controller
+            installedWindow = window
+            window.addTitlebarAccessoryViewController(controller)
+        } else {
+            accessoryController?.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight
+        }
+    }
+}
+
+private struct RecordingTitlebarHUD: View {
+    let session: CaptureSession
+    let onStop: () -> Void
+    let onPause: () -> Void
+    let onResume: () -> Void
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+
+            HStack(spacing: 10) {
+                HStack(spacing: 7) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.green)
+                    Text(DesktopMeetingShellChrome.recordingTitle(for: session.mode))
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                }
+
+                Divider()
+                    .frame(height: 16)
+
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(recordingElapsedText(at: context.date))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.90))
+                }
+                .frame(width: 54)
+
+                if showsControls {
+                    Divider()
+                        .frame(height: 16)
+                    controls
+                }
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
+            .frame(height: 32)
+            .background(
+                Capsule()
+                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+            )
+            .overlay(
+                Capsule()
+                    .stroke(DesktopMeetingShellChrome.recordingStripColor.opacity(0.58), lineWidth: 1)
+            )
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: DesktopMeetingShellChrome.recordingStripHeight)
+        .frame(maxWidth: .infinity)
+        .background(DesktopMeetingShellChrome.shellBackgroundColor)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Идет запись. \(CaptureStatusItem.statusLabel(for: session)).")
+        .accessibilityIdentifier("systemAudio.titlebarRecordingHUD")
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        if CaptureStatusItem.showsPauseButton(for: session) {
+            Button(action: onPause) {
+                Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!session.stopActionAvailable)
+            .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
+            .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
+        } else if CaptureStatusItem.showsResumeButton(for: session) {
+            Button(action: onResume) {
+                Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!session.stopActionAvailable)
+            .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
+            .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
+        }
+
+        if CaptureStatusItem.showsStopButton(for: session) {
+            Button(role: .destructive, action: onStop) {
+                Label("Стоп", systemImage: "stop.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(.red)
+            .disabled(!session.stopActionAvailable)
+            .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+            .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+        }
+    }
+
+    private var showsControls: Bool {
+        CaptureStatusItem.showsPauseButton(for: session) ||
+            CaptureStatusItem.showsResumeButton(for: session) ||
+            CaptureStatusItem.showsStopButton(for: session)
+    }
+
+    private func recordingElapsedText(at date: Date) -> String {
+        guard let startedAt = session.startedAt else {
+            return "0:00"
+        }
+        let elapsed = max(0, Int(date.timeIntervalSince(startedAt)))
+        let hours = elapsed / 3600
+        let minutes = (elapsed % 3600) / 60
+        let seconds = elapsed % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 

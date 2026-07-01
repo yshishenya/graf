@@ -142,6 +142,13 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         )
 
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
+        XCTAssertTrue(shellSource.contains("ScrollView(.vertical, showsIndicators: true)"))
+        XCTAssertTrue(shellSource.contains(".clipped()"))
+        XCTAssertTrue(shellSource.contains("NSTitlebarAccessoryViewController()"))
+        XCTAssertTrue(shellSource.contains("controller.layoutAttribute = .bottom"))
+        XCTAssertTrue(shellSource.contains("controller.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight"))
+        XCTAssertTrue(shellSource.contains("RecordingTitlebarHUD("))
+        XCTAssertFalse(shellSource.contains("recordingStrip(for:"))
         XCTAssertTrue(shellSource.contains("leadingPadding: 22"))
         XCTAssertTrue(shellSource.contains("onSubmit: onSupportIncidentReport"))
         XCTAssertTrue(shellSource.contains("accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)"))
@@ -150,6 +157,19 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.failureMessage))
         XCTAssertTrue(stripSource.contains(".accessibilityLabel(\"Отправить отчет разработчикам\")"))
         XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)"))
+    }
+
+    func testEmbeddedCabinetWebViewIsClippedInsideNativeShell() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let webViewSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(webViewSource.contains("clipsToBounds = true"))
+        XCTAssertTrue(webViewSource.contains("layer?.masksToBounds = true"))
+        XCTAssertTrue(webViewSource.contains("webView.clipsToBounds = true"))
+        XCTAssertTrue(webViewSource.contains("webView.layer?.masksToBounds = true"))
     }
 
     private func makeActiveSession() -> CaptureSession {

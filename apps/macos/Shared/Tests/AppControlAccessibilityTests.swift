@@ -58,7 +58,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedSurfaceHeight, 420)
         XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
         XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
-        XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 288)
+        XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 336)
         XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#191a1c")
         XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#202224")
         XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#242629")
@@ -69,7 +69,11 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
         XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 1120)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
-        XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 36)
+        XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 44)
+        XCTAssertGreaterThanOrEqual(
+            DesktopMeetingShellChrome.recordingStripHeight,
+            DesktopMeetingShellChrome.inspectorToggleHitSize
+        )
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 44)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCornerRadius, 10)
@@ -79,6 +83,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleExpandedSymbol, "chevron.right.2")
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCollapsedLabel, "Показать панель управления")
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleExpandedLabel, "Скрыть панель управления")
+        XCTAssertEqual(DesktopMeetingShellChrome.recordingTitle(for: .audioRecording), "Запись аудио")
+        XCTAssertEqual(DesktopMeetingShellChrome.recordingTitle(for: .transcriptOnly), "Транскрибация")
     }
 
     func testDesktopInspectorExpansionStaysManualDuringActiveRecording() {

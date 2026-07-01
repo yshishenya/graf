@@ -318,7 +318,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.webView = webView
             super.init(frame: .zero)
             wantsLayer = true
+            clipsToBounds = true
             layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
+            layer?.masksToBounds = true
+            webView.clipsToBounds = true
+            webView.layer?.masksToBounds = true
             addSubview(webView)
         }
 
