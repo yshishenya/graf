@@ -1006,12 +1006,6 @@ def _event_participant_count(event: CalendarEventSnapshot) -> int:
         return 0
 
 
-def _event_has_meeting_link_or_location(event: CalendarEventSnapshot) -> bool:
-    if (event.conference_summary_json or {}).get("meeting_link_present"):
-        return True
-    return bool(event.location)
-
-
 def _is_private_or_free_busy(event: CalendarEventSnapshot) -> bool:
     return (
         event.privacy_class in {"private", "free_busy", "free_busy_only"}
