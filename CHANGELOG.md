@@ -36,6 +36,9 @@
 - Feature `074-code-optimization`: удалены три доказанно неиспользуемых
   private helper из server runtime; первый cleanup batch уменьшает Python
   runtime на 23 строки без новых зависимостей и без deploy-изменений.
+- Feature `075-dead-code-batch-2`: удалены два доказанно неиспользуемых Swift
+  helper из macOS runtime/test surface; batch уменьшает Swift-код на 20 строк
+  без новых зависимостей и без deploy-изменений.
 
 ### Исправлено
 - macOS: активный индикатор записи в верхней части окна теперь закреплен через

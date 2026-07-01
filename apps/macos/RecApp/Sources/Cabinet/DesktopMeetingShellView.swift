@@ -772,18 +772,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
     }
 
-    private func statusChip(title: String, icon: String, color: Color) -> some View {
-        Label(title, systemImage: icon)
-            .font(.caption)
-            .foregroundStyle(color)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                Capsule()
-                    .fill(color.opacity(0.12))
-            )
-    }
-
     private var expandedInspectorVisible: Bool {
         DesktopMeetingShellChrome.shouldShowExpandedInspector(
             manualExpanded: inspectorExpanded,
