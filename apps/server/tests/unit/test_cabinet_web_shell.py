@@ -35,9 +35,11 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.cabinet.rendering import (
     render_calendar_settings_page,
     render_deletion_report_page,
+    render_login_page,
     render_meeting_detail_page,
     render_meeting_list_page,
     render_settings_page,
+    render_signup_page,
 )
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.cabinet.view_models import calendar_settings_surface
@@ -419,6 +421,8 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
 
     for page in (list_page, detail_page, deletion_page):
         assert page.count("data-cabinet-shell") == 1
+        assert page.count('data-shell-scroll="contained"') == 1
+        assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in page
         assert page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
         assert page.count('aria-label="Навигация кабинета"') == 1
         assert page.count('aria-current="page"') == 1
@@ -429,6 +433,8 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
         assert "GRAF" in page
 
     assert settings_page.count("data-cabinet-shell") == 1
+    assert settings_page.count('data-shell-scroll="contained"') == 1
+    assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in settings_page
     assert settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert settings_page.count('aria-label="Навигация кабинета"') == 1
     assert settings_page.count('aria-current="page"') == 1
@@ -436,6 +442,8 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     assert 'href="/settings/integrations/calendar"' in settings_page
 
     assert calendar_settings_page.count("data-cabinet-shell") == 1
+    assert calendar_settings_page.count('data-shell-scroll="contained"') == 1
+    assert '<a class="skip-link" href="#calendar-settings-region">К содержимому</a>' in calendar_settings_page
     assert calendar_settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert calendar_settings_page.count('aria-label="Навигация кабинета"') == 1
     assert calendar_settings_page.count('aria-current="page"') == 1
@@ -458,7 +466,8 @@ def test_legacy_render_helpers_keep_full_page_contract_after_template_refactor()
         assert "<!doctype html>" in page
         assert '<html lang="ru">' in page
         assert '<body data-surface-mode="standalone_browser">' in page
-        assert 'class="app-shell" data-cabinet-shell' in page
+        assert 'class="app-shell" data-shell-scroll="contained" data-cabinet-shell' in page
+        assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in page
         assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in page
         assert f'src="{CABINET_STATIC_URL}/cabinet.js?v=' in page
 
@@ -476,7 +485,7 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
 
     for page in (list_page, detail_page):
         assert "<!doctype html>" in page
-        assert 'class="app-shell desktop-embedded"' in page
+        assert 'class="app-shell desktop-embedded" data-shell-scroll="contained" data-cabinet-shell' in page
         assert '<body data-surface-mode="desktop_embedded">' in page
         assert 'href="/desktop/meetings"' in page
 
@@ -493,16 +502,16 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
         "  min-height: 0;\n"
         "  overflow: hidden;\n"
         "  display: grid;\n"
-        "  grid-template-columns: 184px minmax(0, 1fr);\n"
+        "  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);\n"
         "}"
     ) in css
     assert (
         ".app-shell.desktop-embedded {\n"
-        "  grid-template-columns: 184px minmax(0, 1fr);\n"
+        "  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);\n"
         "}"
     ) in css
     assert ".sidebar {\n  position: sticky;" in css
-    assert "  height: 100vh;\n  overflow: hidden;" in css
+    assert "  height: 100vh;\n  overflow-x: hidden;\n  overflow-y: auto;" in css
     assert (
         ".main,\n"
         ".cabinet-main {\n"
@@ -511,6 +520,8 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
         "  overflow-y: auto;\n"
         "}"
     ) in css
+    assert "max-height: calc(100vh - 48px);" in css
+    assert '.app-shell[data-mobile-scroll="page"] {' in css
     assert ".desktop-embedded .main {\n  padding: 22px" in css
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
 
@@ -523,15 +534,15 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
-        "  .app-shell.desktop-embedded { grid-template-columns: 184px minmax(0, 1fr); }"
+        "  .app-shell.desktop-embedded { grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr); }"
     ) in css
     assert "  .desktop-embedded .sidebar { display: flex; }" in css
     assert "  .desktop-embedded .cabinet-rail-toggle { display: none; }" in css
     assert (
         "@media (max-width: 720px) {\n"
-        "  .app-shell.desktop-embedded { grid-template-columns: 52px minmax(0, 1fr); }"
+        "  .app-shell.desktop-embedded { grid-template-columns: var(--app-rail-width) minmax(0, 1fr); }"
     ) in css
-    assert "    width: 52px;" in css
+    assert "    width: var(--app-rail-width);" in css
     assert "  .desktop-embedded .sidebar:hover," in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
@@ -551,6 +562,7 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     assert page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert page.count('aria-label="Навигация кабинета"') == 1
     assert page.count('aria-current="page"') == 1
+    assert 'href="#">' not in page
     assert 'data-cabinet-rail-toggle' in page
     assert 'aria-controls="cabinet-sidebar"' in page
     assert 'aria-expanded="false"' in page
@@ -796,6 +808,18 @@ def test_auth_page_composition_lives_in_templates() -> None:
     assert (CABINET_AUTH_TEMPLATES / "login.html").exists()
     assert (CABINET_AUTH_TEMPLATES / "signup.html").exists()
     assert (CABINET_AUTH_TEMPLATES / "email_code.html").exists()
+
+
+def test_auth_pages_do_not_render_disabled_placeholders_as_links() -> None:
+    pages = [
+        render_login_page(workspace_id=uuid4(), providers=[]),
+        render_signup_page(workspace_id=uuid4(), providers=[]),
+    ]
+
+    for page in pages:
+        assert 'href="#"' not in page
+        assert 'aria-disabled="true"' in page
+        assert '<span class="mini-link is-disabled" aria-disabled="true">' in page
 
 
 def test_detail_shell_renders_speaker_timeline_segments() -> None:

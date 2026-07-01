@@ -17,7 +17,10 @@
   строки без новых зависимостей и без deploy-изменений.
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `069-universal-sidebar`: общий sidebar shell теперь явно помечает
+  contained-scroll контракт, удерживает правую панель внутри viewport, оставляет
+  admin mobile на page-scroll и не рендерит disabled sidebar/auth placeholders
+  как `href="#"`.
 
 ### Безопасность
 - _Пока нет записей._

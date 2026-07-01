@@ -11,7 +11,8 @@
     <link rel="stylesheet" href="{{ admin_static_url }}/admin.css">
   </head>
   <body data-surface-mode="standalone_browser">
-    <div class="app-shell admin-app-shell">
+    <div class="app-shell admin-app-shell" data-shell-scroll="contained" data-mobile-scroll="page" data-admin-shell>
+      <a class="skip-link" href="#admin-main">К содержимому</a>
       <aside class="sidebar admin-sidebar">
         <div class="brand brand--wordmark">
           <picture class="brand-wordmark brand-wordmark--sidebar">
@@ -29,7 +30,7 @@
           </nav>
         {% endif %}
       </aside>
-      <main class="main admin-main">
+      <main id="admin-main" class="main admin-main" tabindex="-1">
         <header class="topline admin-header">
           <div class="page-title">
             <p class="admin-kicker">GRAF</p>

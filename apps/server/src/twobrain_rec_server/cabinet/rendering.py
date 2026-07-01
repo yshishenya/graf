@@ -108,7 +108,6 @@ def render_login_page(
         workspace_configured=workspace_id is not None,
         providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
-        login_sso_href=f"/login/sso/start?{urlencode({'next': safe_next})}",
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         error_message=_login_error_message(error),
     )
@@ -228,6 +227,7 @@ def render_calendar_settings_page(
         csrf_token=csrf_token,
         content_template="cabinet/fragments/calendar_settings.html",
         active_nav="settings",
+        skip_target="calendar-settings-region",
         base_path="/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar",
         surface=surface,
     )
