@@ -488,18 +488,24 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     css = _cabinet_css()
 
     assert (
-        ".app-shell.desktop-embedded {\n"
-        "  grid-template-columns: 184px minmax(0, 1fr);\n"
+        ".app-shell {\n"
         "  height: 100vh;\n"
         "  min-height: 0;\n"
         "  overflow: hidden;\n"
+        "  display: grid;\n"
+        "  grid-template-columns: 184px minmax(0, 1fr);\n"
+        "}"
+    ) in css
+    assert (
+        ".app-shell.desktop-embedded {\n"
+        "  grid-template-columns: 184px minmax(0, 1fr);\n"
         "}"
     ) in css
     assert ".sidebar {\n  position: sticky;" in css
     assert "  height: 100vh;\n  overflow: hidden;" in css
     assert (
-        ".desktop-embedded .main,\n"
-        ".desktop-embedded .cabinet-main {\n"
+        ".main,\n"
+        ".cabinet-main {\n"
         "  height: 100vh;\n"
         "  min-height: 0;\n"
         "  overflow-y: auto;\n"
