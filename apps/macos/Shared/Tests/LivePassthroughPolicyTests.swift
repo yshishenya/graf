@@ -324,12 +324,4 @@ private final class CountingPassthroughBridge: PassthroughBridgeControlling, @un
     func refreshAppIOHeartbeat() {}
 }
 
-private func waitUntil(timeout: TimeInterval, condition: @escaping () -> Bool) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() { return true }
-        Thread.sleep(forTimeInterval: 0.05)
-    }
-    return condition()
-}
 #endif
