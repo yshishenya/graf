@@ -71,12 +71,15 @@ button[disabled], .is-disabled { color: var(--muted); cursor: not-allowed; opaci
 input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .primary { background: var(--blue); border-color: var(--blue); color: white; font-weight: 700; }
 .quiet { background: transparent; }
-.app-shell { min-height: 100vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); }
-.app-shell.desktop-embedded {
-  grid-template-columns: 184px minmax(0, 1fr);
+.app-shell {
   height: 100vh;
   min-height: 0;
   overflow: hidden;
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+}
+.app-shell.desktop-embedded {
+  grid-template-columns: 184px minmax(0, 1fr);
 }
 .sidebar {
   position: sticky;
@@ -145,14 +148,14 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .sidebar-foot { margin-top: auto; display: grid; gap: 8px; }
 .trial { background: #3b3270; border-radius: 7px; padding: 9px 10px; font-weight: 700; }
 .cabinet-rail-toggle { display: none; }
-.main { min-width: 0; padding: 28px clamp(24px, 7vw, 118px) 92px; }
-.detail-page-main { padding-bottom: 192px; }
-.desktop-embedded .main,
-.desktop-embedded .cabinet-main {
+.main,
+.cabinet-main {
   height: 100vh;
   min-height: 0;
   overflow-y: auto;
 }
+.main { min-width: 0; padding: 28px clamp(24px, 7vw, 118px) 92px; }
+.detail-page-main { padding-bottom: 192px; }
 .desktop-embedded .main {
   padding: 22px clamp(18px, 4vw, 64px) 28px;
 }
