@@ -835,13 +835,18 @@ def test_calendar_title_fallback_preserves_manual_title_and_names_untitled_recor
         json={
             "local_recording_id": "calendar-manual-title",
             "duration_seconds": 900,
+            "started_at": "2026-07-01T11:15:00Z",
             "title": "Manual title",
         },
     )
     untitled = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
-        json={"local_recording_id": "calendar-title-fallback", "duration_seconds": 900},
+        json={
+            "local_recording_id": "calendar-title-fallback",
+            "duration_seconds": 900,
+            "started_at": "2026-07-01T12:15:00Z",
+        },
     )
     manual_event = _seed_calendar_event_at(
         client,
