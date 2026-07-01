@@ -1,6 +1,71 @@
 {% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/sections.html" as sections %}
 
+{% macro provider_logo(provider) -%}
+<span class="calendar-provider-logo" data-provider="{{ provider.provider_family }}" aria-hidden="true">{{ provider.mark }}</span>
+{%- endmacro %}
+
+{% macro provider_button(provider) -%}
+<button class="calendar-provider-button" type="button" data-provider="{{ provider.provider_family }}" data-calendar-provider-open="calendar-provider-dialog-{{ provider.provider_family }}" aria-haspopup="dialog" aria-controls="calendar-provider-dialog-{{ provider.provider_family }}">
+  {{ provider_logo(provider) }}
+  <span>Подключить {{ provider.label }}</span>
+</button>
+{%- endmacro %}
+
+{% macro provider_dialog(provider, base_path, csrf_token) -%}
+<dialog class="calendar-provider-dialog" id="calendar-provider-dialog-{{ provider.provider_family }}" data-calendar-provider-dialog aria-labelledby="calendar-provider-dialog-{{ provider.provider_family }}-title">
+  <form class="calendar-provider-modal" action="{{ base_path }}/providers/{{ provider.provider_family }}/connect" method="post">
+    {{ sections.csrf_field(csrf_token) }}
+    <header class="calendar-provider-modal__header">
+      {{ provider_logo(provider) }}
+      <div>
+        <h2 id="calendar-provider-dialog-{{ provider.provider_family }}-title">Подключить {{ provider.label }}</h2>
+        <p>{{ provider.explanation }}</p>
+      </div>
+      <button type="button" class="calendar-provider-modal__close" data-calendar-provider-close aria-label="Закрыть окно подключения">×</button>
+    </header>
+    <div class="calendar-provider-modal__body">
+      {% if provider.method_category in ["app_password", "manual_url"] %}
+      {% if provider.method_category == "manual_url" %}
+      <label>
+        <span>{{ provider.url_label }}</span>
+        <input type="url" name="caldav_url" maxlength="1000" autocomplete="url" placeholder="https://calendar.example/caldav…" required spellcheck="false">
+      </label>
+      {% endif %}
+      <label>
+        <span>{% if provider.method_category == "manual_url" %}Логин, если нужен{% else %}Логин{% endif %}</span>
+        <input type="text" name="username" maxlength="240" autocomplete="username" spellcheck="false"{% if provider.method_category == "app_password" %} required{% endif %}>
+      </label>
+      <label>
+        <span>{{ provider.credential_label }}</span>
+        <input type="password" name="credential_input" autocomplete="new-password" required spellcheck="false">
+      </label>
+      <details class="calendar-advanced-fields">
+        <summary>Название подключения</summary>
+        <label>
+          <span>Название в 2brain Rec</span>
+          <input type="text" name="account_label" maxlength="160" autocomplete="off" placeholder="{{ provider.label }}…" spellcheck="false">
+        </label>
+      </details>
+      {% else %}
+      <p class="calendar-provider-safe-hint">Для этого подключения может понадобиться настройка организации. 2brain Rec покажет безопасное следующее действие и не запросит лишние доступы.</p>
+      {% endif %}
+      {% if provider.limitation_copy %}
+      <p class="calendar-provider-limitation">{{ provider.limitation_copy }}</p>
+      {% endif %}
+    </div>
+    <footer class="calendar-provider-modal__footer">
+      {{ ui.badge("Только чтение", "ready") }}
+      <p>Данные для подключения остаются на сервере 2brain Rec. Приложение на Mac их не хранит.</p>
+      <div class="calendar-provider-modal__actions">
+        <button type="button" class="quiet" data-calendar-provider-close>Отмена</button>
+        <button type="submit" class="primary">{{ provider.action_label }}</button>
+      </div>
+    </footer>
+  </form>
+</dialog>
+{%- endmacro %}
+
 <main class="cabinet-main calendar-settings-main" id="calendar-settings-region" data-cabinet-fragment="calendar-settings">
   <div class="cabinet-workspace calendar-settings">
     <div class="cabinet-topbar calendar-settings__topbar">
@@ -30,13 +95,15 @@
     </div>
     {% endif %}
 
-    <section class="calendar-settings-section" aria-labelledby="calendar-sources-title">
+    <section class="calendar-settings-section calendar-settings-section--primary" aria-labelledby="calendar-sources-title">
       <div class="calendar-section-head">
         <div>
           <h2 id="calendar-sources-title">Подключенные календари</h2>
-          <p>Выберите только те календари, из которых нужны будущие встречи.</p>
+          <p>Выберите календари, из которых 2brain Rec будет брать будущие встречи.</p>
         </div>
-        <span class="calendar-count" aria-live="polite">{{ surface.sources|length }} {{ surface.source_count_word }}</span>
+        {% if surface.sources %}
+        <a class="button quiet" href="#calendar-providers-title">Добавить</a>
+        {% endif %}
       </div>
 
       {% if surface.sources %}
@@ -44,9 +111,12 @@
         {% for source in surface.sources %}
         <article class="calendar-source-card" data-state="{{ source.connection_state }}" aria-labelledby="source-{{ source.source_id }}-title">
           <header class="calendar-source-card__header">
-            <div>
-              <h3 id="source-{{ source.source_id }}-title">{{ source.provider_label }}</h3>
-              <p>{{ source.safe_account_label }}</p>
+            <div class="calendar-source-identity">
+              <span class="calendar-provider-logo" data-provider="{{ source.provider_family }}" aria-hidden="true">{{ source.provider_mark }}</span>
+              <div>
+                <h3 id="source-{{ source.source_id }}-title">{{ source.provider_label }}</h3>
+                <p>{{ source.safe_account_label }}</p>
+              </div>
             </div>
             <div class="calendar-source-card__states">
               {{ ui.badge(source.connection_state_label, "ready" if source.connection_state == "connected" else "warning" if source.connection_state in ["connected_selection_needed", "no_readable_calendars"] else "disabled" if source.connection_state == "disconnected" else "error" if source.connection_state == "error" else "normal") }}
@@ -55,7 +125,7 @@
           </header>
 
           <div class="calendar-source-summary" aria-live="polite">
-            <span>{{ source.selected_calendar_count }} из {{ source.readable_calendar_count }} календарей выбрано</span>
+            <span>{{ source.selected_calendar_count }} из {{ source.readable_calendar_count }} выбрано</span>
             <span>{{ source.last_successful_sync_label }}</span>
           </div>
 
@@ -64,12 +134,12 @@
           {% endif %}
 
           {% if source.calendars %}
-          <details class="calendar-source-details" {% if source.selected_calendar_count == 0 %}open{% endif %}>
-            <summary>Выбрать календари</summary>
+          <details class="calendar-source-details calendar-source-details--picker" {% if source.selected_calendar_count == 0 %}open{% endif %}>
+            <summary>Календари внутри источника</summary>
             <form class="calendar-selection-form" action="{{ base_path }}/sources/{{ source.source_id }}/calendars" method="post">
               {{ sections.csrf_field(csrf_token) }}
               <fieldset class="calendar-picker">
-                <legend>Календари внутри источника</legend>
+                <legend>Что подтягивать</legend>
                 {% for calendar in source.calendars %}
                 <label class="calendar-picker-row" data-state="{{ 'selected' if calendar.selected else calendar.visibility }}" {% if not calendar.selectable %}aria-disabled="true"{% endif %}>
                   <input type="checkbox" name="selected_provider_calendar_ids" value="{{ calendar.calendar_id }}" {% if calendar.selected %}checked{% endif %}{% if not calendar.selectable %} disabled aria-disabled="true"{% endif %}>
@@ -92,21 +162,20 @@
           <p class="calendar-empty-inline" role="status">{{ surface.no_readable_calendars_copy }} Проверьте подключение или запустите синхронизацию.</p>
           {% endif %}
 
-          <details class="calendar-source-details">
-            <summary>Синхронизация и действия</summary>
-            <dl class="calendar-source-meta">
-              <div><dt>Последняя успешная синхронизация</dt><dd>{{ source.last_successful_sync_label }}</dd></div>
-              <div><dt>Выбрано календарей</dt><dd>{{ source.selected_calendar_count }} из {{ source.readable_calendar_count }}</dd></div>
-              <div><dt>Состояние синхронизации</dt><dd>{{ source.sync_health_label }}</dd></div>
-              <div><dt>Что сделать</dt><dd>{{ source.sync_recovery_label }}</dd></div>
-            </dl>
-          </details>
-
           <div class="calendar-source-card__actions">
             <form action="{{ base_path }}/sources/{{ source.source_id }}/sync" method="post">
               {{ sections.csrf_field(csrf_token) }}
               <button type="submit" class="quiet">Синхронизировать</button>
             </form>
+            <details class="calendar-source-details calendar-source-details--meta">
+              <summary>Детали</summary>
+              <dl class="calendar-source-meta">
+                <div><dt>Последняя успешная синхронизация</dt><dd>{{ source.last_successful_sync_label }}</dd></div>
+                <div><dt>Выбрано календарей</dt><dd>{{ source.selected_calendar_count }} из {{ source.readable_calendar_count }}</dd></div>
+                <div><dt>Состояние синхронизации</dt><dd>{{ source.sync_health_label }}</dd></div>
+                <div><dt>Что сделать</dt><dd>{{ source.sync_recovery_label }}</dd></div>
+              </dl>
+            </details>
             <details class="calendar-disconnect">
               <summary class="danger-button">{{ source.disconnect_confirmation.title }}</summary>
               <div class="calendar-disconnect__body" role="group" aria-label="Подтверждение отключения календаря">
@@ -126,9 +195,11 @@
       </div>
       {% else %}
       <section class="calendar-empty-state" data-state="empty">
-        <h3>{{ surface.empty_state_title }}</h3>
-        <p>{{ surface.empty_state_body }}</p>
-        <a class="button primary" href="#calendar-providers-title">Подключить первый календарь</a>
+        <div>
+          <h3>{{ surface.empty_state_title }}</h3>
+          <p>{{ surface.empty_state_body }}</p>
+        </div>
+        <a class="button primary" href="#calendar-providers-title">Выбрать провайдера</a>
       </section>
       {% endif %}
     </section>
@@ -137,60 +208,13 @@
       <div class="calendar-section-head">
         <div>
           <h2 id="calendar-providers-title">Подключить календарь</h2>
-          <p>Выберите провайдера. Поля появятся только для выбранного варианта.</p>
+          <p>Выберите сервис. Реквизиты вводятся в отдельном окне.</p>
         </div>
       </div>
-      <div class="calendar-provider-grid" aria-label="Поддерживаемые провайдеры календаря">
+      <div class="calendar-provider-buttons" aria-label="Поддерживаемые провайдеры календаря">
         {% for provider in surface.providers %}
-        <article class="calendar-provider-row" data-provider="{{ provider.provider_family }}" data-method="{{ provider.method_category }}">
-          <div class="calendar-provider-card__summary">
-            <span class="calendar-provider-mark" aria-hidden="true">{{ provider.mark }}</span>
-            <div>
-              <h3>{{ provider.label }}</h3>
-              <p>{{ provider.method_label }}</p>
-            </div>
-          </div>
-          <p>{{ provider.explanation }}</p>
-          {% if provider.limitation_copy %}
-          <p class="calendar-provider-limitation">{{ provider.limitation_copy }}</p>
-          {% endif %}
-          <details class="calendar-connect-details">
-            <summary>{{ provider.action_label }}</summary>
-            <form class="calendar-provider-action" action="{{ base_path }}/providers/{{ provider.provider_family }}/connect" method="post">
-              {{ sections.csrf_field(csrf_token) }}
-              {% if provider.method_category in ["app_password", "manual_url"] %}
-              {% if provider.method_category == "manual_url" %}
-              <label>
-                <span>{{ provider.url_label }}</span>
-                <input type="url" name="caldav_url" maxlength="1000" autocomplete="url" placeholder="https://calendar.example/caldav…" required spellcheck="false">
-              </label>
-              {% endif %}
-              <label>
-                <span>{% if provider.method_category == "manual_url" %}Логин, если нужен{% else %}Логин{% endif %}</span>
-                <input type="text" name="username" maxlength="240" autocomplete="username" spellcheck="false"{% if provider.method_category == "app_password" %} required{% endif %}>
-              </label>
-              <label>
-                <span>{{ provider.credential_label }}</span>
-                <input type="password" name="credential_input" autocomplete="new-password" required spellcheck="false">
-              </label>
-              <details class="calendar-advanced-fields">
-                <summary>Название подключения</summary>
-                <label>
-                  <span>Название в 2brain Rec</span>
-                  <input type="text" name="account_label" maxlength="160" autocomplete="off" placeholder="{{ provider.label }}…" spellcheck="false">
-                </label>
-              </details>
-              <details class="calendar-help">
-                <summary aria-label="Что сохраняется после подключения">i</summary>
-                <p>Данные отправляются только на сервер 2brain Rec и не показываются после отправки.</p>
-              </details>
-              {% else %}
-              <p class="calendar-provider-safe-hint">Подключение запрашивает только доступ на чтение. Если нужна настройка организации, экран покажет безопасное следующее действие.</p>
-              {% endif %}
-              <button type="submit" class="primary">{{ provider.action_label }}</button>
-            </form>
-          </details>
-        </article>
+        {{ provider_button(provider) }}
+        {{ provider_dialog(provider, base_path, csrf_token) }}
         {% endfor %}
       </div>
     </section>
@@ -211,7 +235,7 @@
           {{ ui.checkbox("show_upcoming_title", "Показывать безопасное название встречи", checked=surface.preferences.show_upcoming_title) }}
         </div>
         <details class="calendar-secondary-settings">
-          <summary>Какие события показывать</summary>
+          <summary>Фильтры и ограничения</summary>
           <div class="calendar-preference-grid">
             {{ ui.checkbox("include_events_without_participants", "Показывать события без участников", checked=surface.preferences.include_events_without_participants) }}
             {{ ui.checkbox("include_events_without_link_or_location", "Показывать события без ссылки или места", checked=surface.preferences.include_events_without_link_or_location) }}
@@ -229,81 +253,83 @@
       </form>
     </section>
 
-    <details class="calendar-preview-details" {% if surface.conflicts %}open{% endif %}>
-      <summary id="calendar-preview-title">Ближайшие встречи</summary>
-      <p>Здесь видно, какие будущие события могут дать контекст подсказкам. Прошлые записи задним числом не связываются.</p>
-      {% if surface.preview %}
-      <div class="calendar-preview-list">
-        {% for event in surface.preview %}
-        <article class="calendar-preview-row" data-state="{{ event.title_state }}" data-sync="{{ event.sync_confidence_state }}">
-          {% if surface.preferences.show_upcoming_time %}
-          <time datetime="{{ event.starts_at.isoformat() }}">{{ event.starts_at.strftime("%Y-%m-%d %H:%M UTC") }}</time>
-          {% else %}
-          <span class="calendar-preview-muted">Время скрыто настройкой</span>
-          {% endif %}
-          <div>
-            {% if surface.preferences.show_upcoming_title %}
-            <strong>{{ event.title }}</strong>
+    <div class="calendar-settings-folders">
+      <details class="calendar-preview-details" {% if surface.conflicts %}open{% endif %}>
+        <summary id="calendar-preview-title">Ближайшие встречи и пересечения</summary>
+        <p>Здесь видно, какие будущие события могут дать контекст подсказкам. Прошлые записи задним числом не связываются.</p>
+        {% if surface.preview %}
+        <div class="calendar-preview-list">
+          {% for event in surface.preview %}
+          <article class="calendar-preview-row" data-state="{{ event.title_state }}" data-sync="{{ event.sync_confidence_state }}">
+            {% if surface.preferences.show_upcoming_time %}
+            <time datetime="{{ event.starts_at.isoformat() }}">{{ event.starts_at.strftime("%Y-%m-%d %H:%M UTC") }}</time>
             {% else %}
-            <strong>Название скрыто настройкой</strong>
+            <span class="calendar-preview-muted">Время скрыто настройкой</span>
             {% endif %}
-            <small>
-              {{ event.calendar_labels|join(", ") if event.calendar_labels else "Календарь" }}
-              {% if event.duplicate_source_count > 1 %} · то же событие в {{ event.duplicate_source_count }} календарях{% endif %}
-            </small>
-          </div>
-          <span>
-            {{ "есть ссылка на встречу" if event.meeting_link_present else "без ссылки на встречу" }}
-            {% if event.sync_confidence_state == "stale" %} · данные синхронизации могут быть устаревшими{% elif event.sync_confidence_state == "updating" %} · синхронизация обновляется{% endif %}
-          </span>
-        </article>
-        {% endfor %}
-      </div>
-      <p class="calendar-policy-note">Если несколько событий идут в одно время, 2brain Rec показывает выбор события или продолжает без календарного контекста.</p>
-      {% if surface.conflicts %}
-      <div class="calendar-conflict-list" aria-label="Пересечения событий календаря">
-        {% for conflict in surface.conflicts %}
-        <section class="calendar-conflict" role="group" aria-labelledby="{{ conflict.conflict_id }}-title">
-          <h3 id="{{ conflict.conflict_id }}-title">Нужно выбрать событие для пересечения</h3>
-          <p>Пересечение: {{ conflict.overlap_starts_at.strftime("%H:%M") }} - {{ conflict.overlap_ends_at.strftime("%H:%M") }} UTC. 2brain Rec не выбирает событие автоматически.</p>
-          <div class="calendar-conflict-actions">
-            {% for event in conflict.events %}
-            <span class="calendar-conflict-choice">Вариант: {{ event.title if surface.preferences.show_upcoming_title else "название скрыто настройкой" }}</span>
-            {% endfor %}
-            <span class="calendar-conflict-choice">Можно продолжить без календарного контекста</span>
-          </div>
-        </section>
-        {% endfor %}
-      </div>
-      {% endif %}
-      {% else %}
-      <p class="calendar-empty-inline" role="status">{{ surface.preview_empty_reason }}</p>
-      {% endif %}
-    </details>
+            <div>
+              {% if surface.preferences.show_upcoming_title %}
+              <strong>{{ event.title }}</strong>
+              {% else %}
+              <strong>Название скрыто настройкой</strong>
+              {% endif %}
+              <small>
+                {{ event.calendar_labels|join(", ") if event.calendar_labels else "Календарь" }}
+                {% if event.duplicate_source_count > 1 %} · то же событие в {{ event.duplicate_source_count }} календарях{% endif %}
+              </small>
+            </div>
+            <span>
+              {{ "есть ссылка на встречу" if event.meeting_link_present else "без ссылки на встречу" }}
+              {% if event.sync_confidence_state == "stale" %} · данные синхронизации могут быть устаревшими{% elif event.sync_confidence_state == "updating" %} · синхронизация обновляется{% endif %}
+            </span>
+          </article>
+          {% endfor %}
+        </div>
+        <p class="calendar-policy-note">Если несколько событий идут в одно время, 2brain Rec показывает выбор события или продолжает без календарного контекста.</p>
+        {% if surface.conflicts %}
+        <div class="calendar-conflict-list" aria-label="Пересечения событий календаря">
+          {% for conflict in surface.conflicts %}
+          <section class="calendar-conflict" role="group" aria-labelledby="{{ conflict.conflict_id }}-title">
+            <h3 id="{{ conflict.conflict_id }}-title">Нужно выбрать событие для пересечения</h3>
+            <p>Пересечение: {{ conflict.overlap_starts_at.strftime("%H:%M") }} - {{ conflict.overlap_ends_at.strftime("%H:%M") }} UTC. 2brain Rec не выбирает событие автоматически.</p>
+            <div class="calendar-conflict-actions">
+              {% for event in conflict.events %}
+              <span class="calendar-conflict-choice">Вариант: {{ event.title if surface.preferences.show_upcoming_title else "название скрыто настройкой" }}</span>
+              {% endfor %}
+              <span class="calendar-conflict-choice">Можно продолжить без календарного контекста</span>
+            </div>
+          </section>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="calendar-empty-inline" role="status">{{ surface.preview_empty_reason }}</p>
+        {% endif %}
+      </details>
 
-    <details class="calendar-privacy-details" aria-labelledby="calendar-boundary-title">
-      <summary>
-        <span id="calendar-boundary-title">Что 2brain Rec делает с календарем</span>
-        {{ ui.badge("Только чтение", "ready") }}
-      </summary>
-      <p>{{ surface.read_only_boundary_copy }}</p>
-      <ul class="calendar-boundary-list" aria-label="Границы доступа к календарю">
-        {% for item in surface.boundary_items %}
-        <li>
-          <strong>{{ item.label }}</strong>
-          <span>{{ item.body }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-      <p class="calendar-policy-note">2brain Rec не делает это сам: {{ surface.forbidden_action_labels|join(", ") }}.</p>
-    </details>
+      <details class="calendar-privacy-details" aria-labelledby="calendar-boundary-title">
+        <summary>
+          <span id="calendar-boundary-title">Что 2brain Rec делает с календарем</span>
+          {{ ui.badge("Только чтение", "ready") }}
+        </summary>
+        <p>{{ surface.read_only_boundary_copy }}</p>
+        <ul class="calendar-boundary-list" aria-label="Границы доступа к календарю">
+          {% for item in surface.boundary_items %}
+          <li>
+            <strong>{{ item.label }}</strong>
+            <span>{{ item.body }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="calendar-policy-note">2brain Rec не делает это сам: {{ surface.forbidden_action_labels|join(", ") }}.</p>
+      </details>
 
-    <details class="calendar-support-details">
-      <summary>Если экран загружается или сервис недоступен</summary>
-      <div class="calendar-state-copy" aria-label="Безопасные состояния настроек" aria-live="polite">
-        <p class="calendar-policy-note" data-state="loading">{{ surface.loading_state_copy }}</p>
-        <p class="calendar-policy-note" data-state="unavailable">{{ surface.unavailable_state_copy }}</p>
-      </div>
-    </details>
+      <details class="calendar-support-details">
+        <summary>Если экран загружается или сервис недоступен</summary>
+        <div class="calendar-state-copy" aria-label="Безопасные состояния настроек" aria-live="polite">
+          <p class="calendar-policy-note" data-state="loading">{{ surface.loading_state_copy }}</p>
+          <p class="calendar-policy-note" data-state="unavailable">{{ surface.unavailable_state_copy }}</p>
+        </div>
+      </details>
+    </div>
   </div>
 </main>

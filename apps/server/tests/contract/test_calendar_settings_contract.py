@@ -131,9 +131,10 @@ def test_calendar_settings_web_route_renders_working_settings_screen(client) -> 
     assert "Интеграции" in html
     assert "Календари" in html
     assert (
-        '<a class="button primary" href="#calendar-providers-title">Подключить первый календарь</a>'
+        '<a class="button primary" href="#calendar-providers-title">Выбрать провайдера</a>'
         in html
     )
+    assert '<a class="button quiet" href="#calendar-providers-title">Добавить</a>' not in html
     assert '<button class="primary" type="button">Подключить первый календарь</button>' not in html
     assert "Что 2brain Rec делает с календарем" in html
     assert "2brain Rec не меняет события календаря" in html
@@ -157,14 +158,31 @@ def test_calendar_settings_boundary_rendering_explains_privacy_and_recording_lim
 
 def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -> None:
     response = client.get("/settings/integrations/calendar", headers=auth_headers())
+    css = CALENDAR_CSS.read_text()
 
     assert response.status_code == 200
     html = response.text
     assert '<section class="calendar-boundary"' not in html
-    assert 'class="calendar-connect-details"' in html
-    assert 'class="calendar-provider-mark"' in html
+    assert 'class="calendar-provider-button"' in html
+    assert 'class="calendar-provider-logo"' in html
+    assert 'class="calendar-provider-buttons"' in html
+    assert 'class="calendar-provider-dialog"' in html
+    assert "data-calendar-provider-open" in html
+    assert "data-calendar-provider-dialog" in html
+    assert 'aria-haspopup="dialog"' in html
+    assert "Реквизиты вводятся в отдельном окне" in html
+    assert "Подключить Яндекс Календарь" in html
+    assert "Подключить Mail.ru Календарь" in html
+    assert 'class="calendar-connect-details"' not in html
+    assert 'class="calendar-provider-list"' not in html
+    assert 'class="calendar-provider-grid"' not in html
+    assert "calendar-provider-grid" not in css
+    assert "calendar-connect-details" not in css
+    assert "calendar-provider-row" not in css
+    assert "calendar-provider-cta" not in css
     assert 'class="calendar-advanced-fields"' in html
-    assert "Поля появятся только для выбранного варианта" in html
+    assert "https://calendar.example/caldav…" in html
+    assert "https://calendar.example/caldav..." not in html
     assert html.index('id="calendar-sources-title"') < html.index('id="calendar-providers-title"')
     assert html.index('id="calendar-providers-title"') < html.index('id="calendar-boundary-title"')
     assert html.index('class="calendar-advanced-fields"') < html.index('name="account_label"')
@@ -202,6 +220,8 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
     assert 'aria-labelledby="calendar-boundary-title"' in html
     assert 'aria-labelledby="calendar-sources-title"' in html
     assert 'aria-labelledby="calendar-providers-title"' in html
+    assert 'aria-label="Закрыть окно подключения"' in html
+    assert 'aria-haspopup="dialog"' in html
     assert 'aria-live="polite"' in html
     assert 'role="status"' in html
     assert 'name="join_prompt_enabled"' in html
@@ -321,15 +341,19 @@ def test_calendar_settings_html_lists_all_required_providers(client) -> None:
     for label in REQUIRED_PROVIDER_LABELS:
         assert label in response.text
     assert "Пароль приложения" in response.text
-    assert "Ручной CalDAV URL" in response.text
-    assert "Может требовать администратора" in response.text
-    assert "Подключить по паролю приложения" in response.text
-    assert "Подключить CalDAV" in response.text
-    assert "Показать условия подключения" in response.text
+    assert "может понадобиться настройка организации" in response.text
+    assert "Подключить по паролю приложения" not in response.text
+    assert "Подключить CalDAV" not in response.text
+    assert "Показать условия подключения" not in response.text
+    assert "Проверить подключение" in response.text
+    assert "Подключить Яндекс Календарь" in response.text
+    assert "Подключить Mail.ru Календарь" in response.text
+    assert response.text.count('class="calendar-provider-dialog"') >= len(REQUIRED_PROVIDER_LABELS)
+    assert "data-calendar-provider-close" in response.text
     assert 'name="credential_input"' in response.text
     assert 'name="caldav_url"' in response.text
     assert (
-        "Данные отправляются только на сервер 2brain Rec и не показываются после отправки"
+        "Данные для подключения остаются на сервере 2brain Rec"
         in response.text
     )
     assert "secret-app-password" not in response.text

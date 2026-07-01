@@ -112,12 +112,12 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_yandex": (
         "Яндекс Календарь",
         "app_password",
-        "Пароль приложения или CalDAV-доступ из настроек Яндекса.",
+        "Введите логин и пароль приложения из настроек Яндекса.",
     ),
     "caldav_mail_ru": (
         "Mail.ru Календарь",
         "app_password",
-        "Пароль приложения или доступ календаря в настройках Mail.ru.",
+        "Введите логин и пароль приложения из настроек Mail.ru.",
     ),
     "exchange_ews": (
         "Exchange / Exchange Server / EWS",
@@ -170,7 +170,7 @@ CALENDAR_METHOD_LABELS = {
 
 CALENDAR_PROVIDER_MARKS = {
     "caldav_yandex": "Я",
-    "caldav_mail_ru": "M",
+    "caldav_mail_ru": "@",
     "exchange_ews": "Ex",
     "bitrix24": "B24",
     "custom_caldav_vk_workspace": "VK",
@@ -394,7 +394,9 @@ class SelectableCalendarView:
 @dataclass(frozen=True)
 class CalendarSourceSettingsView:
     source_id: str
+    provider_family: str
     provider_label: str
+    provider_mark: str
     safe_account_label: str
     connection_state: str
     connection_state_label: str
@@ -630,7 +632,9 @@ def calendar_source_settings_view(
     )
     return CalendarSourceSettingsView(
         source_id=str(source.id),
+        provider_family=source.provider_family,
         provider_label=provider_label,
+        provider_mark=CALENDAR_PROVIDER_MARKS.get(source.provider_family, provider_label[:2]),
         safe_account_label=safe_calendar_label(
             source.provider_label or provider_label, fallback=provider_label
         ),
@@ -800,9 +804,9 @@ def safe_calendar_error_message(code: str | None) -> str | None:
 
 def calendar_provider_action_label(method_category: str) -> str:
     labels = {
-        "app_password": "Подключить по паролю приложения",
-        "manual_url": "Подключить CalDAV",
-        "provider_specific_limited": "Показать условия подключения",
+        "app_password": "Подключить",
+        "manual_url": "Подключить",
+        "provider_specific_limited": "Проверить подключение",
     }
     return labels.get(method_category, "Подключить календарь")
 
