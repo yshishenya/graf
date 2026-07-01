@@ -1,5 +1,3 @@
-import Foundation
-
 public struct VolumeMuteState: Codable, Equatable, Sendable {
     public var volume: Double
     public var muted: Bool
