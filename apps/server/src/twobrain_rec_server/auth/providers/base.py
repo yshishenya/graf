@@ -467,13 +467,3 @@ def _required_user_info(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(user, dict):
         raise ProviderVerificationError("provider response is missing profile item")
     return user
-
-
-def _first_response_item(payload: dict[str, Any]) -> dict[str, Any]:
-    response = payload.get("response")
-    if not isinstance(response, list) or not response:
-        raise ProviderVerificationError("provider response is missing profile item")
-    item = response[0]
-    if not isinstance(item, dict):
-        raise ProviderVerificationError("provider profile item is not an object")
-    return item

@@ -146,14 +146,6 @@ async def ensure_outcomes_for_processing_result(
     return outcome_set
 
 
-async def _load_current_available_set(
-    db: AsyncSession,
-    *,
-    result: ProcessingResult,
-) -> MeetingOutcomeSet | None:
-    return await _load_current_outcome_set(db, result=result)
-
-
 async def _load_current_outcome_set(
     db: AsyncSession,
     *,
