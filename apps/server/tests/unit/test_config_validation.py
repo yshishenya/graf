@@ -252,6 +252,15 @@ def test_empty_web_login_workspace_id_is_unset_when_email_delivery_is_disabled()
     assert settings.postal_host_header is None
 
 
+def test_empty_optional_url_is_unset_when_feature_is_disabled() -> None:
+    settings = _production_settings(
+        postal_api_url="",
+        email_login_delivery_enabled=False,
+    )
+
+    assert settings.postal_api_url is None
+
+
 def test_production_email_login_delivery_reads_non_empty_postal_secret(tmp_path) -> None:
     key_file = tmp_path / "postal-key"
     key_file.write_text("postal-api-key")
