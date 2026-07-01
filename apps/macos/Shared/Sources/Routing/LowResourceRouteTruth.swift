@@ -1,5 +1,3 @@
-import Foundation
-
 public enum LowResourceRouteTruthEvaluator {
     public static func readinessState(for snapshot: RouteTruthSnapshot) -> AudioResourceState {
         if snapshot.resourceState == .fallback {

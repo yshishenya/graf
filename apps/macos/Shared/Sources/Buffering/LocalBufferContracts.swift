@@ -1,5 +1,3 @@
-import Foundation
-
 public struct LocalBufferPolicy: Codable, Equatable, Sendable {
     public var maxBytesPerDevice: Int64
     public var warningFraction: Double
