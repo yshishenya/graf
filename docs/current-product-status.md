@@ -333,10 +333,13 @@ metadata-only evidence остаются подробной историей ре
   does not auto-join, auto-record, mutate
   calendars, send summaries/transcripts/reports, create attendee share grants,
   fetch attachments, perform retrospective matching, or use live provider
-  credentials in committed evidence. Production credential-bearing calendar
+  credentials in committed evidence. Production credential-bearing provider
   connect requires a durable Fernet key file through
-  `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE`; without it, the API fails closed
-  before accepting app passwords or OAuth-refresh-like material. Focused local
+  `GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE`; legacy
+  `TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE` remains accepted as a compatibility
+  alias, but the canonical key is shared by server-owned provider credentials,
+  not calendar-only. Without it, the API fails closed before accepting app
+  passwords or OAuth-refresh-like material. Focused local
   evidence on 2026-06-27:
   after refreshing from `origin/master` `94ffcb6`, Ruff passed, backend focused
   calendar/cabinet/ingest checks passed `134 passed`, macOS calendar/upload/
@@ -362,7 +365,7 @@ metadata-only evidence остаются подробной историей ре
   disconnect confirmation, prompt preferences, upcoming preview, duplicate
   grouping, and overlap conflict choices including partial overlaps such as
   12:00-13:00 plus 12:30-13:30. The UI states plainly that access is read-only:
-  2brain Rec reads selected future events, does not mutate calendars, does not
+  GRAF reads selected future events, does not mutate calendars, does not
   send summaries/transcripts/reports, does not grant attendee access, does not
   auto-record or bot-join in 063, and does not retrospectively match older
   recordings. Desktop unavailable/auth copy keeps provider credentials

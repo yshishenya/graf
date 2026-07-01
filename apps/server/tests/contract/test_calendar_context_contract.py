@@ -133,16 +133,16 @@ def test_calendar_source_contract_requires_stable_credential_key_in_production(c
     )
 
     assert response.status_code == 503
-    assert response.json()["code"] == "calendar_credential_key_unavailable"
+    assert response.json()["code"] == "credential_encryption_key_unavailable"
     assert "synthetic-secret" not in response.text
 
 
 def test_calendar_source_contract_uses_configured_stable_credential_key_in_production(client, tmp_path) -> None:
-    key_file = tmp_path / "calendar-key"
+    key_file = tmp_path / "credential-encryption-key"
     key_file.write_bytes(generate_credential_key())
     client.app.state.settings.env = "production"
     client.app.state.settings.legacy_header_auth_enabled = True
-    client.app.state.settings.calendar_credential_key_file = key_file
+    client.app.state.settings.credential_encryption_key_file = key_file
 
     response = client.post(
         "/api/v1/calendar/sources",

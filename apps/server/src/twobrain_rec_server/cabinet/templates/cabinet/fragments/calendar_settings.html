@@ -43,12 +43,12 @@
       <details class="calendar-advanced-fields">
         <summary>Название подключения</summary>
         <label>
-          <span>Название в 2brain Rec</span>
+          <span>Название в GRAF</span>
           <input type="text" name="account_label" maxlength="160" autocomplete="off" placeholder="{{ provider.label }}…" spellcheck="false">
         </label>
       </details>
       {% else %}
-      <p class="calendar-provider-safe-hint">Для этого подключения может понадобиться настройка организации. 2brain Rec покажет безопасное следующее действие и не запросит лишние доступы.</p>
+      <p class="calendar-provider-safe-hint">Для этого подключения может понадобиться настройка организации. GRAF покажет безопасное следующее действие и не запросит лишние доступы.</p>
       {% endif %}
       {% if provider.limitation_copy %}
       <p class="calendar-provider-limitation">{{ provider.limitation_copy }}</p>
@@ -56,7 +56,7 @@
     </div>
     <footer class="calendar-provider-modal__footer">
       {{ ui.badge("Только чтение", "ready") }}
-      <p>Данные для подключения остаются на сервере 2brain Rec. Приложение на Mac их не хранит.</p>
+      <p>Данные для подключения остаются на сервере GRAF. Приложение на Mac их не хранит.</p>
       <div class="calendar-provider-modal__actions">
         <button type="button" class="quiet" data-calendar-provider-close>Отмена</button>
         <button type="submit" class="primary">{{ provider.action_label }}</button>
@@ -99,7 +99,7 @@
       <div class="calendar-section-head">
         <div>
           <h2 id="calendar-sources-title">Подключенные календари</h2>
-          <p>Выберите календари, из которых 2brain Rec будет брать будущие встречи.</p>
+          <p>Выберите календари, из которых GRAF будет брать будущие встречи.</p>
         </div>
         {% if surface.sources %}
         <a class="button quiet" href="#calendar-providers-title">Добавить</a>
@@ -284,13 +284,13 @@
           </article>
           {% endfor %}
         </div>
-        <p class="calendar-policy-note">Если несколько событий идут в одно время, 2brain Rec показывает выбор события или продолжает без календарного контекста.</p>
+        <p class="calendar-policy-note">Если несколько событий идут в одно время, GRAF показывает выбор события или продолжает без календарного контекста.</p>
         {% if surface.conflicts %}
         <div class="calendar-conflict-list" aria-label="Пересечения событий календаря">
           {% for conflict in surface.conflicts %}
           <section class="calendar-conflict" role="group" aria-labelledby="{{ conflict.conflict_id }}-title">
             <h3 id="{{ conflict.conflict_id }}-title">Нужно выбрать событие для пересечения</h3>
-            <p>Пересечение: {{ conflict.overlap_starts_at.strftime("%H:%M") }} - {{ conflict.overlap_ends_at.strftime("%H:%M") }} UTC. 2brain Rec не выбирает событие автоматически.</p>
+            <p>Пересечение: {{ conflict.overlap_starts_at.strftime("%H:%M") }} - {{ conflict.overlap_ends_at.strftime("%H:%M") }} UTC. GRAF не выбирает событие автоматически.</p>
             <div class="calendar-conflict-actions">
               {% for event in conflict.events %}
               <span class="calendar-conflict-choice">Вариант: {{ event.title if surface.preferences.show_upcoming_title else "название скрыто настройкой" }}</span>
@@ -308,7 +308,7 @@
 
       <details class="calendar-privacy-details" aria-labelledby="calendar-boundary-title">
         <summary>
-          <span id="calendar-boundary-title">Что 2brain Rec делает с календарем</span>
+          <span id="calendar-boundary-title">Что GRAF делает с календарем</span>
           {{ ui.badge("Только чтение", "ready") }}
         </summary>
         <p>{{ surface.read_only_boundary_copy }}</p>
@@ -320,7 +320,7 @@
           </li>
           {% endfor %}
         </ul>
-        <p class="calendar-policy-note">2brain Rec не делает это сам: {{ surface.forbidden_action_labels|join(", ") }}.</p>
+        <p class="calendar-policy-note">GRAF не делает это сам: {{ surface.forbidden_action_labels|join(", ") }}.</p>
       </details>
 
       <details class="calendar-support-details">

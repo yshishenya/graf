@@ -32,7 +32,7 @@ Use this file with `.specify/memory/constitution.md`,
 
 ## Server, Storage, And AI Boundaries
 
-- 2brain Rec-owned meeting data stays in configured owner-controlled
+- GRAF-owned meeting data stays in configured owner-controlled
   infrastructure by default.
 - Desktop clients never send audio directly to MediaScribe and never store
   MediaScribe credentials.
@@ -45,8 +45,8 @@ Use this file with `.specify/memory/constitution.md`,
 
 ## Deletion Truth
 
-- Product copy must not promise universal erasure outside `2brain Rec` control.
-- Preferred deletion wording: "Delete this meeting everywhere 2brain Rec
+- Product copy must not promise universal erasure outside `GRAF` control.
+- Preferred deletion wording: "Delete this meeting everywhere GRAF
   controls."
 - Deletion reports must distinguish server purge, local desktop purge, backup
   expiry, Temporal/workflow payload limits, MediaScribe state, Langfuse state,
@@ -55,7 +55,7 @@ Use this file with `.specify/memory/constitution.md`,
 
 ## UX And Brand Distance
 
-- UI must use an original `2brain Rec` design system.
+- UI must use an original `GRAF` design system.
 - Clean-room and brand-distance review are required before production rollout.
 - High-risk UX includes tray/widget, onboarding, deletion, admin policy,
   accessibility, localization, and unavailable/degraded states.

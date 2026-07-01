@@ -136,8 +136,9 @@ def test_calendar_settings_web_route_renders_working_settings_screen(client) -> 
     )
     assert '<a class="button quiet" href="#calendar-providers-title">Добавить</a>' not in html
     assert '<button class="primary" type="button">Подключить первый календарь</button>' not in html
-    assert "Что 2brain Rec делает с календарем" in html
-    assert "2brain Rec не меняет события календаря" in html
+    assert "Что GRAF делает с календарем" in html
+    assert "GRAF не меняет события календаря" in html
+    assert "2brain Rec" not in html
     assert "Раздел появится в следующих версиях" not in html
     assert_no_forbidden_calendar_settings_content(html)
 
@@ -202,7 +203,7 @@ def test_calendar_settings_disconnect_confirmation_copy_is_truthful_and_safe() -
 
     assert "Отключить календарь?" in html
     assert "Будущая синхронизация из этого источника остановится" in html
-    assert "Данные подключения будут удалены или отозваны там, где это контролирует 2brain Rec" in html
+    assert "Данные подключения будут удалены или отозваны там, где это контролирует GRAF" in html
     assert "Уже связанный контекст встреч живет по политике хранения встречи" in html
     assert "не обещает удалить данные вне своего контроля" in html
     assert "удалит события у провайдера" not in html
@@ -291,7 +292,7 @@ def test_calendar_settings_overlap_conflict_renders_explicit_choice() -> None:
 
     assert "Нужно выбрать событие для пересечения" in html
     assert "12:30 - 13:00 UTC" in html
-    assert "2brain Rec не выбирает событие автоматически" in html
+    assert "GRAF не выбирает событие автоматически" in html
     assert "Можно продолжить без календарного контекста" in html
     assert "Вариант:" in html
     assert '<button type="button" class="quiet">Выбрать:' not in html
@@ -353,7 +354,7 @@ def test_calendar_settings_html_lists_all_required_providers(client) -> None:
     assert 'name="credential_input"' in response.text
     assert 'name="caldav_url"' in response.text
     assert (
-        "Данные для подключения остаются на сервере 2brain Rec"
+        "Данные для подключения остаются на сервере GRAF"
         in response.text
     )
     assert "secret-app-password" not in response.text

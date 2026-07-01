@@ -183,7 +183,7 @@ async def connect_source(
     display_label: str | None,
     credential_input: str | None,
     selected_provider_calendar_ids: list[str],
-    credential_key: bytes | None,
+    credential_encryption_key: bytes | None,
 ) -> CalendarSource:
     require_supported_auth_mode(provider_family, auth_mode)
     selected_calendar_ids = list(dict.fromkeys(selected_provider_calendar_ids))
@@ -202,11 +202,11 @@ async def connect_source(
     db.add(source)
     await db.flush()
     if credential_input:
-        if credential_key is None:
+        if credential_encryption_key is None:
             raise ProblemDetail(
                 status=503,
-                code="calendar_credential_key_unavailable",
-                title="Calendar credential key unavailable",
+                code="credential_encryption_key_unavailable",
+                title="Credential encryption key unavailable",
             )
         metadata = sealed_credential_metadata(secret=credential_input, secret_kind=auth_mode)
         db.add(
@@ -214,7 +214,7 @@ async def connect_source(
                 calendar_source_id=source.id,
                 workspace_id=tenant_scope.workspace_id,
                 secret_kind=auth_mode,
-                sealed_payload=seal_credential(credential_input, credential_key),
+                sealed_payload=seal_credential(credential_input, credential_encryption_key),
                 key_version="local-v1",
                 secret_fingerprint_sha256=metadata["secret_fingerprint_sha256"],
             )

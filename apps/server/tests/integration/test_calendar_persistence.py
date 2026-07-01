@@ -138,7 +138,7 @@ def test_calendar_source_manual_url_api_seals_url_username_and_secret(client) ->
             return json.loads(
                 unseal_credential(
                     envelope.sealed_payload,
-                    client.app.state.calendar_credential_key,
+                    client.app.state.credential_encryption_key,
                 )
             )
 
