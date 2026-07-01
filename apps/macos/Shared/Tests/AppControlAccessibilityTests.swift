@@ -133,6 +133,71 @@ final class AppControlAccessibilityTests: XCTestCase {
         }
     }
 
+    func testStartupPermissionOnboardingTracksBothMacPermissions() {
+        XCTAssertTrue(
+            DesktopPermissionOnboardingStatus(
+                microphone: .granted,
+                systemAudio: .granted
+            ).isReady
+        )
+        XCTAssertFalse(
+            DesktopPermissionOnboardingStatus(
+                microphone: .granted,
+                systemAudio: .unknown
+            ).isReady
+        )
+        XCTAssertEqual(
+            DesktopPermissionOnboardingSettings.microphoneURL.scheme,
+            "x-apple.systempreferences"
+        )
+        XCTAssertEqual(
+            DesktopPermissionOnboardingSettings.screenAndSystemAudioURL.scheme,
+            "x-apple.systempreferences"
+        )
+        XCTAssertEqual(
+            DesktopPermissionOnboardingAccessibilityIdentifier.sheet,
+            "desktop.permissionOnboarding.sheet"
+        )
+    }
+
+    func testStartupPermissionOnboardingCopyKeepsManualRecordingBoundary() {
+        let copy = [
+            DesktopPermissionOnboardingView.title,
+            DesktopPermissionOnboardingView.subtitle,
+            DesktopPermissionOnboardingView.systemAudioStepDetail,
+            DesktopPermissionOnboardingView.startStepTitle,
+            DesktopPermissionOnboardingView.startStepDetail
+        ]
+
+        XCTAssertTrue(DesktopPermissionOnboardingView.subtitle.contains("Запись не начнется"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.systemAudioStepDetail.contains("перезапуск GRAF"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.startStepDetail.contains("кнопку записи"))
+        for text in copy {
+            XCTAssertFalse(text.localizedCaseInsensitiveContains("krisp"))
+            XCTAssertFalse(text.localizedCaseInsensitiveContains("api"))
+            XCTAssertFalse(text.localizedCaseInsensitiveContains("@"))
+            XCTAssertFalse(text.localizedCaseInsensitiveContains("/Users/"))
+        }
+    }
+
+    func testDesktopAppPresentsStartupPermissionOnboardingWithoutStartingRecording() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
+        XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_appeared\", presentIfNeeded: true)"))
+        XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_became_active\", presentIfNeeded: false)"))
+        XCTAssertTrue(source.contains("microphoneCaptureService.preflight("))
+        XCTAssertTrue(source.contains("sessionId: \"startup-permission-onboarding\""))
+        XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionAndPreflight("))
+        XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.requestPermission()"))
+        XCTAssertFalse(source.contains("requestStartupMicrophonePermission() async {\n        await startManualRecording"))
+        XCTAssertFalse(source.contains("requestStartupSystemAudioPermission() async {\n        await startManualRecording"))
+    }
+
     func testCalendarPromptAccessibilityCopyPreservesManualRecordingBoundary() {
         let label = SystemAudioStatusLabels.calendarPromptAccessibilityLabel(
             title: SystemAudioStatusLabels.calendarGenericMeetingTitle,

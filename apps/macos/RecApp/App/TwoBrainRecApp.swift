@@ -167,6 +167,9 @@ private struct ContentView: View {
     @State private var desktopCabinetConfiguration = DesktopCabinetConfiguration.configuredFromEnvironment()
     @State private var desktopCabinetState: DesktopCabinetState = DesktopCabinetConfiguration.configuredFromEnvironment() == nil ? .notConfigured : .loading
     @State private var selectedCabinetRoute: URL?
+    @State private var permissionOnboardingStatus = DesktopPermissionOnboardingStatus.unknown
+    @State private var permissionOnboardingPresented = false
+    @State private var permissionOnboardingRequestInProgress = false
 
     let snapshot: LocalAudioSnapshot
     let isChecking: Bool
@@ -289,9 +292,34 @@ private struct ContentView: View {
             }
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.nativeShellRegion)
         }
+        .sheet(isPresented: $permissionOnboardingPresented) {
+            DesktopPermissionOnboardingView(
+                status: permissionOnboardingStatus,
+                isRequesting: permissionOnboardingRequestInProgress,
+                onRequestMicrophone: {
+                    Task { await requestStartupMicrophonePermission() }
+                },
+                onRequestSystemAudio: {
+                    Task { await requestStartupSystemAudioPermission() }
+                },
+                onOpenMicrophoneSettings: {
+                    openPermissionSettings(DesktopPermissionOnboardingSettings.microphoneURL)
+                },
+                onOpenSystemAudioSettings: {
+                    openPermissionSettings(DesktopPermissionOnboardingSettings.screenAndSystemAudioURL)
+                },
+                onDismiss: {
+                    permissionOnboardingPresented = false
+                },
+                onFinish: {
+                    permissionOnboardingPresented = false
+                }
+            )
+        }
         .onAppear {
             passthroughCoordinator.recordLaunchState()
             AppLog.write(event: "app_opened", snapshot: snapshot)
+            refreshPermissionOnboarding(reason: "app_appeared", presentIfNeeded: true)
             if !ProcessInfo.processInfo.arguments.contains("--enable-auto-passthrough") {
                 AppLog.writeRaw(
                     event: "passthrough_bridge_auto_start_skipped",
@@ -367,6 +395,7 @@ private struct ContentView: View {
             Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshPermissionOnboarding(reason: "app_became_active", presentIfNeeded: false)
             refreshUploadQueueAndProcess(reason: "app_became_active")
             Task { await refreshCalendarReminder(reason: "app_became_active") }
         }
@@ -378,6 +407,63 @@ private struct ContentView: View {
             guard !terminationCleanupInProgress else { return }
             Task { await releaseCaptureResourcesForAppExit() }
         }
+    }
+
+    @MainActor
+    private func refreshPermissionOnboarding(reason: String, presentIfNeeded: Bool) {
+        let status = DesktopPermissionOnboardingStatus(
+            microphone: microphoneCaptureService.preflight(
+                sessionId: "startup-permission-onboarding"
+            ).permissionState,
+            systemAudio: systemAudioPermissionAuthorizer.currentPermissionState()
+        )
+        permissionOnboardingStatus = status
+
+        if status.isReady {
+            permissionOnboardingPresented = false
+        } else {
+            if presentIfNeeded {
+                permissionOnboardingPresented = true
+            }
+        }
+
+        AppLog.writeRaw(
+            event: "desktop.permission_onboarding_checked",
+            detail: "reason=\(reason) microphone=\(status.microphone.rawValue) systemAudio=\(status.systemAudio.rawValue) ready=\(status.isReady)"
+        )
+    }
+
+    @MainActor
+    private func requestStartupMicrophonePermission() async {
+        guard !permissionOnboardingRequestInProgress else { return }
+        permissionOnboardingRequestInProgress = true
+        defer { permissionOnboardingRequestInProgress = false }
+
+        let selection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+            selectedInputDeviceId: selectedRecordingMicrophoneDeviceId
+        )
+        recordingMicrophoneSelection = selection
+        _ = await microphoneCaptureService.requestPermissionAndPreflight(
+            sessionId: "startup-permission-onboarding",
+            inputDeviceId: selection.inputDeviceId,
+            inputDisplayName: selection.inputDisplayName ?? "Default Microphone"
+        )
+        refreshPermissionOnboarding(reason: "microphone_permission_requested", presentIfNeeded: false)
+    }
+
+    @MainActor
+    private func requestStartupSystemAudioPermission() async {
+        guard !permissionOnboardingRequestInProgress else { return }
+        permissionOnboardingRequestInProgress = true
+        defer { permissionOnboardingRequestInProgress = false }
+
+        _ = await systemAudioPermissionAuthorizer.requestPermission()
+        refreshPermissionOnboarding(reason: "system_audio_permission_requested", presentIfNeeded: false)
+    }
+
+    @MainActor
+    private func openPermissionSettings(_ url: URL) {
+        NSWorkspace.shared.open(url)
     }
 
     @MainActor
