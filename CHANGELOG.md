@@ -12,7 +12,10 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Feature `078-dead-code-batch-5`: удалены три доказанно неиспользуемых Swift
+  `Foundation` import из shared macOS buffering/routing surface; batch
+  уменьшает tracked Swift-код на 6 строк без новых зависимостей и без
+  deploy-изменений.
 
 ### Исправлено
 - _Пока нет записей._
