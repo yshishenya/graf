@@ -24,7 +24,8 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Production checkout hygiene: `infra/secrets` теперь игнорируется и как
+  symlink, чтобы runtime-secret mount не оставлял untracked след в `git status`.
 
 ## [2026.07.01.8] - 2026-07-01
 
