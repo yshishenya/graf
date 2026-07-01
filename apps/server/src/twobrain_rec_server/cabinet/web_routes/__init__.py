@@ -1,0 +1,1 @@
+"""Cabinet web route families."""
