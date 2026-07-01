@@ -342,6 +342,40 @@
   };
 
   const initCalendarSettings = () => {
+    const openCalendarDialog = (dialog) => {
+      if (!dialog) return;
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      const firstField = dialog.querySelector("input:not([type='hidden']), button[type='submit'], button:not([data-calendar-provider-close])");
+      firstField?.focus({ preventScroll: true });
+    };
+    const closeCalendarDialog = (dialog) => {
+      if (!dialog) return;
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    };
+    document.querySelectorAll("[data-calendar-provider-open]").forEach((button) => {
+      if (button.dataset.calendarProviderOpenReady === "true") return;
+      button.dataset.calendarProviderOpenReady = "true";
+      button.addEventListener("click", () => {
+        const dialogId = button.dataset.calendarProviderOpen || "";
+        openCalendarDialog(document.getElementById(dialogId));
+      });
+    });
+    document.querySelectorAll("[data-calendar-provider-close]").forEach((button) => {
+      if (button.dataset.calendarProviderCloseReady === "true") return;
+      button.dataset.calendarProviderCloseReady = "true";
+      button.addEventListener("click", () => {
+        closeCalendarDialog(button.closest("[data-calendar-provider-dialog]"));
+      });
+    });
+    document.querySelectorAll("[data-calendar-provider-dialog]").forEach((dialog) => {
+      if (dialog.dataset.calendarProviderDialogReady === "true") return;
+      dialog.dataset.calendarProviderDialogReady = "true";
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) closeCalendarDialog(dialog);
+      });
+    });
     document.querySelectorAll("[data-calendar-disconnect-cancel]").forEach((button) => {
       if (button.dataset.calendarCancelReady === "true") return;
       button.dataset.calendarCancelReady = "true";
