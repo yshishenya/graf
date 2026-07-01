@@ -1,4 +1,3 @@
-import Foundation
 import TwoBrainRecShared
 
 public struct RecordingPrerequisiteGate: Sendable {
