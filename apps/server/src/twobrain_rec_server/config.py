@@ -134,6 +134,13 @@ class Settings(BaseSettings):
     )
 
     @field_validator(
+        "public_base_url",
+        "postal_api_url",
+        "mediascribe_base_url",
+        "mediascribe_health_url",
+        "langfuse_base_url",
+        "langfuse_health_url",
+        "auth_base_url",
         "web_login_workspace_id",
         "postal_host_header",
         "credential_encryption_key_file",
