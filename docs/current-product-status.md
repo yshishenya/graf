@@ -377,6 +377,17 @@ metadata-only evidence остаются подробной историей ре
   production deploy evidence are recorded in the release closeout notes. This
   slice is not user-rollout validated yet; moderated
   usability/comprehension targets still need real participant evidence.
+- Feature `069-universal-sidebar` is implemented, merged through PR #2532,
+  closed through cleanup PR #2543 and release PR #2544, and included in
+  production releases from `v2026.06.30.7` through the current
+  `v2026.06.30.10` deployment. The browser cabinet and desktop embedded
+  cabinet use one server-owned sidebar/shell contract; page templates own only
+  their content region, fragments stay content-only, and the native SwiftUI
+  product sidebar remains absent. Closeout evidence includes focused shell,
+  route, fragment, and macOS boundary tests, full local CI, release notes, and
+  production smoke with public health `ready`. This slice does not add admin or
+  auth navigation and does not claim manual screenshot/browser QA beyond the
+  recorded automated and deploy evidence.
 - Feature `036-owner-review-live-polish` is implemented as the current owner
   review visual/auth baseline. It adds browser email login/signup flows, Postal
   delivery configuration, session-protected web cabinet routes, installed
