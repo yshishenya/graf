@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <meta
+      name="description"
+      content="GRAF автоматически записывает онлайн-встречи в любом приложении для созвонов и собирает главное после них."
+    >
+    <meta name="theme-color" content="#05090a">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <div class="site-shell">
+      <header class="site-header" aria-label="GRAF">
+        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <nav class="top-nav" aria-label="Основные разделы">
+          <a href="#how">Как это работает</a>
+          <a href="#features">Возможности</a>
+          <a href="#trust">Безопасность</a>
+        </nav>
+        <a class="header-cta" href="{{ download_url }}">Скачать</a>
+      </header>
+
+      <main id="main">
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <h1 id="hero-title">Встреча останется с вами</h1>
+            <p class="hero-lede">
+              GRAF сам записывает звонок и собирает главное после него.
+            </p>
+            <div class="hero-actions">
+              <a class="primary-cta" href="{{ download_url }}">
+                <span>Скачать GRAF</span>
+                <span aria-hidden="true">→</span>
+              </a>
+              <a class="secondary-cta" href="{{ start_url }}">Войти</a>
+            </div>
+          </div>
+
+          <div class="product-scene">
+            <img
+              src="{{ public_static_asset_url('landing-hero-product.png') }}"
+              width="940"
+              height="710"
+              fetchpriority="high"
+              alt="Интерфейс GRAF: запись встречи превращается в транскрипт, решения и задачи"
+            >
+          </div>
+        </section>
+
+        <section class="tool-strip" id="how" aria-labelledby="platform-title">
+          <div class="platform-card">
+            <div class="platform-copy">
+              <p class="platform-label">Любой сервис для созвонов</p>
+              <h2 id="platform-title">GRAF записывает встречу там, где вы уже созваниваетесь.</h2>
+            </div>
+            <div class="platform-rail" aria-label="Примеры сервисов для звонков">
+              <div class="platform-track" aria-hidden="true">
+                <span>Яндекс Телемост</span>
+                <span>SberJazz</span>
+                <span>TrueConf</span>
+                <span>МТС Линк</span>
+                <span>Контур.Толк</span>
+                <span>VK Teams</span>
+                <span>Яндекс Телемост</span>
+                <span>SberJazz</span>
+                <span>TrueConf</span>
+                <span>МТС Линк</span>
+                <span>Контур.Толк</span>
+                <span>VK Teams</span>
+              </div>
+              <div class="platform-track platform-track-alt" aria-hidden="true">
+                <span>DION</span>
+                <span>Zoom</span>
+                <span>Google Meet</span>
+                <span>Microsoft Teams</span>
+                <span>Telegram</span>
+                <span>Discord</span>
+                <span>DION</span>
+                <span>Zoom</span>
+                <span>Google Meet</span>
+                <span>Microsoft Teams</span>
+                <span>Telegram</span>
+                <span>Discord</span>
+              </div>
+              <ul class="sr-only">
+                <li>Яндекс Телемост</li>
+                <li>SberJazz</li>
+                <li>TrueConf</li>
+                <li>МТС Линк</li>
+                <li>Контур.Толк</li>
+                <li>VK Teams</li>
+                <li>DION</li>
+                <li>Zoom</li>
+                <li>Google Meet</li>
+                <li>Microsoft Teams</li>
+                <li>Telegram</li>
+                <li>Discord</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="outcome-section" id="features" aria-labelledby="features-title">
+          <div>
+            <p class="section-label">После встречи</p>
+            <h2 id="features-title">Текст, решения и задачи уже готовы.</h2>
+            <p class="section-copy">
+              GRAF собирает разговор в понятный итог, к которому можно вернуться
+              после звонка.
+            </p>
+          </div>
+          <div class="outcome-panel" aria-label="Пример готовых итогов встречи">
+            <article class="transcript-preview">
+              <div class="preview-header">
+                <h3>Транскрипт</h3>
+                <span>45:28</span>
+              </div>
+              <div class="quote-row">
+                <time datetime="PT12M48S">00:12:48</time>
+                <p>Нужно сфокусироваться на запуске в Q3 и первой группе.</p>
+              </div>
+              <div class="quote-row">
+                <time datetime="PT21M06S">00:21:06</time>
+                <p>Берем два региона и готовим список требований.</p>
+              </div>
+              <div class="audio-line" aria-hidden="true"></div>
+            </article>
+
+            <div class="outcome-stack">
+              <article class="summary-preview">
+                <p>Главное</p>
+                <h3>Запуск в Q3, фокус на 2 регионах.</h3>
+                <div class="decision-tags" aria-label="Решения">
+                  <span>Запуск в Q3</span>
+                  <span>2 региона</span>
+                  <span>Первая группа</span>
+                </div>
+              </article>
+
+              <article class="tasks-preview">
+                <div class="preview-header">
+                  <h3>Задачи</h3>
+                  <span>3</span>
+                </div>
+                <ul>
+                  <li><span>Анна</span>Подготовить план запуска</li>
+                  <li><span>Игорь</span>Собрать первых клиентов</li>
+                  <li><span>Анна</span>Описать требования</li>
+                </ul>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-section" id="trust" aria-labelledby="trust-title">
+          <div>
+            <p class="section-label">Контроль</p>
+            <h2 id="trust-title">Запись видна и управляемая.</h2>
+          </div>
+          <div class="control-list">
+            <p>Автозапись можно включить заранее.</p>
+            <p>Во время встречи видно, что идет запись.</p>
+            <p>Остановить можно одним действием.</p>
+            <p>Без бота в звонке.</p>
+          </div>
+        </section>
+
+        <section class="final-cta" id="start" aria-label="Начать пользоваться GRAF">
+          <h2>Начните с ближайшей встречи.</h2>
+          <div>
+            <a class="primary-cta" href="{{ download_url }}">
+              <span>Скачать GRAF</span>
+              <span aria-hidden="true">→</span>
+            </a>
+            <a class="secondary-cta" href="{{ start_url }}">Войти</a>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

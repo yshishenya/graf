@@ -503,7 +503,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .auth-brand-wordmark { text-align: center; font-size: 25px; line-height: 1; font-weight: 850; }
 .auth-subtitle { color: var(--muted); font-size: 12px; line-height: 1.35; text-align: center; }
 .auth-methods { display: grid; gap: 12px; }
-.auth-methods, .auth-divider, .auth-form, .auth-secondary, .auth-alert {
+.auth-methods, .auth-divider, .auth-form, .auth-secondary, .auth-alert, .auth-download {
   width: var(--auth-content-width);
   justify-self: center;
 }
@@ -598,6 +598,33 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .auth-signup { color: #d7d9df; font-size: 13px; }
 .auth-signup a, .auth-legal .mini-link { color: #c9c1ff; font-weight: 750; }
+.auth-download {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #3b4049;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(112, 87, 255, .12), rgba(47, 201, 166, .06)),
+    #24272c;
+  color: #aeb4be;
+  font-size: 12px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+.auth-download a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(201,193,255,.22);
+  border-radius: 999px;
+  background: rgba(201,193,255,.08);
+  color: #c9c1ff;
+  font-weight: 800;
+  white-space: nowrap;
+}
 .auth-legal {
   position: absolute;
   z-index: 1;
@@ -711,6 +738,90 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   gap: 9px;
 }
 .cabinet-card .section-title { margin: 0 0 4px; }
+.first-run-download {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px 22px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, rgba(112, 87, 255, .16), rgba(40, 205, 196, .08)),
+    var(--surface);
+}
+.first-run-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.first-run-copy h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.15;
+}
+.first-run-copy p {
+  max-width: 600px;
+  margin: 0;
+  color: var(--muted);
+}
+.first-run-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.first-run-actions .button {
+  min-height: 38px;
+  padding-inline: 15px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.first-run-actions .button.primary {
+  border-color: rgba(47, 201, 166, .62);
+  background: linear-gradient(135deg, #2fc9a6, #2f91ff);
+  box-shadow: 0 12px 28px rgba(47, 201, 166, .14);
+}
+.first-run-actions .button.quiet {
+  border-color: rgba(255,255,255,.12);
+  background: rgba(255,255,255,.035);
+  color: #d7dbe2;
+}
+.first-run-steps {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--line-soft);
+}
+.first-run-steps li {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  color: #dce0e6;
+  background: rgba(255,255,255,.035);
+  font-size: 12px;
+  font-weight: 750;
+}
+.first-run-steps span {
+  width: 21px;
+  height: 21px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(47,201,166,.34);
+  border-radius: 999px;
+  color: #9eead7;
+  background: rgba(47,201,166,.08);
+  font-size: 11px;
+}
 .calendar-empty {
   display: flex;
   align-items: center;
@@ -1185,6 +1296,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .toolbar button { grid-column: auto; }
   .auth-page { padding: 18px 14px 28px; }
   .auth-panel { padding: 18px; }
+  .auth-download {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   .auth-provider-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: repeat(4, minmax(40px, auto));
@@ -1200,6 +1315,15 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   }
   .auth-provider .provider-mark { width: 24px; height: 24px; font-size: 10px; }
   .auth-provider .provider-pill { display: none; }
+  .first-run-download {
+    grid-template-columns: 1fr;
+  }
+  .first-run-actions {
+    justify-content: flex-start;
+  }
+  .first-run-steps {
+    grid-template-columns: 1fr;
+  }
   .playback-bar { padding-inline: 12px; }
   .timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }
 }

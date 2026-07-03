@@ -9,9 +9,17 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Публичная главная страница `rec.2brain.pro`: B2C-лендинг GRAF с прямым
+  скачиванием приложения, product visuals и блоком готовых итогов встречи без
+  demo/pilot flow.
+- Добавлен путь `/download`: он отдает текущий установщик GRAF и показывает
+  короткий путь первого запуска.
 
 ### Изменено
+- Главная страница теперь выводит `Скачать GRAF` как основной CTA, а вход
+  оставляет вторичным действием.
+- Страница входа и первый пустой экран кабинета теперь ведут пользователя к
+  скачиванию приложения перед подключением календарей.
 - Feature `089-upload-transport-boundary`: upload part-number calculation в
   macOS upload client перенесен в единый lower-level `uploadPart`; endpoint,
   idempotency, missing-range retry и finalize semantics не менялись.
@@ -48,6 +56,8 @@
 - _Пока нет записей._
 
 ### Документы
+- Добавлен B2C brief публичного лендинга с self-serve путем
+  `лендинг -> скачать приложение -> вход -> кабинет`.
 - Feature `072-deep-architecture-audit`: обновлен read-only architecture audit
   под текущий `origin/master`; roadmap исправлен с повторного split
   `cabinet/web.py` на реальные текущие hotspots cabinet route/view/render/egress,

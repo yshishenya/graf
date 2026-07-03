@@ -364,6 +364,34 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
 
 
+def test_empty_meeting_list_starts_with_app_download_handoff() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert "Первый запуск" in page
+    assert "Установите GRAF" in page
+    assert 'href="/download">Скачать приложение</a>' in page
+    assert "Подключить календари" in page
+
+
+def test_non_empty_meeting_list_does_not_show_first_run_download_handoff() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert "Первый запуск" not in page
+    assert 'href="/download">Скачать приложение</a>' not in page
+
+
 def test_meeting_list_dynamic_selection_keeps_one_shell_boundary() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
@@ -820,6 +848,13 @@ def test_auth_pages_do_not_render_disabled_placeholders_as_links() -> None:
         assert 'href="#"' not in page
         assert 'aria-disabled="true"' in page
         assert '<span class="mini-link is-disabled" aria-disabled="true">' in page
+
+
+def test_login_page_links_to_app_download_handoff() -> None:
+    page = render_login_page(workspace_id=uuid4(), providers=[])
+
+    assert "Приложение нужно для записи встреч." in page
+    assert 'href="/download">Скачать GRAF</a>' in page
 
 
 def test_detail_shell_renders_speaker_timeline_segments() -> None:
