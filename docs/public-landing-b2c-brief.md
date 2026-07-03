@@ -5,8 +5,8 @@ This is not a production release spec yet.
 
 ## Goal
 
-The landing page should convert a visitor directly into authorization and first
-use. It should feel like a calm consumer productivity product, not an
+The landing page should convert a visitor directly into the login page and
+first use. It should feel like a calm consumer productivity product, not an
 enterprise security page and not a technical architecture explainer.
 
 The page has one primary path:
@@ -70,7 +70,7 @@ Every major section should answer one conversion question:
 - What is the next click?
 
 Avoid making the user choose between learning and starting. The next click is
-always authorization.
+always the login page.
 
 ## Start and download path
 
@@ -80,7 +80,7 @@ The landing CTA opens:
 /login?next=/meetings
 ```
 
-After successful authorization, the cabinet should become the first-run
+After successful login, the cabinet should become the first-run
 handoff: download the app, open it, turn on auto-recording, and then return to
 meetings. Do not add a public "download app" promise until a real installer
 route or release asset exists.
@@ -171,6 +171,6 @@ the implementation slice prove it before release.
   or internal architecture in the hero.
 - Platform-specific copy in the hero.
 - "Book a demo", "Request pilot", or sales-led CTAs for the B2C path.
-- A secondary CTA that lets the user avoid authorization.
+- A secondary CTA that lets the user avoid the login page.
 - Overstated claims such as "works with every app" unless the acceptance
   evidence supports that exact wording.

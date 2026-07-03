@@ -4,7 +4,7 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert response.status_code == 200
     assert "Встреча останется с вами" in response.text
     assert "GRAF сам записывает звонок" in response.text
-    assert "Сразу к регистрации" not in response.text
+    assert "регистрац" not in response.text.lower()
     assert "Любой сервис для созвонов" in response.text
     assert "GRAF записывает встречу там, где вы уже созваниваетесь" in response.text
     assert "GRAF REC" not in response.text

@@ -17,7 +17,7 @@ Design qualities:
 - Deep near-black background with a restrained technical grid.
 - Teal primary actions and coral recording accents from the selected product
   direction.
-- Short B2C hero copy with one direct authorization CTA.
+- Short B2C hero copy with one direct login CTA.
 - Dominant product scene showing the meeting flow from conversation to recording
   to output.
 - Compatibility strip uses a moving wordmark rail to show familiar conferencing
