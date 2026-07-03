@@ -1,40 +1,80 @@
-**Source Visual Truth**
-- User-provided Krisp login screenshot in the current chat, state: desktop login screen at app.krisp.ai.
-- Local source file path: not available; the reference was supplied as an in-chat screenshot.
+# Public Landing Design QA
 
-**Implementation Evidence**
-- Desktop screenshot: `/tmp/2brain-rec-login-preview.png`
-- Code screenshot: `/tmp/2brain-rec-code-preview.png`
-- Mobile screenshot: `/tmp/2brain-rec-login-preview-mobile.png`
-- Viewports: 1328x768 desktop, 390x844 mobile.
-- State: unauthenticated browser login, Russian copy, 2brain Rec brand, provider placeholders, email-code flow.
-- Full-view comparison evidence: compared the supplied Krisp login screenshot against the rendered 2brain Rec preview at matching desktop scale.
-- Focused region comparison evidence: focused on auth card, provider buttons, email form, legal copy, and mobile wrapping. No additional crop was needed because the card text and controls were readable in the full screenshots.
+Final result: passed
 
-**Findings**
+## Scope
+
+- Route: `/`
+- Source visual truth:
+  `/Users/yshishenya/.codex/attachments/deb7c7bc-fc30-481e-b1a7-9758e121c2e5/image-1.png`
+- Implementation screenshots:
+  `/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/target-match-1536-final-v2.png`
+  `/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/target-match-1440-final-v2.png`
+  `/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/target-match-mobile-final-v2.png`
+  `/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/target-match-mobile-360-final-v2.png`
+  `/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/outcome-section-desktop-final.png`
+- Viewports: desktop `1536x1024`, desktop `1440x900`, mobile `390x844`,
+  mobile `360x740`
+- State: public landing, unauthenticated, first-load state
+- Full-view comparison evidence:
+  `/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/reference-vs-target-match-final-v2.png`
+- Automated report:
+  `/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/target-match-final-v2-report.json`
+
+## Findings
+
 - No actionable P0/P1/P2 findings remain.
 
-**Required Fidelity Surfaces**
-- Fonts and typography: system sans stack matches the clean desktop-app feel; headings and buttons use stronger weights similar to the reference without negative letter spacing.
-- Spacing and layout rhythm: centered auth card, narrow width, compact provider stack, divider, email form, SSO link, signup link, and legal copy match the reference structure.
-- Colors and visual tokens: dark surface, subdued borders, purple accent, and right-side purple background glow align with the reference while preserving 2brain brand distance.
-- Image quality and asset fidelity: no external raster assets are required for this server-rendered screen; provider marks are textual product labels, not copied third-party logos.
-- Copy and content: Russian UI copy matches the intended flow and avoids exposing internal workspace identifiers.
+## Fidelity Checks
 
-**Patches Made Since Previous QA Pass**
-- Removed visible and hidden `workspace_id` fields from the browser login and code forms.
-- Added Krisp-like centered auth scene with 2brain Rec brand, provider buttons, email entry, SSO placeholder, signup placeholder, and legal copy.
-- Changed auth primary button from blue to purple to better match the reference.
-- Added tests that fail if workspace UUIDs reappear in the login UI.
+- Typography: restored the compact, large hero hierarchy from the selected
+  reference and kept zero letter spacing.
+- Spacing/layout: restored the two-column hero with a dominant product scene,
+  proof row, and tool strip.
+- Colors/tokens: restored the dark product direction with teal primary actions
+  and coral recording accents.
+- Image/asset quality: the hero product scene and tool strip are local raster
+  assets derived from the selected reference, with fixed dimensions and
+  fingerprinted URLs.
+- Copy/content: restored the short B2C hero wording, direct `Начать` CTA, and
+  `Сразу к регистрации.` microcopy. The page does not mention demo, pilot, Mac,
+  or "watch how it works" paths.
 
-**Implementation Checklist**
-- [x] Desktop login card matches reference structure.
-- [x] Mobile login card wraps without overflow.
-- [x] Email-code page uses the same visual system.
-- [x] Workspace ID remains server-side and hidden from users.
-- [x] Auth-flow tests pass.
+## Accepted Deviations
 
-**Follow-up Polish**
-- Replace textual provider marks with official provider logos when we add the actual OAuth integrations and have approved brand assets.
+- The reference header includes `Тарифы` and `Блог`; the implementation omits
+  them until real public sections or routes exist.
+- Calendar sync remains out of the hero because it is a supporting mechanism,
+  not the main conversion promise.
 
-final result: passed
+## Patches Made
+
+- Rebuilt the public landing around the restored reference composition.
+- Replaced the abstract/code-drawn hero with local product-scene and tool-strip
+  assets.
+- Shortened the hero copy and removed the rejected wording.
+- Added skip-link and focus-visible states for keyboard access.
+- Updated focused unit and contract tests for the public landing route and local
+  asset contract.
+- Updated `docs/public-landing-variants.md` and
+  `docs/public-landing-b2c-brief.md` to match the final implementation.
+- Replaced the numbered after-meeting cards with a single product-style result
+  panel for transcript, decisions, and tasks.
+
+## Validation
+
+- Playwright/Chrome screenshots passed at `1536x1024`, `1440x900`, `390x844`,
+  and `360x740`.
+- Browser console and page errors: `0`.
+- Horizontal overflow: none at all tested viewports.
+- CTA target: `/sign-up?next=/meetings`.
+- Local assets: CSS, hero image, tool-strip image, and favicon only; no runtime
+  CDN assets.
+- Focused public landing tests: `8 passed, 1 warning`.
+- Ruff focused check: `All checks passed!`.
+- HTTP checks: `/` and `/sign-up?next=/meetings` return `200`.
+- Outcome section DOM check: no old `01/02/03/04` markers and no demo, pilot,
+  or watch-how-it-works wording.
+- Full local gate `infra/scripts/ci-local.sh`: `997 passed, 4 skipped,
+  1 warning`; server lint, python compile, production compose config, and
+  deployment evidence scan passed.
