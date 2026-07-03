@@ -31,6 +31,9 @@
 - Feature `083-cabinet-deletion-rendering-split`: deletion report/feedback
   rendering и общий shell/path/text helper вынесены из cabinet `rendering.py`;
   deletion service, route order и lifecycle copy не менялись.
+- Feature `084-cabinet-review-policy-rendering-split`: access/share/artifact
+  policy widgets meeting detail вынесены из cabinet `rendering.py` в отдельный
+  renderer без изменения routes, templates, egress API или deletion copy.
 
 ### Исправлено
 - _Пока нет записей._
