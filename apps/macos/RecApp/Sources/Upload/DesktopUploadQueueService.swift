@@ -233,21 +233,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 if existing.state.isTerminal {
                     return existing
                 }
-                var merged = item
-                merged.attemptCount = existing.attemptCount
-                merged.meetingId = existing.meetingId
-                merged.localMediaRevisionId = existing.localMediaRevisionId
-                merged.mediaRevisionId = existing.mediaRevisionId
-                merged.uploadSessionId = existing.uploadSessionId
-                merged.syncGeneration = existing.syncGeneration
-                merged.lastReconciledAt = existing.lastReconciledAt
-                merged.syncConflictState = existing.syncConflictState
-                merged.serverTruth = existing.serverTruth
-                merged.retryRecords = existing.retryRecords
-                merged.createdAt = existing.createdAt
-                merged.supportIncidentSubmission = existing.supportIncidentSubmission
-                merged.calendarContextEventId = existing.calendarContextEventId ?? merged.calendarContextEventId
-                merged.recordingMetadata = existing.recordingMetadata ?? merged.recordingMetadata
+                let merged = Self.preservingQueueState(from: existing, over: item)
                 document.items[index] = merged
                 savedItem = merged
             } else {
@@ -1062,21 +1048,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         refreshed: DesktopUploadQueueItem,
         now: Date
     ) -> DesktopUploadQueueItem {
-        var merged = refreshed
-        merged.attemptCount = existing.attemptCount
-        merged.meetingId = existing.meetingId
-        merged.localMediaRevisionId = existing.localMediaRevisionId
-        merged.mediaRevisionId = existing.mediaRevisionId
-        merged.uploadSessionId = existing.uploadSessionId
-        merged.syncGeneration = existing.syncGeneration
-        merged.lastReconciledAt = existing.lastReconciledAt
-        merged.syncConflictState = existing.syncConflictState
-        merged.serverTruth = existing.serverTruth
-        merged.retryRecords = existing.retryRecords
-        merged.createdAt = existing.createdAt
-        merged.supportIncidentSubmission = existing.supportIncidentSubmission
-        merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
-        merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
+        var merged = Self.preservingQueueState(from: existing, over: refreshed)
         if refreshed.artifactProfile.isUploadable && existing.syncConflictState == .localFilesMissing {
             merged.syncConflictState = .none
         }
@@ -1104,6 +1076,28 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
             )
         }
+        return merged
+    }
+
+    private static func preservingQueueState(
+        from existing: DesktopUploadQueueItem,
+        over refreshed: DesktopUploadQueueItem
+    ) -> DesktopUploadQueueItem {
+        var merged = refreshed
+        merged.attemptCount = existing.attemptCount
+        merged.meetingId = existing.meetingId
+        merged.localMediaRevisionId = existing.localMediaRevisionId
+        merged.mediaRevisionId = existing.mediaRevisionId
+        merged.uploadSessionId = existing.uploadSessionId
+        merged.syncGeneration = existing.syncGeneration
+        merged.lastReconciledAt = existing.lastReconciledAt
+        merged.syncConflictState = existing.syncConflictState
+        merged.serverTruth = existing.serverTruth
+        merged.retryRecords = existing.retryRecords
+        merged.createdAt = existing.createdAt
+        merged.supportIncidentSubmission = existing.supportIncidentSubmission
+        merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
+        merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
         return merged
     }
 

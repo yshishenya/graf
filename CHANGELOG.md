@@ -12,6 +12,9 @@
 - _Пока нет записей._
 
 ### Изменено
+- Feature `088-upload-queue-boundary`: общий helper сохраняет persisted
+  queue/server/support state при desktop upload re-scan/re-enqueue; поведение
+  очереди и upload custody contracts не менялись.
 - Feature `078-dead-code-batch-5`: удалены три доказанно неиспользуемых Swift
   `Foundation` import из shared macOS buffering/routing surface; batch
   уменьшает tracked Swift-код на 6 строк без новых зависимостей и без
