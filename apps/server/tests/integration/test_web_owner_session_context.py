@@ -152,6 +152,7 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert response.status_code == 200
     assert "Войти в кабинет" in response.text
     assert 'action="/login/email/start"' in response.text
+    assert 'href="/download">Скачать GRAF</a>' in response.text
     assert 'type="email"' in response.text
     assert "Способ входа" in response.text
     assert "Яндекс ID" in response.text

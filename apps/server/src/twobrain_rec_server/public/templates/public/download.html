@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <meta
+      name="description"
+      content="Установите GRAF, чтобы записывать встречи на компьютере и получать итоги в кабинете."
+    >
+    <meta name="theme-color" content="#05090a">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <div class="site-shell download-shell">
+      <header class="site-header" aria-label="GRAF">
+        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <nav class="top-nav" aria-label="Основные разделы">
+          <a href="/">Главная</a>
+        </nav>
+        <a class="header-cta" href="{{ start_url }}">Войти</a>
+      </header>
+
+      <main id="main" class="download-page">
+        <section class="download-hero" aria-labelledby="download-title">
+          <p class="section-label">Приложение</p>
+          <h1 id="download-title">Установите GRAF</h1>
+          <p class="hero-lede">
+            Приложение записывает встречу на компьютере, а кабинет показывает
+            текст, решения и задачи после обработки.
+          </p>
+          <div class="hero-actions">
+            <a class="primary-cta" href="{{ public_static_asset_url('downloads/graf-local.pkg') }}" download>
+              <span>Скачать GRAF</span>
+              <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </section>
+
+        <section class="download-card" aria-labelledby="download-status">
+          <div>
+            <p class="platform-label">Текущий установщик</p>
+            <h2 id="download-status">Скачайте пакет и откройте GRAF.</h2>
+            <p>
+              После установки войдите в кабинет тем же аккаунтом. GRAF будет
+              записывать встречи на компьютере и отправлять итоги в кабинет.
+            </p>
+          </div>
+          <ol class="download-steps" aria-label="Путь первого запуска">
+            <li>
+              <span class="step-index">1</span>
+              <span class="step-copy"><strong>Скачать</strong><small>Файл приложения</small></span>
+            </li>
+            <li>
+              <span class="step-index">2</span>
+              <span class="step-copy"><strong>Открыть</strong><small>Войти в аккаунт</small></span>
+            </li>
+            <li>
+              <span class="step-index">3</span>
+              <span class="step-copy"><strong>Включить</strong><small>Автозапись встреч</small></span>
+            </li>
+          </ol>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

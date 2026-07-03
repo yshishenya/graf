@@ -43,6 +43,24 @@
         <button class="new-button" type="button" aria-disabled="true">Новая</button>
       </form>
     </div>
+    {% if visible_total == 0 and not query_value and not status_value and not access_value %}
+    <section class="first-run-download cabinet-card" aria-labelledby="first-run-download-title">
+      <div class="first-run-copy">
+        <div class="section-title">Первый запуск</div>
+        <h2 id="first-run-download-title">Установите GRAF</h2>
+        <p>Приложение записывает встречи на компьютере. Кабинет покажет текст, решения и задачи после обработки.</p>
+      </div>
+      <div class="first-run-actions">
+        <a class="button primary" href="/download">Скачать приложение</a>
+        <a class="button quiet" href="{{ calendar_settings_href }}">Подключить календари</a>
+      </div>
+      <ol class="first-run-steps" aria-label="Путь первого запуска">
+        <li><span>1</span>Скачать</li>
+        <li><span>2</span>Открыть</li>
+        <li><span>3</span>Включить автозапись</li>
+      </ol>
+    </section>
+    {% endif %}
     <section class="upcoming cabinet-card" aria-label="Ближайшие встречи">
       <div class="section-title">Ближайшие</div>
       <div class="calendar-empty">
