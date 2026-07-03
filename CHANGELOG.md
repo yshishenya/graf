@@ -12,6 +12,9 @@
 - _Пока нет записей._
 
 ### Изменено
+- Feature `089-upload-transport-boundary`: upload part-number calculation в
+  macOS upload client перенесен в единый lower-level `uploadPart`; endpoint,
+  idempotency, missing-range retry и finalize semantics не менялись.
 - Feature `088-upload-queue-boundary`: общий helper сохраняет persisted
   queue/server/support state при desktop upload re-scan/re-enqueue; поведение
   очереди и upload custody contracts не менялись.
