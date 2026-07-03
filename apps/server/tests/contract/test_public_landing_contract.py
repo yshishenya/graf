@@ -12,7 +12,6 @@ PUBLIC_TEMPLATE_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "templat
 def test_public_landing_static_assets_are_local_to_server_package() -> None:
     assert (PUBLIC_STATIC_DIR / "landing.css").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-hero-product.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-tools-strip.png").is_file()
     assert (PUBLIC_TEMPLATE_DIR / "landing.html").is_file()
 
 

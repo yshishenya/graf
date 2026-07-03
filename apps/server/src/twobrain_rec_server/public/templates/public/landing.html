@@ -22,7 +22,7 @@
           <a href="#features">Возможности</a>
           <a href="#trust">Безопасность</a>
         </nav>
-        <a class="header-cta" href="{{ signup_url }}">Начать</a>
+        <a class="header-cta" href="{{ start_url }}">Начать</a>
       </header>
 
       <main id="main">
@@ -33,26 +33,11 @@
               GRAF сам записывает звонок и собирает главное после него.
             </p>
             <div class="hero-actions">
-              <a class="primary-cta" href="{{ signup_url }}">
+              <a class="primary-cta" href="{{ start_url }}">
                 <span>Начать</span>
                 <span aria-hidden="true">→</span>
               </a>
-              <span>Сразу к регистрации.</span>
             </div>
-            <dl class="hero-proof" aria-label="Ключевые преимущества">
-              <div>
-                <dt>Без ботов</dt>
-                <dd>в звонке</dd>
-              </div>
-              <div>
-                <dt>Конфиденциально</dt>
-                <dd>и безопасно</dd>
-              </div>
-              <div>
-                <dt>Готово</dt>
-                <dd>через минуты</dd>
-              </div>
-            </dl>
           </div>
 
           <div class="product-scene">
@@ -66,14 +51,57 @@
           </div>
         </section>
 
-        <section class="tool-strip" id="how" aria-label="Совместимость">
-          <img
-            src="{{ public_static_asset_url('landing-tools-strip.png') }}"
-            width="820"
-            height="130"
-            loading="lazy"
-            alt="Работает с Google Meet, Zoom, Microsoft Teams, Slack, HubSpot и Notion"
-          >
+        <section class="tool-strip" id="how" aria-labelledby="platform-title">
+          <div class="platform-card">
+            <div class="platform-copy">
+              <p class="platform-label">Любой сервис для созвонов</p>
+              <h2 id="platform-title">GRAF записывает встречу там, где вы уже созваниваетесь.</h2>
+            </div>
+            <div class="platform-rail" aria-label="Примеры сервисов для звонков">
+              <div class="platform-track" aria-hidden="true">
+                <span>Яндекс Телемост</span>
+                <span>SberJazz</span>
+                <span>TrueConf</span>
+                <span>МТС Линк</span>
+                <span>Контур.Толк</span>
+                <span>VK Teams</span>
+                <span>Яндекс Телемост</span>
+                <span>SberJazz</span>
+                <span>TrueConf</span>
+                <span>МТС Линк</span>
+                <span>Контур.Толк</span>
+                <span>VK Teams</span>
+              </div>
+              <div class="platform-track platform-track-alt" aria-hidden="true">
+                <span>DION</span>
+                <span>Zoom</span>
+                <span>Google Meet</span>
+                <span>Microsoft Teams</span>
+                <span>Telegram</span>
+                <span>Discord</span>
+                <span>DION</span>
+                <span>Zoom</span>
+                <span>Google Meet</span>
+                <span>Microsoft Teams</span>
+                <span>Telegram</span>
+                <span>Discord</span>
+              </div>
+              <ul class="sr-only">
+                <li>Яндекс Телемост</li>
+                <li>SberJazz</li>
+                <li>TrueConf</li>
+                <li>МТС Линк</li>
+                <li>Контур.Толк</li>
+                <li>VK Teams</li>
+                <li>DION</li>
+                <li>Zoom</li>
+                <li>Google Meet</li>
+                <li>Microsoft Teams</li>
+                <li>Telegram</li>
+                <li>Discord</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <section class="outcome-section" id="features" aria-labelledby="features-title">
@@ -144,11 +172,10 @@
         <section class="final-cta" id="start" aria-label="Начать пользоваться GRAF">
           <h2>Начните с ближайшей встречи.</h2>
           <div>
-            <a class="primary-cta" href="{{ signup_url }}">
+            <a class="primary-cta" href="{{ start_url }}">
               <span>Начать</span>
               <span aria-hidden="true">→</span>
             </a>
-            <p>Сразу к регистрации.</p>
           </div>
         </section>
       </main>

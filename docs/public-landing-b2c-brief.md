@@ -5,14 +5,14 @@ This is not a production release spec yet.
 
 ## Goal
 
-The landing page should convert a visitor directly into registration and first
+The landing page should convert a visitor directly into authorization and first
 use. It should feel like a calm consumer productivity product, not an
 enterprise security page and not a technical architecture explainer.
 
 The page has one primary path:
 
 ```text
-Начать -> регистрация -> включить автозапись -> готовые итоги встречи
+Начать -> вход -> кабинет -> скачать приложение -> включить автозапись -> готовые итоги встречи
 ```
 
 Do not use a secondary "see how it works" CTA on the first screen.
@@ -47,12 +47,6 @@ Primary CTA:
 Начать
 ```
 
-CTA microcopy:
-
-```text
-Сразу к регистрации.
-```
-
 ## Message hierarchy
 
 1. Automatic recording.
@@ -76,7 +70,20 @@ Every major section should answer one conversion question:
 - What is the next click?
 
 Avoid making the user choose between learning and starting. The next click is
-always registration.
+always authorization.
+
+## Start and download path
+
+The landing CTA opens:
+
+```text
+/login?next=/meetings
+```
+
+After successful authorization, the cabinet should become the first-run
+handoff: download the app, open it, turn on auto-recording, and then return to
+meetings. Do not add a public "download app" promise until a real installer
+route or release asset exists.
 
 ## Calendar copy rule
 
@@ -108,9 +115,9 @@ GRAF синхронизируется с календарем...
 - One CTA: "Начать".
 - Product visual showing an upcoming/active meeting becoming transcript,
   summary, and tasks.
-- Proof row: "Без ботов", "Конфиденциально", "Готово".
-- Tool strip: Google Meet, Zoom, Microsoft Teams, Slack, HubSpot, and Notion as
-  compatibility proof below the hero.
+- Compatibility strip: lead with "Любой сервис для созвонов" and use a compact
+  moving wordmark rail with Russian and global conferencing services as
+  examples, not as an exhaustive dependency list.
 
 ### Core benefits
 
@@ -153,7 +160,7 @@ before the landing page ships:
 - transcript generation;
 - summary, decisions, and tasks;
 - fast turnaround copy such as "через минуты";
-- named tool or integration logos.
+- named platform examples or integration logos.
 
 If a claim is not accepted yet, either remove it from the public page or make
 the implementation slice prove it before release.
@@ -164,6 +171,6 @@ the implementation slice prove it before release.
   or internal architecture in the hero.
 - Platform-specific copy in the hero.
 - "Book a demo", "Request pilot", or sales-led CTAs for the B2C path.
-- A secondary CTA that lets the user avoid registration.
+- A secondary CTA that lets the user avoid authorization.
 - Overstated claims such as "works with every app" unless the acceptance
   evidence supports that exact wording.

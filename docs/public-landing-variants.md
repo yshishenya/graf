@@ -17,10 +17,12 @@ Design qualities:
 - Deep near-black background with a restrained technical grid.
 - Teal primary actions and coral recording accents from the selected product
   direction.
-- Short B2C hero copy with one direct registration CTA.
+- Short B2C hero copy with one direct authorization CTA.
 - Dominant product scene showing the meeting flow from conversation to recording
   to output.
-- Tool compatibility strip shown as supporting proof, not as the main promise.
+- Compatibility strip uses a moving wordmark rail to show familiar conferencing
+  services while keeping the message broad: GRAF records where the user already
+  calls.
 
 Accepted deviations from the reference:
 

@@ -14,5 +14,5 @@ async def public_landing_page(request: Request) -> HTMLResponse:
         request,
         "public/landing.html",
         page_title="GRAF - встречи записываются сами",
-        signup_url="/sign-up?next=/meetings",
+        start_url="/login?next=/meetings",
     )
