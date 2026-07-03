@@ -16,6 +16,9 @@
   `Foundation` import из shared macOS buffering/routing surface; batch
   уменьшает tracked Swift-код на 6 строк без новых зависимостей и без
   deploy-изменений.
+- Feature `079-cabinet-calendar-route-helpers`: calendar cabinet route handlers
+  отделены от redirect/result/audit helper-логики move-only split; поведение
+  calendar settings не менялось, новых зависимостей нет.
 
 ### Исправлено
 - _Пока нет записей._
