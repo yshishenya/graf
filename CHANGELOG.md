@@ -19,6 +19,9 @@
 - Feature `079-cabinet-calendar-route-helpers`: calendar cabinet route handlers
   отделены от redirect/result/audit helper-логики move-only split; поведение
   calendar settings не менялось, новых зависимостей нет.
+- Feature `080-readiness-evidence-split`: readiness evidence matrix вынесен из
+  `readiness/matrix.py` в отдельный module без изменения публичного
+  `build_default_evidence` import-контракта.
 
 ### Исправлено
 - _Пока нет записей._
