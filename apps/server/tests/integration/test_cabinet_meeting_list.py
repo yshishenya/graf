@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import uuid4
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.artifacts import deterministic_wav_bytes
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.db.models import Meeting
@@ -23,6 +25,53 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
     assert str(seeds.partial_id) in ids
     assert str(seeds.foreign_id) not in ids
     assert {item["status"] for item in payload["items"]} == {"ready", "processing", "failed", "partial"}
+
+
+def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "cabinet-upload-progress", "duration_seconds": 60},
+    )
+    assert meeting.status_code == 200
+    meeting_id = meeting.json()["meeting_id"]
+    session = client.post(
+        f"/api/v1/meetings/{meeting_id}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 8, "microphone": 16, "system": 16}},
+    )
+    assert session.status_code == 200
+    session_id = session.json()["session_id"]
+    data = deterministic_wav_bytes(16)
+    digest = sha256(data).hexdigest()
+    upload = client.put(
+        f"/api/v1/upload-sessions/{session_id}/tracks/microphone/parts/0",
+        headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+        content=data,
+    )
+    assert upload.status_code == 200
+
+    response = client.get("/api/v1/cabinet/meetings?q=cabinet-upload-progress", headers=auth_headers())
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["status"] == "uploading"
+    assert item["upload"] == {
+        "status": "uploading",
+        "label": "Отправляем",
+        "uploaded_bytes": 16,
+        "total_bytes": 40,
+        "progress_percent": 40,
+        "is_active": True,
+    }
+
+    page = client.get("/desktop/meetings?q=cabinet-upload-progress", headers=auth_headers())
+
+    assert page.status_code == 200
+    assert "cabinet-upload-progress" in page.text
+    assert "Отправляем 40%" in page.text
+    assert 'aria-label="Прогресс отправки записи"' in page.text
+    assert 'hx-trigger="every 3s"' in page.text
 
 
 def test_cabinet_list_search_filter_sort_and_limit(client) -> None:

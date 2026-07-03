@@ -64,6 +64,15 @@ public enum DesktopMeetingShellLocalQueuePolicy {
     ) -> [DesktopUploadQueueItem] {
         Array(items.sortedForNativeLocalDisplay().prefix(limit))
     }
+
+    public static func shouldShowNativeCustodyDetail(_ summary: DesktopUploadCustodySummary) -> Bool {
+        switch summary.copyKey {
+        case "custody.uploading", "custody.saved_will_send":
+            return false
+        default:
+            return true
+        }
+    }
 }
 
 private extension Array where Element == DesktopUploadQueueItem {
@@ -347,12 +356,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
     }
 
+    private var nativeCustodyDetailSummaries: [DesktopUploadCustodySummary] {
+        custodyDetailSummaries.filter(DesktopMeetingShellLocalQueuePolicy.shouldShowNativeCustodyDetail)
+    }
+
     private var meetingOwnerCustodyActionCount: Int {
         DesktopUploadCustodySummary.meetingOwnerActionCount(for: uploadQueueItems)
     }
 
     private var showsLocalDeleteConfirmationCopy: Bool {
-        custodyDetailSummaries.contains { summary in
+        nativeCustodyDetailSummaries.contains { summary in
             summary.primaryProjection.custodyState == .cannotSend ||
                 summary.primaryProjection.custodyState == .terminalUndelivered
         }
@@ -653,7 +666,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                 )
 
-                if !custodyDetailSummaries.isEmpty {
+                if !nativeCustodyDetailSummaries.isEmpty {
                     custodyDetailsDisclosure
                 }
 
@@ -680,7 +693,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var custodyDetailsDisclosure: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(custodyDetailSummaries, id: \.stableIdentity) { summary in
+                ForEach(nativeCustodyDetailSummaries, id: \.stableIdentity) { summary in
                     custodyDetailRow(summary)
                 }
 

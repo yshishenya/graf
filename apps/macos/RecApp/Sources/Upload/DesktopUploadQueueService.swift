@@ -3,6 +3,10 @@ import CryptoKit
 import Foundation
 import TwoBrainRecShared
 
+public extension Notification.Name {
+    static let desktopUploadQueueDidChange = Notification.Name("pro.2brain.graf.desktopUploadQueue.didChange")
+}
+
 public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Sendable {
     case manifestMissing(URL)
     case packageNotFound(String)
@@ -109,7 +113,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ]
 
     private let queueURL: URL
-    private let recordingsRootURL: URL
+    private let recordingsRootURLs: [URL]
     private let policy: LocalBufferPolicy
     private let manifestService: LocalRecordingManifestService
     private let client: DesktopUploadClientProtocol?
@@ -120,13 +124,17 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     public init(
         queueURL: URL? = nil,
         recordingsRootURL: URL = LocalRecordingStore().rootURL,
+        additionalRecordingsRootURLs: [URL]? = nil,
         policy: LocalBufferPolicy = LocalBufferService.defaultPolicy,
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
         client: DesktopUploadClientProtocol? = DesktopUploadClient.configuredFromEnvironment(),
         clock: @escaping Clock = Date.init
     ) {
         self.queueURL = queueURL ?? Self.defaultQueueURL()
-        self.recordingsRootURL = recordingsRootURL
+        self.recordingsRootURLs = Self.recordingDiscoveryRootURLs(
+            primaryRootURL: recordingsRootURL,
+            additionalRootURLs: additionalRecordingsRootURLs
+        )
         self.policy = policy
         self.manifestService = manifestService
         self.client = client
@@ -151,6 +159,43 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return current
     }
 
+    private static func recordingDiscoveryRootURLs(
+        primaryRootURL: URL,
+        additionalRootURLs: [URL]?
+    ) -> [URL] {
+        let additional = additionalRootURLs ?? defaultAdditionalRecordingRootURLs(primaryRootURL: primaryRootURL)
+        return uniqueStandardizedURLs([primaryRootURL] + additional)
+    }
+
+    private static func defaultAdditionalRecordingRootURLs(primaryRootURL: URL) -> [URL] {
+        let defaultRoot = LocalRecordingStore.defaultRootURL()
+        guard sameFileURL(primaryRootURL, defaultRoot) else {
+            return []
+        }
+        return [
+            LocalRecordingStore.currentRootURL(),
+            LocalRecordingStore.legacyRootURL()
+        ].filter { !sameFileURL($0, primaryRootURL) }
+    }
+
+    private static func uniqueStandardizedURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        for url in urls {
+            let standardized = url.standardizedFileURL.resolvingSymlinksInPath()
+            guard seen.insert(standardized.path).inserted else {
+                continue
+            }
+            result.append(url)
+        }
+        return result
+    }
+
+    private static func sameFileURL(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL.resolvingSymlinksInPath().path ==
+            rhs.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
     public func loadItems() throws -> [DesktopUploadQueueItem] {
         try queue.sync {
             try loadDocumentOnQueue().items.sortedForDisplay()
@@ -161,11 +206,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     public func scanAndEnqueueCompletedRecordings() throws -> [DesktopUploadQueueItem] {
         try queue.sync {
             var document = try loadDocumentOnQueue()
-            let directories = (try? FileManager.default.contentsOfDirectory(
-                at: recordingsRootURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )) ?? []
+            let directories = recordingsRootURLs.flatMap { rootURL in
+                (try? FileManager.default.contentsOfDirectory(
+                    at: rootURL,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                )) ?? []
+            }
 
             var changed = false
             for directory in directories {
@@ -302,6 +349,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                       now >= item.retentionDeadline,
                       item.retryMode == .automatic
                 else {
+                    return item
+                }
+                if item.artifactProfile.isUploadable,
+                   item.retentionDecision.localArtifactsRetained,
+                   Self.localArtifactFiles(for: item).allSatisfy({ FileManager.default.fileExists(atPath: $0) }) {
                     return item
                 }
                 changed = true
@@ -635,15 +687,17 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private func isInsideRecordingsRoot(_ path: String) -> Bool {
-        let rootPath = recordingsRootURL
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .path
         let candidatePath = URL(fileURLWithPath: path)
             .standardizedFileURL
             .resolvingSymlinksInPath()
             .path
-        return candidatePath.hasPrefix(rootPath + "/")
+        return recordingsRootURLs.contains { rootURL in
+            let rootPath = rootURL
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+                .path
+            return candidatePath.hasPrefix(rootPath + "/")
+        }
     }
 
     private static func localArtifactsDeleted(for item: DesktopUploadQueueItem) -> Bool {
@@ -716,6 +770,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 nextRetryAt: nil
             )
             next.attemptCount += 1
+            next.uploadProgress = DesktopUploadProgressSnapshot(
+                uploadedBytes: current.acceptedProgressBytes,
+                totalBytes: current.totalProgressBytes,
+                updatedAt: now
+            )
             next.retryRecords.append(
                 RetryRecord(
                     attemptNumber: next.attemptCount,
@@ -736,7 +795,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard reconciled.state != .uploaded else {
                 return
             }
-            let result = try await client.upload(reconciled)
+            let result = try await client.upload(reconciled) { [weak self] progress in
+                self?.recordUploadProgress(itemId: started.id, progress: progress)
+            }
             _ = try updateItem(itemId: started.id) { current, now in
                 var next = current.withTransition(
                     to: result.state,
@@ -754,6 +815,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                         policyReference: "server_truth.finalized"
                     )
                 )
+                next.uploadProgress = nil
                 next.retryRecords.append(
                     RetryRecord(
                         attemptNumber: next.attemptCount,
@@ -771,12 +833,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             let category = (error as? DesktopUploadClientError)?.failureCategory ?? .network
             let reason = String(describing: error)
             _ = try updateItem(itemId: started.id) { current, now in
-                let nextRetry = nextRetryDate(
-                    attemptCount: current.attemptCount,
-                    now: now,
-                    retentionDeadline: current.retentionDeadline
-                )
-                let retryMode: UploadRetryMode = category.isAutomaticallyRetryable && nextRetry != nil
+                let nextRetry = category.isAutomaticallyRetryable
+                    ? nextRetryDate(attemptCount: current.attemptCount, now: now)
+                    : nil
+                let retryMode: UploadRetryMode = nextRetry != nil
                     ? .automatic
                     : .manualOnly
                 let state: UploadItemState = retryMode == .automatic ? .retrying : .blocked
@@ -795,6 +855,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                         policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
                     )
                 )
+                next.uploadProgress = nil
                 next.retryRecords.append(
                     RetryRecord(
                         attemptNumber: next.attemptCount,
@@ -809,6 +870,23 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
                 return next
             }
+        }
+    }
+
+    private func recordUploadProgress(
+        itemId: String,
+        progress: DesktopUploadProgressSnapshot
+    ) {
+        _ = try? updateItem(itemId: itemId) { current, now in
+            guard current.state == .uploading else { return current }
+            var next = current
+            next.uploadProgress = DesktopUploadProgressSnapshot(
+                uploadedBytes: progress.uploadedBytes,
+                totalBytes: progress.totalBytes,
+                updatedAt: now
+            )
+            next.updatedAt = now
+            return next
         }
     }
 
@@ -838,6 +916,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     next.nextRetryAt = nil
                     next.failureCategory = .none
                     next.failureReason = nil
+                    next.uploadProgress = nil
                     next.syncConflictState = .none
                     next.retentionDecision = RetentionDecision(
                         decision: .terminalUploaded,
@@ -856,6 +935,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             next.failureReason = reconciliation.conflictReason ?? reconciliation.conflictState.rawValue
             next.retryMode = .manualOnly
             next.nextRetryAt = nil
+            next.uploadProgress = nil
             next.syncConflictState = reconciliation.conflictState
             next.retentionDecision = RetentionDecision(
                 decision: .manualOnly,
@@ -1051,6 +1131,21 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         var merged = Self.preservingQueueState(from: existing, over: refreshed)
         if refreshed.artifactProfile.isUploadable && existing.syncConflictState == .localFilesMissing {
             merged.syncConflictState = .none
+        }
+        if refreshed.artifactProfile.isUploadable && existing.state == .uploading {
+            merged.state = .queued
+            merged.failureCategory = .none
+            merged.failureReason = nil
+            merged.retryMode = .automatic
+            merged.nextRetryAt = now
+            merged.uploadProgress = nil
+            merged.retentionDecision = RetentionDecision(
+                decision: .retain,
+                decidedAt: now,
+                reason: "interrupted_upload_recovered",
+                localArtifactsRetained: true,
+                policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
+            )
         }
         if !refreshed.artifactProfile.isUploadable && existing.state == .blocked {
             merged.state = existing.state
@@ -1434,6 +1529,14 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let data = try JSONEncoder.uploadQueueEncoder.encode(document)
         try LocalCustodyFileProtection.write(data, to: queueURL)
         self.document = document
+        let queuePath = queueURL.path
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .desktopUploadQueueDidChange,
+                object: nil,
+                userInfo: ["queuePath": queuePath]
+            )
+        }
     }
 
     private func quarantineMalformedQueueDocument(data: Data, now: Date) throws {
@@ -1531,12 +1634,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func nextRetryDate(
         attemptCount: Int,
-        now: Date,
-        retentionDeadline: Date
-    ) -> Date? {
+        now: Date
+    ) -> Date {
         let delay = min(pow(2.0, Double(min(max(attemptCount, 1), 8))) * 5, 120)
-        let candidate = now.addingTimeInterval(delay)
-        return candidate < retentionDeadline ? candidate : nil
+        return now.addingTimeInterval(delay)
     }
 }
 

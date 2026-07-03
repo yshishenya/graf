@@ -2,9 +2,15 @@ import CryptoKit
 import Foundation
 import TwoBrainRecShared
 
+public typealias DesktopUploadProgressHandler = @Sendable (DesktopUploadProgressSnapshot) -> Void
+
 public protocol DesktopUploadClientProtocol: Sendable {
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
     func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult
+    func upload(
+        _ item: DesktopUploadQueueItem,
+        progressHandler: DesktopUploadProgressHandler?
+    ) async throws -> DesktopUploadResult
     func supportIncidentContext() -> DesktopSupportIncidentReportContext
     func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
     func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask]
@@ -19,6 +25,13 @@ public protocol DesktopUploadClientProtocol: Sendable {
 public extension DesktopUploadClientProtocol {
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
         nil
+    }
+
+    func upload(
+        _ item: DesktopUploadQueueItem,
+        progressHandler _: DesktopUploadProgressHandler?
+    ) async throws -> DesktopUploadResult {
+        try await upload(item)
     }
 
     func supportIncidentContext() -> DesktopSupportIncidentReportContext {
@@ -236,7 +249,7 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
 }
 
 public struct DesktopUploadClient: DesktopUploadClientProtocol {
-    public static let defaultPartSizeBytes = 1024 * 1024 * 1024
+    public static let defaultPartSizeBytes = 16 * 1024 * 1024
     public static let baseURLEnvironmentKey = "GRAF_UPLOAD_BASE_URL"
     public static let fallbackBaseURLEnvironmentKey = "GRAF_CABINET_BASE_URL"
     public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
@@ -402,6 +415,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     public func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
+        try await upload(item, progressHandler: nil)
+    }
+
+    public func upload(
+        _ item: DesktopUploadQueueItem,
+        progressHandler: DesktopUploadProgressHandler?
+    ) async throws -> DesktopUploadResult {
         let meeting = if let meetingId = item.meetingId {
             MeetingResponse(
                 meeting_id: meetingId,
@@ -443,16 +463,38 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         try ensureLocalFilesExist(descriptors)
 
         var acceptedBytes = uploadSession.accepted_bytes_by_track ?? [:]
+        let totalUploadBytes = descriptors.reduce(Int64(0)) { result, descriptor in
+            result + max(0, descriptor.byteCount)
+        }
+        func emitProgress(_ bytesByTrack: [String: Int64]) {
+            guard let progressHandler else { return }
+            let uploaded = descriptors.reduce(Int64(0)) { result, descriptor in
+                result + min(max(0, bytesByTrack[descriptor.transportRole.rawValue, default: 0]), descriptor.byteCount)
+            }
+            progressHandler(DesktopUploadProgressSnapshot(
+                uploadedBytes: uploaded,
+                totalBytes: totalUploadBytes,
+                updatedAt: Date()
+            ))
+        }
+        emitProgress(acceptedBytes)
         for descriptor in descriptors {
             let uploaded = try await uploadFile(
                 descriptor: descriptor,
                 sessionId: uploadSession.session_id,
-                alreadyAcceptedBytes: acceptedBytes[descriptor.transportRole.rawValue, default: 0]
+                alreadyAcceptedBytes: acceptedBytes[descriptor.transportRole.rawValue, default: 0],
+                progressHandler: { uploadedBytes in
+                    var inFlightBytes = acceptedBytes
+                    let role = descriptor.transportRole.rawValue
+                    inFlightBytes[role] = max(inFlightBytes[role, default: 0], uploadedBytes)
+                    emitProgress(inFlightBytes)
+                }
             )
             acceptedBytes[descriptor.transportRole.rawValue] = max(
                 acceptedBytes[descriptor.transportRole.rawValue, default: 0],
                 uploaded
             )
+            emitProgress(acceptedBytes)
         }
 
         let missing = try await missingRanges(sessionId: uploadSession.session_id)
@@ -464,6 +506,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                         sessionId: uploadSession.session_id,
                         range: range
                     )
+                    acceptedBytes[descriptor.transportRole.rawValue] = max(
+                        acceptedBytes[descriptor.transportRole.rawValue, default: 0],
+                        min(range.end, descriptor.byteCount)
+                    )
+                    emitProgress(acceptedBytes)
                 }
             }
         }
@@ -800,7 +847,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private func uploadFile(
         descriptor: DesktopUploadFileDescriptor,
         sessionId: String,
-        alreadyAcceptedBytes: Int64
+        alreadyAcceptedBytes: Int64,
+        progressHandler: ((Int64) -> Void)? = nil
     ) async throws -> Int64 {
         let handle = try FileHandle(forReadingFrom: descriptor.url)
         defer { try? handle.close() }
@@ -817,6 +865,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 byteOffset: offset
             )
             offset = max(offset + Int64(data.count), response.byte_offset + response.byte_length)
+            progressHandler?(offset)
         }
         return offset
     }

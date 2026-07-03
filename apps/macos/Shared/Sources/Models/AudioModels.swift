@@ -1093,6 +1093,32 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
     public var eligibleForTranscription: Bool?
     public var derivedMetadata: DerivedCleanedTrackMetadata?
 
+    enum CodingKeys: String, CodingKey {
+        case trackId
+        case role
+        case sourceKind
+        case mediaScribeField
+        case status
+        case evidenceRole
+        case fileName
+        case format
+        case sampleRate
+        case channelCount
+        case bitsPerSample
+        case durationMs
+        case byteCount
+        case frameCount
+        case timelineStartMs
+        case timelineAligned
+        case failureReason
+        case sourceTrackIds
+        case processorId
+        case processorVersion
+        case residualLeakageStatus
+        case eligibleForTranscription
+        case derivedMetadata
+    }
+
     public init(
         trackId: String,
         role: AudioTrackRole,
@@ -1141,6 +1167,35 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
         self.residualLeakageStatus = residualLeakageStatus
         self.eligibleForTranscription = eligibleForTranscription
         self.derivedMetadata = derivedMetadata
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            trackId: try container.decode(String.self, forKey: .trackId),
+            role: try container.decode(AudioTrackRole.self, forKey: .role),
+            sourceKind: try container.decodeIfPresent(AudioCaptureSourceKind.self, forKey: .sourceKind),
+            mediaScribeField: try container.decodeIfPresent(MediaScribeTrackField.self, forKey: .mediaScribeField),
+            status: try container.decode(LocalRecordingTrackStatus.self, forKey: .status),
+            evidenceRole: try container.decodeIfPresent(LeakageEvidenceRole.self, forKey: .evidenceRole) ?? .original,
+            fileName: try container.decode(String.self, forKey: .fileName),
+            format: try container.decode(String.self, forKey: .format),
+            sampleRate: try container.decode(Double.self, forKey: .sampleRate),
+            channelCount: try container.decode(Int.self, forKey: .channelCount),
+            bitsPerSample: try container.decodeIfPresent(Int.self, forKey: .bitsPerSample) ?? 0,
+            durationMs: try container.decode(Int.self, forKey: .durationMs),
+            byteCount: try container.decode(Int64.self, forKey: .byteCount),
+            frameCount: try container.decode(Int64.self, forKey: .frameCount),
+            timelineStartMs: try container.decodeIfPresent(Int.self, forKey: .timelineStartMs) ?? 0,
+            timelineAligned: try container.decodeIfPresent(Bool.self, forKey: .timelineAligned) ?? false,
+            failureReason: try container.decodeIfPresent(LocalRecordingFailureReason.self, forKey: .failureReason) ?? .none,
+            sourceTrackIds: try container.decodeIfPresent([String].self, forKey: .sourceTrackIds),
+            processorId: try container.decodeIfPresent(String.self, forKey: .processorId),
+            processorVersion: try container.decodeIfPresent(String.self, forKey: .processorVersion),
+            residualLeakageStatus: try container.decodeIfPresent(LeakageStatus.self, forKey: .residualLeakageStatus),
+            eligibleForTranscription: try container.decodeIfPresent(Bool.self, forKey: .eligibleForTranscription),
+            derivedMetadata: try container.decodeIfPresent(DerivedCleanedTrackMetadata.self, forKey: .derivedMetadata)
+        )
     }
 
     public var isComplete: Bool {
@@ -1292,6 +1347,43 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var limitationCopyShownAt: Date?
     public var recordingMetadata: RecordingDisplayMetadata?
 
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case sessionId
+        case createdAt
+        case startedAt
+        case stoppedAt
+        case finalizedAt
+        case status
+        case directoryId
+        case manifestFileName
+        case transcriptionReadiness
+        case mediaScribeSourceMode
+        case tracks
+        case externalEgressStarted
+        case transcriptionStarted
+        case diagnosticSafe
+        case localDeletionRegistered
+        case leakageFinalization
+        case failureReason
+        case durationDifferenceSeconds
+        case recordingTimelineEvidence
+        case scopeApproval
+        case permissions
+        case microphoneSelection
+        case microphoneStream
+        case microphoneStreamHealth
+        case appleProcessingOutcome
+        case webRTCAEC3Outcome
+        case captureHealth
+        case privacySegments
+        case meetingMuteTruth
+        case meetingMuteTruthEvidence
+        case targetMuteCapability
+        case limitationCopyShownAt
+        case recordingMetadata
+    }
+
     public init(
         schemaVersion: String = Self.schemaVersion,
         sessionId: String,
@@ -1362,6 +1454,59 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.targetMuteCapability = targetMuteCapability
         self.limitationCopyShownAt = limitationCopyShownAt
         self.recordingMetadata = recordingMetadata
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion) ?? Self.schemaVersion
+        self.init(
+            schemaVersion: schemaVersion,
+            sessionId: try container.decode(String.self, forKey: .sessionId),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            startedAt: try container.decode(Date.self, forKey: .startedAt),
+            stoppedAt: try container.decode(Date.self, forKey: .stoppedAt),
+            finalizedAt: try container.decodeIfPresent(Date.self, forKey: .finalizedAt),
+            status: try container.decode(LocalRecordingSessionStatus.self, forKey: .status),
+            directoryId: try container.decode(String.self, forKey: .directoryId),
+            manifestFileName: try container.decodeIfPresent(String.self, forKey: .manifestFileName) ?? "manifest.json",
+            transcriptionReadiness: try container.decodeIfPresent(
+                TranscriptionReadinessState.self,
+                forKey: .transcriptionReadiness
+            ) ?? .degraded,
+            mediaScribeSourceMode: try container.decodeIfPresent(String.self, forKey: .mediaScribeSourceMode) ?? "dual",
+            tracks: try container.decode([LocalRecordingTrack].self, forKey: .tracks),
+            externalEgressStarted: try container.decodeIfPresent(Bool.self, forKey: .externalEgressStarted) ?? false,
+            transcriptionStarted: try container.decodeIfPresent(Bool.self, forKey: .transcriptionStarted) ?? false,
+            diagnosticSafe: try container.decodeIfPresent(Bool.self, forKey: .diagnosticSafe) ?? true,
+            localDeletionRegistered: try container.decodeIfPresent(Bool.self, forKey: .localDeletionRegistered) ?? false,
+            leakageFinalization: try container.decodeIfPresent(LeakageFinalization.self, forKey: .leakageFinalization),
+            failureReason: try container.decodeIfPresent(LocalRecordingFailureReason.self, forKey: .failureReason) ?? .none,
+            durationDifferenceSeconds: try container.decodeIfPresent(
+                Double.self,
+                forKey: .durationDifferenceSeconds
+            ) ?? 0,
+            recordingTimelineEvidence: try container.decodeIfPresent(
+                RecordingTimelineIntegrityEvidence.self,
+                forKey: .recordingTimelineEvidence
+            ),
+            scopeApproval: try container.decodeIfPresent(CaptureScopeApproval.self, forKey: .scopeApproval),
+            permissions: try container.decodeIfPresent(SystemAudioPermissionSnapshot.self, forKey: .permissions),
+            microphoneSelection: try container.decodeIfPresent(RecordingMicrophoneSelection.self, forKey: .microphoneSelection),
+            microphoneStream: try container.decodeIfPresent(AppOwnedMicrophoneStreamSession.self, forKey: .microphoneStream),
+            microphoneStreamHealth: try container.decodeIfPresent(MicrophoneStreamHealth.self, forKey: .microphoneStreamHealth),
+            appleProcessingOutcome: try container.decodeIfPresent(AppleProcessingOutcome.self, forKey: .appleProcessingOutcome),
+            webRTCAEC3Outcome: try container.decodeIfPresent(WebRTCAEC3DecisionRecord.self, forKey: .webRTCAEC3Outcome),
+            captureHealth: try container.decodeIfPresent(CaptureHealthSnapshot.self, forKey: .captureHealth),
+            privacySegments: try container.decodeIfPresent([ProductPrivacySegment].self, forKey: .privacySegments),
+            meetingMuteTruth: try container.decodeIfPresent(MuteTruthDecision.self, forKey: .meetingMuteTruth),
+            meetingMuteTruthEvidence: try container.decodeIfPresent(
+                [MeetingMuteTruthEvidence].self,
+                forKey: .meetingMuteTruthEvidence
+            ),
+            targetMuteCapability: try container.decodeIfPresent(TargetMuteCapability.self, forKey: .targetMuteCapability),
+            limitationCopyShownAt: try container.decodeIfPresent(Date.self, forKey: .limitationCopyShownAt),
+            recordingMetadata: try container.decodeIfPresent(RecordingDisplayMetadata.self, forKey: .recordingMetadata)
+        )
     }
 
     public var isComplete: Bool {
@@ -1875,6 +2020,23 @@ public struct RetentionDecision: Codable, Equatable, Sendable {
     }
 }
 
+public struct DesktopUploadProgressSnapshot: Codable, Equatable, Sendable {
+    public var uploadedBytes: Int64
+    public var totalBytes: Int64
+    public var updatedAt: Date
+
+    public init(uploadedBytes: Int64, totalBytes: Int64, updatedAt: Date) {
+        self.totalBytes = max(0, totalBytes)
+        self.uploadedBytes = min(max(0, uploadedBytes), self.totalBytes)
+        self.updatedAt = updatedAt
+    }
+
+    public var fraction: Double {
+        guard totalBytes > 0 else { return 0 }
+        return min(1, max(0, Double(uploadedBytes) / Double(totalBytes)))
+    }
+}
+
 public enum DesktopSupportIncidentSubmissionStatus: String, Codable, CaseIterable, Sendable {
     case notSent = "not_sent"
     case sending
@@ -2038,6 +2200,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var retryRecords: [RetryRecord]
     public var retentionDecision: RetentionDecision
     public var supportIncidentSubmission: DesktopSupportIncidentSubmissionState?
+    public var uploadProgress: DesktopUploadProgressSnapshot?
 
     public var reviewAudioPath: String {
         guard !directoryPath.isEmpty && directoryPath != "metadata-only" else { return "metadata-only" }
@@ -2074,7 +2237,8 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         retryRecords: [RetryRecord] = [],
         retentionDecision: RetentionDecision,
-        supportIncidentSubmission: DesktopSupportIncidentSubmissionState? = nil
+        supportIncidentSubmission: DesktopSupportIncidentSubmissionState? = nil,
+        uploadProgress: DesktopUploadProgressSnapshot? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -2106,18 +2270,29 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.retryRecords = retryRecords
         self.retentionDecision = retentionDecision
         self.supportIncidentSubmission = supportIncidentSubmission
+        self.uploadProgress = uploadProgress
+    }
+
+    public var totalProgressBytes: Int64 {
+        artifactProfile.totalUploadBytes(limitedToRoles: serverTruth.uploadProgressRoles)
+    }
+
+    public var acceptedProgressBytes: Int64 {
+        let roles = serverTruth.uploadProgressRoles
+        return serverTruth.acceptedBytesByTrack.reduce(Int64(0)) { result, item in
+            guard roles?.contains(item.key) ?? true else { return result }
+            return result + max(0, item.value)
+        }
     }
 
     public var progressFraction: Double {
         if state == .uploaded { return 1 }
-        let roles = serverTruth.uploadProgressRoles
-        let total = artifactProfile.totalUploadBytes(limitedToRoles: roles)
-        guard total > 0 else { return state == .uploaded ? 1 : 0 }
-        let accepted = serverTruth.acceptedBytesByTrack.reduce(Int64(0)) { result, item in
-            guard roles?.contains(item.key) ?? true else { return result }
-            return result + item.value
+        if state == .uploading, let uploadProgress {
+            return uploadProgress.fraction
         }
-        return min(1, max(0, Double(accepted) / Double(total)))
+        let total = totalProgressBytes
+        guard total > 0 else { return state == .uploaded ? 1 : 0 }
+        return min(1, max(0, Double(acceptedProgressBytes) / Double(total)))
     }
 
     public var nextActionLabel: String? {
@@ -2208,6 +2383,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case retryRecords
         case retentionDecision
         case supportIncidentSubmission
+        case uploadProgress
     }
 
     public init(from decoder: Decoder) throws {
@@ -2247,7 +2423,8 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             supportIncidentSubmission: try container.decodeIfPresent(
                 DesktopSupportIncidentSubmissionState.self,
                 forKey: .supportIncidentSubmission
-            )
+            ),
+            uploadProgress: try container.decodeIfPresent(DesktopUploadProgressSnapshot.self, forKey: .uploadProgress)
         )
     }
 }

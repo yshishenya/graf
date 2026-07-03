@@ -205,6 +205,22 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.copyKey, "custody.retention_warning")
     }
 
+    func testExpiredRetentionDeadlineWithRetainedAutomaticItemStillShowsAutomaticDelivery() {
+        let item = custodyFixtureQueueItem(
+            state: .queued,
+            retryMode: .automatic,
+            retentionDeadline: Date(timeIntervalSince1970: 10)
+        )
+
+        let projection = DesktopUploadCustodyProjection(item: item, now: Date(timeIntervalSince1970: 20))
+
+        XCTAssertEqual(projection.custodyState, .serverUnknownLocalSaved)
+        XCTAssertEqual(projection.owner, .productAutomatic)
+        XCTAssertEqual(projection.retryClass, .automatic)
+        XCTAssertEqual(projection.normalUserAction, .none)
+        XCTAssertEqual(projection.copyKey, "custody.saved_will_send")
+    }
+
     func testRetentionExpiredKeepsEvidenceActionInsteadOfSilentLoss() {
         let item = custodyFixtureQueueItem(
             state: .failed,

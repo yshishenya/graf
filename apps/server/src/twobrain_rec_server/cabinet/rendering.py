@@ -57,6 +57,7 @@ def render_meeting_list_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    poll_url: str | None = None,
 ) -> str:
     return _page_shell(
         "Мои встречи",
@@ -65,7 +66,7 @@ def render_meeting_list_page(
         content_template="cabinet/pages/meeting_list_content.html",
         filter_action=_base_path(embedded),
         list_region=trusted_component_html(
-            _render_meeting_list_region(response, embedded=embedded, csrf_token=csrf_token),
+            _render_meeting_list_region(response, embedded=embedded, csrf_token=csrf_token, poll_url=poll_url),
             source="meeting_list.region",
         ),
         delete_dialog=trusted_component_html(_render_list_delete_dialog(), source="meeting_list.delete_dialog"),
@@ -90,8 +91,13 @@ def render_settings_page(*, embedded: bool = False, csrf_token: str | None = Non
     )
 
 
-def render_meeting_list_fragment(response: MeetingListResponse, *, embedded: bool = False) -> str:
-    return _render_meeting_list_region(response, embedded=embedded)
+def render_meeting_list_fragment(
+    response: MeetingListResponse,
+    *,
+    embedded: bool = False,
+    poll_url: str | None = None,
+) -> str:
+    return _render_meeting_list_region(response, embedded=embedded, poll_url=poll_url)
 
 
 def render_calendar_settings_page(
@@ -206,6 +212,7 @@ def _render_meeting_list_region(
     *,
     embedded: bool,
     csrf_token: str | None = None,
+    poll_url: str | None = None,
 ) -> str:
     rows = "\n".join(
         _render_meeting_row(item, embedded=embedded, csrf_token=csrf_token)
@@ -213,14 +220,27 @@ def _render_meeting_list_region(
     )
     if not rows:
         rows = '<div class="empty-state">Нет встреч для выбранного фильтра.</div>'
+    poll_attrs = _meeting_list_poll_attrs(response, poll_url=poll_url)
     content = f"""
-      <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list>
+      <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list{poll_attrs}>
         {rows}
       </section>
     """
     return render_template(
         "cabinet/fragments/meeting_list.html",
         content=trusted_component_html(content, source="meeting_list.rows"),
+    )
+
+
+def _meeting_list_poll_attrs(response: MeetingListResponse, *, poll_url: str | None) -> str:
+    if not poll_url:
+        return ""
+    if not any(item.upload is not None and item.upload.is_active for item in response.items):
+        return ""
+    hx_get = escape(poll_url)
+    return (
+        f' data-upload-progress-poll hx-get="{hx_get}" hx-trigger="every 3s" '
+        'hx-target="#meeting-list-region" hx-select="#meeting-list-region" hx-swap="outerHTML"'
     )
 
 
@@ -342,6 +362,7 @@ def _render_meeting_row(
     selected_class = " is-selected" if selected else ""
     source_icon, source_label = _meeting_media_icon(item)
     title = escape(item.title)
+    row_meta = _render_meeting_row_meta(item)
     csrf_field = f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">' if csrf_token else ""
     return f"""
       <article class="meeting-row cabinet-row{selected_class}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
@@ -349,7 +370,7 @@ def _render_meeting_row(
         <span class="row-icon" data-media-kind="{source_label}" aria-label="{source_label}" title="{source_label}">{source_icon}</span>
         <a class="meeting-title" href="{href}">
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
-          <span class="row-meta"><span>{escape(_ui_text(item.status_label))}</span></span>
+          <span class="row-meta">{row_meta}</span>
         </a>
         <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form
           data-hx-post="{delete_action}"
@@ -363,6 +384,22 @@ def _render_meeting_row(
         </form>
         <span class="meeting-date">{_date_label(item)}</span>
       </article>
+    """
+
+
+def _render_meeting_row_meta(item: MeetingListItem) -> str:
+    if item.upload is None:
+        return f"<span>{escape(_ui_text(item.status_label))}</span>"
+    label = escape(item.upload.label)
+    if item.upload.progress_percent is None:
+        return f'<span class="upload-progress-label">{label}</span>'
+    percent = max(0, min(100, item.upload.progress_percent))
+    active_attr = " data-upload-progress-active" if item.upload.is_active else ""
+    return f"""
+      <span class="upload-progress-label"{active_attr}>{label} {percent}%</span>
+      <span class="upload-progress-meter" role="progressbar" aria-label="Прогресс отправки записи" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{percent}">
+        <span class="upload-progress-meter__bar" style="width: {percent}%"></span>
+      </span>
     """
 
 

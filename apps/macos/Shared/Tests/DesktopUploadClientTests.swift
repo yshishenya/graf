@@ -370,8 +370,9 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
-    func testDefaultPartSizeMatchesServerSingleTrackLimit() {
-        XCTAssertEqual(DesktopUploadClient.defaultPartSizeBytes, 1024 * 1024 * 1024)
+    func testDefaultPartSizeKeepsLargeUploadProgressResponsive() {
+        XCTAssertEqual(DesktopUploadClient.defaultPartSizeBytes, 16 * 1024 * 1024)
+        XCTAssertLessThan(DesktopUploadClient.defaultPartSizeBytes, 1024 * 1024 * 1024)
     }
 
     func testOnlyRecordingNotFoundMeansServerUnknownLocalCustody() {

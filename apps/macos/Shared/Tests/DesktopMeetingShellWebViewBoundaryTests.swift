@@ -112,6 +112,35 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         ])
     }
 
+    func testServerDeliveryStatusesStayOutOfNativeCustodyDetails() {
+        let queued = makeQueueItem(
+            id: "queued-delivery",
+            state: .queued,
+            retryMode: .automatic,
+            createdAt: Date(timeIntervalSince1970: 60)
+        )
+        let uploading = makeQueueItem(
+            id: "uploading-delivery",
+            state: .uploading,
+            retryMode: .automatic,
+            createdAt: Date(timeIntervalSince1970: 70)
+        )
+        let failed = makeQueueItem(
+            id: "terminal-failure",
+            state: .failed,
+            retryMode: .terminal,
+            createdAt: Date(timeIntervalSince1970: 80)
+        )
+
+        let visibleCopyKeys = DesktopUploadCustodySummary.summaries(for: [queued, uploading, failed])
+            .filter(DesktopMeetingShellLocalQueuePolicy.shouldShowNativeCustodyDetail)
+            .map(\.copyKey)
+
+        XCTAssertFalse(visibleCopyKeys.contains("custody.saved_will_send"))
+        XCTAssertFalse(visibleCopyKeys.contains("custody.uploading"))
+        XCTAssertTrue(visibleCopyKeys.contains("custody.terminal_undelivered"))
+    }
+
     func testOfflineStatesDoNotExposeOnlineRecoveryRouteFromWorkspace() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",

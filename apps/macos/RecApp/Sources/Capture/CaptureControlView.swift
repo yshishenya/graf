@@ -2,8 +2,6 @@ import SwiftUI
 import TwoBrainRecShared
 
 public struct CaptureControlView: View {
-    public static let uploadReviewButtonTitle = "Открыть обзор"
-
     private let session: CaptureSession?
     private let blockedReason: String?
     private let localRecordingStatus: String?
@@ -14,8 +12,6 @@ public struct CaptureControlView: View {
     private let recordingMicrophoneSelection: RecordingMicrophoneSelection?
     private let recordingMicrophoneInputs: [PhysicalAudioDevice]
     private let selectedRecordingMicrophoneDeviceId: String?
-    private let uploadQueueItems: [DesktopUploadQueueItem]
-    private let cabinetConfiguration: DesktopCabinetConfiguration?
     private let calendarPrompt: DesktopCalendarPrompt?
     private let routeSignalLevels: LiveRouteSignalLevels
     private let recordDisabled: Bool
@@ -26,8 +22,6 @@ public struct CaptureControlView: View {
     private let onPause: () -> Void
     private let onResume: () -> Void
     private let onSelectRecordingMicrophone: (String?) -> Void
-    private let onUploadReview: (URL) -> Void
-    private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let onCalendarPromptPrimary: (DesktopCalendarPrompt) -> Void
     private let onCalendarPromptDismiss: (DesktopCalendarPrompt) -> Void
 
@@ -42,8 +36,6 @@ public struct CaptureControlView: View {
         recordingMicrophoneSelection: RecordingMicrophoneSelection? = nil,
         recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
         selectedRecordingMicrophoneDeviceId: String? = nil,
-        uploadQueueItems: [DesktopUploadQueueItem] = [],
-        cabinetConfiguration: DesktopCabinetConfiguration? = nil,
         calendarPrompt: DesktopCalendarPrompt? = nil,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         recordDisabled: Bool = false,
@@ -54,10 +46,6 @@ public struct CaptureControlView: View {
         onPause: @escaping () -> Void = {},
         onResume: @escaping () -> Void = {},
         onSelectRecordingMicrophone: @escaping (String?) -> Void = { _ in },
-        onUploadReview: @escaping (URL) -> Void = { _ in },
-        onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
-            throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
-        },
         onCalendarPromptPrimary: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
         onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in }
     ) {
@@ -71,8 +59,6 @@ public struct CaptureControlView: View {
         self.recordingMicrophoneSelection = recordingMicrophoneSelection
         self.recordingMicrophoneInputs = recordingMicrophoneInputs
         self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
-        self.uploadQueueItems = uploadQueueItems
-        self.cabinetConfiguration = cabinetConfiguration
         self.calendarPrompt = calendarPrompt
         self.routeSignalLevels = routeSignalLevels
         self.recordDisabled = recordDisabled
@@ -83,8 +69,6 @@ public struct CaptureControlView: View {
         self.onPause = onPause
         self.onResume = onResume
         self.onSelectRecordingMicrophone = onSelectRecordingMicrophone
-        self.onUploadReview = onUploadReview
-        self.onSupportIncidentReport = onSupportIncidentReport
         self.onCalendarPromptPrimary = onCalendarPromptPrimary
         self.onCalendarPromptDismiss = onCalendarPromptDismiss
     }
@@ -234,15 +218,6 @@ public struct CaptureControlView: View {
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingLocation)
             }
 
-            if let summary = Self.uploadSummary(for: uploadQueueItems) {
-                UploadQueueStatusView(
-                    summary: summary,
-                    reviewLink: Self.uploadReviewLink(for: summary.primaryItem, configuration: cabinetConfiguration),
-                    onReview: onUploadReview,
-                    onSupportIncidentReport: onSupportIncidentReport
-                )
-            }
-
             Divider()
 
             LiveRecordingMetersView(
@@ -265,19 +240,6 @@ public struct CaptureControlView: View {
         recordDisabled: Bool
     ) -> Bool {
         shouldShowRecordButton(for: session) && !recordDisabled
-    }
-
-    public static func uploadSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadCustodySummary? {
-        DesktopUploadCustodySummary.summary(for: items)
-    }
-
-    public static func uploadReviewLink(
-        for item: DesktopUploadQueueItem,
-        configuration: DesktopCabinetConfiguration?
-    ) -> UploadReviewLink? {
-        guard let configuration else { return nil }
-        let link = configuration.reviewLink(for: item)
-        return link.availability == .available ? link : nil
     }
 
     nonisolated public static func resolvedWebRTCAEC3Status(
@@ -753,113 +715,6 @@ private struct StatusNoteView: View {
             }
         }
     }
-}
-
-private struct UploadQueueStatusView: View {
-    let summary: DesktopUploadCustodySummary
-    let reviewLink: UploadReviewLink?
-    let onReview: (URL) -> Void
-    let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: iconName)
-                        .foregroundStyle(statusColor)
-                    Text(summary.title)
-                        .foregroundStyle(.primary)
-                }
-                .font(.caption)
-                .fontWeight(.semibold)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                Spacer()
-                Text(summary.pendingCount > 1 ? "\(summary.pendingCount)" : summary.ownerLabel)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            if summary.showsProgress {
-                ProgressView(value: summary.progressFraction)
-                    .progressViewStyle(.linear)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(summary.detail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if let destination = reviewLink?.destination {
-                    Button {
-                        onReview(destination)
-                    } label: {
-                        Label(CaptureControlView.uploadReviewButtonTitle, systemImage: "rectangle.stack")
-                    }
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-
-            DesktopSupportIncidentActionStrip(
-                summary: summary,
-                onSubmit: onSupportIncidentReport
-            )
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(statusColor.opacity(0.18), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(summary.accessibilityLabel)
-        .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.uploadTruthRegion)
-    }
-
-    private var iconName: String {
-        if summary.copyKey == "custody.unknown_blocked" {
-            return "exclamationmark.icloud.fill"
-        }
-        switch summary.primaryProjection.custodyState {
-        case .delivered, .finalized, .processing:
-            return "checkmark.icloud.fill"
-        case .partialUploaded, .uploadSessionCreated:
-            return "icloud.and.arrow.up"
-        case .retainedAwaitingCondition, .cannotSend:
-            return "exclamationmark.icloud.fill"
-        case .serverUnknownLocalSaved, .serverRegistered:
-            return "tray.and.arrow.up"
-        case .terminalUndelivered:
-            return "xmark.icloud"
-        }
-    }
-
-    private var statusColor: Color {
-        if summary.copyKey == "custody.unknown_blocked" {
-            return .orange
-        }
-        switch summary.primaryProjection.custodyState {
-        case .delivered, .finalized, .processing:
-            return .green
-        case .partialUploaded, .uploadSessionCreated, .serverRegistered:
-            return .blue
-        case .serverUnknownLocalSaved:
-            return .secondary
-        case .retainedAwaitingCondition:
-            return .orange
-        case .cannotSend, .terminalUndelivered:
-            return .red
-        }
-    }
-
 }
 
 private struct LiveRecordingMetersView: View {

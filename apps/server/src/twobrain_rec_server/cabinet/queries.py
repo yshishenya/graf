@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, asc, desc, nullslast, or_, select
+from sqlalchemy import Select, asc, desc, func, nullslast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import (
@@ -12,6 +12,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingListResponse,
     MeetingReviewResponse,
     MeetingReviewStatus,
+    MeetingUploadProgressState,
 )
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.cabinet.access import decide_meeting_access, share_panel_state
@@ -42,8 +43,10 @@ from twobrain_rec_server.db.models import (
     ProcessingWorkflow,
     RecordingCalendarContextLink,
     TranscriptSegment,
+    UploadPart,
+    UploadSession,
 )
-from twobrain_rec_server.domain.statuses import DeletionState
+from twobrain_rec_server.domain.statuses import DeletionState, UploadSessionStatus
 from twobrain_rec_server.outcomes.service import load_outcome_items
 
 
@@ -203,6 +206,7 @@ async def list_cabinet_meetings(
             processing_result_id=result.id if result is not None else None,
         )
         artifacts = await artifact_egress_states(db, meeting=meeting, access=decision, result=result)
+        upload_progress = await _latest_upload_progress(db, meeting)
         item = build_list_item(
             meeting,
             media_revision=media_revision,
@@ -212,6 +216,7 @@ async def list_cabinet_meetings(
             artifacts=artifacts,
             outcome_set=outcome_set,
             outcome_items=[],
+            upload=upload_progress,
         )
         if status is not None and item.status != status:
             continue
@@ -226,6 +231,78 @@ async def list_cabinet_meetings(
         filters=MeetingFilterState(q=q, status=status, access=access, sort=sort),
         generated_at=datetime.now(UTC),
     )
+
+
+async def _latest_upload_progress(db: AsyncSession, meeting: Meeting) -> MeetingUploadProgressState | None:
+    session = await db.scalar(
+        select(UploadSession)
+        .where(
+            UploadSession.workspace_id == meeting.workspace_id,
+            UploadSession.meeting_id == meeting.id,
+        )
+        .order_by(UploadSession.created_at.desc())
+        .limit(1)
+    )
+    if session is None:
+        return None
+
+    status = str(session.status)
+    active_statuses = {
+        UploadSessionStatus.PENDING.value,
+        UploadSessionStatus.UPLOADING.value,
+        UploadSessionStatus.RETRYING.value,
+        UploadSessionStatus.FINALIZING.value,
+    }
+    is_active = status in active_statuses
+    if not is_active and status == UploadSessionStatus.FINALIZED.value:
+        return None
+
+    uploaded = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(UploadPart.byte_length), 0)).where(
+                UploadPart.upload_session_id == session.id,
+                UploadPart.status == "accepted",
+            )
+        )
+        or 0
+    )
+    total = _expected_upload_total_bytes(session.expected_track_sizes)
+    progress_percent = None
+    if total > 0:
+        progress_percent = max(0, min(100, round((uploaded / total) * 100)))
+    return MeetingUploadProgressState(
+        status=status,
+        label=_upload_progress_label(status),
+        uploaded_bytes=max(0, uploaded),
+        total_bytes=max(0, total),
+        progress_percent=progress_percent,
+        is_active=is_active,
+    )
+
+
+def _expected_upload_total_bytes(expected_track_sizes: object) -> int:
+    if not isinstance(expected_track_sizes, dict):
+        return 0
+    total = 0
+    for value in expected_track_sizes.values():
+        if isinstance(value, (int, float)):
+            total += max(0, int(value))
+    return total
+
+
+def _upload_progress_label(status: str) -> str:
+    if status in {
+        UploadSessionStatus.PENDING.value,
+        UploadSessionStatus.UPLOADING.value,
+        UploadSessionStatus.RETRYING.value,
+        UploadSessionStatus.FINALIZING.value,
+    }:
+        return "Отправляем"
+    if status in {UploadSessionStatus.FAILED.value, UploadSessionStatus.ABORTED.value, UploadSessionStatus.EXPIRED.value}:
+        return "Не отправлено"
+    if status == UploadSessionStatus.DEGRADED.value:
+        return "Отправлено с ограничениями"
+    return "Загружено"
 
 
 async def get_cabinet_meeting_review(

@@ -118,6 +118,94 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
     }
 
+    func testReadLegacyV2ManifestDefaultsNewCustodyFields() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-manifest-v2-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let payload = """
+        {
+          "schemaVersion": "local-recording-manifest.v2",
+          "sessionId": "legacy-session",
+          "createdAt": "2026-06-10T13:34:10Z",
+          "startedAt": "2026-06-10T11:28:27Z",
+          "stoppedAt": "2026-06-10T13:34:10Z",
+          "status": "saved",
+          "directoryId": "legacy-directory",
+          "manifestFileName": "manifest.json",
+          "transcriptionReadiness": "ready",
+          "mediaScribeSourceMode": "dual",
+          "externalEgressStarted": false,
+          "transcriptionStarted": false,
+          "diagnosticSafe": true,
+          "failureReason": "none",
+          "durationDifferenceSeconds": 0.014,
+          "scopeApproval": {
+            "scopeApprovalId": "scope-legacy",
+            "scopeKind": "display",
+            "sourceDisplayName": "Current display/system audio",
+            "approvedBy": "user",
+            "approvedAt": "2026-06-10T11:28:27Z",
+            "approvalMode": "userConfirmedSuggestedScope",
+            "eligibleReason": "manualMeetingScope",
+            "notTriggerForBackgroundAudio": true
+          },
+          "permissions": {
+            "microphone": "granted",
+            "systemAudio": "granted",
+            "evaluatedAt": "2026-06-10T11:28:27Z"
+          },
+          "tracks": [
+            {
+              "trackId": "local_mic-track",
+              "role": "local_mic",
+              "sourceKind": "microphone",
+              "mediaScribeField": "mic_file",
+              "status": "saved",
+              "fileName": "mic.wav",
+              "format": "wav-pcm-s16le",
+              "sampleRate": 16000,
+              "channelCount": 1,
+              "bitsPerSample": 16,
+              "durationMs": 7543114,
+              "byteCount": 241383754,
+              "frameCount": 120689829,
+              "timelineStartMs": 0,
+              "timelineAligned": true,
+              "failureReason": "none"
+            },
+            {
+              "trackId": "remote_speaker-track",
+              "role": "remote_speaker",
+              "sourceKind": "systemAudio",
+              "mediaScribeField": "incoming_file",
+              "status": "saved",
+              "fileName": "incoming.wav",
+              "format": "wav-pcm-s16le",
+              "sampleRate": 16000,
+              "channelCount": 1,
+              "bitsPerSample": 16,
+              "durationMs": 7543100,
+              "byteCount": 241379252,
+              "frameCount": 120689604,
+              "timelineStartMs": 0,
+              "timelineAligned": true,
+              "failureReason": "none"
+            }
+          ]
+        }
+        """
+        try payload.data(using: .utf8)?.write(to: url)
+
+        let manifest = try LocalRecordingManifestService().read(from: url)
+
+        XCTAssertEqual(manifest.schemaVersion, "local-recording-manifest.v2")
+        XCTAssertFalse(manifest.localDeletionRegistered)
+        XCTAssertEqual(manifest.tracks.map(\.evidenceRole), [.original, .original])
+        XCTAssertTrue(manifest.scopeApproval?.isAcceptedForMeetingRecording == true)
+        XCTAssertTrue(manifest.permissions?.allowsAcceptedRecording == true)
+        XCTAssertTrue(manifest.isComplete)
+    }
+
     func testRecordingMetadataBasenameDoesNotRenameRequiredPackageFiles() throws {
         let metadata = RecordingDisplayMetadata(
             recordingStartedAt: Date(timeIntervalSince1970: 10),

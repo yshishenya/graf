@@ -20,17 +20,43 @@ public struct LocalRecordingStore: Sendable {
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? fileManager.temporaryDirectory
-        let current = base
-            .appendingPathComponent(appSupportFolderName, isDirectory: true)
-            .appendingPathComponent("Recordings", isDirectory: true)
-        let legacy = base
-            .appendingPathComponent(legacyAppSupportFolderName, isDirectory: true)
-            .appendingPathComponent("Recordings", isDirectory: true)
+        let current = currentRootURL(baseURL: base)
+        let legacy = legacyRootURL(baseURL: base)
         if !fileManager.fileExists(atPath: current.path),
            fileManager.fileExists(atPath: legacy.path) {
             return legacy
         }
         return current
+    }
+
+    public static func currentRootURL(fileManager: FileManager = .default) -> URL {
+        let base = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+        return currentRootURL(baseURL: base)
+    }
+
+    public static func legacyRootURL(fileManager: FileManager = .default) -> URL {
+        let base = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+        return legacyRootURL(baseURL: base)
+    }
+
+    public static func currentRootURL(baseURL: URL) -> URL {
+        recordingRootURL(baseURL: baseURL, appSupportFolderName: appSupportFolderName)
+    }
+
+    public static func legacyRootURL(baseURL: URL) -> URL {
+        recordingRootURL(baseURL: baseURL, appSupportFolderName: legacyAppSupportFolderName)
+    }
+
+    private static func recordingRootURL(baseURL: URL, appSupportFolderName: String) -> URL {
+        baseURL
+            .appendingPathComponent(appSupportFolderName, isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
     }
 
     public func createDirectory(sessionId: String) throws -> LocalRecordingDirectory {

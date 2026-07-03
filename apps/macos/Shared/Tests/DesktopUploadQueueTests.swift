@@ -175,6 +175,63 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(saved.retentionDecision.localArtifactsRetained)
     }
 
+    func testPendingLocalPurgeAllowsTrustedLegacyRecordingRoot() async throws {
+        let base = temporaryRoot()
+        let currentRoot = base
+            .appendingPathComponent("GRAF", isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+        let legacyRoot = base
+            .appendingPathComponent("2brain Rec", isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let queueURL = base.appendingPathComponent("upload-queue.json")
+        let package = try makeRecordingPackage(
+            root: legacyRoot,
+            directoryId: "legacy-purge-directory",
+            sessionId: "legacy-purge-session"
+        )
+        let meetingId = "72000000-0000-0000-0000-000000000021"
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: currentRoot,
+            additionalRecordingsRootURLs: [legacyRoot],
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        item.meetingId = meetingId
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let task = try makeLocalPurgeTask(meetingId: meetingId)
+        let client = LocalPurgeOnlyClient(
+            tasks: [task],
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: meetingId,
+                    serverStatus: "ingested_pending_processing"
+                )
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: currentRoot,
+            additionalRecordingsRootURLs: [legacyRoot],
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        _ = try await service.acknowledgePendingLocalPurgeTasks()
+
+        XCTAssertEqual(client.acknowledgements.first?.state, .acknowledged)
+        XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_artifacts_deleted")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: package.directoryURL.path))
+        let saved = try XCTUnwrap(service.loadItems().first)
+        XCTAssertEqual(saved.state, .terminalDeleted)
+        XCTAssertEqual(saved.retentionDecision.decision, .terminalDeleted)
+        XCTAssertFalse(saved.retentionDecision.localArtifactsRetained)
+    }
+
     func testLocalPurgeUnknownSyncStateDoesNotDeleteRecordingBuffers() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -526,6 +583,41 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(secondScan.first?.sessionId, "session-1")
         XCTAssertEqual(secondScan.first?.state, .queued)
         XCTAssertTrue(secondScan.first?.artifactProfile.isUploadable == true)
+    }
+
+    func testScanDiscoversLegacyRecordingRootWhenCurrentRootIsEmpty() throws {
+        let base = temporaryRoot()
+        let currentRoot = base
+            .appendingPathComponent("GRAF", isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+        let legacyRoot = base
+            .appendingPathComponent("2brain Rec", isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        _ = try makeRecordingPackage(root: legacyRoot, directoryId: "legacy-package-1", sessionId: "legacy-session-1")
+        try FileManager.default.createDirectory(at: currentRoot, withIntermediateDirectories: true)
+        let service = DesktopUploadQueueService(
+            queueURL: base.appendingPathComponent("queue.json"),
+            recordingsRootURL: currentRoot,
+            additionalRecordingsRootURLs: [legacyRoot],
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let items = try service.scanAndEnqueueCompletedRecordings()
+
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(item.directoryId, "legacy-package-1")
+        XCTAssertEqual(item.sessionId, "legacy-session-1")
+        XCTAssertEqual(item.state, .queued)
+        XCTAssertEqual(item.retryMode, .automatic)
+        XCTAssertEqual(
+            URL(fileURLWithPath: item.directoryPath).standardizedFileURL.resolvingSymlinksInPath().path,
+            legacyRoot.appendingPathComponent("legacy-package-1").standardizedFileURL.resolvingSymlinksInPath().path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: item.microphonePath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: item.systemAudioPath))
     }
 
     func testScanPersistsRecordingMetadataFromManifestStartStopAndScopeTitle() throws {
@@ -998,6 +1090,11 @@ final class DesktopUploadQueueTests: XCTestCase {
         staleUploadingItem.retryMode = .automatic
         staleUploadingItem.nextRetryAt = nil
         staleUploadingItem.syncConflictState = .localFilesMissing
+        staleUploadingItem.uploadProgress = DesktopUploadProgressSnapshot(
+            uploadedBytes: 128,
+            totalBytes: 384,
+            updatedAt: Date(timeIntervalSince1970: 109)
+        )
         let staleDocument = DesktopUploadQueueDocument(
             updatedAt: Date(timeIntervalSince1970: 110),
             items: [staleUploadingItem]
@@ -1020,9 +1117,58 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(refreshed.nextRetryAt, Date(timeIntervalSince1970: 120))
         XCTAssertEqual(refreshed.syncConflictState, .none)
         XCTAssertNil(refreshed.failureReason)
+        XCTAssertNil(refreshed.uploadProgress)
         XCTAssertTrue(refreshed.artifactProfile.isUploadable)
         XCTAssertEqual(refreshed.attemptCount, 4)
         XCTAssertEqual(refreshed.createdAt, staleUploadingItem.createdAt)
+    }
+
+    func testScanResetsStaleUploadingItemWithoutConflictAfterRestart() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "stale-upload-package-2", sessionId: "stale-upload-session-2")
+        let queueURL = root.appendingPathComponent("queue.json")
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var staleUploadingItem = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        staleUploadingItem.state = .uploading
+        staleUploadingItem.attemptCount = 2
+        staleUploadingItem.retryMode = .automatic
+        staleUploadingItem.nextRetryAt = nil
+        staleUploadingItem.syncConflictState = .none
+        staleUploadingItem.uploadProgress = DesktopUploadProgressSnapshot(
+            uploadedBytes: 128,
+            totalBytes: 384,
+            updatedAt: Date(timeIntervalSince1970: 109)
+        )
+        let staleDocument = DesktopUploadQueueDocument(
+            updatedAt: Date(timeIntervalSince1970: 110),
+            items: [staleUploadingItem]
+        )
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(staleDocument)
+            .write(to: queueURL, options: [.atomic])
+        let restartScanService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 120) }
+        )
+
+        let refreshed = try XCTUnwrap(restartScanService.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(refreshed.id, staleUploadingItem.id)
+        XCTAssertEqual(refreshed.state, .queued)
+        XCTAssertEqual(refreshed.retryMode, .automatic)
+        XCTAssertEqual(refreshed.nextRetryAt, Date(timeIntervalSince1970: 120))
+        XCTAssertEqual(refreshed.syncConflictState, .none)
+        XCTAssertNil(refreshed.failureReason)
+        XCTAssertNil(refreshed.uploadProgress)
+        XCTAssertEqual(refreshed.retentionDecision.reason, "interrupted_upload_recovered")
     }
 
     func testReenqueuePreservesServerRevisionTruth() throws {
@@ -1168,6 +1314,53 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(savedItem.state, .uploaded)
         XCTAssertEqual(savedItem.serverTruth.acceptedBytesByTrack["microphone"], 128)
         XCTAssertGreaterThanOrEqual(savedItem.syncGeneration, 2)
+    }
+
+    func testProcessDueItemsPersistsInFlightUploadProgress() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "progress-package-1", sessionId: "progress-session-1")
+        let queueURL = root.appendingPathComponent("queue.json")
+        let client = ProgressReportingUploadClient(
+            progress: DesktopUploadProgressSnapshot(
+                uploadedBytes: 128,
+                totalBytes: 384,
+                updatedAt: Date(timeIntervalSince1970: 101)
+            ),
+            result: DesktopUploadResult(
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "server-meeting-progress",
+                    mediaRevisionId: "server-media-progress",
+                    uploadSessionId: "server-session-progress",
+                    acceptedBytesByTrack: ["microphone": 128, "system": 128, "manifest": 128],
+                    desktopTruthRule: "server_ranges_authoritative"
+                )
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        _ = try service.scanAndEnqueueCompletedRecordings()
+        let processingTask = Task { try await service.processDueItems() }
+        defer { client.allowFinish() }
+
+        try await client.waitUntilProgressReported()
+        let inFlight = try XCTUnwrap(service.loadItems().first)
+
+        XCTAssertEqual(inFlight.state, .uploading)
+        XCTAssertEqual(inFlight.uploadProgress?.uploadedBytes, 128)
+        XCTAssertEqual(inFlight.uploadProgress?.totalBytes, 384)
+        XCTAssertEqual(inFlight.progressFraction, 1.0 / 3.0, accuracy: 0.001)
+
+        client.allowFinish()
+        let finished = try await processingTask.value
+        XCTAssertNil(finished.first?.uploadProgress)
+        XCTAssertEqual(finished.first?.state, .uploaded)
     }
 
     func testProcessDueItemsTreatsServerFinalizedReconciliationAsUploadedWithoutDuplicateUpload() async throws {
@@ -1388,7 +1581,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(report.clipboardText.localizedCaseInsensitiveContains("audio"))
     }
 
-    func testRetentionExpiryMarksRecoverableConflictWithoutDeletingArtifacts() throws {
+    func testRetentionExpiryKeepsRecoverableUploadAutomaticWhileArtifactsRemain() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = try makeRecordingPackage(root: root, directoryId: "package-retention-conflict", sessionId: "session-retention-conflict")
@@ -1424,9 +1617,10 @@ final class DesktopUploadQueueTests: XCTestCase {
 
         let expired = try XCTUnwrap(expiredService.applyRetentionExpiry().first)
 
-        XCTAssertEqual(expired.state, .blocked)
-        XCTAssertEqual(expired.retryMode, .manualOnly)
-        XCTAssertEqual(expired.syncConflictState, .retentionExpired)
+        XCTAssertEqual(expired.state, .queued)
+        XCTAssertEqual(expired.retryMode, .automatic)
+        XCTAssertEqual(expired.syncConflictState, .none)
+        XCTAssertNotEqual(expired.failureReason, "automatic_retry_window_expired")
         XCTAssertTrue(expired.retentionDecision.localArtifactsRetained)
         XCTAssertTrue(FileManager.default.fileExists(atPath: expired.microphonePath))
         XCTAssertTrue(FileManager.default.fileExists(atPath: expired.systemAudioPath))
@@ -1602,7 +1796,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(items.first?.failureCategory, .schemaIncompatibility)
     }
 
-    func testRetentionExpiryMovesRetryingItemToManualOnlyWithoutDeletingArtifacts() throws {
+    func testRetentionExpiryDoesNotStopAutomaticDeliveryForRetainedArtifacts() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = try makeRecordingPackage(root: root, directoryId: "package-3", sessionId: "session-3")
@@ -1638,10 +1832,39 @@ final class DesktopUploadQueueTests: XCTestCase {
 
         let expired = try expiredService.applyRetentionExpiry()
 
-        XCTAssertEqual(expired.first?.state, .blocked)
-        XCTAssertEqual(expired.first?.retryMode, .manualOnly)
+        XCTAssertEqual(expired.first?.state, .queued)
+        XCTAssertEqual(expired.first?.retryMode, .automatic)
         XCTAssertEqual(expired.first?.retentionDecision.localArtifactsRetained, true)
-        XCTAssertEqual(expired.first?.failureReason, "automatic_retry_window_expired")
+        XCTAssertNotEqual(expired.first?.failureReason, "automatic_retry_window_expired")
+    }
+
+    func testTransientUploadFailureAfterRetentionDeadlineKeepsAutomaticRetryWhenArtifactsRemain() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "package-late-retry", sessionId: "session-late-retry")
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            policy: LocalBufferPolicy(
+                maxBytesPerDevice: 2_000_000_000,
+                warningFraction: 0.75,
+                criticalFraction: 0.9,
+                minimumDiskReserveBytes: 20 * 1024 * 1024,
+                retentionDays: 1
+            ),
+            client: FailingUploadClient(error: DesktopUploadClientError.httpStatus(503, "network_unavailable")),
+            clock: { Date(timeIntervalSince1970: 200_000) }
+        )
+
+        _ = try service.scanAndEnqueueCompletedRecordings()
+        let items = try await service.processDueItems()
+        let saved = try XCTUnwrap(items.first)
+
+        XCTAssertEqual(saved.state, .retrying)
+        XCTAssertEqual(saved.retryMode, .automatic)
+        XCTAssertEqual(saved.failureCategory, .network)
+        XCTAssertGreaterThan(saved.nextRetryAt ?? .distantPast, Date(timeIntervalSince1970: 200_000))
+        XCTAssertTrue(saved.retentionDecision.localArtifactsRetained)
     }
 
     func testUploadedProcessingFollowUpStopsAfterProcessedStatus() {
@@ -2387,6 +2610,111 @@ final class DesktopUploadQueueTests: XCTestCase {
         func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
             uploadedItems.append(item)
             return result
+        }
+
+        func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
+            []
+        }
+
+        func acknowledgeLocalPurgeTask(
+            _ task: DesktopLocalPurgeTask,
+            state: DesktopLocalPurgeTaskState,
+            reasonCode: String,
+            completedAt: Date?
+        ) async throws -> DesktopLocalPurgeTask {
+            task
+        }
+    }
+
+    private final class ProgressReportingUploadClient: @unchecked Sendable, DesktopUploadClientProtocol {
+        private let lock = NSLock()
+        private let progress: DesktopUploadProgressSnapshot
+        private let result: DesktopUploadResult
+        private var progressReported = false
+        private var finishUpload = false
+
+        init(progress: DesktopUploadProgressSnapshot, result: DesktopUploadResult) {
+            self.progress = progress
+            self.result = result
+        }
+
+        func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
+            try await upload(item, progressHandler: nil)
+        }
+
+        func upload(
+            _: DesktopUploadQueueItem,
+            progressHandler: DesktopUploadProgressHandler?
+        ) async throws -> DesktopUploadResult {
+            progressHandler?(progress)
+            markProgressReported()
+            while !shouldFinishUpload {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            return result
+        }
+
+        func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
+            []
+        }
+
+        func acknowledgeLocalPurgeTask(
+            _ task: DesktopLocalPurgeTask,
+            state: DesktopLocalPurgeTaskState,
+            reasonCode: String,
+            completedAt: Date?
+        ) async throws -> DesktopLocalPurgeTask {
+            task
+        }
+
+        func waitUntilProgressReported() async throws {
+            for _ in 0..<100 {
+                if hasReportedProgress {
+                    return
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw NSError(
+                domain: "ProgressReportingUploadClient",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Upload progress was not reported"]
+            )
+        }
+
+        func allowFinish() {
+            lock.lock()
+            finishUpload = true
+            lock.unlock()
+        }
+
+        private var hasReportedProgress: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return progressReported
+        }
+
+        private var shouldFinishUpload: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return finishUpload
+        }
+
+        private func markProgressReported() {
+            lock.lock()
+            progressReported = true
+            lock.unlock()
+        }
+    }
+
+    private final class FailingUploadClient: @unchecked Sendable, DesktopUploadClientProtocol {
+        private let error: Error
+
+        init(error: Error) {
+            self.error = error
+        }
+
+        func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
+            throw error
         }
 
         func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {

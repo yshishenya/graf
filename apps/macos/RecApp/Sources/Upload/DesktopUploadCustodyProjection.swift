@@ -170,19 +170,6 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
     }
 
     private static func rule(for item: DesktopUploadQueueItem, now: Date) -> Rule {
-        if item.state != .uploaded && item.retentionDeadline <= now {
-            return Rule(
-                custodyState: .terminalUndelivered,
-                owner: .policyLifecycle,
-                retryClass: .terminal,
-                normalUserAction: .sendSupportReport,
-                displayPriority: 0,
-                reviewAvailable: false,
-                retentionDeadline: item.retentionDeadline,
-                copyKey: "custody.terminal_undelivered"
-            )
-        }
-
         if item.failureCategory == .authSession || item.syncConflictState == .authRequired {
             return Rule(
                 custodyState: .retainedAwaitingCondition,
@@ -241,7 +228,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
 
         if item.state != .uploaded &&
             item.retryMode == .automatic &&
-            item.retentionDeadline.timeIntervalSince(now) <= retentionWarningWindowSeconds {
+            (0...retentionWarningWindowSeconds).contains(item.retentionDeadline.timeIntervalSince(now)) {
             return Rule(
                 custodyState: .retainedAwaitingCondition,
                 owner: .policyLifecycle,
@@ -472,8 +459,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
         if item.syncConflictState == .accessRevoked || item.syncConflictState == .staleDeviceIdentity {
             return .accessBlocked
         }
-        if item.syncConflictState == .retentionExpired ||
-            (item.state != .uploaded && item.retentionDeadline <= now) {
+        if item.syncConflictState == .retentionExpired {
             return .retentionExpired
         }
         if item.retentionDecision.decision == .terminalDeleted {
@@ -1507,8 +1493,8 @@ public enum DesktopUploadCustodyCopy {
         switch copyKey {
         case "custody.uploading":
             return count > 1
-                ? "\(count) записи под контролем. Локальные копии сохранены на этом Mac."
-                : "Локальная копия сохранена на этом Mac."
+                ? "\(count) записи отправляются на сервер. Локальные копии сохранены на этом Mac."
+                : "Отправляем на сервер. Локальная копия сохранена на этом Mac."
         case "custody.saved_will_send", "custody.saving_local":
             return "Отправим автоматически, когда сервер будет доступен."
         case "custody.needs_sign_in":

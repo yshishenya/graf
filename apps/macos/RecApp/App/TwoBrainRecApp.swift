@@ -218,8 +218,6 @@ private struct ContentView: View {
                 recordingMicrophoneSelection: recordingMicrophoneSelection,
                 recordingMicrophoneInputs: microphoneCaptureService.availableRecordingMicrophoneInputs(),
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
-                uploadQueueItems: uploadQueueItems,
-                cabinetConfiguration: desktopCabinetConfiguration,
                 calendarPrompt: desktopCalendarPrompt,
                 routeSignalLevels: liveRouteSignalLevels,
                 recordDisabled: recordingStartInProgress || recordingStopInProgress,
@@ -242,12 +240,6 @@ private struct ContentView: View {
                     recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
                         selectedInputDeviceId: inputDeviceId
                     )
-                },
-                onUploadReview: { route in
-                    selectedCabinetRoute = route
-                },
-                onSupportIncidentReport: { itemIds in
-                    try await submitSupportIncidentReport(itemIds: itemIds)
                 },
                 onCalendarPromptPrimary: { prompt in
                     handleCalendarPromptPrimary(prompt)

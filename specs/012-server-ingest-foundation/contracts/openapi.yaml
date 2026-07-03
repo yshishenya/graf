@@ -7663,6 +7663,10 @@ components:
           anyOf:
           - $ref: '#/components/schemas/CustodyReadModel'
           - type: 'null'
+        upload:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingUploadProgressState'
+          - type: 'null'
         future_slots:
           items:
             $ref: '#/components/schemas/SlotState'
@@ -7870,6 +7874,40 @@ components:
       - aborted
       - expired
       title: MeetingStatus
+    MeetingUploadProgressState:
+      properties:
+        status:
+          type: string
+          title: Status
+        label:
+          type: string
+          title: Label
+        uploaded_bytes:
+          type: integer
+          minimum: 0.0
+          title: Uploaded Bytes
+        total_bytes:
+          type: integer
+          minimum: 0.0
+          title: Total Bytes
+        progress_percent:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Progress Percent
+        is_active:
+          type: boolean
+          title: Is Active
+          default: false
+      type: object
+      required:
+      - status
+      - label
+      - uploaded_bytes
+      - total_bytes
+      title: MeetingUploadProgressState
     MembershipPatchRequest:
       properties:
         role:

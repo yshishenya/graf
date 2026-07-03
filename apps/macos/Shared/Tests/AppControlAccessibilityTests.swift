@@ -118,11 +118,9 @@ final class AppControlAccessibilityTests: XCTestCase {
         let copy = [
             DesktopCabinetWorkspaceView.workspaceTitle,
             DesktopCabinetWorkspaceView.workspaceAccessibilityLabel,
-            DesktopCabinetWorkspaceView.unavailableTitle,
-            CaptureControlView.uploadReviewButtonTitle
+            DesktopCabinetWorkspaceView.unavailableTitle
         ]
 
-        XCTAssertEqual(CaptureControlView.uploadReviewButtonTitle, "Открыть обзор")
         for text in copy {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("krisp"))
             XCTAssertFalse(text.localizedCaseInsensitiveContains("webview"))

@@ -5,6 +5,20 @@ import TwoBrainRecAppCore
 import XCTest
 
 final class LocalRecordingStoreTests: XCTestCase {
+    func testBuildsCurrentAndLegacyRecordingRootsFromSameBase() {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-recording-store-roots-\(UUID().uuidString)", isDirectory: true)
+
+        XCTAssertEqual(
+            LocalRecordingStore.currentRootURL(baseURL: base).path,
+            base.appendingPathComponent("GRAF/Recordings", isDirectory: true).path
+        )
+        XCTAssertEqual(
+            LocalRecordingStore.legacyRootURL(baseURL: base).path,
+            base.appendingPathComponent("2brain Rec/Recordings", isDirectory: true).path
+        )
+    }
+
     func testCreatesSafeSessionDirectoryAndArtifactURLs() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-recording-store-tests-\(UUID().uuidString)", isDirectory: true)
