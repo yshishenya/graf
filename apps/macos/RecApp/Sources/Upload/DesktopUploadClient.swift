@@ -810,13 +810,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         while offset < descriptor.byteCount {
             let data = try handle.read(upToCount: min(partSizeBytes, Int(descriptor.byteCount - offset))) ?? Data()
             guard !data.isEmpty else { break }
-            let partNumber = Self.partNumber(forByteOffset: offset, partSizeBytes: partSizeBytes)
             let response = try await uploadPart(
                 sessionId: sessionId,
                 descriptor: descriptor,
                 data: data,
-                byteOffset: offset,
-                partNumber: partNumber
+                byteOffset: offset
             )
             offset = max(offset + Int64(data.count), response.byte_offset + response.byte_length)
         }
@@ -835,13 +833,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let length = max(0, min(range.end, descriptor.byteCount) - start)
         try handle.seek(toOffset: UInt64(start))
         let data = try handle.read(upToCount: Int(length)) ?? Data()
-        let partNumber = Self.partNumber(forByteOffset: start, partSizeBytes: partSizeBytes)
         let response = try await uploadPart(
             sessionId: sessionId,
             descriptor: descriptor,
             data: data,
-            byteOffset: start,
-            partNumber: partNumber
+            byteOffset: start
         )
         return response.byte_offset + response.byte_length
     }
@@ -850,9 +846,9 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         sessionId: String,
         descriptor: DesktopUploadFileDescriptor,
         data: Data,
-        byteOffset: Int64,
-        partNumber: Int
+        byteOffset: Int64
     ) async throws -> UploadPartResponse {
+        let partNumber = Self.partNumber(forByteOffset: byteOffset, partSizeBytes: partSizeBytes)
         var request = try request(
             path: "/api/v1/upload-sessions/\(sessionId)/tracks/\(descriptor.transportRole.rawValue)/parts/\(partNumber)",
             method: "PUT"
