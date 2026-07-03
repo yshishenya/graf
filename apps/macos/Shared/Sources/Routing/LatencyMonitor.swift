@@ -1,5 +1,3 @@
-import Foundation
-
 public struct LatencyMonitor: Sendable {
     public var builtInWiredThresholdMs: Double
 

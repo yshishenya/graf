@@ -1,5 +1,3 @@
-import Foundation
-
 public enum LiveRouteClientActivityStatus: String, Codable, Sendable {
     case active
     case oneSided

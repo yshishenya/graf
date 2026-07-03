@@ -84,13 +84,16 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
         content=Markup('<main class="cabinet-main" id="content">Контент</main>'),
     )
 
+    assert html.count("data-shell-scroll=\"contained\"") == 1
     assert html.count("data-cabinet-shell") == 1
+    assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in html
     assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in html
     assert 'aria-label="Навигация кабинета"' in html
     assert html.count('aria-current="page"') == 1
     assert 'href="/meetings"' in html
     assert 'href="/settings/integrations/calendar"' in html
-    assert 'aria-disabled="true" tabindex="-1"' in html
+    assert '<span class="cabinet-sidebar-nav__item is-disabled" data-state="disabled" aria-disabled="true">' in html
+    assert 'href="#"' not in html
     assert 'src="/static/cabinet/graf-wordmark-dark.png"' in html
     assert 'data-cabinet-rail-toggle' in html
     assert "Пробный период 7 дней" in html

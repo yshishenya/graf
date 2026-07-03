@@ -12,7 +12,7 @@ root `RULES.md` for Codex unless a separate tool explicitly requires it.
 
 ## Project Context
 
-Product: `2brain Rec`, a self-hosted meeting capture and transcription product
+Product: `GRAF`, a self-hosted meeting capture and transcription product
 with a macOS system-audio-first MVP. The virtual audio driver is parked as
 future advanced-routing work until it has separate safety evidence.
 
@@ -132,7 +132,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/074-code-optimization/plan.md
+at specs/078-dead-code-batch-5/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues
@@ -178,7 +178,7 @@ Non-negotiable reminders:
 - Desktop app never sends audio directly to MediaScribe and never stores
   MediaScribe credentials.
 - Langfuse traces are metadata-only by default.
-- Deletion copy must not promise universal erasure outside `2brain Rec` control.
+- Deletion copy must not promise universal erasure outside `GRAF` control.
 - UI must be clean-room and pass brand-distance review.
 
 ## Validation, Git, And Release

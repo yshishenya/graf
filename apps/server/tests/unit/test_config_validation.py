@@ -94,17 +94,37 @@ def test_production_accepts_existing_secret_files(tmp_path) -> None:
         minio_access_key_file=secret,
         minio_secret_key_file=secret,
         smoke_credential_file=secret,
-        calendar_credential_key_file=secret,
+        credential_encryption_key_file=secret,
     )
 
     assert settings.postgres_password_file == secret
-    assert settings.calendar_credential_key_file == secret
+    assert settings.credential_encryption_key_file == secret
 
 
-def test_empty_calendar_credential_key_file_is_unset() -> None:
-    settings = _production_settings(calendar_credential_key_file="")
+def test_empty_credential_encryption_key_file_is_unset() -> None:
+    settings = _production_settings(credential_encryption_key_file="")
 
-    assert settings.calendar_credential_key_file is None
+    assert settings.credential_encryption_key_file is None
+
+
+def test_graf_credential_encryption_key_env_is_supported(monkeypatch, tmp_path) -> None:
+    secret = tmp_path / "graf-credential-encryption-key"
+    secret.write_text("redacted-test-value")
+    monkeypatch.setenv("GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE", str(secret))
+
+    settings = _production_settings()
+
+    assert settings.credential_encryption_key_file == secret
+
+
+def test_legacy_calendar_credential_key_env_is_supported(monkeypatch, tmp_path) -> None:
+    secret = tmp_path / "legacy-calendar-credential-key"
+    secret.write_text("redacted-test-value")
+    monkeypatch.setenv("TWOBRAIN_CALENDAR_CREDENTIAL_KEY_FILE", str(secret))
+
+    settings = _production_settings()
+
+    assert settings.credential_encryption_key_file == secret
 
 
 def test_empty_support_incident_github_token_file_is_unset() -> None:
@@ -230,6 +250,15 @@ def test_empty_web_login_workspace_id_is_unset_when_email_delivery_is_disabled()
 
     assert settings.web_login_workspace_id is None
     assert settings.postal_host_header is None
+
+
+def test_empty_optional_url_is_unset_when_feature_is_disabled() -> None:
+    settings = _production_settings(
+        postal_api_url="",
+        email_login_delivery_enabled=False,
+    )
+
+    assert settings.postal_api_url is None
 
 
 def test_production_email_login_delivery_reads_non_empty_postal_secret(tmp_path) -> None:

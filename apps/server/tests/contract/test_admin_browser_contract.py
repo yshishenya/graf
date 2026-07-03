@@ -31,7 +31,13 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert "/static/admin/graf-cyrillic-mic-inverted.png" not in response.text
     assert "admin-header-brand" not in response.text
     assert 'alt="ГРАФ"' in response.text
-    assert "app-shell admin-app-shell" in response.text
+    assert (
+        'class="app-shell admin-app-shell" data-shell-scroll="contained" '
+        'data-mobile-scroll="page" data-admin-shell'
+    ) in response.text
+    assert 'data-cabinet-shell' not in response.text
+    assert '<a class="skip-link" href="#admin-main">К содержимому</a>' in response.text
+    assert 'id="admin-main" class="main admin-main" tabindex="-1"' in response.text
     assert "sidebar admin-sidebar" in response.text
     assert "2brain Rec" not in response.text
     assert "Администрирование" in response.text

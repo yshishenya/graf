@@ -90,11 +90,11 @@ def require_db(db: AsyncSession | None) -> AsyncSession:
     return db
 
 
-def _credential_key(request: Request) -> bytes:
-    key = getattr(request.app.state, "calendar_credential_key", None)
+def _credential_encryption_key(request: Request) -> bytes:
+    key = getattr(request.app.state, "credential_encryption_key", None)
     if key is None:
         settings = request.app.state.settings
-        key_file = getattr(settings, "calendar_credential_key_file", None)
+        key_file = getattr(settings, "credential_encryption_key_file", None)
         if key_file is not None:
             try:
                 key = key_file.read_text(encoding="utf-8").strip().encode("utf-8")
@@ -102,18 +102,18 @@ def _credential_key(request: Request) -> bytes:
             except (OSError, ValueError) as exc:
                 raise ProblemDetail(
                     status=503,
-                    code="calendar_credential_key_unavailable",
-                    title="Calendar credential key unavailable",
+                    code="credential_encryption_key_unavailable",
+                    title="Credential encryption key unavailable",
                 ) from exc
         elif settings.env.lower() == "production":
             raise ProblemDetail(
                 status=503,
-                code="calendar_credential_key_unavailable",
-                title="Calendar credential key unavailable",
+                code="credential_encryption_key_unavailable",
+                title="Credential encryption key unavailable",
             )
         else:
             key = generate_credential_key()
-        request.app.state.calendar_credential_key = key
+        request.app.state.credential_encryption_key = key
     return key
 
 
@@ -280,7 +280,7 @@ async def connect_calendar_source(
         display_label=payload.display_label,
         credential_input=credential_input,
         selected_provider_calendar_ids=payload.selected_provider_calendar_ids,
-        credential_key=_credential_key(request) if credential_input else None,
+        credential_encryption_key=_credential_encryption_key(request) if credential_input else None,
     )
     await commit_if_available(db)
     return await _source_response(db, source)

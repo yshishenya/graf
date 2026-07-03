@@ -1,5 +1,3 @@
-import Foundation
-
 public enum AudioDirection: String, Codable, Sendable {
     case input
     case output

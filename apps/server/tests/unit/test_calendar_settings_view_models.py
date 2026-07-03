@@ -26,7 +26,7 @@ def test_calendar_settings_boundary_copy_names_read_only_no_auto_record_attendee
     assert "читаем выбранные будущие события" in rendered
     assert "не меняет события календаря" in rendered
     assert "не получают доступ к записи автоматически" in rendered
-    assert "на сервере 2brain Rec" in rendered
+    assert "на сервере GRAF" in rendered
     assert "Приложение на Mac их не хранит" in rendered
     assert "не включает автоматическую запись" in rendered
     assert "автоматическую запись" in rendered
