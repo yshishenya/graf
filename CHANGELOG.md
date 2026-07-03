@@ -24,7 +24,10 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Feature `072-deep-architecture-audit`: обновлен read-only architecture audit
+  под текущий `origin/master`; roadmap исправлен с повторного split
+  `cabinet/web.py` на реальные текущие hotspots cabinet route/view/render/egress,
+  readiness, macOS upload/app/diagnostics/models и capture scripts.
 
 ### Операции
 - _Пока нет записей._

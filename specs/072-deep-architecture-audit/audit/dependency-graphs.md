@@ -16,6 +16,7 @@ main.py
 ├── api/*
 ├── admin/web.py
 ├── cabinet/web.py
+│   └── cabinet/web_routes/*
 ├── health/*
 └── shared app setup: config, db, storage, logging
 
@@ -46,7 +47,7 @@ cabinet/*
 
 External import roots observed most often:
 
-- `sqlalchemy`: persistence and migration-adjacent ORM work.
+- `sqlalchemy` (151 observed roots): persistence and migration-adjacent ORM work.
 - `fastapi`, `starlette`, `jinja2`: API and server-rendered cabinet/admin
   surfaces.
 - `pydantic`, `pydantic_settings`: request/config contracts.
@@ -67,8 +68,10 @@ Runtime-only dependency interpretation:
 Risk interpretation:
 
 - Server boundaries are mostly recognizable by package area.
-- Cabinet is a dependency hub and should be split by behavior-preserving PRs,
-  not by a global framework rewrite.
+- Cabinet is still a dependency hub, but current master has already reduced
+  `cabinet/web.py` to a route aggregator. Future splits should target current
+  auth/calendar route modules plus view/render/egress hotspots, not re-split the
+  aggregator.
 - Auth/session/device, deletion, processing, MediaScribe, and storage paths are
   risky because small signature changes can alter trust boundaries.
 
@@ -202,4 +205,3 @@ Limitations:
 
 - Compose syntax does not prove remote host state.
 - 072 intentionally does not perform production smoke or deploy.
-

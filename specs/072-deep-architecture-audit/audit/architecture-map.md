@@ -6,12 +6,15 @@
 Architecture evidence was collected from repository files, not from production
 state. This stage does not modify product/runtime code.
 
+This 2026-07-02 refresh corrects stale 072 conclusions after later slices
+changed the cabinet web surface.
+
 Static inventory:
 
-- Server Python: 154 files under `apps/server/src/twobrain_rec_server`, about
-  35,646 lines.
-- macOS Swift: 213 files under `apps/macos`, about 53,152 lines.
-- Shell scripts: 54 scripts across the repository.
+- Server Python: 157 files under `apps/server/src/twobrain_rec_server`, 35,114
+  lines.
+- macOS Swift: 213 files under `apps/macos`, 53,583 lines.
+- Shell scripts: 54 scripts across the repository, 7,516 lines.
 - Runtime/deploy surfaces: `infra/docker-compose.yml`,
   `infra/docker-compose.dev.yml`, `infra/server/Dockerfile`, and
   `infra/scripts/`.
@@ -52,15 +55,18 @@ Healthy signals:
   desktop app contract.
 - Cabinet presentation is separated from capture-critical native controls by
   product docs and ADRs.
+- `cabinet/web.py` is now a small route-family aggregator; the earlier large
+  cabinet web router split is already structurally addressed.
 - Deployment has explicit local CI, migration, backup, restore, and smoke
   scripts rather than hidden manual steps.
 
 Pain signals:
 
-- `cabinet/web.py` is a large presentation/router hub and mixes many cabinet
-  responsibilities.
-- `readiness/matrix.py`, `cabinet/view_models.py`, `cabinet/rendering.py`, and
-  `cabinet/egress.py` are large enough to make focused review difficult.
+- Remaining cabinet reviewability pain is in `cabinet/web_routes/auth.py`,
+  `cabinet/web_routes/calendar.py`, `cabinet/view_models.py`,
+  `cabinet/rendering.py`, and `cabinet/egress.py`.
+- `readiness/matrix.py`, cabinet view/render/egress files, and cabinet
+  auth/calendar route modules are large enough to make focused review difficult.
 - Auth/session/device and deletion paths are safety-sensitive and should not be
   casually split without dedicated evidence.
 
@@ -171,4 +177,3 @@ Pain signals:
 - Older specs and baseline docs may contain stale pre-merge expectations.
   Reconciliation should be a product-truth docs slice, not an incidental cleanup
   inside a code refactor.
-

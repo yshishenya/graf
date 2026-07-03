@@ -18,6 +18,24 @@ other local work from bleeding into 072.
 - Use the starting Codex worktree: rejected because the request explicitly
   required canonical checkout or clean fresh worktree.
 
+## Post-Merge Refresh Decision
+
+**Decision**: Refresh the existing `specs/072-deep-architecture-audit/`
+artifacts on `codex/072-architecture-audit-pass2` instead of opening a new
+feature number.
+
+**Rationale**: Current `origin/master` already contains the 072 artifact chain,
+but later slices changed the cabinet surface. Updating the existing 072 slice
+keeps the architecture audit coherent and avoids creating a parallel roadmap
+that competes with the same findings.
+
+**Alternatives considered**:
+
+- Create a new architecture-audit number: rejected because the user explicitly
+  asked to continue 072.
+- Keep the old 072 text unchanged: rejected because `cabinet/web.py` is no
+  longer the large split target in current master.
+
 ## Audit Shape Decision
 
 **Decision**: Produce documentation artifacts only in the first 072 stage:
@@ -97,4 +115,3 @@ fact is revalidated in this slice.
 
 - Reuse 071 audit output wholesale: rejected because it would weaken 072's
   evidence map and confuse release boundaries.
-
