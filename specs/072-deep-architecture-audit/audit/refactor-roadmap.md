@@ -3,6 +3,22 @@
 072 does not implement these batches. Each batch is a future small PR or
 separate Spec Kit slice with its own evidence.
 
+## Current Master Refresh
+
+The 2026-07-03 refresh in
+`specs/072-deep-architecture-audit/audit/current-master-priority-refresh.md`
+records the current priority after the merged cabinet follow-up PRs. Do not
+keep doing cabinet rendering micro-splits. The next high-value architecture
+work is either:
+
+1. `086-desktop-upload-custody-architecture` as a product-value-first,
+   high-risk read-only slice before code; or
+2. `086-cabinet-egress-boundary` as a smaller server-side split with strong
+   egress/export/playback/admin tests.
+
+`delete now` remains zero until a focused deletion proof pass produces caller,
+runtime, entrypoint, validation, and rollback evidence.
+
 ## Batch Order
 
 ### RB-072-01: Cabinet Web Follow-Up Segmentation
