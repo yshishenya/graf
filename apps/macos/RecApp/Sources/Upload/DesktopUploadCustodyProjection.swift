@@ -47,6 +47,35 @@ public enum DesktopUploadCustodyMetadataSafety: String, Codable, CaseIterable, S
     case metadataOnly = "metadata_only"
 }
 
+private enum DesktopUploadCustodySafeMetadata {
+    private static let allowedCodeScalars = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+    )
+
+    static func isSafeCode(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 120 else { return false }
+        return value.unicodeScalars.allSatisfy { allowedCodeScalars.contains($0) }
+    }
+
+    static func optionalPrefixedFingerprint(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "not_applicable" }
+        return prefixedFingerprint(value)
+    }
+
+    static func prefixedFingerprint(_ value: String, prefix: String = "fpr", length: Int = 16) -> String {
+        "\(prefix)_\(shortFingerprint(value, length: length))"
+    }
+
+    static func shortFingerprint(_ value: String, length: Int = 8) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8)).prefix(max(4, length))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func isoDateText(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+}
+
 public enum DesktopUploadCustodyUploadState: String, Codable, CaseIterable, Sendable {
     case notStarted = "not_started"
     case sessionCreated = "session_created"
@@ -821,7 +850,9 @@ public struct DesktopSupportIncidentLocalFileCompletenessProfile: Codable, Equat
     public init(item: DesktopUploadQueueItem) {
         let profile = item.artifactProfile
         self.manifestPresent = profile.manifestPresent
-        self.manifestSchemaVersion = Self.safeCode(profile.schemaVersion) ? profile.schemaVersion : "unknown"
+        self.manifestSchemaVersion = DesktopUploadCustodySafeMetadata.isSafeCode(profile.schemaVersion)
+            ? profile.schemaVersion
+            : "unknown"
         self.audioFilesPresent = profile.microphonePresent && profile.systemAudioPresent
         self.microphonePresent = profile.microphonePresent
         self.systemAudioPresent = profile.systemAudioPresent
@@ -873,12 +904,6 @@ public struct DesktopSupportIncidentLocalFileCompletenessProfile: Codable, Equat
         default:
             return "gt_2h"
         }
-    }
-
-    private static func safeCode(_ value: String) -> Bool {
-        guard !value.isEmpty, value.count <= 120 else { return false }
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 }
 
@@ -992,8 +1017,12 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
     ) {
         guard Self.reportAvailable(for: projection) else { return nil }
         let boundedAffectedItems = Self.affectedItems(primary: item, affectedItems: affectedItems)
-        let serverMeetingFingerprint = Self.optionalFingerprint(projection.serverMeetingId)
-        let serverMediaRevisionFingerprint = Self.optionalFingerprint(projection.serverMediaRevisionId)
+        let serverMeetingFingerprint = DesktopUploadCustodySafeMetadata.optionalPrefixedFingerprint(
+            projection.serverMeetingId
+        )
+        let serverMediaRevisionFingerprint = DesktopUploadCustodySafeMetadata.optionalPrefixedFingerprint(
+            projection.serverMediaRevisionId
+        )
         let uploadSessionId = item.uploadSessionId ?? item.serverTruth.uploadSessionId
         let expectedParts = max(item.artifactProfile.trackCompleteness.count, 3)
         let uploadedParts = item.serverTruth.acceptedBytesByTrack.count
@@ -1021,9 +1050,10 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         self.userFingerprint = context.userFingerprint
         self.deviceFingerprint = context.deviceFingerprint
         self.safeDeviceIdentifier = context.safeDeviceIdentifier
-        self.safeRecordingIdentity = projection.serverMeetingId.map { "server:\(Self.fingerprint($0))" } ??
-            "local:\(Self.fingerprint(item.directoryId))"
-        self.localRecordingIDFingerprint = Self.fingerprint(item.directoryId)
+        self.safeRecordingIdentity = projection.serverMeetingId.map {
+            "server:\(DesktopUploadCustodySafeMetadata.prefixedFingerprint($0))"
+        } ?? "local:\(DesktopUploadCustodySafeMetadata.prefixedFingerprint(item.directoryId))"
+        self.localRecordingIDFingerprint = DesktopUploadCustodySafeMetadata.prefixedFingerprint(item.directoryId)
         self.serverMeetingFingerprint = serverMeetingFingerprint
         self.serverMediaRevisionFingerprint = serverMediaRevisionFingerprint
         self.serverMeetingPresent = projection.serverMeetingId != nil
@@ -1036,20 +1066,22 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         self.failureCategory = Self.failureCategory(item: item, projection: projection)
         self.problemCode = problemCode
         self.syncConflictState = item.syncConflictState.rawValue
-        self.createdAt = Self.dateText(item.createdAt)
-        self.updatedAt = Self.dateText(item.updatedAt)
-        self.retentionDeadline = projection.retentionDeadline.map(Self.dateText) ?? "not_applicable"
+        self.createdAt = DesktopUploadCustodySafeMetadata.isoDateText(item.createdAt)
+        self.updatedAt = DesktopUploadCustodySafeMetadata.isoDateText(item.updatedAt)
+        self.retentionDeadline = projection.retentionDeadline
+            .map(DesktopUploadCustodySafeMetadata.isoDateText) ?? "not_applicable"
         self.serverIdentityPresent = projection.serverMeetingId != nil
         self.localMediaRetained = localMediaRetained
         self.dataLossRisk = serverCopyKnown ? "low" : (localMediaRetained ? "possible" : "elevated")
         self.serverCopyKnown = serverCopyKnown
         self.uploadAttemptCount = item.attemptCount
-        self.lastAttemptAt = Self.lastAttemptAt(item).map(Self.dateText) ?? "not_applicable"
-        self.nextRetryAt = item.nextRetryAt.map(Self.dateText) ?? "not_applicable"
+        self.lastAttemptAt = Self.lastAttemptAt(item)
+            .map(DesktopUploadCustodySafeMetadata.isoDateText) ?? "not_applicable"
+        self.nextRetryAt = item.nextRetryAt.map(DesktopUploadCustodySafeMetadata.isoDateText) ?? "not_applicable"
         self.lastSafeHTTPStatus = Self.lastSafeHTTPStatus(Self.lastFailureReason(item))
         self.lastSafeProblemCode = lastProblemCode
         self.uploadSessionPresent = uploadSessionId != nil
-        self.uploadSessionFingerprint = Self.optionalFingerprint(uploadSessionId)
+        self.uploadSessionFingerprint = DesktopUploadCustodySafeMetadata.optionalPrefixedFingerprint(uploadSessionId)
         self.expectedPartsCount = expectedParts
         self.uploadedPartsCount = uploadedParts
         self.rangeMismatchMetadata = DesktopSupportIncidentRangeMismatchMetadata(
@@ -1071,7 +1103,7 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
     }
 
     public var safeReportFingerprint: String {
-        Self.fingerprint(
+        DesktopUploadCustodySafeMetadata.prefixedFingerprint(
             [
                 problemCode,
                 failureCategory,
@@ -1089,7 +1121,7 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
     }
 
     public var dedupeKey: String {
-        Self.fingerprint(
+        DesktopUploadCustodySafeMetadata.prefixedFingerprint(
             [
                 problemCode,
                 failureCategory,
@@ -1217,7 +1249,7 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         if item.syncConflictState == .processingFailed || item.syncConflictState == .processingBlocked {
             return "custody.\(item.syncConflictState.rawValue)"
         }
-        if let reason = item.failureReason, isSafeCode(reason) {
+        if let reason = item.failureReason, DesktopUploadCustodySafeMetadata.isSafeCode(reason) {
             return "custody.\(reason)"
         }
         return projection.copyKey
@@ -1232,7 +1264,7 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         }
         guard let reason = item.failureReason else { return fallback }
         let code = reason.split(separator: ":").last.map(String.init) ?? reason
-        return isSafeCode(code) ? code : fallback
+        return DesktopUploadCustodySafeMetadata.isSafeCode(code) ? code : fallback
     }
 
     private static func lastFailureReason(_ item: DesktopUploadQueueItem) -> String? {
@@ -1265,7 +1297,7 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
     }
 
     private static func safeAffectedIdentity(_ item: DesktopUploadQueueItem) -> String {
-        fingerprint(
+        DesktopUploadCustodySafeMetadata.prefixedFingerprint(
             [
                 item.directoryId,
                 item.localMediaRevisionId,
@@ -1275,30 +1307,6 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
             prefix: "affected_fpr",
             length: 20
         )
-    }
-
-    private static func optionalFingerprint(_ value: String?) -> String {
-        guard let value, !value.isEmpty else { return "not_applicable" }
-        return fingerprint(value)
-    }
-
-    private static func isSafeCode(_ value: String) -> Bool {
-        guard !value.isEmpty, value.count <= 120 else { return false }
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
-    }
-
-    private static func fingerprint(_ value: String) -> String {
-        fingerprint(value, prefix: "fpr", length: 16)
-    }
-
-    private static func fingerprint(_ value: String, prefix: String, length: Int) -> String {
-        let digest = SHA256.hash(data: Data(value.utf8)).prefix(max(4, length))
-        return "\(prefix)_\(digest.map { String(format: "%02x", $0) }.joined())"
-    }
-
-    private static func dateText(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
     }
 }
 
@@ -1349,15 +1357,15 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
             "owner": .string(owner.rawValue),
             "retryClass": .string(retryClass.rawValue),
             "normalUserAction": .string(normalUserAction.rawValue),
-            "createdAt": .string(Self.dateText(createdAt)),
-            "updatedAt": .string(Self.dateText(updatedAt)),
+            "createdAt": .string(DesktopUploadCustodySafeMetadata.isoDateText(createdAt)),
+            "updatedAt": .string(DesktopUploadCustodySafeMetadata.isoDateText(updatedAt)),
             "lifecycleState": .string(lifecycleState.rawValue),
             "serverIdentityPresent": .bool(serverIdentityPresent),
             "localMediaRetained": .bool(localMediaRetained),
             "metadataSafety": .string(metadataSafety.rawValue)
         ]
         if let retentionDeadline {
-            incident["retentionDeadline"] = .string(Self.dateText(retentionDeadline))
+            incident["retentionDeadline"] = .string(DesktopUploadCustodySafeMetadata.isoDateText(retentionDeadline))
         }
         return [
             "schemaVersion": .string(schemaVersion),
@@ -1383,10 +1391,10 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
             "owner=\(owner.rawValue)",
             "retry_class=\(retryClass.rawValue)",
             "normal_user_action=\(normalUserAction.rawValue)",
-            "created_at=\(Self.dateText(createdAt))",
-            "updated_at=\(Self.dateText(updatedAt))",
+            "created_at=\(DesktopUploadCustodySafeMetadata.isoDateText(createdAt))",
+            "updated_at=\(DesktopUploadCustodySafeMetadata.isoDateText(updatedAt))",
             "lifecycle_state=\(lifecycleState.rawValue)",
-            "retention_deadline=\(retentionDeadline.map(Self.dateText) ?? "none")",
+            "retention_deadline=\(retentionDeadline.map(DesktopUploadCustodySafeMetadata.isoDateText) ?? "none")",
             "server_identity_present=\(serverIdentityPresent)",
             "local_media_retained=\(localMediaRetained)",
             "metadata_safety=\(metadataSafety.rawValue)"
@@ -1434,9 +1442,9 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
         projection: DesktopUploadCustodyProjection
     ) -> String {
         if let serverMeetingId = projection.serverMeetingId, !serverMeetingId.isEmpty {
-            return "server:\(fingerprint(serverMeetingId))"
+            return "server:\(DesktopUploadCustodySafeMetadata.shortFingerprint(serverMeetingId))"
         }
-        return "local:\(fingerprint(item.directoryId))"
+        return "local:\(DesktopUploadCustodySafeMetadata.shortFingerprint(item.directoryId))"
     }
 
     private static func reasonCategory(
@@ -1462,25 +1470,10 @@ public struct DesktopUploadCustodySafeReport: Equatable, Sendable {
         if item.failureCategory != .none {
             return item.failureCategory.rawValue
         }
-        if let reason = item.failureReason, isSafeCode(reason) {
+        if let reason = item.failureReason, DesktopUploadCustodySafeMetadata.isSafeCode(reason) {
             return reason
         }
         return projection.copyKey.replacingOccurrences(of: "custody.", with: "")
-    }
-
-    private static func isSafeCode(_ value: String) -> Bool {
-        guard !value.isEmpty, value.count <= 120 else { return false }
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
-    }
-
-    private static func fingerprint(_ value: String) -> String {
-        let digest = SHA256.hash(data: Data(value.utf8))
-        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func dateText(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
     }
 }
 
