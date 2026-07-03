@@ -22,6 +22,9 @@
 - Feature `080-readiness-evidence-split`: readiness evidence matrix вынесен из
   `readiness/matrix.py` в отдельный module без изменения публичного
   `build_default_evidence` import-контракта.
+- Feature `081-cabinet-auth-route-helpers`: browser email-login flow helpers
+  вынесены из cabinet `auth.py` в отдельный module; route order и
+  auth/session/device semantics не менялись.
 
 ### Исправлено
 - _Пока нет записей._
