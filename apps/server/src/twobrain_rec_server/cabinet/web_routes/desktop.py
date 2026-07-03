@@ -15,6 +15,10 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     set_desktop_calendar_auth_cookie,
 )
+from twobrain_rec_server.cabinet.deletion_rendering import (
+    render_deletion_report_fragment,
+    render_deletion_report_page,
+)
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     get_calendar_settings_surface,
@@ -24,8 +28,6 @@ from twobrain_rec_server.cabinet.rendering import (
     calendar_settings_notice_codes,
     render_calendar_settings_fragment,
     render_calendar_settings_page,
-    render_deletion_report_fragment,
-    render_deletion_report_page,
     render_meeting_detail_fragment,
     render_meeting_detail_page,
     render_meeting_list_fragment,

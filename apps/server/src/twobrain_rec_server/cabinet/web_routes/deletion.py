@@ -8,12 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
-from twobrain_rec_server.cabinet.rendering import (
-    _base_path,
+from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_feedback_fragment,
     render_deletion_report_fragment,
     render_deletion_report_page,
 )
+from twobrain_rec_server.cabinet.rendering import _base_path
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
 )

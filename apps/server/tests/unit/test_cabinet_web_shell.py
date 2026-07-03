@@ -32,9 +32,9 @@ from twobrain_rec_server.api.schemas import (
     TranscriptReviewState,
     TranscriptSegmentView,
 )
+from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_report_page
 from twobrain_rec_server.cabinet.rendering import (
     render_calendar_settings_page,
-    render_deletion_report_page,
     render_login_page,
     render_meeting_detail_page,
     render_meeting_list_page,

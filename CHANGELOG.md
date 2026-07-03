@@ -28,6 +28,9 @@
 - Feature `082-cabinet-auth-rendering-split`: auth/login/signup page rendering
   вынесен из общего cabinet `rendering.py` в `auth_rendering.py`; templates,
   route order и egress behavior не менялись.
+- Feature `083-cabinet-deletion-rendering-split`: deletion report/feedback
+  rendering и общий shell/path/text helper вынесены из cabinet `rendering.py`;
+  deletion service, route order и lifecycle copy не менялись.
 
 ### Исправлено
 - _Пока нет записей._

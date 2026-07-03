@@ -3,10 +3,7 @@ from __future__ import annotations
 from html import escape
 
 from twobrain_rec_server.api.schemas import (
-    ArtifactDeletionState,
     ArtifactEgressState,
-    DeletionVerificationReport,
-    LocalPurgeTask,
     MeetingListItem,
     MeetingListResponse,
     MeetingReviewResponse,
@@ -22,6 +19,21 @@ from twobrain_rec_server.cabinet.auth_rendering import (
 )
 from twobrain_rec_server.cabinet.auth_rendering import (
     render_signup_page as render_signup_page,
+)
+from twobrain_rec_server.cabinet.deletion_rendering import (
+    render_deletion_feedback_fragment as render_deletion_feedback_fragment,
+)
+from twobrain_rec_server.cabinet.deletion_rendering import (
+    render_deletion_report_fragment as render_deletion_report_fragment,
+)
+from twobrain_rec_server.cabinet.deletion_rendering import (
+    render_deletion_report_page as render_deletion_report_page,
+)
+from twobrain_rec_server.cabinet.rendering_shared import (
+    _base_path,
+    _page_shell,
+    _settings_path,
+    _ui_text,
 )
 from twobrain_rec_server.cabinet.templates import (
     render_icon,
@@ -273,255 +285,6 @@ def _render_meeting_detail_content(review: MeetingReviewResponse, *, embedded: b
         template_label=_ui_text(review.template.label),
         playback=trusted_component_html(_render_playback(review), source="meeting_detail.playback"),
     )
-
-
-def render_deletion_report_page(
-    meeting_title: str,
-    report: DeletionVerificationReport,
-    *,
-    embedded: bool = False,
-    csrf_token: str | None = None,
-) -> str:
-    content = _render_deletion_report_content(meeting_title, report, embedded=embedded)
-    return _page_shell(
-        "Отчет удаления",
-        content,
-        embedded=embedded,
-        csrf_token=csrf_token,
-        content_source="deletion_report.content",
-    )
-
-
-def render_deletion_report_fragment(
-    meeting_title: str,
-    report: DeletionVerificationReport,
-    *,
-    embedded: bool = False,
-) -> str:
-    return render_template(
-        "cabinet/fragments/deletion_report.html",
-        content=trusted_component_html(
-            _render_deletion_report_content(meeting_title, report, embedded=embedded),
-            source="deletion_report.content",
-        ),
-    )
-
-
-def render_deletion_feedback_fragment(*, report_url: str) -> str:
-    return render_template(
-        "cabinet/fragments/deletion_feedback.html",
-        report_url=report_url,
-    )
-
-
-def _render_deletion_report_content(
-    meeting_title: str,
-    report: DeletionVerificationReport,
-    *,
-    embedded: bool,
-) -> str:
-    return render_template(
-        "cabinet/pages/deletion_report_content.html",
-        base_path=_base_path(embedded),
-        meeting_title=meeting_title,
-        overall_state_label=_ui_text(report.overall_state.value),
-        bounded_copy=report.bounded_copy,
-        bounded_copy_text=_ui_text(report.bounded_copy),
-        artifact_band=trusted_component_html(
-            _render_report_band("Файлы под контролем GRAF", report.artifact_states),
-            source="deletion_report.band",
-        ),
-        backup_band=trusted_component_html(
-            _render_report_band("Резервные копии", [report.backup]),
-            source="deletion_report.band",
-        ),
-        dependencies_band=trusted_component_html(
-            _render_report_band("Внешние зависимости", report.dependencies),
-            source="deletion_report.band",
-        ),
-        egress_limits_band=trusted_component_html(
-            _render_report_band("Ограничения после выгрузки", report.post_egress_limits),
-            source="deletion_report.band",
-        ),
-        local_purge=trusted_component_html(_render_local_purge_tasks(report.local_purge), source="deletion_report.local_purge"),
-        activity=trusted_component_html(_render_lifecycle_activity(report.activity), source="deletion_report.activity"),
-    )
-
-
-def _page_shell(
-    title: str,
-    content: str | None = None,
-    *,
-    embedded: bool,
-    page_template: str = "cabinet/pages/shell.html",
-    csrf_token: str | None = None,
-    content_source: str = "cabinet.shell",
-    active_nav: str = "meetings",
-    **context,
-) -> str:
-    navigation = cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded)
-    content_template = context.pop("content_template", None)
-    if content is None and content_template:
-        content = render_template(
-            content_template,
-            embedded=embedded,
-            navigation=navigation,
-            csrf_token=csrf_token,
-            **context,
-        )
-        content_source = "cabinet.shell"
-    if content is not None:
-        context["content"] = trusted_component_html(content, source=content_source)
-    shell = render_template(
-        page_template,
-        embedded=embedded,
-        navigation=navigation,
-        csrf_token=csrf_token,
-        **context,
-    )
-    return render_template(
-        "cabinet/base.html",
-        title=title,
-        surface_mode="desktop_embedded" if embedded else "standalone_browser",
-        csrf_token=csrf_token,
-        content=trusted_component_html(shell, source="cabinet.shell"),
-    )
-
-
-UI_TEXT: dict[str, str] = {
-    "Access": "Доступ",
-    "Access state is unavailable.": "Статус доступа недоступен.",
-    "Action Items": "Действия",
-    "Assistant": "Ассистент",
-    "Available": "Доступно",
-    "Can view": "Может смотреть",
-    "Blocked": "Заблокировано",
-    "Copy link": "Ссылка",
-    "Decisions": "Решения",
-    "Delete planned": "Удаление запланировано",
-    "Delete this meeting everywhere GRAF controls": "Удалить встречу в системах GRAF",
-    "Delete this meeting everywhere GRAF controls.": "Удалить встречу везде, где ее контролирует GRAF.",
-    "Disabled": "Выключено",
-    "Disabled by policy": "Заблокировано",
-    "Download": "Скачать",
-    "Evidence": "Фрагменты",
-    "Export": "Экспорт",
-    "Export package": "Экспорт",
-    "Export ready": "Экспорт готов",
-    "Failed": "Сбой",
-    "Files already downloaded or exported are outside GRAF deletion control.": "Уже скачанные или экспортированные файлы находятся вне последующего удаления в GRAF.",
-    "Files already downloaded or exported are outside later GRAF revocation. Deleting a meeting can remove what GRAF controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в GRAF. Удаление встречи может убрать то, что контролирует GRAF, но не копии, уже сохраненные где-то еще.",
-    "Follow-ups": "Продолжение",
-    "Incoming system": "Входящий звук",
-    "Key points": "Ключевое",
-    "Local only": "Только локально",
-    "Local microphone": "Микрофон",
-    "Meeting processing needs operator review before outcomes can be trusted.": "Обработку встречи нужно проверить оператору, прежде чем доверять итогам.",
-    "More": "Еще",
-    "No access activity yet.": "Событий доступа пока нет.",
-    "No active user grants.": "Активных доступов для пользователей нет.",
-    "No exportable artifacts yet.": "Файлы для выгрузки пока недоступны.",
-    "No lifecycle activity yet.": "Событий жизненного цикла пока нет.",
-    "No lifecycle rows yet.": "Строк жизненного цикла пока нет.",
-    "No local purge acknowledgement has been received yet.": "Подтверждение локальной очистки еще не получено.",
-    "Not available": "Недоступно",
-    "Notes": "Итоги",
-    "On": "Вкл",
-    "Off": "Выкл",
-    "Open in browser": "Открыть в браузере",
-    "Outcome deferred": "Итоги отложены",
-    "Outcome source": "Источник итогов",
-    "Outcomes blocked": "Итоги заблокированы",
-    "Outcomes deferred": "Итоги отложены",
-    "Outcomes processing": "Итоги готовятся",
-    "Outcomes unavailable": "Итоги недоступны",
-    "Owner": "Владелец",
-    "owner": "владелец",
-    "Partial": "Частично готово",
-    "Processing": "Расшифровка",
-    "Processing result could not be imported safely.": "Результат обработки не удалось безопасно импортировать.",
-    "Public links": "Публичные ссылки",
-    "Questions": "Вопросы",
-    "Ready": "Готово",
-    "Report": "Отчет",
-    "Request deletion": "Запросить удаление",
-    "Retention policy planned": "Правила хранения",
-    "Retention controls will show policy truth before activation.": "Правила хранения появятся после активации политики.",
-    "Risks": "Риски",
-    "Share": "Поделиться",
-    "Sharing is unavailable for this meeting.": "Поделиться этой встречей сейчас нельзя.",
-    "Speaker lanes are reserved until diarization is available.": "Спикеры появятся после диаризации.",
-    "Star": "Избранное",
-    "Submitted": "Загружено",
-    "Summary": "Кратко",
-    "Summary unavailable": "Краткое резюме недоступно",
-    "Tag": "Тег",
-    "Team": "Команда",
-    "Team visibility": "Видимость для команды",
-    "Template": "Шаблон",
-    "Transcript": "Расшифровка",
-    "Transcript and generated outcomes may still be processing.": "Расшифровка и итоги еще могут обрабатываться.",
-    "Transcript is still processing.": "Расшифровка еще готовится.",
-    "Transcript review is available, but generated meeting outcomes are not part of this stored result.": "Расшифровка доступна, но сгенерированные итоги не входят в этот сохраненный результат.",
-    "Uploading": "Загружается",
-    "Unavailable": "Недоступно",
-    "You own this meeting.": "Это ваша встреча.",
-    "accepted": "принято",
-    "acknowledged": "подтверждено",
-    "active": "активен",
-    "artifact lifecycle state": "состояние файла",
-    "auth required": "нужен вход",
-    "auth_required": "нужен вход",
-    "allowed": "разрешено",
-    "available": "доступно",
-    "backup expiry pending": "ожидает срока хранения резервной копии",
-    "backup_expiry_pending": "ожидает срока хранения резервной копии",
-    "completed": "готово",
-    "delete requested": "удаление запрошено",
-    "delete_requested": "удаление запрошено",
-    "deletion requested": "удаление запрошено",
-    "deletion_requested": "удаление запрошено",
-    "Desktop device": "Десктоп",
-    "dependency unconfirmed": "зависимость не подтверждена",
-    "dependency_unconfirmed": "зависимость не подтверждена",
-    "disabled": "выключено",
-    "disabled by default": "выключено по умолчанию",
-    "disabled_by_default": "выключено по умолчанию",
-    "download completed": "скачивание завершено",
-    "download requested": "скачивание запрошено",
-    "enabled": "включено",
-    "external deletion support is not confirmed": "удаление во внешнем сервисе не подтверждено",
-    "External deletion support is not confirmed": "Удаление во внешнем сервисе не подтверждено",
-    "local purge acknowledged": "локальная очистка подтверждена",
-    "local_purge_acknowledged": "локальная очистка подтверждена",
-    "local buffers purged": "локальные буферы очищены",
-    "local_buffers_purged": "локальные буферы очищены",
-    "metadata only": "только метаданные",
-    "Owner/Admin": "Владелец/админ",
-    "outside graf control": "вне контроля GRAF",
-    "outside_control": "вне контроля GRAF",
-    "pending": "ожидает",
-    "Outside GRAF control after delivery": "Вне контроля GRAF после передачи",
-    "Delivered copies are outside GRAF control": "Переданные копии находятся вне контроля GRAF",
-    "Planned; this does not promise deletion outside GRAF control.": "Запланировано; это не обещает удаление вне контроля GRAF.",
-    "policy blocked": "по политике",
-    "policy_blocked": "по политике",
-    "processing": "обработка",
-    "purge_local_buffers": "локальные буферы",
-    "purge_local_exports": "локальные экспорты",
-    "confirm_local_expiry": "подтвердить локальное истечение",
-    "Server audio purge requested": "Очистка серверного аудио запрошена",
-    "unreachable": "недоступно",
-    "Workspace policy disables this artifact egress.": "Политика рабочего пространства запрещает выгрузку этого файла.",
-    "You": "Вы",
-}
-
-
-def _ui_text(value: str | None) -> str:
-    if value is None:
-        return ""
-    normalized = value.replace("_", " ")
-    return UI_TEXT.get(value, UI_TEXT.get(normalized, normalized))
 
 
 def _speaker_display_label(label: str) -> str:
@@ -818,58 +581,6 @@ def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool
     """
 
 
-def _render_report_band(title: str, rows: list[ArtifactDeletionState]) -> str:
-    rendered = "".join(_render_report_artifact_row(row) for row in rows)
-    if not rendered:
-        rendered = f'<div class="muted">{escape(_ui_text("No lifecycle rows yet."))}</div>'
-    return f"""
-      <div class="report-band">
-        <h3>{escape(title)}</h3>
-        <div class="state-list">{rendered}</div>
-      </div>
-    """
-
-
-def _render_report_artifact_row(row: ArtifactDeletionState) -> str:
-    reason = row.safe_reason or row.label
-    return f"""
-      <div class="state-row">
-        <span><strong>{escape(_ui_text(row.label))}</strong><br><span class="muted">{escape(_ui_text(reason))}</span></span>
-        <span class="chip {escape(row.state.value)}">{escape(_ui_text(row.state.value))}</span>
-      </div>
-    """
-
-
-def _render_local_purge_tasks(tasks: list[LocalPurgeTask]) -> str:
-    if not tasks:
-        return f'<div class="muted">{escape(_ui_text("No local purge acknowledgement has been received yet."))}</div>'
-    return '<div class="state-list">' + "".join(_render_local_purge_task(task) for task in tasks) + "</div>"
-
-
-def _render_local_purge_task(task: LocalPurgeTask) -> str:
-    return f"""
-      <div class="state-row">
-        <span><strong>{escape(_ui_text(task.task_type.value))}</strong><br><span class="muted">{escape(_ui_text(task.safe_reason or "metadata only"))}</span></span>
-        <span class="chip {escape(task.state.value)}">{escape(_ui_text(task.state.value))}</span>
-      </div>
-    """
-
-
-def _render_lifecycle_activity(activity: list) -> str:
-    if not activity:
-        return f'<div class="muted">{escape(_ui_text("No lifecycle activity yet."))}</div>'
-    rows = "".join(
-        f"""
-        <div class="state-row">
-          <span><strong>{escape(_ui_text(item.event_type))}</strong><br><span class="muted">{escape(_ui_text(item.actor_label))} · {escape(_ui_text(item.safe_reason or "metadata only"))}</span></span>
-          <span class="chip {escape(item.outcome)}">{escape(_ui_text(item.outcome))}</span>
-        </div>
-        """
-        for item in activity
-    )
-    return f'<div class="state-list">{rows}</div>'
-
-
 def _render_activity(review: MeetingReviewResponse) -> str:
     activity = review.activity
     if activity is None or not activity.items:
@@ -996,11 +707,3 @@ def _date_label(item: MeetingListItem) -> str:
 
 def _sort_label(sort: str) -> str:
     return cabinet_view_models.sort_label(sort)
-
-
-def _base_path(embedded: bool) -> str:
-    return "/desktop/meetings" if embedded else "/meetings"
-
-
-def _settings_path(embedded: bool) -> str:
-    return "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
