@@ -5,18 +5,29 @@ separate Spec Kit slice with its own evidence.
 
 ## Batch Order
 
-### RB-072-01: Cabinet Web Split
+### RB-072-01: Cabinet Web Follow-Up Segmentation
 
-- **Goal**: Reduce `cabinet/web.py` by extracting route/form families without
-  changing behavior.
+- **Goal**: Reduce remaining cabinet auth/calendar route, view-model, rendering,
+  and egress hotspots without changing behavior. Keep `cabinet/web.py` as the
+  route-family aggregator unless a focused test proves the include boundary is
+  wrong.
 - **Findings**: F-072-001, F-072-002.
-- **Included paths**: `apps/server/src/twobrain_rec_server/cabinet/`
+- **Included paths**:
+  - `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py`
+  - `apps/server/src/twobrain_rec_server/cabinet/web_routes/calendar.py`
+  - `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+  - `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
+  - `apps/server/src/twobrain_rec_server/cabinet/egress.py`
 - **Excluded paths**: auth provider semantics, deletion service semantics,
-  MediaScribe, deploy scripts.
+  MediaScribe, deploy scripts, and `cabinet/web.py` aggregator behavior except
+  route include wiring required by a split.
 - **Expected diff shape**: Split-only plus focused tests if missing.
 - **Validation**: Cabinet route tests, template rendering tests, CSRF/session
   checks, export/download checks, no-secret evidence scan, `infra/scripts/ci-local.sh`.
 - **Release policy**: No deploy unless separately requested.
+- **Rollback/stop condition**: Stop if route responses, CSRF/session behavior,
+  export/download authorization, or template output changes beyond a documented
+  split-only move; revert the split PR as one unit.
 
 ### RB-072-02: Readiness Matrix Split
 
@@ -28,6 +39,8 @@ separate Spec Kit slice with its own evidence.
 - **Validation**: Readiness snapshot/unit tests, docs status review,
   `infra/scripts/ci-local.sh`.
 - **Release policy**: No deploy unless release readiness docs require it later.
+- **Rollback/stop condition**: Stop if readiness labels, ordering, or acceptance
+  claims change without an explicit product-status decision.
 
 ### RB-072-03: Desktop Upload Custody Split
 
@@ -42,6 +55,8 @@ separate Spec Kit slice with its own evidence.
   local purge acknowledgement tests, server ingest contract checks if API calls
   move.
 - **Release policy**: No deploy.
+- **Rollback/stop condition**: Stop if retry, custody, ingest-session, or local
+  purge acknowledgement behavior changes.
 
 ### RB-072-04: Desktop App Composition Split
 
@@ -54,6 +69,8 @@ separate Spec Kit slice with its own evidence.
 - **Expected diff shape**: Move-only/split-only.
 - **Validation**: Swift tests, app launch smoke, capture state review.
 - **Release policy**: No deploy.
+- **Rollback/stop condition**: Stop if launch ordering, capture visibility,
+  manual stop, or window lifecycle behavior changes.
 
 ### RB-072-05: Diagnostic Evidence Split
 
@@ -67,6 +84,8 @@ separate Spec Kit slice with its own evidence.
 - **Validation**: Diagnostic redaction tests, support payload tests,
   no-secret/evidence scan.
 - **Release policy**: No deploy.
+- **Rollback/stop condition**: Stop if redaction output, support evidence shape,
+  or private-content exclusion changes.
 
 ### RB-072-06: Capture Script Helper Extraction
 
@@ -79,6 +98,8 @@ separate Spec Kit slice with its own evidence.
 - **Validation**: `bash -n` on changed scripts, local capture validation dry-run
   or equivalent proof, script usage docs.
 - **Release policy**: No deploy.
+- **Rollback/stop condition**: Stop if CLI flags, exit codes, evidence files, or
+  capture-proof semantics change.
 
 ### RB-072-07: Shared Swift Model Segmentation
 
@@ -91,6 +112,8 @@ separate Spec Kit slice with its own evidence.
 - **Validation**: `swift test --package-path apps/macos`, contract validation
   tool.
 - **Release policy**: No deploy.
+- **Rollback/stop condition**: Stop if serialization, fixture compatibility, or
+  contract validation output changes.
 
 ### RB-072-08: Admin Surface Split
 
@@ -102,6 +125,8 @@ separate Spec Kit slice with its own evidence.
 - **Expected diff shape**: Split-only after cabinet pattern is proven.
 - **Validation**: Admin route tests, auth checks, `infra/scripts/ci-local.sh`.
 - **Release policy**: No deploy unless admin changes are bundled into a release.
+- **Rollback/stop condition**: Stop if operator access, admin route behavior, or
+  readiness state changes outside the split scope.
 
 ## Separate Spec Kit Slices Required
 
@@ -135,13 +160,12 @@ These areas should not be folded into routine split PRs:
 1. Architecture is already reasonable where product trust boundaries are
    explicit: native capture, server-owned processing, server cabinet, scripted
    deploy gates, and documented ADRs.
-2. The real pain is not a missing framework. It is reviewability: large cabinet,
-   readiness, desktop upload, app lifecycle, diagnostics, model, and capture
-   script files mix too many responsibilities.
+2. The real pain is not a missing framework. It is reviewability: remaining
+   cabinet route/view/render/egress, readiness, desktop upload, app lifecycle,
+   diagnostics, model, and capture script files mix too many responsibilities.
 3. Nothing is safe to delete in the first read-only stage. Several things that
    look removable are intentional runtime, test, future-routing, or deploy
    contracts.
 4. The next safe move is small split PRs, one boundary at a time.
 5. Each refactor batch needs focused tests for its boundary plus the relevant
    repository gate; deploy proof belongs only to release/deploy slices.
-

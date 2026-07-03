@@ -20,15 +20,19 @@ and a rollback path in its own PR or slice.
 
 ## Split Soon
 
-### F-072-001: Cabinet Web Router Is Too Large
+### F-072-001: Cabinet Auth And Calendar Route Families Are Hotspots
 
 - **Classification**: `split soon`
-- **Paths**: `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- **Evidence**: Large server-rendered cabinet router/presentation hub.
-- **Risk**: A broad edit can mix auth/session, form handling, deletion,
-  calendar, meeting review, and presentation behavior.
-- **Recommended next step**: Split by route family or form responsibility in a
-  focused PR.
+- **Paths**:
+  - `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py`
+  - `apps/server/src/twobrain_rec_server/cabinet/web_routes/calendar.py`
+- **Evidence**: Current `cabinet/web.py` is a small route-family aggregator, but
+  the auth and calendar route modules remain large server-rendered cabinet
+  hotspots.
+- **Risk**: A broad edit can mix browser auth/session, form handling, calendar,
+  meeting review, and presentation behavior.
+- **Recommended next step**: Split auth and calendar route responsibilities in
+  focused PRs while keeping `cabinet/web.py` as the aggregator.
 - **Pre-refactor checks**: Cabinet route tests, template rendering checks, CSRF
   checks, auth/session checks, no-secret evidence scan.
 
@@ -320,4 +324,3 @@ and a rollback path in its own PR or slice.
 - **Recommended next step**: Separate cabinet/native-shell boundary slice if
   behavior changes.
 - **Pre-refactor checks**: Cabinet route tests, route policy tests, UI smoke.
-

@@ -1,6 +1,6 @@
 # Implementation Plan: Deep Architecture Audit
 
-**Branch**: `codex/072-deep-architecture-audit` | **Date**: 2026-06-30 | **Spec**: [spec.md](./spec.md)
+**Branch**: `codex/072-architecture-audit-pass2` | **Date**: 2026-07-02 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/072-deep-architecture-audit/spec.md`
 
@@ -19,6 +19,10 @@ docs, dependencies, and release/deploy path from a clean worktree based on fresh
 and a small-PR refactor roadmap. Ponytail governs the shape of future work:
 reuse existing tools and boundaries, avoid new dependencies and large rewrites,
 but keep the high-risk validation lane intact.
+
+This pass refreshes the existing 072 artifacts against current `origin/master`
+after later slices changed the cabinet surface, so the roadmap points at current
+hotspots instead of stale split targets.
 
 ## Technical Context
 
@@ -67,9 +71,10 @@ no production deploy; no secrets, raw audio, transcript text, signed URLs, or
 private meeting content in evidence; no 071 release mixing; no new audit
 dependencies unless existing tools cannot produce required evidence.
 
-**Scale/Scope**: Repository-wide audit. Current evidence inventory covers 154
-server Python files, 213 macOS Swift files, 54 shell scripts, Docker/Compose
-runtime definitions, specs, docs, and release/deploy scripts.
+**Scale/Scope**: Repository-wide audit. Current evidence inventory covers 157
+server Python files / 35,114 lines, 213 macOS Swift files / 53,583 lines, 54
+shell scripts / 7,516 lines, Docker/Compose runtime definitions, specs, docs,
+and release/deploy scripts.
 
 ## Constitution Check
 
@@ -168,7 +173,6 @@ specs/
 └── 072-deep-architecture-audit/
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
 **Structure Decision**: 072 does not create a new runtime module. All new work
 stays under `specs/072-deep-architecture-audit/` and updates the Spec Kit agent
 context marker only. Product code, app code, infra scripts, and release files

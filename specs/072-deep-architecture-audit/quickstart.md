@@ -12,21 +12,23 @@ git status --short --branch
 
 Expected:
 
-- The branch is `codex/072-deep-architecture-audit`.
+- The branch is a fresh 072 audit branch, currently
+  `codex/072-architecture-audit-pass2`.
 - The active feature directory is `specs/072-deep-architecture-audit`.
 - No product/runtime files are modified for 072 stage one.
 
 ## 2. Rebuild Static Inventories
 
 ```sh
-find apps/server/src/twobrain_rec_server -name '*.py' | wc -l
-find apps/macos -name '*.swift' | wc -l
-find . -path './.git' -prune -o -name '*.sh' -print | wc -l
+git ls-files 'apps/server/src/twobrain_rec_server/**/*.py' | wc -l
+git ls-files 'apps/macos/**/*.swift' | wc -l
+git ls-files '*.sh' | wc -l
 rg -n "uvicorn|rec-processing-worker|rec-postgres|rec-minio|rec-temporal" infra
 rg -n "MediaScribe|Langfuse|deletion|retention|WebView|capture" docs apps/server apps/macos
 ```
 
-Use these commands to confirm the audit still matches the current checkout.
+Use tracked-file inventory commands so generated build/cache files cannot skew
+the audit counts.
 
 ## 3. Review Required Artifacts
 

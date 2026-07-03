@@ -1,10 +1,12 @@
 # Feature Specification: Deep Architecture Audit
 
-**Feature Branch**: `codex/072-deep-architecture-audit`
+**Feature Branch**: `codex/072-architecture-audit-pass2`
 
 **Created**: 2026-06-30
 
-**Status**: Draft
+**Updated**: 2026-07-02
+
+**Status**: Ready for audit review
 
 **Input**: User description: "072 - Deep Architecture Audit under Spec Kit SDD for Crisp / 2brain Rec. First stage must not change code or delete files. Build an evidence map of architecture, dependencies, and runtime flow, then produce a safe small-PR refactor roadmap."
 
