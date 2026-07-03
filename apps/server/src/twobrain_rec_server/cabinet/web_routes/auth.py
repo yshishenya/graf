@@ -16,7 +16,7 @@ from twobrain_rec_server.auth.providers import build_provider_registry, get_prov
 from twobrain_rec_server.auth.sessions import (
     create_callback_state,
 )
-from twobrain_rec_server.cabinet.rendering import (
+from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
     render_login_page,

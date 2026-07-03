@@ -25,6 +25,9 @@
 - Feature `081-cabinet-auth-route-helpers`: browser email-login flow helpers
   вынесены из cabinet `auth.py` в отдельный module; route order и
   auth/session/device semantics не менялись.
+- Feature `082-cabinet-auth-rendering-split`: auth/login/signup page rendering
+  вынесен из общего cabinet `rendering.py` в `auth_rendering.py`; templates,
+  route order и egress behavior не менялись.
 
 ### Исправлено
 - _Пока нет записей._

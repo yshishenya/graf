@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
-from twobrain_rec_server.cabinet.rendering import _safe_browser_next_path, render_email_code_page
+from twobrain_rec_server.cabinet.auth_rendering import (
+    _safe_browser_next_path,
+    render_email_code_page,
+)
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
