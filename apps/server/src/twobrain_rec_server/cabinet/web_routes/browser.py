@@ -37,6 +37,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
     _is_hx_request,
+    _request_path_with_query,
 )
 
 router = APIRouter(tags=["cabinet-web"])
@@ -68,13 +69,14 @@ async def meeting_list_page(
     )
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_meeting_list_fragment(response),
+            render_meeting_list_fragment(response, poll_url=_request_path_with_query(request)),
             hx_request=True,
         )
     return cabinet_html_response(
         render_meeting_list_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
+            poll_url=_request_path_with_query(request),
         )
     )
 

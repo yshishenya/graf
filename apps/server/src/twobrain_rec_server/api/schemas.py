@@ -788,6 +788,15 @@ def default_notes_action_truth() -> NotesActionTruthState:
     )
 
 
+class MeetingUploadProgressState(BaseModel):
+    status: str
+    label: str
+    uploaded_bytes: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    progress_percent: int | None = Field(default=None, ge=0, le=100)
+    is_active: bool = False
+
+
 class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
@@ -809,6 +818,7 @@ class MeetingListItem(BaseModel):
     artifacts: list[ArtifactEgressState] = Field(default_factory=list)
     governance: GovernanceActionSummary
     custody: CustodyReadModel | None = None
+    upload: MeetingUploadProgressState | None = None
     future_slots: list[SlotState] = Field(default_factory=list)
 
 

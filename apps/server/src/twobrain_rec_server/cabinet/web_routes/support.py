@@ -51,6 +51,12 @@ CalendarCredentialForm = Form(default=None, max_length=2000)
 def _is_hx_request(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
+
+def _request_path_with_query(request: Request) -> str:
+    query = request.url.query
+    return f"{request.url.path}?{query}" if query else request.url.path
+
+
 async def get_web_request_db_session(
     request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
