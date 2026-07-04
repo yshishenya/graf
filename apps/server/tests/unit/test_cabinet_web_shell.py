@@ -17,6 +17,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingListResponse,
     MeetingProvenance,
     MeetingReviewResponse,
+    MeetingUploadProgressState,
     NotesActionCategoryState,
     NotesActionTruthState,
     NotesReviewState,
@@ -689,7 +690,69 @@ def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
     assert 'data-media-kind="транскрипт"' in page
     assert 'data-media-kind="upload"' in page
     assert "▣" not in page
+
+
+def test_list_shell_renders_server_upload_progress_in_recording_row() -> None:
+    item = _item()
+    item.status = "uploading"
+    item.status_label = "Uploading"
+    item.upload = MeetingUploadProgressState(
+        status="uploading",
+        label="Отправляем",
+        uploaded_bytes=24,
+        total_bytes=40,
+        progress_percent=60,
+        is_active=True,
+    )
+
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[item],
+            filters=MeetingFilterState(q="uploading", status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        poll_url="/meetings?q=uploading",
+    )
+
+    assert "Отправляем 60%" in page
+    assert 'aria-label="Прогресс отправки записи"' in page
+    assert 'aria-valuenow="60"' in page
+    assert 'style="width: 60%"' in page
+    assert 'data-upload-progress-active' in page
+    assert 'hx-trigger="every 3s"' in page
+    assert 'hx-get="/meetings?q=uploading"' in page
     assert "◁" not in page
+
+
+def test_list_shell_polls_processing_recordings_until_review_ready() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        poll_url="/meetings",
+    )
+
+    assert "Проектный синк" in page
+    assert 'hx-trigger="every 3s"' in page
+    assert 'hx-get="/meetings"' in page
+
+
+def test_desktop_empty_list_polls_for_new_local_uploads() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        embedded=True,
+        poll_url="/desktop/meetings",
+    )
+
+    assert "Нет встреч для выбранного фильтра." in page
+    assert 'hx-trigger="every 3s"' in page
+    assert 'hx-get="/desktop/meetings"' in page
 
 
 def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:

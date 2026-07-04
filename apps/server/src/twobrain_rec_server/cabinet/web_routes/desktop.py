@@ -55,6 +55,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _authorized_lifecycle_meeting,
     _csrf_token_for_principal,
     _is_hx_request,
+    _request_path_with_query,
 )
 from twobrain_rec_server.deletion.service import deletion_report_response
 
@@ -87,7 +88,7 @@ async def embedded_meeting_list_page(
     )
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_meeting_list_fragment(response, embedded=True),
+            render_meeting_list_fragment(response, embedded=True, poll_url=_request_path_with_query(request)),
             hx_request=True,
         )
     return cabinet_html_response(
@@ -95,6 +96,7 @@ async def embedded_meeting_list_page(
             response,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
+            poll_url=_request_path_with_query(request),
         )
     )
 

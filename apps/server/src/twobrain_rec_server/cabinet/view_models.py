@@ -20,6 +20,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingProvenance,
     MeetingReviewResponse,
     MeetingReviewStatus,
+    MeetingUploadProgressState,
     NotesActionCategoryState,
     NotesActionTruthState,
     NotesReviewState,
@@ -1188,6 +1189,13 @@ def review_status(
     if has_transcript or has_diarization:
         return "partial"
 
+    if meeting.status == MeetingStatus.DRAFT.value:
+        return "local_only"
+    if meeting.status == MeetingStatus.UPLOADING.value:
+        return "uploading"
+    if meeting.status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
+        return "failed"
+
     lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
     if lifecycle_status in PROCESSING_STATUSES:
         return "processing"
@@ -1203,12 +1211,6 @@ def review_status(
     if lifecycle_status == ProcessingStatus.CANCELED.value:
         return "unavailable"
 
-    if meeting.status == MeetingStatus.DRAFT.value:
-        return "local_only"
-    if meeting.status == MeetingStatus.UPLOADING.value:
-        return "uploading"
-    if meeting.status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
-        return "failed"
     return "unavailable"
 
 
@@ -1291,6 +1293,7 @@ def build_list_item(
     artifacts: list[ArtifactEgressState] | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
+    upload: MeetingUploadProgressState | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
     access_state = access or owner_access_state()
@@ -1321,6 +1324,7 @@ def build_list_item(
         artifacts=artifact_states,
         governance=governance_summary(access=access_state, artifacts=artifact_states),
         future_slots=future_slots(),
+        upload=upload,
     )
 
 
