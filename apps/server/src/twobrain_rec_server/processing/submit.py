@@ -51,13 +51,13 @@ async def submit_to_mediascribe(
     if existing_job is not None and existing_job.external_job_id:
         return SubmitProcessingResult(job=existing_job, submitted=False)
 
-    mic, incoming = await store.load_track_pair(
+    source = await store.load_processing_source(
         db,
         workspace_id=workflow.workspace_id,
         meeting_id=workflow.meeting_id,
         media_revision_id=workflow.media_revision_id,
     )
-    if mic is None or incoming is None:
+    if source is None:
         await store.set_workflow_status(
             db,
             workflow,
@@ -67,8 +67,7 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(BLOCKED_MISSING_ARTIFACTS)
 
-    audio_bytes = mic.byte_length + incoming.byte_length
-    if audio_bytes > settings.processing_max_in_memory_audio_bytes:
+    if source.byte_length > settings.processing_max_in_memory_audio_bytes:
         await store.set_workflow_status(
             db,
             workflow,
@@ -81,24 +80,44 @@ async def submit_to_mediascribe(
     job = await store.upsert_mediascribe_job(
         db,
         workflow=workflow,
-        mic_artifact=mic,
-        incoming_artifact=incoming,
+        mic_artifact=source.mic_artifact,
+        incoming_artifact=source.incoming_artifact,
+        source_artifact=source.source_artifact,
+        request_mode=source.request_mode,
     )
     await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTING)
     get_bytes_async = getattr(storage, "get_bytes_async", None)
-    if get_bytes_async is not None:
-        mic_bytes = await get_bytes_async(mic.storage_object_key)
-        incoming_bytes = await get_bytes_async(incoming.storage_object_key)
-    else:
-        mic_bytes = storage.get_bytes(mic.storage_object_key)
-        incoming_bytes = storage.get_bytes(incoming.storage_object_key)
     try:
-        response = await mediascribe_client.submit_dual_track(
-            mic_bytes=mic_bytes,
-            incoming_bytes=incoming_bytes,
-            diarize=settings.mediascribe_diarize,
-            summarize=settings.mediascribe_summarize,
-        )
+        if source.request_mode == "single_track":
+            media_artifact = source.source_artifact
+            if media_artifact is None:
+                raise RuntimeError(BLOCKED_MISSING_ARTIFACTS)
+            if get_bytes_async is not None:
+                media_bytes = await get_bytes_async(media_artifact.storage_object_key)
+            else:
+                media_bytes = storage.get_bytes(media_artifact.storage_object_key)
+            response = await mediascribe_client.submit_single_track(
+                media_bytes=media_bytes,
+                diarize=settings.mediascribe_diarize,
+                summarize=settings.mediascribe_summarize,
+            )
+        else:
+            mic = source.mic_artifact
+            incoming = source.incoming_artifact
+            if mic is None or incoming is None:
+                raise RuntimeError(BLOCKED_MISSING_ARTIFACTS)
+            if get_bytes_async is not None:
+                mic_bytes = await get_bytes_async(mic.storage_object_key)
+                incoming_bytes = await get_bytes_async(incoming.storage_object_key)
+            else:
+                mic_bytes = storage.get_bytes(mic.storage_object_key)
+                incoming_bytes = storage.get_bytes(incoming.storage_object_key)
+            response = await mediascribe_client.submit_dual_track(
+                mic_bytes=mic_bytes,
+                incoming_bytes=incoming_bytes,
+                diarize=settings.mediascribe_diarize,
+                summarize=settings.mediascribe_summarize,
+            )
     except MediaScribeClientError as exc:
         status = ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
         await store.update_mediascribe_job_status(

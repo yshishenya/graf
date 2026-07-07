@@ -77,6 +77,30 @@ class MediaScribeClient:
         except (ValueError, ValidationError) as exc:
             raise _malformed_response_error() from exc
 
+    async def submit_single_track(
+        self,
+        *,
+        media_bytes: bytes,
+        diarize: bool,
+        summarize: bool,
+    ) -> MediaScribeSubmitResponse:
+        payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
+        files = {"file": ("media", media_bytes, "application/octet-stream")}
+        data = await self._request_json(
+            "POST",
+            "/v1/audio/transcriptions",
+            data=payload,
+            files=files,
+        )
+        external_job_id = str(data.get("id") or data.get("job_id") or "")
+        if not external_job_id:
+            raise _malformed_response_error()
+        try:
+            status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+            return MediaScribeSubmitResponse(external_job_id=external_job_id, status=status)
+        except (ValueError, ValidationError) as exc:
+            raise _malformed_response_error() from exc
+
     async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
         data = await self._request_json("GET", f"/jobs/{external_job_id}")
         try:

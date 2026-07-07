@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -32,6 +33,22 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.mediascribe.schemas import MediaScribeResult
 from twobrain_rec_server.processing.audit import safe_audit_metadata
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessingSourceArtifacts:
+    request_mode: str
+    mic_artifact: TrackArtifact | None = None
+    incoming_artifact: TrackArtifact | None = None
+    source_artifact: TrackArtifact | None = None
+
+    @property
+    def byte_length(self) -> int:
+        if self.request_mode == "single_track":
+            return self.source_artifact.byte_length if self.source_artifact is not None else 0
+        return (self.mic_artifact.byte_length if self.mic_artifact is not None else 0) + (
+            self.incoming_artifact.byte_length if self.incoming_artifact is not None else 0
+        )
 
 
 async def load_meeting_for_workspace(
@@ -72,9 +89,9 @@ async def load_track_pair(
     media_revision_id: UUID | None = None,
 ) -> tuple[TrackArtifact | None, TrackArtifact | None]:
     query = select(TrackArtifact).where(
-            TrackArtifact.workspace_id == workspace_id,
-            TrackArtifact.meeting_id == meeting_id,
-            TrackArtifact.status == "stored",
+        TrackArtifact.workspace_id == workspace_id,
+        TrackArtifact.meeting_id == meeting_id,
+        TrackArtifact.status == "stored",
     )
     if media_revision_id is not None:
         query = query.where(TrackArtifact.media_revision_id == media_revision_id)
@@ -87,6 +104,38 @@ async def load_track_pair(
         elif artifact.track_role == TrackRole.SYSTEM.value:
             incoming = artifact
     return mic, incoming
+
+
+async def load_processing_source(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None = None,
+) -> ProcessingSourceArtifacts | None:
+    query = select(TrackArtifact).where(
+        TrackArtifact.workspace_id == workspace_id,
+        TrackArtifact.meeting_id == meeting_id,
+        TrackArtifact.status == "stored",
+    )
+    if media_revision_id is not None:
+        query = query.where(TrackArtifact.media_revision_id == media_revision_id)
+    artifacts = await db.scalars(query)
+    mic: TrackArtifact | None = None
+    incoming: TrackArtifact | None = None
+    source: TrackArtifact | None = None
+    for artifact in artifacts:
+        if artifact.track_role == TrackRole.MICROPHONE.value:
+            mic = artifact
+        elif artifact.track_role == TrackRole.SYSTEM.value:
+            incoming = artifact
+        elif artifact.track_role == TrackRole.MEDIA.value:
+            source = artifact
+    if source is not None:
+        return ProcessingSourceArtifacts(request_mode="single_track", source_artifact=source)
+    if mic is not None and incoming is not None:
+        return ProcessingSourceArtifacts(request_mode="dual_track", mic_artifact=mic, incoming_artifact=incoming)
+    return None
 
 
 async def get_processing_workflow(
@@ -209,8 +258,8 @@ async def get_mediascribe_job(
     media_revision_id: UUID | None = None,
 ) -> MediaScribeJob | None:
     query = select(MediaScribeJob).where(
-            MediaScribeJob.workspace_id == workspace_id,
-            MediaScribeJob.meeting_id == meeting_id,
+        MediaScribeJob.workspace_id == workspace_id,
+        MediaScribeJob.meeting_id == meeting_id,
     )
     if media_revision_id is not None:
         query = query.where(MediaScribeJob.media_revision_id == media_revision_id)
@@ -221,9 +270,15 @@ async def upsert_mediascribe_job(
     db: AsyncSession,
     *,
     workflow: ProcessingWorkflow,
-    mic_artifact: TrackArtifact,
-    incoming_artifact: TrackArtifact,
+    mic_artifact: TrackArtifact | None = None,
+    incoming_artifact: TrackArtifact | None = None,
+    source_artifact: TrackArtifact | None = None,
+    request_mode: str = "dual_track",
 ) -> MediaScribeJob:
+    if request_mode == "dual_track" and (mic_artifact is None or incoming_artifact is None):
+        raise ValueError("dual_track_requires_artifact_pair")
+    if request_mode == "single_track" and source_artifact is None:
+        raise ValueError("single_track_requires_source_artifact")
     job = await get_mediascribe_job(
         db,
         workspace_id=workflow.workspace_id,
@@ -242,10 +297,11 @@ async def upsert_mediascribe_job(
             meeting_id=workflow.meeting_id,
             media_revision_id=workflow.media_revision_id,
             processing_workflow_id=workflow.id,
-            mic_track_artifact_id=mic_artifact.id,
-            incoming_track_artifact_id=incoming_artifact.id,
+            mic_track_artifact_id=mic_artifact.id if mic_artifact is not None else None,
+            incoming_track_artifact_id=incoming_artifact.id if incoming_artifact is not None else None,
+            source_track_artifact_id=source_artifact.id if source_artifact is not None else None,
             status=MediaScribeJobStatus.NOT_SUBMITTED.value,
-            request_mode="dual_track",
+            request_mode=request_mode,
             diarize=True,
             summarize=False,
         )
@@ -253,6 +309,12 @@ async def upsert_mediascribe_job(
         await db.commit()
     elif workflow.media_revision_id is not None and job.media_revision_id is None:
         job.media_revision_id = workflow.media_revision_id
+        await db.commit()
+    elif job.external_job_id is None:
+        job.request_mode = request_mode
+        job.mic_track_artifact_id = mic_artifact.id if mic_artifact is not None else None
+        job.incoming_track_artifact_id = incoming_artifact.id if incoming_artifact is not None else None
+        job.source_track_artifact_id = source_artifact.id if source_artifact is not None else None
         await db.commit()
     return job
 

@@ -1137,7 +1137,7 @@ def meeting_media_label(item: MeetingListItem) -> str:
         "audio": "аудио",
         "video": "видео",
         "transcript": "транскрипт",
-        "upload": "upload",
+        "upload": "медиа",
     }[meeting_media_kind(item)]
 
 
@@ -1341,6 +1341,11 @@ def primary_action_for_status(status: MeetingReviewStatus) -> str:
 
 
 def _meeting_source(media_revision: MediaRevision | None) -> str:
+    if (
+        media_revision is not None
+        and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+    ):
+        return "manual_upload"
     if (
         media_revision is not None
         and media_revision.source_kind == MediaRevisionSourceKind.VIDEO_CAPTURE.value
