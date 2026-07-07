@@ -8,8 +8,10 @@ from uuid import UUID
 import twobrain_rec_server.ingest.store as store_module
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes
-from twobrain_rec_server.db.models import UploadSession
+from twobrain_rec_server.db.models import RegisteredDevice, UploadSession
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
+
+ROTATED_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000188")
 
 
 def _create_meeting(client, local_recording_id: str) -> dict:
@@ -48,6 +50,47 @@ def _put_part(client, session_id: str, role: str, offset: int, data: bytes, part
         },
         content=data,
     )
+
+
+async def _add_rotated_same_user_device(client) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        db.add(
+            RegisteredDevice(
+                id=ROTATED_DEVICE_ID,
+                workspace_id=UUID(auth_headers()["X-Workspace-Id"]),
+                user_id=UUID(auth_headers()["X-User-Id"]),
+                device_public_id="rotated-same-user-device",
+                status="active",
+                registration_state="approved",
+            )
+        )
+        await db.commit()
+
+
+def test_upload_session_can_start_after_same_user_device_rotation(client) -> None:
+    local_id = "resume-rotated-device-001"
+    meeting = _create_meeting(client, local_id)
+    client.portal.call(_add_rotated_same_user_device, client)
+
+    response = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers() | {"X-Device-Id": str(ROTATED_DEVICE_ID)},
+        json={
+            "expected_tracks": ["manifest", "microphone", "system"],
+            "expected_track_sizes": {"manifest": 32, "microphone": 128, "system": 96},
+        },
+    )
+
+    assert response.status_code == 200, response.json()
+    session_id = UUID(response.json()["session_id"])
+
+    async def read_session_device() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            model = await db.get(UploadSession, session_id)
+            assert model is not None
+            return model.device_id
+
+    assert client.portal.call(read_session_device) == ROTATED_DEVICE_ID
 
 
 def test_sync_state_returns_server_authoritative_resume_ranges(client) -> None:
@@ -111,3 +154,41 @@ def test_sync_state_expires_old_session_and_allows_same_revision_retry(client) -
     assert retry_session["session_id"] != session["session_id"]
     assert retry_session["media_revision_id"] == meeting["media_revision"]["media_revision_id"]
     assert retry_session["meeting_id"] == meeting["meeting_id"]
+
+
+def test_expired_session_can_retry_after_same_user_device_rotation(client) -> None:
+    local_id = "resume-expired-rotated-device-001"
+    meeting = _create_meeting(client, local_id)
+    session = _create_upload_session(client, meeting["meeting_id"], idempotency_key="resume-expired-rotated-original")
+    client.portal.call(_add_rotated_same_user_device, client)
+
+    async def expire_session() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            model = await db.get(UploadSession, UUID(session["session_id"]))
+            assert model is not None
+            model.expires_at = datetime.now(UTC) - timedelta(seconds=5)
+            await db.commit()
+
+    asyncio.run(expire_session())
+    store_module.store = InMemoryIngestStore()
+
+    rotated_headers = auth_headers() | {"X-Device-Id": str(ROTATED_DEVICE_ID)}
+    expired_state = client.get(
+        f"/api/v1/desktop/recordings/{local_id}/sync-state",
+        headers=rotated_headers,
+        params={"local_media_revision_id": f"{local_id}--initial"},
+    )
+    retry_session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=rotated_headers | {"Idempotency-Key": "resume-expired-rotated-retry"},
+        json={
+            "expected_tracks": ["manifest", "microphone", "system"],
+            "expected_track_sizes": {"manifest": 32, "microphone": 128, "system": 96},
+        },
+    )
+
+    assert expired_state.status_code == 200
+    assert expired_state.json()["conflict"]["state"] == "upload_session_expired"
+    assert expired_state.json()["conflict"]["next_action"] == "create_upload_session"
+    assert retry_session.status_code == 200, retry_session.json()
+    assert retry_session.json()["session_id"] != session["session_id"]

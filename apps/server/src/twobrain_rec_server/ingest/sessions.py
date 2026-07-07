@@ -45,7 +45,7 @@ async def create_upload_session(
         meeting = store_module.store.meetings.get(meeting_id)
     if meeting is None or meeting.workspace_id != tenant_scope.workspace_id:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    if meeting.created_by_user_id != tenant_scope.user_id or meeting.device_id != tenant_scope.device_id:
+    if meeting.created_by_user_id != tenant_scope.user_id:
         raise ProblemDetail(status=403, code="meeting_scope_denied", title="Meeting scope denied")
     await ensure_meeting_accepts_uploads(
         db=db,
@@ -69,6 +69,7 @@ async def create_upload_session(
     session = store_module.store.create_upload_session(
         settings=settings,
         meeting=meeting,
+        device_id=tenant_scope.device_id,
         expected_track_roles=expected_track_roles,
         expected_track_sizes=expected_track_sizes,
         idempotency_key=idempotency_key,
