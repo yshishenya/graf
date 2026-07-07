@@ -101,17 +101,24 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         "initManualUpload",
         "XMLHttpRequest",
         "data-manual-upload-dialog",
+        "data-manual-upload-dropzone",
+        "data-manual-upload-percent",
         "data-manual-upload-submit",
         "duration_seconds",
         "local_recording_id",
         "X-CSRF-Token",
         "abort",
+        "dragover",
+        "dropEffect",
         "meeting-list-region",
     ]:
         assert marker in script
     for marker in [
         ".manual-upload-dialog",
+        ".manual-upload-dropzone",
+        ".manual-upload-file-card",
         ".manual-upload-progress",
+        ".manual-upload-percent",
         ".manual-upload-status",
         ".manual-upload-accepted",
     ]:

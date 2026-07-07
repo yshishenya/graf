@@ -246,7 +246,8 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Подключить календари" in response.text
     assert "Командный синк" not in response.text
     assert "Записи встреч" in response.text
-    assert "Загрузить медиа" in response.text
+    assert "<span>Загрузить</span>" in response.text
+    assert "Загрузить медиа" not in response.text
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
     assert 'value="started_desc"' in response.text

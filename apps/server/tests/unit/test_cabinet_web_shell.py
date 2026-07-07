@@ -298,7 +298,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Подключить календари" in page
     assert "Командный синк" not in page
     assert "Записи встреч" in page
-    assert "Загрузить медиа" in page
+    assert "<span>Загрузить</span>" in page
+    assert "Загрузить медиа" not in page
     assert "Недавно обновленные" in page
     assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
     css = _cabinet_css()
@@ -314,6 +315,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-manual-upload-open' in page
     assert 'data-manual-upload-dialog' in page
     assert 'data-upload-endpoint="/api/v1/cabinet/media-uploads"' in page
+    assert 'data-manual-upload-dropzone' in page
+    assert 'data-manual-upload-file-card' in page
+    assert 'data-manual-upload-file-name' in page
+    assert 'data-manual-upload-percent' in page
+    assert "Перетащите файл сюда" in page
     assert 'name="duration_seconds"' in page
     assert 'data-manual-upload-submit' in page
     assert 'aria-live="polite"' in page
@@ -385,7 +391,8 @@ def test_empty_meeting_list_starts_with_app_download_handoff() -> None:
     assert "Установите GRAF" in page
     assert 'href="/download">Скачать приложение</a>' in page
     assert 'data-manual-upload-empty-open' in page
-    assert "Загрузить медиа" in page
+    assert "<span>Загрузить</span>" in page
+    assert "Загрузить медиа" not in page
     assert "Подключить календари" in page
 
 
