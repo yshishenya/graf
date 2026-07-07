@@ -11,6 +11,8 @@ from twobrain_rec_server.api.auth import build_provider_callback_url
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.audit import write_auth_audit_event
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal
+from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.sessions import (
@@ -34,8 +36,14 @@ from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     _set_browser_auth_cookie,
     _should_echo_email_code,
 )
-from twobrain_rec_server.cabinet.web_routes.support import LoginDbDependency
+from twobrain_rec_server.cabinet.web_routes.support import (
+    LoginDbDependency,
+    PrincipalDependency,
+    WebCSRFDependency,
+)
+from twobrain_rec_server.db.models import AuthSession
 from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
 )
@@ -52,6 +60,7 @@ LoginCodeForm = Form(..., max_length=32)
 LoginStateForm = Form(..., max_length=160)
 LoginWorkspaceForm = Form(default=None)
 LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
+LogoutNextForm = Form(default="/login?next=/meetings", alias="next", max_length=512)
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
@@ -373,6 +382,62 @@ async def browser_email_login_verify(
         return result
     redirect = RedirectResponse(safe_next, status_code=303)
     _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
+    return redirect
+
+
+@router.post("/logout", include_in_schema=False, response_model=None)
+async def browser_logout(
+    request: Request,
+    next_path: str = LogoutNextForm,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    _csrf: None = WebCSRFDependency,
+    db: AsyncSession | None = LoginDbDependency,
+):
+    safe_next = _safe_browser_next_path(next_path)
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="Authentication DB dependency unavailable",
+        )
+    if principal.auth_via_session and principal.session_id is not None and principal.session_workspace_id is not None:
+        await apply_tenant_context(
+            db,
+            TenantDatabaseContext(
+                organization_id=principal.organization_id,
+                workspace_id=principal.session_workspace_id,
+                user_id=principal.user_id,
+                device_id=principal.session_device_id,
+                auth_session_id=principal.session_id,
+            ),
+        )
+        auth_session = await db.get(AuthSession, principal.session_id)
+        if (
+            auth_session is not None
+            and auth_session.workspace_id == principal.session_workspace_id
+            and auth_session.user_id == principal.user_id
+        ):
+            auth_session.status = "revoked"
+            auth_session.last_seen_at = datetime.now(UTC)
+            await write_auth_audit_event(
+                db,
+                workspace_id=principal.session_workspace_id,
+                event_type="browser_logout",
+                actor_user_id=principal.user_id,
+                user_id=principal.user_id,
+                provider=auth_session.provider,
+                actor_ip=request.client.host if request.client else None,
+                request_id=getattr(request.state, "request_id", None),
+            )
+        await db.commit()
+    redirect = RedirectResponse(safe_next, status_code=303)
+    redirect.delete_cookie(
+        key=AUTH_SESSION_COOKIE_NAME,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
     return redirect
 
 

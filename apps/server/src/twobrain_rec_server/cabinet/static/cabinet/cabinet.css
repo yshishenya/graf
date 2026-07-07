@@ -165,6 +165,26 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .nav a.active, .nav a:hover { background: var(--surface-3); }
 .nav-count { margin-left: auto; min-width: 20px; min-height: 20px; border-radius: 999px; background: #71347e; display: grid; place-items: center; font-size: 12px; }
 .sidebar-foot { margin-top: auto; display: grid; gap: 8px; }
+.sidebar-logout {
+  margin: 0;
+  min-width: 0;
+}
+.sidebar-logout__button {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  min-height: 32px;
+  padding: 0 9px;
+}
+.sidebar-logout__button:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.sidebar-logout__button .ui-icon {
+  flex: 0 0 auto;
+}
 .trial { background: #3b3270; border-radius: 7px; padding: 9px 10px; font-weight: 700; }
 .cabinet-rail-toggle { display: none; }
 .main,
