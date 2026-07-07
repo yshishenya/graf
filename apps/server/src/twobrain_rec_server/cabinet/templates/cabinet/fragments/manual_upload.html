@@ -9,46 +9,68 @@
   <form class="manual-upload-sheet" method="dialog" data-manual-upload-form novalidate>
     <div class="manual-upload-head">
       <div class="manual-upload-title">
-        <span class="manual-upload-title__icon" aria-hidden="true">{{ icons.icon("upload") }}</span>
-        <h2>Загрузить медиа</h2>
+        <h2>Загрузить запись</h2>
+        <p>Один аудио- или видеофайл с аудиодорожкой.</p>
       </div>
-      <button class="icon-control" type="button" data-manual-upload-close aria-label="Закрыть">{{ icons.icon("minus") }}</button>
+      <button class="icon-control" type="button" data-manual-upload-close aria-label="Закрыть">{{ icons.icon("x") }}</button>
     </div>
 
     {% if upload_available %}
-    <div class="manual-upload-grid">
-      <label class="manual-upload-file">
-        <span>Медиафайл</span>
-        <input type="file" data-manual-upload-file accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.mp4,.mov,.m4v,.webm,.mkv">
+    <div class="manual-upload-picker">
+      <input class="manual-upload-input" id="manual-upload-file-input" type="file" data-manual-upload-file accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.mp4,.mov,.m4v,.webm,.mkv" aria-describedby="manual-upload-drop-hint">
+      <label class="manual-upload-dropzone" for="manual-upload-file-input" data-manual-upload-dropzone>
+        <span class="manual-upload-dropzone__icon" aria-hidden="true">{{ icons.icon("upload") }}</span>
+        <span class="manual-upload-dropzone__copy">
+          <strong data-manual-upload-drop-title>Перетащите файл сюда</strong>
+          <span id="manual-upload-drop-hint">или выберите на компьютере</span>
+          <span class="manual-upload-dropzone__types">WAV, MP3, M4A, MP4, MOV, WebM</span>
+        </span>
+        <span class="manual-upload-browse" data-manual-upload-browse>Выбрать файл</span>
       </label>
+    </div>
+    <div class="manual-upload-file-card" data-manual-upload-file-card hidden>
+      <span class="manual-upload-file-card__icon" aria-hidden="true">{{ icons.icon("audio") }}</span>
+      <div class="manual-upload-file-card__copy">
+        <strong data-manual-upload-file-name>Файл не выбран</strong>
+        <span data-manual-upload-file-meta></span>
+      </div>
+      <span class="manual-upload-file-card__duration" data-manual-upload-file-duration></span>
+    </div>
+    <div class="manual-upload-fields">
       <label>
         <span>Название</span>
-        <input type="text" name="title" maxlength="500" autocomplete="off" data-manual-upload-title>
+        <input type="text" name="title" maxlength="500" autocomplete="off" placeholder="Например, созвон по продукту" data-manual-upload-title>
       </label>
-      <label>
-        <span>Длительность, сек.</span>
-        <input type="number" name="duration_seconds" min="1" step="1" inputmode="numeric" data-manual-upload-duration>
+      <label class="manual-upload-duration">
+        <span>Длительность</span>
+        <span class="manual-upload-duration__control">
+          <input type="number" name="duration_seconds" min="1" step="1" inputmode="numeric" aria-describedby="manual-upload-duration-hint" data-manual-upload-duration>
+          <span>сек.</span>
+        </span>
+        <small id="manual-upload-duration-hint">Автозаполним, если получится.</small>
       </label>
     </div>
     <input type="hidden" name="local_recording_id" data-manual-upload-local-id>
-    <div class="manual-upload-file-meta" data-manual-upload-file-meta hidden></div>
-    <div class="manual-upload-status" data-manual-upload-status aria-live="polite">Выберите один файл.</div>
+    <div class="manual-upload-status-row">
+      <div class="manual-upload-status" data-manual-upload-status aria-live="polite">Выберите один файл.</div>
+      <div class="manual-upload-percent" data-manual-upload-percent hidden>0%</div>
+    </div>
     <progress class="manual-upload-progress" data-manual-upload-progress max="100" value="0" hidden aria-label="Прогресс загрузки"></progress>
     <div class="manual-upload-accepted" data-manual-upload-accepted hidden>
       <span>{{ icons.icon("check") }}</span>
       <div>
-        <strong>Медиа принято.</strong>
+        <strong>Файл принят.</strong>
         <span>Расшифровка и итоги появятся после обработки.</span>
       </div>
-      <a class="button quiet" href="#" data-manual-upload-detail>Открыть встречу</a>
+      <a class="button quiet" href="#" data-manual-upload-detail hidden>Открыть</a>
     </div>
     <div class="manual-upload-actions">
       <button class="button quiet" type="button" data-manual-upload-abort hidden>Остановить</button>
-      <button class="button primary" type="button" data-manual-upload-submit disabled>Начать загрузку</button>
+      <button class="button primary" type="button" data-manual-upload-submit disabled>Загрузить</button>
     </div>
     {% else %}
     <div class="manual-upload-unavailable" data-manual-upload-unavailable>
-      <p>Войдите снова, чтобы загрузить медиа.</p>
+      <p>Сессия закончилась. Войдите снова, чтобы загрузить файл.</p>
       <a class="button primary" href="{{ login_href }}">Войти</a>
     </div>
     {% endif %}
