@@ -119,13 +119,13 @@ async def pick_up_processing(
             )
             result.blocked_count += 1
             continue
-        mic, incoming = await store.load_track_pair(
+        source = await store.load_processing_source(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting.id,
             media_revision_id=media_revision_id,
         )
-        if mic is None or incoming is None:
+        if source is None:
             await _block_meeting(
                 db,
                 meeting,

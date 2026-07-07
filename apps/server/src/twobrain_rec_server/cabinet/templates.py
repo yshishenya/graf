@@ -24,6 +24,7 @@ TRUSTED_HTML_SOURCES = frozenset(
         "auth.shell",
         "cabinet.shell",
         "meeting_list.delete_dialog",
+        "meeting_list.manual_upload",
         "meeting_list.region",
         "meeting_list.rows",
         "meeting_detail.access_chip",

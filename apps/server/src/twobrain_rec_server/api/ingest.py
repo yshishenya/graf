@@ -1,6 +1,7 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -11,6 +12,7 @@ from twobrain_rec_server.api.schemas import (
     DesktopRecordingSyncStateResponse,
     FinalizeUploadRequest,
     FinalizeUploadResponse,
+    ManualMediaUploadResponse,
     MediaRevisionSummary,
     MeetingResponse,
     MissingRange,
@@ -32,6 +34,7 @@ from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_sta
 from twobrain_rec_server.ingest.desktop_sync import get_desktop_recording_sync_state
 from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.lifecycle import abort_upload_session
+from twobrain_rec_server.ingest.manual_media_upload import accept_manual_media_upload
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
 from twobrain_rec_server.ingest.parts import accept_part
 from twobrain_rec_server.ingest.policy import IngestLimitViolation
@@ -165,6 +168,43 @@ async def create_meeting(
         ) from exc
     await commit_if_available(db)
     return meeting_response(meeting)
+
+
+@router.post(
+    "/media-uploads",
+    response_model=ManualMediaUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def create_manual_media_upload(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    duration_seconds: Annotated[int, Form(gt=0)],
+    title: str | None = Form(default=None, max_length=500),
+    local_recording_id: str | None = Form(default=None, min_length=1, max_length=240, pattern=r"^[^\x00-\x1f\x7f]+$"),
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+    storage: object = StorageDependency,
+) -> ManualMediaUploadResponse:
+    result = await accept_manual_media_upload(
+        settings=request.app.state.settings,
+        db=db,
+        tenant_scope=tenant_scope,
+        storage=storage,
+        file=file,
+        duration_seconds=duration_seconds,
+        title=title,
+        local_recording_id=local_recording_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+    )
+    await commit_if_available(db)
+    return ManualMediaUploadResponse(
+        meeting=meeting_response(result.meeting),
+        upload_session=session_response(result.upload_session),
+        object_count=result.object_count,
+        workflow_started=result.processing.workflow_started,
+        mediascribe_job_created=result.processing.mediascribe_job_created,
+    )
 
 
 @router.get(

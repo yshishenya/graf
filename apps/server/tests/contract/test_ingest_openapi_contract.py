@@ -109,3 +109,46 @@ def test_finalize_contract_exposes_processing_start_when_enabled(client: TestCli
     assert finalized["meeting"]["processing_status"] == "workflow_started"
     assert finalized["workflow_started"] is True
     assert finalized["mediascribe_job_created"] is False
+
+
+def test_manual_media_upload_contract_is_server_mediated_without_dependency_leaks(client: TestClient) -> None:
+    schema = client.app.openapi()
+    media_upload = schema["paths"]["/api/v1/media-uploads"]["post"]
+    request_body = media_upload["requestBody"]["content"]
+    assert "multipart/form-data" in request_body
+    response_schema = str(media_upload["responses"])
+    assert "storage_object_key" not in response_schema
+    assert "external_job_id" not in response_schema
+    assert "mediascribe_job_id" not in response_schema
+
+    response = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "title": "Manual upload",
+            "duration_seconds": "60",
+            "local_recording_id": "manual-contract-001",
+        },
+        files={"file": ("meeting.wav", deterministic_wav_bytes(96), "audio/wav")},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["request_mode"] == "single_track"
+    assert body["upload_session"]["expected_tracks"] == ["manifest", "media"]
+    assert "storage_object_key" not in str(body)
+    assert "external_job_id" not in str(body)
+
+
+def test_cabinet_manual_media_upload_contract_is_multipart_and_csrf_safe(client: TestClient) -> None:
+    schema = client.app.openapi()
+    operation = schema["paths"]["/api/v1/cabinet/media-uploads"]["post"]
+    request_body = operation["requestBody"]["content"]
+    operation_dump = str(operation)
+
+    assert operation["operationId"] == "createCabinetManualMediaUpload"
+    assert "multipart/form-data" in request_body
+    assert "ManualMediaUploadResponse" in operation_dump
+    assert "X-CSRF-Token" not in operation_dump
+    assert "storage_object_key" not in operation_dump
+    assert "external_job_id" not in operation_dump
+    assert "mediascribe_job_id" not in operation_dump

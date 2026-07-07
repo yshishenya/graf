@@ -123,6 +123,7 @@ class InMemoryIngestStore:
         local_media_revision_id: str | None = None,
         duration_seconds: int,
         title: str | None,
+        media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING,
     ) -> MeetingRecord:
         key = (workspace_id, local_recording_id)
         if key in self.meetings_by_local_id:
@@ -143,6 +144,7 @@ class InMemoryIngestStore:
                 local_media_revision_id,
             ),
             media_revision_id=initial_media_revision_id(),
+            media_revision_source_kind=media_revision_source_kind,
         )
         self.meetings[meeting.id] = meeting
         self.meetings_by_local_id[key] = meeting.id

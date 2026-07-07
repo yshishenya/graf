@@ -105,6 +105,17 @@ final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
         }
     }
 
+    func testDesktopUploadRouteRemainsBlockedBecauseUploadStaysInsideMeetings() throws {
+        let routePolicy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let uploadURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/upload"))
+
+        let decision = routePolicy.decision(for: uploadURL)
+
+        XCTAssertEqual(decision.decision, .blockWithMessage)
+        XCTAssertEqual(decision.reason, .blockedLocalFileOrDiagnostic)
+        XCTAssertEqual(decision.route.kind, .forbiddenAction)
+    }
+
     private func makePolicy() throws -> DesktopCabinetNavigationRequestPolicy {
         DesktopCabinetNavigationRequestPolicy(
             routePolicy: DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))),

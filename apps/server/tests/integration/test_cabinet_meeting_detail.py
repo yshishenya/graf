@@ -1,4 +1,5 @@
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fixtures.artifacts import deterministic_wav_bytes
 from tests.fixtures.cabinet import (
     PRIVATE_EXTERNAL_JOB_ID,
     SAFE_SECOND_TRANSCRIPT_TEXT,
@@ -59,6 +60,36 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
     assert partial["speakers"]["available"] is False
     assert partial["notes_action_truth"]["summary"]["state"] == "deferred"
     assert partial["notes_action_truth"]["followups"]["state"] == "deferred"
+
+
+def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_review_readiness(client) -> None:
+    uploaded = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "title": "Manual detail handoff",
+            "duration_seconds": "60",
+            "local_recording_id": "manual-detail-handoff",
+        },
+        files={"file": ("meeting.wav", deterministic_wav_bytes(80), "audio/wav")},
+    )
+    assert uploaded.status_code == 202
+    meeting_id = uploaded.json()["meeting"]["meeting_id"]
+
+    response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+    page = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meeting"]["source"] == "manual_upload"
+    assert payload["processing"]["state"] == "submitted"
+    assert payload["transcript"]["available"] is False
+    assert payload["transcript"]["segments"] == []
+    assert payload["notes"]["available"] is False
+    assert payload["notes_action_truth"]["summary"]["state"] == "processing"
+    assert page.status_code == 200
+    assert "Транскрипт готовится" in page.text
+    assert "Итоги готовятся" in page.text
 
 
 def test_cabinet_and_desktop_sync_review_states_match_for_result_states(client) -> None:

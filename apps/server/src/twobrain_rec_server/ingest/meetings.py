@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.policy import validate_recording_duration
@@ -34,6 +35,7 @@ async def create_or_get_meeting(
     started_at: datetime | None = None,
     ended_at: datetime | None = None,
     recording_display_timezone_offset_minutes: int | None = None,
+    media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING,
 ) -> MeetingRecord:
     validate_recording_duration(settings, duration_seconds)
     persisted = await load_meeting_record(
@@ -52,6 +54,8 @@ async def create_or_get_meeting(
             raise ProblemDetail(status=409, code="idempotency_conflict", title="Meeting create conflicts with existing recording")
         if local_media_revision_id is not None and persisted.local_media_revision_id != local_media_revision_id:
             raise ProblemDetail(status=409, code="media_revision_conflict", title="Media revision conflicts with existing recording")
+        if persisted.media_revision_source_kind != media_revision_source_kind:
+            raise ProblemDetail(status=409, code="media_revision_conflict", title="Media revision conflicts with existing recording")
         return persisted
     validate_meeting_title_policy(title)
     meeting = store_module.store.create_or_get_meeting(
@@ -64,6 +68,7 @@ async def create_or_get_meeting(
         local_media_revision_id=local_media_revision_id,
         duration_seconds=duration_seconds,
         title=title,
+        media_revision_source_kind=media_revision_source_kind,
     )
     meeting.started_at = started_at
     meeting.ended_at = ended_at

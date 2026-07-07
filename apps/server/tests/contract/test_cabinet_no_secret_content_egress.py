@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -18,6 +19,8 @@ from tests.fixtures.processing import create_finalized_meeting, enable_processin
 from twobrain_rec_server.cabinet.templates import get_cabinet_templates
 from twobrain_rec_server.db.models import MeetingOutcomeItem
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_meeting
+
+SERVER_ROOT = Path(__file__).resolve().parents[2] / "src" / "twobrain_rec_server"
 
 
 def _dump_json(payload: object) -> str:
@@ -142,6 +145,28 @@ def test_rendered_cabinet_pages_do_not_include_storage_or_dependency_identifiers
     body = list_response.text + detail_response.text
     for marker in forbidden:
         assert marker not in body
+
+
+def test_manual_upload_surface_and_error_copy_are_metadata_safe(client) -> None:
+    response = client.get("/meetings", headers=auth_headers())
+
+    assert response.status_code == 200
+    forbidden = {
+        "storage_object_key",
+        "signed_url",
+        "object_key",
+        "private_path",
+        "raw_transcript",
+        "raw_audio",
+        "external_job_id",
+        "mediascribe_job",
+        "/Users/",
+    }
+    for marker in forbidden:
+        assert marker not in response.text
+
+    script = (SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.js").read_text()
+    assert "mediascribe_job" not in script
 
 
 def test_cabinet_ready_detail_keeps_dependency_and_storage_identifiers_private(client) -> None:

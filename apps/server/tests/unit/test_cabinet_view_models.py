@@ -118,6 +118,7 @@ def test_common_display_helpers_for_meeting_rows() -> None:
     assert view_models.meeting_media_kind(transcript) == "transcript"
     assert view_models.meeting_media_label(video) == "видео"
     assert view_models.meeting_media_kind(upload) == "upload"
+    assert view_models.meeting_media_label(upload) == "медиа"
     assert view_models.format_duration(65) == "1m"
     assert view_models.date_label(audio) == "16 июн"
     assert view_models.sort_label("duration_asc") == "Сначала короткие"

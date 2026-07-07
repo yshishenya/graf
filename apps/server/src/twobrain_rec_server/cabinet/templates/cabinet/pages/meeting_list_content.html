@@ -40,7 +40,9 @@
         </select>
         <button class="icon-control" type="submit" aria-label="Применить фильтры">{{ icons.icon("filter") }}</button>
         <button class="icon-control" type="button" aria-label="Сохраненные" aria-disabled="true">{{ icons.icon("bookmark") }}</button>
-        <button class="new-button" type="button" aria-disabled="true">Новая</button>
+        <button class="new-button manual-upload-trigger" type="button" data-manual-upload-open>
+          {{ icons.icon("upload") }}<span>Загрузить медиа</span>
+        </button>
       </form>
     </div>
     {% if visible_total == 0 and not query_value and not status_value and not access_value %}
@@ -51,7 +53,10 @@
         <p>Приложение записывает встречи на компьютере. Кабинет покажет текст, решения и задачи после обработки.</p>
       </div>
       <div class="first-run-actions">
-        <a class="button primary" href="/download">Скачать приложение</a>
+        <button class="button primary manual-upload-trigger" type="button" data-manual-upload-open data-manual-upload-empty-open>
+          {{ icons.icon("upload") }}<span>Загрузить медиа</span>
+        </button>
+        <a class="button quiet" href="/download">Скачать приложение</a>
         <a class="button quiet" href="{{ calendar_settings_href }}">Подключить календари</a>
       </div>
       <ol class="first-run-steps" aria-label="Путь первого запуска">
@@ -88,5 +93,6 @@
     {{ list_region }}
     <div id="delete-feedback-region" class="delete-feedback-region" aria-live="polite"></div>
     {{ delete_dialog }}
+    {{ manual_upload }}
   </div>
 </main>

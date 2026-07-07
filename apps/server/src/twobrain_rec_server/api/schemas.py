@@ -384,7 +384,7 @@ class MissingRangesResponse(BaseModel):
 
 class FinalizeUploadRequest(BaseModel):
     manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    tracks: list[TrackDescriptor] = Field(min_length=3)
+    tracks: list[TrackDescriptor] = Field(min_length=2)
 
 
 class FinalizeUploadResponse(BaseModel):
@@ -393,6 +393,10 @@ class FinalizeUploadResponse(BaseModel):
     object_count: int = Field(ge=0)
     workflow_started: bool = False
     mediascribe_job_created: bool = False
+
+
+class ManualMediaUploadResponse(FinalizeUploadResponse):
+    request_mode: Literal["single_track"] = "single_track"
 
 
 class AbortUploadRequest(BaseModel):

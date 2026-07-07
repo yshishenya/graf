@@ -93,6 +93,31 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
         assert marker in script
 
 
+def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    for marker in [
+        "initManualUpload",
+        "XMLHttpRequest",
+        "data-manual-upload-dialog",
+        "data-manual-upload-submit",
+        "duration_seconds",
+        "local_recording_id",
+        "X-CSRF-Token",
+        "abort",
+        "meeting-list-region",
+    ]:
+        assert marker in script
+    for marker in [
+        ".manual-upload-dialog",
+        ".manual-upload-progress",
+        ".manual-upload-status",
+        ".manual-upload-accepted",
+    ]:
+        assert marker in css
+
+
 def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
     script = (STATIC_DIR / "cabinet.js").read_text()

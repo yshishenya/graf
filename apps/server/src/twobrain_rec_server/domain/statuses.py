@@ -34,6 +34,7 @@ class MediaRevisionStatus(StrEnum):
 
 class MediaRevisionSourceKind(StrEnum):
     INITIAL_RECORDING = "initial_recording"
+    MANUAL_UPLOAD = "manual_upload"
     LOCAL_TRIM = "local_trim"
     VIDEO_CAPTURE = "video_capture"
     REPLACE = "replace"
@@ -387,6 +388,7 @@ class UploadStrategy(StrEnum):
 class TrackRole(StrEnum):
     MICROPHONE = "microphone"
     SYSTEM = "system"
+    MEDIA = "media"
     MANIFEST = "manifest"
     PLAYBACK = "playback"
 

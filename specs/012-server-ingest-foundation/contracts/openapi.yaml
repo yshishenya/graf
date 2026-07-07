@@ -875,6 +875,114 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/media-uploads:
+    post:
+      tags:
+      - ingest
+      summary: Create Manual Media Upload
+      operationId: create_manual_media_upload_api_v1_media_uploads_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_manual_media_upload_api_v1_media_uploads_post'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualMediaUploadResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/desktop/recordings/{local_recording_id}/sync-state:
     get:
       tags:
@@ -4215,6 +4323,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/media-uploads:
+    post:
+      tags:
+      - cabinet
+      summary: Create Cabinet Manual Media Upload Route
+      operationId: createCabinetManualMediaUpload
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_createCabinetManualMediaUpload'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualMediaUploadResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}:
     get:
       tags:
@@ -5789,6 +5963,64 @@ components:
       - expires_at
       - provider
       title: AuthStartResponse
+    Body_createCabinetManualMediaUpload:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        duration_seconds:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
+        title:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Title
+        local_recording_id:
+          anyOf:
+          - type: string
+            maxLength: 240
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Local Recording Id
+      type: object
+      required:
+      - file
+      - duration_seconds
+      title: Body_createCabinetManualMediaUpload
+    Body_create_manual_media_upload_api_v1_media_uploads_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        duration_seconds:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
+        title:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Title
+        local_recording_id:
+          anyOf:
+          - type: string
+            maxLength: 240
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Local Recording Id
+      type: object
+      required:
+      - file
+      - duration_seconds
+      title: Body_create_manual_media_upload_api_v1_media_uploads_post
     CalendarDisconnectResponse:
       properties:
         source_id:
@@ -6927,7 +7159,7 @@ components:
           items:
             $ref: '#/components/schemas/TrackDescriptor'
           type: array
-          minItems: 3
+          minItems: 2
           title: Tracks
       type: object
       required:
@@ -7252,6 +7484,35 @@ components:
       - purge_local_exports
       - confirm_local_expiry
       title: LocalPurgeTaskType
+    ManualMediaUploadResponse:
+      properties:
+        meeting:
+          $ref: '#/components/schemas/MeetingResponse'
+        upload_session:
+          $ref: '#/components/schemas/UploadSessionResponse'
+        object_count:
+          type: integer
+          minimum: 0.0
+          title: Object Count
+        workflow_started:
+          type: boolean
+          title: Workflow Started
+          default: false
+        mediascribe_job_created:
+          type: boolean
+          title: Mediascribe Job Created
+          default: false
+        request_mode:
+          type: string
+          const: single_track
+          title: Request Mode
+          default: single_track
+      type: object
+      required:
+      - meeting
+      - upload_session
+      - object_count
+      title: ManualMediaUploadResponse
     MeResponse:
       properties:
         user_id:
@@ -7292,6 +7553,7 @@ components:
       type: string
       enum:
       - initial_recording
+      - manual_upload
       - local_trim
       - video_capture
       - replace
@@ -8928,6 +9190,7 @@ components:
       enum:
       - microphone
       - system
+      - media
       - manifest
       - playback
       title: TrackRole

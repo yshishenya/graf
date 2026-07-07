@@ -30,3 +30,23 @@ def test_required_tracks_accepts_manifest_microphone_and_system() -> None:
 def test_required_tracks_rejects_missing_system_track() -> None:
     with pytest.raises(ManifestValidationError):
         validate_required_tracks([descriptor(TrackRole.MANIFEST), descriptor(TrackRole.MICROPHONE)])
+
+
+def test_required_tracks_accepts_manifest_and_media() -> None:
+    validate_required_tracks(
+        [
+            descriptor(TrackRole.MANIFEST),
+            descriptor(TrackRole.MEDIA),
+        ]
+    )
+
+
+def test_required_tracks_rejects_mixed_single_and_dual_roles() -> None:
+    with pytest.raises(ManifestValidationError):
+        validate_required_tracks(
+            [
+                descriptor(TrackRole.MANIFEST),
+                descriptor(TrackRole.MEDIA),
+                descriptor(TrackRole.SYSTEM),
+            ]
+        )
