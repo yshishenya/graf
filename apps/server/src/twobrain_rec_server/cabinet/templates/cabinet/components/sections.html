@@ -23,20 +23,28 @@
 </nav>
 {%- endmacro %}
 
-{% macro cabinet_sidebar(navigation, embedded=False, static_url="") -%}
+{% macro cabinet_sidebar(navigation, embedded=False, static_url="", csrf_token=None) -%}
 <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
   <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Развернуть меню" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
   {{ workspace_header("ГРАФ", navigation.workspace_subtitle, wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
   <button class="primary" type="button" disabled>Пригласить</button>
   {{ sidebar_navigation(navigation.items, active=navigation.active) }}
-  <div class="sidebar-foot"><div class="trial">Пробный период 7 дней</div><div class="muted">GRAF</div></div>
+  <div class="sidebar-foot">
+    <form class="sidebar-logout" method="post" action="/logout">
+      {{ csrf_field(csrf_token) }}
+      <input type="hidden" name="next" value="{{ '/login?next=/desktop/meetings' if embedded else '/login?next=/meetings' }}">
+      <button class="sidebar-logout__button" type="submit">{{ icons.icon("log-out") }}<span>Выйти</span></button>
+    </form>
+    <div class="trial">Пробный период 7 дней</div>
+    <div class="muted">GRAF</div>
+  </div>
 </aside>
 {%- endmacro %}
 
-{% macro cabinet_shell(navigation, embedded=False, content=None, static_url="", skip_target="cabinet-main") -%}
+{% macro cabinet_shell(navigation, embedded=False, content=None, static_url="", skip_target="cabinet-main", csrf_token=None) -%}
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-shell-scroll="contained" data-cabinet-shell data-active-nav="{{ navigation.active }}">
   <a class="skip-link" href="#{{ skip_target }}">К содержимому</a>
-  {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url) }}
+  {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url, csrf_token=csrf_token) }}
   {% if content is not none %}
   {{ content }}
   {% endif %}
