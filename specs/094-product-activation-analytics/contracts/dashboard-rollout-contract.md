@@ -29,7 +29,8 @@ Implementation or launch is blocked when any required item is missing:
 - parallel measurement matrix
 - Yandex all-pages inventory
 - replay masking contract
-- retention/deletion truth
+- retention/deletion category matrix with maximum retention, delete-on-request
+  behavior, provider delete method, and aggregate/export caveats
 - forbidden-field test coverage
 - dashboard owner
 - dashboard caveat for internal/support/smoke/test counted by default

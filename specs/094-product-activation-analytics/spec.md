@@ -517,9 +517,10 @@ campaign interpretation caveats are documented.
 - **FR-019**: The feature MUST NOT add product analytics to login, cabinet,
   desktop, meetings, uploads, playback, deletion, admin, API, or embedded
   desktop surfaces as part of this specification-only backlog step.
-- **FR-020**: The feature MUST produce future tasks only after clarify, plan,
-  checklist, and analyze have resolved privacy, provider, identity, consent,
-  deletion, and rollout blockers.
+- **FR-020**: The feature MUST NOT start implementation until clarify, plan,
+  checklist, tasks, analyze, GitHub issue sync, and separate implementation
+  approval have resolved or explicitly recorded privacy, provider, identity,
+  consent, deletion, and rollout blockers.
 - **FR-021**: The feature MUST produce a parallel measurement matrix before
   implementation. The matrix MUST include one row per event/page milestone and
   state event name, owner, surface, PostHog destination, Yandex destination,
@@ -542,12 +543,6 @@ campaign interpretation caveats are documented.
   token, stable server-issued pseudonymous user identity, or other identifier,
   and MUST reject raw personal, workspace, meeting, device, local-path, secret,
   URL, and content-bearing identifiers.
-- **FR-024c**: If direct desktop provider delivery is approved, the identity and
-  attribution contract MUST define the exact desktop-safe provider identifiers
-  and MUST prohibit raw email, names, raw user/account/workspace IDs, meeting
-  IDs, device names, local paths, tokens, signed URLs, audio, transcript,
-  meeting title, participants, calendar text, and other content-bearing values
-  before any provider SDK or API call leaves the desktop app.
 - **FR-024a**: The preferred identity and attribution model MUST use a
   server-owned safe `graf_attribution_id` and/or expiring bridge token to join
   campaign context, Yandex identifiers when available, PostHog anonymous
@@ -559,6 +554,12 @@ campaign interpretation caveats are documented.
   when a bridge token or authenticated handoff exists. `desktop_account_connected`
   MUST be treated as the first reliable campaign-linked product milestone unless
   the implementation proves an earlier safe handoff.
+- **FR-024c**: If direct desktop provider delivery is approved, the identity and
+  attribution contract MUST define the exact desktop-safe provider identifiers
+  and MUST prohibit raw email, names, raw user/account/workspace IDs, meeting
+  IDs, device names, local paths, tokens, signed URLs, audio, transcript,
+  meeting title, participants, calendar text, and other content-bearing values
+  before any provider SDK or API call leaves the desktop app.
 - **FR-025**: The feature MUST produce a dashboard map before implementation
   that separates PostHog source-of-truth dashboards from Yandex advertising,
   web behavior, Webvisor, map, goal, and offline-conversion dashboards.
@@ -662,7 +663,7 @@ campaign interpretation caveats are documented.
   first value because they use multiple devices or workspaces.
 - **SC-002**: 100% of proposed activation events have an owner, surface,
   allowed field set, forbidden field set, consent/notice rule, identity rule,
-  and deletion/reporting statement before implementation tasks are generated.
+  and deletion/reporting statement before implementation begins.
 - **SC-003**: 0 forbidden private/content-bearing fields are approved in the
   event contract.
 - **SC-003a**: The retention policy gives every approved analytics category a
@@ -705,6 +706,9 @@ campaign interpretation caveats are documented.
 - **SC-006**: A rollout checklist blocks implementation or launch when legal
   review, the hard product telemetry gate, identity, provider configuration,
   dashboard access, QA evidence, or production smoke is missing.
+- **SC-006a**: Production smoke evidence proves that analytics provider
+  settings reach the intended runtime service and rendered pages, and that
+  disallowed surfaces do not accidentally receive analytics code.
 - **SC-006b**: Activation dashboards and campaign reports plainly disclose that
   internal, support, smoke, and test activity is counted by default unless a
   later explicit filtering feature changes that behavior.
@@ -713,9 +717,6 @@ campaign interpretation caveats are documented.
   scroll maps, and form analytics are disabled for that page class and
   dashboards/evidence disclose replay unavailable. There are 0 real-user
   best-effort replay sessions from unapproved page classes.
-- **SC-006a**: Production smoke evidence proves that analytics provider
-  settings reach the intended runtime service and rendered pages, and that
-  disallowed surfaces do not accidentally receive analytics code.
 - **SC-007**: Campaign reports can distinguish web intent from real product
   activation and first value, including documented caveats for consent,
   blocking, duplicates, direct traffic, and failed processing.

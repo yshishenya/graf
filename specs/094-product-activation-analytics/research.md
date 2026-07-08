@@ -211,7 +211,11 @@ Every analytics category receives a retention/deletion statement. The baseline
 minimum is 90 days unless a later legal/security gate requires a shorter
 category. Replay/Webvisor, bridge records, raw product events, offline
 conversions, provider-held aggregates, and exported dashboards must be described
-separately.
+separately. The approved design now requires a category matrix before launch:
+each category must state its maximum retention or explicit provider-policy
+caveat, delete-on-request behavior, provider deletion method, and aggregate or
+exported-report truth. A category cannot launch with maximum retention left as
+"to be decided".
 
 **Rationale**:
 

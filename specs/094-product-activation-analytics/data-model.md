@@ -238,17 +238,34 @@ Category-specific retention and deletion truth.
   `posthog_session_replay`, `yandex_page_events`, `yandex_webvisor`,
   `yandex_offline_conversions`, `delivery_gap`, `exported_report`.
 - `minimum_retention_days`: baseline `90`, unless shorter.
-- `maximum_retention_days`: to be decided per category before implementation.
+- `maximum_retention_days`: exact category maximum or explicit provider-policy
+  caveat from the retention matrix below.
 - `delete_on_user_request`: `graf_controlled`, `provider_supported`,
   `aggregate_only`, `not_available`, `manual_process`.
 - `provider_delete_method`.
 - `aggregate_report_truth`.
 - `exported_report_truth`.
 
+**Retention matrix**:
+
+| Category | Minimum | Maximum or policy | Delete on user request | Provider delete method | Deletion/reporting truth |
+| --- | ---: | --- | --- | --- | --- |
+| `attribution_bridge` | 90 days | 90 days unless legal requires shorter | `graf_controlled` | purge bridge row/token hash in GRAF storage | Campaign link can be removed; already-aggregated reports may remain as aggregate counts |
+| `posthog_product_events` | 90 days | 90 days in the approved self-hosted workspace | `provider_supported` | PostHog person/event deletion for the stable pseudonymous identity where supported | Raw GRAF identity is not present; aggregate cohorts may remain without user-level reconstruction |
+| `posthog_session_replay` | 90 days | 90 days or shorter if legal/security requires | `provider_supported` | PostHog recording deletion for the stable pseudonymous identity or session where supported | Replay is masked by default; aggregate replay metrics may remain |
+| `yandex_page_events` | 90 days | 90 days when configurable; otherwise Yandex provider policy must be disclosed before launch | `manual_process` | Yandex counter/user-data deletion process where available | GRAF must not promise universal erasure from Yandex aggregate reports |
+| `yandex_webvisor` | 90 days | 90 days or shorter if legal/security requires; blocked unless masking proof exists | `manual_process` | Yandex Webvisor/session deletion process where available | If page class is unapproved, Webvisor remains off and the dashboard says replay unavailable |
+| `yandex_offline_conversions` | 90 days | 90 days for GRAF upload queue; Yandex ad reporting follows provider policy | `manual_process` | remove queued uploads in GRAF; request/provider process for uploaded conversions where available | Uploaded ad conversions may remain in aggregate ad reports |
+| `delivery_gap` | 90 days | 90 days | `graf_controlled` | purge safe gap row in GRAF storage | Gaps contain only safe buckets and caveats, not raw identity or content |
+| `exported_report` | 90 days | 90 days for GRAF-controlled exported snapshots | `manual_process` | delete/redact exported report files controlled by GRAF | Reports outside GRAF control must be listed as outside direct erasure control |
+
 **Validation rules**:
 
 - No category may promise universal erasure outside GRAF control.
 - Exported dashboards/screenshots/ad imports must be described separately.
+- A category cannot launch with `maximum_retention_days` left undecided.
+- A provider-policy caveat is allowed only when GRAF cannot technically enforce
+  the maximum; the launch evidence must name the provider surface and disclosure.
 
 ## AnalyticsDeliveryGap
 
