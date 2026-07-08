@@ -189,6 +189,28 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
     assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
 
 
+def test_production_api_allows_runtime_public_analytics_overrides() -> None:
+    compose = _compose()
+    api_env = compose["services"]["rec-api"]["environment"]
+    worker_env = compose["services"]["rec-processing-worker"]["environment"]
+
+    assert api_env["TWOBRAIN_PUBLIC_ANALYTICS_ENABLED"] == "${TWOBRAIN_PUBLIC_ANALYTICS_ENABLED:-false}"
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID:-}"
+    )
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE:-disabled}"
+    )
+    assert api_env["TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED"] == "${TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED:-false}"
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-07-08.1}"
+    )
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID" not in worker_env
+
+
 def test_remote_cd_blocks_static_postgres_pwd_in_compose_config() -> None:
     script = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
 
