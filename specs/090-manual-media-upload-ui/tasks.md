@@ -182,6 +182,20 @@ shows progress, status, and hover/focus controls.
 
 ---
 
+## Phase 9: Post-Release Duration Field Correction
+
+**Purpose**: Apply stakeholder feedback after production review: duration is
+file information from metadata, not a user-editable field.
+
+- [X] T052 [P] Update 090 spec, contract, data model, research, and quickstart so duration is metadata-derived and not user-editable in `specs/090-manual-media-upload-ui/`
+- [X] T053 [P] Add regression assertions for hidden-only duration submission and no manual duration listener in `apps/server/tests/unit/test_cabinet_web_shell.py` and `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
+- [X] T054 Remove the visible duration number field while keeping the hidden backend field in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html`
+- [X] T055 Update manual-upload JS validation to block unreadable duration metadata without asking for manual seconds in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T056 Remove unused duration-field CSS in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
+- [X] T057 Update user-visible changelog for the duration-field correction in `CHANGELOG.md`
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -194,6 +208,8 @@ shows progress, status, and hover/focus controls.
 - Phase 7 depends on all implemented user stories selected for closeout.
 - Phase 8 depends on the released 090 implementation and does not change the
   `087` backend route or public API contract.
+- Phase 9 depends on the released Phase 8 upload-list workflow and does not
+  change the `087` backend route or public API contract.
 
 ### User Story Dependencies
 
@@ -216,6 +232,8 @@ shows progress, status, and hover/focus controls.
 - T039 and T040 can run in parallel after implementation.
 - T046-T048 and T050 can run in parallel; T049 touches runtime UI files and
   T051 must run after implementation.
+- T052-T053 and T057 can run in parallel; T054-T056 touch the runtime upload
+  UI and should be validated together.
 
 ## Parallel Examples
 
@@ -285,6 +303,14 @@ Task: "T035 [US4] Add view-model assertions in apps/server/tests/unit/test_cabin
   - `PYTHONPATH=src uv run --extra dev ruff check .` -> pass.
   - `git diff --check` -> pass.
   - Forbidden-content scan on changed files -> no matches.
+  - `infra/scripts/ci-local.sh` -> `ci_local_result=pass`; 1036 passed, 4 skipped, server lint passed, python compile passed, deployment evidence scan passed.
+- Post-release duration-field correction evidence on 2026-07-08:
+  - `node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+  - `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_cabinet_web_shell.py tests/contract/test_cabinet_static_assets_contract.py tests/integration/test_cabinet_manual_upload.py tests/integration/test_cabinet_meeting_list.py` -> 64 passed.
+  - `PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_cabinet_manual_upload.py tests/integration/test_manual_media_upload.py tests/integration/test_cabinet_csrf.py tests/integration/test_cabinet_meeting_list.py tests/unit/test_cabinet_web_shell.py tests/contract/test_cabinet_static_assets_contract.py tests/contract/test_ingest_openapi_contract.py` -> 76 passed.
+  - `PYTHONPATH=src uv run --extra dev ruff check .` -> pass.
+  - `git diff --check` -> pass.
+  - Diff-only forbidden-content scan on new lines -> no matches.
   - `infra/scripts/ci-local.sh` -> `ci_local_result=pass`; 1036 passed, 4 skipped, server lint passed, python compile passed, deployment evidence scan passed.
 - Post-rebase macOS embedded-route validation:
   `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinet'`

@@ -1039,7 +1039,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .manual-upload-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 164px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 14px 18px 0;
 }
@@ -1056,24 +1056,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .manual-upload-fields input {
   min-height: 38px;
-}
-.manual-upload-duration__control {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-}
-.manual-upload-duration__control input {
-  min-width: 0;
-}
-.manual-upload-duration__control span {
-  color: var(--muted);
-  font-size: 12px;
-}
-.manual-upload-duration small {
-  color: var(--subtle);
-  font-size: 11px;
-  line-height: 1.25;
 }
 .manual-upload-validation {
   min-height: 30px;
@@ -1780,9 +1762,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .manual-upload-file-card__duration {
     grid-column: 2;
     justify-self: start;
-  }
-  .manual-upload-fields {
-    grid-template-columns: 1fr;
   }
   .manual-upload-validation {
     margin-inline: 14px;

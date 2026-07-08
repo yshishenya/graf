@@ -58,17 +58,18 @@ finalize, processing-dispatch, and response mapping behavior.
 - Keep everything only in `api/ingest.py`: rejected because cabinet CSRF and UI
   routing are separate API boundary concerns.
 
-## Decision: Use Browser Media Metadata Plus Manual Duration Fallback
+## Decision: Use Browser Media Metadata Without Manual Duration Editing
 
 **Decision**: On file selection, the cabinet JS attempts to read media duration
-through a temporary audio/video metadata element. If duration is unavailable,
-the upload sheet requires the user to enter a positive approximate duration in
-seconds before transfer starts.
+through a temporary audio/video metadata element. The duration is shown as file
+information and sent through the existing backend field, but the user cannot
+edit it manually. If duration is unavailable, the sheet asks the user to choose
+another audio or video file.
 
 **Rationale**: The `087` backend contract requires `duration_seconds`.
 Server-side probing/transcoding would add dependency, CPU, privacy, and failure
-surface. Browser metadata is cheap when supported, while a manual fallback keeps
-the requirement explicit and truthful.
+surface. Browser metadata is cheap when supported, and removing manual editing
+prevents users from correcting a fact that should come from the media file.
 
 **Alternatives considered**:
 

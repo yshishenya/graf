@@ -34,7 +34,7 @@ Fields:
 | Field | Required | Notes |
 |---|---:|---|
 | `file` | yes | Exactly one user-owned audio or common meeting/video media file. |
-| `duration_seconds` | yes | Positive integer. Derived from media metadata or entered manually. |
+| `duration_seconds` | yes | Positive integer derived from readable media metadata and submitted by the UI; not user-editable. |
 | `title` | no | Safe optional meeting title. |
 | `local_recording_id` | yes | UI-generated per-draft idempotency identity. |
 | `csrf_token` | no | Optional form fallback for non-XHR clients if supported by the route. |
@@ -57,10 +57,9 @@ that breaks Bearer/device callers.
 
 Required controls:
 
-- File picker button labeled `Загрузить медиа` or `Выбрать медиа`.
+- File picker/entry button labeled `Загрузить`.
 - Optional title input.
-- Required positive duration input with metadata-derived autofill when
-  available.
+- Display-only file duration after metadata is readable.
 - Start upload button labeled `Загрузить`.
 - Safe validation region with `aria-live`.
 
@@ -70,7 +69,7 @@ Required states:
 |---|---|---|
 | `idle` | No file selected | Choose one media file |
 | `file_selected` | One file selected | Show safe file name/size and metadata status |
-| `duration_needed` | Duration not readable | Require approximate duration |
+| `duration_unreadable` | Duration not readable | Ask the user to choose another audio or video file |
 | `ready_to_upload` | File and duration valid | Enable start upload |
 | `auth_required` | Session/CSRF missing or expired | Show sign-in/reload action |
 

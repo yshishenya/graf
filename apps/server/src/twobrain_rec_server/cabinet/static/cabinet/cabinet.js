@@ -387,7 +387,7 @@
   };
 
   const uploadMessages = {
-    request_validation_error: "Проверьте файл и длительность.",
+    request_validation_error: "Проверьте файл.",
     csrf_token_missing: "Сессия устарела. Обновите страницу и попробуйте еще раз.",
     csrf_token_invalid: "Сессия устарела. Обновите страницу и попробуйте еще раз.",
     auth_session_required_for_manual_upload: "Войдите снова, чтобы загрузить файл.",
@@ -717,8 +717,8 @@
         if (fileDuration) fileDuration.textContent = `${duration} сек.`;
         setValidation();
       } else {
-        if (fileDuration) fileDuration.textContent = "Укажите длительность";
-        setValidation("Введите примерную длительность перед загрузкой.", "warning");
+        if (fileDuration) fileDuration.textContent = "Длительность не прочитана";
+        setValidation("Не удалось прочитать длительность файла. Выберите другой аудио- или видеофайл.", "error");
       }
       syncReady();
     };
@@ -793,15 +793,6 @@
       });
     }
 
-    durationInput?.addEventListener("input", () => {
-      const duration = Number.parseInt(durationInput.value || "0", 10);
-      if (selectedFile && Number.isFinite(duration) && duration > 0) {
-        if (fileDuration) fileDuration.textContent = `${duration} сек.`;
-        setValidation();
-      }
-      syncReady();
-    });
-
     submit?.addEventListener("click", () => {
       if (!selectedFile || !durationInput || !localIdInput || !csrfToken) {
         if (!selectedFile) setValidation("Выберите один файл.", "error");
@@ -811,7 +802,7 @@
       }
       const duration = Number.parseInt(durationInput.value || "0", 10);
       if (!Number.isFinite(duration) || duration <= 0) {
-        setValidation("Введите положительную длительность.", "error");
+        setValidation("Не удалось прочитать длительность файла. Выберите другой аудио- или видеофайл.", "error");
         syncReady();
         return;
       }

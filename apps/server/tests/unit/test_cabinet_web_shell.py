@@ -325,6 +325,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-manual-upload-accepted' not in page
     assert "Перетащите файл сюда" in page
     assert 'name="duration_seconds"' in page
+    assert 'type="hidden" name="duration_seconds"' in page
+    assert 'type="number" name="duration_seconds"' not in page
+    assert "Автозаполним" not in page
     assert 'data-manual-upload-submit' in page
     assert 'aria-live="polite"' in page
     assert 'data-selection-toggle' in page
