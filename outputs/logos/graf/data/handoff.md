@@ -28,7 +28,4 @@ Files:
 - light favicon source: `favicon/favicon-light.svg`
 - final manifest: `final-symbol/data/manifest.json`
 
-Previous drafts:
-
-- heavy draft: `final-symbol-heavy-backup/`
-- elegant v2 draft: `final-symbol-elegant-v2-backup/`
+Previous draft exports were removed after the v3 symbol became the source of truth.

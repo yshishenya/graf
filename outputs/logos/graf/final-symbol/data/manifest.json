@@ -16,5 +16,5 @@
     "favicon_light": "favicon/favicon-light.svg",
     "favicon_dark": "favicon/favicon-dark.svg"
   },
-  "note": "Elegant v3 deterministic vector draft based on the selected screenshot reference. The Ф silhouette is larger, while the ring and tabs are thinner. The earlier heavy draft is preserved in final-symbol-heavy-backup; the previous elegant v2 draft is preserved in final-symbol-elegant-v2-backup."
+  "note": "Elegant v3 deterministic vector draft based on the selected screenshot reference. The Ф silhouette is larger, while the ring and tabs are thinner."
 }
