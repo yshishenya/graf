@@ -150,7 +150,11 @@ use `mic_file` and `incoming_file`.
   processing, audit, deletion, and review evidence.
 - **FR-008**: The system MUST import transcript rows, diarization rows when
   present, summary status, and generated outcome categories through the existing
-  content-safe review model.
+  content-safe review model. For manual uploads, review MUST use content-bearing
+  diarization rows as the speaker-attributed transcript display source when
+  available; if diarization has no display text, review MUST fall back to
+  transcript rows and use diarization timing only to derive safe `SPEAKER_XX`
+  labels when possible.
 - **FR-009**: The system MUST make dependency failures visible as processing
   blocked, retryable, or terminal states without leaking raw transcript text,
   secrets, signed URLs, object keys, private filenames, or private local paths.
@@ -184,8 +188,8 @@ use `mic_file` and `incoming_file`.
   and records `request_mode=single_track`; existing dual-track tests still
   record `request_mode=dual_track`.
 - **SC-003**: Imported one-track results render through the existing meeting
-  review API with transcript availability and generated outcomes when transcript
-  content exists.
+  review API with visible transcript text, `SPEAKER_XX` speaker labels, and
+  generated outcomes when transcript content exists.
 - **SC-004**: Duplicate retry after stored one-track job id does not create a
   second dependency submission.
 - **SC-005**: Focused server tests for one-track upload, one-track MediaScribe

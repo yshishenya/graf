@@ -15,7 +15,12 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Ручные однодорожечные расшифровки и speaker overview больше не показывают
+  `Входящий звук` или `UNKNOWN` как участника: когда MediaScribe вернул
+  diarization, review показывает строки из diarization с labels вида
+  `SPEAKER_XX`; если diarization нет, ручной upload получает fallback
+  `SPEAKER_00`. Если diarization пришла без текста, review не показывает
+  пустые реплики и возвращается к transcript rows с `SPEAKER_XX` по таймингам.
 
 ### Безопасность
 - _Пока нет записей._

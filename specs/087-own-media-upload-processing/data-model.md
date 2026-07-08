@@ -53,8 +53,12 @@ Validation:
 Use existing `processing_results`, `transcript_segments`,
 `diarization_segments`, `meeting_outcome_sets`, and `meeting_outcome_items`.
 
-- Transcript import is the primary content signal.
+- Transcript import remains the primary result availability and outcomes signal.
 - Diarization is optional for one-track results.
+- Manual-upload review uses content-bearing diarization rows as the
+  speaker-attributed transcript display source when present. If diarization has
+  no display text, review falls back to transcript rows while using diarization
+  timing to derive `SPEAKER_XX` labels when possible.
 - Summary status is stored from MediaScribe result metadata.
 - GRAF generated outcomes are produced from stored transcript rows.
 
