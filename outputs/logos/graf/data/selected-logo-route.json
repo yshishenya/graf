@@ -25,5 +25,5 @@
     "favicon_light_svg": "favicon/favicon-light.svg",
     "final_manifest": "final-symbol/data/manifest.json"
   },
-  "next_step": "Use the final-symbol SVG files as the working logo/app icon/favicon source; the previous elegant v2 draft is preserved in final-symbol-elegant-v2-backup."
+  "next_step": "Use the final-symbol SVG files as the working logo/app icon/favicon source."
 }

@@ -11,6 +11,3 @@ Use:
 - `favicon/favicon-light.svg` and `favicon/favicon-dark.svg` for browser favicon variants.
 
 The PNG and ICO exports are generated from these SVG sources.
-
-The previous heavier draft is preserved in `../final-symbol-heavy-backup/`.
-The previous elegant v2 draft is preserved in `../final-symbol-elegant-v2-backup/`.
