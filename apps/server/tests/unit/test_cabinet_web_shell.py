@@ -542,7 +542,10 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
         assert 'href="/desktop/meetings"' in page
 
     assert 'data-manual-upload-open' in list_page
+    assert 'class="new-button manual-upload-trigger" type="button" data-manual-upload-open' in list_page
+    assert 'data-manual-upload-dialog' in list_page
     assert 'data-upload-surface="desktop_embedded"' in list_page
+    assert 'href="/desktop/upload"' not in list_page
     assert "Администрирование" not in list_page
     assert "Экспорт" not in list_page
     assert "Record live" not in list_page + detail_page

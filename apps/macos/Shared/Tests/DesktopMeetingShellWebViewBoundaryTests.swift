@@ -172,6 +172,23 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(webViewSource.contains("webView.layer?.masksToBounds = true"))
     }
 
+    func testEmbeddedCabinetWebViewSupportsServerOwnedManualUploadFilePicker() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let webViewSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(webViewSource.contains("webView.uiDelegate = context.coordinator"))
+        XCTAssertTrue(webViewSource.contains("WKNavigationDelegate, WKUIDelegate"))
+        XCTAssertTrue(webViewSource.contains("runOpenPanelWith parameters: WKOpenPanelParameters"))
+        XCTAssertTrue(webViewSource.contains("let panel = NSOpenPanel()"))
+        XCTAssertTrue(webViewSource.contains("panel.canChooseFiles = true"))
+        XCTAssertTrue(webViewSource.contains("panel.canChooseDirectories = parameters.allowsDirectories"))
+        XCTAssertTrue(webViewSource.contains("panel.allowsMultipleSelection = parameters.allowsMultipleSelection"))
+        XCTAssertTrue(webViewSource.contains("completionHandler(urls.isEmpty ? nil : urls)"))
+    }
+
     private func makeActiveSession() -> CaptureSession {
         CaptureSession(
             id: "active-recording-boundary",

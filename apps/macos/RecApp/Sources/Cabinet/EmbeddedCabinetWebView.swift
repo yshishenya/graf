@@ -66,6 +66,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         webView.wantsLayer = true
         webView.layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: webView)
         let container = WebViewContainer(webView: webView)
@@ -94,7 +95,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         )
     }
 
-    public final class Coordinator: NSObject, WKNavigationDelegate {
+    public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
@@ -168,6 +169,36 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 authContinuationActive = false
                 cabinetState = .blockedRoute
                 decisionHandler(.cancel)
+            }
+        }
+
+        @MainActor
+        public func webView(
+            _ webView: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame _: WKFrameInfo,
+            completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
+        ) {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = parameters.allowsDirectories
+            panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+            panel.canCreateDirectories = false
+            panel.resolvesAliases = true
+
+            let complete: (NSApplication.ModalResponse) -> Void = { response in
+                guard response == .OK else {
+                    completionHandler(nil)
+                    return
+                }
+                let urls = parameters.allowsMultipleSelection ? panel.urls : Array(panel.urls.prefix(1))
+                completionHandler(urls.isEmpty ? nil : urls)
+            }
+
+            if let window = webView.window {
+                panel.beginSheetModal(for: window, completionHandler: complete)
+            } else {
+                complete(panel.runModal())
             }
         }
 
