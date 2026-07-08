@@ -83,9 +83,11 @@ class MediaScribeClient:
         media_bytes: bytes,
         diarize: bool,
         summarize: bool,
+        media_content_type: str | None = None,
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
-        files = {"file": ("media", media_bytes, "application/octet-stream")}
+        media_type = _safe_media_content_type(media_content_type, media_bytes)
+        files = {"file": (_safe_media_filename(media_type), media_bytes, media_type)}
         data = await self._request_json(
             "POST",
             "/v1/audio/transcriptions",
@@ -151,6 +153,61 @@ class MediaScribeClient:
 
 def _malformed_response_error() -> MediaScribeClientError:
     return MediaScribeClientError("mediascribe_malformed_response", retryable=True)
+
+
+_MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE = {
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/wave": "wav",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/m4a": "m4a",
+    "audio/aac": "aac",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+}
+
+
+def _safe_media_content_type(content_type: str | None, media_bytes: bytes) -> str:
+    if content_type:
+        normalized = content_type.split(";", 1)[0].strip().lower()
+        if normalized and normalized != "application/octet-stream":
+            if normalized in {"audio/x-m4a", "audio/m4a"}:
+                return "audio/mp4"
+            return normalized
+    return _infer_media_content_type(media_bytes)
+
+
+def _infer_media_content_type(media_bytes: bytes) -> str:
+    if media_bytes.startswith(b"RIFF") and media_bytes[8:12] == b"WAVE":
+        return "audio/wav"
+    if media_bytes.startswith(b"ID3") or (len(media_bytes) >= 2 and media_bytes[0] == 0xFF and media_bytes[1] & 0xE0 == 0xE0):
+        return "audio/mpeg"
+    if media_bytes.startswith(b"OggS"):
+        return "audio/ogg"
+    if media_bytes.startswith(b"fLaC"):
+        return "audio/flac"
+    if media_bytes.startswith(b"\x1a\x45\xdf\xa3"):
+        return "audio/webm"
+    if len(media_bytes) >= 12 and media_bytes[4:8] == b"ftyp":
+        brand = media_bytes[8:12]
+        if brand in {b"M4A ", b"M4B ", b"mp41"}:
+            return "audio/mp4"
+        if brand == b"qt  ":
+            return "video/quicktime"
+        return "video/mp4"
+    return "application/octet-stream"
+
+
+def _safe_media_filename(content_type: str) -> str:
+    extension = _MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE.get(content_type, "bin")
+    return f"manual-media.{extension}"
 
 
 def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> dict[str, Any]:

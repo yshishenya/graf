@@ -77,6 +77,24 @@ def test_embedded_desktop_manual_upload_accepts_same_session_cookie_path(client)
     assert response.json()["meeting"]["title"] == "Embedded upload"
 
 
+def test_cabinet_manual_upload_uses_file_name_when_title_is_blank(client) -> None:
+    csrf_token = _login_owner_session(client)
+
+    response = client.post(
+        "/api/v1/cabinet/media-uploads",
+        headers={"X-CSRF-Token": csrf_token},
+        data={
+            "title": "   ",
+            "duration_seconds": "61",
+            "local_recording_id": "cabinet-file-title-fallback",
+        },
+        files={"file": ("/Users/private/Саша Трубишина CRM и т.д..m4a", deterministic_wav_bytes(80), "audio/mp4")},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["meeting"]["title"] == "Саша Трубишина CRM и т.д..m4a"
+
+
 def test_cabinet_manual_upload_requires_csrf_for_cookie_session(client) -> None:
     _login_owner_session(client)
 

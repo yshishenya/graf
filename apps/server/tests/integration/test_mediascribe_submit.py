@@ -112,7 +112,7 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     fake_client = FakeMediaScribeClient(external_job_id="job_single_submit")
 
-    async def submit_twice() -> tuple[str, int, bool, str, bool, bool]:
+    async def submit_twice() -> tuple[str, int, str | None, bool, str, bool, bool]:
         async with client.app_state["sessionmaker"]() as db:
             workflow = await store.upsert_processing_workflow(
                 db,
@@ -139,15 +139,17 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
             return (
                 first.job.request_mode,
                 len(fake_client.submissions),
+                str(fake_client.submissions[0]["media_content_type"]),
                 second.submitted,
                 first.job.external_job_id,
                 first.job.source_track_artifact_id is not None,
                 first.job.mic_track_artifact_id is None and first.job.incoming_track_artifact_id is None,
             )
 
-    request_mode, submission_count, second_submitted, external_job_id, has_source, no_pair = asyncio.run(submit_twice())
+    request_mode, submission_count, media_content_type, second_submitted, external_job_id, has_source, no_pair = asyncio.run(submit_twice())
     assert request_mode == "single_track"
     assert submission_count == 1
+    assert media_content_type == "audio/wav"
     assert second_submitted is False
     assert external_job_id == "job_single_submit"
     assert has_source is True

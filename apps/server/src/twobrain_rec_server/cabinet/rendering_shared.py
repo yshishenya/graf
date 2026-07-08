@@ -95,7 +95,7 @@ UI_TEXT: dict[str, str] = {
     "owner": "владелец",
     "Partial": "Частично готово",
     "Processing": "Расшифровка",
-    "Processing result could not be imported safely.": "Результат обработки не удалось безопасно импортировать.",
+    "Transcription service could not accept this media file.": "Сервис расшифровки не принял этот медиафайл.",
     "Public links": "Публичные ссылки",
     "Questions": "Вопросы",
     "Ready": "Готово",

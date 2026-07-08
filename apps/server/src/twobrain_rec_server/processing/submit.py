@@ -98,6 +98,7 @@ async def submit_to_mediascribe(
                 media_bytes = storage.get_bytes(media_artifact.storage_object_key)
             response = await mediascribe_client.submit_single_track(
                 media_bytes=media_bytes,
+                media_content_type=media_artifact.codec,
                 diarize=settings.mediascribe_diarize,
                 summarize=settings.mediascribe_summarize,
             )
