@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-06-28
+Date: 2026-07-08
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -28,6 +28,14 @@ metadata-only evidence остаются подробной историей ре
 - Diagnostics and validation artifacts remain metadata-only and must not include
   raw audio, transcript text, credentials, tokens, signed URLs, passwords, or
   meeting content.
+- Public landing analytics from feature `093-public-landing-analytics` is live
+  on production for `/` and `/download` only. It uses Yandex Metrica public
+  page events, UTM/source attribution, consent-gated Webvisor/replay, and
+  runtime-only provider configuration. Production deploy, provider smoke,
+  rendered-page checks, negative `/login` scope check, and GitHub issue closeout
+  passed on 2026-07-08. Paid campaign launch remains blocked until legal and
+  campaign-readiness approval. Product activation analytics is not included in
+  093 and is tracked as feature `094-product-activation-analytics`.
 - Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
   recording state and one-action stop from feature `007`.
 - Local recording persistence from feature `008` is accepted for local artifact

@@ -159,7 +159,9 @@
 - [X] T050 [US5] Implement provider blocked/failure-safe browser handling in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
 - [X] T051 [US5] Record operations and campaign-readiness evidence in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 
-**Checkpoint**: Analytics can be configured and validated safely, with live provider smoke deferred to an approved campaign/release gate.
+**Checkpoint**: Analytics can be configured and validated safely. Live provider
+smoke was deferred at implementation-closeout time and later completed during
+the approved production closeout recorded in Phase 8.
 
 ---
 
@@ -173,8 +175,15 @@
 - [X] T055 Update `[Unreleased]` in `CHANGELOG.md` for feature `093-public-landing-analytics`
 - [X] T056 Run `infra/scripts/ci-local.sh` and record result in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 - [X] T057 Review `specs/093-public-landing-analytics/checklists/requirements.md`, `specs/093-public-landing-analytics/checklists/privacy.md`, `specs/093-public-landing-analytics/checklists/ux.md`, and `specs/093-public-landing-analytics/checklists/operations.md` against final implementation
-- [X] T058 Record high-risk validation lane, quickstart evidence, CI evidence, structured legal readiness status, no-deploy status, live-provider-smoke deferral, and campaign-readiness boundary in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T058 Record high-risk validation lane, quickstart evidence, CI evidence, structured legal readiness status, initial no-deploy status, initial live-provider-smoke deferral, and campaign-readiness boundary in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 - [X] T059 Mark completed tasks `[X]` only after implementation and validation evidence pass in `specs/093-public-landing-analytics/tasks.md`
+
+Post-closeout note: approved production deploy, Yandex provider setup,
+dashboard access, provider smoke, runtime env propagation, rendered-page
+verification, negative `/login` scope verification, and the remaining
+paid-campaign/legal boundary are recorded in implementation evidence, provider
+setup, changelog, current product status, and the 094 handoff prompt. No new
+task IDs were added after GitHub issue sync.
 
 ---
 
@@ -235,8 +244,12 @@ Task: T034 Add public consent markup, legal page routes, legal links, category c
 1. Run focused tests and ruff.
 2. Run forbidden-content scan.
 3. Run `infra/scripts/ci-local.sh`.
-4. Record evidence and no-deploy/live-provider-smoke deferral.
-5. Sync tasks to GitHub issues only when implementation is approved to proceed.
+4. Record initial implementation evidence and no-deploy/live-provider-smoke
+   deferral.
+5. After separate production approval, record production deploy, provider
+   smoke, dashboard access, rendered-page checks, negative-scope checks, and
+   remaining paid-campaign/legal boundary.
+6. Sync tasks to GitHub issues only when implementation is approved to proceed.
 
 ## Notes
 

@@ -8,14 +8,24 @@ visitor/account data.
 
 ## Yandex Metrica
 
+Production closeout status:
+
+- Counter, domain restriction, Webvisor/scroll/form settings, dashboard access,
+  and six JavaScript-event goals are configured for the approved public scope.
+- Production provider smoke passed for `/` and `/download`.
+- The runtime counter ID is intentionally not committed in this contract.
+
 Required setup:
 
-- Create or select a Metrica counter for the production public site.
-- Configure the production domain used by GRAF.
+- Create or select a Metrica counter for the production public site. Done for
+  the 093 public scope.
+- Configure the production domain used by GRAF. Done for `rec.2brain.pro`.
 - Enable Session Replay, scroll map, and form analysis only if public replay is
-  approved for `/` and `/download`.
+  approved for `/` and `/download`. Done with consent/runtime gating preserved
+  in the browser controller.
 - Link the Metrica counter to Yandex Direct campaigns before campaign launch.
-- Configure JavaScript event goals matching the public event catalog.
+- Configure JavaScript event goals matching the public event catalog. Done for
+  the six public event names below.
 
 Goals:
 
@@ -48,6 +58,9 @@ Runtime environment:
   default until replay scope and consent are approved.
 - `TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION` must change when the
   Russian consent copy materially changes.
+- Production runtime may set the enabled flag, numeric Yandex counter ID, and
+  replay flag externally after approval. Closeout evidence must verify the live
+  container environment and rendered pages, not only host-side `.env` files.
 
 Provider failure and duplicate-init handling:
 
@@ -73,8 +86,8 @@ validation tasks.
 Before paid traffic:
 
 - UTM naming canon is approved.
-- Yandex counter ID and ad account references are configured only in runtime
-  environment/secrets management.
+- Yandex counter ID is configured only in runtime environment/secrets
+  management. Ad account references, if any, must also stay out of git.
 - Consent banner text is approved in Russian.
 - Public privacy, cookie, terms, analytics-consent, and cookie-settings links
   are available from the consent UI and footer.
@@ -90,6 +103,23 @@ Before paid traffic:
 - Known caveats are documented: consent undercount, blocked tags, ad-platform
   attribution windows, duplicate clicks, direct traffic, and download not
   proving activation.
+
+Completed before 093 closeout:
+
+- Public Yandex counter and goals configured.
+- Dashboard access verified.
+- Production deploy and provider smoke passed for `/` and `/download`.
+- Runtime propagation verified from server env into live `rec-api` and rendered
+  public pages.
+- Negative scope verified for `/login`.
+
+Still required before paid campaign launch:
+
+- Legal/campaign-readiness approval by the project owner or reviewer.
+- Personal-data/operator notice status decision.
+- Yandex Direct campaign/linking decision when paid traffic is started.
+- Campaign naming canon and interpretation caveats acknowledged by the growth
+  owner.
 
 Closeout note template:
 
@@ -108,9 +138,8 @@ legal_readiness:
 campaign_readiness:
   decision: blocked
   blocker_summary:
-    - live_provider_smoke_not_approved
     - legal_reviewer_not_approved
-    - dashboard_access_not_verified
+    - paid_campaign_readiness_not_approved
 ```
 
 ## Legal Readiness Evidence

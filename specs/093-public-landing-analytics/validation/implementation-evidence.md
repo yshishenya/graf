@@ -4,10 +4,10 @@
 
 **Current lane**: high-risk product/privacy/egress implementation.
 
-**Release state**: implementation readiness only. No production deploy, live
-provider smoke, provider dashboard access, paid campaign launch, or live
-provider identifiers are part of this evidence unless a separate release or
-campaign-readiness gate is approved.
+**Release state**: production deployed for the approved public scope. Yandex
+Metrica counter/goals, provider dashboard access, and production provider smoke
+are complete for `/` and `/download`; paid campaign launch remains blocked on
+legal/campaign-readiness approval.
 
 ## Baseline Review
 
@@ -318,8 +318,10 @@ Known limitation:
   analytics-consent wording, personal-data operator notification status, and
   any cross-border/provider review must be confirmed by the project owner or
   counsel.
-- No production deploy, live provider smoke, live Yandex goal creation, live
-  account IDs, raw cookies, visitor IDs, or screenshots were added.
+- At this checkpoint, no production deploy, live provider smoke, live Yandex
+  goal creation, live account IDs, raw cookies, visitor IDs, or screenshots
+  were added. Later production closeout evidence below supersedes the
+  deploy/provider-smoke status for the approved public scope.
 
 ### 2026-07-08 - US4 Phase 2 Activation Contract Guardrails
 
@@ -417,16 +419,17 @@ legal_readiness:
 campaign_readiness:
   decision: blocked
   blockers:
-    - live_provider_smoke_not_approved
     - legal_reviewer_not_approved
-    - dashboard_access_not_verified
+    - paid_campaign_readiness_not_approved
 ```
 
 Known limitation:
 
-- No production deploy, live provider smoke, Yandex Direct linking, live
-  dashboard access verification, legal approval, or campaign launch was
-  performed. Paid traffic remains blocked until a separate approval gate.
+- At this checkpoint, live provider smoke, Yandex Direct linking, live
+  dashboard access verification, legal approval, and campaign launch were still
+  deferred. Later production closeout evidence below supersedes the provider
+  smoke/dashboard status for the public scope only. Paid traffic remains
+  blocked until a separate legal/campaign approval gate.
 
 ### 2026-07-08 - Final Closeout Validation
 
@@ -532,16 +535,112 @@ legal_readiness:
   blockers:
     - operator_requisites_not_committed
     - counsel_or_owner_review_not_recorded
-    - live_dashboard_smoke_not_approved
   campaign_decision: blocked
 deployment:
-  production_deploy: not_attempted
-  live_provider_smoke: deferred_until_explicit_approval
+  production_deploy: completed_for_public_scope
+  live_provider_smoke: completed_for_public_scope
   paid_campaign_launch: blocked
 ```
 
 Closeout statement:
 
-- Implementation is ready for review as a local/tested feature slice.
-- It is not a production deployment approval, legal approval, Yandex dashboard
-  approval, or paid campaign launch approval.
+- Implementation and production deployment are complete for the approved public
+  scope `/` and `/download`.
+- This is not legal approval or paid campaign launch approval.
+- This does not expand analytics into login, cabinet, desktop, meetings,
+  uploads, playback, deletion, admin, API, legal pages, or embedded desktop
+  product surfaces.
+
+### 2026-07-08 - Production Provider Closeout
+
+Scope:
+
+- Public analytics live on production for `/` and `/download` only.
+- Login/authenticated/product/legal/API surfaces remain outside 093 analytics
+  scope.
+- Product activation analytics remains feature `094-product-activation-analytics`.
+
+Yandex provider setup:
+
+- Production Yandex Metrica counter was created for `rec.2brain.pro`.
+- Domain-only collection is enabled for the production domain.
+- Webvisor, scroll map, and form analytics are enabled in the provider, but the
+  browser controller still loads Webvisor only after `behavior_replay` consent
+  and only for the approved public pages.
+- Six JavaScript-event goals are configured and visible in Yandex Metrica:
+  `public_landing_viewed`, `public_landing_section_seen`,
+  `public_landing_cta_clicked`, `public_download_viewed`,
+  `public_installer_download_clicked`, and `public_login_intent_clicked`.
+- Provider dashboard links:
+  - Overview: `https://metrica.yandex.ru/overview?id=<runtime-counter-id>`
+  - Goals/conversions:
+    `https://metrica.yandex.ru/stat/conversion_rate?id=<runtime-counter-id>`
+  - Webvisor: Yandex Metrica UI -> Behavior -> Webvisor
+
+Production deployment:
+
+```text
+deploy_result=pass
+branch=codex/deploy-093-public-analytics
+deployed_sha=3e35e9af1def0e106ef811a52ace49b4b6723546
+backup_reference=/opt/projects/2brain-rec/backups/20260708T204545Z
+readiness_verdict=infra_smoke_ready
+smoke_result=pass
+```
+
+Production runtime checks:
+
+- `rec-api` container is healthy.
+- `rec-processing-worker` restarted successfully.
+- Production health endpoints passed:
+  - `https://rec.2brain.pro/api/v1/health/live`
+  - `https://rec.2brain.pro/api/v1/health/ready`
+- Live `rec-api` container environment includes public analytics enabled,
+  runtime Yandex counter ID configured, validation mode disabled, replay flag
+  enabled, and consent copy version `2026-07-08.1`.
+- Rendered HTML verification passed:
+  - `/` contains the public analytics config, runtime counter reference,
+    landing page event catalog, CTA events, and local analytics controller.
+  - `/download` contains the public analytics config, runtime counter
+    reference, download page event catalog, installer-download event, and local
+    analytics controller.
+  - `/login` does not contain the public analytics config or runtime counter.
+- Static/provider reachability passed:
+  - `https://rec.2brain.pro/static/public/analytics.js` returned HTTP 200.
+  - `https://mc.yandex.ru/metrika/tag.js` returned HTTP 200.
+
+Production bug found and fixed during closeout:
+
+- The server-side `.env` contained the public analytics values, but
+  `docker-compose.yml` did not pass those values into `rec-api`; the first
+  post-deploy smoke showed `TWOBRAIN_PUBLIC_ANALYTICS_ENABLED=false` inside the
+  live container and no analytics config in rendered public pages.
+- Fix committed in `effff92a` on the feature branch and deployed from clean
+  deploy branch commit `3e35e9af`: `rec-api` now receives runtime public
+  analytics environment overrides while committed env templates remain safe and
+  disabled by default.
+- Regression coverage added in
+  `apps/server/tests/integration/test_compose_hardening.py` to prove public
+  analytics runtime overrides reach `rec-api` and are not sent to the worker as
+  product analytics.
+
+Final validation summary:
+
+- Focused public analytics tests: `41 passed, 1 warning`
+- Runtime compose mapping tests plus public analytics contracts:
+  `37 passed, 1 warning`
+- Full deployment CI: `1069 passed, 4 skipped, 1 warning`
+- Server lint: `All checks passed!`
+- Production backup/restore rehearsal: `pass`
+- Production smoke: `pass`
+- Open GitHub issues with label `feature:093`: `[]`
+
+Remaining boundaries after full closeout:
+
+- Paid campaign launch remains blocked until legal/campaign-readiness approval
+  is recorded.
+- 093 measures public web intent only; it does not prove install, desktop first
+  open, account connection, recording, result view, or first value.
+- No Google/GA4/GTM/PostHog/product analytics was enabled in 093.
+- 094 must handle product activation analytics through a separate high-risk SDD
+  flow.
