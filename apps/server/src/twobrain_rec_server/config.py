@@ -172,6 +172,14 @@ class Settings(BaseSettings):
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
+        if self.public_analytics_enabled and self.public_analytics_yandex_metrica_id is None:
+            raise ValueError("production public analytics requires public_analytics_yandex_metrica_id")
+        if self.public_analytics_yandex_metrica_id is not None:
+            counter_id = self.public_analytics_yandex_metrica_id.strip()
+            lowered_counter_id = counter_id.lower()
+            placeholder_markers = ("test", "replace", "changeme", "google", "gtm", "ga4", "measurement")
+            if not counter_id.isdigit() or any(marker in lowered_counter_id for marker in placeholder_markers):
+                raise ValueError("production public_analytics_yandex_metrica_id must be a real numeric Yandex counter ID")
         required_secret_files = {
             "postgres_password_file": self.postgres_password_file,
             "minio_access_key_file": self.minio_access_key_file,

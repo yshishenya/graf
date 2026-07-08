@@ -12,6 +12,7 @@ PUBLIC_TEMPLATE_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "templat
 PHASE2_ACTIVATION_CONTRACT = (
     REPO_ROOT / "specs" / "093-public-landing-analytics" / "contracts" / "phase2-activation-contract.md"
 )
+PRODUCTION_ENV_EXAMPLE = REPO_ROOT / "infra" / "env" / "rec.production.env.example"
 
 FORBIDDEN_PHASE1_MARKERS = (
     "googletagmanager.com",
@@ -282,6 +283,38 @@ def test_public_analytics_controller_has_consent_persistence_and_safe_event_allo
     assert "customer@example.com" not in analytics_js
     assert "signed" not in analytics_js.lower()
     assert "passcode" not in analytics_js.lower()
+
+
+def test_public_analytics_production_env_example_is_disabled_and_redacted() -> None:
+    env_example = PRODUCTION_ENV_EXAMPLE.read_text(encoding="utf-8")
+
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_ENABLED=false" in env_example
+    assert "# TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID=" in env_example
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE=disabled" in env_example
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED=false" in env_example
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION=2026-07-08.1" in env_example
+    assert not [
+        line
+        for line in env_example.splitlines()
+        if line.startswith("TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID=")
+    ]
+    assert "GOOGLE" not in env_example
+    assert "GA4" not in env_example
+    assert "GTM" not in env_example
+
+
+def test_public_analytics_controller_is_provider_failure_and_duplicate_init_safe() -> None:
+    analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
+
+    assert "script.onerror = function" in analytics_js
+    assert "api.providerBlocked = true" in analytics_js
+    assert "api.providerLoaded = false" in analytics_js
+    assert "providerInitStarted" in analytics_js
+    assert "api.providerInitStarted = true" in analytics_js
+    assert "document.querySelector('script[data-graf-provider=\"yandex-metrica\"]')" in analytics_js
+    assert "!api.providerBlocked" in analytics_js
+    assert "listenersBound" in analytics_js
+    assert "sectionsObserved" in analytics_js
 
 
 def test_public_phase1_assets_do_not_include_deferred_provider_or_activation_code() -> None:

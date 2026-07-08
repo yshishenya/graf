@@ -227,3 +227,59 @@ def test_public_analytics_referrer_categories_cover_direct_referral_organic_and_
         == "organic"
     )
     assert normalize_public_campaign_attribution({}, referrer="not a url", landing_path="/")["referrer_category"] == "unknown"
+
+
+def test_public_analytics_production_config_accepts_yandex_only_runtime_settings() -> None:
+    settings = _production_public_analytics_settings(
+        public_analytics_enabled=True,
+        public_analytics_yandex_metrica_id="12345678",
+        public_analytics_validation_mode="provider_smoke",
+        public_analytics_replay_enabled=True,
+    )
+
+    assert settings.public_analytics_enabled is True
+    assert settings.public_analytics_yandex_metrica_id == "12345678"
+    assert settings.public_analytics_validation_mode == "provider_smoke"
+    assert settings.public_analytics_replay_enabled is True
+    assert not [
+        field_name
+        for field_name in Settings.model_fields
+        if any(marker in field_name for marker in ("google", "ga4", "gtm"))
+    ]
+
+
+def test_public_analytics_production_config_rejects_missing_or_placeholder_counter_ids() -> None:
+    invalid_counter_ids = (
+        None,
+        "YA_TEST_COUNTER",
+        "replace-me",
+        "G-123456",
+        "GTM-123456",
+        "123abc",
+    )
+
+    for counter_id in invalid_counter_ids:
+        try:
+            _production_public_analytics_settings(
+                public_analytics_enabled=True,
+                public_analytics_yandex_metrica_id=counter_id,
+            )
+        except ValidationError as exc:
+            assert "public_analytics_yandex_metrica_id" in str(exc)
+        else:
+            raise AssertionError(f"invalid analytics counter was accepted: {counter_id!r}")
+
+
+def _production_public_analytics_settings(**overrides: object) -> Settings:
+    values = {
+        "env": "production",
+        "database_url": "postgresql+asyncpg://twobrain_rec:secret@rec-postgres:5432/twobrain_rec",
+        "minio_endpoint": "rec-minio:9000",
+        "minio_access_key": "twobrain_rec_api",
+        "minio_secret_key": "prod-api-secret",
+        "minio_bucket": "twobrain-rec-ingest",
+        "web_csrf_secret": "prod-web-csrf-secret-32-bytes-minimum",
+        "auth_ru_local_storage_attested": True,
+    }
+    values.update(overrides)
+    return Settings(**values)

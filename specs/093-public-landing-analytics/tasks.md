@@ -148,16 +148,16 @@
 
 ### Tests for User Story 5
 
-- [ ] T045 [P] [US5] Add config validation tests for production-like Yandex analytics settings, Google-disabled settings, and placeholder prevention in `apps/server/tests/unit/test_public_analytics.py`
-- [ ] T046 [P] [US5] Add production env example contract tests for analytics variables and no live IDs in `apps/server/tests/contract/test_public_analytics_contract.py`
-- [ ] T047 [P] [US5] Add provider failure and duplicate initialization contract tests in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T045 [P] [US5] Add config validation tests for production-like Yandex analytics settings, Google-disabled settings, and placeholder prevention in `apps/server/tests/unit/test_public_analytics.py`
+- [X] T046 [P] [US5] Add production env example contract tests for analytics variables and no live IDs in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T047 [P] [US5] Add provider failure and duplicate initialization contract tests in `apps/server/tests/contract/test_public_analytics_contract.py`
 
 ### Implementation for User Story 5
 
-- [ ] T048 [US5] Add commented analytics environment variables to `infra/env/rec.production.env.example`
-- [ ] T049 [US5] Add provider setup, structured legal readiness evidence fields, and campaign readiness closeout notes to `specs/093-public-landing-analytics/contracts/analytics-provider-setup.md`
-- [ ] T050 [US5] Implement provider blocked/failure-safe browser handling in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T051 [US5] Record operations and campaign-readiness evidence in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T048 [US5] Add commented analytics environment variables to `infra/env/rec.production.env.example`
+- [X] T049 [US5] Add provider setup, structured legal readiness evidence fields, and campaign readiness closeout notes to `specs/093-public-landing-analytics/contracts/analytics-provider-setup.md`
+- [X] T050 [US5] Implement provider blocked/failure-safe browser handling in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T051 [US5] Record operations and campaign-readiness evidence in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 
 **Checkpoint**: Analytics can be configured and validated safely, with live provider smoke deferred to an approved campaign/release gate.
 

@@ -358,3 +358,72 @@ Known limitation:
 - Product activation attribution is still out of Phase 1. A later
   legal-approved Spec Kit slice must choose provider, identity, consent/notice,
   retention, deletion truth, and validation before implementation.
+
+### 2026-07-08 - US5 Operations And Campaign Readiness
+
+Implemented:
+
+- Production config rejects enabled public analytics without a Yandex counter
+  ID and rejects non-numeric placeholder/test/Google/GTM-like counter values in
+  production.
+- Runtime settings remain Yandex-only; no Google/GA4/GTM runtime settings were
+  added.
+- Production env example documents disabled-by-default public analytics,
+  runtime-only Yandex counter ID, validation mode, replay flag, and consent
+  copy version without committing a live ID.
+- Provider setup contract now records runtime env checklist, provider
+  failure/duplicate-init behavior, and a structured campaign closeout template.
+- Browser controller records provider script load failure, stops future custom
+  event dispatch when provider is blocked, and avoids duplicate provider script
+  initialization.
+
+Commands:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py
+
+cd apps/server && PYTHONPATH=src uv run --extra dev ruff check \
+  src/twobrain_rec_server/config.py \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py
+
+node --check apps/server/src/twobrain_rec_server/public/static/public/analytics.js
+git diff --check
+```
+
+Result:
+
+- Focused pytest: `25 passed, 1 warning`
+- Focused ruff: `All checks passed!`
+- `node --check` passed
+- `git diff --check` passed
+
+Campaign readiness status:
+
+```yaml
+feature: 093-public-landing-analytics
+analytics_runtime:
+  enabled: false
+  yandex_counter_id: runtime_only_redacted
+  validation_mode: disabled
+  replay_enabled: false
+legal_readiness:
+  owner: not_assigned
+  review_status: not_started
+  operator_notice_status: not_checked
+  foreign_provider_status: yandex_only_phase1_google_deferred
+campaign_readiness:
+  decision: blocked
+  blockers:
+    - live_provider_smoke_not_approved
+    - legal_reviewer_not_approved
+    - dashboard_access_not_verified
+```
+
+Known limitation:
+
+- No production deploy, live provider smoke, Yandex Direct linking, live
+  dashboard access verification, legal approval, or campaign launch was
+  performed. Paid traffic remains blocked until a separate approval gate.

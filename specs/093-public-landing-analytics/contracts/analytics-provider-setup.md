@@ -36,6 +36,30 @@ Dashboard requirements:
 - Funnel or goal report from landing view to installer download click.
 - Session Replay/scroll map review limited to public pages.
 
+Runtime environment:
+
+- `TWOBRAIN_PUBLIC_ANALYTICS_ENABLED=false` remains the committed default.
+- `TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID` is a runtime-only numeric
+  counter ID; do not commit a live ID.
+- `TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE=disabled` is the committed
+  production example default. Use `render_only` only for local/test rendering
+  validation and `provider_smoke` only with explicit campaign/release approval.
+- `TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED=false` remains the committed
+  default until replay scope and consent are approved.
+- `TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION` must change when the
+  Russian consent copy materially changes.
+
+Provider failure and duplicate-init handling:
+
+- Blocking the Yandex tag must not break navigation, CTA clicks, installer
+  download, login intent, or legal-page access.
+- Provider script load failure is recorded as a measurement caveat; it is not
+  shown as a user-facing error.
+- The browser controller must not append duplicate Yandex provider scripts for
+  repeated consent callbacks or multiple tracked actions.
+- Duplicate event prevention is handled inside the page controller and should
+  be verified before launch.
+
 ## Google Deferred Scope
 
 GA4, Google Analytics, Google Ads tags, Google Tag Manager, and Google
@@ -66,6 +90,28 @@ Before paid traffic:
 - Known caveats are documented: consent undercount, blocked tags, ad-platform
   attribution windows, duplicate clicks, direct traffic, and download not
   proving activation.
+
+Closeout note template:
+
+```yaml
+feature: 093-public-landing-analytics
+analytics_runtime:
+  enabled: false
+  yandex_counter_id: runtime_only_redacted
+  validation_mode: disabled
+  replay_enabled: false
+legal_readiness:
+  owner: not_assigned
+  review_status: not_started
+  operator_notice_status: not_checked
+  foreign_provider_status: yandex_only_phase1_google_deferred
+campaign_readiness:
+  decision: blocked
+  blocker_summary:
+    - live_provider_smoke_not_approved
+    - legal_reviewer_not_approved
+    - dashboard_access_not_verified
+```
 
 ## Legal Readiness Evidence
 

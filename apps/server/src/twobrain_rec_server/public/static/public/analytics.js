@@ -29,6 +29,7 @@
   var sectionsObserved = false;
   var currentCategories = [];
   var currentConsentState = "unknown";
+  var providerInitStarted = false;
   var optionalConsentCategories = ["analytics", "advertising_attribution", "behavior_replay"];
   (config.event_catalog || []).forEach(function (event) {
     if (event && event.event_name) {
@@ -157,18 +158,21 @@
 
   function ensureYandexProvider(categories) {
     var grantedCategories = normalizedCategories(categories);
-    if (!hasCategory(grantedCategories, "analytics") || !config.yandex_metrica_id) {
+    if (api.providerBlocked || !hasCategory(grantedCategories, "analytics") || !config.yandex_metrica_id) {
       return false;
     }
     currentCategories = grantedCategories;
     currentConsentState = consentStateForCategories(grantedCategories);
     api.currentCategories = currentCategories.slice();
     api.currentConsentState = currentConsentState;
-    if (api.providerLoaded || document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
+    if (api.providerLoaded || providerInitStarted || document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
       api.providerLoaded = true;
+      api.providerInitStarted = true;
       return true;
     }
 
+    providerInitStarted = true;
+    api.providerInitStarted = true;
     window.ym =
       window.ym ||
       function () {
@@ -185,6 +189,9 @@
     };
     script.onerror = function () {
       api.providerBlocked = true;
+      api.providerLoaded = false;
+      api.providerInitStarted = false;
+      providerInitStarted = false;
     };
     document.head.appendChild(script);
     window.ym(config.yandex_metrica_id, "init", {
@@ -205,6 +212,7 @@
     if (
       hasCategory(currentCategories, "analytics") &&
       api.providerLoaded &&
+      !api.providerBlocked &&
       window.ym &&
       config.yandex_metrica_id
     ) {
@@ -436,10 +444,11 @@
     dispatchOnce: dispatchOnce,
     ensureYandexProvider: ensureYandexProvider,
     providerBlocked: false,
+    providerInitStarted: false,
     providerLoaded: false,
     sentEvents: [],
     startGrantedTracking: startGrantedTracking,
-    version: "093-us3",
+    version: "093-us5",
   };
 
   window.GRAFPublicAnalytics = api;
