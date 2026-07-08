@@ -200,6 +200,13 @@ async def upsert_processing_workflow(
         workflow.status = status.value
         workflow.last_reason_code = reason_code
         workflow.attempt_count += 1
+        if status not in {
+            ProcessingStatus.PROCESSED,
+            ProcessingStatus.BLOCKED,
+            ProcessingStatus.FAILED_TERMINAL,
+            ProcessingStatus.CANCELED,
+        }:
+            workflow.ended_at = None
         if workflow.started_at is None:
             workflow.started_at = now
     await _sync_meeting_processing_status(db, workspace_id=workspace_id, meeting_id=meeting_id, status=status)
@@ -329,6 +336,9 @@ async def persist_mediascribe_submission(
     job.external_job_id = external_job_id
     job.status = status.value
     job.submitted_at = job.submitted_at or datetime.now(UTC)
+    job.failed_at = None
+    job.last_error_code = None
+    job.last_error_message = None
     await db.commit()
     return job
 

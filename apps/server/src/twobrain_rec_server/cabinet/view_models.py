@@ -1421,7 +1421,7 @@ def reason_label(reason_code: str | None) -> str | None:
     if reason_code is None:
         return None
     return {
-        "mediascribe_validation_failed": "Processing result could not be imported safely.",
+        "mediascribe_validation_failed": "Transcription service could not accept this media file.",
         "blocked_config": "Processing is blocked by server configuration.",
     }.get(reason_code, "Processing needs operator review.")
 

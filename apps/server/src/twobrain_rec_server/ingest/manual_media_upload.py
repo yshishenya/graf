@@ -67,6 +67,16 @@ def _manifest_bytes(*, duration_seconds: int, media_sha256: str, media_byte_leng
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def _display_title_from_upload(*, title: str | None, filename: str | None) -> str | None:
+    cleaned_title = title.strip() if title is not None else ""
+    if cleaned_title:
+        return cleaned_title[:500]
+    if not filename:
+        return None
+    basename = filename.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    return basename[:500] or None
+
+
 async def accept_manual_media_upload(
     *,
     settings: Settings,
@@ -90,6 +100,7 @@ async def accept_manual_media_upload(
     recording_id = local_recording_id or f"manual-upload-{media_sha256[:32]}"
     media_revision_id = f"{recording_id}--manual"
     content_type = file.content_type or "application/octet-stream"
+    display_title = _display_title_from_upload(title=title, filename=file.filename)
     manifest_bytes = _manifest_bytes(
         duration_seconds=duration_seconds,
         media_sha256=media_sha256,
@@ -117,7 +128,7 @@ async def accept_manual_media_upload(
             local_recording_id=recording_id,
             local_media_revision_id=media_revision_id,
             duration_seconds=duration_seconds,
-            title=title,
+            title=display_title,
             media_revision_source_kind=MediaRevisionSourceKind.MANUAL_UPLOAD,
         )
         session = await create_upload_session(

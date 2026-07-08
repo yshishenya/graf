@@ -48,12 +48,14 @@ class FakeMediaScribeClient:
         media_bytes: bytes,
         diarize: bool,
         summarize: bool,
+        media_content_type: str | None = None,
     ) -> MediaScribeSubmitResponse:
         self.submissions.append(
             {
                 "request_mode": "single_track",
                 "media_size": len(media_bytes),
                 "media_sha256": sha256(media_bytes).hexdigest(),
+                "media_content_type": media_content_type,
                 "diarize": diarize,
                 "summarize": summarize,
             }

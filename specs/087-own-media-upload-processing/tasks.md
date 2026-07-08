@@ -90,6 +90,22 @@ one-track MediaScribe endpoint and import results through existing review data.
 
 ---
 
+## Phase 7: Post-Release Repair - MediaScribe Submit Metadata And Reprocess
+
+**Purpose**: Apply production feedback after real manual uploads: MediaScribe
+must receive usable single-track media metadata, the UI must show truthful
+failure copy, manually uploaded meetings need the expected title fallback, and
+already accepted failed uploads need a metadata-safe reprocess path.
+
+- [X] T024 Add MediaScribe single-track filename/MIME regression coverage in `apps/server/tests/unit/test_mediascribe_request_mapping.py`
+- [X] T025 Pass accepted media artifact MIME metadata into single-track submit in `apps/server/src/twobrain_rec_server/processing/submit.py` and `apps/server/src/twobrain_rec_server/mediascribe/client.py`
+- [X] T026 Add manual-upload display-title fallback coverage and implementation in `apps/server/tests/integration/test_cabinet_manual_upload.py` and `apps/server/src/twobrain_rec_server/ingest/manual_media_upload.py`
+- [X] T027 Replace misleading `mediascribe_validation_failed` user copy in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/rendering_shared.py`
+- [X] T028 Add metadata-safe accepted-upload reprocess tooling in `apps/server/scripts/reprocess_manual_media_uploads.py`
+- [ ] T029 Run focused validation, production deploy/smoke, and metadata-safe reprocess evidence for the post-release repair
+
+---
+
 ## Dependencies & Execution Order
 
 1. Phase 1 tests precede production implementation.
@@ -97,6 +113,8 @@ one-track MediaScribe endpoint and import results through existing review data.
 3. User Story 1 and User Story 2 integrate through existing processing workflow and should be validated together after their independent tests pass.
 4. User Story 3 regression runs after the one-track changes.
 5. Phase 6 runs after all behavior tasks are complete.
+6. Phase 7 is a post-release repair and runs after the production failure mode
+   is confirmed from metadata-safe source/code evidence.
 
 ## Parallel Opportunities
 
