@@ -102,7 +102,8 @@ already accepted failed uploads need a metadata-safe reprocess path.
 - [X] T026 Add manual-upload display-title fallback coverage and implementation in `apps/server/tests/integration/test_cabinet_manual_upload.py` and `apps/server/src/twobrain_rec_server/ingest/manual_media_upload.py`
 - [X] T027 Replace misleading `mediascribe_validation_failed` user copy in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/rendering_shared.py`
 - [X] T028 Add metadata-safe accepted-upload reprocess tooling in `apps/server/scripts/reprocess_manual_media_uploads.py`
-- [ ] T029 Run focused validation, production deploy/smoke, and metadata-safe reprocess evidence for the post-release repair
+- [X] T029 Run focused validation, production deploy/smoke, and metadata-safe reprocess evidence for the post-release repair
+- [X] T030 Repair manual-upload `SPEAKER_XX` review mapping in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` by using content-bearing diarization rows as the manual-upload display source, falling back to transcript text when diarization has no text, and cover dual-track regressions in `apps/server/tests/unit/test_cabinet_view_models.py`
 
 ---
 

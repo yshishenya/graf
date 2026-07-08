@@ -14,12 +14,14 @@ from twobrain_rec_server.cabinet import view_models
 from twobrain_rec_server.calendar.normalize import normalize_calendar_participants
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    MediaRevision,
     Meeting,
     ProcessingResult,
     ProcessingWorkflow,
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import (
+    MediaRevisionSourceKind,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     ProcessingStatus,
@@ -325,6 +327,530 @@ def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() ->
     }
 
 
+def test_dual_track_mapping_keeps_dependency_labels_when_speaker_style_label_is_present() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("1.000"),
+            text="local audio",
+            source_role="mic",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("1.000"),
+            end_seconds=Decimal("2.000"),
+            text="remote audio",
+            source_role="incoming",
+        ),
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("1.000"),
+            text="local audio",
+            speaker_label="SPEAKER_00",
+            source_role="mic",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("1.000"),
+            end_seconds=Decimal("2.000"),
+            text="remote audio",
+            speaker_label="REMOTE_00",
+            source_role="incoming",
+        ),
+    ]
+
+    transcript_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+    )
+    speaker_state = view_models.speaker_state(diarization)
+
+    assert [segment.speaker_label for segment in transcript_state.segments] == [
+        "SPEAKER_00",
+        "REMOTE_00",
+    ]
+    assert {speaker.label for speaker in speaker_state.speakers} == {"SPEAKER_00", "REMOTE_00"}
+
+
+def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.500"),
+            end_seconds=Decimal("4.500"),
+            text="speaker zero",
+            source_role="incoming",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("5.500"),
+            end_seconds=Decimal("9.500"),
+            text="speaker one",
+            source_role="incoming",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=2,
+            start_seconds=Decimal("10.500"),
+            end_seconds=Decimal("12.000"),
+            text="unknown dependency label",
+            source_role="incoming",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=3,
+            start_seconds=Decimal("15.500"),
+            end_seconds=Decimal("19.500"),
+            text="speaker two sequence mismatch",
+            source_role="incoming",
+        ),
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("5.000"),
+            text="speaker zero",
+            speaker_label="SPEAKER_00",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("5.000"),
+            end_seconds=Decimal("10.000"),
+            text="speaker one",
+            speaker_label="SPEAKER_01",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=2,
+            start_seconds=Decimal("10.000"),
+            end_seconds=Decimal("13.000"),
+            text="unknown dependency label",
+            speaker_label="UNKNOWN",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=99,
+            start_seconds=Decimal("14.000"),
+            end_seconds=Decimal("22.000"),
+            text="speaker two",
+            speaker_label=" SPEAKER_02 ",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert [segment.speaker_label for segment in state.segments] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+        "SPEAKER_01",
+        "SPEAKER_02",
+    ]
+    assert [segment.text for segment in state.segments] == [
+        "speaker zero",
+        "speaker one",
+        "unknown dependency label",
+        "speaker two",
+    ]
+    assert "Incoming system" not in {segment.speaker_label for segment in state.segments}
+    assert "UNKNOWN" not in {segment.speaker_label for segment in state.segments}
+
+
+def test_manual_upload_transcript_uses_speaker_zero_when_diarization_is_missing() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="single track text",
+            source_role="incoming",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("11.000"),
+            end_seconds=Decimal("20.000"),
+            text="single track text",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert [segment.speaker_label for segment in state.segments] == ["SPEAKER_00", "SPEAKER_00"]
+
+
+def test_manual_upload_review_response_falls_back_to_speaker_zero_without_diarization() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    result = ProcessingResult(
+        id=result_id,
+        meeting_id=meeting.id,
+        media_revision_id=uuid4(),
+        workspace_id=meeting.workspace_id,
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+        segment_count=1,
+        diarization_segment_count=0,
+    )
+    media_revision = MediaRevision(
+        id=result.media_revision_id,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        local_media_revision_id="manual-review-speaker-labels",
+        revision_number=1,
+        source_kind=MediaRevisionSourceKind.MANUAL_UPLOAD.value,
+        status="accepted",
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="single track text",
+            source_role="incoming",
+        )
+    ]
+
+    response = view_models.build_review_response(
+        meeting,
+        media_revision=media_revision,
+        result=result,
+        workflow=None,
+        transcript_segments=transcript,
+        diarization_segments=[],
+        dependency=None,
+    )
+
+    assert response.meeting.source == "manual_upload"
+    assert [segment.speaker_label for segment in response.transcript.segments] == ["SPEAKER_00"]
+
+
+def test_manual_upload_review_response_uses_diarization_as_transcript_source() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    result = ProcessingResult(
+        id=result_id,
+        meeting_id=meeting.id,
+        media_revision_id=uuid4(),
+        workspace_id=meeting.workspace_id,
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        segment_count=1,
+        diarization_segment_count=1,
+    )
+    media_revision = MediaRevision(
+        id=result.media_revision_id,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        local_media_revision_id="manual-review-diarization-source",
+        revision_number=1,
+        source_kind=MediaRevisionSourceKind.MANUAL_UPLOAD.value,
+        status="accepted",
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("40.000"),
+            end_seconds=Decimal("45.000"),
+            text="transcript row should not be used",
+            source_role="incoming",
+        )
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("5.000"),
+            text="diarization row is the review source",
+            speaker_label="SPEAKER_01",
+            source_role="incoming",
+        )
+    ]
+
+    response = view_models.build_review_response(
+        meeting,
+        media_revision=media_revision,
+        result=result,
+        workflow=None,
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        dependency=None,
+    )
+
+    assert [segment.text for segment in response.transcript.segments] == [
+        "diarization row is the review source"
+    ]
+    assert [segment.speaker_label for segment in response.transcript.segments] == ["SPEAKER_01"]
+
+
+def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization_text_is_blank() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("4.000"),
+            text="first transcript row",
+            source_role="incoming",
+        ),
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("10.000"),
+            end_seconds=Decimal("14.000"),
+            text="second transcript row",
+            source_role="incoming",
+        ),
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("5.000"),
+            text="",
+            speaker_label="SPEAKER_00",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("9.000"),
+            end_seconds=Decimal("15.000"),
+            text=" ",
+            speaker_label="SPEAKER_01",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert [segment.text for segment in state.segments] == [
+        "first transcript row",
+        "second transcript row",
+    ]
+    assert [segment.speaker_label for segment in state.segments] == ["SPEAKER_00", "SPEAKER_01"]
+    assert all(segment.text.strip() for segment in state.segments)
+
+
+def test_manual_upload_transcript_omits_blank_diarization_display_rows() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("5.000"),
+            text="",
+            speaker_label="SPEAKER_00",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("1.000"),
+            end_seconds=Decimal("4.000"),
+            text="speaker zero text",
+            speaker_label="UNKNOWN",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=2,
+            start_seconds=Decimal("5.000"),
+            end_seconds=Decimal("9.000"),
+            text="speaker one text",
+            speaker_label="SPEAKER_01",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert [segment.text for segment in state.segments] == [
+        "speaker zero text",
+        "speaker one text",
+    ]
+    assert [segment.speaker_label for segment in state.segments] == ["SPEAKER_00", "SPEAKER_01"]
+    assert all(segment.text.strip() for segment in state.segments)
+
+
+def test_mediascribe_speaker_time_matcher_handles_long_inputs_without_source_fallbacks() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=sequence,
+            start_seconds=Decimal(sequence * 5),
+            end_seconds=Decimal(sequence * 5 + 4),
+            text="single track text",
+            source_role="incoming",
+        )
+        for sequence in range(1200)
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=speaker_index,
+            start_seconds=Decimal(speaker_index * 500),
+            end_seconds=Decimal((speaker_index + 1) * 500 - 1),
+            text="speaker region",
+            speaker_label=f"SPEAKER_{speaker_index:02d}",
+            source_role="incoming",
+        )
+        for speaker_index in range(12)
+    ]
+
+    labels = view_models.mediascribe_speaker_labels_by_time(transcript, diarization)
+
+    assert len(labels) == 1200
+    assert set(labels) == {
+        f"SPEAKER_{speaker_index:02d}" for speaker_index in range(12)
+    }
+    assert labels[0] == "SPEAKER_00"
+    assert labels[100] == "SPEAKER_01"
+    assert labels[-1] == "SPEAKER_11"
+
+
 def test_transcript_mapping_marks_valid_segments_seekable_when_playback_available() -> None:
     meeting = _meeting()
     result_id = uuid4()
@@ -406,6 +932,78 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
         ("Speaker 1", 50),
         ("Speaker 2", 50),
     ]
+
+
+def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_present() -> None:
+    result_id = uuid4()
+    meeting_id = uuid4()
+    workspace_id = uuid4()
+    segments = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting_id,
+            workspace_id=workspace_id,
+            sequence=0,
+            start_seconds=Decimal(0),
+            end_seconds=Decimal(10),
+            text="one",
+            speaker_label="SPEAKER_00",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting_id,
+            workspace_id=workspace_id,
+            sequence=1,
+            start_seconds=Decimal(11),
+            end_seconds=Decimal(12),
+            text="unknown",
+            speaker_label="UNKNOWN",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting_id,
+            workspace_id=workspace_id,
+            sequence=2,
+            start_seconds=Decimal(20),
+            end_seconds=Decimal(30),
+            text="two",
+            speaker_label="SPEAKER_01",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.speaker_state(segments, force_speaker_labels=True)
+
+    assert {speaker.label for speaker in state.speakers} == {"SPEAKER_00", "SPEAKER_01"}
+
+
+def test_manual_upload_speaker_mapping_uses_speaker_zero_when_only_unknown_rows_exist() -> None:
+    result_id = uuid4()
+    meeting_id = uuid4()
+    workspace_id = uuid4()
+    segments = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting_id,
+            workspace_id=workspace_id,
+            sequence=0,
+            start_seconds=Decimal(0),
+            end_seconds=Decimal(10),
+            text="unknown dependency label",
+            speaker_label="UNKNOWN",
+            source_role="incoming",
+        )
+    ]
+
+    state = view_models.speaker_state(segments, force_speaker_labels=True)
+
+    assert [speaker.label for speaker in state.speakers] == ["SPEAKER_00"]
 
 
 def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -> None:
