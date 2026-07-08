@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <meta
+      name="description"
+      content="Политика cookies GRAF для публичного сайта и аналитики."
+    >
+    <meta name="theme-color" content="#05090a">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <div class="site-shell legal-shell">
+      <header class="site-header" aria-label="GRAF">
+        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <nav class="top-nav" aria-label="Основные разделы">
+          <a href="/">Главная</a>
+          <a href="/download">Скачать</a>
+        </nav>
+      </header>
+
+      <main id="main" class="legal-page">
+        <p class="section-label">Cookies</p>
+        <h1>Политика cookies</h1>
+        <p class="legal-status">
+          Рабочая редакция. Перед paid launch нужно подтвердить формулировки,
+          реквизиты оператора и уведомление об обработке персональных данных.
+        </p>
+
+        <section class="legal-section" aria-labelledby="cookies-types">
+          <h2 id="cookies-types">Какие категории используются</h2>
+          <ul>
+            <li><strong>Необходимые.</strong> Сохраняют выбор по cookies и помогают сайту работать.</li>
+            <li><strong>Аналитика.</strong> Включает Яндекс Метрику для посещений, источников и кликов.</li>
+            <li><strong>Рекламная атрибуция.</strong> Помогает связать UTM-кампании с web-конверсией.</li>
+            <li><strong>Поведенческая запись.</strong> Включает replay только на / и /download после отдельного согласия.</li>
+          </ul>
+        </section>
+
+        <section class="legal-section" aria-labelledby="cookies-storage">
+          <h2 id="cookies-storage">Где хранится выбор</h2>
+          <p>
+            Выбор сохраняется локально в браузере для текущей редакции текста
+            согласия. Если редакция согласия существенно изменится, сайт может
+            снова показать настройки.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="cookies-yandex">
+          <h2 id="cookies-yandex">Cookies Яндекс Метрики</h2>
+          <p>
+            После согласия Яндекс Метрика может использовать cookies и
+            localStorage для обезличенной статистики посещений, источников
+            трафика и поведения на публичных страницах. Без согласия эти
+            provider scripts не загружаются.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="cookies-change">
+          <h2 id="cookies-change">Как изменить выбор</h2>
+          <p>
+            На публичных страницах доступна кнопка настроек cookies. Через нее
+            можно оставить только необходимые cookies, разрешить все категории
+            или выбрать категории отдельно.
+          </p>
+        </section>
+      </main>
+    </div>
+    {% include "public/_analytics.html" %}
+  </body>
+</html>

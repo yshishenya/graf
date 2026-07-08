@@ -9,22 +9,42 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `093-public-landing-analytics`: добавлена публичная аналитика
+  лендинга и `/download` на Yandex Metrica с disabled-by-default runtime,
+  UTM attribution, стабильными событиями воронки, consent UI на
+  CookieConsent v3.1.0, legal pages и локальными assets без CDN.
+- Feature `094-product-activation-analytics`: зафиксирован backlog/SDD prompt
+  для следующей высокорисковой продуктовой аналитики после 093 с контекстом
+  Yandex/PostHog, attribution bridge, masking/replay gates и production smoke
+  lessons learned из public analytics closeout.
 
 ### Изменено
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `093-public-landing-analytics`: production compose теперь передает
+  runtime public analytics env в `rec-api`; post-deploy smoke поймал случай,
+  когда `.env` на сервере был обновлен, но контейнер продолжал работать с
+  disabled defaults.
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `093-public-landing-analytics`: provider scripts не загружаются до
+  согласия на analytics; Webvisor/replay ограничен публичными страницами и
+  отдельной категорией `behavior_replay`; public analytics отсутствует на
+  login, cabinet, admin, API, legal и product/content-bearing surfaces.
 
 ### Документы
-- _Пока нет записей._
+- Feature `093-public-landing-analytics`: добавлены provider setup, Phase 2
+  activation contract guardrails, implementation evidence, legal-readiness
+  notes и campaign-readiness boundary с явным deferral для Google/GA4/GTM и
+  PostHog/product analytics.
 
 ### Операции
-- _Пока нет записей._
+- Feature `093-public-landing-analytics`: production env example получил
+  безопасные public analytics variables без live IDs; Yandex counter/goals,
+  dashboard access, production deploy и provider smoke завершены для `/` и
+  `/download`; paid campaign launch остается blocked до legal/campaign-
+  readiness approval.
 
 ## [2026.07.08.7] - 2026-07-08
 

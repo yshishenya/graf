@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     support_incident_github_timeout_seconds: PositiveInt = Field(default=4)
     support_incident_rate_limit_window_seconds: PositiveInt = Field(default=3600)
     support_incident_rate_limit_max_attempts: PositiveInt = Field(default=10)
+    public_analytics_enabled: bool = False
+    public_analytics_yandex_metrica_id: str | None = None
+    public_analytics_validation_mode: str = "disabled"
+    public_analytics_replay_enabled: bool = False
+    public_analytics_consent_copy_version: str = "2026-07-08.1"
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None
@@ -146,6 +151,7 @@ class Settings(BaseSettings):
         "credential_encryption_key_file",
         "web_csrf_secret_file",
         "support_incident_github_token_file",
+        "public_analytics_yandex_metrica_id",
         mode="before",
     )
     @classmethod
@@ -154,10 +160,26 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("public_analytics_validation_mode")
+    @classmethod
+    def validate_public_analytics_validation_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"disabled", "render_only", "provider_smoke"}:
+            raise ValueError("public_analytics_validation_mode must be disabled, render_only, or provider_smoke")
+        return normalized
+
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
+        if self.public_analytics_enabled and self.public_analytics_yandex_metrica_id is None:
+            raise ValueError("production public analytics requires public_analytics_yandex_metrica_id")
+        if self.public_analytics_yandex_metrica_id is not None:
+            counter_id = self.public_analytics_yandex_metrica_id.strip()
+            lowered_counter_id = counter_id.lower()
+            placeholder_markers = ("test", "replace", "changeme", "google", "gtm", "ga4", "measurement")
+            if not counter_id.isdigit() or any(marker in lowered_counter_id for marker in placeholder_markers):
+                raise ValueError("production public_analytics_yandex_metrica_id must be a real numeric Yandex counter ID")
         required_secret_files = {
             "postgres_password_file": self.postgres_password_file,
             "minio_access_key_file": self.minio_access_key_file,

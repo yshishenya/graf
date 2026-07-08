@@ -13,8 +13,12 @@ def test_public_landing_static_assets_are_local_to_server_package() -> None:
     assert (PUBLIC_STATIC_DIR / "landing.css").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-hero-product.png").is_file()
     assert (PUBLIC_STATIC_DIR / "downloads" / "graf-local.pkg").is_file()
+    assert (PUBLIC_STATIC_DIR / "analytics.js").is_file()
+    assert (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").is_file()
+    assert (PUBLIC_STATIC_DIR / "cookieconsent.css").is_file()
     assert (PUBLIC_TEMPLATE_DIR / "landing.html").is_file()
     assert (PUBLIC_TEMPLATE_DIR / "download.html").is_file()
+    assert (PUBLIC_TEMPLATE_DIR / "_analytics.html").is_file()
 
 
 def test_public_landing_static_assets_are_mounted_by_app() -> None:
@@ -24,7 +28,14 @@ def test_public_landing_static_assets_are_mounted_by_app() -> None:
 
 
 def test_public_landing_css_avoids_runtime_cdns_or_client_toolchain() -> None:
-    content = (PUBLIC_STATIC_DIR / "landing.css").read_text().lower()
+    content = "\n".join(
+        [
+            (PUBLIC_STATIC_DIR / "landing.css").read_text().lower(),
+            (PUBLIC_STATIC_DIR / "analytics.js").read_text().lower(),
+            (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").read_text().lower(),
+            (PUBLIC_STATIC_DIR / "cookieconsent.css").read_text().lower(),
+        ]
+    )
     forbidden = (
         "cdn.",
         "cdnjs",
@@ -43,6 +54,16 @@ def test_public_landing_css_avoids_runtime_cdns_or_client_toolchain() -> None:
     )
 
     assert not [marker for marker in forbidden if marker in content]
+
+
+def test_public_landing_cookieconsent_assets_are_pinned_and_attributed() -> None:
+    cookieconsent_js = (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").read_text(encoding="utf-8")
+    cookieconsent_css = (PUBLIC_STATIC_DIR / "cookieconsent.css").read_text(encoding="utf-8")
+
+    assert "CookieConsent 3.1.0" in cookieconsent_js
+    assert "Released under the MIT License" in cookieconsent_js
+    assert "CookieConsent 3.1.0" in cookieconsent_css
+    assert "Released under the MIT License" in cookieconsent_css
 
 
 def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
