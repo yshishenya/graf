@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: github-issue-canon
   name: "GitHub Issue Canon"
-  version: "0.2.1"
+  version: "0.2.5"
   description: "Installs and enforces a Russian Spec Kit-traceable GitHub issue and PR canon around task-to-issue sync"
   author: yshishenya
   repository: https://github.com/yshishenya/spec-kit-ext-github-issue-canon
@@ -56,6 +56,6 @@ tags:
 
 config:
   defaults:
-    title_format: "[{feature}][{priority}][{area}] {outcome}"
+    title_format: "[{feature}][{priority}][{area}] {task}: {outcome}"
     normalize_after_taskstoissues: true
     fail_on_invalid: true

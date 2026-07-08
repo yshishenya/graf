@@ -6,6 +6,40 @@ All notable changes to this project are documented in this file.
 
 - No entries yet.
 
+## [0.2.5] - 2026-07-08
+
+### Fixed
+
+- Fixed normalization for hierarchical area labels such as
+  `area:support/custody`: if the full area label already exists, normalization
+  no longer tries to add a redundant missing root label such as `area:support`.
+
+## [0.2.4] - 2026-07-08
+
+### Fixed
+
+- Fixed normalization so it does not call `gh issue edit` for already canonical
+  issues that need no title, body, or label changes.
+
+## [0.2.3] - 2026-07-08
+
+### Changed
+
+- Made the Spec Kit task issue title canon explicit and enforceable:
+  `[<feature>][<priority>][<area>] T###: <русский результат>`.
+- Clarified that generic `$speckit-taskstoissues` titles such as
+  `T001: <description>` are fallback guidance only for repositories without this
+  project canon.
+- Updated normalization so legacy canon titles and bare `T###: ...` titles are
+  migrated into the canonical repository title format.
+- Reduced GitHub label sync noise by listing labels once and editing only labels
+  that are missing or out of date.
+
+### Fixed
+
+- Aligned `extension.yml` and `catalog.json` version metadata with the released
+  extension line.
+
 ## [0.2.2] - 2026-06-26
 
 ### Added

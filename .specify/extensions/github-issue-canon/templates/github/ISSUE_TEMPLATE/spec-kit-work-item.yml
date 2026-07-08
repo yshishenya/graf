@@ -1,14 +1,14 @@
 name: Spec Kit задача
 description: Создать issue, связанный со Spec Kit задачей, review, hardening или документацией.
-title: "[012][P0][area] Коротко опиши результат по-русски"
+title: "[012][P0][area] T000: Коротко опиши результат по-русски"
 labels:
   - needs-triage
 body:
   - type: markdown
     attributes:
       value: |
-        Используй canonical title format: `[<feature>][<priority>][<area>] <результат простыми словами>`.
-        Пример: `[012][P0][ingest/finalize] Отклонять несовпадающие manifest до finalize`
+        Используй canonical title format: `[<feature>][<priority>][<area>] T###: <русский результат>`.
+        Пример: `[012][P0][ingest/finalize] T119: Отклонять несовпадающие manifest до finalize`
 
   - type: input
     id: summary
@@ -118,7 +118,7 @@ body:
     attributes:
       label: Подтверждение canon
       options:
-        - label: Title следует формату `[<feature>][<priority>][<area>] <результат простыми словами>`.
+        - label: Title следует формату `[<feature>][<priority>][<area>] T###: <русский результат>`.
           required: true
         - label: Критерии приемки и validation evidence достаточно конкретны, чтобы понять, когда issue можно закрывать.
           required: true

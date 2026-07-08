@@ -23,14 +23,14 @@ engineers.
 Use this exact format, with the outcome written in Russian:
 
 ```text
-[{feature}][{priority}][{area}] {результат простыми словами}
+[{feature}][{priority}][{area}] T###: {русский результат}
 ```
 
 Examples:
 
 ```text
-[012][P0][ingest/finalize] Отклонять несовпадающие manifest до finalize
-[012][P1][infra/compose] Не запускать production с dev defaults
+[012][P0][ingest/finalize] T119: Отклонять несовпадающие manifest до finalize
+[012][P1][infra/compose] T132: Не запускать production с dev defaults
 ```
 
 Rules:
@@ -38,9 +38,35 @@ Rules:
 - `{feature}` is the three-digit Spec Kit feature number, e.g. `012`.
 - `{priority}` is `P0`, `P1`, `P2`, or `P3`.
 - `{area}` is a compact ownership/scope tag.
-- The title states the desired outcome in Russian and in plain language.
+- `T###` is the task id from `tasks.md`; use the first task id in the title
+  when an issue covers several tasks, and list every task in the body context.
+- The text after `T###:` states the desired outcome in Russian and in plain
+  language.
 - Do not use emoji, urgency words, all-caps shouting, or repeated punctuation.
 - Do not prefix with `bug:`/`feature:` when the same meaning belongs in labels.
+
+## Task-To-Issue Skill Compatibility
+
+If a generic `$speckit-taskstoissues` instruction says to title issues as
+`T001: <description>`, that instruction is not the repository template. It is
+fallback guidance for repositories without a project canon. In repositories that
+install this extension, this canon is the single authoritative template and
+overrides the generic title instruction.
+
+For Spec Kit task-backed issues, keep the task id as one standalone token in the
+canonical title:
+
+```text
+[093][P1][docs] T001: Проверить артефакты фичи перед реализацией
+```
+
+Do not create bare `T001: ...` titles in repositories using this canon. Also
+include the same task id in body context as `Spec tasks: T001`. This keeps
+deduplication stable without copying the whole canon into the general skill.
+
+For a manually created Spec Kit issue that is not tied to one `tasks.md` row yet,
+use `T000` only as a temporary triage marker and replace it with a real task id
+before closing the issue.
 
 ## Body Format
 
@@ -174,7 +200,8 @@ Required closure comment format:
 
 ## Automation And Spec Kit
 
-- `$speckit-taskstoissues` must create issues using this canon.
+- `$speckit-taskstoissues` must create issues using this canon, including the
+  `T###:` task id in the title.
 - The `github-issue-canon` Spec Kit extension installs this file under
   `docs/agent-guidance/`, issue forms, labels, and validation hooks.
 - Do not patch globally installed Spec Kit skills to enforce this rule; they may

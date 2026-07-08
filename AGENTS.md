@@ -151,6 +151,10 @@ All GitHub issues created for this repository, whether manually, through
 - `docs/agent-guidance/tracker-policy.md`
 - `docs/agent-guidance/github-issue-canon.md`
 
+For Spec Kit task-backed GitHub issues, use exactly this title shape in this
+repository: `[<feature>][<priority>][<area>] T###: <русский результат>`.
+Do not use bare `T###: ...` titles in this repository.
+
 Do not create issues in a repository that does not match the configured git
 remote. Do not create duplicate GitHub issues; search by feature number, task
 ID, issue URL, and title first.
@@ -250,6 +254,8 @@ infra/scripts/ci-local.sh
 - Canon: `docs/agent-guidance/github-issue-canon.md`.
 - Все GitHub issue titles, issue bodies, PR descriptions, status comments, closure comments и sync notes по умолчанию пиши на русском.
 - Пиши простым, понятным языком, чтобы текст был ясен не только инженерам, но и обычным участникам проекта.
+- Для Spec Kit task-backed issues используй ровно один title format: `[<feature>][<priority>][<area>] T###: <русский результат>`.
+- Не используй bare `T###: ...` titles в bootstrapped repositories с `github-issue-canon`; это fallback только для репозиториев без project canon.
 - Не создавай дубли GitHub issues. Сначала ищи существующие issue по номеру фичи, task ID, ссылке и заголовку.
 - В PR используй `Fixes #...`, `Closes #...` или `Resolves #...` только для issues, которые PR закрывает полностью; для частичной связи используй `Refs #...` или `Part of #...`.
 - Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй подробный понятный closure comment: что закрыто, почему важно, как проверено, что не входит, какой PR и task закрыты.

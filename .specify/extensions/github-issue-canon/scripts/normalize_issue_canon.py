@@ -5,7 +5,9 @@ import re
 import sys
 
 from issue_canon_common import (
+    LEGACY_TITLE_RE,
     REQUIRED_SECTIONS,
+    TASK_RE,
     TITLE_RE,
     current_feature,
     is_speckit_issue,
@@ -53,20 +55,44 @@ def infer_type(body: str, title: str) -> str:
     return "type:bug"
 
 
+def first_task_id(body: str, title: str) -> str:
+    match = TASK_RE.search(body)
+    if match:
+        return match.group(0)
+    match = re.match(r"^\s*(T\d{3})\s*:", title)
+    if match:
+        return match.group(1)
+    match = TASK_RE.search(title)
+    return match.group(0) if match else "T000"
+
+
+def clean_outcome(title: str) -> str:
+    cleaned = re.sub(r"^012 hackathon (remediation|additional):\s*", "", title, flags=re.I).strip()
+    cleaned = re.sub(r"^T\d{3}\s*:\s*", "", cleaned).strip()
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else "Закрыть Spec Kit задачу"
+
+
 def canonical_title(issue: dict, default_feature: str | None) -> str:
     title = issue.get("title") or ""
     if TITLE_RE.match(title):
         return title
     body = issue.get("body") or ""
-    feature = default_feature or "000"
-    feature_match = re.search(r"(?:Feature:\s*`?|specs/)(\d{3})", body)
-    if feature_match:
-        feature = feature_match.group(1)
-    priority = infer_priority(body, title)
-    area = infer_area(body, title)
-    cleaned = re.sub(r"^012 hackathon (remediation|additional):\s*", "", title, flags=re.I)
-    cleaned = cleaned[:1].upper() + cleaned[1:] if cleaned else "Закрыть Spec Kit задачу"
-    return f"[{feature}][{priority}][{area}] {cleaned}"
+    legacy = LEGACY_TITLE_RE.match(title)
+    if legacy:
+        feature = legacy.group("feature")
+        priority = legacy.group("priority")
+        area = legacy.group("area")
+        outcome = clean_outcome(legacy.group("outcome"))
+    else:
+        feature = default_feature or "000"
+        feature_match = re.search(r"(?:Feature:\s*`?|Фича:\s*`?|specs/)(\d{3})", body)
+        if feature_match:
+            feature = feature_match.group(1)
+        priority = infer_priority(body, title)
+        area = infer_area(body, title)
+        outcome = clean_outcome(title)
+    task = first_task_id(body, title)
+    return f"[{feature}][{priority}][{area}] {task}: {outcome}"
 
 
 def extract_context_line(body: str, label: str) -> str | None:
@@ -77,14 +103,33 @@ def extract_context_line(body: str, label: str) -> str | None:
 def canonical_body(issue: dict, title: str) -> str:
     body = issue.get("body") or ""
     missing = [section for section in REQUIRED_SECTIONS if section not in body]
-    if not missing:
-        return body
 
     match = TITLE_RE.match(title)
     feature = match.group("feature") if match else "000"
     priority = match.group("priority") if match else infer_priority(body, title)
     area = match.group("area") if match else infer_area(body, title)
-    tasks = extract_context_line(body, "Spec Kit tasks") or ", ".join(sorted(set(re.findall(r"\bT\d{3}\b", body)))) or "T000"
+    task = match.group("task") if match else first_task_id(body, title)
+    if not missing and task in body:
+        return body
+    if not missing:
+        existing_tasks = extract_context_line(body, "Spec tasks") or extract_context_line(body, "Spec Kit tasks")
+        if existing_tasks:
+            updated_tasks = existing_tasks if task in existing_tasks else f"{existing_tasks}, {task}"
+            updated = re.sub(
+                r"^- Spec (?:Kit )?tasks:\s*.+$",
+                f"- Spec tasks: {updated_tasks}",
+                body,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            if updated != body:
+                return updated
+        return re.sub(r"(## Контекст\s*\n\n)", rf"\1- Spec tasks: {task}\n", body, count=1)
+
+    tasks = extract_context_line(body, "Spec tasks") or extract_context_line(body, "Spec Kit tasks")
+    tasks = tasks or ", ".join(sorted(set(TASK_RE.findall(body)))) or task
+    if task not in tasks:
+        tasks = f"{tasks}, {task}"
     source = extract_context_line(body, "Source") or extract_context_line(body, "Источник") or "Spec Kit task-to-issue sync / review"
     gate = extract_context_line(body, "Gate") or extract_context_line(body, "Гейт") or ("blocks deployment" if "gate:deployment-blocker" in ",".join(label_names(issue)) else "blocks PR")
 
@@ -151,10 +196,14 @@ def main() -> int:
         if match:
             add_labels.add(f"feature:{match.group('feature')}")
             add_labels.add(f"priority:{match.group('priority')}")
-            add_labels.add(f"area:{match.group('area').split('/', 1)[0]}")
+            area = match.group("area")
+            area_root = area.split("/", 1)[0]
+            if f"area:{area_root}" not in labels and f"area:{area}" not in labels:
+                add_labels.add(f"area:{area_root}")
         if not any(label.startswith("type:") for label in labels):
             add_labels.add(infer_type(issue.get("body") or "", issue.get("title") or ""))
         args = ["gh", "issue", "edit", str(issue["number"]), "--repo", slug]
+        base_arg_count = len(args)
         if title != issue.get("title"):
             args.extend(["--title", title])
         body = canonical_body(issue, title)
@@ -163,7 +212,7 @@ def main() -> int:
         new_labels = sorted(add_labels - labels)
         if new_labels:
             args.extend(["--add-label", ",".join(new_labels)])
-        if len(args) > 5:
+        if len(args) > base_arg_count:
             run(args)
             changed.append(issue["number"])
 
