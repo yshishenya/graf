@@ -30,7 +30,7 @@
   <button class="primary" type="button" disabled>Пригласить</button>
   {{ sidebar_navigation(navigation.items, active=navigation.active) }}
   <div class="sidebar-foot">
-    <form class="sidebar-logout" method="post" action="/logout">
+    <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
       {{ csrf_field(csrf_token) }}
       <input type="hidden" name="next" value="{{ '/login?next=/desktop/meetings' if embedded else '/login?next=/meetings' }}">
       <button class="sidebar-logout__button" type="submit">{{ icons.icon("log-out") }}<span>Выйти</span></button>

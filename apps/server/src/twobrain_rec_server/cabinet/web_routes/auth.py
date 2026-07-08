@@ -393,6 +393,21 @@ async def browser_logout(
     _csrf: None = WebCSRFDependency,
     db: AsyncSession | None = LoginDbDependency,
 ):
+    return await logout_current_browser_session(
+        request,
+        next_path=next_path,
+        principal=principal,
+        db=db,
+    )
+
+
+async def logout_current_browser_session(
+    request: Request,
+    *,
+    next_path: str,
+    principal: AuthenticatedPrincipal,
+    db: AsyncSession | None,
+) -> RedirectResponse:
     safe_next = _safe_browser_next_path(next_path)
     if db is None:
         raise ProblemDetail(

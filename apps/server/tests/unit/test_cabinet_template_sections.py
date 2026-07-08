@@ -107,6 +107,32 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     assert '<main class="cabinet-main" id="content">Контент</main>' in html
 
 
+def test_cabinet_shell_macro_uses_embedded_allowed_logout_target() -> None:
+    template = get_cabinet_templates().from_string(
+        """
+        {% import "cabinet/components/sections.html" as sections %}
+        {{ sections.cabinet_shell(navigation, embedded=True, content=content, csrf_token=csrf_token) }}
+        """
+    )
+    navigation = view_models.CabinetNavigationModel(
+        active="meetings",
+        items=(
+            view_models.CabinetNavigationItem("meetings", "Мои встречи", "/desktop/meetings", "calendar-days"),
+        ),
+    )
+
+    html = template.render(
+        csrf_token="embedded-csrf-token",
+        navigation=navigation,
+        content=Markup('<main class="cabinet-main" id="content">Контент</main>'),
+    )
+
+    assert 'class="sidebar-logout"' in html
+    assert 'action="/desktop/meetings"' in html
+    assert 'name="csrf_token" value="embedded-csrf-token"' in html
+    assert 'name="next" value="/login?next=/desktop/meetings"' in html
+
+
 def test_section_css_covers_interaction_and_overflow_states() -> None:
     css = CABINET_CSS.read_text()
 
