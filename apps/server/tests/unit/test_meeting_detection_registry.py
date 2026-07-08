@@ -121,6 +121,16 @@ def test_packaged_seed_loader_returns_valid_registry() -> None:
     assert any(target["id"] == "zoom" for target in document["targets"])
 
 
+def test_server_image_includes_packaged_seed_registry() -> None:
+    dockerfile = REPO_ROOT / "infra/server/Dockerfile"
+    expected_copy = (
+        "COPY apps/macos/RecApp/Resources/meeting-target-registry.seed.json "
+        "/usr/local/apps/macos/RecApp/Resources/meeting-target-registry.seed.json"
+    )
+
+    assert expected_copy in dockerfile.read_text(encoding="utf-8")
+
+
 def test_registry_accepts_safe_non_target_rules() -> None:
     document = _seed_document()
     document["nonTargetRules"] = [
