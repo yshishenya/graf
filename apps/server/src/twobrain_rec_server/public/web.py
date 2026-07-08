@@ -14,6 +14,7 @@ async def public_landing_page(request: Request) -> HTMLResponse:
         request,
         "public/landing.html",
         page_title="GRAF - встречи записываются сами",
+        analytics_path="/",
         start_url="/login?next=/meetings",
         download_url="/download",
     )
@@ -25,5 +26,6 @@ async def public_download_page(request: Request) -> HTMLResponse:
         request,
         "public/download.html",
         page_title="Скачать GRAF",
+        analytics_path="/download",
         start_url="/login?next=/meetings",
     )

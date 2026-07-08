@@ -32,15 +32,15 @@
 
 **Critical**: No user story work can begin until this phase is complete.
 
-- [ ] T006 [P] Add analytics settings/default tests in `apps/server/tests/unit/test_public_analytics.py`
-- [ ] T007 [P] Add public analytics contract tests for disabled-by-default and safe config rendering in `apps/server/tests/contract/test_public_analytics_contract.py`
-- [ ] T008 Add public analytics runtime settings to `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T009 Create server-side public analytics catalog and config builder in `apps/server/src/twobrain_rec_server/public/analytics.py`
-- [ ] T010 Wire analytics context into public template rendering in `apps/server/src/twobrain_rec_server/public/templates.py` and `apps/server/src/twobrain_rec_server/public/web.py`
-- [ ] T011 Create empty-safe analytics include template in `apps/server/src/twobrain_rec_server/public/templates/public/_analytics.html`
-- [ ] T012 Create local public analytics browser controller scaffold and self-hosted CookieConsent v3.1.0 asset paths with MIT attribution in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`, `apps/server/src/twobrain_rec_server/public/static/public/cookieconsent.umd.js`, and `apps/server/src/twobrain_rec_server/public/static/public/cookieconsent.css`
-- [ ] T013 Include analytics template and local controller on public pages only in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` and `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
-- [ ] T014 Update public static asset contract expectations for analytics assets, pinned local CookieConsent v3.1.0 files, MIT attribution, and no consent-manager CDN URLs in `apps/server/tests/contract/test_public_landing_contract.py`
+- [X] T006 [P] Add analytics settings/default tests in `apps/server/tests/unit/test_public_analytics.py`
+- [X] T007 [P] Add public analytics contract tests for disabled-by-default and safe config rendering in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T008 Add public analytics runtime settings to `apps/server/src/twobrain_rec_server/config.py`
+- [X] T009 Create server-side public analytics catalog and config builder in `apps/server/src/twobrain_rec_server/public/analytics.py`
+- [X] T010 Wire analytics context into public template rendering in `apps/server/src/twobrain_rec_server/public/templates.py` and `apps/server/src/twobrain_rec_server/public/web.py`
+- [X] T011 Create empty-safe analytics include template in `apps/server/src/twobrain_rec_server/public/templates/public/_analytics.html`
+- [X] T012 Create local public analytics browser controller scaffold and self-hosted CookieConsent v3.1.0 asset paths with MIT attribution in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`, `apps/server/src/twobrain_rec_server/public/static/public/cookieconsent.umd.js`, and `apps/server/src/twobrain_rec_server/public/static/public/cookieconsent.css`
+- [X] T013 Include analytics template and local controller on public pages only in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` and `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
+- [X] T014 Update public static asset contract expectations for analytics assets, pinned local CookieConsent v3.1.0 files, MIT attribution, and no consent-manager CDN URLs in `apps/server/tests/contract/test_public_landing_contract.py`
 
 **Checkpoint**: Analytics is disabled by default, render-only config is safe, and public pages keep existing landing/download behavior.
 

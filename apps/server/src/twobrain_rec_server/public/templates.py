@@ -10,6 +10,8 @@ from jinja2 import Environment
 from starlette.responses import HTMLResponse
 
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_asset_url
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.public.analytics import build_public_analytics_context
 from twobrain_rec_server.templates import (
     html_response,
     package_path,
@@ -58,6 +60,9 @@ def public_template_response(
     status_code: int = 200,
     **context: Any,
 ) -> HTMLResponse:
+    settings = getattr(request.app.state, "settings", Settings())
+    analytics_path = str(context.pop("analytics_path", request.url.path))
+    context.setdefault("public_analytics", build_public_analytics_context(settings, analytics_path))
     return html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,

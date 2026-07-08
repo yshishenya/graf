@@ -71,3 +71,61 @@ Notes:
 
 - This setup evidence does not validate analytics behavior yet; focused
   analytics tests are added in later tasks.
+
+### 2026-07-08 - Phase 2 Foundation
+
+Implemented:
+
+- Public analytics runtime settings are disabled by default.
+- `public.analytics` builds a bounded public-only analytics context for `/` and
+  `/download`.
+- Public templates include an empty-safe analytics partial.
+- Render-only mode emits only local static assets and JSON configuration; it
+  does not load live Yandex, Google, PostHog, Clarity, GTM, or consent-manager
+  CDN URLs.
+- Local `analytics.js` is a controller scaffold only. It reads config and does
+  not load providers.
+- CookieConsent assets are vendored from `vanilla-cookieconsent@3.1.0`.
+
+CookieConsent source:
+
+```text
+package: vanilla-cookieconsent
+version: 3.1.0
+license: MIT
+tarball: https://registry.npmjs.org/vanilla-cookieconsent/-/vanilla-cookieconsent-3.1.0.tgz
+integrity: sha512-/McNRtm/3IXzb9dhqMIcbquoU45SzbN2VB+To4jxEPqMmp7uVniP6BhGLjU8MC7ZCDsNQVOp27fhQTM/ruIXAA==
+```
+
+Commands:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/unit/test_public_landing.py \
+  tests/contract/test_public_landing_contract.py
+
+cd apps/server && PYTHONPATH=src uv run --extra dev ruff check \
+  src/twobrain_rec_server/config.py \
+  src/twobrain_rec_server/public/analytics.py \
+  src/twobrain_rec_server/public/templates.py \
+  src/twobrain_rec_server/public/web.py \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/contract/test_public_landing_contract.py
+
+git diff --check
+```
+
+Result:
+
+- Focused pytest: `18 passed, 1 warning`
+- Focused ruff: `All checks passed!`
+- `git diff --check` passed
+
+Known limitation:
+
+- Consent UI, UTM extraction, event dispatch, Yandex provider initialization,
+  replay gating, legal pages, and production env variables are not implemented
+  in this foundation phase. They remain covered by later tasks.
