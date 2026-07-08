@@ -1,0 +1,503 @@
+{
+  "schemaVersion": 1,
+  "registryVersion": "2026.07.08.1",
+  "generatedAt": "2026-07-08T00:00:00Z",
+  "minimumClientVersion": "0.1.0",
+  "targets": [
+    {
+      "id": "zoom",
+      "displayName": "Zoom",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "us.zoom.xos"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "runtime_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Runtime start and end were verified locally through macOS sensor-indicators."
+    },
+    {
+      "id": "yandex_telemost",
+      "displayName": "Yandex Telemost",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.yandex.desktop.telemost"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "runtime_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Runtime start and end were verified locally through macOS sensor-indicators."
+    },
+    {
+      "id": "microsoft_teams_classic",
+      "displayName": "Microsoft Teams classic",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.microsoft.teams"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "confirmed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Known classic Teams bundle ID; current runtime attribution still needs validation."
+    },
+    {
+      "id": "microsoft_teams_new",
+      "displayName": "Microsoft Teams new",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.microsoft.teams2"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "confirmed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Known new Teams bundle ID; current runtime attribution still needs validation."
+    },
+    {
+      "id": "slack_calls",
+      "displayName": "Slack calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tinyspeck.slackmacgap"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "confirmed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Desktop identity is confirmed; call or huddle attribution still needs validation."
+    },
+    {
+      "id": "webex",
+      "displayName": "Webex",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.cisco.webexmeetingsapp",
+        "com.webex.meetingmanager"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Multiple Webex app flavors exist; current mic attribution owner must be verified."
+    },
+    {
+      "id": "facetime",
+      "displayName": "FaceTime",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.apple.FaceTime"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Built-in app; keep diagnostic-only until personal-call scope is decided."
+    },
+    {
+      "id": "discord",
+      "displayName": "Discord",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.hnc.Discord"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Lower priority for the GRAF meeting-capture MVP."
+    },
+    {
+      "id": "skype",
+      "displayName": "Skype",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.skype.skype"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Current product/runtime behavior should be checked before prompt mode."
+    },
+    {
+      "id": "whatsapp",
+      "displayName": "WhatsApp",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "net.whatsapp.WhatsApp"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Needs current runtime validation."
+    },
+    {
+      "id": "voov_meeting",
+      "displayName": "VooV Meeting",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tencent.tencentmeeting"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Lower Russian-market priority; needs package/runtime validation."
+    },
+    {
+      "id": "tuple",
+      "displayName": "Tuple",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "app.tuple.app"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Lower priority; needs runtime validation."
+    },
+    {
+      "id": "gather",
+      "displayName": "Gather",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.gather.Gather"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Lower priority; needs runtime validation."
+    },
+    {
+      "id": "kontur_talk",
+      "displayName": "Kontur Talk",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "kontur.talk"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Package identity verified; live mic attribution still needs validation."
+    },
+    {
+      "id": "mts_link",
+      "displayName": "MTS Link",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.weteams.desktop"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Package identity verified; live mic attribution still needs validation."
+    },
+    {
+      "id": "trueconf",
+      "displayName": "TrueConf",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "org.trueconf.client"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Package and local app identity verified; idle launch was quiet, live call still needs validation."
+    },
+    {
+      "id": "vk_calls",
+      "displayName": "VK Calls",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.vk.calls.native.1"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Package identity verified; live mic attribution still needs validation."
+    },
+    {
+      "id": "vk_teams",
+      "displayName": "VK Teams",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.mail.messenger-biz-avocado-desktop"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "installed_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Local app identity verified; live call was blocked by account authorization."
+    },
+    {
+      "id": "vinteo",
+      "displayName": "VINTEO",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.vinteo.desktop"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Package identity verified; live mic attribution still needs validation."
+    },
+    {
+      "id": "express",
+      "displayName": "eXpress",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.unlimitedtech.express.desktop"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Package identity verified; live mic attribution and product scope still need validation."
+    },
+    {
+      "id": "pachca",
+      "displayName": "Pachca",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.todesktop.240607opwvcw853"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Package identity verified; ToDesktop bundle ID needs live mic attribution validation."
+    },
+    {
+      "id": "salutejazz",
+      "displayName": "SaluteJazz",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "salutejazz.jazz-app"
+      ],
+      "mode": "diagnostic_only",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Needs package and runtime validation."
+    },
+    {
+      "id": "iva_connect",
+      "displayName": "IVA Connect",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "blocked_missing_bundle",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "macOS support exists, but exact bundle ID is not verified."
+    },
+    {
+      "id": "videomost",
+      "displayName": "VideoMost",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "blocked_missing_bundle",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Desktop client exists, but exact macOS bundle ID is not verified."
+    },
+    {
+      "id": "dion",
+      "displayName": "Dion",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "blocked_missing_bundle",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "macOS packages are documented, but exact bundle ID is not verified."
+    },
+    {
+      "id": "yandex_telemost_web",
+      "displayName": "Yandex Telemost web",
+      "market": "russia",
+      "platform": "browser",
+      "targetFamily": "browser_meeting",
+      "browserServicePatterns": [
+        {
+          "serviceFamily": "yandex_telemost",
+          "hostCategory": "first_party",
+          "patternClass": "meeting_room"
+        }
+      ],
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "Browser foundation target: classify only with safe metadata plus calendar/join intent; browser extension remains future work."
+    },
+    {
+      "id": "google_meet_web",
+      "displayName": "Google Meet web",
+      "market": "global",
+      "platform": "browser",
+      "targetFamily": "browser_meeting",
+      "browserServicePatterns": [
+        {
+          "serviceFamily": "google_meet",
+          "hostCategory": "first_party",
+          "patternClass": "meeting_room"
+        }
+      ],
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "Browser foundation target: classify only with safe metadata plus calendar/join intent; browser extension remains future work."
+    },
+    {
+      "id": "pruffme",
+      "displayName": "Pruffme",
+      "market": "russia",
+      "platform": "browser",
+      "targetFamily": "browser_meeting",
+      "browserServicePatterns": [
+        {
+          "serviceFamily": "pruffme",
+          "hostCategory": "first_party",
+          "patternClass": "meeting_room"
+        }
+      ],
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "Appears web-first in this pass; use browser metadata path when implemented."
+    },
+    {
+      "id": "roschat_minicom_ping",
+      "displayName": "RosChat MiniCom-PING",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "blocked_missing_bundle",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "Windows and Linux packages found; no trustworthy macOS bundle in this pass."
+    },
+    {
+      "id": "tada_team",
+      "displayName": "tada.team",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "blocked_missing_bundle",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "macos_sensor_indicators_mic"
+      ],
+      "comments": "macOS availability is noted publicly, but bundle ID is not verified."
+    },
+    {
+      "id": "vkurse",
+      "displayName": "VKurse",
+      "market": "russia",
+      "platform": "cross_platform",
+      "targetFamily": "manual_only",
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "No separate desktop bundle found; may map to IVA or web surfaces."
+    }
+  ]
+}

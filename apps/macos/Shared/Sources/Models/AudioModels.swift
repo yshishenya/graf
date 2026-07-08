@@ -692,6 +692,13 @@ public struct BrowserTargetEvidence: Codable, Equatable, Sendable {
     public var speakerSelected: String
     public var localSpeechUsable: Bool
     public var remoteAudioUsable: Bool
+    public var browserBundleID: String?
+    public var serviceFamily: String?
+    public var hostCategory: String?
+    public var patternClass: String?
+    public var pageState: BrowserMeetingPageState?
+    public var metadataAvailable: Bool?
+    public var calendarOrJoinIntentPresent: Bool?
     public var failureReason: String?
     public var checkedAt: Date
 
@@ -702,6 +709,13 @@ public struct BrowserTargetEvidence: Codable, Equatable, Sendable {
         speakerSelected: String,
         localSpeechUsable: Bool,
         remoteAudioUsable: Bool,
+        browserBundleID: String? = nil,
+        serviceFamily: String? = nil,
+        hostCategory: String? = nil,
+        patternClass: String? = nil,
+        pageState: BrowserMeetingPageState? = nil,
+        metadataAvailable: Bool? = nil,
+        calendarOrJoinIntentPresent: Bool? = nil,
         failureReason: String? = nil,
         checkedAt: Date
     ) {
@@ -711,6 +725,13 @@ public struct BrowserTargetEvidence: Codable, Equatable, Sendable {
         self.speakerSelected = speakerSelected
         self.localSpeechUsable = localSpeechUsable
         self.remoteAudioUsable = remoteAudioUsable
+        self.browserBundleID = browserBundleID
+        self.serviceFamily = serviceFamily
+        self.hostCategory = hostCategory
+        self.patternClass = patternClass
+        self.pageState = pageState
+        self.metadataAvailable = metadataAvailable
+        self.calendarOrJoinIntentPresent = calendarOrJoinIntentPresent
         self.failureReason = failureReason
         self.checkedAt = checkedAt
     }

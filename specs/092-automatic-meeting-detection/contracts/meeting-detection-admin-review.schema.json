@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graf.local/contracts/meeting-detection-admin-review.schema.json",
+  "title": "GRAF Meeting Detection Admin Review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generatedAt",
+    "items"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/reviewItem"
+      }
+    }
+  },
+  "$defs": {
+    "reviewItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "state",
+        "platform",
+        "candidateKind",
+        "candidateScore",
+        "candidateReasons",
+        "stableObservationCount",
+        "reportingInstallationCount",
+        "firstSeenBucket",
+        "lastSeenBucket",
+        "allowedActions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_\\-]{2,120}$"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "new",
+            "reviewing",
+            "non_target",
+            "merged",
+            "diagnostic_only_draft",
+            "validation_needed",
+            "ready_for_prompt_review",
+            "published",
+            "disabled"
+          ]
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "macos",
+            "windows",
+            "browser"
+          ]
+        },
+        "candidateKind": {
+          "type": "string",
+          "enum": [
+            "unknown_native_app",
+            "known_target_health",
+            "registry_draft"
+          ]
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "bundleId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.\\-]{1,200}$"
+        },
+        "signingTeamId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]{5,20}$"
+        },
+        "versionSamples": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "uniqueItems": true
+        },
+        "candidateScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "candidateReasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_\\-]{2,80}$"
+          },
+          "uniqueItems": true
+        },
+        "stableObservationCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reportingInstallationCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manualRecordNearbyCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "calendarOrJoinHintCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "firstSeenBucket": {
+          "type": "string",
+          "format": "date"
+        },
+        "lastSeenBucket": {
+          "type": "string",
+          "format": "date"
+        },
+        "proposedTargetId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_\\-]{2,80}$"
+        },
+        "allowedActions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/adminAction"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "adminAction": {
+      "type": "string",
+      "enum": [
+        "mark_non_target",
+        "merge_existing_target",
+        "add_diagnostic_only_draft",
+        "request_package_validation",
+        "request_runtime_validation",
+        "mark_ready_for_prompt_review",
+        "publish_registry_version",
+        "disable_target"
+      ]
+    }
+  }
+}

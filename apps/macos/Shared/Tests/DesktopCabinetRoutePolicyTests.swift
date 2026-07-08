@@ -38,6 +38,11 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             XCTAssertEqual(decision.reason, .allowedCalendarSettings, route)
         }
 
+        let meetingDetectionSettings = policy.decision(for: try url("/desktop/settings/meeting-detection"))
+        XCTAssertEqual(meetingDetectionSettings.decision, .allow)
+        XCTAssertEqual(meetingDetectionSettings.route.kind, .meetingDetectionSettings)
+        XCTAssertEqual(meetingDetectionSettings.reason, .allowedMeetingDetectionSettings)
+
         let login = policy.decision(for: try url("/login?next=/desktop/meetings"))
         XCTAssertEqual(login.decision, .allow)
         XCTAssertEqual(login.route.kind, .authLogin)

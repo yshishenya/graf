@@ -212,6 +212,19 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertFalse(label.localizedCaseInsensitiveContains("http"))
     }
 
+    func testMeetingDetectionAccessibilityCopyDoesNotMentionRawLogsOrSecrets() {
+        let label = SystemAudioStatusLabels.meetingDetectionAccessibilityLabel(
+            status: "Определение включено",
+            health: "Работает в фоне"
+        )
+
+        XCTAssertTrue(label.contains(SystemAudioStatusLabels.meetingDetectionSettingsTitle))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("raw"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("log"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("token"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("@"))
+    }
+
     func testDesktopAppInstallsStandardEditMenuCommandsForEmbeddedCabinetFields() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()

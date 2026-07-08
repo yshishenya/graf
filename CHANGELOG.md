@@ -17,6 +17,18 @@
   для следующей высокорисковой продуктовой аналитики после 093 с контекстом
   Yandex/PostHog, attribution bridge, masking/replay gates и production smoke
   lessons learned из public analytics closeout.
+- Feature `092-automatic-meeting-detection`: заложен серверный и desktop
+  фундамент для registry-driven определения встреч: metadata-only telemetry,
+  admin review кандидатов и packaged seed registry для macOS без production
+  rollout.
+- На macOS добавлены registry cache/fallback, VKS-candidate filter,
+  telemetry rollups/uploader, `sensor-indicators` parser, detector debounce/end
+  state, policy gates для prompt/target-scoped auto-record, local settings,
+  revoke affordance и metadata-only detector diagnostics.
+- Заложен первый browser foundation без расширения: browser metadata
+  классифицируется только вместе с calendar/join intent, а landing/new/join,
+  settings/device-test/media/voice-search и missing metadata остаются
+  manual-only/detect-only.
 
 ### Изменено
 - _Пока нет записей._
@@ -26,18 +38,41 @@
   runtime public analytics env в `rec-api`; post-deploy smoke поймал случай,
   когда `.env` на сервере был обновлен, но контейнер продолжал работать с
   disabled defaults.
+- Feature `092-automatic-meeting-detection`: после критического review
+  исправлен runtime path macOS detector: packaged seed registry включен в
+  SwiftPM resources, `sensor-indicators` log stream подключен к detector
+  decisioning/prompt/auto-record path, parser поддерживает реальные
+  `mic:<bundle>` attribution tokens и removal events, unknown short-duration
+  candidates могут переоцениваться, а native browser mic attribution
+  подавляется до browser metadata + calendar/join intent path.
+- Feature `092-automatic-meeting-detection`: усилены серверные safety gates для
+  registry/admin/telemetry: browser targets обязаны иметь browser metadata и
+  calendar/join intent, merge в неизвестный target id отклоняется, добавлены
+  uniqueness constraints для candidates/non-target rules, workspace draft stale
+  guard не блокируется packaged seed, desktop uploader уважает
+  `next_upload_after`.
 
 ### Безопасность
 - Feature `093-public-landing-analytics`: provider scripts не загружаются до
   согласия на analytics; Webvisor/replay ограничен публичными страницами и
   отдельной категорией `behavior_replay`; public analytics отсутствует на
   login, cabinet, admin, API, legal и product/content-bearing surfaces.
+- Feature `092-automatic-meeting-detection`: telemetry/admin/diagnostics остаются
+  metadata-only; low-score unknown apps redacted locally, Krisp/audio utilities
+  and generic browser mic attribution suppressed, remote registry cannot enable
+  behavior beyond compiled safety gates.
+- Feature `092-automatic-meeting-detection`: local telemetry rollups теперь
+  принудительно очищаются по retention cap `14 days / 1 MB` при записи и перед
+  upload early-return path, включая disabled upload и backoff.
 
 ### Документы
 - Feature `093-public-landing-analytics`: добавлены provider setup, Phase 2
   activation contract guardrails, implementation evidence, legal-readiness
   notes и campaign-readiness boundary с явным deferral для Google/GA4/GTM и
   PostHog/product analytics.
+- Feature `092-automatic-meeting-detection`: добавлены Spec Kit artifacts,
+  allowlist/fingerprint research, telemetry contracts и high-risk validation
+  plan для первого detect-and-ask релиза.
 
 ### Операции
 - Feature `093-public-landing-analytics`: production env example получил
@@ -45,6 +80,9 @@
   dashboard access, production deploy и provider smoke завершены для `/` и
   `/download`; paid campaign launch остается blocked до legal/campaign-
   readiness approval.
+- Feature `092-automatic-meeting-detection`: focused validation passed server
+  `48 passed`, macOS `124 tests`, forbidden-content source scan, and full
+  `infra/scripts/ci-local.sh` with `1136 passed, 4 skipped, 1 warning`.
 
 ## [2026.07.08.7] - 2026-07-08
 

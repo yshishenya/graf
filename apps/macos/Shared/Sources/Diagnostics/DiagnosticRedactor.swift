@@ -216,6 +216,7 @@ public struct DiagnosticRedactor: Sendable {
         "routeReleaseDecision",
         "recordingTimelineEvidence",
         "validationRunEvidence",
+        "meetingDetectionDetector",
         "acceptanceMatrix",
         "userActionAudit",
         "retentionDeadlines",

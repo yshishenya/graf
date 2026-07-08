@@ -58,6 +58,16 @@ from twobrain_rec_server.db.models.meeting_access import (
     MeetingEgressAuditEvent,
     MeetingShareGrant,
 )
+from twobrain_rec_server.db.models.meeting_detection import (
+    MeetingDetectionCandidate,
+    MeetingDetectionNonTargetRule,
+    MeetingDetectionReviewAction,
+    MeetingDetectionTargetHealthRollup,
+    MeetingDetectionTelemetryBatch,
+    MeetingDetectionTelemetryRateLimitBucket,
+    MeetingTargetRegistryEntry,
+    MeetingTargetRegistryVersion,
+)
 from twobrain_rec_server.db.models.outcomes import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
@@ -84,6 +94,12 @@ __all__ = [
     "MediaScribeJob",
     "MediaRevision",
     "Meeting",
+    "MeetingDetectionCandidate",
+    "MeetingDetectionNonTargetRule",
+    "MeetingDetectionReviewAction",
+    "MeetingDetectionTargetHealthRollup",
+    "MeetingDetectionTelemetryBatch",
+    "MeetingDetectionTelemetryRateLimitBucket",
     "MeetingDeletionArtifactState",
     "MeetingDeletionReport",
     "MeetingDeletionRequest",
@@ -94,6 +110,8 @@ __all__ = [
     "MeetingOutcomeGenerationAttempt",
     "MeetingOutcomeItem",
     "MeetingOutcomeSet",
+    "MeetingTargetRegistryEntry",
+    "MeetingTargetRegistryVersion",
     "Organization",
     "ProcessingAuditEvent",
     "ProcessingDependencyState",

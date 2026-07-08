@@ -1,0 +1,537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graf.local/contracts/meeting-detection-telemetry.schema.json",
+  "title": "GRAF Meeting Detection Telemetry Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "clientVersion",
+    "platform",
+    "osVersionMajor",
+    "registryVersion",
+    "candidateFilterVersion",
+    "createdAt",
+    "rollupWindow",
+    "policy",
+    "targetRollups",
+    "resourceRollup"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "clientVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "macos",
+        "windows"
+      ]
+    },
+    "osVersionMajor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "registryVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "candidateFilterVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rollupWindow": {
+      "$ref": "#/$defs/rollupWindow"
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "targetRollups": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/targetRollup"
+      }
+    },
+    "unknownNativeAppRollups": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/unknownNativeAppRollup"
+      }
+    },
+    "resourceRollup": {
+      "$ref": "#/$defs/resourceRollup"
+    }
+  },
+  "$defs": {
+    "rollupWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket",
+        "startedAt",
+        "endedAt"
+      ],
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "enum": [
+            "hour",
+            "day"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detectionMode",
+        "uploadMode",
+        "unknownIdentityUploadAllowed"
+      ],
+      "properties": {
+        "detectionMode": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "detect_only",
+            "detect_and_ask"
+          ]
+        },
+        "uploadMode": {
+          "type": "string",
+          "enum": [
+            "local_only",
+            "manual_export",
+            "workspace_opt_in",
+            "dogfood_opt_in",
+            "automatic_candidate_upload"
+          ]
+        },
+        "unknownIdentityUploadAllowed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "targetRollup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetId",
+        "targetFamily",
+        "supportMode",
+        "signalFamilies",
+        "outcomes"
+      ],
+      "properties": {
+        "targetId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_\\-]{2,80}$"
+        },
+        "targetFamily": {
+          "type": "string",
+          "enum": [
+            "native_app",
+            "browser_meeting",
+            "provider",
+            "manual_only",
+            "unknown"
+          ]
+        },
+        "supportMode": {
+          "type": "string",
+          "enum": [
+            "prompt_enabled",
+            "diagnostic_only",
+            "blocked_missing_bundle",
+            "manual_or_browser_only",
+            "disabled"
+          ]
+        },
+        "signalFamilies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signalFamily"
+          },
+          "uniqueItems": true
+        },
+        "outcomes": {
+          "$ref": "#/$defs/outcomes"
+        },
+        "durationBuckets": {
+          "$ref": "#/$defs/durationBuckets"
+        },
+        "reasonCodes": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/reasonCode"
+          }
+        }
+      }
+    },
+    "unknownNativeAppRollup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identityMode",
+        "uploadEligibility",
+        "candidateScore",
+        "candidateReasons",
+        "stableObservationCount",
+        "durationBuckets",
+        "manualRecordNearbyCount"
+      ],
+      "properties": {
+        "identityMode": {
+          "type": "string",
+          "enum": [
+            "redacted",
+            "raw_candidate_allowed"
+          ]
+        },
+        "uploadEligibility": {
+          "type": "string",
+          "enum": [
+            "local_only_low_score",
+            "local_only_non_target",
+            "server_candidate_upload"
+          ]
+        },
+        "candidateScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "candidateReasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/candidateReasonCode"
+          },
+          "uniqueItems": true
+        },
+        "suppressionReasons": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/candidateSuppressionCode"
+          },
+          "uniqueItems": true
+        },
+        "bundleId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.\\-]{1,200}$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "signingTeamId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]{5,20}$"
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "stableObservationCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "durationBuckets": {
+          "$ref": "#/$defs/durationBuckets"
+        },
+        "manualRecordNearbyCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "calendarOrJoinHintCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nonTargetSuppressionCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "identityMode": {
+                "const": "redacted"
+              }
+            },
+            "required": [
+              "identityMode"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "bundleId"
+                  ]
+                },
+                {
+                  "required": [
+                    "displayName"
+                  ]
+                },
+                {
+                  "required": [
+                    "signingTeamId"
+                  ]
+                },
+                {
+                  "required": [
+                    "version"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "identityMode": {
+                "const": "raw_candidate_allowed"
+              }
+            },
+            "required": [
+              "identityMode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "uploadEligibility": {
+                "const": "server_candidate_upload"
+              }
+            },
+            "required": [
+              "bundleId",
+              "displayName"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "uploadEligibility": {
+                "const": "server_candidate_upload"
+              }
+            },
+            "required": [
+              "uploadEligibility"
+            ]
+          },
+          "then": {
+            "properties": {
+              "identityMode": {
+                "const": "raw_candidate_allowed"
+              },
+              "candidateScore": {
+                "type": "integer",
+                "minimum": 4,
+                "maximum": 20
+              }
+            },
+            "required": [
+              "bundleId",
+              "displayName"
+            ]
+          }
+        }
+      ]
+    },
+    "outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "promptEligible": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "prompted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "suppressed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recorded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ended": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missedManualStartNearby": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "healthDegraded": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "durationBuckets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "under5s": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "from5sTo30s": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "from30sTo5m": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "over5m": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "signalFamily": {
+      "type": "string",
+      "enum": [
+        "macos_sensor_indicators_mic",
+        "browser_metadata",
+        "calendar_overlap",
+        "join_intent",
+        "system_audio_activity",
+        "manual_record_nearby",
+        "adapter_health"
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_\\-]{2,80}$"
+    },
+    "candidateReasonCode": {
+      "type": "string",
+      "enum": [
+        "stable_mic_duration",
+        "repeated_observation",
+        "manual_record_nearby",
+        "calendar_or_join_hint",
+        "vks_name_token",
+        "known_vks_vendor",
+        "known_registry_neighbor",
+        "long_duration_bucket"
+      ]
+    },
+    "candidateSuppressionCode": {
+      "type": "string",
+      "enum": [
+        "low_score",
+        "short_duration",
+        "browser_bundle",
+        "audio_utility",
+        "system_service",
+        "media_player",
+        "audio_editor",
+        "game",
+        "screen_recorder",
+        "known_non_target",
+        "workspace_upload_disabled"
+      ]
+    },
+    "resourceRollup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parserRestartCount",
+        "droppedEventCount",
+        "diskBytesWritten",
+        "uploadAttemptCount"
+      ],
+      "properties": {
+        "cpuP95PercentBucket": {
+          "type": "string",
+          "enum": [
+            "not_measured",
+            "under_1",
+            "from_1_to_2",
+            "from_2_to_5",
+            "over_5"
+          ]
+        },
+        "memoryOverheadBucketMb": {
+          "type": "string",
+          "enum": [
+            "not_measured",
+            "under_10",
+            "from_10_to_30",
+            "from_30_to_60",
+            "over_60"
+          ]
+        },
+        "parserRestartCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "droppedEventCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diskBytesWritten": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uploadAttemptCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

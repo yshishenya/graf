@@ -79,6 +79,13 @@ Tables:
 - `workspace_usage_daily`
 - `user_usage_daily`
 - `admin_audit_events`
+- `meeting_target_registry_versions`
+- `meeting_detection_telemetry_batches`
+- `meeting_detection_target_health_rollups`
+- `meeting_detection_candidates`
+- `meeting_detection_review_actions`
+- `meeting_detection_non_target_rules`
+- `meeting_detection_telemetry_rate_limit_buckets`
 
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
@@ -102,6 +109,7 @@ Tables:
 - `auth_session_device_bindings` through `auth_sessions` and
   `registered_devices`.
 - `external_identities` through `user_identities` plus workspace membership.
+- `meeting_target_registry_entries` through `meeting_target_registry_versions`.
 
 ## Organization Tables
 

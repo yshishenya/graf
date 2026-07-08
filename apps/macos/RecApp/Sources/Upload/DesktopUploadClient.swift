@@ -249,6 +249,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let uploadBearerTokenEnvironmentKey = "GRAF_UPLOAD_BEARER_TOKEN"
     public static let legacyUploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
+    public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
+    public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
     public static let supportIncidentPath = "/api/v1/desktop/support-incidents"
     public static let supportIncidentTimeoutSeconds: TimeInterval = 5
 
@@ -592,6 +594,44 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             ]
         )
         return try await perform(request)
+    }
+
+    public func fetchMeetingDetectionTargetRegistry(
+        ifNoneMatch etag: String? = nil
+    ) async throws -> DesktopMeetingDetectionRegistryFetchResult {
+        var request = try request(path: Self.meetingDetectionTargetRegistryPath, method: "GET")
+        if let etag, !etag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
+        }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 304 {
+            return DesktopMeetingDetectionRegistryFetchResult(
+                registry: nil,
+                etag: etag,
+                notModified: true
+            )
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let problem = try? decoder.decode(Problem.self, from: data)
+            throw DesktopUploadClientError.httpStatus(
+                httpResponse.statusCode,
+                problem?.code ?? "http_error"
+            )
+        }
+        return DesktopMeetingDetectionRegistryFetchResult(
+            registry: try MeetingDetectionCoding.decoder().decode(MeetingTargetRegistryDocument.self, from: data),
+            etag: httpResponse.value(forHTTPHeaderField: "ETag"),
+            notModified: false
+        )
     }
 
     public func acknowledgeLocalPurgeTask(
@@ -938,6 +978,28 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
         let hex = SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
         return "\(prefix)_\(String(hex.prefix(max(8, length))))"
+    }
+}
+
+extension DesktopUploadClient: MeetingDetectionTelemetryTransport {
+    public func upload(_ request: MeetingDetectionTelemetryUploadRequest) async throws -> MeetingDetectionTelemetryUploadResponse {
+        var urlRequest = try self.request(path: request.path, method: "POST")
+        urlRequest.httpBody = request.body
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(request.idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        return try await perform(urlRequest)
+    }
+}
+
+public struct DesktopMeetingDetectionRegistryFetchResult: Sendable {
+    public let registry: MeetingTargetRegistryDocument?
+    public let etag: String?
+    public let notModified: Bool
+
+    public init(registry: MeetingTargetRegistryDocument?, etag: String?, notModified: Bool) {
+        self.registry = registry
+        self.etag = etag
+        self.notModified = notModified
     }
 }
 
