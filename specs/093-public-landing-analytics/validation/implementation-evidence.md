@@ -320,3 +320,41 @@ Known limitation:
   counsel.
 - No production deploy, live provider smoke, live Yandex goal creation, live
   account IDs, raw cookies, visitor IDs, or screenshots were added.
+
+### 2026-07-08 - US4 Phase 2 Activation Contract Guardrails
+
+Implemented:
+
+- Contract tests scan public Phase 1 assets/templates for deferred provider
+  script markers and Phase 2 activation event names.
+- Phase 2 activation contract now names future activation events without
+  authorizing implementation.
+- Added explicit gates for event ownership, identity decision, consent/notice
+  decision, and deletion/reporting truth before any product analytics work.
+- Phase 2 remains planning-only: no PostHog script/SDK, product event capture,
+  desktop provider calls, authenticated identity linking, cabinet replay, or ad
+  optimization against product activation was added.
+
+Commands:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/contract/test_public_analytics_contract.py
+
+cd apps/server && PYTHONPATH=src uv run --extra dev ruff check \
+  tests/contract/test_public_analytics_contract.py
+
+git diff --check
+```
+
+Result:
+
+- Focused contract pytest: `11 passed, 1 warning`
+- Focused ruff: `All checks passed!`
+- `git diff --check` passed
+
+Known limitation:
+
+- Product activation attribution is still out of Phase 1. A later
+  legal-approved Spec Kit slice must choose provider, identity, consent/notice,
+  retention, deletion truth, and validation before implementation.

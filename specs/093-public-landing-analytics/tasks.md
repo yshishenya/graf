@@ -128,13 +128,13 @@
 
 ### Tests for User Story 4
 
-- [ ] T041 [P] [US4] Add contract tests proving no GA4, Google Analytics, Google Ads tags, GTM, PostHog, Clarity, Amplitude, Mixpanel, Matomo, or product activation script is present in public Phase 1 assets in `apps/server/tests/contract/test_public_analytics_contract.py`
-- [ ] T042 [P] [US4] Add documentation contract checks for Phase 2 activation event names and forbidden fields in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T041 [P] [US4] Add contract tests proving no GA4, Google Analytics, Google Ads tags, GTM, PostHog, Clarity, Amplitude, Mixpanel, Matomo, or product activation script is present in public Phase 1 assets in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T042 [P] [US4] Add documentation contract checks for Phase 2 activation event names and forbidden fields in `apps/server/tests/contract/test_public_analytics_contract.py`
 
 ### Implementation for User Story 4
 
-- [ ] T043 [US4] Refine Phase 2 activation event owner, identity, consent, and deletion-truth notes in `specs/093-public-landing-analytics/contracts/phase2-activation-contract.md`
-- [ ] T044 [US4] Record Phase 2 out-of-scope evidence in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T043 [US4] Refine Phase 2 activation event owner, identity, consent, and deletion-truth notes in `specs/093-public-landing-analytics/contracts/phase2-activation-contract.md`
+- [X] T044 [US4] Record Phase 2 out-of-scope evidence in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 
 **Checkpoint**: Product activation attribution is planned but not implemented in Phase 1.
 

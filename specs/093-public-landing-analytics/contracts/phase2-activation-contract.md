@@ -33,6 +33,28 @@ public_installer_download_clicked
 | `first_result_viewed` | cabinet | result_state, surface, time_bucket | meeting title, transcript, participants |
 | `first_value_session_completed` | product analytics | milestone booleans, elapsed_bucket | names, content, raw identifiers |
 
+## Event Owner And Implementation Gate
+
+Phase 2 must assign an owner for every event before implementation:
+
+| Event | Required owner before implementation |
+| --- | --- |
+| `desktop_first_opened` | desktop app owner |
+| `desktop_account_connected` | auth/server owner |
+| `desktop_autorecord_enabled` | desktop and calendar policy owner |
+| `first_recording_completed` | capture/server owner |
+| `first_result_viewed` | cabinet owner |
+| `first_value_session_completed` | product analytics owner |
+
+Implementation remains blocked until a separate Spec Kit feature approves:
+
+- product analytics provider and hosting model;
+- identity strategy;
+- consent or notice model;
+- retention and deletion truth;
+- privacy/security review for desktop, cabinet, and server surfaces;
+- validation plan for test users, internal traffic, and provider failure.
+
 ## Identity Boundary
 
 Phase 2 must choose one safe identity strategy before implementation:
@@ -42,6 +64,19 @@ Phase 2 must choose one safe identity strategy before implementation:
   policy;
 - campaign/session bridge token that expires and cannot reveal email/account
   identity.
+
+## Identity Decision Gate
+
+The chosen identity strategy must document:
+
+- owner of the identity namespace;
+- where the ID is generated;
+- whether it is stable across devices;
+- whether it can be joined to campaign data;
+- salt/rotation policy when hashing is used;
+- migration behavior if the provider changes;
+- test-user and internal-traffic filtering;
+- deletion/reporting effect when a user or workspace is deleted.
 
 Rejected identity values:
 
@@ -67,6 +102,34 @@ admin setting. It must also define:
 - deletion/reporting truth;
 - whether desktop and web share one analytics project;
 - whether self-hosted PostHog is required.
+
+## Consent And Notice Decision Gate
+
+Before implementation, Phase 2 must decide:
+
+- whether public marketing consent can ever bridge into product telemetry;
+- whether workspace admins can disable telemetry for their workspace;
+- whether desktop app telemetry needs a separate first-run notice;
+- how consent or notice changes stop future events;
+- how internal support/debug sessions are excluded from reports;
+- how legal copy explains provider hosting, cross-border behavior, and
+  deletion limits.
+
+## Deletion And Reporting Truth
+
+Phase 2 reports must not overpromise deletion. The implementation spec must
+state, in user-facing and operator-facing language:
+
+- deleting GRAF-controlled product data does not automatically erase aggregate
+  analytics already held by an external provider;
+- provider-level deletion or suppression must be described separately when
+  supported;
+- exported reports, screenshots, and ad-platform imports may outlive a product
+  deletion request unless a separate process removes them;
+- campaign attribution must distinguish anonymous web intent from authenticated
+  product activation;
+- dashboards must not expose raw user, workspace, meeting, transcript, audio,
+  calendar, token, signed URL, or local-path data.
 
 ## Provider Direction
 

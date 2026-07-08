@@ -6,7 +6,12 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = ROOT.parents[1]
 PUBLIC_STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "static" / "public"
+PUBLIC_TEMPLATE_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "templates" / "public"
+PHASE2_ACTIVATION_CONTRACT = (
+    REPO_ROOT / "specs" / "093-public-landing-analytics" / "contracts" / "phase2-activation-contract.md"
+)
 
 FORBIDDEN_PHASE1_MARKERS = (
     "googletagmanager.com",
@@ -32,6 +37,36 @@ FORBIDDEN_LIVE_PROVIDER_URLS = (
     "cdnjs.cloudflare",
     "unpkg.com",
     "cookieconsent.orestbida.com",
+)
+
+FORBIDDEN_DEFERRED_PROVIDER_SCRIPT_MARKERS = (
+    "googletagmanager.com",
+    "google-analytics.com",
+    "googleadservices.com",
+    "googleads.g.doubleclick.net",
+    "gtag(",
+    "GTM-",
+    "posthog.init",
+    "posthog.capture",
+    "posthog-js",
+    "app.posthog.com",
+    "clarity(",
+    "clarity.ms",
+    "amplitude.getInstance",
+    "amplitude.init",
+    "mixpanel.init",
+    "cdn.mxpnl.com",
+    "matomo.js",
+    "_paq.push",
+)
+
+PHASE2_ACTIVATION_EVENTS = (
+    "desktop_first_opened",
+    "desktop_account_connected",
+    "desktop_autorecord_enabled",
+    "first_recording_completed",
+    "first_result_viewed",
+    "first_value_session_completed",
 )
 
 
@@ -247,6 +282,42 @@ def test_public_analytics_controller_has_consent_persistence_and_safe_event_allo
     assert "customer@example.com" not in analytics_js
     assert "signed" not in analytics_js.lower()
     assert "passcode" not in analytics_js.lower()
+
+
+def test_public_phase1_assets_do_not_include_deferred_provider_or_activation_code() -> None:
+    public_asset_paths = [
+        *PUBLIC_STATIC_DIR.rglob("*.js"),
+        *PUBLIC_STATIC_DIR.rglob("*.css"),
+        *PUBLIC_TEMPLATE_DIR.rglob("*.html"),
+    ]
+    content = "\n".join(path.read_text(encoding="utf-8") for path in public_asset_paths)
+    lower_content = content.lower()
+
+    assert not [marker for marker in FORBIDDEN_DEFERRED_PROVIDER_SCRIPT_MARKERS if marker in content]
+    assert not [marker for marker in FORBIDDEN_DEFERRED_PROVIDER_SCRIPT_MARKERS if marker.lower() in lower_content]
+    assert not [event for event in PHASE2_ACTIVATION_EVENTS if event in content]
+
+
+def test_phase2_activation_contract_defines_future_events_and_forbidden_fields() -> None:
+    contract = PHASE2_ACTIVATION_CONTRACT.read_text(encoding="utf-8")
+
+    assert "planning contract only" in contract
+    assert "does not authorize Phase 1 implementation" in contract
+    for event_name in PHASE2_ACTIVATION_EVENTS:
+        assert event_name in contract
+    for forbidden_field in (
+        "email address",
+        "full name",
+        "organization/company name",
+        "raw account ID",
+        "OAuth/provider tokens",
+        "meeting or calendar identifiers",
+    ):
+        assert forbidden_field in contract
+    assert "Event Owner And Implementation Gate" in contract
+    assert "Identity Decision Gate" in contract
+    assert "Consent And Notice Decision Gate" in contract
+    assert "Deletion And Reporting Truth" in contract
 
 
 def _contains_forbidden_url(path: Path) -> bool:
