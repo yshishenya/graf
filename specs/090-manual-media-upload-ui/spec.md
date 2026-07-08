@@ -47,6 +47,23 @@ processing path.
   semantics, and session/CSRF rules are resolved by existing 030/087 product
   artifacts and constitution gates.
 
+### Session 2026-07-08
+
+- Post-release UX correction: the upload sheet must not keep transfer progress,
+  accepted state, or stop controls after the user starts a valid upload.
+- After file selection and pressing `Загрузить`, the sheet closes and the
+  meetings workspace owns visible progress, status, and recovery controls.
+- The meetings workspace must show hover/focus controls for active upload
+  activity: `Отменить` while transfer is active, `Повторить` after an
+  unconfirmed failure, `Продолжить` after a user stop/interruption while the
+  browser tab still retains the selected File object, and `Открыть` after
+  server acceptance.
+- `Продолжить` in this correction means continuing the user-visible attempt
+  from the retained in-tab file by resending through the existing one-file
+  cabinet upload route. True byte-range resumable browser upload across page
+  reloads, navigation, or device restart remains out of scope because the
+  approved cabinet route is a single multipart submission.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Upload Owned Media From Web Cabinet (Priority: P1)
@@ -78,9 +95,9 @@ meeting appears with manual-upload provenance and processing status.
    start upload, **Then** the UI requires a positive approximate duration and
    explains that it is used for meeting length and upload limits.
 4. **Given** the backend accepts the upload, **When** the transfer completes,
-   **Then** the upload sheet shows the accepted meeting state and the meeting
-   list can show the new row or a direct detail action without a page refresh
-   dead end.
+   **Then** the meetings workspace shows the accepted upload activity and the
+   meeting list can show the new row or a direct detail action without a page
+   refresh dead end.
 
 ---
 
@@ -142,9 +159,9 @@ truthful.
    positive, **When** the user starts upload, **Then** validation blocks the
    action before transfer and identifies the missing safe input.
 2. **Given** the selected file is rejected by server limits or dependency
-   readiness, **When** the server responds, **Then** the UI shows a bounded
-   failure reason and offers retry/change-file/detail actions without exposing
-   storage or dependency internals.
+   readiness, **When** the server responds, **Then** the meetings workspace
+   shows a bounded failure reason and offers retry or change-file recovery
+   without exposing storage or dependency internals.
 3. **Given** a network failure happens before server acceptance, **When** the
    request fails, **Then** the UI says the transfer was not confirmed and
    allows retry without claiming that a meeting exists.
@@ -191,7 +208,8 @@ processing and after it is ready.
 - The user starts upload twice, refreshes during upload, or retries after an
   accepted duplicate.
 - The upload request times out, is interrupted, or is aborted before server
-  acceptance.
+  acceptance; the same browser tab can continue or retry while it still holds
+  the selected file.
 - The server accepts the media but processing is unavailable, blocked, partial,
   retrying, or terminally failed.
 - The user is signed out, the owner session expires, CSRF proof is missing or
@@ -231,12 +249,17 @@ processing and after it is ready.
   uploading, accepted for processing, transcribing, partial/degraded, failed,
   and ready, and MUST keep upload success separate from transcript and notes
   readiness.
-- **FR-008**: The UI MUST show determinate transfer progress when the browser
-  can report upload bytes, and an accessible indeterminate state when byte
-  totals are unavailable.
+- **FR-008**: The meetings workspace MUST show determinate transfer progress
+  when the browser can report upload bytes, and an accessible indeterminate
+  state when byte totals are unavailable.
 - **FR-009**: The user MUST be able to abort a transfer before server
-  acceptance; after server acceptance, available next actions MUST use existing
-  meeting detail or bounded deletion truth rather than an unsafe undo claim.
+  acceptance from the meetings workspace; after server acceptance, available
+  next actions MUST use existing meeting detail or bounded deletion truth
+  rather than an unsafe undo claim.
+- **FR-009a**: The meetings workspace MUST expose upload activity controls on
+  hover and focus: cancel active transfer, retry unconfirmed failure, continue
+  a stopped/interrupted same-tab attempt, and open the accepted meeting when a
+  meeting id is available.
 - **FR-010**: The upload request from browser and embedded cabinet MUST require
   the same unsafe-action protection as other cookie-authenticated cabinet
   mutations.
@@ -245,8 +268,9 @@ processing and after it is ready.
   paths, raw media, raw transcript text, dependency job identifiers, or internal
   storage names.
 - **FR-012**: Accepted manual uploads MUST appear as normal meeting list rows
-  with truthful manual-media provenance, title, duration, status, progress when
-  active, updated time, and one clear next action.
+  with truthful manual-media provenance, title, duration, status, updated time,
+  and one clear next action; active pre-acceptance transfer progress belongs to
+  a meetings-workspace upload activity row above the normal list.
 - **FR-013**: Accepted manual uploads MUST link to the existing meeting detail
   and review flow according to current access and processing state.
 - **FR-014**: Browser and embedded desktop surfaces MUST use the same status
@@ -275,11 +299,13 @@ processing and after it is ready.
 - **Manual Upload Entry**: The visible action in browser and embedded meetings
   workspaces that starts the upload sheet.
 - **Upload Sheet**: The server-owned modal/sheet experience for file
-  selection, metadata, validation, upload progress, safe errors, and accepted
-  handoff.
-- **Upload Draft**: Client-side state before server acceptance, including the
+  selection, metadata, and validation before transfer starts.
+- **Upload Activity Row**: The meetings-workspace representation of an active,
+  stopped, failed, or accepted upload attempt, including progress, status, and
+  hover/focus recovery controls.
+- **Upload Draft**: Client-side state before transfer starts, including the
   selected file, optional title, derived or entered duration, validation state,
-  and abortable transfer state.
+  and per-draft idempotency identity.
 - **Manual Upload Submission**: A confirmed transfer attempt tied to the
   authenticated owner, workspace, device/session scope, and one selected media
   file.
@@ -318,9 +344,9 @@ processing and after it is ready.
 
 - Feature `087-own-media-upload-processing` remains the backend/API dependency
   for one-file upload acceptance and one-track processing.
-- No new transcoding, video playback, waveform, resumable browser upload,
-  direct object-storage upload, or MediaScribe client-side integration is
-  approved in this slice.
+- No new transcoding, video playback, waveform, byte-range resumable browser
+  upload, direct object-storage upload, or MediaScribe client-side integration
+  is approved in this slice.
 - The first embedded desktop upload implementation uses the authenticated
   server-owned cabinet surface. A future native macOS file picker or header-only
   desktop upload bridge requires a separate safety and route-policy slice.

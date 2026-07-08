@@ -167,6 +167,21 @@ parallel upload list model.
 
 ---
 
+## Phase 8: Post-Release UX Correction - List-Owned Upload Progress
+
+**Purpose**: Apply stakeholder feedback after the first polished modal release:
+the upload sheet starts the transfer and closes, while the meetings workspace
+shows progress, status, and hover/focus controls.
+
+- [X] T046 [P] Update 090 spec, contract, data model, research, and quickstart for list-owned upload progress in `specs/090-manual-media-upload-ui/`
+- [X] T047 [P] Add meeting-list upload activity rendering assertions in `apps/server/tests/unit/test_cabinet_web_shell.py`
+- [X] T048 [P] Update static asset contract for upload activity controls in `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
+- [X] T049 Move manual upload progress/accepted/cancel UI from the sheet into meeting-list upload activity rows in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
+- [X] T050 [P] Update user-visible changelog for the corrected upload workflow in `CHANGELOG.md`
+- [X] T051 Run focused quickstart validation for the corrected upload workflow and record evidence in closeout notes
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -177,6 +192,8 @@ parallel upload list model.
 - US4 depends on the accepted-upload handoff from US1 and can be completed
   after US1.
 - Phase 7 depends on all implemented user stories selected for closeout.
+- Phase 8 depends on the released 090 implementation and does not change the
+  `087` backend route or public API contract.
 
 ### User Story Dependencies
 
@@ -197,6 +214,8 @@ parallel upload list model.
   should be coordinated.
 - T033-T035 can run in parallel.
 - T039 and T040 can run in parallel after implementation.
+- T046-T048 and T050 can run in parallel; T049 touches runtime UI files and
+  T051 must run after implementation.
 
 ## Parallel Examples
 
@@ -259,6 +278,14 @@ Task: "T035 [US4] Add view-model assertions in apps/server/tests/unit/test_cabin
 - Post-rebase focused server validation after replaying onto `origin/master`:
   `PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_cabinet_manual_upload.py tests/integration/test_manual_media_upload.py tests/integration/test_cabinet_csrf.py tests/integration/test_cabinet_meeting_list.py tests/unit/test_cabinet_web_shell.py tests/contract/test_cabinet_static_assets_contract.py tests/contract/test_ingest_openapi_contract.py tests/contract/test_openapi_contract_drift.py`
   passed with `81 passed, 1 warning`.
+- Post-release UX correction evidence on 2026-07-08:
+  - `node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+  - `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_cabinet_web_shell.py tests/contract/test_cabinet_static_assets_contract.py tests/integration/test_cabinet_manual_upload.py tests/integration/test_cabinet_meeting_list.py` -> 64 passed.
+  - `PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_cabinet_manual_upload.py tests/integration/test_manual_media_upload.py tests/integration/test_cabinet_csrf.py tests/integration/test_cabinet_meeting_list.py tests/unit/test_cabinet_web_shell.py tests/contract/test_cabinet_static_assets_contract.py tests/contract/test_ingest_openapi_contract.py` -> 76 passed.
+  - `PYTHONPATH=src uv run --extra dev ruff check .` -> pass.
+  - `git diff --check` -> pass.
+  - Forbidden-content scan on changed files -> no matches.
+  - `infra/scripts/ci-local.sh` -> `ci_local_result=pass`; 1036 passed, 4 skipped, server lint passed, python compile passed, deployment evidence scan passed.
 - Post-rebase macOS embedded-route validation:
   `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinet'`
   passed with `74 tests, 0 failures`.
@@ -270,7 +297,7 @@ Task: "T035 [US4] Add view-model assertions in apps/server/tests/unit/test_cabin
   identified.
 - Full local CI:
   `infra/scripts/ci-local.sh` passed with `ci_local_result=pass`; server tests
-  reported `1034 passed, 4 skipped, 1 warning`, server lint passed, Python
+  reported `1036 passed, 4 skipped, 1 warning`, server lint passed, Python
   compile completed, production compose config rendered, and deployment
   evidence scan passed.
 - Production deploy/smoke was not run for this implementation slice.

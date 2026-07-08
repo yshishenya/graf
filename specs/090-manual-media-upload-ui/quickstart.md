@@ -22,7 +22,9 @@ Expected:
 - The upload sheet accepts exactly one selected file.
 - Duration is filled from media metadata when readable, or the UI requires a
   positive manual duration.
-- Starting upload shows progress and returns an accepted meeting handoff.
+- Pressing `Загрузить` closes the sheet, creates an upload activity row in the
+  meetings workspace, shows progress there, and returns an accepted meeting
+  handoff there.
 - The meetings list or detail route shows manual upload provenance and
   processing state without claiming transcript readiness.
 
@@ -57,7 +59,9 @@ Expected:
   states.
 - UI and tests do not expose MediaScribe credentials, signed URLs, object keys,
   raw media, raw transcript text, private local paths, or dependency job ids.
-- Aborted upload before acceptance does not claim a meeting exists.
+- Aborted upload before acceptance does not claim a meeting exists and exposes
+  same-tab `Продолжить` while the selected file is still retained.
+- Network or server failure before confirmed acceptance exposes `Повторить`.
 - Accepted upload with later processing failure shows accepted media separately
   from transcript/notes readiness.
 

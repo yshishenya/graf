@@ -51,21 +51,8 @@
       </label>
     </div>
     <input type="hidden" name="local_recording_id" data-manual-upload-local-id>
-    <div class="manual-upload-status-row">
-      <div class="manual-upload-status" data-manual-upload-status aria-live="polite">Выберите один файл.</div>
-      <div class="manual-upload-percent" data-manual-upload-percent hidden>0%</div>
-    </div>
-    <progress class="manual-upload-progress" data-manual-upload-progress max="100" value="0" hidden aria-label="Прогресс загрузки"></progress>
-    <div class="manual-upload-accepted" data-manual-upload-accepted hidden>
-      <span>{{ icons.icon("check") }}</span>
-      <div>
-        <strong>Файл принят.</strong>
-        <span>Расшифровка и итоги появятся после обработки.</span>
-      </div>
-      <a class="button quiet" href="#" data-manual-upload-detail hidden>Открыть</a>
-    </div>
+    <div class="manual-upload-validation" data-manual-upload-validation aria-live="polite" hidden></div>
     <div class="manual-upload-actions">
-      <button class="button quiet" type="button" data-manual-upload-abort hidden>Остановить</button>
       <button class="button primary" type="button" data-manual-upload-submit disabled>Загрузить</button>
     </div>
     {% else %}

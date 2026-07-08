@@ -433,12 +433,12 @@
     media.src = url;
   });
 
-  const refreshMeetingList = async (dialog) => {
+  const refreshMeetingList = async (refreshUrl) => {
     const target = document.querySelector("#meeting-list-region");
     if (!target || !window.htmx?.ajax) return;
-    const refreshUrl = dialog.dataset.uploadRefreshUrl || `${window.location.pathname}${window.location.search}`;
+    const url = refreshUrl || `${window.location.pathname}${window.location.search}`;
     try {
-      await window.htmx.ajax("GET", refreshUrl, {
+      await window.htmx.ajax("GET", url, {
         target: "#meeting-list-region",
         select: "#meeting-list-region",
         swap: "outerHTML"
@@ -464,55 +464,28 @@
     const localIdInput = dialog.querySelector("[data-manual-upload-local-id]");
     const fileMeta = dialog.querySelector("[data-manual-upload-file-meta]");
     const fileDuration = dialog.querySelector("[data-manual-upload-file-duration]");
-    const status = dialog.querySelector("[data-manual-upload-status]");
-    const percentLabel = dialog.querySelector("[data-manual-upload-percent]");
-    const progress = dialog.querySelector("[data-manual-upload-progress]");
+    const validation = dialog.querySelector("[data-manual-upload-validation]");
     const submit = dialog.querySelector("[data-manual-upload-submit]");
-    const abort = dialog.querySelector("[data-manual-upload-abort]");
-    const accepted = dialog.querySelector("[data-manual-upload-accepted]");
-    const detailLink = dialog.querySelector("[data-manual-upload-detail]");
     let selectedFile = null;
-    let currentRequest = null;
-    let acceptedByServer = false;
     let lastTrigger = null;
+    let uploadCounter = 0;
 
-    const setStatus = (message, tone = "neutral") => {
-      if (!status) return;
-      status.textContent = message;
-      status.dataset.tone = tone;
-    };
-
-    const setPercent = (value, visible = false) => {
-      if (!percentLabel) return;
-      percentLabel.hidden = !visible;
-      percentLabel.textContent = `${Math.max(0, Math.min(100, value || 0))}%`;
+    const setValidation = (message = "", tone = "neutral") => {
+      if (!validation) return;
+      validation.textContent = message;
+      validation.dataset.tone = tone;
+      validation.hidden = !message;
     };
 
     const syncReady = () => {
       const duration = Number.parseInt(durationInput?.value || "0", 10);
       const ready = Boolean(selectedFile && Number.isFinite(duration) && duration > 0 && csrfToken);
-      if (submit) submit.disabled = !ready || Boolean(currentRequest);
+      if (submit) submit.disabled = !ready;
     };
 
     const ensureLocalId = () => {
       if (!localIdInput || localIdInput.value) return;
       localIdInput.value = `manual-upload-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    };
-
-    const resetProgress = () => {
-      acceptedByServer = false;
-      if (accepted) accepted.hidden = true;
-      if (detailLink) {
-        detailLink.hidden = true;
-        detailLink.href = "#";
-      }
-      if (progress) {
-        progress.hidden = true;
-        progress.removeAttribute("aria-valuenow");
-        progress.value = 0;
-      }
-      setPercent(0);
-      if (abort) abort.hidden = true;
     };
 
     const resetFilePreview = () => {
@@ -524,14 +497,205 @@
       dropZone?.classList.remove("has-file");
     };
 
+    const resetDraft = () => {
+      selectedFile = null;
+      if (fileInput) fileInput.value = "";
+      if (durationInput) durationInput.value = "";
+      if (localIdInput) localIdInput.value = "";
+      resetFilePreview();
+      setValidation();
+      syncReady();
+    };
+
+    const ensureUploadHost = () => {
+      let host = document.querySelector("[data-upload-activity-list]");
+      if (host) return host;
+      host = document.createElement("div");
+      host.className = "upload-activity-list";
+      host.dataset.uploadActivityList = "";
+      host.setAttribute("aria-live", "polite");
+      const listRegion = document.querySelector("#meeting-list-region");
+      const toolbar = document.querySelector(".meeting-toolbar");
+      if (listRegion?.parentNode) listRegion.parentNode.insertBefore(host, listRegion);
+      else toolbar?.after(host);
+      return host;
+    };
+
+    const updateActivityControls = (activity) => {
+      const state = activity.state;
+      if (activity.cancelButton) activity.cancelButton.hidden = state !== "uploading";
+      if (activity.retryButton) activity.retryButton.hidden = state !== "failed";
+      if (activity.resumeButton) activity.resumeButton.hidden = state !== "canceled";
+      if (activity.detailLink) activity.detailLink.hidden = !activity.detailHref;
+    };
+
+    const setActivityProgress = (activity, value, determinate = true) => {
+      const percent = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+      activity.progress?.classList.toggle("is-indeterminate", !determinate);
+      if (determinate) {
+        activity.progress?.setAttribute("aria-valuenow", String(percent));
+        if (activity.progressBar) activity.progressBar.style.width = `${percent}%`;
+        if (activity.percentLabel) {
+          activity.percentLabel.textContent = `${percent}%`;
+          activity.percentLabel.hidden = false;
+        }
+      } else {
+        activity.progress?.removeAttribute("aria-valuenow");
+        if (activity.progressBar) activity.progressBar.style.width = "36%";
+        if (activity.percentLabel) {
+          activity.percentLabel.textContent = "...";
+          activity.percentLabel.hidden = false;
+        }
+      }
+    };
+
+    const setActivityState = (activity, state, message, tone = "neutral") => {
+      activity.state = state;
+      activity.row.dataset.uploadActivityState = state;
+      if (activity.status) {
+        activity.status.textContent = message;
+        activity.status.dataset.tone = tone;
+      }
+      updateActivityControls(activity);
+    };
+
+    const createUploadActivity = ({ file, title, duration, localId }) => {
+      const host = ensureUploadHost();
+      uploadCounter += 1;
+      const row = document.createElement("article");
+      row.className = "upload-activity-row";
+      row.dataset.uploadActivityRow = "";
+      row.dataset.uploadActivityState = "queued";
+      row.innerHTML = `
+        <span class="upload-activity-icon" aria-hidden="true"></span>
+        <div class="upload-activity-copy">
+          <strong data-upload-activity-title></strong>
+          <span data-upload-activity-meta></span>
+          <span data-upload-activity-status></span>
+          <span class="upload-activity-progress" role="progressbar" aria-label="Прогресс загрузки" aria-valuemin="0" aria-valuemax="100">
+            <span data-upload-activity-progress-bar></span>
+          </span>
+        </div>
+        <span class="upload-activity-percent" data-upload-activity-percent>0%</span>
+        <div class="upload-activity-actions" aria-label="Управление загрузкой">
+          <button class="upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
+          <button class="upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
+          <button class="upload-activity-action" type="button" data-upload-activity-resume hidden>Продолжить</button>
+          <a class="upload-activity-action" href="#" data-upload-activity-detail hidden>Открыть</a>
+        </div>
+      `;
+      host.prepend(row);
+
+      const displayTitle = title || file.name || `Загрузка ${uploadCounter}`;
+      const activity = {
+        row,
+        file,
+        title,
+        duration,
+        localId,
+        state: "queued",
+        xhr: null,
+        accepted: false,
+        detailHref: "",
+        titleLabel: row.querySelector("[data-upload-activity-title]"),
+        meta: row.querySelector("[data-upload-activity-meta]"),
+        status: row.querySelector("[data-upload-activity-status]"),
+        progress: row.querySelector(".upload-activity-progress"),
+        progressBar: row.querySelector("[data-upload-activity-progress-bar]"),
+        percentLabel: row.querySelector("[data-upload-activity-percent]"),
+        cancelButton: row.querySelector("[data-upload-activity-cancel]"),
+        retryButton: row.querySelector("[data-upload-activity-retry]"),
+        resumeButton: row.querySelector("[data-upload-activity-resume]"),
+        detailLink: row.querySelector("[data-upload-activity-detail]")
+      };
+      if (activity.titleLabel) activity.titleLabel.textContent = displayTitle;
+      if (activity.meta) {
+        activity.meta.textContent = `${file.name || "Файл"} · ${formatBytes(file.size)} · ${duration} сек.`;
+      }
+      row.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element)) return;
+        if (event.target.closest("[data-upload-activity-cancel]")) {
+          if (activity.xhr && !activity.accepted) activity.xhr.abort();
+          return;
+        }
+        if (event.target.closest("[data-upload-activity-retry]")) {
+          startActivityUpload(activity, { continued: false });
+          return;
+        }
+        if (event.target.closest("[data-upload-activity-resume]")) {
+          startActivityUpload(activity, { continued: true });
+        }
+      });
+      return activity;
+    };
+
+    const startActivityUpload = (activity, { continued = false } = {}) => {
+      if (!activity.file || activity.xhr || activity.accepted) return;
+      const data = new FormData();
+      data.append("file", activity.file);
+      data.append("duration_seconds", String(activity.duration));
+      data.append("local_recording_id", activity.localId);
+      if (activity.title) data.append("title", activity.title);
+
+      const xhr = new XMLHttpRequest();
+      activity.xhr = xhr;
+      activity.accepted = false;
+      setActivityProgress(activity, 0, true);
+      setActivityState(activity, "uploading", continued ? "Продолжаем загрузку..." : "Загружаем файл...");
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) {
+          setActivityProgress(activity, 0, false);
+          return;
+        }
+        const percent = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        setActivityProgress(activity, percent, true);
+        setActivityState(activity, "uploading", "Загружаем файл...");
+      };
+      xhr.onload = async () => {
+        activity.xhr = null;
+        let payload = {};
+        try {
+          payload = JSON.parse(xhr.responseText || "{}");
+        } catch (_err) {
+          payload = {};
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          activity.accepted = true;
+          setActivityProgress(activity, 100, true);
+          const meetingId = payload.meeting?.meeting_id;
+          if (meetingId) {
+            activity.detailHref = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
+            if (activity.detailLink) activity.detailLink.href = activity.detailHref;
+          }
+          setActivityState(activity, "accepted", "Файл принят. Обработка началась.", "success");
+          await refreshMeetingList(dialog.dataset.uploadRefreshUrl);
+          return;
+        }
+        setActivityState(activity, "failed", safeUploadMessage(payload.code), "error");
+      };
+      xhr.onerror = () => {
+        activity.xhr = null;
+        setActivityState(activity, "failed", "Передача не подтверждена. Попробуйте еще раз.", "error");
+      };
+      xhr.onabort = () => {
+        activity.xhr = null;
+        if (!activity.accepted) {
+          setActivityState(activity, "canceled", "Передача остановлена. Можно продолжить из этой вкладки.", "warning");
+        }
+      };
+      xhr.open("POST", dialog.dataset.uploadEndpoint || "/api/v1/cabinet/media-uploads");
+      xhr.setRequestHeader("X-CSRF-Token", csrfToken);
+      xhr.send(data);
+    };
+
     const setSelectedFile = async (file) => {
-      resetProgress();
       selectedFile = file || null;
       if (localIdInput) localIdInput.value = "";
       if (durationInput) durationInput.value = "";
       if (!selectedFile) {
         resetFilePreview();
-        setStatus("Выберите один файл.");
+        setValidation();
         syncReady();
         return;
       }
@@ -543,7 +707,7 @@
       if (fileDuration) fileDuration.textContent = "Проверяем...";
       if (dropTitle) dropTitle.textContent = "Файл выбран";
       dropZone?.classList.add("has-file");
-      setStatus("Проверяем длительность...");
+      setValidation();
 
       const activeFile = selectedFile;
       const duration = await readMediaDuration(selectedFile);
@@ -551,10 +715,10 @@
       if (duration && durationInput) {
         durationInput.value = String(duration);
         if (fileDuration) fileDuration.textContent = `${duration} сек.`;
-        setStatus("Файл готов к загрузке.");
+        setValidation();
       } else {
         if (fileDuration) fileDuration.textContent = "Укажите длительность";
-        setStatus("Введите примерную длительность перед загрузкой.", "warning");
+        setValidation("Введите примерную длительность перед загрузкой.", "warning");
       }
       syncReady();
     };
@@ -562,7 +726,7 @@
     const openDialog = (trigger) => {
       lastTrigger = trigger;
       if (dialog.dataset.uploadAvailable !== "true" || !csrfToken) {
-        setStatus("Войдите снова, чтобы загрузить файл.", "error");
+        setValidation("Войдите снова, чтобы загрузить файл.", "error");
       }
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
@@ -571,7 +735,6 @@
     };
 
     const closeDialog = () => {
-      if (currentRequest && !acceptedByServer) currentRequest.abort();
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
       lastTrigger?.focus({ preventScroll: true });
@@ -617,13 +780,12 @@
         dropZone.classList.remove("is-dragover");
         const files = Array.from(event.dataTransfer?.files || []);
         if (files.length > 1) {
-          resetProgress();
           selectedFile = null;
           if (fileInput) fileInput.value = "";
           if (durationInput) durationInput.value = "";
           if (localIdInput) localIdInput.value = "";
           resetFilePreview();
-          setStatus("Можно загрузить только один файл.", "error");
+          setValidation("Можно загрузить только один файл.", "error");
           syncReady();
           return;
         }
@@ -635,99 +797,35 @@
       const duration = Number.parseInt(durationInput.value || "0", 10);
       if (selectedFile && Number.isFinite(duration) && duration > 0) {
         if (fileDuration) fileDuration.textContent = `${duration} сек.`;
-        setStatus("Файл готов к загрузке.");
+        setValidation();
       }
       syncReady();
     });
 
     submit?.addEventListener("click", () => {
-      if (!selectedFile || !durationInput || !localIdInput || !csrfToken || currentRequest) {
+      if (!selectedFile || !durationInput || !localIdInput || !csrfToken) {
+        if (!selectedFile) setValidation("Выберите один файл.", "error");
+        else if (!csrfToken) setValidation("Войдите снова, чтобы загрузить файл.", "error");
         syncReady();
         return;
       }
       const duration = Number.parseInt(durationInput.value || "0", 10);
       if (!Number.isFinite(duration) || duration <= 0) {
-        setStatus("Введите положительную длительность.", "error");
+        setValidation("Введите положительную длительность.", "error");
         syncReady();
         return;
       }
       ensureLocalId();
-      const data = new FormData();
-      data.append("file", selectedFile);
-      data.append("duration_seconds", String(duration));
-      data.append("local_recording_id", localIdInput.value);
       const title = titleInput?.value?.trim();
-      if (title) data.append("title", title);
-
-      const xhr = new XMLHttpRequest();
-      currentRequest = xhr;
-      acceptedByServer = false;
-      submit.disabled = true;
-      if (abort) abort.hidden = false;
-      if (progress) {
-        progress.hidden = false;
-        progress.value = 0;
-        progress.removeAttribute("aria-valuenow");
-      }
-      setPercent(0, true);
-      setStatus("Загружаем файл...");
-
-      xhr.upload.onprogress = (event) => {
-        if (!progress || !event.lengthComputable) return;
-        const percent = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
-        progress.value = percent;
-        progress.setAttribute("aria-valuenow", String(percent));
-        setPercent(percent, true);
-        setStatus("Загружаем файл...");
-      };
-      xhr.onload = async () => {
-        currentRequest = null;
-        if (abort) abort.hidden = true;
-        let payload = {};
-        try {
-          payload = JSON.parse(xhr.responseText || "{}");
-        } catch (_err) {
-          payload = {};
-        }
-        if (xhr.status >= 200 && xhr.status < 300) {
-          acceptedByServer = true;
-          if (progress) {
-            progress.value = 100;
-            progress.setAttribute("aria-valuenow", "100");
-          }
-          setPercent(100, true);
-          setStatus("Файл принят. Обработка началась.", "success");
-          const meetingId = payload.meeting?.meeting_id;
-          if (meetingId && detailLink) {
-            detailLink.href = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
-            detailLink.hidden = false;
-          }
-          if (accepted) accepted.hidden = false;
-          await refreshMeetingList(dialog);
-          return;
-        }
-        setStatus(safeUploadMessage(payload.code), "error");
-        syncReady();
-      };
-      xhr.onerror = () => {
-        currentRequest = null;
-        if (abort) abort.hidden = true;
-        setStatus("Передача не подтверждена. Попробуйте еще раз.", "error");
-        syncReady();
-      };
-      xhr.onabort = () => {
-        currentRequest = null;
-        if (abort) abort.hidden = true;
-        if (!acceptedByServer) setStatus("Передача остановлена до подтверждения.", "warning");
-        syncReady();
-      };
-      xhr.open("POST", dialog.dataset.uploadEndpoint || "/api/v1/cabinet/media-uploads");
-      xhr.setRequestHeader("X-CSRF-Token", csrfToken);
-      xhr.send(data);
-    });
-
-    abort?.addEventListener("click", () => {
-      if (currentRequest && !acceptedByServer) currentRequest.abort();
+      const activity = createUploadActivity({
+        file: selectedFile,
+        title,
+        duration,
+        localId: localIdInput.value
+      });
+      startActivityUpload(activity);
+      closeDialog();
+      resetDraft();
     });
 
     dialog.addEventListener("click", (event) => {
