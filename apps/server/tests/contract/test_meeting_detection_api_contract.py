@@ -32,7 +32,7 @@ def meeting_detection_payload(**overrides: object) -> dict[str, object]:
                 "targetId": "yandex_telemost",
                 "targetFamily": "native_app",
                 "supportMode": "prompt_enabled",
-                "signalFamilies": ["macos_sensor_indicators_mic"],
+                "signalFamilies": ["macos_audio_hal_assertion"],
                 "outcomes": {"observed": 2, "promptEligible": 1, "prompted": 1},
                 "durationBuckets": {"over5m": 1},
                 "reasonCodes": ["stable_mic_duration"],
@@ -123,4 +123,15 @@ def test_meeting_detection_registry_contract_returns_metadata_only_registry(clie
     assert body["etag"] == response.headers["etag"].strip('"')
     assert body["nonTargetRules"] == []
     assert any(target["id"] == "yandex_telemost" for target in body["targets"])
-    assert "audio" not in str(body).lower()
+    exported = str(body).lower()
+    for forbidden in (
+        "passcode",
+        "transcript",
+        "audio_url",
+        "audiourl",
+        "audio_bytes",
+        "audiobytes",
+        "raw_audio",
+        "rawaudio",
+    ):
+        assert forbidden not in exported

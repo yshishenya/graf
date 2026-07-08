@@ -71,7 +71,7 @@ metadata-only evidence остаются подробной историей ре
   It adds server-side metadata-only meeting-detection telemetry, admin candidate
   review and registry publishing, RLS-covered registry/candidate tables, a
   packaged macOS target registry, local registry cache/fallback, low-noise
-  candidate rollups, macOS `sensor-indicators` mic attribution parsing,
+  candidate rollups, macOS `AudioHAL` app-ownership parsing,
   detector debounce/end state, target-scoped prompt/auto-record policy gates,
   metadata-only diagnostics, meeting-detection settings/revoke affordances, and
   browser metadata plus calendar/join-intent foundation without requiring a
@@ -82,7 +82,7 @@ metadata-only evidence остаются подробной историей ре
   implementation readiness only: it is not committed, merged, released,
   deployed, or production-rollout evidence. Critical review remediation on
   2026-07-08 wired the packaged registry into the macOS runtime, connected the
-  native `sensor-indicators` log stream to prompt/auto-record decisioning,
+  native `AudioHAL` log stream to prompt/auto-record decisioning,
   hardened browser-target validation, added candidate/non-target uniqueness,
   rejected admin merges into unknown target ids, and refreshed focused/full
   local validation evidence.

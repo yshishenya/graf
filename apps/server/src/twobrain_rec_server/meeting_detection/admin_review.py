@@ -187,7 +187,7 @@ async def add_diagnostic_only_draft(
         "nativeBundleIds": [candidate.bundle_id] if candidate.bundle_id else [],
         "mode": "diagnostic_only",
         "evidence": "runtime_start_verified",
-        "requiredSignals": ["macos_sensor_indicators_mic"],
+        "requiredSignals": ["macos_audio_hal_assertion"],
         "comments": "Created from admin candidate review; prompt remains disabled.",
     }
     document = await build_registry_draft_document(

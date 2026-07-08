@@ -1,21 +1,21 @@
 import Foundation
 import TwoBrainRecShared
 
-public final class MacOSMicAttributionLogStream: @unchecked Sendable {
-    private let configuration: MacOSMicAttributionLogStreamConfiguration
-    private let parser: MacOSMicAttributionParser
-    private let stateQueue = DispatchQueue(label: "pro.2brain.graf.mic-attribution-log-stream")
+public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
+    private let configuration: MacOSAudioOwnershipLogStreamConfiguration
+    private let parser: MacOSAudioOwnershipParser
+    private let stateQueue = DispatchQueue(label: "pro.2brain.graf.audio-ownership-log-stream")
     private var process: Process?
 
     public init(
-        configuration: MacOSMicAttributionLogStreamConfiguration = MacOSMicAttributionLogStreamConfiguration(),
-        parser: MacOSMicAttributionParser = MacOSMicAttributionParser()
+        configuration: MacOSAudioOwnershipLogStreamConfiguration = MacOSAudioOwnershipLogStreamConfiguration(),
+        parser: MacOSAudioOwnershipParser = MacOSAudioOwnershipParser()
     ) {
         self.configuration = configuration
         self.parser = parser
     }
 
-    public func events() -> AsyncStream<MacOSMicAttributionEvent> {
+    public func events() -> AsyncStream<MacOSAudioOwnershipEvent> {
         AsyncStream { continuation in
             let process = Process()
             let output = Pipe()

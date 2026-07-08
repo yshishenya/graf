@@ -47,7 +47,7 @@ health and unknown apps only after the client VKS-candidate filter passes.
 
 **Rationale**: The owner needs to see likely missing VKS apps in admin without
 asking every user to export diagnostics, but uploading every mic-using app would
-be an app inventory leak. The filter requires stable mic attribution plus VKS
+be an app inventory leak. The filter requires stable audio ownership plus VKS
 signals, blocks known non-target categories, and rate-limits identity upload.
 
 **Alternatives Considered**:
@@ -68,13 +68,15 @@ evidence. Recording behavior must stay fail-closed.
 
 ### Native macOS Detector Rule
 
-**Decision**: First native detector uses Gilb-style Control Center
-`sensor-indicators` `mic:<bundle_id>` attribution with a 5 second start debounce
-and 15 second end grace.
+**Decision**: First native detector uses Gilb-style passive macOS audio
+ownership: RunningBoard/CoreAudio `AudioHAL` assertions keyed by app bundle ID,
+with start debounce of 5 seconds and end grace of 15 seconds.
 
-**Rationale**: Local runtime checks showed Zoom and Yandex Telemost emit stable
-bundle-specific mic attribution and removal/end behavior. This is a narrow,
-event-driven detector with low overhead and clear false-positive constraints.
+**Rationale**: Local runtime checks showed Zoom and Yandex Telemost expose
+bundle-specific audio ownership while active. `AudioHAL` ownership matched the
+behavior observed from Gilb/Krisp during Telemost.
+This remains a narrow, event-driven detector with low overhead and clear
+false-positive constraints.
 
 **Alternatives Considered**:
 
@@ -87,7 +89,7 @@ event-driven detector with low overhead and clear false-positive constraints.
 ### Browser Detection Path
 
 **Decision**: Browser meetings use browser metadata plus calendar or join intent,
-not browser microphone attribution alone. The first browser Tier A attempt is
+not browser audio ownership alone. The first browser Tier A attempt is
 Yandex Telemost web in Chromium-family metadata surfaces, with Yandex Browser
 included if the metadata path validates.
 

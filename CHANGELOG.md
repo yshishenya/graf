@@ -24,6 +24,38 @@
 - _Пока нет записей._
 
 ### Операции
+- Обновлен public static installer package для `/download`; SHA-256 package:
+  `57d8e80c2fc03a883aaf5345a820c593090aa1daad9fc51e967c2450a0929a65`.
+
+## [2026.07.09.3] - 2026-07-09
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Feature `092-automatic-meeting-detection`: native macOS meeting detection
+  now uses `AudioHAL` app-ownership assertions as the primary Gilb-style signal
+  instead of the legacy `sensor-indicators` mic-attribution path; Yandex
+  Telemost emits this ownership signal during an active meeting.
+- Feature `092-automatic-meeting-detection`: the local macOS installer now
+  packages the SwiftPM resource bundle that contains
+  `meeting-target-registry.seed.json`, so installed `.app` builds can load the
+  packaged target registry.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `092-automatic-meeting-detection`: refreshed allowlist,
+  fingerprint, telemetry, quickstart, and Spec Kit language to describe
+  `AudioHAL` ownership as the native-app detector signal and keep browser
+  meetings on the metadata + calendar/join-intent path.
+
+### Операции
 - _Пока нет записей._
 
 ## [2026.07.09.2] - 2026-07-09
@@ -66,9 +98,10 @@
   admin review кандидатов и packaged seed registry для macOS без production
   rollout.
 - На macOS добавлены registry cache/fallback, VKS-candidate filter,
-  telemetry rollups/uploader, `sensor-indicators` parser, detector debounce/end
-  state, policy gates для prompt/target-scoped auto-record, local settings,
-  revoke affordance и metadata-only detector diagnostics.
+  telemetry rollups/uploader, primary `AudioHAL` app-ownership parser,
+  detector debounce/end state, policy gates для prompt/target-scoped
+  auto-record, local settings, revoke affordance и metadata-only detector
+  diagnostics.
 - Заложен первый browser foundation без расширения: browser metadata
   классифицируется только вместе с calendar/join intent, а landing/new/join,
   settings/device-test/media/voice-search и missing metadata остаются
@@ -84,11 +117,11 @@
   disabled defaults.
 - Feature `092-automatic-meeting-detection`: после критического review
   исправлен runtime path macOS detector: packaged seed registry включен в
-  SwiftPM resources, `sensor-indicators` log stream подключен к detector
-  decisioning/prompt/auto-record path, parser поддерживает реальные
-  `mic:<bundle>` attribution tokens и removal events, unknown short-duration
-  candidates могут переоцениваться, а native browser mic attribution
-  подавляется до browser metadata + calendar/join intent path.
+  SwiftPM resources и теперь копируется в `.app` installer bundle, primary
+  `AudioHAL` app-ownership stream подключен к detector decisioning/prompt/
+  auto-record path, parser читает реальные `AudioHAL` ownership assertions,
+  unknown short-duration candidates могут переоцениваться, а native browser
+  audio ownership подавляется до browser metadata + calendar/join intent path.
 - Feature `092-automatic-meeting-detection`: усилены серверные safety gates для
   registry/admin/telemetry: browser targets обязаны иметь browser metadata и
   calendar/join intent, merge в неизвестный target id отклоняется, добавлены
@@ -103,7 +136,7 @@
   login, cabinet, admin, API, legal и product/content-bearing surfaces.
 - Feature `092-automatic-meeting-detection`: telemetry/admin/diagnostics остаются
   metadata-only; low-score unknown apps redacted locally, Krisp/audio utilities
-  and generic browser mic attribution suppressed, remote registry cannot enable
+  and generic browser audio ownership suppressed, remote registry cannot enable
   behavior beyond compiled safety gates.
 - Feature `092-automatic-meeting-detection`: local telemetry rollups теперь
   принудительно очищаются по retention cap `14 days / 1 MB` при записи и перед

@@ -23,7 +23,7 @@
 - [x] "Prompt-enabled", "diagnostic-only", "manual/browser-only", and
   "blocked-missing-bundle" have product behavior attached.
 - [x] Unknown apps are explicitly discovery-only and cannot prompt or record.
-- [x] Browser mic attribution is explicitly insufficient for browser meeting
+- [x] Browser audio ownership is explicitly insufficient for browser meeting
   detection.
 - [x] Target-scoped auto-record identity is defined for native and browser
   targets.

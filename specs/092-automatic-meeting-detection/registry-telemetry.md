@@ -77,7 +77,7 @@ Example:
       "nativeBundleIds": ["us.zoom.xos"],
       "mode": "prompt_enabled",
       "evidence": "runtime_verified",
-      "requiredSignals": ["macos_sensor_indicators_mic"],
+      "requiredSignals": ["macos_audio_hal_assertion"],
       "minClientVersion": "2026.07.08.1"
     },
     {
@@ -89,7 +89,7 @@ Example:
       "nativeBundleIds": ["ru.mail.messenger-biz-avocado-desktop"],
       "mode": "diagnostic_only",
       "evidence": "installed_verified",
-      "requiredSignals": ["macos_sensor_indicators_mic"]
+      "requiredSignals": ["macos_audio_hal_assertion"]
     }
   ]
 }
@@ -107,7 +107,7 @@ Registry modes:
 
 Targets should be stable by `id`, not by display name. Native macOS matching uses
 bundle IDs. Browser matching uses service/provider identity and safe URL pattern
-classes, not generic browser mic attribution.
+classes, not generic browser audio ownership.
 
 ## Local Telemetry Model
 
@@ -121,7 +121,7 @@ Allowed fields:
   `registryVersion`.
 - Daily or hourly time bucket, not exact private meeting time when not needed.
 - Known target id, support mode, target family, and safe display label.
-- Signal family presence: mic attribution, browser metadata, calendar overlap,
+- Signal family presence: audio ownership, browser metadata, calendar overlap,
   join intent, system audio activity, adapter health.
 - Decision outcome: observed, weak, prompt-eligible, blocked, prompted, skipped,
   suppressed, recorded, ended, missed, health-degraded.
@@ -144,23 +144,23 @@ Forbidden fields:
 
 Unknown app discovery needs one stricter rule: raw unknown app identifiers are
 sensitive because they reveal installed or used software. The client MUST NOT
-upload every unknown `mic:<bundle_id>` attribution. It may upload unknown app
-identity automatically only after the app passes the VKS-candidate filter below.
-If workspace/admin policy disables meeting-detection improvement telemetry, the
+upload every unknown `AudioHAL` bundle owner. It may upload unknown app identity
+automatically only after the app passes the VKS-candidate filter below. If
+workspace/admin policy disables meeting-detection improvement telemetry, the
 client keeps unknown candidate identity local and may upload only aggregate
 health counters without bundle IDs.
 
 ## Unknown App Discovery
 
 The detector should use the same low-cost macOS stream as known native matching.
-It should keep a local candidate table for `mic:<bundle_id>` values that are not
+It should keep a local candidate table for `AudioHAL` bundle owners that are not
 in the registry, excluding known non-target categories such as browsers and
 audio-processing utilities before upload.
 
 An unknown native app becomes a local discovery candidate only when:
 
-1. The app emits stable microphone attribution after the start debounce.
-2. The attribution remains active longer than the short-test bucket.
+1. The app emits stable audio ownership after the start debounce.
+2. The ownership remains active longer than the short-test bucket.
 3. It is not in the explicit non-target denylist.
 4. Optional safe hints raise confidence, such as calendar overlap, user manual
    recording soon after, repeated observations across days, or installed app
@@ -179,7 +179,7 @@ The first scoring model:
 
 | Signal | Score | Notes |
 | --- | ---: | --- |
-| Stable `mic:<bundle_id>` after debounce for at least 30 seconds | +2 | Baseline live communication signal. |
+| Stable `AudioHAL bundle ownership` after debounce for at least 30 seconds | +2 | Baseline live communication signal. |
 | Observation repeats on two different days or sessions | +1 | Helps separate one-off tests from real meeting tools. |
 | User starts manual recording within a short window around the observation | +3 | Strong "probably a meeting" hint without reading meeting content. |
 | Calendar or join-intent hint exists during the observation | +2 | Store only boolean/category, not event text or URLs. |
@@ -223,7 +223,7 @@ behaved as expected:
 | `target_observed` | Expected signal appeared and passed debounce. |
 | `target_clean_end` | Expected signal disappeared and passed end debounce. |
 | `target_short_test` | Signal appeared briefly and ended before the prompt window. |
-| `target_prejoin_like` | Stable mic attribution appeared but prompt was blocked by prejoin/device-test heuristics or user skip. |
+| `target_prejoin_like` | Stable audio ownership appeared but prompt was blocked by prejoin/device-test heuristics or user skip. |
 | `target_missed_manual_start` | User started manual recording near a known target observation that did not prompt. |
 | `target_expected_signal_absent` | Registry/browser/calendar hints existed, but the required native/browser signal did not appear. |
 | `target_health_degraded` | Adapter/log stream/parser permission or schema failed. |
@@ -314,7 +314,7 @@ Admin actions:
 | Merge with existing target | Links the candidate evidence to an existing registry target. |
 | Add as `diagnostic_only` | Creates a registry draft with bundle IDs and safe label, but no prompts. |
 | Request package/runtime validation | Keeps the candidate in review with a QA checklist. |
-| Promote to `prompt_enabled` | Allowed only after package identity, runtime mic start, runtime end, idle/prejoin behavior, and product gates pass. |
+| Promote to `prompt_enabled` | Allowed only after package identity, runtime audio-ownership start, runtime end, idle/prejoin behavior, and product gates pass. |
 | Disable target | Publishes a registry mode that prevents prompts and detector decisions. |
 
 Every admin action must be audited with actor, timestamp, previous value, new
@@ -325,7 +325,7 @@ Promotion from discovery to product behavior requires human review and QA:
 
 1. Unknown app appears in telemetry or package research.
 2. Add target to registry as `diagnostic_only`.
-3. Validate package identity and real mic start/end behavior.
+3. Validate package identity and real audio-ownership start/end behavior.
 4. Promote to `prompt_enabled` only after target-specific QA and product gates.
 5. Keep target-scoped auto-record opt-in separate from registry support.
 
@@ -336,7 +336,7 @@ For the first native detector:
 
 - Run at most one `/usr/bin/log stream` process while detection/detect-only is
   enabled.
-- Parse only Control Center `sensor-indicators` attribution events.
+- Parse only passive macOS `AudioHAL` ownership events.
 - Keep active state in memory as a small map keyed by bundle ID.
 - Aggregate counters in memory and write rollups periodically.
 - Do not scan `/Applications` repeatedly. Resolve app metadata lazily only for
@@ -352,7 +352,7 @@ Suggested first resource gates:
 | Metric | First gate |
 | --- | --- |
 | Idle detector CPU | p95 below 1% over a 10 minute idle window. |
-| Monitoring detector CPU | p95 below 2% while parsing normal attribution traffic. |
+| Monitoring detector CPU | p95 below 2% while parsing normal ownership traffic. |
 | Memory overhead | below 30 MB steady-state additional RSS. |
 | Disk writes | below 256 KB/day for telemetry rollups before upload. |
 | Network | one registry fetch/day, one telemetry upload/day, and at most one immediate high-score candidate upload/day. |
@@ -365,12 +365,12 @@ thresholds if local validation shows different realistic numbers.
 
 | Observation | Registry state | Product behavior | Telemetry |
 | --- | --- | --- | --- |
-| Zoom emits stable `mic:us.zoom.xos` | `prompt_enabled` | Prompt or target-scoped auto-record after hard gates. | Known target success/failure counters. |
-| VK Teams emits stable mic attribution | `diagnostic_only` | No prompt in first release. Manual recording remains available. | Known target diagnostic counters. |
-| Unknown app emits stable mic attribution and passes VKS-candidate filter | Not in registry | No prompt. No recording. | Automatic candidate upload to admin review queue unless workspace/admin telemetry is disabled. |
-| Unknown app emits stable mic attribution but fails VKS-candidate filter | Not in registry | No prompt. No recording. | Local aggregate only; no raw app identity upload. |
-| Browser emits mic attribution | Browser is excluded from native allowlist | No native-app prompt. Browser path may evaluate metadata/calendar/join intent. | Browser-support counters only after browser adapter rules pass. |
-| Krisp/audio utility emits mic attribution | Explicit non-target | Ignore for decisions. | Optional non-target suppression counter, no app-specific upload by default. |
+| Zoom emits stable `AudioHAL` ownership for `us.zoom.xos` | `prompt_enabled` | Prompt or target-scoped auto-record after hard gates. | Known target success/failure counters. |
+| VK Teams emits stable audio ownership | `diagnostic_only` | No prompt in first release. Manual recording remains available. | Known target diagnostic counters. |
+| Unknown app emits stable audio ownership and passes VKS-candidate filter | Not in registry | No prompt. No recording. | Automatic candidate upload to admin review queue unless workspace/admin telemetry is disabled. |
+| Unknown app emits stable audio ownership but fails VKS-candidate filter | Not in registry | No prompt. No recording. | Local aggregate only; no raw app identity upload. |
+| Browser emits audio ownership | Browser is excluded from native allowlist | No native-app prompt. Browser path may evaluate metadata/calendar/join intent. | Browser-support counters only after browser adapter rules pass. |
+| Krisp/audio utility emits audio ownership | Explicit non-target | Ignore for decisions. | Optional non-target suppression counter, no app-specific upload by default. |
 
 This design keeps the target list broad and updatable while ensuring a remote
 registry or telemetry signal cannot silently broaden recording behavior.

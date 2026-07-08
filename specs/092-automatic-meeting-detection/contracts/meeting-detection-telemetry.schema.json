@@ -443,7 +443,7 @@
     "signalFamily": {
       "type": "string",
       "enum": [
-        "macos_sensor_indicators_mic",
+        "macos_audio_hal_assertion",
         "browser_metadata",
         "calendar_overlap",
         "join_intent",
