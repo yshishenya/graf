@@ -193,8 +193,58 @@ def test_desktop_meetings_page_accepts_owner_session_cookie_without_legacy_heade
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
+    assert 'class="sidebar-logout"' in response.text
+    assert 'action="/desktop/meetings"' in response.text
+    assert 'name="next" value="/login?next=/desktop/meetings"' in response.text
     assert "Мои встречи" in response.text
     assert "missing_auth_context" not in response.text
+
+
+def test_embedded_logout_uses_allowed_meetings_post_route(client) -> None:
+    seed_cabinet_meetings(client)
+    session = client.portal.call(_seed_owner_review_session, client)
+    csrf_token = issue_csrf_token(
+        session_id=session.id,
+        secret=str(client.app.state.web_csrf_secret),
+    )
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+
+    response = client.post(
+        "/desktop/meetings",
+        data={"csrf_token": csrf_token, "next": "/login?next=/desktop/meetings"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login?next=/desktop/meetings"
+    set_cookie = response.headers["set-cookie"]
+    assert f"{AUTH_SESSION_COOKIE_NAME}=" in set_cookie
+    assert "Max-Age=0" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+
+    async def read_logout_state() -> tuple[str, list[AuthAuditEvent]]:
+        async with client.app_state["sessionmaker"]() as db:
+            auth_session = await db.get(AuthSession, session.id)
+            assert auth_session is not None
+            events = list(
+                (
+                    await db.scalars(
+                        select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout")
+                    )
+                ).all()
+            )
+            return auth_session.status, events
+
+    status, events = client.portal.call(read_logout_state)
+    assert status == "revoked"
+    assert len(events) == 1
+    assert events[0].user_id == USER_ID
+
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+    blocked = client.get("/desktop/meetings")
+    assert blocked.status_code == 401
+    assert blocked.json()["code"] == "auth_session_invalid"
 
 
 def test_web_meetings_browser_request_redirects_to_login_without_leaking_content(client) -> None:
