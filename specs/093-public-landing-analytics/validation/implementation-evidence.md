@@ -129,3 +129,62 @@ Known limitation:
 - Consent UI, UTM extraction, event dispatch, Yandex provider initialization,
   replay gating, legal pages, and production env variables are not implemented
   in this foundation phase. They remain covered by later tasks.
+
+### 2026-07-08 - US1 Source And Campaign Attribution
+
+Implemented:
+
+- Public UTM allowlist: `utm_source`, `utm_medium`, `utm_campaign`, `utm_id`,
+  `utm_content`, and `utm_term`.
+- Source/medium normalization to lowercase.
+- Unsafe UTM values are dropped when they look like email, phone, token,
+  signed/private URL, passcode, path, or other private payload.
+- Render-only public analytics config includes safe campaign attribution for
+  `/` and `/download`.
+- Local browser controller can build allowlisted event payloads and has a
+  Yandex provider entrypoint gated by an explicit analytics category grant.
+
+Dashboard and reporting caveats:
+
+- Consent undercount is expected: necessary-only, unknown, revoked, blocked
+  scripts, or browser-level blocking will reduce measured traffic.
+- `public_installer_download_clicked` is web intent only; it does not prove
+  install, first open, login, first recording, or first value.
+- Direct and unknown traffic must not be "fixed" by inventing campaign values.
+- Unsafe campaign values are dropped rather than sanitized into misleading
+  labels, so campaign reports may have partial attribution when ad URLs carry
+  private or malformed values.
+- Yandex Direct optimization requires external dashboard setup and counter
+  linking before campaign launch; this implementation does not perform live
+  provider smoke.
+
+Commands:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/unit/test_public_landing.py \
+  tests/contract/test_public_landing_contract.py
+
+cd apps/server && PYTHONPATH=src uv run --extra dev ruff check \
+  src/twobrain_rec_server/public/analytics.py \
+  src/twobrain_rec_server/public/templates.py \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/unit/test_public_landing.py
+
+git diff --check
+```
+
+Result:
+
+- Focused pytest: `24 passed, 1 warning`
+- Focused ruff: `All checks passed!`
+- `git diff --check` passed
+
+Known limitation:
+
+- Consent UI and automatic page/click/section dispatch are not implemented yet.
+  The provider entrypoint remains explicit and gated so no provider script loads
+  before a later consent decision calls it.

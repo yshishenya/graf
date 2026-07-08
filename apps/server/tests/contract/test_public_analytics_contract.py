@@ -76,6 +76,38 @@ def test_public_pages_render_safe_local_analytics_assets_in_render_only_mode(tmp
     assert not [marker for marker in FORBIDDEN_PHASE1_MARKERS if marker in response.text]
 
 
+def test_public_pages_render_safe_campaign_context_without_private_values(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-campaign.db'}",
+        minio_access_key="test",
+        minio_secret_key="test",
+        minio_bucket="test-bucket",
+        public_analytics_enabled=True,
+        public_analytics_validation_mode="render_only",
+        public_analytics_yandex_metrica_id="YA_TEST_COUNTER",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as test_client:
+        response = test_client.get(
+            "/?utm_source=Yandex_Direct&utm_medium=CPC&utm_campaign=2026q3_b2c_launch_ru"
+            "&utm_content=customer@example.com&utm_term=https://private.example/signed?token=abc",
+            headers={"referer": "https://yandex.ru/search/?text=graf"},
+        )
+
+    assert response.status_code == 200
+    assert '"campaign_attribution"' in response.text
+    assert '"utm_source": "yandex_direct"' in response.text
+    assert '"utm_medium": "cpc"' in response.text
+    assert '"utm_campaign": "2026q3_b2c_launch_ru"' in response.text
+    assert '"utm_content": null' in response.text
+    assert '"utm_term": null' in response.text
+    assert '"referrer_category": "paid"' in response.text
+    assert "customer@example.com" not in response.text
+    assert "private.example" not in response.text
+    assert "token=abc" not in response.text
+
+
 def test_public_analytics_assets_are_local_pinned_and_attributed() -> None:
     analytics_js = PUBLIC_STATIC_DIR / "analytics.js"
     cookieconsent_js = PUBLIC_STATIC_DIR / "cookieconsent.umd.js"
@@ -91,6 +123,18 @@ def test_public_analytics_assets_are_local_pinned_and_attributed() -> None:
     assert "Released under the MIT License" in cookieconsent_css.read_text(encoding="utf-8")
     assert not _contains_forbidden_url(cookieconsent_js)
     assert not _contains_forbidden_url(cookieconsent_css)
+
+
+def test_public_analytics_controller_has_consent_gated_yandex_entrypoint() -> None:
+    analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
+
+    assert "ensureYandexProvider" in analytics_js
+    assert "hasCategory(categories, \"analytics\")" in analytics_js
+    assert "reachGoal" in analytics_js
+    assert "metrika/tag.js" in analytics_js
+    assert "googletagmanager.com" not in analytics_js
+    assert "google-analytics.com" not in analytics_js
+    assert "posthog" not in analytics_js.lower()
 
 
 def _contains_forbidden_url(path: Path) -> bool:

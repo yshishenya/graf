@@ -54,17 +54,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T015 [P] [US1] Add UTM allowlist and normalization tests in `apps/server/tests/unit/test_public_analytics.py`
-- [ ] T016 [P] [US1] Add provider event payload safety tests for source, medium, campaign, content, term, direct, referral, and unknown traffic in `apps/server/tests/contract/test_public_analytics_contract.py`
-- [ ] T017 [P] [US1] Add public landing route tests for synthetic UTM-tagged visits in `apps/server/tests/unit/test_public_landing.py`
+- [X] T015 [P] [US1] Add UTM allowlist and normalization tests in `apps/server/tests/unit/test_public_analytics.py`
+- [X] T016 [P] [US1] Add provider event payload safety tests for source, medium, campaign, content, term, direct, referral, and unknown traffic in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T017 [P] [US1] Add public landing route tests for synthetic UTM-tagged visits in `apps/server/tests/unit/test_public_landing.py`
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Implement UTM normalization and unsafe campaign value dropping in `apps/server/src/twobrain_rec_server/public/analytics.py`
-- [ ] T019 [US1] Add safe campaign metadata rendering for `/` and `/download` in `apps/server/src/twobrain_rec_server/public/templates/public/_analytics.html`
-- [ ] T020 [US1] Implement campaign attribution extraction and event field assembly in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T021 [US1] Implement analytics-category-granted provider initialization for Yandex Metrica source attribution in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T022 [US1] Document source/campaign dashboard caveats in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T018 [US1] Implement UTM normalization and unsafe campaign value dropping in `apps/server/src/twobrain_rec_server/public/analytics.py`
+- [X] T019 [US1] Add safe campaign metadata rendering for `/` and `/download` in `apps/server/src/twobrain_rec_server/public/templates/public/_analytics.html`
+- [X] T020 [US1] Implement campaign attribution extraction and event field assembly in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T021 [US1] Implement analytics-category-granted provider initialization for Yandex Metrica source attribution in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T022 [US1] Document source/campaign dashboard caveats in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 
 **Checkpoint**: Source/campaign attribution is available for consenting public visitors without custom analytics storage.
 

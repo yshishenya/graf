@@ -62,7 +62,15 @@ def public_template_response(
 ) -> HTMLResponse:
     settings = getattr(request.app.state, "settings", Settings())
     analytics_path = str(context.pop("analytics_path", request.url.path))
-    context.setdefault("public_analytics", build_public_analytics_context(settings, analytics_path))
+    context.setdefault(
+        "public_analytics",
+        build_public_analytics_context(
+            settings,
+            analytics_path,
+            request.query_params,
+            referrer=request.headers.get("referer"),
+        ),
+    )
     return html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,

@@ -45,6 +45,19 @@ def test_public_landing_uses_local_static_assets(client) -> None:
     assert "https://" not in response.text
 
 
+def test_public_landing_accepts_synthetic_utm_visit_without_reflecting_private_values(client) -> None:
+    response = client.get(
+        "/?utm_source=Yandex_Direct&utm_medium=CPC&utm_campaign=2026q3_b2c_launch_ru"
+        "&utm_content=customer@example.com"
+    )
+
+    assert response.status_code == 200
+    assert "Встреча останется с вами" in response.text
+    assert response.text.count('href="/download"') >= 2
+    assert "customer@example.com" not in response.text
+    assert "graf-public-analytics-config" not in response.text
+
+
 def test_public_landing_has_keyboard_entry_points(client) -> None:
     response = client.get("/")
 
