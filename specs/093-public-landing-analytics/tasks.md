@@ -18,11 +18,11 @@
 
 **Purpose**: Confirm context and prepare shared documentation/evidence surfaces.
 
-- [ ] T001 Review `specs/093-public-landing-analytics/spec.md`, `specs/093-public-landing-analytics/plan.md`, `specs/093-public-landing-analytics/research.md`, `specs/093-public-landing-analytics/data-model.md`, `specs/093-public-landing-analytics/contracts/public-analytics-contract.md`, `specs/093-public-landing-analytics/contracts/analytics-provider-setup.md`, `specs/093-public-landing-analytics/contracts/phase2-activation-contract.md`, and `specs/093-public-landing-analytics/quickstart.md`
-- [ ] T002 [P] Review current public landing routes and template helpers in `apps/server/src/twobrain_rec_server/public/web.py`, `apps/server/src/twobrain_rec_server/public/templates.py`, `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`, and `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
-- [ ] T003 [P] Review current public landing tests in `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/contract/test_public_landing_contract.py`
-- [ ] T004 [P] Review production environment example patterns in `infra/env/rec.production.env.example` and config validation patterns in `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T005 [P] Create implementation evidence placeholder in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T001 Review `specs/093-public-landing-analytics/spec.md`, `specs/093-public-landing-analytics/plan.md`, `specs/093-public-landing-analytics/research.md`, `specs/093-public-landing-analytics/data-model.md`, `specs/093-public-landing-analytics/contracts/public-analytics-contract.md`, `specs/093-public-landing-analytics/contracts/analytics-provider-setup.md`, `specs/093-public-landing-analytics/contracts/phase2-activation-contract.md`, and `specs/093-public-landing-analytics/quickstart.md`
+- [X] T002 [P] Review current public landing routes and template helpers in `apps/server/src/twobrain_rec_server/public/web.py`, `apps/server/src/twobrain_rec_server/public/templates.py`, `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`, and `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
+- [X] T003 [P] Review current public landing tests in `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/contract/test_public_landing_contract.py`
+- [X] T004 [P] Review production environment example patterns in `infra/env/rec.production.env.example` and config validation patterns in `apps/server/src/twobrain_rec_server/config.py`
+- [X] T005 [P] Create implementation evidence placeholder in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 
 ---
 
