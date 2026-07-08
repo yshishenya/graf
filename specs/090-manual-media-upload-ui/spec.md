@@ -34,8 +34,8 @@ processing path.
   without a browser session capable of unsafe uploads, the upload surface must
   show a safe sign-in or unavailable state rather than a broken file transfer.
 - File duration is required by the existing backend contract. The UI should
-  derive it from media metadata when available and require a user-entered
-  approximate duration when metadata cannot be read before upload.
+  derive it from media metadata when available and ask for a different media
+  file when metadata cannot be read before upload.
 - Upload progress covers file transfer through server acceptance. After server
   acceptance, the existing meeting list/detail processing statuses own audio
   extraction, transcription, notes, blocked, partial, and ready states.
@@ -85,15 +85,15 @@ meeting appears with manual-upload provenance and processing status.
 **Acceptance Scenarios**:
 
 1. **Given** an authenticated owner is viewing the browser meetings list,
-   **When** they choose `Загрузить медиа`, select one supported media file, and
+   **When** they choose `Загрузить`, select one supported media file, and
    start the upload, **Then** the UI shows transfer progress and does not claim
    transcript or notes readiness before processing creates them.
 2. **Given** media metadata exposes a finite duration, **When** the file is
    selected, **Then** the duration is filled from the file and can be reviewed
    before upload.
 3. **Given** media duration cannot be read locally, **When** the owner tries to
-   start upload, **Then** the UI requires a positive approximate duration and
-   explains that it is used for meeting length and upload limits.
+   start upload, **Then** the UI blocks transfer, explains that duration could
+   not be read, and asks the owner to choose another audio or video file.
 4. **Given** the backend accepts the upload, **When** the transfer completes,
    **Then** the meetings workspace shows the accepted upload activity and the
    meeting list can show the new row or a direct detail action without a page
@@ -244,7 +244,8 @@ processing and after it is ready.
   metadata to satisfy the existing one-file backend contract, including a
   positive duration and an optional safe title.
 - **FR-006**: When local media metadata cannot provide a finite duration, the
-  UI MUST require a positive approximate duration before transfer starts.
+  UI MUST block transfer with safe copy that asks the user to choose another
+  audio or video file, without exposing a manual duration editor.
 - **FR-007**: The UI MUST show distinct states for selecting, validating,
   uploading, accepted for processing, transcribing, partial/degraded, failed,
   and ready, and MUST keep upload success separate from transcript and notes

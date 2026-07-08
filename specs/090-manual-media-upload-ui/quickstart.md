@@ -17,11 +17,11 @@ paths, or screenshots containing private account data.
 
 Expected:
 
-- `/meetings` renders an enabled `Загрузить медиа`/manual upload entry for a
+- `/meetings` renders an enabled `Загрузить` manual upload entry for a
   cookie-authenticated owner.
 - The upload sheet accepts exactly one selected file.
-- Duration is filled from media metadata when readable, or the UI requires a
-  positive manual duration.
+- Duration is shown from media metadata when readable; no manual duration
+  editor is exposed.
 - Pressing `Загрузить` closes the sheet, creates an upload activity row in the
   meetings workspace, shows progress there, and returns an accepted meeting
   handoff there.
@@ -54,9 +54,9 @@ Expected:
 
 Expected:
 
-- Missing file, missing duration, zero duration, empty file, oversized file,
-  network failure, and server rejection all produce localized safe recovery
-  states.
+- Missing file, unreadable duration metadata, zero duration, empty file,
+  oversized file, network failure, and server rejection all produce localized
+  safe recovery states.
 - UI and tests do not expose MediaScribe credentials, signed URLs, object keys,
   raw media, raw transcript text, private local paths, or dependency job ids.
 - Aborted upload before acceptance does not claim a meeting exists and exposes

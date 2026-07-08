@@ -128,6 +128,9 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         ".upload-activity-action",
     ]:
         assert marker in css
+    assert "Длительность не прочитана" in script
+    assert 'durationInput?.addEventListener("input"' not in script
+    assert ".manual-upload-duration__control" not in css
 
 
 def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:

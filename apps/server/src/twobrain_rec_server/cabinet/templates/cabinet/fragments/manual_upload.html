@@ -41,15 +41,8 @@
         <span>Название</span>
         <input type="text" name="title" maxlength="500" autocomplete="off" placeholder="Например, созвон по продукту" data-manual-upload-title>
       </label>
-      <label class="manual-upload-duration">
-        <span>Длительность</span>
-        <span class="manual-upload-duration__control">
-          <input type="number" name="duration_seconds" min="1" step="1" inputmode="numeric" aria-describedby="manual-upload-duration-hint" data-manual-upload-duration>
-          <span>сек.</span>
-        </span>
-        <small id="manual-upload-duration-hint">Автозаполним, если получится.</small>
-      </label>
     </div>
+    <input type="hidden" name="duration_seconds" data-manual-upload-duration>
     <input type="hidden" name="local_recording_id" data-manual-upload-local-id>
     <div class="manual-upload-validation" data-manual-upload-validation aria-live="polite" hidden></div>
     <div class="manual-upload-actions">
