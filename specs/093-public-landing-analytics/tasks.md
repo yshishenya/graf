@@ -78,17 +78,17 @@
 
 ### Tests for User Story 2
 
-- [ ] T023 [P] [US2] Add event catalog tests for all public event names and stable label values in `apps/server/tests/unit/test_public_analytics.py`
-- [ ] T024 [P] [US2] Add landing/download CTA label contract tests in `apps/server/tests/contract/test_public_analytics_contract.py`
-- [ ] T025 [P] [US2] Add public landing regression tests for analytics data attributes without changing CTA destinations in `apps/server/tests/unit/test_public_landing.py`
+- [X] T023 [P] [US2] Add event catalog tests for all public event names and stable label values in `apps/server/tests/unit/test_public_analytics.py`
+- [X] T024 [P] [US2] Add landing/download CTA label contract tests in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T025 [P] [US2] Add public landing regression tests for analytics data attributes without changing CTA destinations in `apps/server/tests/unit/test_public_landing.py`
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] Add stable section and CTA metadata to `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
-- [ ] T027 [US2] Add stable installer and login intent metadata to `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
-- [ ] T028 [US2] Implement public page view, section seen, CTA click, installer download click, and login intent event dispatch in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T029 [US2] Implement one-event-per-action deduplication in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T030 [US2] Add Yandex goal mapping notes to `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T026 [US2] Add stable section and CTA metadata to `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T027 [US2] Add stable installer and login intent metadata to `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
+- [X] T028 [US2] Implement public page view, section seen, CTA click, installer download click, and login intent event dispatch in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T029 [US2] Implement one-event-per-action deduplication in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T030 [US2] Add Yandex goal mapping notes to `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 
 **Checkpoint**: The complete public web conversion funnel is measurable after consent.
 

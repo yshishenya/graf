@@ -108,6 +108,48 @@ def test_public_pages_render_safe_campaign_context_without_private_values(tmp_pa
     assert "token=abc" not in response.text
 
 
+def test_public_pages_render_stable_conversion_labels_in_render_only_mode(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-conversion-labels.db'}",
+        minio_access_key="test",
+        minio_secret_key="test",
+        minio_bucket="test-bucket",
+        public_analytics_enabled=True,
+        public_analytics_validation_mode="render_only",
+        public_analytics_yandex_metrica_id="YA_TEST_COUNTER",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as test_client:
+        landing = test_client.get("/")
+        download = test_client.get("/download")
+
+    assert landing.status_code == 200
+    assert download.status_code == 200
+
+    for section_id in ("hero", "platforms", "outcomes", "trust", "final_cta"):
+        assert f'data-analytics-section="{section_id}"' in landing.text
+        assert f'"{section_id}"' in landing.text
+
+    landing_cta_labels = (
+        "header_download",
+        "hero_download",
+        "final_download",
+        "hero_login",
+        "final_login",
+    )
+    for cta_location in landing_cta_labels:
+        assert f'data-analytics-cta="{cta_location}"' in landing.text
+        assert f'"{cta_location}"' in landing.text
+
+    assert 'data-analytics-cta="download_page_installer"' in download.text
+    assert 'data-analytics-target="installer_package"' in download.text
+    assert 'data-analytics-cta="download_page_login"' in download.text
+    assert 'data-analytics-target="login"' in download.text
+    assert '"download_page_installer"' in download.text
+    assert '"download_page_login"' in download.text
+
+
 def test_public_analytics_assets_are_local_pinned_and_attributed() -> None:
     analytics_js = PUBLIC_STATIC_DIR / "analytics.js"
     cookieconsent_js = PUBLIC_STATIC_DIR / "cookieconsent.umd.js"
@@ -135,6 +177,22 @@ def test_public_analytics_controller_has_consent_gated_yandex_entrypoint() -> No
     assert "googletagmanager.com" not in analytics_js
     assert "google-analytics.com" not in analytics_js
     assert "posthog" not in analytics_js.lower()
+
+
+def test_public_analytics_controller_has_conversion_dispatch_hooks() -> None:
+    analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
+
+    assert "startGrantedTracking" in analytics_js
+    assert "dispatchOnce" in analytics_js
+    assert "sentKeys" in analytics_js
+    assert "[data-analytics-cta]" in analytics_js
+    assert "[data-analytics-section]" in analytics_js
+    assert "IntersectionObserver" in analytics_js
+    assert "public_landing_section_seen" in analytics_js
+    assert "public_landing_cta_clicked" in analytics_js
+    assert "public_download_viewed" in analytics_js
+    assert "public_installer_download_clicked" in analytics_js
+    assert "public_login_intent_clicked" in analytics_js
 
 
 def _contains_forbidden_url(path: Path) -> bool:

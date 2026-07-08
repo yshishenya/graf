@@ -185,6 +185,66 @@ Result:
 
 Known limitation:
 
-- Consent UI and automatic page/click/section dispatch are not implemented yet.
-  The provider entrypoint remains explicit and gated so no provider script loads
-  before a later consent decision calls it.
+- Consent UI is not implemented at this checkpoint. The provider entrypoint
+  remains explicit and gated so no provider script loads before a later consent
+  decision calls it.
+
+### 2026-07-08 - US2 Public Conversion Events
+
+Implemented:
+
+- Stable landing section labels: `hero`, `platforms`, `outcomes`, `trust`, and
+  `final_cta`.
+- Stable CTA labels for header, hero, final download, hero/final login,
+  download-page installer, and download-page login paths.
+- Public page view event selection for `/` and `/download`.
+- Click dispatch for landing CTA, installer download intent, and public login
+  intent.
+- Section visibility dispatch through `IntersectionObserver`.
+- One-event-per-action deduplication for page views, CTA clicks, and section
+  reach within a page load.
+- Route regression coverage confirming analytics attributes do not change
+  landing CTA destinations, login destinations, or installer handoff behavior.
+
+Yandex goal mapping notes:
+
+| Goal key | Yandex event name | Conversion role | Notes |
+| --- | --- | --- | --- |
+| `landing_view` | `public_landing_viewed` | funnel entry | Fires for `/` after analytics consent and provider init. |
+| `landing_engaged` | `public_landing_section_seen` | secondary | Uses stable `section_id`; does not send visible section text. |
+| `landing_cta_click` | `public_landing_cta_clicked` | secondary | Uses stable `cta_location` and `target_kind=download_page`. |
+| `download_page_view` | `public_download_viewed` | secondary | Separates direct `/download` traffic from landing CTA click. |
+| `installer_download_click` | `public_installer_download_clicked` | primary web conversion | Candidate optimization goal for Yandex Direct. |
+| `login_intent_click` | `public_login_intent_clicked` | secondary | Kept separate from installer download intent. |
+
+Commands:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/unit/test_public_landing.py \
+  tests/contract/test_public_landing_contract.py
+
+cd apps/server && PYTHONPATH=src uv run --extra dev ruff check \
+  src/twobrain_rec_server/public/analytics.py \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/unit/test_public_landing.py
+
+node --check apps/server/src/twobrain_rec_server/public/static/public/analytics.js
+git diff --check
+```
+
+Result:
+
+- Focused pytest: `29 passed, 1 warning`
+- Focused ruff: `All checks passed!`
+- `node --check` passed
+- `git diff --check` passed
+
+Known limitation:
+
+- Consent UI, consent persistence, legal-page routes, replay-category gating,
+  provider-failure hardening, production env examples, and live Yandex dashboard
+  smoke remain later tasks. No live goal or counter identifiers were added.

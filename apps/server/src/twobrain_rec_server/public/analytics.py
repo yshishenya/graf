@@ -23,6 +23,18 @@ PUBLIC_ANALYTICS_CONSENT_CATEGORIES = (
     "behavior_replay",
 )
 
+PUBLIC_ANALYTICS_SECTION_IDS = ("hero", "platforms", "outcomes", "trust", "final_cta")
+PUBLIC_ANALYTICS_CTA_LOCATIONS = (
+    "header_download",
+    "hero_download",
+    "final_download",
+    "hero_login",
+    "final_login",
+    "download_page_installer",
+    "download_page_login",
+)
+PUBLIC_ANALYTICS_TARGET_KINDS = ("download_page", "installer_package", "login", "section")
+
 PUBLIC_ANALYTICS_EVENT_CATALOG = (
     {
         "event_name": "public_landing_viewed",
@@ -88,6 +100,14 @@ def public_analytics_event_names() -> tuple[str, ...]:
 
 def public_analytics_utm_fields() -> tuple[str, ...]:
     return UTM_FIELDS
+
+
+def public_analytics_stable_labels() -> dict[str, tuple[str, ...]]:
+    return {
+        "section_id": PUBLIC_ANALYTICS_SECTION_IDS,
+        "cta_location": PUBLIC_ANALYTICS_CTA_LOCATIONS,
+        "target_kind": PUBLIC_ANALYTICS_TARGET_KINDS,
+    }
 
 
 def normalize_public_campaign_attribution(
@@ -169,6 +189,7 @@ def build_public_analytics_context(
             referrer=referrer,
             landing_path=path if surface else None,
         ),
+        "stable_labels": {key: list(values) for key, values in public_analytics_stable_labels().items()},
         "consent_categories": list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES),
         "event_catalog": [dict(event) for event in PUBLIC_ANALYTICS_EVENT_CATALOG],
     }

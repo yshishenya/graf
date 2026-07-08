@@ -58,6 +58,27 @@ def test_public_landing_accepts_synthetic_utm_visit_without_reflecting_private_v
     assert "graf-public-analytics-config" not in response.text
 
 
+def test_public_landing_analytics_attributes_do_not_change_cta_destinations(client) -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.text.count('href="/download"') >= 3
+    assert response.text.count('data-analytics-target="download_page"') == 3
+    assert 'href="/download"' in response.text
+    assert 'data-analytics-cta="header_download"' in response.text
+    assert 'data-analytics-cta="hero_download"' in response.text
+    assert 'data-analytics-cta="final_download"' in response.text
+    assert response.text.count('href="/login?next=/meetings"') >= 2
+    assert response.text.count('data-analytics-target="login"') == 2
+    assert 'data-analytics-cta="hero_login"' in response.text
+    assert 'data-analytics-cta="final_login"' in response.text
+    assert 'data-analytics-section="hero"' in response.text
+    assert 'data-analytics-section="platforms"' in response.text
+    assert 'data-analytics-section="outcomes"' in response.text
+    assert 'data-analytics-section="trust"' in response.text
+    assert 'data-analytics-section="final_cta"' in response.text
+
+
 def test_public_landing_has_keyboard_entry_points(client) -> None:
     response = client.get("/")
 
@@ -77,3 +98,16 @@ def test_public_download_handoff_is_available(client) -> None:
     assert "/static/public/downloads/graf-local.pkg?v=" in response.text
     assert "Как только установщик будет готов" not in response.text
     assert 'href="/login?next=/meetings"' in response.text
+
+
+def test_public_download_analytics_attributes_do_not_change_handoff_destinations(client) -> None:
+    response = client.get("/download")
+
+    assert response.status_code == 200
+    assert 'href="/login?next=/meetings"' in response.text
+    assert 'data-analytics-cta="download_page_login"' in response.text
+    assert 'data-analytics-target="login"' in response.text
+    assert "/static/public/downloads/graf-local.pkg?v=" in response.text
+    assert "download" in response.text
+    assert 'data-analytics-cta="download_page_installer"' in response.text
+    assert 'data-analytics-target="installer_package"' in response.text

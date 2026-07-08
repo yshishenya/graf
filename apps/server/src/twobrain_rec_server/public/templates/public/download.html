@@ -20,7 +20,12 @@
         <nav class="top-nav" aria-label="Основные разделы">
           <a href="/">Главная</a>
         </nav>
-        <a class="header-cta" href="{{ start_url }}">Войти</a>
+        <a
+          class="header-cta"
+          href="{{ start_url }}"
+          data-analytics-cta="download_page_login"
+          data-analytics-target="login"
+        >Войти</a>
       </header>
 
       <main id="main" class="download-page">
@@ -32,7 +37,13 @@
             текст, решения и задачи после обработки.
           </p>
           <div class="hero-actions">
-            <a class="primary-cta" href="{{ public_static_asset_url('downloads/graf-local.pkg') }}" download>
+            <a
+              class="primary-cta"
+              href="{{ public_static_asset_url('downloads/graf-local.pkg') }}"
+              download
+              data-analytics-cta="download_page_installer"
+              data-analytics-target="installer_package"
+            >
               <span>Скачать GRAF</span>
               <span aria-hidden="true">→</span>
             </a>

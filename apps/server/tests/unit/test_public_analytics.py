@@ -7,6 +7,7 @@ from twobrain_rec_server.public.analytics import (
     build_public_analytics_context,
     normalize_public_campaign_attribution,
     public_analytics_event_names,
+    public_analytics_stable_labels,
     public_analytics_utm_fields,
 )
 
@@ -47,6 +48,38 @@ def test_public_analytics_render_only_context_is_safe_and_public_scoped() -> Non
         "public_download_viewed",
         "public_installer_download_clicked",
         "public_login_intent_clicked",
+    )
+    assert context["stable_labels"] == {
+        key: list(values) for key, values in public_analytics_stable_labels().items()
+    }
+
+
+def test_public_analytics_event_catalog_has_stable_labels() -> None:
+    labels = public_analytics_stable_labels()
+
+    assert public_analytics_event_names() == (
+        "public_landing_viewed",
+        "public_landing_section_seen",
+        "public_landing_cta_clicked",
+        "public_download_viewed",
+        "public_installer_download_clicked",
+        "public_login_intent_clicked",
+    )
+    assert labels["section_id"] == ("hero", "platforms", "outcomes", "trust", "final_cta")
+    assert labels["cta_location"] == (
+        "header_download",
+        "hero_download",
+        "final_download",
+        "hero_login",
+        "final_login",
+        "download_page_installer",
+        "download_page_login",
+    )
+    assert labels["target_kind"] == (
+        "download_page",
+        "installer_package",
+        "login",
+        "section",
     )
 
 
