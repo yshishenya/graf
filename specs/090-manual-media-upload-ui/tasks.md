@@ -196,6 +196,20 @@ file information from metadata, not a user-editable field.
 
 ---
 
+## Phase 10: Post-Release Embedded WebView File Picker Correction
+
+**Purpose**: Fix the installed-app embedded cabinet path where the server-owned
+manual upload surface rendered but WebKit had no native file-picker delegate.
+
+- [X] T058 Add embedded WebView regression coverage for manual upload file picker support in `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
+- [X] T059 Add `WKUIDelegate` open-panel handling for server-owned manual upload file inputs in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`
+- [X] T060 Harden embedded manual-upload button/modal contracts in `apps/server/tests/unit/test_cabinet_web_shell.py`, `apps/server/tests/contract/test_cabinet_static_assets_contract.py`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T061 Update user-visible changelog and run focused Swift/server validation for the embedded upload workflow in `CHANGELOG.md`
+
+GitHub tracking: #2804.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -210,6 +224,9 @@ file information from metadata, not a user-editable field.
   `087` backend route or public API contract.
 - Phase 9 depends on the released Phase 8 upload-list workflow and does not
   change the `087` backend route or public API contract.
+- Phase 10 depends on the released Phase 9 workflow and does not add native
+  upload business logic; it only restores the WebKit file-picker bridge needed
+  by the existing server-owned form.
 
 ### User Story Dependencies
 
@@ -326,6 +343,20 @@ Task: "T035 [US4] Add view-model assertions in apps/server/tests/unit/test_cabin
   reported `1036 passed, 4 skipped, 1 warning`, server lint passed, Python
   compile completed, production compose config rendered, and deployment
   evidence scan passed.
+- Post-release embedded WebView file-picker correction evidence on 2026-07-08:
+  - GitHub tracking: #2804.
+  - `node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+  - `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_cabinet_web_shell.py tests/contract/test_cabinet_static_assets_contract.py` -> 44 passed.
+  - `PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_cabinet_manual_upload.py tests/integration/test_cabinet_csrf.py tests/integration/test_cabinet_meeting_list.py tests/unit/test_cabinet_web_shell.py tests/contract/test_cabinet_static_assets_contract.py` -> 69 passed.
+  - `PYTHONPATH=src uv run --extra dev ruff check .` -> pass.
+  - `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinet|EmbeddedCabinet'` -> 79 passed.
+  - `swift build --package-path apps/macos --product TwoBrainRecApp` -> pass.
+  - `git diff --check` -> pass.
+  - Diff-scope forbidden-content scan -> no matches.
+  - `infra/scripts/ci-local.sh` -> `ci_local_result=pass`; 1050 passed, 4 skipped, 1 warning, server lint passed, Python compile passed, deployment evidence scan passed.
 - Production deploy/smoke was not run for this implementation slice.
 - Implementation commit was created after explicit user release/closeout
   approval and rebased cleanly onto `origin/master`.
+- Phase 10 embedded WebView file-picker correction has not been committed,
+  merged, deployed, or installed yet; those release steps require explicit
+  approval after validation.

@@ -107,6 +107,8 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         "data-upload-activity-retry",
         "data-upload-activity-resume",
         "data-manual-upload-submit",
+        'document.body.addEventListener("click"',
+        "event.preventDefault();",
         "duration_seconds",
         "local_recording_id",
         "X-CSRF-Token",

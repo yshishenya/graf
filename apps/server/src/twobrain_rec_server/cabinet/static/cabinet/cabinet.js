@@ -740,10 +740,12 @@
       lastTrigger?.focus({ preventScroll: true });
     };
 
-    document.querySelectorAll("[data-manual-upload-open]").forEach((button) => {
-      if (button.dataset.manualUploadOpenReady === "true") return;
-      button.dataset.manualUploadOpenReady = "true";
-      button.addEventListener("click", () => openDialog(button));
+    document.body.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) return;
+      const button = event.target.closest("[data-manual-upload-open]");
+      if (!button) return;
+      event.preventDefault();
+      openDialog(button);
     });
 
     dialog.querySelectorAll("[data-manual-upload-close]").forEach((button) => {
