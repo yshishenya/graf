@@ -51,7 +51,12 @@ let package = Package(
         .target(
             name: "TwoBrainRecAppCore",
             dependencies: ["TwoBrainRecShared"],
-            path: "RecApp/Sources"
+            path: "RecApp",
+            exclude: ["App"],
+            sources: ["Sources"],
+            resources: [
+                .copy("Resources")
+            ]
         ),
         .executableTarget(
             name: "TwoBrainRecApp",

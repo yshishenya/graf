@@ -49,3 +49,21 @@ def test_cabinet_csrf_guard_does_not_change_public_openapi_contract(client) -> N
     assert operation["operationId"] == "createMeetingDeletionRequest"
     assert "CreateDeletionRequest" in json.dumps(operation, sort_keys=True)
     assert "X-CSRF-Token" not in json.dumps(operation, sort_keys=True)
+
+
+def test_meeting_detection_telemetry_openapi_contract_is_registered(client) -> None:
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"]["/api/v1/desktop/meeting-detection/telemetry"]["post"]
+
+    assert operation["operationId"] == "createMeetingDetectionTelemetry"
+    assert "MeetingDetectionTelemetryRequest" in json.dumps(operation, sort_keys=True)
+    assert "MeetingDetectionTelemetryResponse" in json.dumps(operation, sort_keys=True)
+
+
+def test_meeting_detection_registry_openapi_contract_is_registered(client) -> None:
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"]["/api/v1/desktop/meeting-detection/target-registry"]["get"]
+
+    assert operation["operationId"] == "getMeetingDetectionTargetRegistry"
+    assert "MeetingDetectionRegistryResponse" in json.dumps(operation, sort_keys=True)
+    assert "If-None-Match" in json.dumps(operation, sort_keys=True)

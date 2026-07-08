@@ -25,6 +25,7 @@ def admin_navigation(*, active: str) -> AdminNavigationModel:
             AdminNavigationItem("overview", "Обзор", "/admin"),
             AdminNavigationItem("users", "Пользователи", "/admin/users"),
             AdminNavigationItem("files", "Файлы", "/admin/files"),
+            AdminNavigationItem("meeting-detection", "ВКС", "/admin/meeting-detection"),
             AdminNavigationItem("balance", "Баланс", "/admin/balance"),
             AdminNavigationItem("metrics", "Метрики", "/admin/metrics"),
             AdminNavigationItem("audit", "Аудит", "/admin/audit"),
@@ -173,4 +174,19 @@ def build_audit_view(
         active="audit",
         audit=audit,
         filters=audit.get("filters", {}),
+    )
+
+
+def build_meeting_detection_view(
+    *,
+    workspace_name: str,
+    actor_role: str,
+    meeting_detection: dict[str, Any],
+) -> SimpleNamespace:
+    return _page_view(
+        page_title="ВКС-детектор",
+        workspace_name=workspace_name,
+        actor_role=actor_role,
+        active="meeting-detection",
+        meeting_detection=meeting_detection,
     )
