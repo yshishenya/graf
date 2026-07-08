@@ -61,10 +61,8 @@ Required controls:
 - Optional title input.
 - Required positive duration input with metadata-derived autofill when
   available.
-- Start upload button.
-- Abort/cancel button before server acceptance.
-- Detail/list handoff after server acceptance.
-- Safe error region with `aria-live`.
+- Start upload button labeled `Загрузить`.
+- Safe validation region with `aria-live`.
 
 Required states:
 
@@ -74,13 +72,39 @@ Required states:
 | `file_selected` | One file selected | Show safe file name/size and metadata status |
 | `duration_needed` | Duration not readable | Require approximate duration |
 | `ready_to_upload` | File and duration valid | Enable start upload |
-| `uploading` | Transfer in progress | Show progress or indeterminate transfer state |
-| `aborted_before_acceptance` | User aborted before acceptance | Say transfer was not confirmed |
-| `network_failed_unconfirmed` | Network failed before acceptance | Offer retry |
-| `server_rejected` | Server rejected media/limits | Show safe reason and change-file/retry action |
 | `auth_required` | Session/CSRF missing or expired | Show sign-in/reload action |
+
+On valid start, the sheet closes and the meetings workspace owns transfer
+progress, status, cancellation, retry, continue, accepted, and detail handoff.
+
+## Upload Activity Row Contract
+
+The meetings workspace renders client-side upload activity above the normal
+meeting list after a valid upload starts.
+
+Required controls:
+
+- `Отменить` while the multipart request is active and not accepted.
+- `Повторить` after a network or server failure that did not confirm meeting
+  acceptance.
+- `Продолжить` after the user stopped/interrupted a same-tab attempt while the
+  File object is still retained by the page.
+- `Открыть` after server acceptance when the accepted meeting id is available.
+
+Required states:
+
+| State | Meaning | Required copy/action |
+|---|---|---|
+| `uploading` | Transfer in progress | Show progress or indeterminate transfer state and hover/focus cancel control |
+| `canceled` | User aborted before acceptance | Say transfer was stopped before confirmation and offer same-tab continue |
+| `failed` | Network/server failure before confirmed acceptance | Say transfer was not confirmed and offer retry |
 | `accepted` | Server accepted media | Link to detail/list and do not claim transcript |
 | `processing_visible` | Meeting list/detail owns processing | Show existing processing status |
+
+`Продолжить` is not byte-range resume. It restarts the retained same-tab file
+submission through the approved single multipart cabinet route. True resumable
+uploads across reload, navigation, or app/device restart require a separate
+backend/API contract.
 
 ## Error Copy Contract
 
@@ -103,9 +127,10 @@ Minimum code groups:
 
 - The sheet must be keyboard operable and focus must move into the sheet when
   opened, then return to the triggering upload action when closed.
-- The upload progress indicator must expose progressbar semantics when
+- The upload activity progress indicator must expose progressbar semantics when
   determinate and `aria-live` copy when indeterminate.
-- Error and accepted states must be announced without relying on color alone.
+- Error and accepted states must be announced without relying on color alone in
+  the upload activity row.
 - Controls and labels must not overlap at browser desktop, compact browser, or
   embedded desktop widths.
 - Reduced-motion users must not depend on animation to understand progress or

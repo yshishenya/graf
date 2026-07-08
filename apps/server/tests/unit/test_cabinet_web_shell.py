@@ -318,7 +318,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-manual-upload-dropzone' in page
     assert 'data-manual-upload-file-card' in page
     assert 'data-manual-upload-file-name' in page
-    assert 'data-manual-upload-percent' in page
+    assert 'data-upload-activity-list' in page
+    assert 'data-manual-upload-validation' in page
+    assert 'data-manual-upload-percent' not in page
+    assert 'data-manual-upload-progress' not in page
+    assert 'data-manual-upload-accepted' not in page
     assert "Перетащите файл сюда" in page
     assert 'name="duration_seconds"' in page
     assert 'data-manual-upload-submit' in page

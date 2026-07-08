@@ -119,19 +119,49 @@ embedded WebView and could encourage unsafe auth workarounds.
 
 ## Decision: Refresh Existing List/Detail After Acceptance
 
-**Decision**: After acceptance, show an accepted state in the sheet, provide a
-detail link, and refresh the existing meeting list region when present.
+**Decision**: After the user presses `Загрузить`, close the sheet, show an
+upload activity row above the existing meeting list, provide progress and
+hover/focus controls there, and refresh the existing meeting list region after
+server acceptance.
 
-**Rationale**: Existing cabinet list rendering already knows upload progress,
-processing states, source provenance, and polling rules. Reusing it keeps the
-manual upload from creating a parallel row model.
+**Rationale**: Upload is part of the meetings workspace, not a modal task the
+user must babysit. The modal owns only file choice and metadata validation.
+The workspace row keeps progress visible while the user continues scanning the
+list, and the existing cabinet list rendering still owns accepted meeting
+provenance, processing states, and polling rules after acceptance.
 
 **Alternatives considered**:
 
-- Render a bespoke client-side row: rejected because it duplicates view-model
-  logic.
+- Keep progress and accepted state inside the modal: rejected after stakeholder
+  review because it blocks the list context and makes upload controls feel
+  detached from the record that will appear in the workspace.
 - Navigate immediately to detail every time: rejected because the user may want
   to stay in list context, especially in embedded desktop.
+- Add a separate upload dashboard: rejected because this slice is
+  meeting-first and does not approve upload queue management as a separate
+  product destination.
+
+## Decision: Same-Tab Continue Uses Retained File Resubmission
+
+**Decision**: `Продолжить` is available after a user stop/interruption while
+the same page still retains the selected File object. It restarts the retained
+file submission through the existing single multipart cabinet route and reuses
+the same local upload identity.
+
+**Rationale**: The approved cabinet route is `POST
+/api/v1/cabinet/media-uploads` with one multipart file. It does not expose
+chunk ranges, accepted byte ranges, or browser-resumable session state. A
+truthful same-tab continue gives the user the requested recovery control
+without changing backend custody contracts or pretending byte-level resume
+exists.
+
+**Alternatives considered**:
+
+- Implement byte-range resumable browser upload now: rejected because it needs a
+  separate API/backend slice, OpenAPI contract changes, storage range
+  semantics, retry limits, and new validation evidence.
+- Hide continue until true byte resume exists: rejected because the user needs a
+  visible recovery control after stopping an in-progress upload.
 
 ## Decision: Error Copy Is Code-Mapped And Metadata-Only
 
