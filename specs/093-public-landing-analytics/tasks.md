@@ -167,14 +167,14 @@
 
 **Purpose**: Close documentation, validation, and release-readiness evidence.
 
-- [ ] T052 [P] Run focused public analytics tests from `specs/093-public-landing-analytics/quickstart.md`
-- [ ] T053 [P] Run `cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .`
-- [ ] T054 [P] Run forbidden-content scan from `specs/093-public-landing-analytics/quickstart.md`
-- [ ] T055 Update `[Unreleased]` in `CHANGELOG.md` for feature `093-public-landing-analytics`
-- [ ] T056 Run `infra/scripts/ci-local.sh` and record result in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
-- [ ] T057 Review `specs/093-public-landing-analytics/checklists/requirements.md`, `specs/093-public-landing-analytics/checklists/privacy.md`, `specs/093-public-landing-analytics/checklists/ux.md`, and `specs/093-public-landing-analytics/checklists/operations.md` against final implementation
-- [ ] T058 Record high-risk validation lane, quickstart evidence, CI evidence, structured legal readiness status, no-deploy status, live-provider-smoke deferral, and campaign-readiness boundary in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
-- [ ] T059 Mark completed tasks `[X]` only after implementation and validation evidence pass in `specs/093-public-landing-analytics/tasks.md`
+- [X] T052 [P] Run focused public analytics tests from `specs/093-public-landing-analytics/quickstart.md`
+- [X] T053 [P] Run `cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .`
+- [X] T054 [P] Run forbidden-content scan from `specs/093-public-landing-analytics/quickstart.md`
+- [X] T055 Update `[Unreleased]` in `CHANGELOG.md` for feature `093-public-landing-analytics`
+- [X] T056 Run `infra/scripts/ci-local.sh` and record result in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T057 Review `specs/093-public-landing-analytics/checklists/requirements.md`, `specs/093-public-landing-analytics/checklists/privacy.md`, `specs/093-public-landing-analytics/checklists/ux.md`, and `specs/093-public-landing-analytics/checklists/operations.md` against final implementation
+- [X] T058 Record high-risk validation lane, quickstart evidence, CI evidence, structured legal readiness status, no-deploy status, live-provider-smoke deferral, and campaign-readiness boundary in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T059 Mark completed tasks `[X]` only after implementation and validation evidence pass in `specs/093-public-landing-analytics/tasks.md`
 
 ---
 

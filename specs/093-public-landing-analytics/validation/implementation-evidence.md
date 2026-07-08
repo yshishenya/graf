@@ -427,3 +427,121 @@ Known limitation:
 - No production deploy, live provider smoke, Yandex Direct linking, live
   dashboard access verification, legal approval, or campaign launch was
   performed. Paid traffic remains blocked until a separate approval gate.
+
+### 2026-07-08 - Final Closeout Validation
+
+Risk / validation lane:
+
+- High-risk product/privacy/egress implementation.
+- Spec Kit implementation lane completed through setup, foundation, US1-US5,
+  and polish evidence.
+
+Quickstart focused validation:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_public_landing.py \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_landing_contract.py \
+  tests/contract/test_public_analytics_contract.py
+```
+
+Result:
+
+- `41 passed, 1 warning`
+
+Full server lint:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .
+```
+
+Result:
+
+- `All checks passed!`
+
+Forbidden-content scan:
+
+```sh
+rg -n -i \
+  -e "authorization\\s*[:=]\\s*bearer\\s+[a-z0-9._~+/-]{10,}" \
+  -e "x-amz-signature=[a-z0-9]" \
+  -e "-----BEGIN [A-Z ]*PRIVATE KEY-----" \
+  -e "(refresh_token|access_token|id_token|api[_-]?key|secret|password|passcode|signed_url|client_id|measurement_id|counter_id|visitor_id|client_id)\\s*[:=]\\s*[^,[:space:]}]{4,}" \
+  specs/093-public-landing-analytics \
+  apps/server/src/twobrain_rec_server/config.py \
+  apps/server/src/twobrain_rec_server/public \
+  apps/server/tests/unit/test_public_analytics.py \
+  apps/server/tests/contract/test_public_analytics_contract.py \
+  infra/env/rec.production.env.example
+```
+
+Result:
+
+- Reviewed matches were field names, local variable names, secret-file readers,
+  or redacted placeholders:
+  - `counter_id` / `lowered_counter_id` local variables in config code.
+  - `postgres_password` and `web_csrf_secret` secret-file reader assignments in
+    config code.
+  - `_normalized_counter_id` local helper usage.
+  - `yandex_counter_id: runtime_only_redacted` in docs/evidence.
+- No live provider IDs, ad account IDs, raw cookies, visitor IDs, bearer
+  tokens, signed URLs, private keys, raw network payloads, email/account
+  identifiers, meeting text, transcript, or audio content were found.
+
+Local CI:
+
+```sh
+infra/scripts/ci-local.sh
+```
+
+Result:
+
+- `ci_local_result=pass`
+- Server tests: `1068 passed, 4 skipped, 1 warning`
+- Server lint: `All checks passed!`
+- Python compile: passed
+- RLS hardening validation boundary reported `rls_validation_result=blocked`
+  because a dedicated `postgres_test` database/destructive production probe was
+  not provided; the overall local CI gate still returned pass.
+- Production compose config rendered with public analytics disabled and no live
+  Yandex counter ID.
+- Deployment evidence scan: pass
+
+Checklist review:
+
+- `requirements.md`: all checklist items complete; no open requirement-quality
+  blockers.
+- `privacy.md`: all checklist items complete; privacy, consent, egress, replay,
+  forbidden-data, and live-smoke separation requirements remain represented in
+  implementation/tests/evidence.
+- `ux.md`: all checklist items complete; consent control and analytics metadata
+  preserve the install-first public flow and CTA destinations.
+- `operations.md`: all checklist items complete; launch blockers, env gating,
+  dashboard setup, provider failure, and legal readiness remain documented.
+
+Structured legal/campaign readiness:
+
+```yaml
+legal_readiness:
+  owner: not_assigned
+  review_status: not_started
+  reviewed_at: not_reviewed
+  operator_notice_status: not_checked
+  foreign_provider_status: yandex_only_phase1_google_deferred
+  blockers:
+    - operator_requisites_not_committed
+    - counsel_or_owner_review_not_recorded
+    - live_dashboard_smoke_not_approved
+  campaign_decision: blocked
+deployment:
+  production_deploy: not_attempted
+  live_provider_smoke: deferred_until_explicit_approval
+  paid_campaign_launch: blocked
+```
+
+Closeout statement:
+
+- Implementation is ready for review as a local/tested feature slice.
+- It is not a production deployment approval, legal approval, Yandex dashboard
+  approval, or paid campaign launch approval.
