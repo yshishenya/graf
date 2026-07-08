@@ -24,8 +24,10 @@
 - Q: Does "accept everything" allow hidden, unlimited, or content-bearing
   analytics? -> A: No. The mandatory package must stay bounded to the approved
   product activation analytics contract. It may include risk-accepted
-  full-coverage Yandex Webvisor/session replay for approved browser-rendered
-  pages only after masking and sanitization gates pass. It must not include
+  broad-coverage Yandex Webvisor/session replay for approved browser-rendered
+  pages only after masking and sanitization gates pass. It may also include
+  sanitized page views/events with replay disabled on page classes that lack
+  replay proof. It must not include
   unmasked product/cabinet/meeting replay, ad retargeting pixels, raw
   identities, meeting content, audio, transcripts, calendar text, local paths,
   secrets, signed URLs, or other forbidden fields. Any broader purpose requires
@@ -51,8 +53,11 @@
   Metrica should receive the maximum approved all-web-pages/ad measurement for
   approved browser-rendered pages, including traffic sources, goals,
   section/CTA/download events, safe authenticated page events, and
-  Webvisor/session replay across all approved page classes after the mandatory
-  replay/masking gate passes. Yandex may also receive approved product
+  Webvisor/session replay only for page classes that pass the mandatory
+  replay/masking gate. Page classes that are safe for page views/events but not
+  yet safe for replay may still send sanitized page views/events while replay,
+  Webvisor, click maps, scroll maps, and form analytics remain disabled and
+  disclosed. Yandex may also receive approved product
   activation milestones as offline conversions for Yandex Direct optimization.
   This does not mean duplicating unlimited product detail into Yandex or
   enabling unmasked product replay.
@@ -68,15 +73,20 @@
   email, names, workspace names, meeting titles, participants, audio,
   transcripts, calendar text, object keys, signed URLs, local paths, secrets, or
   other forbidden fields to Yandex.
-- Q: What is the target Webvisor/session replay coverage? -> A: Full replay
-  everywhere for Yandex Webvisor/session replay is risk-accepted as the target
-  for all approved browser-rendered web pages. This means public, download,
-  legal, auth, cabinet, and authenticated product web surfaces should have
-  Yandex replay enabled after mandatory masking-by-default, URL/title/referrer
+- Q: What is the target Webvisor/session replay coverage? -> A: Broad replay
+  coverage is the target for approved browser-rendered pages, but replay is not
+  enabled by faith or by best effort. Public, download, legal, auth, cabinet,
+  and authenticated product web surfaces may receive safe page views/events
+  after URL/title/referrer/field sanitization. Yandex Webvisor/session replay,
+  PostHog Session Replay, click maps, scroll maps, and form analytics are
+  enabled for a page class only after masking-by-default, URL/title/referrer
   sanitization, form/input suppression, private DOM hiding, and QA/legal
-  evidence. If a page class cannot be made safe for replay, the future SDD must
-  treat that as a launch blocker or require product/route/DOM redesign rather
-  than silently excluding the page. Full replay does not allow raw meeting
+  evidence pass. If a page class cannot be proven safe for replay, the replay/
+  map/form capabilities are disabled for that page class, dashboards and
+  evidence disclose "replay unavailable", and the rollout does not need a
+  product/route/DOM redesign just to collect safe page views/events. If even
+  page views/events cannot be sanitized safely, collection for that page class
+  remains blocked until the page is made safe. Replay never allows raw meeting
   content, transcript text, participant names, workspace names, emails, local
   paths, object keys, signed URLs, secrets, or other forbidden fields in replay
   payloads.
@@ -100,6 +110,50 @@
   is always counted, but campaign-linked `desktop_first_opened` is reliable only
   when a bridge token/auth link exists; `desktop_account_connected` is the first
   reliable campaign-linked product milestone.
+
+### Session 2026-07-09
+
+- Q: What safe stable identity should PostHog use for product activation
+  analysis? -> A: Stable server-issued pseudonymous user identity; workspace and
+  account may appear only as safe pseudonymous metadata, never as raw IDs or
+  names.
+- Q: Which product milestones may be sent to Yandex as offline conversions for
+  advertising optimization? -> A: Only `desktop_account_connected` and
+  `first_value_session_completed` by default.
+- Q: What minimum retention window should approved analytics use? -> A: Minimum
+  90 days.
+- Q: Who must accept the required product telemetry gate? -> A: Each user
+  accepts once through a low-friction personal gate before normal product use.
+  Workspace policy may preconfigure requirements, but must not secretly consent
+  on the user's behalf.
+- Q: What happens if PostHog or Yandex is unavailable after the user accepted
+  the telemetry gate? -> A: Normal product use continues; approved events may be
+  retried or buffered within the approved contract, and unrecovered loss is
+  reported as a measurement gap.
+- Q: What counts as `first_value_session_completed`? -> A: The user opens a
+  ready meeting result that contains a useful transcript, summary, outcome, or
+  equivalent approved result; completed recording alone or a failed/empty result
+  does not count.
+- Q: Should internal, support, smoke, and test users be excluded from product
+  analytics by default? -> A: No. Count them in the same dashboards by default
+  to avoid extra classification complexity; reports must disclose that internal
+  and test activity may be included.
+- Q: May the desktop app send analytics directly to PostHog and Yandex? -> A:
+  Yes, but only after explicit legal/security/QA approval and only for the
+  approved safe event subset covered by the one-time user telemetry acceptance.
+  The consent package must disclose direct desktop provider egress.
+- Q: At what level are primary "first" activation milestones counted? -> A:
+  Count primary first milestones by stable pseudonymous user identity; workspace
+  and device may be safe metadata dimensions only.
+- Q: What happens when a browser-rendered page class cannot safely support
+  replay/Webvisor yet? -> A: Use the simple staged model. Keep approved safe
+  page views and safe events enabled only when URL, title, referrer, event
+  fields, and visible provider parameters are sanitized. Disable PostHog Session
+  Replay, Yandex Webvisor, click maps, scroll maps, and form analytics for that
+  page class until masking proof exists. Do not run best-effort replay on real
+  users. Do not block the whole 094 rollout only because one page class lacks
+  replay proof. Dashboards, launch evidence, and the page inventory must show
+  that replay/map/form analytics are unavailable for that page class.
 
 ## SDD Carry-Forward Prompt
 
@@ -204,8 +258,8 @@ calendar policy, cabinet results, and meeting lifecycle.
 
 **Independent Test**: Review the future plan and confirm it defines the
 consent/legal gate, withdrawal/refusal behavior, identity linkage, forbidden
-fields, deletion truth, and internal/test-user filtering before implementation
-tasks exist.
+fields, deletion truth, and internal/test activity disclosure before
+implementation tasks exist.
 
 **Acceptance Scenarios**:
 
@@ -267,7 +321,8 @@ campaign interpretation caveats are documented.
 **Acceptance Scenarios**:
 
 1. **Given** internal smoke users generate activation events, **When** reports
-   are reviewed, **Then** internal/test traffic is excluded or clearly labeled.
+   are reviewed, **Then** reports disclose that internal/test activity may be
+   included unless a later explicit filtering feature is approved.
 2. **Given** the provider script or SDK is blocked, **When** the product still
    runs, **Then** user workflows continue and measurement loss is documented.
 3. **Given** dashboards show installer download and activation side by side,
@@ -287,8 +342,8 @@ campaign interpretation caveats are documented.
 - Consent or workspace telemetry policy changes after events have started.
 - A user or workspace deletion request arrives after aggregate reports already
   exist.
-- Internal/support/test users generate events that would distort conversion
-  metrics.
+- Internal/support/test users generate events that may distort conversion
+  metrics because they are counted by default.
 - Campaign attribution windows differ between ad platforms and product
   analytics dashboards.
 
@@ -304,6 +359,15 @@ campaign interpretation caveats are documented.
   `desktop_first_opened`, `desktop_account_connected`,
   `desktop_autorecord_enabled`, `first_recording_completed`,
   `first_result_viewed`, and `first_value_session_completed`.
+- **FR-003a**: `first_value_session_completed` MUST mean the user opened a ready
+  meeting result containing a useful transcript, summary, outcome, or equivalent
+  approved result. Completing a recording, opening a processing/failed/empty
+  result, or enabling auto-record MUST NOT count as first value.
+- **FR-003b**: Primary "first" milestones, including first app open, first
+  account connection, first recording, first result view, and first value, MUST
+  be counted by stable pseudonymous user identity. Workspace and device context
+  MAY be used only as safe pseudonymous metadata dimensions and MUST NOT define
+  the primary activation count.
 - **FR-004**: The feature MUST define event owners for desktop, auth/server,
   calendar policy, capture/server, cabinet, and product analytics milestones.
 - **FR-005**: The feature MUST distinguish public web intent from product
@@ -314,6 +378,10 @@ campaign interpretation caveats are documented.
 - **FR-007**: The feature MUST decide a safe identity strategy before
   implementation, such as provider pseudonymous ID, server-issued hashed ID, or
   expiring campaign/session bridge token.
+- **FR-007a**: The preferred PostHog product analytics identity MUST be a stable
+  server-issued pseudonymous user identity. Workspace and account context MAY be
+  included only as safe pseudonymous metadata and MUST NOT expose raw account
+  IDs, user IDs, workspace IDs, names, emails, or company names.
 - **FR-008**: The feature MUST reject email, full name, organization/company
   name, workspace name, raw account ID, device name, local user path, OAuth or
   provider tokens, meeting/calendar identifiers, raw audio, transcript,
@@ -323,12 +391,30 @@ campaign interpretation caveats are documented.
   blocks normal desktop app, cabinet, and authenticated product use unless the
   user accepts the required Terms, Privacy/Personal Data processing documents,
   and mandatory bounded product telemetry package.
+- **FR-009a**: The product telemetry gate MUST be low-friction and personal:
+  one clear acceptance step during onboarding or first authenticated product
+  use, no repeated prompts unless required terms or telemetry scope change, and
+  no hidden, deceptive, or unbounded collection. Workspace/admin policy MAY
+  require telemetry for normal product use but MUST NOT accept personal
+  telemetry terms secretly on behalf of the user.
+- **FR-009b**: The one-time product telemetry acceptance MAY cover direct
+  desktop analytics egress to PostHog and Yandex only when the acceptance copy
+  and linked legal documents explicitly disclose the providers, purposes,
+  event classes, replay boundaries, retention/deletion limits, and forbidden
+  data. The acceptance MUST NOT authorize future broader collection outside the
+  approved product activation analytics contract.
 - **FR-010**: The feature MUST define how withdrawal, refusal of updated
   required terms, or legal/policy changes stop future product analytics events
   and limit product access to account/legal/export/deletion flows.
 - **FR-011**: The feature MUST define retention and deletion truth, including
   the limits of deleting aggregate analytics already held by a provider or
   exported to reports.
+- **FR-011a**: The retention design MUST use 90 days as the minimum retention
+  window for approved analytics data unless a later legal/security gate requires
+  a shorter window for a specific sensitive category. The future plan MUST still
+  define category-specific retention for attribution bridge records,
+  replay/Webvisor recordings, raw product events, offline conversions, and
+  aggregate reports.
 - **FR-012**: The feature MUST compare provider options, including PostHog
   self-hosted, PostHog cloud, Yandex-only, and no-provider/defer options.
 - **FR-012a**: The feature MUST optimize for one primary analytics workspace
@@ -346,6 +432,18 @@ campaign interpretation caveats are documented.
   the source of truth; Yandex Metrica receives maximum approved
   all-web-pages/ad measurement and optional approved product activation
   milestones as offline conversions for advertising optimization.
+- **FR-012c1**: The default Yandex offline-conversion subset MUST be limited to
+  `desktop_account_connected` and `first_value_session_completed`.
+  `desktop_first_opened`, `desktop_autorecord_enabled`,
+  `first_recording_completed`, and `first_result_viewed` MUST remain PostHog
+  product analytics events unless a later legal/product gate explicitly expands
+  the Yandex subset.
+- **FR-012c2**: Direct desktop provider SDK or API calls MAY be designed for
+  PostHog and Yandex only after a separate legal/security/QA approval proves
+  that the desktop client sends only approved safe events and fields. If direct
+  desktop delivery cannot prove forbidden-field control, identity safety,
+  retry behavior, and provider failure handling, the design MUST fall back to a
+  server-mediated analytics route.
 - **FR-012d**: The parallel measurement model MUST avoid routine manual exports,
   duplicated dashboard interpretation, and unbounded event fan-out. Every event
   sent to both systems must have a stated reason, allowed fields, identity rule,
@@ -355,29 +453,43 @@ campaign interpretation caveats are documented.
   surfaces. For every page class, the design MUST specify whether Yandex
   captures page views, goals/events, session parameters, user parameters,
   Webvisor/session replay, click/scroll/form maps, offline conversions, or no
-  data. The target for Webvisor/session replay is full coverage on all approved
-  browser-rendered page classes after masking and sanitization gates pass.
+  data. The target is broad Webvisor/session replay coverage on all page
+  classes that pass masking and sanitization gates. The staged default is that a
+  page class may launch sanitized page views/events while replay, Webvisor,
+  click maps, scroll maps, and form analytics remain disabled until masking
+  proof exists.
 - **FR-012f**: The Yandex all-pages model MUST include URL, referrer, and page
   title sanitization rules before the Yandex tag is allowed on authenticated,
   cabinet, meeting, upload, playback, deletion, admin, or embedded desktop web
   surfaces. Raw user, workspace, meeting, calendar, file, token, object, signed
   URL, local path, and content-bearing values MUST NOT appear in Yandex-visible
   URLs, titles, parameters, events, session parameters, user parameters, or
-  replay payloads.
+  replay payloads. If URL, title, referrer, event fields, or provider-visible
+  parameters cannot be sanitized for a page class, page views/events for that
+  page class remain blocked until the unsafe surface is fixed.
 - **FR-012g**: The feature MUST include PostHog Session Replay for approved
   browser-rendered public, auth, cabinet, and product web pages so the primary
   PostHog workspace can connect funnels, drop-offs, cohorts, and activation
   events to matching recordings. PostHog replay MUST use the same
   masking-by-default, URL/title/referrer sanitization, private DOM hiding,
   input suppression, forbidden-field controls, QA evidence, and legal review as
-  Yandex Webvisor.
-- **FR-013**: The feature MUST design Yandex Webvisor/session replay as
-  full-coverage for all approved browser-rendered web pages, including
-  authenticated product and cabinet surfaces, with masking-by-default,
-  forbidden-field controls, QA evidence, legal review, and page-class launch
-  blockers when a page cannot be made safe.
-- **FR-014**: The feature MUST define internal/test-user filtering and support
-  session exclusion before dashboards are used for campaign decisions.
+  Yandex Webvisor. If a page class lacks replay proof, PostHog replay for that
+  page class remains disabled while sanitized events may still proceed.
+- **FR-013**: The feature MUST design a staged replay policy for Yandex
+  Webvisor/session replay, PostHog Session Replay, click maps, scroll maps, and
+  form analytics. Broad replay coverage is desired, including authenticated
+  product and cabinet surfaces, but real-user replay/map/form collection is
+  allowed only after masking-by-default, forbidden-field controls, URL/title/
+  referrer sanitization, QA evidence, legal review, and page-class approval.
+  When a page class is safe for page views/events but not proven safe for
+  replay, replay/map/form capabilities MUST be disabled for that page class and
+  reported as unavailable. This replay-unavailable state is not a whole-feature
+  launch blocker. Best-effort real-user replay is prohibited.
+- **FR-014**: The feature MUST count internal, support, smoke, and test users in
+  product analytics by default to avoid extra classification complexity.
+  Dashboards and campaign reports MUST disclose that internal/test activity may
+  be included. Any later exclusion or labeling mechanism requires a separate
+  explicit approval.
 - **FR-015**: The feature MUST define dashboard requirements for acquisition
   source, onboarding steps, activation, first recording, first result view, and
   first value.
@@ -385,14 +497,20 @@ campaign interpretation caveats are documented.
   providers, consent rejection, direct traffic, multiple devices, duplicate
   events, failed processing, ad attribution windows, and installer downloads
   that do not prove activation.
+- **FR-016a**: Provider or script failure after telemetry-gate acceptance MUST
+  NOT block normal product workflows. The design MAY use bounded retry or
+  buffering for approved analytics events, but MUST report unrecovered delivery
+  loss as a measurement gap and MUST NOT expand collection beyond the approved
+  analytics contract to compensate.
 - **FR-017**: The feature MUST define rollout gates for legal review, provider
   configuration, dashboard access, QA evidence, production smoke, and campaign
   launch.
 - **FR-017a**: The rollout smoke MUST verify runtime propagation end to end:
   host env or secret source, composed service config, live container env,
-  rendered HTML/JS on every approved page class, expected exclusion on blocked
-  page classes, provider script reachability, and provider dashboard/goal
-  visibility. A host-side `.env` value alone is not acceptable evidence.
+  rendered HTML/JS on every approved page class, expected exclusion or
+  replay-disabled state on blocked/unsafe page classes, provider script
+  reachability, and provider dashboard/goal visibility. A host-side `.env`
+  value alone is not acceptable evidence.
 - **FR-018**: The feature MUST preserve the `093` boundary that public
   analytics applies only to `/` and `/download` until this new feature is
   separately approved.
@@ -415,13 +533,21 @@ campaign interpretation caveats are documented.
 - **FR-023**: The feature MUST produce a replay masking contract before
   implementation. The contract MUST define masking-by-default behavior,
   input/form suppression, private DOM hiding, safe UI allowlisting, URL/title/
-  referrer sanitization, forbidden replay payloads, QA evidence, and page-class
-  launch blockers.
+  referrer sanitization, forbidden replay payloads, QA evidence, page-class
+  replay-unavailable states, and the difference between blocking replay/maps/
+  forms versus blocking sanitized page views/events.
 - **FR-024**: The feature MUST produce an identity and attribution contract
   before implementation. The contract MUST define any use of Yandex ClientID,
   `yclid`, provider pseudonymous ID, server-issued hashed ID, expiring bridge
-  token, or other identifier, and MUST reject raw personal, workspace, meeting,
-  device, local-path, secret, URL, and content-bearing identifiers.
+  token, stable server-issued pseudonymous user identity, or other identifier,
+  and MUST reject raw personal, workspace, meeting, device, local-path, secret,
+  URL, and content-bearing identifiers.
+- **FR-024c**: If direct desktop provider delivery is approved, the identity and
+  attribution contract MUST define the exact desktop-safe provider identifiers
+  and MUST prohibit raw email, names, raw user/account/workspace IDs, meeting
+  IDs, device names, local paths, tokens, signed URLs, audio, transcript,
+  meeting title, participants, calendar text, and other content-bearing values
+  before any provider SDK or API call leaves the desktop app.
 - **FR-024a**: The preferred identity and attribution model MUST use a
   server-owned safe `graf_attribution_id` and/or expiring bridge token to join
   campaign context, Yandex identifiers when available, PostHog anonymous
@@ -438,10 +564,13 @@ campaign interpretation caveats are documented.
   web behavior, Webvisor, map, goal, and offline-conversion dashboards.
 - **FR-026**: The feature MUST define launch blockers before implementation,
   including missing legal approval, missing hard telemetry gate copy, missing
-  provider configuration, unsafe URL/title/referrer, unsafe unmasked DOM or
-  replay region, forbidden analytics field, missing internal/test filtering,
-  missing dashboard owner, missing smoke evidence, and any routine manual
-  export required for daily analytics.
+  provider configuration, unsafe URL/title/referrer for any tagged page, unsafe
+  unmasked DOM or replay region for replay/map/form collection, forbidden
+  analytics field, missing dashboard owner, missing smoke evidence, and any
+  routine manual export required for daily analytics. Unsafe replay regions
+  block replay/map/form collection for that page class; they do not block
+  sanitized page views/events when those page views/events have their own
+  sanitization proof and dashboard caveat.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -455,20 +584,40 @@ campaign interpretation caveats are documented.
 - **Product Telemetry Gate**: The required consent/legal acceptance checkpoint
   that controls normal access to desktop app, cabinet, and authenticated product
   surfaces. It uses the same path for B2B/workspace and B2C users and must keep
-  mandatory analytics bounded to the approved product activation contract.
+  mandatory analytics bounded to the approved product activation contract. It
+  should be a one-time low-friction personal acceptance unless the approved
+  terms or telemetry scope changes. If direct desktop provider egress is
+  approved, the same one-time acceptance must explicitly disclose it.
 - **Analytics Identity**: The safe pseudonymous or hashed identity used for
-  product analytics if approved. It must not reveal email, workspace names,
-  account IDs, device names, or meeting identifiers.
+  product analytics if approved. The preferred PostHog identity is a stable
+  server-issued pseudonymous user identity. Workspace and account context may
+  appear only as safe pseudonymous metadata; it must not reveal email, names,
+  workspace names, raw user/account/workspace IDs, device names, or meeting
+  identifiers.
+- **Primary First Milestone**: The first occurrence of an activation milestone
+  for a stable pseudonymous user identity. Multiple devices or workspace changes
+  may be represented as safe dimensions but must not create duplicate primary
+  first-value counts for the same pseudonymous user.
 - **Attribution Bridge**: A server-owned safe `graf_attribution_id` and/or
   expiring bridge token that connects approved campaign context, Yandex
   identifiers when available, PostHog anonymous sessions, download intent,
   login/signup, account connection, and later activation milestones without
   exposing raw identity or content-bearing values.
 - **Activation Dashboard**: A report surface that separates web intent from
-  product activation and first value while excluding internal/test traffic.
+  product activation and first value while disclosing that internal, support,
+  smoke, and test activity may be included by default.
 - **Provider Readiness Record**: A metadata-only record of provider decision,
   hosting, legal status, dashboards, access, retention, deletion limits, and
   launch blockers.
+- **Analytics Delivery Gap**: A metadata-only record or dashboard caveat for
+  approved analytics events that were not delivered because a provider, script,
+  browser, network, or runtime path was unavailable. It must not contain raw
+  identities, meeting content, local paths, secrets, or forbidden fields.
+- **Analytics Retention Policy**: The category-specific retention and deletion
+  statement for approved analytics data. It must start from a 90-day minimum
+  retention baseline and separately describe attribution bridge records,
+  replay/Webvisor recordings, product events, Yandex offline conversions,
+  provider-held aggregates, and exported reports.
 - **Primary Analytics Workspace**: The one daily analytics home where the
   product owner reviews acquisition source, public intent, onboarding,
   activation, first recording, first result view, first value, drop-off, and
@@ -477,17 +626,26 @@ campaign interpretation caveats are documented.
   PostHog is the primary full-funnel workspace. Yandex Metrica is the
   all-web-pages measurement and ad optimization workspace. Shared events are
   limited to approved public acquisition events and approved product activation
-  milestones that have a specific advertising or attribution purpose.
+  milestones that have a specific advertising or attribution purpose. The
+  default product milestone subset for Yandex offline conversions is
+  `desktop_account_connected` and `first_value_session_completed` only. Direct
+  desktop delivery to either provider is an additional high-risk route that
+  requires explicit legal/security/QA approval before implementation.
 - **Yandex All-Pages Inventory**: A required page-by-page approval table for
   all browser-rendered surfaces. It states the Yandex collection mode, allowed
   fields, forbidden fields, URL/title sanitization, replay/map setting, identity
-  rule, legal basis, retention/deletion statement, and dashboard purpose for
-  each page class.
+  rule, legal basis, retention/deletion statement, dashboard purpose, and
+  replay-unavailable caveat for each page class.
 - **Replay Masking Contract**: A shared masking and sanitization contract for
   both PostHog Session Replay and Yandex Webvisor. It defines which page
   classes may replay, which DOM/input/title/URL/referrer data is suppressed,
   which safe UI regions may remain visible, what evidence is required, and what
-  blocks launch.
+  blocks replay/map/form launch versus what blocks any provider collection.
+- **Replay-Unavailable Page Class**: A browser-rendered page class where safe
+  page views/events may be collected after sanitization, but PostHog Session
+  Replay, Yandex Webvisor, click maps, scroll maps, and form analytics are
+  disabled because masking proof is missing or incomplete. It must be visible in
+  dashboards, inventory, launch evidence, and measurement caveats.
 
 ## Success Criteria *(mandatory)*
 
@@ -496,13 +654,32 @@ campaign interpretation caveats are documented.
 - **SC-001**: A product owner can review one approved funnel that separates
   installer download intent, first app open, account connection, auto-record
   enablement, first recording, first result view, and first value.
+- **SC-001a**: First-value reporting counts only ready useful result views and
+  does not count recording completion, auto-record enablement, processing,
+  failed, partial-without-useful-output, or empty result states as first value.
+- **SC-001b**: Primary activation dashboards count first milestones once per
+  stable pseudonymous user identity and do not double-count the same user's
+  first value because they use multiple devices or workspaces.
 - **SC-002**: 100% of proposed activation events have an owner, surface,
   allowed field set, forbidden field set, consent/notice rule, identity rule,
   and deletion/reporting statement before implementation tasks are generated.
 - **SC-003**: 0 forbidden private/content-bearing fields are approved in the
   event contract.
+- **SC-003a**: The retention policy gives every approved analytics category a
+  retention/deletion statement, uses 90 days as the minimum baseline, and calls
+  out any category that a legal/security gate requires to be shorter.
+- **SC-003b**: The telemetry gate can be completed in one clear user step and
+  contains no hidden acceptance, dark pattern, or repeated prompt unless the
+  approved terms or telemetry scope changes.
+- **SC-003c**: If direct desktop provider delivery is approved, the one-time
+  telemetry acceptance explicitly names that desktop analytics may be sent to
+  PostHog and Yandex within the approved event/field contract.
 - **SC-004**: A privacy/product reviewer can decide whether campaign attribution
   may be linked to product activation without reading application code.
+- **SC-004a**: The identity contract lets a product owner analyze user-level
+  activation, retention, and cohorts in PostHog while exposing 0 raw user,
+  account, workspace, email, name, device, meeting, or content-bearing
+  identifiers.
 - **SC-005**: A provider decision record clearly explains the selected provider
   or deferral decision, hosting model, egress boundary, retention, deletion
   participation, replay status, and dashboard ownership.
@@ -514,20 +691,37 @@ campaign interpretation caveats are documented.
   drop-off segment into matching approved session recordings inside PostHog
   without manual ID matching or opening Yandex for the primary product
   investigation.
+- **SC-005b1**: The Yandex offline-conversion design contains no product
+  milestone beyond `desktop_account_connected` and
+  `first_value_session_completed` unless a later explicit approval expands that
+  subset.
+- **SC-005b2**: Direct desktop analytics delivery is blocked unless legal,
+  security, QA, identity, forbidden-field, retry, and provider-failure evidence
+  all pass for the exact approved desktop event subset.
 - **SC-005c**: A campaign report can distinguish counted `desktop_first_opened`
   from campaign-linked `desktop_first_opened` and campaign-linked
   `desktop_account_connected`, so dashboards do not overstate installer-to-app
   attribution.
 - **SC-006**: A rollout checklist blocks implementation or launch when legal
   review, the hard product telemetry gate, identity, provider configuration,
-  dashboard access, QA evidence, internal/test filtering, or production smoke is
-  missing.
+  dashboard access, QA evidence, or production smoke is missing.
+- **SC-006b**: Activation dashboards and campaign reports plainly disclose that
+  internal, support, smoke, and test activity is counted by default unless a
+  later explicit filtering feature changes that behavior.
+- **SC-006c**: Unsafe page classes can still launch approved sanitized page
+  views/events only when PostHog Session Replay, Yandex Webvisor, click maps,
+  scroll maps, and form analytics are disabled for that page class and
+  dashboards/evidence disclose replay unavailable. There are 0 real-user
+  best-effort replay sessions from unapproved page classes.
 - **SC-006a**: Production smoke evidence proves that analytics provider
   settings reach the intended runtime service and rendered pages, and that
   disallowed surfaces do not accidentally receive analytics code.
 - **SC-007**: Campaign reports can distinguish web intent from real product
   activation and first value, including documented caveats for consent,
   blocking, duplicates, direct traffic, and failed processing.
+- **SC-007a**: Product workflows remain available during PostHog or Yandex
+  provider failure after telemetry-gate acceptance, and dashboards or evidence
+  show any unrecovered analytics delivery loss as a measurement gap.
 
 ## Assumptions
 
@@ -552,10 +746,12 @@ campaign interpretation caveats are documented.
   referrer, page title, event, session parameter, user parameter, replay, and
   map payloads cannot contain forbidden identity, meeting, file, secret, local
   path, or content-bearing data.
-- Yandex Webvisor/session replay is risk-accepted as a full-coverage target for
-  all approved browser-rendered web pages, but only with masking-by-default,
-  URL/title/referrer sanitization, forbidden-field controls, QA evidence, legal
-  review, and no meeting/content-bearing payloads.
+- Yandex Webvisor/session replay is risk-accepted as a broad-coverage target
+  for all approved browser-rendered web pages, but only with
+  masking-by-default, URL/title/referrer sanitization, forbidden-field controls,
+  QA evidence, legal review, and no meeting/content-bearing payloads. Page
+  classes may still launch sanitized page views/events with replay/map/form
+  capabilities disabled and disclosed when replay proof is not ready.
 - Legal copy, personal-data consent, operator notice, and cross-border/provider
   review must be updated before product telemetry launch.
 - Required product telemetry may be mandatory for normal product use only when
