@@ -6,6 +6,8 @@ from twobrain_rec_server.public.analytics import (
     PUBLIC_ANALYTICS_CONSENT_CATEGORIES,
     build_public_analytics_context,
     normalize_public_campaign_attribution,
+    public_analytics_consent_states,
+    public_analytics_consent_transitions,
     public_analytics_event_names,
     public_analytics_stable_labels,
     public_analytics_utm_fields,
@@ -41,6 +43,10 @@ def test_public_analytics_render_only_context_is_safe_and_public_scoped() -> Non
     assert context["yandex_metrica_id"] == "YA_TEST_COUNTER"
     assert context["replay_allowed"] is True
     assert context["consent_categories"] == list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES)
+    assert context["consent_states"] == list(public_analytics_consent_states())
+    assert context["consent_transitions"] == {
+        key: list(values) for key, values in public_analytics_consent_transitions().items()
+    }
     assert public_analytics_event_names() == (
         "public_landing_viewed",
         "public_landing_section_seen",
@@ -81,6 +87,33 @@ def test_public_analytics_event_catalog_has_stable_labels() -> None:
         "login",
         "section",
     )
+
+
+def test_public_analytics_consent_state_machine_and_copy_version_are_explicit() -> None:
+    settings = Settings(public_analytics_consent_copy_version="2026-07-08.1")
+    context = build_public_analytics_context(settings, "/")
+    transitions = public_analytics_consent_transitions()
+
+    assert public_analytics_consent_states() == (
+        "unknown",
+        "accepted_all",
+        "necessary_only",
+        "customized",
+        "revoked",
+    )
+    assert transitions["unknown"] == ("accepted_all", "necessary_only", "customized")
+    assert transitions["accepted_all"] == ("revoked", "necessary_only", "customized")
+    assert transitions["necessary_only"] == ("accepted_all", "customized")
+    assert transitions["customized"] == ("accepted_all", "necessary_only", "revoked")
+    assert transitions["revoked"] == ("accepted_all", "necessary_only", "customized")
+    assert context["consent_copy_version"] == "2026-07-08.1"
+
+    changed_copy = build_public_analytics_context(
+        Settings(public_analytics_consent_copy_version="2026-07-08.2"),
+        "/",
+    )
+
+    assert changed_copy["consent_copy_version"] == "2026-07-08.2"
 
 
 def test_public_analytics_stays_disabled_outside_public_scope() -> None:

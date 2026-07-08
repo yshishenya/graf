@@ -102,19 +102,19 @@
 
 ### Tests for User Story 3
 
-- [ ] T031 [P] [US3] Add consent state machine tests for unknown, accept-all, necessary-only, customized, revoked, and copy-version changes in `apps/server/tests/unit/test_public_analytics.py`
-- [ ] T032 [P] [US3] Add negative-scope tests proving no public analytics on login, cabinet, admin, and API surfaces in `apps/server/tests/contract/test_public_analytics_contract.py`
-- [ ] T033 [P] [US3] Add forbidden event field and unsafe UTM regression tests in `apps/server/tests/contract/test_public_analytics_contract.py`
-- [ ] T034 [P] [US3] Add public consent markup, legal-link, legal-page route, category-choice, and accessibility assertions in `apps/server/tests/unit/test_public_landing.py`
+- [X] T031 [P] [US3] Add consent state machine tests for unknown, accept-all, necessary-only, customized, revoked, and copy-version changes in `apps/server/tests/unit/test_public_analytics.py`
+- [X] T032 [P] [US3] Add negative-scope tests proving no public analytics on login, cabinet, admin, and API surfaces in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T033 [P] [US3] Add forbidden event field and unsafe UTM regression tests in `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T034 [P] [US3] Add public consent markup, legal-link, legal-page route, category-choice, and accessibility assertions in `apps/server/tests/unit/test_public_landing.py`
 
 ### Implementation for User Story 3
 
-- [ ] T035 [US3] Implement Russian self-hosted CookieConsent v3.1.0 copy, accept-all/necessary-only/customize/change controls, privacy/cookies/terms/analytics-consent routes, and footer/cookie-settings links in `apps/server/src/twobrain_rec_server/public/templates/public/_analytics.html`, `apps/server/src/twobrain_rec_server/public/web.py`, `apps/server/src/twobrain_rec_server/public/templates.py`, `apps/server/src/twobrain_rec_server/public/templates/public/privacy.html`, `apps/server/src/twobrain_rec_server/public/templates/public/cookies.html`, `apps/server/src/twobrain_rec_server/public/templates/public/terms.html`, and `apps/server/src/twobrain_rec_server/public/templates/public/analytics_consent.html`
-- [ ] T036 [US3] Add consent UI styling that fits the public landing and mobile layouts in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
-- [ ] T037 [US3] Implement local consent persistence and strict no-provider-before-consent load order in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T038 [US3] Gate Yandex Session Replay and behavior recording to public pages with `behavior_replay` consent in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T039 [US3] Harden event allowlists and forbidden-data drops in `apps/server/src/twobrain_rec_server/public/analytics.py` and `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T040 [US3] Record privacy/egress/replay evidence in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
+- [X] T035 [US3] Implement Russian self-hosted CookieConsent v3.1.0 copy, accept-all/necessary-only/customize/change controls, privacy/cookies/terms/analytics-consent routes, and footer/cookie-settings links in `apps/server/src/twobrain_rec_server/public/templates/public/_analytics.html`, `apps/server/src/twobrain_rec_server/public/web.py`, `apps/server/src/twobrain_rec_server/public/templates.py`, `apps/server/src/twobrain_rec_server/public/templates/public/privacy.html`, `apps/server/src/twobrain_rec_server/public/templates/public/cookies.html`, `apps/server/src/twobrain_rec_server/public/templates/public/terms.html`, and `apps/server/src/twobrain_rec_server/public/templates/public/analytics_consent.html`
+- [X] T036 [US3] Add consent UI styling that fits the public landing and mobile layouts in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T037 [US3] Implement local consent persistence and strict no-provider-before-consent load order in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T038 [US3] Gate Yandex Session Replay and behavior recording to public pages with `behavior_replay` consent in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T039 [US3] Harden event allowlists and forbidden-data drops in `apps/server/src/twobrain_rec_server/public/analytics.py` and `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T040 [US3] Record privacy/egress/replay evidence in `specs/093-public-landing-analytics/validation/implementation-evidence.md`
 
 **Checkpoint**: Privacy and consent gates are complete; Phase 1 cannot ship without this P1 story.
 

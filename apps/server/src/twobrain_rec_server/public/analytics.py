@@ -34,6 +34,20 @@ PUBLIC_ANALYTICS_CTA_LOCATIONS = (
     "download_page_login",
 )
 PUBLIC_ANALYTICS_TARGET_KINDS = ("download_page", "installer_package", "login", "section")
+PUBLIC_ANALYTICS_CONSENT_STATES = (
+    "unknown",
+    "accepted_all",
+    "necessary_only",
+    "customized",
+    "revoked",
+)
+PUBLIC_ANALYTICS_CONSENT_TRANSITIONS = {
+    "unknown": ("accepted_all", "necessary_only", "customized"),
+    "accepted_all": ("revoked", "necessary_only", "customized"),
+    "necessary_only": ("accepted_all", "customized"),
+    "customized": ("accepted_all", "necessary_only", "revoked"),
+    "revoked": ("accepted_all", "necessary_only", "customized"),
+}
 
 PUBLIC_ANALYTICS_EVENT_CATALOG = (
     {
@@ -108,6 +122,14 @@ def public_analytics_stable_labels() -> dict[str, tuple[str, ...]]:
         "cta_location": PUBLIC_ANALYTICS_CTA_LOCATIONS,
         "target_kind": PUBLIC_ANALYTICS_TARGET_KINDS,
     }
+
+
+def public_analytics_consent_states() -> tuple[str, ...]:
+    return PUBLIC_ANALYTICS_CONSENT_STATES
+
+
+def public_analytics_consent_transitions() -> dict[str, tuple[str, ...]]:
+    return PUBLIC_ANALYTICS_CONSENT_TRANSITIONS
 
 
 def normalize_public_campaign_attribution(
@@ -189,6 +211,10 @@ def build_public_analytics_context(
             referrer=referrer,
             landing_path=path if surface else None,
         ),
+        "consent_states": list(public_analytics_consent_states()),
+        "consent_transitions": {
+            key: list(values) for key, values in public_analytics_consent_transitions().items()
+        },
         "stable_labels": {key: list(values) for key, values in public_analytics_stable_labels().items()},
         "consent_categories": list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES),
         "event_catalog": [dict(event) for event in PUBLIC_ANALYTICS_EVENT_CATALOG],

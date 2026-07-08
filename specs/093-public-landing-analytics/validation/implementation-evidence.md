@@ -248,3 +248,75 @@ Known limitation:
 - Consent UI, consent persistence, legal-page routes, replay-category gating,
   provider-failure hardening, production env examples, and live Yandex dashboard
   smoke remain later tasks. No live goal or counter identifiers were added.
+
+### 2026-07-08 - US3 Privacy, Consent, Legal Pages, And Replay Scope
+
+Implemented:
+
+- Server analytics context now exposes the consent state catalog:
+  `unknown`, `accepted_all`, `necessary_only`, `customized`, and `revoked`,
+  plus the allowed state transitions.
+- Public pages use self-hosted CookieConsent v3.1.0 with Russian copy,
+  `accept all`, `necessary only`, `customize`, category choices, local
+  persistence keyed by consent-copy revision, and a public cookie-settings
+  control.
+- Yandex Metrica loads only after the `analytics` category is granted.
+- Yandex Webvisor/behavior replay is enabled only when both analytics and
+  `behavior_replay` are granted and the server config allows replay.
+- Custom public events are gated by current analytics consent and filtered
+  through stable allowlists for `section_id`, `cta_location`, and
+  `target_kind`.
+- Public legal routes now exist for `/privacy`, `/cookies`, `/terms`, and
+  `/analytics-consent`.
+- Public footer/legal links render on public pages. The cookie-settings button
+  appears only when analytics is configured for the current public surface.
+- Contract coverage verifies that public analytics config/assets are absent
+  from login, admin, cabinet-like, API, and legal-page surfaces even when
+  render-only analytics is enabled.
+
+Legal-readiness references reviewed for this implementation draft:
+
+- Official Federal Law No. 152-FZ text on the Russian legal-information portal:
+  `https://pravo.gov.ru/proxy/ips/?docbody=&nd=102108261`
+- Roskomnadzor personal-data operator notification portal:
+  `https://pd.rkn.gov.ru/operators-registry/notification/`
+- Yandex Metrica cookie/localStorage behavior documentation:
+  `https://yandex.ru/support/metrica/en/general/cookie-usage`
+
+Commands:
+
+```sh
+cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/unit/test_public_landing.py \
+  tests/contract/test_public_landing_contract.py
+
+cd apps/server && PYTHONPATH=src uv run --extra dev ruff check \
+  src/twobrain_rec_server/public/analytics.py \
+  src/twobrain_rec_server/public/templates.py \
+  src/twobrain_rec_server/public/web.py \
+  tests/unit/test_public_analytics.py \
+  tests/contract/test_public_analytics_contract.py \
+  tests/unit/test_public_landing.py
+
+node --check apps/server/src/twobrain_rec_server/public/static/public/analytics.js
+git diff --check
+```
+
+Result:
+
+- Focused pytest: `35 passed, 1 warning`
+- Focused ruff: `All checks passed!`
+- `node --check` passed
+- `git diff --check` passed
+
+Known limitation:
+
+- The legal pages are implementation-ready draft copy, not final legal advice.
+  Before paid campaign launch the real operator requisites, privacy/cookie/
+  analytics-consent wording, personal-data operator notification status, and
+  any cross-border/provider review must be confirmed by the project owner or
+  counsel.
+- No production deploy, live provider smoke, live Yandex goal creation, live
+  account IDs, raw cookies, visitor IDs, or screenshots were added.

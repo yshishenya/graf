@@ -1,3 +1,9 @@
+from fastapi.testclient import TestClient
+
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.main import create_app
+
+
 def test_public_landing_is_self_serve_entry(client) -> None:
     response = client.get("/")
 
@@ -58,6 +64,51 @@ def test_public_landing_accepts_synthetic_utm_visit_without_reflecting_private_v
     assert "graf-public-analytics-config" not in response.text
 
 
+def test_public_landing_footer_links_to_legal_pages_without_analytics_by_default(client) -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'aria-label="Юридическая информация"' in response.text
+    assert 'href="/privacy"' in response.text
+    assert 'href="/cookies"' in response.text
+    assert 'href="/terms"' in response.text
+    assert 'href="/analytics-consent"' in response.text
+    assert 'data-cc="show-preferencesModal"' not in response.text
+
+
+def test_public_landing_render_only_consent_markup_is_accessible_and_category_scoped(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'public-consent-markup.db'}",
+        minio_access_key="test",
+        minio_secret_key="test",
+        minio_bucket="test-bucket",
+        public_analytics_enabled=True,
+        public_analytics_validation_mode="render_only",
+        public_analytics_yandex_metrica_id="YA_TEST_COUNTER",
+        public_analytics_replay_enabled=True,
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/")
+
+    assert response.status_code == 200
+    assert '<a class="skip-link" href="#main">' in response.text
+    assert 'type="button" data-cc="show-preferencesModal"' in response.text
+    assert 'href="/privacy"' in response.text
+    assert 'href="/cookies"' in response.text
+    assert 'href="/terms"' in response.text
+    assert 'href="/analytics-consent"' in response.text
+    assert (
+        '"consent_categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"]'
+        in response.text
+    )
+    assert (
+        '"consent_states": ["unknown", "accepted_all", "necessary_only", "customized", "revoked"]'
+        in response.text
+    )
+
+
 def test_public_landing_analytics_attributes_do_not_change_cta_destinations(client) -> None:
     response = client.get("/")
 
@@ -98,6 +149,29 @@ def test_public_download_handoff_is_available(client) -> None:
     assert "/static/public/downloads/graf-local.pkg?v=" in response.text
     assert "Как только установщик будет готов" not in response.text
     assert 'href="/login?next=/meetings"' in response.text
+
+
+def test_public_legal_pages_are_available_without_public_analytics_config(client) -> None:
+    pages = {
+        "/privacy": "Политика конфиденциальности",
+        "/cookies": "Политика cookies",
+        "/terms": "Условия публичного сайта",
+        "/analytics-consent": "Согласие на аналитику",
+    }
+
+    for path, heading in pages.items():
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert heading in response.text
+        assert "Рабочая редакция" in response.text or "Редакция:" in response.text
+        assert 'href="/privacy"' in response.text
+        assert 'href="/cookies"' in response.text
+        assert 'href="/terms"' in response.text
+        assert 'href="/analytics-consent"' in response.text
+        assert "graf-public-analytics-config" not in response.text
+        assert "analytics.js" not in response.text
+        assert "cookieconsent.umd.js" not in response.text
 
 
 def test_public_download_analytics_attributes_do_not_change_handoff_destinations(client) -> None:

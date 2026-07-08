@@ -108,6 +108,39 @@ def test_public_pages_render_safe_campaign_context_without_private_values(tmp_pa
     assert "token=abc" not in response.text
 
 
+def test_public_analytics_is_absent_from_non_public_and_legal_surfaces(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-negative-scope.db'}",
+        minio_access_key="test",
+        minio_secret_key="test",
+        minio_bucket="test-bucket",
+        public_analytics_enabled=True,
+        public_analytics_validation_mode="render_only",
+        public_analytics_yandex_metrica_id="YA_TEST_COUNTER",
+        public_analytics_replay_enabled=True,
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as test_client:
+        responses = [
+            test_client.get("/login", follow_redirects=False),
+            test_client.get("/admin", follow_redirects=False),
+            test_client.get("/cabinet/not-a-real-page", follow_redirects=False),
+            test_client.get("/api/v1/health/live", follow_redirects=False),
+            test_client.get("/privacy", follow_redirects=False),
+            test_client.get("/cookies", follow_redirects=False),
+            test_client.get("/terms", follow_redirects=False),
+            test_client.get("/analytics-consent", follow_redirects=False),
+        ]
+
+    for response in responses:
+        assert "graf-public-analytics-config" not in response.text
+        assert "analytics.js" not in response.text
+        assert "cookieconsent.umd.js" not in response.text
+        assert "metrika/tag.js" not in response.text
+        assert "data-graf-cookieconsent-version" not in response.text
+
+
 def test_public_pages_render_stable_conversion_labels_in_render_only_mode(tmp_path) -> None:
     settings = Settings(
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-conversion-labels.db'}",
@@ -171,7 +204,7 @@ def test_public_analytics_controller_has_consent_gated_yandex_entrypoint() -> No
     analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
 
     assert "ensureYandexProvider" in analytics_js
-    assert "hasCategory(categories, \"analytics\")" in analytics_js
+    assert "hasCategory(grantedCategories, \"analytics\")" in analytics_js
     assert "reachGoal" in analytics_js
     assert "metrika/tag.js" in analytics_js
     assert "googletagmanager.com" not in analytics_js
@@ -193,6 +226,27 @@ def test_public_analytics_controller_has_conversion_dispatch_hooks() -> None:
     assert "public_download_viewed" in analytics_js
     assert "public_installer_download_clicked" in analytics_js
     assert "public_login_intent_clicked" in analytics_js
+
+
+def test_public_analytics_controller_has_consent_persistence_and_safe_event_allowlists() -> None:
+    analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
+
+    assert "CookieConsent.run" in analytics_js
+    assert "graf_public_analytics_consent" in analytics_js
+    assert "revisionFromCopyVersion" in analytics_js
+    assert "accepted_all" in analytics_js
+    assert "necessary_only" in analytics_js
+    assert "customized" in analytics_js
+    assert "revoked" in analytics_js
+    assert "safeEventFields" in analytics_js
+    assert "allowedLabel(\"section_id\"" in analytics_js
+    assert "allowedLabel(\"cta_location\"" in analytics_js
+    assert "allowedLabel(\"target_kind\"" in analytics_js
+    assert "hasCategory(currentCategories, \"analytics\")" in analytics_js
+    assert "webvisor: hasCategory(grantedCategories, \"behavior_replay\") && config.replay_allowed" in analytics_js
+    assert "customer@example.com" not in analytics_js
+    assert "signed" not in analytics_js.lower()
+    assert "passcode" not in analytics_js.lower()
 
 
 def _contains_forbidden_url(path: Path) -> bool:

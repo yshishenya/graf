@@ -5,6 +5,7 @@
 (function () {
   "use strict";
 
+  var CONSENT_STORAGE_KEY = "graf_public_analytics_consent";
   var YANDEX_TAG_URL = "https://mc.yandex.ru/metrika/tag.js";
   var configElement = document.getElementById("graf-public-analytics-config");
   if (!configElement) {
@@ -26,6 +27,9 @@
   var sentKeys = {};
   var listenersBound = false;
   var sectionsObserved = false;
+  var currentCategories = [];
+  var currentConsentState = "unknown";
+  var optionalConsentCategories = ["analytics", "advertising_attribution", "behavior_replay"];
   (config.event_catalog || []).forEach(function (event) {
     if (event && event.event_name) {
       eventNames[event.event_name] = true;
@@ -42,6 +46,98 @@
     return Boolean(categories && categories[category] === true);
   }
 
+  function normalizedCategories(categories) {
+    if (!Array.isArray(categories)) {
+      return [];
+    }
+    return categories.filter(function (category, index) {
+      return typeof category === "string" && categories.indexOf(category) === index;
+    });
+  }
+
+  function configuredValues(labelClass) {
+    return (config.stable_labels && config.stable_labels[labelClass]) || [];
+  }
+
+  function allowedLabel(labelClass, value) {
+    return typeof value === "string" && configuredValues(labelClass).indexOf(value) !== -1;
+  }
+
+  function configuredConsentState(state) {
+    return (config.consent_states || []).indexOf(state) !== -1;
+  }
+
+  function readStoredConsent() {
+    try {
+      return JSON.parse(localStorage.getItem(CONSENT_STORAGE_KEY) || "null");
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeStoredConsent(state, categories) {
+    var payload = {
+      advertising_attribution_allowed: hasCategory(categories, "advertising_attribution"),
+      analytics_allowed: hasCategory(categories, "analytics"),
+      behavior_replay_allowed: hasCategory(categories, "behavior_replay"),
+      categories: categories.slice(),
+      copy_version: config.consent_copy_version,
+      decided_at: new Date().toISOString(),
+      state: state,
+      surface: config.page_path,
+    };
+    try {
+      localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(payload));
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
+  function previouslyAllowedOptionalCategory(previous) {
+    return Boolean(
+      previous &&
+        (previous.analytics_allowed ||
+          previous.advertising_attribution_allowed ||
+          previous.behavior_replay_allowed),
+    );
+  }
+
+  function consentStateForCategories(categories) {
+    var grantedOptional = optionalConsentCategories.filter(function (category) {
+      return hasCategory(categories, category);
+    });
+    var state = "necessary_only";
+    if (grantedOptional.length === optionalConsentCategories.length) {
+      state = "accepted_all";
+    } else if (grantedOptional.length > 0) {
+      state = "customized";
+    } else if (previouslyAllowedOptionalCategory(readStoredConsent())) {
+      state = "revoked";
+    }
+    return configuredConsentState(state) ? state : "unknown";
+  }
+
+  function revisionFromCopyVersion(copyVersion) {
+    var digits = String(copyVersion || "").replace(/\D/g, "").slice(0, 9);
+    return digits ? Number(digits) : 0;
+  }
+
+  function safeEventFields(fields) {
+    var source = fields || {};
+    var safe = {};
+    if (allowedLabel("section_id", source.section_id)) {
+      safe.section_id = source.section_id;
+    }
+    if (allowedLabel("cta_location", source.cta_location)) {
+      safe.cta_location = source.cta_location;
+    }
+    if (allowedLabel("target_kind", source.target_kind)) {
+      safe.target_kind = source.target_kind;
+    }
+    return safe;
+  }
+
   function buildEventPayload(eventName, fields) {
     if (!eventNames[eventName]) {
       return null;
@@ -49,19 +145,25 @@
 
     return Object.assign(
       {
+        consent_state: currentConsentState,
         event_name: eventName,
         page_path: config.page_path,
         surface: config.surface,
         campaign_attribution: config.campaign_attribution || {},
       },
-      fields || {},
+      safeEventFields(fields),
     );
   }
 
   function ensureYandexProvider(categories) {
-    if (!hasCategory(categories, "analytics") || !config.yandex_metrica_id) {
+    var grantedCategories = normalizedCategories(categories);
+    if (!hasCategory(grantedCategories, "analytics") || !config.yandex_metrica_id) {
       return false;
     }
+    currentCategories = grantedCategories;
+    currentConsentState = consentStateForCategories(grantedCategories);
+    api.currentCategories = currentCategories.slice();
+    api.currentConsentState = currentConsentState;
     if (api.providerLoaded || document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
       api.providerLoaded = true;
       return true;
@@ -89,7 +191,7 @@
       clickmap: true,
       trackLinks: true,
       accurateTrackBounce: true,
-      webvisor: hasCategory(categories, "behavior_replay") && config.replay_allowed,
+      webvisor: hasCategory(grantedCategories, "behavior_replay") && config.replay_allowed,
     });
     api.providerLoaded = true;
     return true;
@@ -100,7 +202,12 @@
     if (!payload) {
       return false;
     }
-    if (api.providerLoaded && window.ym && config.yandex_metrica_id) {
+    if (
+      hasCategory(currentCategories, "analytics") &&
+      api.providerLoaded &&
+      window.ym &&
+      config.yandex_metrica_id
+    ) {
       window.ym(config.yandex_metrica_id, "reachGoal", eventName, payload);
       api.sentEvents.push(payload);
       return true;
@@ -153,6 +260,12 @@
     document.querySelectorAll("[data-analytics-cta]").forEach(function (element) {
       element.addEventListener("click", function () {
         var targetKind = element.dataset.analyticsTarget || "download_page";
+        if (
+          !allowedLabel("cta_location", element.dataset.analyticsCta) ||
+          !allowedLabel("target_kind", targetKind)
+        ) {
+          return;
+        }
         dispatchOnce(eventNameForCta(targetKind), {
           cta_location: element.dataset.analyticsCta,
           target_kind: targetKind,
@@ -173,7 +286,7 @@
             return;
           }
           var sectionId = entry.target.dataset.analyticsSection;
-          if (sectionId) {
+          if (allowedLabel("section_id", sectionId)) {
             dispatchOnce("public_landing_section_seen", {
               section_id: sectionId,
               target_kind: "section",
@@ -200,9 +313,125 @@
     return true;
   }
 
+  function handleConsent(cookie) {
+    var categories = normalizedCategories((cookie && cookie.categories) || []);
+    var state = consentStateForCategories(categories);
+    currentCategories = categories;
+    currentConsentState = state;
+    api.currentCategories = categories.slice();
+    api.currentConsentState = state;
+    writeStoredConsent(state, categories);
+    if (!hasCategory(categories, "analytics")) {
+      return false;
+    }
+    return startGrantedTracking(categories);
+  }
+
+  function runCookieConsent() {
+    if (!window.CookieConsent || typeof window.CookieConsent.run !== "function") {
+      api.consentReady = false;
+      return false;
+    }
+    window.CookieConsent.run({
+      autoShow: true,
+      cookie: {
+        expiresAfterDays: 180,
+        name: "graf_public_cookie_consent",
+        path: "/",
+        sameSite: "Lax",
+        secure: window.location.protocol === "https:",
+        useLocalStorage: true,
+      },
+      categories: {
+        necessary: {
+          enabled: true,
+          readOnly: true,
+        },
+        analytics: {},
+        advertising_attribution: {},
+        behavior_replay: {},
+      },
+      language: {
+        default: "ru",
+        translations: {
+          ru: {
+            consentModal: {
+              acceptAllBtn: "Разрешить все",
+              acceptNecessaryBtn: "Только необходимые",
+              description:
+                "Мы используем аналитику Яндекс Метрики только после вашего согласия. " +
+                "Без согласия сайт работает, но мы не увидим источники переходов, клики и прокрутку.",
+              footer:
+                '<a href="/privacy">Конфиденциальность</a>' +
+                '<a href="/cookies">Cookies</a>' +
+                '<a href="/analytics-consent">Согласие на аналитику</a>',
+              showPreferencesBtn: "Настроить",
+              title: "Аналитика и cookies",
+            },
+            preferencesModal: {
+              acceptAllBtn: "Разрешить все",
+              acceptNecessaryBtn: "Только необходимые",
+              closeIconLabel: "Закрыть настройки",
+              savePreferencesBtn: "Сохранить выбор",
+              sections: [
+                {
+                  description:
+                    "Эти cookies и localStorage нужны для сохранения вашего выбора. " +
+                    "Они не включают аналитику и не передают данные провайдерам.",
+                  linkedCategory: "necessary",
+                  title: "Необходимые",
+                },
+                {
+                  description:
+                    "Помогает считать посещения, источники переходов, клики по кнопкам и " +
+                    "достижение страницы скачивания. Не отправляем email, телефоны, " +
+                    "тексты встреч, аудио, токены или приватные ссылки.",
+                  linkedCategory: "analytics",
+                  title: "Аналитика",
+                },
+                {
+                  description:
+                    "Помогает связать рекламные кампании с web-конверсией. В Phase 1 " +
+                    "используются только безопасные UTM-метки и цели Яндекс Метрики.",
+                  linkedCategory: "advertising_attribution",
+                  title: "Рекламная атрибуция",
+                },
+                {
+                  description:
+                    "Разрешает поведенческую запись Яндекс Метрики только на публичных " +
+                    "страницах / и /download. Не используется на логине, кабинете, " +
+                    "записях встреч, админке и других продуктовых страницах.",
+                  linkedCategory: "behavior_replay",
+                  title: "Поведенческая запись",
+                },
+              ],
+              title: "Настройки аналитики",
+            },
+          },
+        },
+      },
+      mode: "opt-in",
+      onChange: function (details) {
+        handleConsent(details.cookie);
+      },
+      onConsent: function (details) {
+        handleConsent(details.cookie);
+      },
+      onFirstConsent: function (details) {
+        handleConsent(details.cookie);
+      },
+      revision: revisionFromCopyVersion(config.consent_copy_version),
+    });
+    api.consentReady = true;
+    return true;
+  }
+
   var api = {
     buildEventPayload: buildEventPayload,
     config: Object.freeze(config),
+    consentReady: false,
+    currentCategories: [],
+    currentConsentState: currentConsentState,
     dispatchEvent: dispatchEvent,
     dispatchOnce: dispatchOnce,
     ensureYandexProvider: ensureYandexProvider,
@@ -210,8 +439,9 @@
     providerLoaded: false,
     sentEvents: [],
     startGrantedTracking: startGrantedTracking,
-    version: "093-us2",
+    version: "093-us3",
   };
 
   window.GRAFPublicAnalytics = api;
+  runCookieConsent();
 })();

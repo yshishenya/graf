@@ -29,3 +29,39 @@ async def public_download_page(request: Request) -> HTMLResponse:
         analytics_path="/download",
         start_url="/login?next=/meetings",
     )
+
+
+@router.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+async def public_privacy_page(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/privacy.html",
+        page_title="Политика конфиденциальности GRAF",
+    )
+
+
+@router.get("/cookies", response_class=HTMLResponse, include_in_schema=False)
+async def public_cookies_page(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/cookies.html",
+        page_title="Политика cookies GRAF",
+    )
+
+
+@router.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+async def public_terms_page(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/terms.html",
+        page_title="Условия публичного сайта GRAF",
+    )
+
+
+@router.get("/analytics-consent", response_class=HTMLResponse, include_in_schema=False)
+async def public_analytics_consent_page(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/analytics_consent.html",
+        page_title="Согласие на аналитику GRAF",
+    )
