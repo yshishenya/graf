@@ -217,7 +217,7 @@ MeetingDetectionTargetFamily = Literal[
     "unknown",
 ]
 MeetingDetectionSignalFamily = Literal[
-    "macos_sensor_indicators_mic",
+    "macos_audio_hal_assertion",
     "browser_metadata",
     "calendar_overlap",
     "join_intent",
@@ -283,7 +283,7 @@ class MeetingTargetRegistryTarget(BaseModel):
     ]
     required_signals: list[
         Literal[
-            "macos_sensor_indicators_mic",
+            "macos_audio_hal_assertion",
             "browser_metadata",
             "calendar_or_join_intent",
             "windows_future_adapter",

@@ -154,23 +154,23 @@ backoff.
 
 ## Phase 7: User Story 5 - Native macOS Detector, Prompt Policy, And Settings (Priority: P1)
 
-**Goal**: macOS detects verified native meeting app activity through
-`sensor-indicators`, debounces candidates, ignores non-targets, and routes prompt
-or target-scoped auto-record decisions through existing gates.
+**Goal**: macOS detects verified native meeting app activity through Gilb-style
+`AudioHAL` app ownership, debounces candidates, ignores non-targets, and routes
+prompt or target-scoped auto-record decisions through existing gates.
 
 **Independent Test**: Synthetic parser/state-machine tests cover Zoom,
-Telemost, unknown, Krisp/audio utility, browser attribution, malformed logs,
+Telemost, unknown, Krisp/audio utility, browser ownership, malformed logs,
 short tests, start debounce, end grace, and policy decisions.
 
 ### Tests
 
-- [X] T050 [P] [US5] Add parser fixture tests in `apps/macos/Shared/Tests/MacOSMicAttributionParserTests.swift`.
+- [X] T050 [P] [US5] Add parser fixture tests in `apps/macos/Shared/Tests/MacOSAudioOwnershipParserTests.swift`.
 - [X] T051 [P] [US5] Add prompt/auto-record policy tests in `apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift`.
 - [X] T052 [P] [US5] Add capture prerequisite regression tests in `apps/macos/Shared/Tests/SystemAudioPermissionUXTests.swift`.
 
 ### Implementation
 
-- [X] T053 [US5] Implement `sensor-indicators` parser in `apps/macos/Shared/Sources/MeetingDetection/MacOSMicAttributionParser.swift`.
+- [X] T053 [US5] Implement `AudioHAL` primary parser in `apps/macos/Shared/Sources/MeetingDetection/MacOSAudioOwnershipParser.swift`.
 - [X] T054 [US5] Implement detector state machine/process wrapper in `apps/macos/RecApp/Sources/MeetingDetection/MacOSMeetingActivityDetector.swift`.
 - [X] T055 [US5] Implement prompt eligibility and target-scoped auto-record policy in `apps/macos/Shared/Sources/MeetingDetection/MeetingDetectionPolicy.swift`.
 - [X] T056 [US5] Integrate detector-assisted approvals with `apps/macos/RecApp/Sources/Capture/CaptureScopeApprovalService.swift`.
@@ -187,7 +187,7 @@ short tests, start debounce, end grace, and policy decisions.
 ## Phase 8: User Story 6 - Browser Metadata And Calendar/Join Intent Foundation (Priority: P2)
 
 **Goal**: Browser meetings are evaluated through service-specific metadata plus
-calendar/join intent, not generic browser mic attribution.
+calendar/join intent, not generic browser audio ownership.
 
 **Independent Test**: Browser fixtures distinguish Telemost/Meet joined pages
 from landing/new/settings/device-test/media/voice-search pages and fail closed
@@ -218,7 +218,7 @@ product user story from [spec.md](./spec.md) to executable tasks.
 | Spec Story | Covered By |
 | --- | --- |
 | US1 Detect and ask for a new meeting | T051, T055-T060, T070-T071 |
-| US2 Detect native apps with Gilb-style mic attribution | T050, T053-T058, T070-T071 |
+| US2 Detect native apps with Gilb-style audio ownership | T050, T053-T058, T070-T071 |
 | US3 Detect browser meetings safely | T062-T067, T071 |
 | US4 Cover Russian VKS targets | T004, T012-T013, T034-T040, T068-T071 |
 | US5 Block false positives from non-meeting activity | T010-T015, T042, T046, T050-T055, T062-T067, T072 |

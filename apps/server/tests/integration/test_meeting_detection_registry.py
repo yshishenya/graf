@@ -160,8 +160,18 @@ def test_non_target_rules_are_exported_in_registry_without_secret_content(client
             "reasonCode": "admin_marked_non_target",
         }
     ]
-    assert "passcode" not in str(after.json()).lower()
-    assert "audio" not in str(after.json()).lower()
+    exported = str(after.json()).lower()
+    for forbidden in (
+        "passcode",
+        "transcript",
+        "audio_url",
+        "audiourl",
+        "audio_bytes",
+        "audiobytes",
+        "raw_audio",
+        "rawaudio",
+    ):
+        assert forbidden not in exported
 
 
 def test_registry_and_candidate_queries_ignore_foreign_workspace_rows(client) -> None:
@@ -179,7 +189,7 @@ def test_registry_and_candidate_queries_ignore_foreign_workspace_rows(client) ->
                 "nativeBundleIds": ["ru.foreign.vks"],
                 "mode": "diagnostic_only",
                 "evidence": "runtime_start_verified",
-                "requiredSignals": ["macos_sensor_indicators_mic"],
+                "requiredSignals": ["macos_audio_hal_assertion"],
             }
         )
         async with client.app_state["sessionmaker"]() as db:

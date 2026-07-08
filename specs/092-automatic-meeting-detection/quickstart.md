@@ -98,7 +98,7 @@ swift test \
   --filter MeetingTargetRegistryTests \
   --filter MeetingDetectionCandidateFilterTests \
   --filter MeetingDetectionTelemetryTests \
-  --filter MacOSMicAttributionParserTests \
+  --filter MacOSAudioOwnershipParserTests \
   --filter MeetingDetectionPolicyTests \
   --filter SystemAudioPermissionUXTests
 ```
@@ -122,13 +122,15 @@ Expected:
 
 ## macOS Detector Fixture Validation
 
-Use synthetic `sensor-indicators` ndjson fixtures in tests:
+Use synthetic `AudioHAL` ownership fixtures as the primary native-app detector
+input:
 
-- Zoom start: stable `mic:us.zoom.xos`;
-- Zoom end: attribution removed and end grace passes;
-- Yandex Telemost start/end: `mic:ru.yandex.desktop.telemost`;
-- Krisp/audio utility attribution: suppressed;
-- browser attribution: suppressed for native detector;
+- Zoom start: stable `AudioHAL` ownership for `us.zoom.xos`;
+- Zoom end: ownership inactive/removal event and end grace passes;
+- Yandex Telemost start/end: `AudioHAL` ownership for
+  `ru.yandex.desktop.telemost`;
+- Krisp/audio utility ownership: suppressed;
+- browser ownership: suppressed for native detector;
 - unknown high-score candidate: local discovery and upload-eligible rollup;
 - unknown low-score candidate: local aggregate only;
 - parser malformed line: health-degraded evidence, no prompt.
@@ -198,7 +200,7 @@ Focused validation completed:
   `.venv/bin/pytest tests/contract/test_meeting_detection_api_contract.py tests/contract/test_meeting_detection_admin_contract.py tests/contract/test_meeting_detection_no_secret_content.py tests/integration/test_meeting_detection_migrations.py tests/integration/test_meeting_detection_registry.py tests/integration/test_meeting_detection_telemetry.py tests/integration/test_meeting_detection_admin_review.py tests/unit/test_meeting_detection_candidates.py tests/unit/test_meeting_detection_registry.py tests/unit/test_meeting_detection_redaction.py`
   passed `48 passed, 1 warning`.
 - macOS quickstart command:
-  `swift test --package-path apps/macos --filter 'AppControlAccessibilityTests|BrowserTargetEvidenceTests|CaptureControlTests|DesktopCabinetRoutePolicyTests|DesktopCalendarReminderTests|MeetingTargetRegistryTests|MeetingDetectionCandidateFilterTests|MeetingDetectionTelemetryTests|MacOSMicAttributionParserTests|MeetingDetectionPolicyTests|SystemAudioPermissionUXTests'`
+  `swift test --package-path apps/macos --filter 'AppControlAccessibilityTests|BrowserTargetEvidenceTests|CaptureControlTests|DesktopCabinetRoutePolicyTests|DesktopCalendarReminderTests|MeetingTargetRegistryTests|MeetingDetectionCandidateFilterTests|MeetingDetectionTelemetryTests|MacOSAudioOwnershipParserTests|MeetingDetectionPolicyTests|SystemAudioPermissionUXTests'`
   passed `124 tests, 0 failures`.
 - Focused RLS/admin regression after the first full-CI failure:
   `PYTHONPATH=src uv run --extra dev pytest tests/contract/test_rls_policy_matrix_contract.py tests/unit/test_admin_overview_view_models.py`
@@ -213,14 +215,14 @@ Review remediation completed after the critical review:
 
 - macOS packaged seed registry now loads through SwiftPM resources with checkout
   fallback for local tests.
-- The runtime path now wires macOS unified-log `sensor-indicators` mic
-  attribution stream into the detector, prompt, target-scoped auto-record, and
-  local settings/revoke controls.
-- Parser fixtures cover real `mic:<bundle>` attribution tokens and removal
+- The runtime path now wires macOS unified-log `AudioHAL` app ownership into the
+  detector, prompt, target-scoped auto-record, and local settings/revoke
+  controls.
+- Parser fixtures cover real `AudioHAL` ownership assertions and inactive/removal
   events; detector end grace is 15 seconds and unknown short-duration
   observations can be re-evaluated instead of being lost.
 - Browser targets are forced to require both browser metadata and
-  calendar/join intent, while native browser mic attribution is suppressed for
+  calendar/join intent, while native browser audio ownership is suppressed for
   Yandex Browser, Opera, and generic browser bundles.
 - Server registry/admin fixes reject unsafe browser targets, reject candidate
   merges into unknown target ids, add uniqueness constraints for candidates and
@@ -241,8 +243,8 @@ Forbidden-content scan:
 
 Scenario outcomes:
 
-- Native app detector foundation is covered by synthetic `sensor-indicators`
-  fixtures for Zoom, Yandex Telemost, browser attribution suppression,
+- Native app detector foundation is covered by synthetic `AudioHAL` fixtures for
+  Zoom, Yandex Telemost, browser ownership suppression,
   Krisp/audio-utility suppression, malformed lines, debounce, and end grace.
 - Browser foundation is covered by metadata-only fixtures: Telemost/Meet joined
   pages with calendar/join intent can classify to safe service-family evidence;

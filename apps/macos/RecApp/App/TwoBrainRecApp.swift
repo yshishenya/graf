@@ -161,7 +161,7 @@ private struct ContentView: View {
     @State private var meetingDetectionDetector = MacOSMeetingActivityDetector()
     @State private var meetingDetectionRollupStore = MeetingDetectionTelemetryRollupStore()
     @State private var meetingDetectionTelemetryUploader: MeetingDetectionTelemetryUploader?
-    @State private var meetingDetectionLogStream: MacOSMicAttributionLogStream?
+    @State private var meetingDetectionLogStream: MacOSAudioOwnershipLogStream?
     @State private var meetingDetectionTask: Task<Void, Never>?
     @State private var meetingDetectionAdvanceTask: Task<Void, Never>?
     @State private var meetingDetectionStatus = "Ожидает запуск"
@@ -595,11 +595,11 @@ private struct ContentView: View {
             return
         }
 
-        let logStream = MacOSMicAttributionLogStream()
+        let logStream = MacOSAudioOwnershipLogStream()
         meetingDetectionLogStream = logStream
         meetingDetectionTask = Task {
             for await event in logStream.events() {
-                await handleMeetingDetectionMicEvent(event)
+                await handleMeetingDetectionAudioOwnershipEvent(event)
             }
         }
         meetingDetectionAdvanceTask = Task {
@@ -694,7 +694,7 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func handleMeetingDetectionMicEvent(_ event: MacOSMicAttributionEvent) async {
+    private func handleMeetingDetectionAudioOwnershipEvent(_ event: MacOSAudioOwnershipEvent) async {
         guard let registry = meetingDetectionRegistry else { return }
         let outputs = meetingDetectionDetector.handle(
             event: event,

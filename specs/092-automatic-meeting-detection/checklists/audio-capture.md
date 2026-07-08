@@ -12,17 +12,16 @@
 
 ## Native Detector
 
-- [x] Native detector uses `sensor-indicators` mic attribution rather than process
-  launch or generic audio activity.
-- [x] Start debounce is 5 seconds of stable `mic:<bundle_id>`.
-- [x] End grace is 15 seconds after attribution removal.
-- [x] Sub-5-second mic observations become telemetry short tests rather than
+- [x] Native detector uses `AudioHAL` app ownership rather than process launch.
+- [x] Start debounce is 5 seconds of stable `AudioHAL bundle ownership`.
+- [x] End grace is 15 seconds after ownership removal.
+- [x] Sub-5-second audio ownership observations become telemetry short tests rather than
   prompt triggers.
 - [x] Parser/log stream failure degrades to manual recording with health evidence.
 
 ## Browser Detector
 
-- [x] Browser mic attribution alone is weak and cannot prompt.
+- [x] Browser audio ownership alone is weak and cannot prompt.
 - [x] Browser detection requires browser metadata plus calendar/join intent or
   equivalent service-specific evidence.
 - [x] Browser extensions are future optional adapters, not first-release

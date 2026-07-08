@@ -55,7 +55,7 @@ public enum MeetingDetectionEvidence: String, Codable, Sendable {
 }
 
 public enum MeetingDetectionSignal: String, Codable, Sendable {
-    case macOSSensorIndicatorsMic = "macos_sensor_indicators_mic"
+    case macOSAudioHALAssertion = "macos_audio_hal_assertion"
     case browserMetadata = "browser_metadata"
     case calendarOrJoinIntent = "calendar_or_join_intent"
     case windowsFutureAdapter = "windows_future_adapter"

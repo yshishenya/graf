@@ -146,7 +146,7 @@
           "items": {
             "type": "string",
             "enum": [
-              "macos_sensor_indicators_mic",
+              "macos_audio_hal_assertion",
               "browser_metadata",
               "calendar_or_join_intent",
               "windows_future_adapter"

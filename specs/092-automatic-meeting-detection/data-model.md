@@ -53,7 +53,7 @@ Validation:
 
 - `prompt_enabled` native macOS entries require at least one `native_bundle_id`
   and runtime evidence.
-- Browser entries cannot use browser mic attribution as the only required signal.
+- Browser entries cannot use browser audio ownership as the only required signal.
 
 ### MeetingDetectionTelemetryBatch
 

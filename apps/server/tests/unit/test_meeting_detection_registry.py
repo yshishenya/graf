@@ -46,7 +46,7 @@ def test_registry_entries_normalize_target_fields() -> None:
 
     assert telemost["mode"] == "prompt_enabled"
     assert telemost["native_bundle_ids"] == ["ru.yandex.desktop.telemost"]
-    assert telemost["required_signals"] == ["macos_sensor_indicators_mic"]
+    assert telemost["required_signals"] == ["macos_audio_hal_assertion"]
 
 
 def test_prompt_enabled_native_target_requires_runtime_verified_bundle() -> None:
@@ -72,7 +72,7 @@ def test_browser_target_cannot_depend_only_on_generic_browser_mic_signal() -> No
             "targetFamily": "browser_meeting",
             "mode": "diagnostic_only",
             "evidence": "seed",
-            "requiredSignals": ["macos_sensor_indicators_mic"],
+            "requiredSignals": ["macos_audio_hal_assertion"],
         }
     )
 

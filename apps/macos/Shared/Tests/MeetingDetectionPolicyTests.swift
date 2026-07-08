@@ -125,7 +125,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
     func testDetectorDebouncesKnownTargetBeforePrompt() throws {
         let registry = try MeetingDetectionPolicyTests.registry()
         let detector = MacOSMeetingActivityDetector(debounceSeconds: 5)
-        let event = MacOSMicAttributionEvent(
+        let event = MacOSAudioOwnershipEvent(
             bundleID: "ru.yandex.desktop.telemost",
             displayName: "Yandex Telemost",
             state: .active,
@@ -140,7 +140,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             detector.handle(
-                event: MacOSMicAttributionEvent(
+                event: MacOSAudioOwnershipEvent(
                     bundleID: "ru.yandex.desktop.telemost",
                     state: .inactive,
                     observedAt: Date(timeIntervalSince1970: 110)
@@ -165,7 +165,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         let detector = MacOSMeetingActivityDetector(debounceSeconds: 1)
 
         _ = detector.handle(
-            event: MacOSMicAttributionEvent(
+            event: MacOSAudioOwnershipEvent(
                 bundleID: "com.google.Chrome",
                 displayName: "Chrome",
                 state: .active,
@@ -175,7 +175,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             settings: MeetingDetectionSettings()
         )
         _ = detector.handle(
-            event: MacOSMicAttributionEvent(
+            event: MacOSAudioOwnershipEvent(
                 bundleID: "ai.krisp.mac",
                 displayName: "Krisp",
                 state: .active,
@@ -195,7 +195,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         let detector = MacOSMeetingActivityDetector(debounceSeconds: 5)
 
         _ = detector.handle(
-            event: MacOSMicAttributionEvent(
+            event: MacOSAudioOwnershipEvent(
                 bundleID: "ru.yandex.futuremeet",
                 displayName: "Yandex Future Meet",
                 state: .active,

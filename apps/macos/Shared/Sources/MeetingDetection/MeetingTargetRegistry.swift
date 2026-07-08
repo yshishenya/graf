@@ -131,7 +131,7 @@ public enum MeetingTargetRegistryValidator {
             let requiredSignals = Set(target.requiredSignals)
             guard requiredSignals.contains(.browserMetadata),
                   requiredSignals.contains(.calendarOrJoinIntent),
-                  !requiredSignals.contains(.macOSSensorIndicatorsMic),
+                  !requiredSignals.contains(.macOSAudioHALAssertion),
                   !target.browserServicePatterns.isEmpty
             else {
                 throw MeetingTargetRegistryError.unsafeBrowserTarget(target.id)

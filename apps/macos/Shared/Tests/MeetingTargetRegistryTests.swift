@@ -131,7 +131,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
                   "nativeBundleIds": ["us.zoom.xos"],
                   "mode": "prompt_enabled",
                   "evidence": "runtime_verified",
-                  "requiredSignals": ["macos_sensor_indicators_mic"]
+                  "requiredSignals": ["macos_audio_hal_assertion"]
                 },
                 {
                   "id": "yandex_telemost",
@@ -142,7 +142,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
                   "nativeBundleIds": ["ru.yandex.desktop.telemost"],
                   "mode": "prompt_enabled",
                   "evidence": "runtime_verified",
-                  "requiredSignals": ["macos_sensor_indicators_mic"]
+                  "requiredSignals": ["macos_audio_hal_assertion"]
                 }
               ]
             }
@@ -167,7 +167,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
                   "nativeBundleIds": [],
                   "mode": "prompt_enabled",
                   "evidence": "seed",
-                  "requiredSignals": ["macos_sensor_indicators_mic"]
+                  "requiredSignals": ["macos_audio_hal_assertion"]
                 }
               ]
             }

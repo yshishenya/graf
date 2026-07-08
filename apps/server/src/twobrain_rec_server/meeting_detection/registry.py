@@ -63,7 +63,7 @@ ALLOWED_EVIDENCE = {
     "future_windows",
 }
 ALLOWED_REQUIRED_SIGNALS = {
-    "macos_sensor_indicators_mic",
+    "macos_audio_hal_assertion",
     "browser_metadata",
     "calendar_or_join_intent",
     "windows_future_adapter",
@@ -339,7 +339,7 @@ def _validate_target(target: Any, *, seen_ids: set[str]) -> None:
         if (
             "browser_metadata" not in signal_set
             or "calendar_or_join_intent" not in signal_set
-            or "macos_sensor_indicators_mic" in signal_set
+            or "macos_audio_hal_assertion" in signal_set
             or not target.get("browserServicePatterns")
         ):
             raise MeetingTargetRegistryError(
