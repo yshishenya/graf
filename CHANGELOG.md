@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.09.7] - 2026-07-09
+
+
+### Добавлено
 - Feature `092-automatic-meeting-detection`: macOS desktop теперь обновляет
   meeting target registry не только на старте/active/auth, но и после wake и
   периодически в фоне через `If-None-Match`, чтобы долгоживущие клиенты
@@ -45,36 +66,7 @@
 
 ### Операции
 - Обновлен public static installer package для `/download`; SHA-256 package:
-  `57d8e80c2fc03a883aaf5345a820c593090aa1daad9fc51e967c2450a0929a65`.
-
-## [2026.07.09.3] - 2026-07-09
-
-
-### Добавлено
-- _Пока нет записей._
-
-### Изменено
-- _Пока нет записей._
-
-### Исправлено
-- Feature `092-automatic-meeting-detection`: native macOS meeting detection
-  now uses `AudioHAL` app-ownership assertions as the primary Gilb-style signal
-  instead of `sensor-indicators` mic-attribution; Yandex
-  Telemost emits this ownership signal during an active meeting.
-- Feature `092-automatic-meeting-detection`: the local macOS installer now
-  packages the SwiftPM app resource bundle required by the installed `.app`.
-
-### Безопасность
-- _Пока нет записей._
-
-### Документы
-- Feature `092-automatic-meeting-detection`: refreshed allowlist,
-  fingerprint, telemetry, quickstart, and Spec Kit language to describe
-  `AudioHAL` ownership as the native-app detector signal and keep browser
-  meetings on the metadata + calendar/join-intent path.
-
-### Операции
-- _Пока нет записей._
+  `3e1f8b30481d8706be75a3d82465e21df782e576b3cd1b8829815318cff521bb`.
 
 ## [2026.07.09.6] - 2026-07-09
 
@@ -184,6 +176,35 @@
   получили disabled-by-default product analytics placeholders только для
   `rec-api`; live PostHog/Yandex provider setup, production deploy и paid
   campaign launch остаются отдельными approvals.
+
+## [2026.07.09.3] - 2026-07-09
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Feature `092-automatic-meeting-detection`: native macOS meeting detection
+  now uses `AudioHAL` app-ownership assertions as the primary Gilb-style signal
+  instead of `sensor-indicators` mic-attribution; Yandex
+  Telemost emits this ownership signal during an active meeting.
+- Feature `092-automatic-meeting-detection`: the local macOS installer now
+  packages the SwiftPM app resource bundle required by the installed `.app`.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `092-automatic-meeting-detection`: refreshed allowlist,
+  fingerprint, telemetry, quickstart, and Spec Kit language to describe
+  `AudioHAL` ownership as the native-app detector signal and keep browser
+  meetings on the metadata + calendar/join-intent path.
+
+### Операции
+- _Пока нет записей._
 
 ## [2026.07.09.2] - 2026-07-09
 
