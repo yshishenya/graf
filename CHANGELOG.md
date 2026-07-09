@@ -15,7 +15,11 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: ветка 096 снова содержит
+  Alembic revisions `0018_mediascribe_result` и
+  `0019_publish_meeting_registry`, уже примененные в production DB, чтобы
+  `rec-migrate` видел текущий head и production deploy не падал на missing
+  revision.
 
 ### Безопасность
 - _Пока нет записей._
