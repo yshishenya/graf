@@ -19,7 +19,7 @@ metadata-only evidence остаются подробной историей ре
   cleanup so macOS quit/relaunch is not blocked. This is not public
   distribution readiness: Apple Developer account, Developer ID Application
   and Installer signing, notarization, stapling, and public Gatekeeper
-  validation remain separate release-gate work. Release `v2026.07.09.5`
+  validation remain separate release-gate work. Release `v2026.07.09.6`
   refreshes the public download package with the local self-signed build so
   the owner machine can update from the hosted package while the Developer ID
   path remains out of scope.
