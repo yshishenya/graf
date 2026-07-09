@@ -124,6 +124,17 @@ final class MeetingTargetRegistryTests: XCTestCase {
         XCTAssertFalse(body.contains("Проверьте локальный реестр приложений"))
     }
 
+    func testRegistryFetchBypassesFoundationHTTPCache() throws {
+        let source = try Self.desktopUploadClientSource()
+        let body = try Self.functionBody(
+            named: "fetchMeetingDetectionTargetRegistry",
+            before: "public func acknowledgeLocalPurgeTask",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("request.cachePolicy = .reloadIgnoringLocalCacheData"))
+    }
+
     private func temporaryRoot() -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("meeting-target-registry-\(UUID().uuidString)", isDirectory: true)
@@ -219,8 +230,16 @@ final class MeetingTargetRegistryTests: XCTestCase {
         )
     }
 
+    private static func desktopUploadClientSource() throws -> String {
+        try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift"),
+            encoding: .utf8
+        )
+    }
+
     private static func functionBody(named name: String, before endMarker: String, in source: String) throws -> String {
-        guard let start = source.range(of: "private func \(name)()"),
+        guard let start = source.range(of: "func \(name)"),
               let end = source[start.lowerBound...].range(of: endMarker)
         else {
             throw NSError(

@@ -248,6 +248,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let uploadBearerTokenEnvironmentKey = "GRAF_UPLOAD_BEARER_TOKEN"
     public static let legacyUploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
+    public static let ownerSessionCookieName = "__Host-twobrain_rec_owner_session"
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
     public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
     public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
@@ -259,15 +260,18 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let partSizeBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let cookieHeaderProvider: @Sendable (URL) -> String?
 
     public init(
         baseURL: URL,
         headers: [String: String] = [:],
-        partSizeBytes: Int = Self.defaultPartSizeBytes
+        partSizeBytes: Int = Self.defaultPartSizeBytes,
+        cookieHeaderProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultCookieHeader
     ) {
         self.baseURL = baseURL
         self.headers = headers
         self.partSizeBytes = max(64 * 1024, partSizeBytes)
+        self.cookieHeaderProvider = cookieHeaderProvider
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -347,6 +351,21 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             return trimmed
         }
         return "Bearer \(trimmed)"
+    }
+
+    public static func defaultCookieHeader(for url: URL) -> String? {
+        authSessionCookieHeader(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
+    }
+
+    public static func authSessionCookieHeader(from cookies: [HTTPCookie]) -> String? {
+        let sessionCookies = cookies
+            .filter { cookie in
+                cookie.name == ownerSessionCookieName &&
+                    !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .map { "\($0.name)=\($0.value)" }
+        guard !sessionCookies.isEmpty else { return nil }
+        return sessionCookies.joined(separator: "; ")
     }
 
     private static func configuredBaseURLCandidate(
@@ -600,6 +619,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         ifNoneMatch etag: String? = nil
     ) async throws -> DesktopMeetingDetectionRegistryFetchResult {
         var request = try request(path: Self.meetingDetectionTargetRegistryPath, method: "GET")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         if let etag, !etag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             request.setValue(etag, forHTTPHeaderField: "If-None-Match")
         }
@@ -943,6 +963,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         request.timeoutInterval = timeoutInterval
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
+        }
+        if request.value(forHTTPHeaderField: "Cookie") == nil,
+           let cookieHeader = cookieHeaderProvider(url),
+           !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
         return request
     }
