@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.09.4] - 2026-07-09
+
+
+### Добавлено
 - Feature `094-product-activation-analytics`: добавлен безопасный
   implementation scaffold продуктовой аналитики: disabled-by-default config,
   stable event catalog, forbidden-field validator, telemetry gate model,
