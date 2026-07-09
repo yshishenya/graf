@@ -39,6 +39,7 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
             let parser = parser
             let readTask = Task.detached(priority: .utility) {
                 var pending = ""
+                var activeSensorMicBundleIDs: Set<String> = []
                 while !Task.isCancelled {
                     let data = reader.availableData
                     if data.isEmpty {
@@ -48,12 +49,20 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
                     let lines = pending.split(separator: "\n", omittingEmptySubsequences: false)
                     pending = lines.last.map(String.init) ?? ""
                     for line in lines.dropLast() {
-                        if let event = parser.parse(line: String(line)) {
+                        for event in Self.events(
+                            from: String(line),
+                            parser: parser,
+                            activeSensorMicBundleIDs: &activeSensorMicBundleIDs
+                        ) {
                             continuation.yield(event)
                         }
                     }
                 }
-                if let event = parser.parse(line: pending) {
+                for event in Self.events(
+                    from: pending,
+                    parser: parser,
+                    activeSensorMicBundleIDs: &activeSensorMicBundleIDs
+                ) {
                     continuation.yield(event)
                 }
                 continuation.finish()
@@ -75,5 +84,24 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
             }
             self.process = nil
         }
+    }
+
+    static func events(
+        from line: String,
+        parser: MacOSAudioOwnershipParser,
+        activeSensorMicBundleIDs: inout Set<String>,
+        observedAt: Date = Date()
+    ) -> [MacOSAudioOwnershipEvent] {
+        if let currentSensorMicBundleIDs = parser.parseSensorIndicatorMicrophoneBundleIDs(line: line) {
+            let started = currentSensorMicBundleIDs.subtracting(activeSensorMicBundleIDs).sorted()
+            let ended = activeSensorMicBundleIDs.subtracting(currentSensorMicBundleIDs).sorted()
+            activeSensorMicBundleIDs = currentSensorMicBundleIDs
+            return started.map {
+                MacOSAudioOwnershipEvent(bundleID: $0, state: .active, observedAt: observedAt)
+            } + ended.map {
+                MacOSAudioOwnershipEvent(bundleID: $0, state: .inactive, observedAt: observedAt)
+            }
+        }
+        return parser.parse(line: line, observedAt: observedAt).map { [$0] } ?? []
     }
 }

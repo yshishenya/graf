@@ -32,6 +32,7 @@ public struct CaptureControlView: View {
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let onCalendarPromptPrimary: (DesktopCalendarPrompt) -> Void
     private let onCalendarPromptDismiss: (DesktopCalendarPrompt) -> Void
+    private let onMeetingDetectionSettings: () -> Void
 
     public init(
         session: CaptureSession?,
@@ -63,7 +64,8 @@ public struct CaptureControlView: View {
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
         onCalendarPromptPrimary: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
-        onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in }
+        onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
+        onMeetingDetectionSettings: @escaping () -> Void = {}
     ) {
         self.session = session
         self.blockedReason = blockedReason
@@ -93,6 +95,7 @@ public struct CaptureControlView: View {
         self.onSupportIncidentReport = onSupportIncidentReport
         self.onCalendarPromptPrimary = onCalendarPromptPrimary
         self.onCalendarPromptDismiss = onCalendarPromptDismiss
+        self.onMeetingDetectionSettings = onMeetingDetectionSettings
     }
 
     public var body: some View {
@@ -163,6 +166,15 @@ public struct CaptureControlView: View {
                         )
                     )
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionStatus)
+
+                    Button(action: onMeetingDetectionSettings) {
+                        Image(systemName: "gearshape")
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(SystemAudioStatusLabels.meetingDetectionSettingsTitle)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionSettingsButton)
+                    .help(SystemAudioStatusLabels.meetingDetectionSettingsTitle)
                 }
             }
 

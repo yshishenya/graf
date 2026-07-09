@@ -21,6 +21,7 @@ public enum DesktopMeetingShellChrome {
     public static let idleShowsNativeTopBar = false
     public static let fontStackDescription = "SF Pro Text / system"
     public static let compactRailLabels = ["Запись", "Сохранность"]
+    public static let settingsRailLabel = "Настройки"
     public static let webEmbeddedBackgroundNSColor = NSColor(
         srgbRed: 0.098,
         green: 0.102,
@@ -96,6 +97,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onStopRecording: () -> Void
     private let onPauseRecording: () -> Void
     private let onResumeRecording: () -> Void
+    private let onOpenSettings: () -> Void
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
@@ -115,6 +117,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         onStopRecording: @escaping () -> Void = {},
         onPauseRecording: @escaping () -> Void = {},
         onResumeRecording: @escaping () -> Void = {},
+        onOpenSettings: @escaping () -> Void = {},
         onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
@@ -134,6 +137,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onStopRecording = onStopRecording
         self.onPauseRecording = onPauseRecording
         self.onResumeRecording = onResumeRecording
+        self.onOpenSettings = onOpenSettings
         self.onSupportIncidentReport = onSupportIncidentReport
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
@@ -571,6 +575,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 .help(custodySummary.accessibilityLabel)
             }
 
+            Button(action: onOpenSettings) {
+                railIcon("gearshape", selected: false, color: .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(DesktopMeetingShellChrome.settingsRailLabel)
+            .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
+            .accessibilityIdentifier("desktop-meeting-shell-settings-button")
+
             Spacer()
 
             Button(action: onRefresh) {
@@ -621,6 +633,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button(action: onOpenSettings) {
+                        Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(DesktopMeetingShellChrome.settingsRailLabel)
+                    .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
+                    .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
                 }
                 .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleHitSize)
 

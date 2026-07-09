@@ -28,11 +28,37 @@ final class MacOSAudioOwnershipParserTests: XCTestCase {
         XCTAssertEqual(event.state, .inactive)
     }
 
-    func testSensorIndicatorLinesAreIgnored() {
+    func testParsesControlCenterSensorIndicatorMicrophoneAttributions() {
         let parser = MacOSAudioOwnershipParser()
 
-        XCTAssertNil(parser.parse(line: "sensor-indicators microphone state=active bundleID=us.zoom.xos"))
-        XCTAssertNil(parser.parse(line: "ControlCenter SensorIndicators active attribution set: mic:ru.yandex.desktop.telemost"))
+        let bundles = parser.parseSensorIndicatorMicrophoneBundleIDs(
+            line: #"2026-07-09 ControlCenter[939] [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["aud:ai.krisp.krispMac", "mic:ru.yandex.desktop.telemost", "cam:ru.yandex.desktop.telemost", "mic:ai.krisp.krispMac"]"#
+        )
+
+        XCTAssertEqual(bundles, ["ru.yandex.desktop.telemost", "ai.krisp.krispMac"])
+        XCTAssertNil(parser.parse(line: #"Active activity attributions changed to ["mic:ru.yandex.desktop.telemost"]"#))
+    }
+
+    func testParsesControlCenterSensorIndicatorNDJSONLine() {
+        let parser = MacOSAudioOwnershipParser()
+
+        let bundles = parser.parseSensorIndicatorMicrophoneBundleIDs(
+            line: #"{"subsystem":"com.apple.controlcenter","category":"sensor-indicators","eventMessage":"Active activity attributions changed to [\"aud:ai.krisp.krispMac\", \"mic:ru.yandex.desktop.telemost\", \"cam:ru.yandex.desktop.telemost\"]"}"#
+        )
+
+        XCTAssertEqual(bundles, ["ru.yandex.desktop.telemost"])
+    }
+
+    func testSensorIndicatorMicrophoneParserReturnsEmptySetWhenNoMicrophoneAttributions() {
+        let parser = MacOSAudioOwnershipParser()
+
+        XCTAssertEqual(
+            parser.parseSensorIndicatorMicrophoneBundleIDs(
+                line: #"ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["aud:ai.krisp.krispMac", "cam:ru.yandex.desktop.telemost"]"#
+            ),
+            []
+        )
+        XCTAssertNil(parser.parseSensorIndicatorMicrophoneBundleIDs(line: "regular app log line mic:us.zoom.xos"))
     }
 
     func testMalformedOrNonAudioHALLinesAreIgnored() {

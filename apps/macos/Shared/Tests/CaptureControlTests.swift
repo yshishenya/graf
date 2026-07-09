@@ -179,6 +179,10 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertEqual(SystemAudioAccessibilityIdentifier.meetingDetectionStatus, "systemAudio.meetingDetection.status")
         XCTAssertEqual(
+            SystemAudioAccessibilityIdentifier.meetingDetectionSettingsButton,
+            "systemAudio.meetingDetection.settingsButton"
+        )
+        XCTAssertEqual(
             SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle,
             "systemAudio.meetingDetection.recordingToggle"
         )
@@ -192,6 +196,37 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("clearAutoRecordTargets"))
         XCTAssertTrue(settingsSource.contains("SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle"))
         XCTAssertTrue(settingsSource.contains(".twoBrainRecMeetingTargetRegistryDidChange"))
+
+        let controlsSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            encoding: .utf8
+        )
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(controlsSource.contains("onMeetingDetectionSettings"))
+        XCTAssertTrue(controlsSource.contains("Image(systemName: \"gearshape\")"))
+        XCTAssertTrue(controlsSource.contains("meetingDetectionSettingsButton"))
+        XCTAssertTrue(shellSource.contains("settingsRailLabel = \"Настройки\""))
+        XCTAssertTrue(shellSource.contains("desktop-meeting-shell-settings-button"))
+        XCTAssertTrue(shellSource.contains("desktop-meeting-shell-expanded-settings-button"))
+        XCTAssertTrue(appSource.contains("(NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)"))
+    }
+
+    func testMeetingDetectionPrerequisiteDoesNotUseStopInProgressAsIndicatorAvailability() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("indicatorAvailable: meetingDetectionVisibleIndicatorAvailable"))
+        XCTAssertFalse(source.contains("indicatorAvailable: meetingDetectionOneActionStopAvailable"))
     }
 
     func testMeetingDetectionPromptUsesFloatingCountdownInsteadOfMainSheet() throws {
@@ -203,7 +238,20 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertTrue(source.contains("presentMeetingDetectionPrompt(prompt)"))
         XCTAssertTrue(source.contains("NSPanel("))
+        XCTAssertTrue(source.contains("window.level = .statusBar"))
+        XCTAssertTrue(source.contains("window.hidesOnDeactivate = false"))
+        XCTAssertTrue(source.contains("meetingDetectionPromptWindowSize = NSSize(width: 360, height: 286)"))
+        XCTAssertTrue(source.contains("window.setContentSize(promptWindowSize)"))
+        XCTAssertTrue(source.contains("meetingDetectionPromptScreen()"))
+        XCTAssertTrue(source.contains("NSEvent.mouseLocation"))
+        XCTAssertTrue(source.contains("NSMouseInRect(mouseLocation, $0.frame, false)"))
+        XCTAssertTrue(source.contains("visibleFrame.insetBy"))
+        XCTAssertTrue(source.contains("clamp(safeFrame.midX - width / 2"))
+        XCTAssertTrue(source.contains("window.setFrame(frame, display: true)"))
         XCTAssertTrue(source.contains("orderFrontRegardless()"))
+        XCTAssertTrue(source.contains("Task { @MainActor [weak window]"))
+        XCTAssertTrue(source.contains("meeting_detection.prompt_presented"))
+        XCTAssertTrue(source.contains("meeting_detection.prompt_accepted"))
         XCTAssertTrue(source.contains("TimelineView(.periodic"))
         XCTAssertTrue(source.contains("Запись стартует автоматически"))
         XCTAssertTrue(source.contains("Режим: аудиозапись встречи"))
@@ -213,6 +261,21 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("Всегда писать это приложение"))
         XCTAssertTrue(source.contains("Пропустить"))
         XCTAssertFalse(source.contains(".sheet(item: $meetingDetectionPrompt)"))
+    }
+
+    func testMeetingDetectionEndStopsMatchingDetectedRecording() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("stopMeetingDetectionRecordingIfNeeded(bundleID: bundleID)"))
+        XCTAssertTrue(source.contains("session.triggerEvidence[\"meetingDetectionBundleId\"] == bundleID"))
+        XCTAssertTrue(source.contains("CaptureStatusItem.showsStopButton(for: session)"))
+        XCTAssertTrue(source.contains("reason: .meetingEnded"))
+        XCTAssertTrue(source.contains("evidenceInitiator: .systemFailClosed"))
+        XCTAssertTrue(source.contains("enqueueReason: \"meeting_detection_target_ended\""))
     }
 
     func testCalendarPromptUIWiresManualPrimaryAndDismissActions() throws {
