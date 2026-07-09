@@ -3,7 +3,6 @@ from io import BytesIO
 
 import pytest
 from minio.error import S3Error
-
 from twobrain_rec_server.storage.minio_client import MinioStorage
 
 
@@ -17,6 +16,35 @@ class _FailingGetObjectClient:
 
     def get_object(self, *_args: object) -> object:
         raise S3Error(None, self.code, "storage failed", "object", "request", "host")
+
+
+class _FakeGetObjectResponse:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._offset = 0
+        self.closed = False
+        self.released = False
+
+    def read(self, length: int | None = None) -> bytes:
+        if length is None:
+            length = len(self._data) - self._offset
+        chunk = self._data[self._offset : self._offset + length]
+        self._offset += len(chunk)
+        return chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+    def release_conn(self) -> None:
+        self.released = True
+
+
+class _FakeGetObjectClient:
+    def __init__(self, data: bytes) -> None:
+        self.response = _FakeGetObjectResponse(data)
+
+    def get_object(self, *_args: object) -> _FakeGetObjectResponse:
+        return self.response
 
 
 def _storage_with_client(client: object) -> MinioStorage:
@@ -70,3 +98,16 @@ def test_get_bytes_preserves_non_missing_storage_errors() -> None:
 
     with pytest.raises(S3Error, match="AccessDenied"):
         MinioStorage.get_bytes(storage, "objects/private.wav")
+
+
+def test_download_to_path_streams_chunks_and_releases_storage_response(tmp_path) -> None:
+    client = _FakeGetObjectClient(b"abcdef")
+    storage = _storage_with_client(client)
+    target = tmp_path / "object.wav"
+
+    downloaded = MinioStorage.download_to_path(storage, "objects/audio.wav", target, chunk_size=2)
+
+    assert downloaded == 6
+    assert target.read_bytes() == b"abcdef"
+    assert client.response.closed is True
+    assert client.response.released is True

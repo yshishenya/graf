@@ -1,5 +1,8 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import BinaryIO
+
+DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 
 
 @dataclass
@@ -33,6 +36,31 @@ class FakeMinioStorage:
 
     async def get_bytes_async(self, object_key: str) -> bytes:
         return self.get_bytes(object_key)
+
+    def download_to_path(
+        self,
+        object_key: str,
+        destination_path: str | Path,
+        *,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ) -> int:
+        data = self.objects[object_key]
+        total = 0
+        with Path(destination_path).open("wb") as destination:
+            for offset in range(0, len(data), chunk_size):
+                chunk = data[offset : offset + chunk_size]
+                destination.write(chunk)
+                total += len(chunk)
+        return total
+
+    async def download_to_path_async(
+        self,
+        object_key: str,
+        destination_path: str | Path,
+        *,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ) -> int:
+        return self.download_to_path(object_key, destination_path, chunk_size=chunk_size)
 
     def delete_object(self, object_key: str) -> None:
         self.objects.pop(object_key, None)

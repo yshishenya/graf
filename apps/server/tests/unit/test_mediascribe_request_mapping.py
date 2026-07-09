@@ -1,6 +1,7 @@
+from io import BytesIO
+
 import httpx
 import pytest
-
 from twobrain_rec_server.mediascribe.client import MediaScribeClient
 
 
@@ -20,8 +21,8 @@ async def test_dual_track_request_uses_mic_and_incoming_without_mixed_or_silence
         transport=httpx.MockTransport(handler),
     )
     response = await client.submit_dual_track(
-        mic_bytes=b"mic-audio",
-        incoming_bytes=b"incoming-audio",
+        mic_file=BytesIO(b"mic-audio"),
+        incoming_file=BytesIO(b"incoming-audio"),
         diarize=True,
         summarize=False,
     )

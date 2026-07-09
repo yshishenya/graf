@@ -93,7 +93,13 @@ class Settings(BaseSettings):
     processing_enabled: bool = False
     processing_poll_interval_seconds: PositiveInt = Field(default=5)
     processing_max_poll_attempts: PositiveInt = Field(default=120)
-    processing_max_in_memory_audio_bytes: PositiveInt = Field(default=536_870_912)
+    processing_max_submit_audio_bytes: PositiveInt = Field(
+        default=536_870_912,
+        validation_alias=AliasChoices(
+            "TWOBRAIN_PROCESSING_MAX_SUBMIT_AUDIO_BYTES",
+            "TWOBRAIN_PROCESSING_MAX_IN_MEMORY_AUDIO_BYTES",
+        ),
+    )
     temporal_address: str | None = None
     temporal_namespace: str = "default"
     temporal_task_queue: str = "twobrain-rec-processing"

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from hashlib import sha256
+from typing import BinaryIO
 
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus
 from twobrain_rec_server.mediascribe.schemas import (
@@ -22,17 +23,19 @@ class FakeMediaScribeClient:
     async def submit_dual_track(
         self,
         *,
-        mic_bytes: bytes,
-        incoming_bytes: bytes,
+        mic_file: BinaryIO,
+        incoming_file: BinaryIO,
         diarize: bool,
         summarize: bool,
     ) -> MediaScribeSubmitResponse:
+        mic_size, mic_hash = _stream_digest(mic_file)
+        incoming_size, incoming_hash = _stream_digest(incoming_file)
         self.submissions.append(
             {
-                "mic_size": len(mic_bytes),
-                "incoming_size": len(incoming_bytes),
-                "mic_sha256": sha256(mic_bytes).hexdigest(),
-                "incoming_sha256": sha256(incoming_bytes).hexdigest(),
+                "mic_size": mic_size,
+                "incoming_size": incoming_size,
+                "mic_sha256": mic_hash,
+                "incoming_sha256": incoming_hash,
                 "diarize": diarize,
                 "summarize": summarize,
             }
@@ -51,3 +54,15 @@ class FakeMediaScribeClient:
         if self.result is not None:
             return self.result
         return MediaScribeResult(external_job_id=external_job_id)
+
+
+def _stream_digest(stream: BinaryIO) -> tuple[int, str]:
+    digest = sha256()
+    total = 0
+    while True:
+        chunk = stream.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        digest.update(chunk)
+    return total, digest.hexdigest()

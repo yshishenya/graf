@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, BinaryIO
 
 import httpx
 from pydantic import ValidationError
@@ -52,15 +52,15 @@ class MediaScribeClient:
     async def submit_dual_track(
         self,
         *,
-        mic_bytes: bytes,
-        incoming_bytes: bytes,
+        mic_file: BinaryIO,
+        incoming_file: BinaryIO,
         diarize: bool,
         summarize: bool,
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
         files = {
-            "mic_file": ("microphone.wav", mic_bytes, "application/octet-stream"),
-            "incoming_file": ("incoming.wav", incoming_bytes, "application/octet-stream"),
+            "mic_file": ("microphone.wav", mic_file, "application/octet-stream"),
+            "incoming_file": ("incoming.wav", incoming_file, "application/octet-stream"),
         }
         data = await self._request_json(
             "POST",
