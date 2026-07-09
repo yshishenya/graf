@@ -6,6 +6,16 @@ import TwoBrainRecShared
 import XCTest
 
 final class SystemAudioPermissionUXTests: XCTestCase {
+    func testGrantedPermissionsHaveNoRecoveryPresentation() {
+        let result = SystemAudioPermissionGate().evaluate(
+            microphone: .granted,
+            systemAudio: .granted
+        )
+
+        XCTAssertTrue(result.allowsAcceptedRecording)
+        XCTAssertNil(result.presentation)
+    }
+
     func testMissingBothPermissionsUsesSpecificRecoveryCopy() {
         let result = SystemAudioPermissionGate().evaluate(
             microphone: .denied,

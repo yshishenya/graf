@@ -9,19 +9,26 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `095-macos-permission-retention`: добавлен локальный self-signed
+  signing path для owner-machine проверки сохранения macOS microphone и
+  Screen/System Audio permissions после переустановки GRAF.
 
 ### Изменено
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `095-macos-permission-retention`: permission onboarding и другие
+  desktop prompts больше не должны блокировать macOS quit/relaunch; termination
+  path закрывает modal state перед bounded cleanup reply.
 
 ### Безопасность
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Feature `095-macos-permission-retention`: добавлены Spec Kit artifacts,
+  local signing runbook, metadata-only validation quickstart и явная граница,
+  что local self-signed package не является Developer ID/notarized public
+  release.
 
 ### Операции
 - _Пока нет записей._
