@@ -2,7 +2,7 @@
 
 Feature: `096-product-analytics-provider-rollout`
 
-Status: `implementation_validated_review_remediated`
+Status: `runtime_inventory_updated_restore_rehearsal_blocked`
 
 This document is safe to commit. It contains no live provider secrets, database
 passwords, backup object URLs, signed URLs, account identifiers, raw payloads,
@@ -10,16 +10,27 @@ screenshots, meeting content, transcript text, audio, or private local paths.
 
 ## Backup Scope
 
-Minimum volumes to account for:
+Minimum generated-runtime volumes to account for after the 2026-07-09
+production setup:
 
 | Volume | Purpose | Backup Required |
 | --- | --- | --- |
-| `graf-posthog-db-data` | PostHog relational data | yes |
-| `graf-posthog-redis-data` | queue/cache durability where configured | yes if persistence is used |
-| `graf-posthog-media` | media/blob files for provider runtime | yes |
+| `graf-posthog_postgres-data` | PostHog relational data | yes |
+| `graf-posthog_clickhouse-data` | event analytics storage | yes |
+| `graf-posthog_redis7-data` | queue/cache durability where configured | yes if persistence is used |
+| `graf-posthog_objectstorage` | object/blob storage used by the generated runtime | yes |
+| `graf-posthog_seaweedfs` | object/blob storage used by the generated runtime | yes |
+| `graf-posthog_kafka-data` | broker state when present | yes if required by reviewed runtime |
+| `graf-posthog_redpanda-data` | broker state when present | yes if required by reviewed runtime |
+| `graf-posthog_zookeeper-data` | coordination state | yes if required by reviewed runtime |
+| `graf-posthog_zookeeper-datalog` | coordination transaction log | yes if required by reviewed runtime |
+| `graf-posthog_zookeeper-logs` | coordination logs | yes if required by reviewed runtime |
+| `graf-posthog_caddy-data` | Caddy runtime data/cert storage when used | yes if Caddy is the certificate owner |
+| `graf-posthog_caddy-config` | Caddy runtime config storage when used | yes if Caddy owns runtime config |
 
-If later implementation adds ClickHouse, object storage, or replay/blob storage,
-this table must be updated before readiness can pass.
+If the official PostHog generator adds, removes, or renames services/volumes,
+update this table before readiness can pass. Do not rely on the older minimal
+web/worker/Postgres/Redis placeholder inventory for the generated runtime.
 
 ## Volume Inventory Command
 
@@ -31,6 +42,11 @@ docker volume ls --format '{{.Name}}' | grep '^graf-posthog-'
 
 Evidence may record volume names only. Do not record dump contents or private
 host paths.
+
+Current evidence status: volume inventory has been recorded, but a full backup
+and isolated restore rehearsal for all generated-runtime volumes has not passed
+yet. That keeps full PostHog operational readiness blocked while normal GRAF
+product workflows and PostHog live-safe delivery continue to work.
 
 ## Backup Rules
 

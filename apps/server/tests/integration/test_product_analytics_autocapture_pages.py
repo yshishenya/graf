@@ -49,7 +49,7 @@ def test_public_cabinet_and_admin_templates_include_provider_config_and_private_
 
     for template in (public_partial, cabinet_base, admin_base):
         assert "graf-product-analytics-provider-config" in template
-        assert "/static/public/analytics.js" in template
+        assert "analytics.js" in template
     for template in (cabinet_base, admin_base):
         assert 'data-graf-analytics-private="true"' in template
         assert 'data-ph-mask="true"' in template
@@ -111,6 +111,7 @@ def test_rendered_public_auth_cabinet_and_desktop_pages_include_live_product_pro
         assert config["posthog"]["distinct_id"] == "graf_pseudo_browser_anonymous"
         assert config["posthog"]["identity_state"] == "anonymous"
         assert "/static/public/analytics.js" in response.text
+        assert response.text.count("/static/public/analytics.js") == 1
 
     for path, expected_page_class in authenticated_cases.items():
         response = client.get(path, headers=auth_headers())
@@ -126,3 +127,4 @@ def test_rendered_public_auth_cabinet_and_desktop_pages_include_live_product_pro
         else:
             assert config["posthog"]["workspace_pseudonym"].startswith("graf_pseudo_workspace_")
         assert "/static/public/analytics.js" in response.text
+        assert response.text.count("/static/public/analytics.js") == 1

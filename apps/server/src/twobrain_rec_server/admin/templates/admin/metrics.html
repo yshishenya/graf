@@ -11,8 +11,8 @@
       <label>Группа
         <select name="family">
           <option value="">Все</option>
-          {% for family in ["adoption", "usage", "funnel", "reliability", "governance"] %}
-            <option value="{{ family }}"{% if view.filters.family == family %} selected{% endif %}>{{ family }}</option>
+          {% for option in view.metrics.family_options %}
+            <option value="{{ option.value }}"{% if view.filters.family == option.value %} selected{% endif %}>{{ option.label }}</option>
           {% endfor %}
         </select>
       </label>
@@ -29,15 +29,23 @@
     {% for metric in view.metrics.metrics %}
       <article class="admin-panel">
         <h2>{{ metric.label }}</h2>
-        <p class="admin-empty">{{ metric.definition }}</p>
+        <p class="admin-empty">{{ metric.question }}</p>
         <dl class="admin-metrics">
-          <div><dt>Значение</dt><dd>{{ metric.value }}</dd></div>
-          <div><dt>Знаменатель</dt><dd>{{ metric.denominator }}</dd></div>
-          <div><dt>Источник</dt><dd>{{ metric.source_category }}</dd></div>
+          <div><dt>Ответ</dt><dd>{{ metric.value_label }}</dd></div>
+          <div><dt>Группа</dt><dd>{{ metric.family_label }}</dd></div>
+          <div><dt>Что считается</dt><dd>{{ metric.definition }}</dd></div>
+          <div><dt>Источник</dt><dd>{{ metric.denominator }} · {{ metric.source_category }}</dd></div>
           <div><dt>Свежесть</dt><dd>{{ metric.freshness }}</dd></div>
           <div><dt>Окно</dt><dd>{{ metric.date_window['from'] or "нет данных" }} - {{ metric.date_window['to'] or "нет данных" }}</dd></div>
-          <div><dt>Детали</dt><dd><a href="{{ metric.drill_down_path }}">Открыть</a></dd></div>
+          <div><dt>Детали</dt><dd><a href="{{ metric.drill_down_path }}">{{ metric.drill_down_label }}</a></dd></div>
         </dl>
+        {% if metric.breakdown %}
+          <ul class="admin-breakdown">
+            {% for item in metric.breakdown %}
+              <li><span>{{ item.label }}</span><strong>{{ item.value }}</strong></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
       </article>
     {% endfor %}
   </section>

@@ -2,7 +2,7 @@
 
 Feature: `096-product-analytics-provider-rollout`
 
-Status: `implementation_validated_review_remediated`
+Status: `production_runtime_live_safe_validated_with_hardening_followups`
 
 This runbook is safe to commit. It contains no live PostHog project key,
 provider secret, token, cookie, visitor identifier, raw event payload, screenshot,
@@ -21,7 +21,7 @@ PostHog Cloud is out of scope for this rollout.
 ## Hosting Decision
 
 - First placement: same production server as GRAF.
-- Public route: separate analytics domain, planned as `analytics.2brain.pro`.
+- Public route: separate analytics domain, `analytics.2brain.pro`.
 - Runtime boundary: separate Docker Compose project from the GRAF app stack.
 - Portability: must be movable later to a separate analytics server without
   changing event names, identity rules, dashboard definitions, or disclosure
@@ -29,7 +29,13 @@ PostHog Cloud is out of scope for this rollout.
 
 ## DNS And TLS
 
-Planned domain: `analytics.2brain.pro`.
+Domain: `analytics.2brain.pro`.
+
+Production runtime metadata recorded on 2026-07-09:
+
+- internal analytics `_health` check returned `ok`;
+- external HTTPS analytics `_health` check returned `ok`;
+- the GRAF app health check stayed `ready` after runtime provider enablement.
 
 DNS evidence may record only:
 
@@ -50,7 +56,7 @@ secret material as DNS/TLS evidence.
 
 ## Compose And Deploy Handoff
 
-The production PostHog runtime must come from the official PostHog self-hosted
+The production PostHog runtime comes from the official PostHog self-hosted
 Docker Compose deployment generated on the target server for a reviewed
 DockerHub image tag or commit. The committed
 `infra/posthog/docker-compose.posthog.yml` file is the GRAF handoff/preflight
@@ -76,6 +82,16 @@ as ingestion/capture workers, ClickHouse, Kafka-compatible broker, object
 storage, proxy/TLS, and any additional services required by the reviewed
 PostHog release. Do not deploy a simplified GRAF-only Compose file as if it were
 the full PostHog stack.
+
+Runtime fix recorded on 2026-07-09:
+
+- the generated node services needed explicit internal Redis settings for
+  logs/traces and the combined plugins service;
+- `LOGS_REDIS_HOST`, `LOGS_REDIS_PORT`, `LOGS_REDIS_TLS=false`,
+  `TRACES_REDIS_HOST`, `TRACES_REDIS_PORT`, and `TRACES_REDIS_TLS=false` must
+  be present where the generated runtime starts logs/traces consumers;
+- without these values, the services can try localhost or Redis TLS and exit
+  even while the main web health check is green.
 
 ## Required Runtime Boundaries
 
@@ -108,6 +124,12 @@ Required logical secrets:
 | `POSTHOG_REDIS_PASSWORD` | Redis if enabled | present/redacted status only |
 | `POSTHOG_OBJECT_STORAGE_SECRET` | object/blob storage if enabled | present/redacted status only |
 
+Runtime note for non-swarm Docker Compose: `uid`, `gid`, and `mode` on Compose
+secrets may be ignored and host files may be bind-mounted as-is. If `rec-api`
+fails closed on an unreadable provider secret, correct only the runtime file
+permissions/ownership outside git and rerun health plus provider smoke. Do not
+print the secret value.
+
 Forbidden evidence:
 
 - key values;
@@ -119,9 +141,8 @@ Forbidden evidence:
 ## Image Pinning
 
 Committed Compose files must not default to the mutable `latest` PostHog image.
-Before production execute, the release operator must set `POSTHOG_IMAGE` to an
-explicitly reviewed PostHog release tag outside git and record only
-redacted/pinned-status evidence.
+Generated runtime images must be pinned to explicitly reviewed release tags or
+image digests outside git and recorded only as redacted/pinned-status evidence.
 
 The operator may use an out-of-git env file for the GRAF handoff contract:
 
@@ -134,6 +155,13 @@ docker compose -f infra/posthog/docker-compose.posthog.yml config
 This command validates the GRAF handoff contract only. Live PostHog startup
 still requires the official generated PostHog Compose runtime and explicit
 release approval.
+
+Runtime hardening recorded on 2026-07-09: generated runtime references that
+previously used mutable `latest`/`master` tags were pinned by digest in the
+out-of-git production runtime, Compose config validation passed, the analytics
+domain returned `_health=ok` after restart, and post-pinning web/desktop
+live-safe smoke events were ingested. Keep this pinning check in every future
+PostHog stack update.
 
 For the GRAF app stack, the base Compose file mounts optional PostHog/Yandex
 provider secret slots from `infra/secret-placeholders/disabled_optional_provider_secret`
@@ -282,6 +310,12 @@ The runbook must always identify:
 
 Evidence remains metadata-only.
 
+Current backup/restore follow-up: the generated runtime has more volumes than
+the original handoff placeholder, including relational data, ClickHouse,
+Kafka/Redpanda, Redis, object/blob storage, Caddy, and coordination volumes.
+An isolated restore rehearsal for that full set is still required before
+claiming full PostHog operational readiness.
+
 Backup retention:
 
 - maintain enough backups to support at least the 90-day analytics retention
@@ -331,5 +365,5 @@ infra/scripts/rollback-product-analytics-providers.sh
 infra/scripts/cd-remote.sh --dry-run
 ```
 
-Do not run production deploy execute from this runbook without explicit release
-approval.
+Do not run future production deploys or PostHog stack changes from this runbook
+without explicit release approval.

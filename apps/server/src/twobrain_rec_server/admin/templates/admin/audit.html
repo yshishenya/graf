@@ -7,6 +7,7 @@
 {% block content %}
   <section class="admin-panel">
     <h2>Журнал аудита</h2>
+    <p class="admin-empty">Здесь видно, кто выполнил действие, над каким объектом, когда это произошло и куда перейти для проверки.</p>
     <form class="admin-toolbar" method="get" action="/admin/audit">
       <label>С даты
         <input name="date_from" type="date" value="{{ view.filters.date_from or '' }}">
@@ -30,14 +31,49 @@
     </form>
     {% if view.audit.entries %}
       <table class="admin-table">
-        <thead><tr><th>Источник</th><th>Действие</th><th>Объект</th><th>Результат</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Когда</th>
+            <th>Кто</th>
+            <th>Что сделал</th>
+            <th>Объект</th>
+            <th>Итог</th>
+            <th>Источник</th>
+            <th>Детали</th>
+          </tr>
+        </thead>
         <tbody>
           {% for entry in view.audit.entries %}
             <tr>
-              <td>{{ entry.source }}</td>
-              <td>{{ entry.action }}</td>
-              <td>{{ entry.object_kind }}</td>
-              <td>{{ entry.outcome }}</td>
+              <td>
+                <time datetime="{{ entry.created_at or '' }}">{{ entry.created_at_label }}</time>
+              </td>
+              <td>
+                {% if entry.actor_href %}
+                  <a href="{{ entry.actor_href }}">{{ entry.actor_label }}</a>
+                {% else %}
+                  {{ entry.actor_label }}
+                {% endif %}
+              </td>
+              <td>
+                <strong>{{ entry.action_label }}</strong>
+                <span class="admin-muted-token">{{ entry.action }}</span>
+              </td>
+              <td>
+                {% if entry.object_href %}
+                  <a href="{{ entry.object_href }}">{{ entry.object_label }}</a>
+                {% else %}
+                  {{ entry.object_label }}
+                {% endif %}
+              </td>
+              <td>
+                <strong>{{ entry.outcome_label }}</strong>
+                {% if entry.reason_code %}
+                  <span class="admin-muted-token">{{ entry.reason_code }}</span>
+                {% endif %}
+              </td>
+              <td>{{ entry.source_label }}</td>
+              <td><a href="{{ entry.drill_down_path }}">{{ entry.drill_down_label }}</a></td>
             </tr>
           {% endfor %}
         </tbody>

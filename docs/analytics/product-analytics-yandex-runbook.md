@@ -2,7 +2,7 @@
 
 Feature: `096-product-analytics-provider-rollout`
 
-Status: `implementation_validated_review_remediated`
+Status: `public_all_pages_inventory_live_offline_blocked`
 
 This runbook is safe to commit. It contains no live Yandex counter ID, OAuth
 token, ClientID, Yclid, cookie, visitor identifier, raw CSV row, screenshot,
@@ -21,6 +21,50 @@ to PostHog, not the primary product analytics workspace.
 - live offline conversions are limited to exactly two product milestones;
 - Webvisor/maps/forms remain blocked until separate proof exists;
 - paid campaign launch remains blocked separately.
+
+## Production Runtime State: 2026-07-09
+
+The production runtime currently uses the existing 093 production counter
+strategy. The live counter ID remains runtime-only and is not committed.
+
+Current state:
+
+- public `/` and `/download` keep the 093 Yandex baseline;
+- product analytics runtime reports the Yandex counter as configured/redacted;
+- all-pages inventory rollout is enabled at the runtime control layer;
+- the page inventory still blocks non-public, admin, auth callback, meeting
+  detail/result, deletion, embedded desktop, and replay-unavailable page
+  classes unless a later proof explicitly approves them;
+- Webvisor, click map, scroll map, and form analytics are still disabled;
+- offline conversion upload is still disabled because the Yandex OAuth token
+  secret file has not been supplied and live upload smoke has not passed;
+- paid campaign launch remains blocked.
+
+This means Yandex is ready for the preserved public/ad surface and inventory
+governance, but it is not ready for offline conversion launch yet.
+
+## Zero-Data Troubleshooting
+
+If the Yandex dashboard shows zeroes, check these items before changing scope:
+
+1. Confirm the page is one of the approved public pages (`/` or `/download`).
+2. Confirm the rendered page has the public analytics config and the Yandex
+   counter state is configured/redacted.
+3. Confirm the browser has granted analytics or attribution consent. Without
+   consent, the page must not load Yandex and dashboard zeroes are expected.
+4. Confirm a consented browser session sends the approved public goal event.
+5. Wait for provider-side processing delay and check that internal/test filters
+   or ad blockers are not hiding the visit.
+6. Do not paste the live counter ID, ClientID, Yclid, cookies, network payloads,
+   screenshots, or visitor rows into evidence.
+
+Review evidence from 2026-07-09:
+
+- no-consent public page loads produced no Yandex network traffic;
+- consent-granted public landing/download checks sent the approved public
+  Yandex goal events;
+- branch remediation removes duplicate `analytics.js` controller loading on
+  public pages before the next deploy.
 
 ## Counter Strategy
 
@@ -249,5 +293,6 @@ infra/scripts/rollback-product-analytics-providers.sh
 infra/scripts/cd-remote.sh --dry-run
 ```
 
-Production deploy execute and paid campaign launch require separate explicit
-approval.
+Future production provider changes and paid campaign launch require separate
+explicit approval. Yandex offline conversion readiness also requires OAuth
+secret-file setup and live upload smoke before launch.

@@ -2,7 +2,7 @@
 
 Feature: `096-product-analytics-provider-rollout`
 
-Status: `implementation_validated_review_remediated`
+Status: `production_runtime_live_safe_validated_with_hardening_followups`
 
 This directory holds the GRAF-owned PostHog deployment handoff contract and
 operations notes for GRAF product analytics. The live PostHog runtime must be
@@ -29,18 +29,16 @@ The first rollout runs on the same production server as GRAF but uses a separate
 analytics domain and separate Compose project. It must be portable to a later
 separate analytics server.
 
-Production execution must use the official PostHog self-hosted/hobby Docker
-Compose runtime generated on the target server, with a reviewed DockerHub image
-tag or commit. The GRAF file records the boundaries that must be applied and
-validated: secret files, resource limits, health checks, backups, rollback, and
-metadata-only evidence.
+The 2026-07-09 production runtime uses the official PostHog self-hosted/hobby
+Docker Compose runtime generated on the target server. The GRAF file records
+the boundaries that must be applied and validated: secret files, resource
+limits, health checks, backups, rollback, and metadata-only evidence.
 
 ## Required Boundaries
 
 - separate domain/TLS route;
 - separate Docker project based on the official generated PostHog runtime;
-- pinned PostHog image tag supplied through `POSTHOG_IMAGE` before production
-  execute;
+- generated runtime images pinned by reviewed tag or digest;
 - separate secrets;
 - separate volumes;
 - explicit resource limits;
@@ -51,7 +49,7 @@ metadata-only evidence.
 
 ## Validation
 
-Before any production execution, run:
+Before future production provider changes, run:
 
 ```sh
 docker compose -f infra/posthog/docker-compose.posthog.yml config
@@ -59,9 +57,9 @@ infra/scripts/cd-remote.sh --dry-run
 infra/scripts/run-product-analytics-provider-smoke.sh
 ```
 
-Production execute requires separate approval.
+Future production deploy or PostHog stack changes require separate approval.
 
-Before production execute, replace
-`posthog/posthog:REPLACE_WITH_PINNED_RELEASE_TAG` with an explicitly reviewed
-PostHog DockerHub release tag or reviewed commit-derived image reference in the
-runtime env outside git. Do not deploy the mutable `latest` tag.
+Runtime hardening recorded on 2026-07-09: mutable generated-runtime references
+were pinned by digest in the out-of-git production runtime, Compose config
+validation passed, and analytics health returned `ok` after restart. Future
+PostHog stack updates must repeat the mutable-tag scan and pinning check.

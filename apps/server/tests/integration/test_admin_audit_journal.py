@@ -21,6 +21,19 @@ def test_admin_audit_journal_normalizes_metadata_only_sources(client) -> None:
     payload = response.json()
     assert len(payload["entries"]) >= 2
     assert {entry["source"] for entry in payload["entries"]} >= {"admin_audit_events", "auth_audit_events"}
+    quota_entry = next(entry for entry in payload["entries"] if entry["action"] == "quota_viewed")
+    auth_entry = next(
+        entry for entry in payload["entries"] if entry["action"] == "provider_callback_success"
+    )
+    assert quota_entry["source_label"] == "Админские действия"
+    assert quota_entry["actor_label"]
+    assert quota_entry["action_label"] == "Просмотр квоты"
+    assert quota_entry["object_label"] == "Квота рабочей области"
+    assert quota_entry["outcome_label"] == "Разрешено"
+    assert quota_entry["drill_down_path"] == "/admin/balance"
+    assert auth_entry["source_label"] == "Авторизация"
+    assert auth_entry["object_label"] == "Авторизация: email"
+    assert auth_entry["drill_down_path"].startswith("/admin/users/")
     assert "storage_object_key" not in response.text
     assert "transcript_text" not in response.text
     assert "secret" not in response.text.lower()

@@ -12,6 +12,7 @@ from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
 from twobrain_rec_server.product_analytics.identity import build_safe_identity
+from twobrain_rec_server.public.templates import public_static_asset_url
 from twobrain_rec_server.templates import (
     html_response,
     package_path,
@@ -44,6 +45,7 @@ def render_template(template_name: str, **context: Any) -> str:
         template_name,
         admin_static_url=ADMIN_STATIC_URL,
         cabinet_static_url=CABINET_STATIC_URL,
+        public_static_asset_url=public_static_asset_url,
         **context,
     )
 

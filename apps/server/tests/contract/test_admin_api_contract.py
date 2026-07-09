@@ -216,6 +216,13 @@ def test_admin_metrics_and_audit_contract(client) -> None:
     assert metrics.status_code == 200
     assert audit.status_code == 200
     metric_payload = metrics.json()
+    assert metric_payload["family_options"] == [
+        {"value": "adoption", "label": "Принятие продукта"},
+        {"value": "usage", "label": "Использование"},
+        {"value": "funnel", "label": "Воронка встреч"},
+        {"value": "reliability", "label": "Надежность"},
+        {"value": "governance", "label": "Контроль и аудит"},
+    ]
     assert {card["family"] for card in metric_payload["metrics"]} == {
         "adoption",
         "usage",
@@ -227,13 +234,26 @@ def test_admin_metrics_and_audit_contract(client) -> None:
         assert set(card) >= {
             "metric_id",
             "label",
+            "family_label",
             "definition",
+            "question",
             "denominator",
             "source_category",
             "date_window",
             "freshness",
             "value",
+            "value_label",
             "drill_down_path",
+            "drill_down_label",
+            "breakdown",
         }
+    governance = next(card for card in metric_payload["metrics"] if card["family"] == "governance")
+    assert governance["drill_down_label"] == "Открыть журнал аудита"
+    assert {item["label"] for item in governance["breakdown"]} == {
+        "Админские действия",
+        "Авторизация",
+        "Доступ к файлам встречи",
+        "Жизненный цикл встречи",
+    }
     assert "entries" in audit.json()
     assert "sample" not in metrics.text.lower()

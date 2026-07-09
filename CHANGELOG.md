@@ -12,19 +12,34 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: product status and provider
+  runbooks now reflect the 2026-07-09 production runtime state: self-hosted
+  PostHog is live-safe validated on the analytics domain, while Yandex offline
+  upload, product rollout readiness, and paid campaign launch remain blocked.
+- Feature `096-product-analytics-provider-rollout`: admin audit and metrics
+  views now show clearer Russian labels, actor/object/result context,
+  drill-down links, and audit-source breakdowns instead of disconnected raw
+  records.
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: public pages now include
+  the shared analytics controller once, preventing duplicate first-party
+  PostHog autocapture events while preserving consent-gated Yandex loading.
 
 ### Безопасность
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: product status,
+  implementation evidence, dashboard evidence, PostHog/Yandex runbooks,
+  PostHog infra/backup notes, quickstart, data model, and provider contract
+  were updated with metadata-only production proof and current follow-up gates.
 
 ### Операции
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: recorded completed PostHog
+  generated-runtime image digest pinning and post-pinning live-safe smoke
+  evidence; full backup/restore rehearsal remains the main PostHog ops
+  readiness follow-up.
 
 ## [2026.07.09.20] - 2026-07-09
 

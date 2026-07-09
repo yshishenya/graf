@@ -106,6 +106,7 @@ def test_public_pages_render_safe_local_analytics_assets_in_render_only_mode(tmp
     assert '"surface": "public_landing"' in response.text
     assert '"public_installer_download_clicked"' in response.text
     assert "/static/public/analytics.js?v=" in response.text
+    assert response.text.count("/static/public/analytics.js") == 1
     assert "/static/public/cookieconsent.umd.js?v=" in response.text
     assert "/static/public/cookieconsent.css?v=" in response.text
     assert not [marker for marker in FORBIDDEN_LIVE_PROVIDER_URLS if marker in response.text.lower()]

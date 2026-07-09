@@ -32,7 +32,7 @@ Represents the self-hosted primary analytics workspace.
 
 **Fields**:
 
-- `domain`: separate analytics domain, planned as `analytics.2brain.pro` unless changed by implementation approval
+- `domain`: separate analytics domain, `analytics.2brain.pro`
 - `placement`: `same_production_server`
 - `portable`: true
 - `retention_days_min`: integer, at least `90`
@@ -54,7 +54,7 @@ Represents the self-hosted primary analytics workspace.
 - Live provider mode requires `rbac_state=verified`, `audit_evidence_state=verified`, and `provider_lifecycle_truth_state=verified`.
 - `live` provider mode requires backup and rollback documentation.
 - Same-server live mode requires concrete resource thresholds and evidence that analytics load rolls back or degrades measurement before starving normal GRAF workflows.
-- Same-server live mode requires `deploy_handoff_state=dry_run_verified` before any production `--execute` approval.
+- Same-server live mode requires `deploy_handoff_state=dry_run_verified` before future production `--execute` or runtime-update approval.
 - Move-out documentation must preserve event names, identity rules, dashboard definitions, and consent/disclosure copy.
 
 ## PostHogDeliveryRoute

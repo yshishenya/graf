@@ -8,13 +8,15 @@ payloads, screenshots, account data, or secret paths.
 
 ## Current Implementation Status
 
-096 has completed planning, implementation, convergence, and pre-commit review
-remediation on the feature branch.
+096 has completed planning, implementation, convergence, production runtime
+enablement for self-hosted PostHog, and post-runtime review remediation on the
+feature branch.
 
-No production provider execute has been run by this pass. No PostHog project
-key has been created or committed. No Yandex OAuth token, live counter ID,
-ClientID, Yclid, cookie, or offline conversion row has been committed. No paid
-campaign launch is approved by this pass.
+Self-hosted PostHog delivery is live-safe validated in production with runtime
+secret-file configuration and metadata-only evidence. No PostHog project key is
+committed. No Yandex OAuth token, live counter ID, ClientID, Yclid, cookie, or
+offline conversion row has been committed. Yandex offline upload, product
+rollout readiness, and paid campaign launch remain blocked.
 
 ## Review Order
 
@@ -229,23 +231,26 @@ workflows must continue.
 
 ### 9. Release Gate
 
-Before any production provider execution:
+Before any future production provider execution or runtime update:
 
 ```sh
 infra/scripts/ci-local.sh
 infra/scripts/cd-remote.sh --dry-run
 ```
 
-Set the PostHog runtime image outside git before production execute:
+Set or verify pinned PostHog runtime images outside git before production
+changes:
 
 ```sh
 POSTHOG_RUNTIME_ENV_FILE=/opt/graf/posthog/posthog.production.env
-POSTHOG_IMAGE=posthog/posthog:<reviewed-pinned-release-tag>
+POSTHOG_IMAGE=posthog/posthog:<reviewed-pinned-release-tag-or-digest>
 ```
 
-Do not deploy `posthog/posthog:latest`.
+Runtime hardening on 2026-07-09 pinned the generated PostHog runtime images by
+digest outside git. Do not use mutable PostHog runtime images for unattended
+operation, and repeat the mutable-tag scan after every future stack update.
 
-Production execution requires explicit approval before:
+Production execution or runtime changes require explicit approval before:
 
 ```sh
 infra/scripts/cd-remote.sh --execute

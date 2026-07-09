@@ -83,6 +83,35 @@
   overflow-wrap: anywhere;
 }
 
+.admin-muted-token {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.admin-breakdown {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-breakdown strong {
+  color: var(--text);
+}
+
 .admin-list {
   margin: 0;
   padding-left: 18px;

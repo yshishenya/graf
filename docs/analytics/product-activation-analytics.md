@@ -1,6 +1,8 @@
 # Product Activation Analytics 094
 
-Status: 094 scaffold plus 096 provider layer implemented; no production provider execute.
+Status: 094 scaffold plus 096 provider layer implemented; self-hosted PostHog
+delivery is live-safe validated in production, while Yandex offline upload,
+product rollout readiness, and paid campaign launch remain blocked.
 
 ## Scope
 
@@ -20,8 +22,10 @@ PostHog self-hosted remains the preferred primary product analytics workspace.
 Yandex remains a parallel all-web-pages/ad/Webvisor/offline-conversion surface
 only after masking, sanitization, legal, QA, provider smoke, and rollout gates.
 
-This slice does not enable live PostHog delivery, Yandex all-pages expansion,
-Yandex offline uploads, production deploy, or paid campaign optimization.
+094 itself did not enable live PostHog delivery, Yandex all-pages expansion,
+Yandex offline uploads, production deploy, or paid campaign optimization. 096
+adds the provider layer after 094 and validates self-hosted PostHog delivery,
+but still does not approve product rollout readiness or paid campaign launch.
 
 ## Default Runtime State
 
@@ -66,8 +70,9 @@ reported as a measurement gap.
 PostHog:
 
 - primary full-funnel workspace after approval;
-- current wrapper is disabled by default;
-- provider smoke mode is dry-run only.
+- 094 wrapper was disabled by default;
+- 096 adds self-hosted PostHog live-safe delivery, while product rollout
+  readiness remains separately blocked.
 
 Yandex:
 
@@ -138,8 +143,9 @@ infra/scripts/ci-local.sh
 
 ## 096 Provider Rollout Addendum
 
-Status: provider implementation surface, not production product rollout
-readiness and not paid campaign launch readiness.
+Status: self-hosted PostHog runtime delivery is live-safe validated; Yandex
+offline upload, production product rollout readiness, and paid campaign launch
+remain blocked.
 
 096 extends the 094 scaffold with a production-ready provider layer:
 
@@ -151,7 +157,7 @@ readiness and not paid campaign launch readiness.
 Disabled-by-default production deploys do not require live provider secret files
 to exist. The app Compose mounts optional provider secret slots from the
 committed empty `infra/secret-placeholders/disabled_optional_provider_secret`
-fallback until operators set the host-side `*_SECRET_FILE` variables to
+placeholder until operators set the host-side `*_SECRET_FILE` variables to
 out-of-git files under `infra/secrets/`. The in-container paths stay
 `/run/secrets/...` when providers are enabled.
 

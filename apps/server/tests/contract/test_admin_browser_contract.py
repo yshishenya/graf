@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 from tests.contract.test_admin_no_secret_content_egress import FORBIDDEN_MARKERS
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fixtures.admin import (
     DEFAULT_ADMIN_DEVICE_ID,
     DEFAULT_ADMIN_USER_ID,
@@ -15,6 +16,7 @@ from tests.fixtures.admin import (
 )
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from tests.fixtures.cabinet_access import set_artifact_policy
+from twobrain_rec_server.db.models import AdminAuditEvent
 
 
 def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(client) -> None:
@@ -109,6 +111,40 @@ def test_admin_browser_pages_keep_russian_navigation_and_compact_keyboard_css(cl
     assert ":focus-visible" in css.text
     assert "@media (max-width: 720px)" in css.text
     assert "overflow-x: auto" in css.text
+
+
+def test_admin_metrics_and_audit_pages_explain_records(client) -> None:
+    asyncio.run(_seed_browser_audit_entry(client))
+
+    metrics = client.get("/admin/metrics", headers=auth_headers())
+    audit = client.get("/admin/audit", headers=auth_headers())
+
+    assert metrics.status_code == 200
+    assert audit.status_code == 200
+    assert "Принятие продукта" in metrics.text
+    assert "Контроль и аудит" in metrics.text
+    assert "Кто что сделал и где это проверить?" in metrics.text
+    assert "Открыть журнал аудита" in metrics.text
+    assert "Кто" in audit.text
+    assert "Что сделал" in audit.text
+    assert "Детали" in audit.text
+    assert "кто выполнил действие" in audit.text
+
+
+async def _seed_browser_audit_entry(client) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        db.add(
+            AdminAuditEvent(
+                workspace_id=WORKSPACE_ID,
+                actor_user_id=USER_ID,
+                actor_role="owner",
+                action="quota_viewed",
+                target_kind="quota",
+                outcome="allowed",
+                metadata_json={"status": "viewed"},
+            )
+        )
+        await db.commit()
 
 
 def test_admin_users_page_exposes_invitation_filters_and_management_forms(client) -> None:

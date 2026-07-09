@@ -15,7 +15,7 @@
     <script id="graf-product-analytics-provider-config" type="application/json" data-page-class="{{ product_analytics_provider.page_class }}">
       {{ product_analytics_provider | tojson }}
     </script>
-    <script defer src="/static/public/analytics.js"></script>
+    <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
     {% endif %}
     <div class="app-shell admin-app-shell" data-shell-scroll="contained" data-mobile-scroll="page" data-admin-shell>
       <a class="skip-link" href="#admin-main">К содержимому</a>

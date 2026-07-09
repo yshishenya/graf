@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-08
+Date: 2026-07-09
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -48,21 +48,29 @@ metadata-only evidence остаются подробной историей ре
   paid campaign optimization remain blocked pending separate legal/product/
   security/QA/provider approval.
 - Feature `096-product-analytics-provider-rollout` adds the provider layer on
-  this feature branch, not product rollout readiness. It prepares self-hosted
-  first-party PostHog as the primary product analytics workspace with broad
-  browser autocapture, rendered-page provider wiring, secret-file based runtime
-  config, provider smoke, rollback, and metadata-only dashboard evidence.
-  Self-hosted PostHog may receive owner-controlled product-visible context, but
-  credentials, tokens, signed URLs, cookies, local paths, raw audio,
-  transcript/meeting-content dumps, raw payload dumps, and committed provider
-  exports remain forbidden. Yandex remains the external public/ad/offline
-  surface: `/` and `/download` keep the 093 public baseline, other page classes
-  are inventory-gated, Webvisor/maps/forms remain blocked, offline conversions
-  are limited to `desktop_account_connected` and
-  `first_value_session_completed`, and `UserId` upload requires prior
-  `setUserID`/`userParams` binding. Production deploy execute, live provider
-  dashboard review, product rollout readiness, and paid campaign launch remain
-  blocked.
+  this feature branch, not product rollout readiness. Production deploy for 096
+  passed, and self-hosted first-party PostHog is running on the production
+  server through a separate analytics domain with GRAF runtime delivery enabled
+  in `live_safe` / `parallel_measurement` mode. Browser autocapture, web-direct
+  delivery, desktop-direct PostHog delivery, secret-file based runtime config,
+  provider smoke, rollback, and metadata-only dashboard evidence are in place;
+  PostHog session replay remains disabled. Metadata-only live-safe PostHog web
+  and desktop smoke events were accepted by GRAF and observed in PostHog
+  aggregate storage. Self-hosted PostHog may receive owner-controlled
+  product-visible context, but credentials, tokens, signed URLs, cookies, local
+  paths, raw audio, transcript/meeting-content dumps, raw payload dumps, and
+  committed provider exports remain forbidden. Yandex remains the external
+  public/ad/offline surface: `/` and `/download` keep the 093 public baseline,
+  the existing production counter strategy is reused through runtime-only
+  config, all-pages inventory governance is enabled, other page classes remain
+  inventory-gated, Webvisor/maps/forms remain blocked, offline conversions are
+  limited to `desktop_account_connected` and `first_value_session_completed`,
+  and `UserId` upload requires prior `setUserID`/`userParams` binding. Yandex
+  offline upload is still disabled until OAuth token secret-file setup and live
+  upload smoke pass. PostHog generated-runtime image pinning is complete and
+  post-pinning live-safe smoke passed; full backup/restore rehearsal, real
+  dashboard readiness review, product rollout readiness, and paid campaign
+  launch remain blocked/follow-up gates.
 - Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
   recording state and one-action stop from feature `007`.
 - Local recording persistence from feature `008` is accepted for local artifact

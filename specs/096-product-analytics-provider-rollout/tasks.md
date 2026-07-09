@@ -81,7 +81,9 @@
 - [X] T036 [US1] Fill metadata-only PostHog dashboard evidence, including RBAC/audit, retention/deletion, backup/export, and delivery-gap caveats, in `specs/096-product-analytics-provider-rollout/validation/dashboard-evidence.md`.
 - [X] T037 [US1] Record PostHog implementation evidence and validation command summaries in `specs/096-product-analytics-provider-rollout/validation/implementation-evidence.md`.
 
-**Checkpoint**: US1 independently proves PostHog primary workspace readiness without enabling Yandex expansion, replay, paid campaigns, or production deploy execute.
+**Checkpoint**: At the US1 checkpoint, PostHog primary workspace readiness was
+proven independently from Yandex expansion, replay, paid campaigns, and later
+production deploy execution.
 
 ---
 

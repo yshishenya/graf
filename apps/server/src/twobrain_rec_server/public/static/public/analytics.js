@@ -1,9 +1,13 @@
 /*!
- * GRAF public analytics controller scaffold.
- * Phase 1 provider loading is added only after consent logic is implemented.
+ * GRAF public and product analytics controller.
  */
 (function () {
   "use strict";
+
+  if (window.__GRAF_ANALYTICS_CONTROLLER_LOADED__) {
+    return;
+  }
+  window.__GRAF_ANALYTICS_CONTROLLER_LOADED__ = true;
 
   var CONSENT_STORAGE_KEY = "graf_public_analytics_consent";
   var YANDEX_TAG_URL = "https://mc.yandex.ru/metrika/tag.js";

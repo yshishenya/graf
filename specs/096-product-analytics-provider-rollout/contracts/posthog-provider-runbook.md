@@ -9,7 +9,7 @@ This contract defines the production-ready self-hosted PostHog provider layer. I
 - Provider: self-hosted PostHog.
 - Cloud PostHog: out of scope.
 - First rollout placement: same production server as GRAF.
-- Domain: separate analytics domain, planned as `analytics.2brain.pro` unless implementation approval changes it.
+- Domain: separate analytics domain, `analytics.2brain.pro`.
 - Portability: required. PostHog must be movable later to a separate analytics server without changing event contracts, identity rules, dashboard definitions, or disclosure copy.
 
 ## Required Service Boundaries
