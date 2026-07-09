@@ -9,16 +9,42 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `091-mediascribe-result-contract`: добавлены безопасные диагностические
+  признаки результата MediaScribe (`transcript_status`, `transcript_reason`,
+  `error_code`, `error_origin`, `failure_reason`, `failure_source`) для
+  различения `processed_no_transcript`, `input_audio_problem` и
+  `mediascribe_service_problem`.
 
 ### Изменено
-- _Пока нет записей._
+- Интеграция MediaScribe теперь использует `result.transcript_status` как
+  главный индикатор наличия транскрипта. Готовая обработка без распознаваемой
+  речи сохраняется как terminal business outcome, блокирует meeting outcomes с
+  `failure_source=input_audio` и не запускает summary.
 
 ### Исправлено
-- _Пока нет записей._
+- `invalid_audio_payload` от MediaScribe с `error_origin=input_audio` больше не
+  считается сбоем сервиса транскрибации: GRAF показывает понятную причину про
+  недекодируемый или поврежденный аудиофайл.
+- Failed poll ответы MediaScribe теперь читают `error_code` и `error_origin`
+  как на верхнем уровне, так и внутри `job`, чтобы `invalid_audio_payload`
+  не превращался в ложный service outage из-за формы payload.
+- `processing_results.transcript_status` теперь сохраняется из
+  `result.transcript_status`, а не выводится из количества строк; явный
+  `transcript_status="unavailable"` остается авторитетным даже если payload
+  содержит лишние transcript-like rows.
+- Endpoint статуса обработки больше не считает контент доступным только по
+  `transcript_status="available"` / `diarization_status="available"`: для
+  `content_available` теперь также нужны сохраненные строки сегментов.
+- Для записи без распознаваемой речи UI показывает: "MediaScribe обработал
+  запись, но транскрипт не создан: распознаваемая речь не найдена."
+- Кнопка скачивания transcript не появляется, если сохраненного доступного
+  транскрипта нет.
 
 ### Безопасность
-- _Пока нет записей._
+- `transcript_status` и `transcript_reason` ограничены безопасными машинными
+  значениями нового контракта; произвольные значения от внешнего сервиса не
+  восстанавливаются из redaction в audit metadata и считаются malformed
+  MediaScribe response без раскрытия текста.
 
 ### Документы
 - _Пока нет записей._

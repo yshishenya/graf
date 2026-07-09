@@ -397,9 +397,7 @@ async def persist_processing_result(
         await db.execute(delete(DiarizationSegment).where(DiarizationSegment.processing_result_id == existing.id))
 
     existing.status = ProcessingResultStatus.IMPORTED.value
-    existing.transcript_status = (
-        ProcessingAvailabilityStatus.AVAILABLE.value if result.transcript else ProcessingAvailabilityStatus.UNAVAILABLE.value
-    )
+    existing.transcript_status = result.transcript_status.value
     existing.diarization_status = (
         ProcessingAvailabilityStatus.AVAILABLE.value if result.diarization else ProcessingAvailabilityStatus.UNAVAILABLE.value
     )
@@ -407,6 +405,8 @@ async def persist_processing_result(
     existing.language = result.language
     existing.segment_count = len(result.transcript)
     existing.diarization_segment_count = len(result.diarization)
+    existing.failure_reason = result.failure_reason
+    existing.failure_source = result.failure_source
     existing.source_result_hash = source_result_hash
     existing.imported_at = datetime.now(UTC)
 

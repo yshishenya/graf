@@ -1315,6 +1315,8 @@ def build_list_item(
         status_label=STATUS_LABELS[status],
         status_reason=workflow.last_reason_code
         if workflow is not None and status in {"blocked", "failed"}
+        else result.failure_reason
+        if result is not None and status == "unavailable"
         else None,
         primary_action=primary_action_for_status(status),
         transcript_available=transcript_available(result),
@@ -1368,11 +1370,9 @@ def processing_state(
     summary_available = bool(
         result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
     )
-    reason_code = (
-        workflow.last_reason_code
-        if workflow is not None and status in {"blocked", "failed"}
-        else None
-    )
+    reason_code = workflow.last_reason_code if workflow is not None and status in {"blocked", "failed"} else None
+    if reason_code is None and result is not None and not has_transcript:
+        reason_code = result.failure_reason
     return ProcessingReviewState(
         state=status,
         stage=stage_for_status(
@@ -1423,6 +1423,8 @@ def reason_label(reason_code: str | None) -> str | None:
     if reason_code is None:
         return None
     return {
+        "no_recognizable_speech": "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена.",
+        "invalid_audio_payload": "Файл записи не является декодируемым аудио или поврежден.",
         "mediascribe_validation_failed": "Transcription service could not accept this media file.",
         "blocked_config": "Processing is blocked by server configuration.",
     }.get(reason_code, "Processing needs operator review.")

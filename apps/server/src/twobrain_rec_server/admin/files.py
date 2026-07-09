@@ -331,7 +331,11 @@ async def _artifact_stats(db: AsyncSession, *, meeting: Meeting) -> dict[str, in
 
 def _artifact_classes(artifact_stats: dict[str, int | bool], result: object | None) -> list[str]:
     classes = ["audio"] if artifact_stats.get("has_audio") else []
-    if result is not None and getattr(result, "transcript_status", None) == "available":
+    if (
+        result is not None
+        and getattr(result, "transcript_status", None) == "available"
+        and int(getattr(result, "segment_count", 0) or 0) > 0
+    ):
         classes.append("transcript")
     if result is not None and getattr(result, "summary_status", None) == "available":
         classes.append("summary")

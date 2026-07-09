@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.domain.statuses import MediaScribeJobStatus
+from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingAvailabilityStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
 
 
@@ -161,3 +161,146 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
     assert len(result.diarization) == 2
     assert result.diarization[0].speaker_label == "MIC"
     assert result.diarization[1].speaker_label == "REMOTE_00"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_maps_new_result_transcript_status_contract() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_no_speech/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_no_speech", "status": "ready"},
+                "transcript_status": "unavailable",
+                "transcript_reason": "no_recognizable_speech",
+                "transcript": [],
+                "downloads": {},
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.fetch_result("job_no_speech")
+
+    assert result.external_job_id == "job_no_speech"
+    assert result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
+    assert result.transcript_reason == "no_recognizable_speech"
+    assert result.transcript == []
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_rejects_unknown_transcript_reason() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_bad_reason/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_bad_reason", "status": "ready"},
+                "transcript_status": "unavailable",
+                "transcript_reason": "private meeting words",
+                "transcript": [],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_bad_reason")
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
+    assert exc.value.retryable
+    assert "private meeting words" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_rejects_unsupported_transcript_status() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_bad_status/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_bad_status", "status": "ready"},
+                "transcript_status": "failed",
+                "transcript": [],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_bad_status")
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
+    assert exc.value.retryable
+    assert "failed" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_maps_failed_poll_error_code_and_origin() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_invalid_audio"
+        return httpx.Response(
+            200,
+            json={
+                "id": "job_invalid_audio",
+                "status": "failed",
+                "error_code": "invalid_audio_payload",
+                "error_origin": "input_audio",
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    poll = await client.poll_job("job_invalid_audio")
+
+    assert poll.status == MediaScribeJobStatus.FAILED
+    assert poll.reason_code == "invalid_audio_payload"
+    assert poll.error_code == "invalid_audio_payload"
+    assert poll.error_origin == "input_audio"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_maps_nested_failed_poll_job_error_code_and_origin() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_invalid_audio"
+        return httpx.Response(
+            200,
+            json={
+                "job": {
+                    "id": "job_invalid_audio",
+                    "status": "failed",
+                    "error_code": "invalid_audio_payload",
+                    "error_origin": "input_audio",
+                }
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    poll = await client.poll_job("job_invalid_audio")
+
+    assert poll.external_job_id == "job_invalid_audio"
+    assert poll.status == MediaScribeJobStatus.FAILED
+    assert poll.reason_code == "invalid_audio_payload"
+    assert poll.error_code == "invalid_audio_payload"
+    assert poll.error_origin == "input_audio"

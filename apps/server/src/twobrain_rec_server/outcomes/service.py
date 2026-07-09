@@ -70,12 +70,16 @@ async def ensure_outcomes_for_processing_result(
         )
     outcome_set.status = OutcomeSetStatus.GENERATING.value
     outcome_set.failure_reason = None
+    outcome_set.failure_source = None
     outcome_set.started_at = outcome_set.started_at or started_at
     outcome_set.source_result_hash = result.source_result_hash
     set_outcome_category_states(outcome_set, OutcomeCategoryState.PROCESSING.value)
     if not transcript_is_available:
+        failure_reason = result.failure_reason or "outcomes_transcript_unavailable"
+        failure_source = result.failure_source
         outcome_set.status = OutcomeSetStatus.BLOCKED.value
-        outcome_set.failure_reason = "outcomes_transcript_unavailable"
+        outcome_set.failure_reason = failure_reason
+        outcome_set.failure_source = failure_source
         set_outcome_category_states(outcome_set, OutcomeCategoryState.BLOCKED.value)
         await record_generation_attempt(
             db,
@@ -85,8 +89,13 @@ async def ensure_outcomes_for_processing_result(
             processing_result_id=result.id,
             outcome_set_id=outcome_set.id,
             status=OutcomeGenerationAttemptStatus.BLOCKED.value,
-            failure_reason="outcomes_transcript_unavailable",
-            metadata_json={"segment_count": result.segment_count},
+            failure_reason=failure_reason,
+            failure_source=failure_source,
+            metadata_json={
+                "segment_count": result.segment_count,
+                "transcript_status": result.transcript_status,
+                "failure_source": failure_source,
+            },
         )
         await db.flush()
         return outcome_set
@@ -98,6 +107,7 @@ async def ensure_outcomes_for_processing_result(
         ended_at = datetime.now(UTC)
         outcome_set.status = OutcomeSetStatus.BLOCKED.value
         outcome_set.failure_reason = "outcomes_generation_failed"
+        outcome_set.failure_source = None
         outcome_set.generated_at = None
         outcome_set.latency_ms = max(0, int((ended_at - started_at).total_seconds() * 1000))
         set_outcome_category_states(outcome_set, OutcomeCategoryState.BLOCKED.value)

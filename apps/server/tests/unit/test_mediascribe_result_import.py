@@ -1,5 +1,6 @@
 import pytest
 
+from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus
 from twobrain_rec_server.mediascribe.import_results import (
     MediaScribeResultValidationError,
     normalize_result,
@@ -40,3 +41,17 @@ def test_result_normalization_rejects_negative_timing() -> None:
     )
     with pytest.raises(MediaScribeResultValidationError):
         normalize_result(result)
+
+
+def test_explicit_unavailable_transcript_status_is_authoritative() -> None:
+    result = MediaScribeResult(
+        external_job_id="job_unavailable_with_rows",
+        transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE,
+        transcript=[MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="ignored", source_role="mic")],
+    )
+
+    normalized = normalize_result(result)
+
+    assert result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
+    assert normalized.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
+    assert normalized.transcript == []

@@ -10,6 +10,9 @@ from tests.fixtures.processing import create_finalized_meeting
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaScribeJob,
+    MeetingOutcomeGenerationAttempt,
+    MeetingOutcomeSet,
+    ProcessingAuditEvent,
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
@@ -17,6 +20,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
+    ProcessingAvailabilityStatus,
     ProcessingStatus,
     SummaryStatus,
 )
@@ -42,6 +46,7 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
         status_sequence=[MediaScribeJobStatus.READY],
         result=MediaScribeResult(
             external_job_id="job_happy",
+            transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             transcript=[MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="mic")],
             diarization=[
                 MediaScribeDiarizationSegment(
@@ -102,6 +107,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
         result=MediaScribeResult(
             external_job_id="job_e2e",
             language="en",
+            transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             summary_status=SummaryStatus.AVAILABLE,
             transcript=[
                 MediaScribeSegment(
@@ -191,6 +197,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
                 "job_ready_at": persisted_job.ready_at is not None,
                 "result_status": persisted_result.status,
                 "result_language": persisted_result.language,
+                "result_transcript_status": persisted_result.transcript_status,
                 "result_summary_status": persisted_result.summary_status,
                 "result_segment_count": persisted_result.segment_count,
                 "result_diarization_segment_count": persisted_result.diarization_segment_count,
@@ -226,6 +233,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
         "job_ready_at": True,
         "result_status": "imported",
         "result_language": "en",
+        "result_transcript_status": "available",
         "result_summary_status": "available",
         "result_segment_count": 2,
         "result_diarization_segment_count": 2,
@@ -251,3 +259,99 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
     assert review_payload["processing"]["diarization_available"] is True
     assert review_payload["transcript"]["available"] is True
     assert review_payload["speakers"]["available"] is True
+
+
+def test_ready_unavailable_no_speech_imports_processed_no_transcript_business_outcome(client) -> None:
+    finalized = create_finalized_meeting(client, "processing-no-recognizable-speech")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(
+        external_job_id="job_no_speech",
+        status_sequence=[MediaScribeJobStatus.READY],
+        result=MediaScribeResult(
+            external_job_id="job_no_speech",
+            transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE,
+            transcript_reason="no_recognizable_speech",
+            transcript=[],
+        ),
+    )
+
+    async def run_pipeline() -> dict[str, object]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=client.app_state["storage"],
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            imported = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=submitted.job,
+                mediascribe_client=fake_client,
+            )
+            persisted_workflow = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id))
+            persisted_result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            outcome_set = await db.scalar(select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id))
+            attempt = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
+            )
+            audit = await db.scalar(select(ProcessingAuditEvent).where(ProcessingAuditEvent.meeting_id == meeting_id))
+            transcripts = (await db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))).all()
+            return {
+                "import_status": imported.status.value,
+                "workflow_status": persisted_workflow.status,
+                "workflow_reason": persisted_workflow.last_reason_code,
+                "result_transcript_status": persisted_result.transcript_status,
+                "result_segment_count": persisted_result.segment_count,
+                "result_failure_reason": persisted_result.failure_reason,
+                "result_failure_source": persisted_result.failure_source,
+                "outcome_status": outcome_set.status,
+                "outcome_failure_reason": outcome_set.failure_reason,
+                "outcome_failure_source": outcome_set.failure_source,
+                "attempt_status": attempt.status,
+                "attempt_failure_reason": attempt.failure_reason,
+                "attempt_failure_source": attempt.failure_source,
+                "audit_event_type": audit.event_type,
+                "audit_metadata": audit.metadata_json,
+                "transcript_rows": len(transcripts),
+            }
+
+    persisted = asyncio.run(run_pipeline())
+
+    assert persisted == {
+        "import_status": "processed",
+        "workflow_status": "processed",
+        "workflow_reason": "no_recognizable_speech",
+        "result_transcript_status": "unavailable",
+        "result_segment_count": 0,
+        "result_failure_reason": "no_recognizable_speech",
+        "result_failure_source": "input_audio",
+        "outcome_status": "blocked",
+        "outcome_failure_reason": "no_recognizable_speech",
+        "outcome_failure_source": "input_audio",
+        "attempt_status": "blocked",
+        "attempt_failure_reason": "no_recognizable_speech",
+        "attempt_failure_source": "input_audio",
+        "audit_event_type": "processed_no_transcript",
+        "audit_metadata": {
+            "mediascribe_job_id": persisted["audit_metadata"]["mediascribe_job_id"],
+            "transcript_status": "unavailable",
+            "transcript_reason": "no_recognizable_speech",
+            "failure_reason": "no_recognizable_speech",
+            "failure_source": "input_audio",
+            "diagnostic_class": "processed_no_transcript",
+            "segment_count": 0,
+        },
+        "transcript_rows": 0,
+    }
