@@ -2,16 +2,17 @@
 
 Feature: `095-macos-permission-retention`
 
-Status: Planning and exploratory local validation. Do not treat this file as
-feature closeout until `tasks.md` items are implemented, checked, and validated.
+Status: Implemented and prepared for release `v2026.07.09.5` with local
+self-signed distribution boundaries.
 
 ## Lane
 
 - Risk / validation lane: high-risk feature.
 - Reason: macOS microphone and Screen/System Audio permissions, installer
   signing, permission onboarding UX, and app termination/relaunch behavior.
-- Release gate: no deploy and no public release. Local owner-machine installer
-  validation only.
+- Release gate: local self-signed owner-machine release path only. Public
+  download refresh is allowed for the current owner-machine update flow, but
+  this is not Developer ID/notarized public distribution readiness.
 
 ## Preliminary Local Evidence From 2026-07-09
 
@@ -56,23 +57,26 @@ marked `[X]`.
 | Second reinstall cycle | pass | Reinstalling the same local package succeeded; relaunch again logged `microphone=granted systemAudio=granted ready=true`, identity stayed on the same local certificate-root DR, and quit returned `quit_ok`. |
 | Static placeholder scan | pass | Only literal scan/checklist policy lines matched; no unresolved template fields remain in feature artifacts. |
 | Focused forbidden-content scan | pass with policy matches | Matches were policy strings in quickstart and existing redaction code (`token=` allowlist); no private keys, passwords, tokens, raw audio, transcripts, signed URLs, or private meeting content were added as evidence payloads. |
-| Full local CI | pass | `infra/scripts/ci-local.sh`: server tests `1136 passed, 4 skipped, 1 warning`; server lint passed; compile passed; deployment evidence scan passed; `ci_local_result=pass`. |
+| Release-version package build | pass | `GRAF_VERSION=2026.07.09.5 apps/macos/Scripts/validate-macos-permission-retention.sh build` created `apps/macos/.build/installer/graf-local-permission-retention.pkg`; package metadata reports `CFBundleShortVersionString=2026.07.09.5`, `CFBundleVersion=2026.07.09.5`, and bundle id `pro.2brain.graf`. |
+| Public download package refresh | pass | `apps/server/src/twobrain_rec_server/public/static/public/downloads/graf-local.pkg` was refreshed from the validated local package; SHA-256 matched `apps/macos/.build/installer/graf-local-permission-retention.pkg` at `9656d7202c48756ce3b49e4b01e1c0a394903ef885e59494c97a254b6e14c14d`. |
+| Release dry-run | pass | `infra/scripts/cd-remote.sh --dry-run --branch codex/095-macos-permission-retention-release`: `deploy_result=dry_run`, branch `codex/095-macos-permission-retention-release`, and planned gates `clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,compose_config_secret_scan,deploy_build_up,runtime_secret_env_scan,production_smoke,public_health`. |
+| Full local CI | pass | `infra/scripts/ci-local.sh`: server tests `1160 passed, 4 skipped, 1 warning`; server lint passed; compile passed; deployment evidence scan passed; `ci_local_result=pass`. |
 
-## Evidence To Collect During Implementation
+## Evidence Collected During Implementation
 
-- [ ] Static spec and forbidden-content scan.
-- [ ] Signing identity preflight.
-- [ ] Focused Swift tests from [quickstart.md](../quickstart.md).
-- [ ] Shell syntax checks for installer scripts.
-- [ ] Local signed package build with explicit local-self-signed flag.
-- [ ] First install and permission grant evidence.
-- [ ] Reinstall with same signing continuity identity.
-- [ ] Permission state snapshot after reinstall.
-- [ ] No permission onboarding modal when permissions are granted.
-- [ ] Quit/relaunch with normal granted-permission state.
-- [ ] Quit/relaunch with permission modal state visible or simulated.
-- [ ] Changelog/status evidence.
-- [ ] Full `infra/scripts/ci-local.sh` gate.
+- [X] Static spec and forbidden-content scan.
+- [X] Signing identity preflight.
+- [X] Focused Swift tests from [quickstart.md](../quickstart.md).
+- [X] Shell syntax checks for installer scripts.
+- [X] Local signed package build with explicit local-self-signed flag.
+- [X] First install and permission grant evidence.
+- [X] Reinstall with same signing continuity identity.
+- [X] Permission state snapshot after reinstall.
+- [X] No permission onboarding modal when permissions are granted.
+- [X] Quit/relaunch with normal granted-permission state.
+- [X] Quit/relaunch with permission modal state visible or simulated.
+- [X] Changelog/status evidence.
+- [X] Full `infra/scripts/ci-local.sh` gate.
 
 ## Public Release Boundary
 

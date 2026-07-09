@@ -19,7 +19,10 @@ metadata-only evidence остаются подробной историей ре
   cleanup so macOS quit/relaunch is not blocked. This is not public
   distribution readiness: Apple Developer account, Developer ID Application
   and Installer signing, notarization, stapling, and public Gatekeeper
-  validation remain separate release-gate work.
+  validation remain separate release-gate work. Release `v2026.07.09.5`
+  refreshes the public download package with the local self-signed build so
+  the owner machine can update from the hosted package while the Developer ID
+  path remains out of scope.
 - The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
   with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
   paths are kept only for cleanup and local data compatibility.
