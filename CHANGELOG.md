@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.09.17] - 2026-07-09
+
+
+### Добавлено
 - Feature `096-product-analytics-provider-rollout`: добавлен production-ready
   provider layer для product activation analytics: self-hosted PostHog stack
   как primary workspace, runtime provider config, secret-file inventory,
