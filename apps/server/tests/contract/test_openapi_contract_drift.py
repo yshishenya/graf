@@ -67,3 +67,4 @@ def test_meeting_detection_registry_openapi_contract_is_registered(client) -> No
     assert operation["operationId"] == "getMeetingDetectionTargetRegistry"
     assert "MeetingDetectionRegistryResponse" in json.dumps(operation, sort_keys=True)
     assert "If-None-Match" in json.dumps(operation, sort_keys=True)
+    assert "X-GRAF-Meeting-Detection-Signals" not in json.dumps(operation, sort_keys=True)

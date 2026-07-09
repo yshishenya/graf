@@ -100,6 +100,34 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         XCTAssertTrue(evaluation.signals.isEmpty)
     }
 
+    func testNonChromiumBrowserDecisionIsManualOnlyWithoutSafeMetadataAdapter() {
+        let evidence = BrowserTargetEvidence(
+            target: "Firefox",
+            status: .blocked,
+            microphoneSelected: "browser-default",
+            speakerSelected: "system-default",
+            localSpeechUsable: false,
+            remoteAudioUsable: false,
+            metadataAvailable: false,
+            failureReason: "non_chromium_metadata_adapter_unavailable",
+            checkedAt: Date(timeIntervalSince1970: 1_779_887_120)
+        )
+
+        let evaluation = BrowserMeetingServiceMatcher().evaluate(
+            evidence: evidence,
+            registry: Self.browserRegistry()
+        )
+
+        XCTAssertEqual(
+            evaluation.kind,
+            BrowserMeetingTargetEvaluationKind.manualOnly(
+                targetID: nil,
+                reason: "browser_metadata_unavailable"
+            )
+        )
+        XCTAssertTrue(evaluation.signals.isEmpty)
+    }
+
     func testBrowserTargetEvidenceEncodesMetadataOnlyContract() throws {
         let evidence = BrowserTargetEvidence(
             target: "chrome",

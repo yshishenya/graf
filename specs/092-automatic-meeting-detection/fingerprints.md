@@ -16,22 +16,22 @@ the evidence behind that registry.
 
 - **confirmed**: found in vendor/admin documentation, MDM/security allowlists,
   or multiple independent public technical lists.
-- **runtime_verified**: observed on the local Mac through Control Center
-  `sensor-indicators` unified-log events during a live app run. This confirms
-  that the Gilb-style detector can see start/end microphone attribution for the
-  target bundle, but first-release behavior still goes through GRAF's prompt,
-  debounce, stop, and settings gates.
-- **runtime_start_verified**: observed a target `mic:<bundle_id>` attribution
-  start on the local Mac, but did not capture the corresponding attribution
+- **runtime_verified**: observed on the local Mac through macOS `AudioHAL`
+  app-ownership unified-log events during a live app run. This confirms that the
+  Gilb-style detector can see active audio ownership for the target bundle, but
+  first-release behavior still goes through GRAF's prompt, debounce, stop, and
+  settings gates.
+- **runtime_start_verified**: observed target `AudioHAL` ownership for a bundle
+  start on the local Mac, but did not capture the corresponding ownership
   removal/end event in the same pass. This is useful evidence, but not enough
   to promote a target to Tier A without a later end-state check.
 - **package_verified**: extracted from the current macOS app package
   (`Contents/Info.plist` / code signature) without installing or launching the
   app. This confirms app identity, but does not yet prove live microphone
-  attribution during a meeting.
+  ownership during a meeting.
 - **installed_verified**: extracted from a locally installed app and optionally
   checked for idle launch behavior. This confirms app identity on the test Mac,
-  but does not yet prove live microphone attribution during a meeting.
+  but does not yet prove live audio ownership during a meeting.
 - **seed**: found in Gilb or comparable OSS allowlists and plausible for first
   planning, but still needs live QA on current app versions.
 - **verify_required**: the product exists or has desktop downloads, but public
@@ -48,7 +48,7 @@ names often differ from runtime process names.
 Vendor download links, `.app` names, `.dmg` / `.msi` package names, install
 directories, preference plist names, and desktop shortcuts are inventory hints.
 They are useful for QA setup but are not enough to promote a target to Tier A
-unless the runtime bundle ID/process and live microphone attribution are
+unless the runtime bundle ID/process and live audio ownership are
 verified.
 
 ## Package Verification Pass
@@ -62,7 +62,7 @@ login items.
 This pass verified package identity for Yandex Telemost, Контур.Толк, MTS Link,
 TrueConf, VK Calls, VINTEO, eXpress, Пачка, and Yandex Browser. It does not
 replace the runtime meeting test: each native meeting target still needs a real
-call and macOS microphone attribution check before Tier A auto-detection.
+call and macOS audio ownership check before Tier A auto-detection.
 
 ## Local Runtime Checks
 
@@ -73,11 +73,11 @@ checked without recording audio:
   executable `TrueConf Client`, version `8.5.4`, team `G39BQY9ZQ8`;
 - local metadata reports display name `TrueConf.app`, while the bundle path and
   `CFBundleDisplayName` remain `TrueConf Client`;
-- launching the app idle did not emit a Control Center `sensor-indicators`
-  microphone attribution event during the observation window;
-- no live-call attribution was captured in this pass, so TrueConf still needs a
-  real call or microphone-test run that emits `mic:org.trueconf.client` before
-  it can be promoted to Tier A.
+- launching the app idle did not emit an `AudioHAL` audio ownership event
+  during the observation window;
+- no live-call `AudioHAL` ownership was captured in this pass, so TrueConf still
+  needs a real call or microphone-test run that emits ownership for
+  `org.trueconf.client` before it can be promoted to Tier A.
 
 On 2026-07-08, the locally installed `/Applications/Yandex.Telemost.app` was
 checked through the same unified-log path:
@@ -85,52 +85,48 @@ checked through the same unified-log path:
 - installed app identity matches the package pass bundle ID:
   `ru.yandex.desktop.telemost`, executable `Yandex.Telemost`, local version
   `2.37.4`, team `477EAT77S3`;
-- opening the app emitted `cam:ru.yandex.desktop.telemost`, then
-  `mic:ru.yandex.desktop.telemost` and `cam:ru.yandex.desktop.telemost`;
-- non-allowlisted `mic:ai.krisp.krispMac` and `aud:ai.krisp.krispMac`
-  attributions were observed during the same run and are ignored by the
-  allowlist-only detector input;
-- quitting Telemost removed `mic:ru.yandex.desktop.telemost`; the stream then
-  moved through non-target attributions and finally to an empty attribution set.
+- starting a meeting emitted `AudioHAL` ownership for
+  `ru.yandex.desktop.telemost`;
+- non-allowlisted audio utility ownership remains ignored by the allowlist-only
+  detector input;
+- quitting Telemost removes the target ownership and drives end-state detection.
 
 On 2026-07-08, the locally installed `/Applications/VK Teams.app` was checked
 without recording audio:
 
 - installed app identity: `ru.mail.messenger-biz-avocado-desktop`, executable
   `VK Teams`, version `25.4.3`, team `4D6LA585PP`;
-- launching the app idle did not emit a Control Center `sensor-indicators`
-  microphone attribution event during the observation window;
-- live-call attribution was not captured because this local environment could
+- launching the app idle did not emit an `AudioHAL` audio ownership event
+  during the observation window;
+- live-call `AudioHAL` ownership was not captured because this local environment could
   not enter a VK Teams call without account authorization. It still needs a
-  signed-in call or microphone-test run that emits
-  `mic:ru.mail.messenger-biz-avocado-desktop` before Tier A.
+  signed-in call or microphone-test run that emits ownership for
+  `ru.mail.messenger-biz-avocado-desktop` before Tier A.
 
 On 2026-07-08, the locally installed `/Applications/zoom.us.app` was checked
 without recording audio:
 
 - installed app identity: `us.zoom.xos`, executable `zoom.us`, version
   `6.7.7.76486`, team `BJ4HAAB9B3`;
-- during the observation window, the user started a Zoom meeting and Control
-  Center emitted `cam:us.zoom.xos`, then `cam:us.zoom.xos` plus
-  `mic:us.zoom.xos`;
-- non-allowlisted `mic:ai.krisp.krispMac` and `aud:ai.krisp.krispMac`
-  attributions were also observed and are ignored by the allowlist-only
+- during the observation window, the user started a Zoom meeting and macOS
+  emitted ownership for `us.zoom.xos`;
+- non-allowlisted audio utility ownership is ignored by the allowlist-only
   detector input;
 - after closing Zoom with user approval, the stream moved to non-target
-  attributions and then to an empty attribution set, confirming target removal
+  ownership events and then to an empty ownership set, confirming target removal
   and end-state detection.
 
 ### Native-App Extrapolation
 
 Yandex Telemost and Zoom both produced the same usable macOS pattern:
-`mic:<allowlisted_bundle_id>` appears when the app starts using the microphone
-for a meeting-like session, and the allowlisted target disappears when the app
-leaves/quits. This supports a generic native-app detector for the first macOS
-release:
+`AudioHAL` ownership appears for the allowlisted bundle ID when the app starts
+using call audio, and the allowlisted target disappears when the app leaves or
+quits. This supports a generic native-app detector for the first macOS release:
 
 - keep a registry of approved native meeting bundle IDs;
-- parse all Control Center `sensor-indicators` attributions;
-- ignore every attribution not present in the approved native meeting allowlist;
+- parse all macOS `AudioHAL` app-ownership events;
+- ignore every ownership event not present in the approved native meeting
+  allowlist;
 - debounce start/end changes and feed GRAF prompt/auto-rule logic;
 - do not create app-specific detection rules unless a target later proves to
   have non-standard runtime behavior.
@@ -143,33 +139,33 @@ needs a separate WASAPI/process-session detector.
 
 | Target | macOS bundle ID seed | Status | Notes |
 | --- | --- | --- | --- |
-| Zoom | `us.zoom.xos` | runtime_verified | Present in Gilb and MDM/security allowlists. Local runtime check on 2026-07-08 from installed app `zoom.us.app` version `6.7.7.76486`, team `BJ4HAAB9B3`: observed `mic:us.zoom.xos` during user-started meeting and target removal/end-state after closing Zoom. |
+| Zoom | `us.zoom.xos` | runtime_verified | Present in Gilb and MDM/security allowlists. Local runtime check on 2026-07-08 from installed app `zoom.us.app` version `6.7.7.76486`, team `BJ4HAAB9B3`: observed `AudioHAL` ownership during user-started meeting and target removal/end-state after closing Zoom. |
 | Microsoft Teams classic | `com.microsoft.teams` | confirmed | Classic Teams bundle ID. |
 | Microsoft Teams new/work/school | `com.microsoft.teams2` | confirmed | New Teams bundle ID. |
 | Webex Meetings/App | `com.cisco.webexmeetingsapp`, `com.webex.meetingmanager` | seed | Present in Gilb and OSS screen-sharing lists; confirm current Webex app flavor during QA. |
 | Slack | `com.tinyspeck.slackmacgap` | confirmed | Slack admin docs use this domain for desktop configuration. |
-| FaceTime | `com.apple.FaceTime` | seed | Built-in Apple app; confirm mic attribution behavior. |
+| FaceTime | `com.apple.FaceTime` | seed | Built-in Apple app; confirm audio ownership behavior. |
 | Discord | `com.hnc.Discord` | seed | Present in Gilb/comparable OSS lists. |
 | Skype | `com.skype.skype` | seed | Present in Gilb; product status should be checked before Tier A. |
 | WhatsApp | `net.whatsapp.WhatsApp` | seed | Present in Gilb. |
 | VooV Meeting | `com.tencent.tencentmeeting` | seed | Present in Gilb; lower Russian-market priority. |
 | Tuple | `app.tuple.app` | seed | Present in Gilb; lower priority. |
 | Gather | `com.gather.Gather` | seed | Present in Gilb; lower priority. |
-| Yandex Telemost | `ru.yandex.desktop.telemost` | runtime_verified | Package-only verification on 2026-07-08 from official DMG (`2.36.4`) and local runtime verification from installed app (`2.37.4`): `Yandex.Telemost.app`, executable `Yandex.Telemost`, team `477EAT77S3`. Observed `mic:ru.yandex.desktop.telemost` start and removal on quit; non-allowlisted attributions are ignored. |
-| Контур.Толк | `kontur.talk` | package_verified | Package-only verification on 2026-07-08 from official DMG: `Толк.app`, executable `Толк`, version `3.6.0`, team `VEWAJ43QEN`. Live mic attribution still needs verification. |
+| Yandex Telemost | `ru.yandex.desktop.telemost` | runtime_verified | Package-only verification on 2026-07-08 from official DMG (`2.36.4`) and local runtime verification from installed app (`2.37.4`): `Yandex.Telemost.app`, executable `Yandex.Telemost`, team `477EAT77S3`. Observed `AudioHAL` ownership start during a meeting and target ownership removal on quit; non-allowlisted ownership events are ignored. |
+| Контур.Толк | `kontur.talk` | package_verified | Package-only verification on 2026-07-08 from official DMG: `Толк.app`, executable `Толк`, version `3.6.0`, team `VEWAJ43QEN`. Live audio ownership still needs verification. |
 | SaluteJazz / Jazz | `salutejazz.jazz-app` | seed | Present in Gilb; live bundle verification required. |
-| MTS Link / МТС Линк | `ru.weteams.desktop` | package_verified | Package-only verification on 2026-07-08 from official DMG: `МТС Линк.app`, executable `МТС Линк`, version `0.87.0`, team `ZZ645F8B29`. Live mic attribution still needs verification. |
-| TrueConf | `org.trueconf.client` | package_verified | Package-only verification on 2026-07-08 from official DMG and local installed app check: `TrueConf Client.app`, executable `TrueConf Client`, version `8.5.4`, team `G39BQY9ZQ8`. Idle launch did not emit mic attribution; live call attribution still needs verification. |
-| VK Calls | `com.vk.calls.native.1` | package_verified | Package-only verification on 2026-07-08 from official DMG: `VK Calls.app`, executable `VK Calls`, version `1.44.39190`, team `FD3X58MN39`. Live mic attribution still needs verification. |
-| VK Teams / VK WorkSpace | `ru.mail.messenger-biz-avocado-desktop` | installed_verified | Local installed app check on 2026-07-08: `VK Teams.app`, executable `VK Teams`, version `25.4.3`, team `4D6LA585PP`. Idle launch did not emit mic attribution; live call attribution still needs verification with an authorized account. |
+| MTS Link / МТС Линк | `ru.weteams.desktop` | package_verified | Package-only verification on 2026-07-08 from official DMG: `МТС Линк.app`, executable `МТС Линк`, version `0.87.0`, team `ZZ645F8B29`. Live audio ownership still needs verification. |
+| TrueConf | `org.trueconf.client` | package_verified | Package-only verification on 2026-07-08 from official DMG and local installed app check: `TrueConf Client.app`, executable `TrueConf Client`, version `8.5.4`, team `G39BQY9ZQ8`. Idle launch did not emit audio ownership; live call ownership still needs verification. |
+| VK Calls | `com.vk.calls.native.1` | package_verified | Package-only verification on 2026-07-08 from official DMG: `VK Calls.app`, executable `VK Calls`, version `1.44.39190`, team `FD3X58MN39`. Live audio ownership still needs verification. |
+| VK Teams / VK WorkSpace | `ru.mail.messenger-biz-avocado-desktop` | installed_verified | Local installed app check on 2026-07-08: `VK Teams.app`, executable `VK Teams`, version `25.4.3`, team `4D6LA585PP`. Idle launch did not emit audio ownership; live call ownership still needs verification with an authorized account. |
 | IVA Connect / IVA MCU / IVA One | unknown | verify_required | IVA Connect Desktop official docs confirm Windows, Linux, and macOS support; exact bundle ID needs live verification. |
 | VideoMost | unknown | verify_required | Official page confirms VideoMost Proton desktop Electron client; exact macOS bundle ID/package details need validation. |
-| VINTEO | `com.vinteo.desktop` | package_verified | Package-only verification on 2026-07-08 from official ARM64 DMG: `VinteoDesktop.app`, executable `VinteoDesktop`, version `4.27.0`, team `U47995Q86Q`. Live mic attribution still needs verification. |
+| VINTEO | `com.vinteo.desktop` | package_verified | Package-only verification on 2026-07-08 from official ARM64 DMG: `VinteoDesktop.app`, executable `VinteoDesktop`, version `4.27.0`, team `U47995Q86Q`. Live audio ownership still needs verification. |
 | Dion | unknown | verify_required | Official DION on-prem docs show macOS desktop packages such as `dion_5.21.0.dmg` and `Dion-5.21.0-universal.dmg`; bundle ID needs live verification. |
-| eXpress | `ru.unlimitedtech.express.desktop` | package_verified | Package-only verification on 2026-07-08 from official ARM64 DMG: `eXpress.app`, executable `eXpress`, version `3.68.38`, team `NUMFWSGG8Z`. Live mic attribution still needs verification. |
+| eXpress | `ru.unlimitedtech.express.desktop` | package_verified | Package-only verification on 2026-07-08 from official ARM64 DMG: `eXpress.app`, executable `eXpress`, version `3.68.38`, team `NUMFWSGG8Z`. Live audio ownership still needs verification. |
 | Pruffme | unknown | verify_required | Appears primarily web-first; desktop app fingerprint not confirmed. |
 | РОСЧАТ / MiniCom-PING | unknown | verify_required | Public RosChat repository exposes Windows/Linux packages; no trustworthy macOS app/bundle found in this pass. |
-| Пачка | `com.todesktop.240607opwvcw853` | package_verified | Package-only verification on 2026-07-08 from official ARM64 DMG: `Pachca.app`, executable `Pachca`, version `2.9.1`, team `GAU33Q8VQF`. Live mic attribution still needs verification. |
+| Пачка | `com.todesktop.240607opwvcw853` | package_verified | Package-only verification on 2026-07-08 from official ARM64 DMG: `Pachca.app`, executable `Pachca`, version `2.9.1`, team `GAU33Q8VQF`. Live audio ownership still needs verification. |
 | tada.team | unknown | verify_required | Official FAQ says desktop app is available on macOS via App Store and Windows/Linux via direct links; bundle ID needs live verification. |
 | ВКурсе | unknown | verify_required | No separate desktop bundle found; appears tied to IVA ecosystem or web/mobile surfaces. |
 
@@ -211,7 +207,7 @@ research when a future Windows desktop detector is planned.
 ## Browser App Fingerprints
 
 Browser bundle/process fingerprints are for browser metadata adapters only.
-They must not be added to the native mic-attribution allowlist.
+They must not be added to the native audio-ownership allowlist.
 
 | Browser | macOS bundle ID seed | Windows process seed | Status |
 | --- | --- | --- | --- |
@@ -252,8 +248,8 @@ Before any target is promoted to Tier A:
 
 1. Install or unpack the current app package for macOS.
 2. Read `CFBundleIdentifier` from `Contents/Info.plist`.
-3. Start a real call and confirm macOS `sensor-indicators` emits
-   `mic:<bundle_id>`.
+3. Start a real call and confirm macOS emits `AudioHAL` ownership for
+   `<bundle_id>`.
 4. Confirm process launch without mic does not prompt.
 5. On Windows future work, install the app and map the executable that owns the
    active WASAPI capture session, not just the launcher/updater executable.

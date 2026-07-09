@@ -9,19 +9,69 @@
 ## [Unreleased]
 
 ### Добавлено
+- Feature `092-automatic-meeting-detection`: macOS desktop теперь обновляет
+  meeting target registry не только на старте/active/auth, но и после wake и
+  периодически в фоне через `If-None-Match`, чтобы долгоживущие клиенты
+  подтягивали server-published allowlist без перезапуска.
+
+### Изменено
+- Feature `092-automatic-meeting-detection`: target registry теперь полностью
+  server-published; macOS app bundle больше не содержит локальную копию, а
+  клиент использует remote fetch и last-good cache.
+- Feature `092-automatic-meeting-detection`: prompt/auto-record eligibility
+  теперь проходит через общий `RecordingPrerequisiteGate`, а floating prompt
+  показывает безопасные строки про режим записи, источники, workspace policy
+  state и причину детекта без приватных meeting metadata.
+- Feature `092-automatic-meeting-detection`: `AudioHAL` unified-log stream
+  теперь сужен до RunningBoard-процесса перед матчингом `AudioHAL`; 10-минутный
+  local resource gate после изменения дал CPU p95 `0.0%`, CPU max `0.6%`,
+  RSS p95 `5.17 MB`.
+
+### Исправлено
+- Feature `092-automatic-meeting-detection`: свежая macOS установка без
+  сохраненного registry cache больше не останавливает auto-detection до remote
+  fetch; клиент запускает detector shell и сразу подтягивает registry с сервера.
+- Feature `092-automatic-meeting-detection`: rollback миграции registry больше
+  не оставляет сервер без published global registry, если до upgrade уже была
+  опубликованная версия.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `092-automatic-meeting-detection`: closeout evidence обновлен для
+  Microsoft Teams diagnostic-only решения, Firefox/non-Chromium browser
+  manual-only решения, resource gate и manual admin smoke ограничения.
+
+### Операции
+- Обновлен public static installer package для `/download`; SHA-256 package:
+  `57d8e80c2fc03a883aaf5345a820c593090aa1daad9fc51e967c2450a0929a65`.
+
+## [2026.07.09.3] - 2026-07-09
+
+
+### Добавлено
 - _Пока нет записей._
 
 ### Изменено
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `092-automatic-meeting-detection`: native macOS meeting detection
+  now uses `AudioHAL` app-ownership assertions as the primary Gilb-style signal
+  instead of `sensor-indicators` mic-attribution; Yandex
+  Telemost emits this ownership signal during an active meeting.
+- Feature `092-automatic-meeting-detection`: the local macOS installer now
+  packages the SwiftPM app resource bundle required by the installed `.app`.
 
 ### Безопасность
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Feature `092-automatic-meeting-detection`: refreshed allowlist,
+  fingerprint, telemetry, quickstart, and Spec Kit language to describe
+  `AudioHAL` ownership as the native-app detector signal and keep browser
+  meetings on the metadata + calendar/join-intent path.
 
 ### Операции
 - _Пока нет записей._
@@ -172,12 +222,12 @@
   lessons learned из public analytics closeout.
 - Feature `092-automatic-meeting-detection`: заложен серверный и desktop
   фундамент для registry-driven определения встреч: metadata-only telemetry,
-  admin review кандидатов и packaged seed registry для macOS без production
+  admin review кандидатов и server-published target registry без production
   rollout.
 - На macOS добавлены registry cache/fallback, VKS-candidate filter,
-  telemetry rollups/uploader, `sensor-indicators` parser, detector debounce/end
-  state, policy gates для prompt/target-scoped auto-record, local settings,
-  revoke affordance и metadata-only detector diagnostics.
+  telemetry rollups/uploader, primary `AudioHAL` app-ownership parser,
+  detector debounce/end state, policy gates для prompt/target-scoped
+  auto-record, local settings и metadata-only detector diagnostics.
 - Заложен первый browser foundation без расширения: browser metadata
   классифицируется только вместе с calendar/join intent, а landing/new/join,
   settings/device-test/media/voice-search и missing metadata остаются
@@ -192,17 +242,16 @@
   когда `.env` на сервере был обновлен, но контейнер продолжал работать с
   disabled defaults.
 - Feature `092-automatic-meeting-detection`: после критического review
-  исправлен runtime path macOS detector: packaged seed registry включен в
-  SwiftPM resources, `sensor-indicators` log stream подключен к detector
-  decisioning/prompt/auto-record path, parser поддерживает реальные
-  `mic:<bundle>` attribution tokens и removal events, unknown short-duration
-  candidates могут переоцениваться, а native browser mic attribution
-  подавляется до browser metadata + calendar/join intent path.
+  исправлен runtime path macOS detector: primary `AudioHAL` app-ownership
+  stream подключен к detector decisioning/prompt/auto-record path, parser
+  читает реальные `AudioHAL` ownership assertions,
+  unknown short-duration candidates могут переоцениваться, а native browser
+  audio ownership подавляется до browser metadata + calendar/join intent path.
 - Feature `092-automatic-meeting-detection`: усилены серверные safety gates для
   registry/admin/telemetry: browser targets обязаны иметь browser metadata и
   calendar/join intent, merge в неизвестный target id отклоняется, добавлены
   uniqueness constraints для candidates/non-target rules, workspace draft stale
-  guard не блокируется packaged seed, desktop uploader уважает
+  guard не блокирует публикацию registry, desktop uploader уважает
   `next_upload_after`.
 
 ### Безопасность
@@ -212,7 +261,7 @@
   login, cabinet, admin, API, legal и product/content-bearing surfaces.
 - Feature `092-automatic-meeting-detection`: telemetry/admin/diagnostics остаются
   metadata-only; low-score unknown apps redacted locally, Krisp/audio utilities
-  and generic browser mic attribution suppressed, remote registry cannot enable
+  and generic browser audio ownership suppressed, remote registry cannot enable
   behavior beyond compiled safety gates.
 - Feature `092-automatic-meeting-detection`: local telemetry rollups теперь
   принудительно очищаются по retention cap `14 days / 1 MB` при записи и перед

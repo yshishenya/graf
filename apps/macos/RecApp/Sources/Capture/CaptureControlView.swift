@@ -17,10 +17,8 @@ public struct CaptureControlView: View {
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let cabinetConfiguration: DesktopCabinetConfiguration?
     private let calendarPrompt: DesktopCalendarPrompt?
-    private let meetingDetectionMode: MeetingDetectionMode
     private let meetingDetectionStatus: String?
     private let meetingDetectionHealth: String?
-    private let meetingDetectionAutoRecordTargetIds: [String]
     private let routeSignalLevels: LiveRouteSignalLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
@@ -34,8 +32,6 @@ public struct CaptureControlView: View {
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let onCalendarPromptPrimary: (DesktopCalendarPrompt) -> Void
     private let onCalendarPromptDismiss: (DesktopCalendarPrompt) -> Void
-    private let onChangeMeetingDetectionMode: (MeetingDetectionMode) -> Void
-    private let onRevokeMeetingDetectionAutoRecord: (String) -> Void
 
     public init(
         session: CaptureSession?,
@@ -51,10 +47,8 @@ public struct CaptureControlView: View {
         uploadQueueItems: [DesktopUploadQueueItem] = [],
         cabinetConfiguration: DesktopCabinetConfiguration? = nil,
         calendarPrompt: DesktopCalendarPrompt? = nil,
-        meetingDetectionMode: MeetingDetectionMode = .detectAndAsk,
         meetingDetectionStatus: String? = nil,
         meetingDetectionHealth: String? = nil,
-        meetingDetectionAutoRecordTargetIds: [String] = [],
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
@@ -69,9 +63,7 @@ public struct CaptureControlView: View {
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
         onCalendarPromptPrimary: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
-        onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
-        onChangeMeetingDetectionMode: @escaping (MeetingDetectionMode) -> Void = { _ in },
-        onRevokeMeetingDetectionAutoRecord: @escaping (String) -> Void = { _ in }
+        onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in }
     ) {
         self.session = session
         self.blockedReason = blockedReason
@@ -86,10 +78,8 @@ public struct CaptureControlView: View {
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfiguration = cabinetConfiguration
         self.calendarPrompt = calendarPrompt
-        self.meetingDetectionMode = meetingDetectionMode
         self.meetingDetectionStatus = meetingDetectionStatus
         self.meetingDetectionHealth = meetingDetectionHealth
-        self.meetingDetectionAutoRecordTargetIds = meetingDetectionAutoRecordTargetIds
         self.routeSignalLevels = routeSignalLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
@@ -103,8 +93,6 @@ public struct CaptureControlView: View {
         self.onSupportIncidentReport = onSupportIncidentReport
         self.onCalendarPromptPrimary = onCalendarPromptPrimary
         self.onCalendarPromptDismiss = onCalendarPromptDismiss
-        self.onChangeMeetingDetectionMode = onChangeMeetingDetectionMode
-        self.onRevokeMeetingDetectionAutoRecord = onRevokeMeetingDetectionAutoRecord
     }
 
     public var body: some View {
@@ -175,38 +163,7 @@ public struct CaptureControlView: View {
                         )
                     )
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionStatus)
-
-                    Spacer(minLength: 8)
-
-                    Menu {
-                        Button("Включено") {
-                            onChangeMeetingDetectionMode(.detectAndAsk)
-                        }
-                        Button("Только наблюдать") {
-                            onChangeMeetingDetectionMode(.detectOnly)
-                        }
-                        Button("Отключено") {
-                            onChangeMeetingDetectionMode(.disabled)
-                        }
-                    } label: {
-                        Label(Self.meetingDetectionModeTitle(meetingDetectionMode), systemImage: "slider.horizontal.3")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionModeMenu)
                 }
-            }
-
-            ForEach(meetingDetectionAutoRecordTargetIds, id: \.self) { targetId in
-                Button {
-                    onRevokeMeetingDetectionAutoRecord(targetId)
-                } label: {
-                    Label(
-                        "\(SystemAudioStatusLabels.meetingDetectionRevokeAutoRecordTitle): \(targetId)",
-                        systemImage: "bell.slash"
-                    )
-                }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionRevokeAutoRecord)
             }
 
             if !recordingMicrophoneInputs.isEmpty || recordingMicrophoneSelection != nil {
@@ -345,17 +302,6 @@ public struct CaptureControlView: View {
         guard let configuration else { return nil }
         let link = configuration.reviewLink(for: item)
         return link.availability == .available ? link : nil
-    }
-
-    public static func meetingDetectionModeTitle(_ mode: MeetingDetectionMode) -> String {
-        switch mode {
-        case .detectAndAsk:
-            return "Включено"
-        case .detectOnly:
-            return "Только наблюдать"
-        case .disabled:
-            return "Отключено"
-        }
     }
 
     nonisolated public static func resolvedWebRTCAEC3Status(

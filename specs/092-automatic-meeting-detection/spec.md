@@ -73,11 +73,11 @@ Krisp, используй субагентов, подготовь максим�
 - Market coverage: Russian VKS products must be included alongside global
   conferencing products.
 - Native/installed app MVP strategy: follow the Gilb approach first. For
-  macOS apps, use Control Center unified-log `sensor-indicators` microphone
-  attribution, an allowlist of approved meeting-app bundle IDs, and debounce
-  as the primary app-activity detector. Do not require network, window-title,
-  power-assertion, or Accessibility joined-state evidence for the first native
-  app prompt path. If this produces unacceptable misses or false prompts, later
+  macOS apps, use passive RunningBoard/CoreAudio `AudioHAL` app ownership,
+  an allowlist of approved meeting-app bundle IDs, and debounce as the primary
+  app-activity detector. Do not require network, window-title, or Accessibility
+  joined-state evidence for the first native app prompt path. If this produces
+  unacceptable misses or false prompts, later
   planning may add those extra signals.
 
 ## Research Summary
@@ -117,15 +117,15 @@ Useful clean-room findings:
   meeting recording, with different vocabulary, indicators, and consent models.
   GRAF should similarly keep passive detection, prompt, and active recording
   visually distinct.
-- On macOS, Gilb detects meeting starts by streaming Apple unified-log
-  `sensor-indicators` changes from Control Center, parsing microphone
-  attributions, filtering by an allowlist of known meeting apps, and debouncing
-  changes before emitting `Started`, `AppsChanged`, and `Ended`.
+- On macOS, Gilb-style detection for GRAF means streaming Apple unified-log
+  `AudioHAL` app-ownership changes, parsing bundle ownership, filtering by an
+  allowlist of known meeting apps, and debouncing changes before emitting
+  `Started`, `AppsChanged`, and `Ended`.
 - For GRAF's first native/installed app implementation, this Gilb-style path is
-  the intended MVP detector: `mic:<bundle_id>` from an approved meeting app,
+  the intended MVP detector: `AudioHAL` ownership from an approved meeting app,
   after debounce and hard product gates, is enough to ask the user to record or
   honor a previously enabled target-scoped auto-record rule for that target.
-- Gilb intentionally omits browsers from its mic-attribution allowlist because
+- Gilb intentionally omits browsers from its native app allowlist because
   browsers create false positives from voice search and other in-page audio.
   For GRAF, browser meetings need a different path than "browser used mic".
 - Gilb uses a start countdown prompt before arming recording and a stop
@@ -201,8 +201,8 @@ Useful clean-room findings:
 Practical signal guidance from comparables:
 
 - Native Zoom/Teams/Webex and Russian installed clients should first use the
-  Gilb-style target-specific bundle allowlist plus stable macOS microphone
-  attribution. Known network, window, power-assertion, and Accessibility signals
+  Gilb-style target-specific bundle allowlist plus stable macOS `AudioHAL`
+  ownership. Known network, window, power-assertion, and Accessibility signals
   are Phase 2 improvement candidates, not first-release blockers.
 - The first Gilb-style app detector may prompt for some prejoin/device-test
   situations when an allowlisted app legitimately opens the microphone. That is
@@ -285,7 +285,7 @@ Findings:
   does not provide built-in meeting detection. GRAF needs a separate detector
   layer above capture.
 - macOS visibly indicates microphone use in Control Center, but public Apple
-  docs do not expose a stable meeting-detection API. Unified-log mic attribution
+  docs do not expose a stable meeting-detection API. Unified-log audio ownership
   is a useful but brittle signal and must be treated as adapter evidence with
   health/fallback behavior.
 - Chrome extensions can capture a specific tab through `chrome.tabCapture` only
@@ -404,13 +404,13 @@ settings controls to disable or revoke the rule.
 ### Candidate Confidence Levels
 
 - **Observed signal**: One detector saw something possibly relevant, such as a
-  Zoom process, a browser tab URL, a mic attribution, a network connection, or a
+  Zoom process, a browser tab URL, audio ownership, a network connection, or a
   current calendar event. This level is for diagnostics/evidence only.
 - **Weak candidate**: Signals suggest a possible meeting but may also be media,
   prejoin, settings, app launch, voice search, calendar noise, or generic
   browser activity. No user prompt.
 - **Prompt-eligible candidate**: For native/installed apps in the first release,
-  a stable Gilb-style `mic:<bundle_id>` attribution from an allowlisted approved
+  stable Gilb-style `AudioHAL` ownership from an approved allowlisted
   meeting app can be enough once hard gates pass. For browsers and non-Gilb
   paths, multiple signals still need to agree that the user is probably in an
   approved meeting target.
@@ -435,7 +435,7 @@ The detector may combine these signal families:
   screen, provider API session, macOS power assertion pattern, or user join
   intent.
 - **Live activity**: remote/system audio level, local microphone activity,
-  macOS mic/camera attribution, app network media connection, WebRTC session
+  macOS app audio ownership, app network media connection, WebRTC session
   evidence, or meeting adapter state.
 - **User/context action**: user clicked a calendar join prompt, opened a meeting
   URL from GRAF, selected a capture scope, or manually armed recording.
@@ -448,8 +448,8 @@ The detector may combine these signal families:
 ### Hard Decision Rules
 
 - A single generic signal MUST NOT make a candidate prompt-eligible. For the
-  first native/installed app MVP, a debounced macOS `mic:<bundle_id>`
-  attribution from an approved allowlisted meeting app counts as a combined
+  first native/installed app MVP, a debounced macOS `AudioHAL bundle ownership`
+  event from an approved allowlisted meeting app counts as a combined
   target-identity plus live-activity signal and MAY make the candidate
   prompt-eligible after hard gates pass.
 - A running process alone MUST NOT prompt or start recording.
@@ -470,7 +470,7 @@ The detector may combine these signal families:
 - A target-scoped auto-record rule MUST NOT bypass confidence, permission,
   visible-indicator, storage, policy, or suppression gates. For native apps,
   the first-release confidence gate may be the same debounced Gilb-style mic
-  attribution used for prompts.
+  audio ownership used for prompts.
 
 ## Target Support Policy
 
@@ -478,7 +478,7 @@ Initial macOS bundle ID seeds, future Windows executable/process seeds, browser
 bundle/process seeds, and browser meeting URL families are tracked in
 `specs/092-automatic-meeting-detection/fingerprints.md`. That appendix is
 research input for `$speckit-plan`, not final support evidence: Tier A promotion
-still requires live package/runtime verification, macOS `sensor-indicators`
+still requires live package/runtime verification, macOS `AudioHAL`
 evidence for native apps, and false-positive QA.
 
 ### Target Tiers
@@ -580,13 +580,13 @@ am not interrupted by false prompts.
 
 **Why this priority**: Native conferencing apps often run background helpers,
 launch screens and updaters. Treating process existence as a meeting would be
-noisy and unsafe, while Gilb-style microphone attribution gives a practical
+noisy and unsafe, while Gilb-style audio ownership gives a practical
 first signal that the app is actively using call hardware.
 
 **Independent Test**: Run native-app scenarios covering app launch, sign-in,
-idle state, stable `mic:<bundle_id>` attribution, attribution changes,
-attribution end, unsupported app, and target-scoped auto-record. Verify
-allowlisted mic attribution after debounce becomes prompt-eligible while process
+idle state, stable `AudioHAL` ownership, ownership changes,
+ownership end, unsupported app, and target-scoped auto-record. Verify
+allowlisted audio ownership after debounce becomes prompt-eligible while process
 existence alone does not.
 
 **Acceptance Scenarios**:
@@ -594,18 +594,18 @@ existence alone does not.
 1. **Given** Zoom or Teams is launched but no meeting is active, **When** the
    detector observes the process, **Then** it records at most a weak candidate
    and shows no recording prompt.
-2. **Given** macOS reports `mic:<bundle_id>` for an allowlisted native meeting
-   app, **When** the attribution remains stable for the configured debounce
+2. **Given** macOS reports `AudioHAL bundle ownership` for an allowlisted native meeting
+   app, **When** the ownership remains stable for the configured debounce
    window and hard gates pass, **Then** the candidate becomes prompt-eligible.
 3. **Given** an allowlisted native app briefly opens the microphone for less
-   than the debounce window, **When** the attribution disappears, **Then** GRAF
+   than the debounce window, **When** the ownership disappears, **Then** GRAF
    records metadata-only evidence and does not prompt.
 4. **Given** a prejoin or device-test screen in an allowlisted app uses the
    microphone long enough to pass the Gilb-style detector, **When** the prompt
    appears, **Then** the user can Skip/Dismiss and GRAF records this as evidence
    for future detector improvement rather than treating it as a privacy failure.
 5. **Given** a meeting app keeps helper processes alive after the call ends,
-   **When** macOS mic attribution for the allowlisted app ends, **Then** GRAF
+   **When** macOS audio ownership for the allowlisted app ends, **Then** GRAF
    clears or downgrades the candidate and does not keep prompting.
 6. **Given** a native target's adapter health is degraded or unsupported,
    **When** the user joins a meeting, **Then** manual recording remains
@@ -683,7 +683,7 @@ least one Russian native/installed client are evaluated for Tier A.
 3. **Given** IVA, TrueConf, VideoMost, VINTEO, Dion, eXpress, SaluteJazz/Jazz,
    or another Russian native/installed target has a macOS client or wrapper,
    **When** only process/app launch is visible, **Then** the candidate remains
-   weak until stable allowlisted microphone attribution appears.
+   weak until stable allowlisted audio ownership appears.
 4. **Given** a Russian VKS is accessed through a private corporate portal,
    **When** GRAF cannot validate the service-specific meeting pattern safely,
    **Then** it records metadata-only evidence and keeps manual recording
@@ -696,7 +696,7 @@ least one Russian native/installed client are evaluated for Tier A.
 As a privacy-conscious user, I want GRAF to avoid recording for media playback,
 app launches, prejoin tests, background browser activity, calendar noise, and
 arbitrary system audio, and to avoid prompts whenever the Gilb-style detector
-has no stable approved app microphone attribution.
+has no stable approved app audio ownership.
 
 **Why this priority**: False positives are the primary trust risk for a botless
 recorder. A recorder that prompts from ordinary audio will lose user trust even
@@ -704,7 +704,7 @@ if it does not auto-start.
 
 **Independent Test**: Run the false-positive matrix with detection enabled and
 verify zero recording starts. Verify zero prompts for non-meeting activity that
-does not produce stable allowlisted app microphone attribution; track
+does not produce stable allowlisted app audio ownership; track
 mic-using native-app prejoin/device-test prompts as prompt-quality evidence.
 
 **Acceptance Scenarios**:
@@ -717,7 +717,7 @@ mic-using native-app prejoin/device-test prompts as prompt-quality evidence.
    feature does not create an app/browser detection prompt beyond the existing
    calendar prompt rules.
 3. **Given** a meeting app opens settings, device test, waiting room, or prejoin
-   audio test, **When** no stable allowlisted microphone attribution appears,
+   audio test, **When** no stable allowlisted audio ownership appears,
    **Then** the candidate is blocked.
 4. **Given** an allowlisted native app opens the microphone in prejoin or device
    test long enough to match the Gilb-style detector, **When** a prompt appears,
@@ -777,7 +777,7 @@ matches my workflow and legal expectations.
 about recording. It is enabled by default for the first release, but it must be
 explainable, suppressible, and easy to turn off or narrow.
 
-**Independent Test**: Configure detection off, detect-only, detect-and-ask,
+**Independent Test**: Configure detect-only, detect-and-ask,
 target allowlists, target-scoped auto-record preferences, browser adapter
 health, prompt suppression, and workspace policy constraints. Verify runtime
 behavior matches settings.
@@ -786,16 +786,14 @@ behavior matches settings.
 
 1. **Given** a user completes onboarding or upgrades into the first release,
    **When** workspace policy permits recording, **Then** meeting detection
-   prompts are enabled by default in detect-and-ask mode and can be disabled or
+   prompts are enabled by default in detect-and-ask mode and can be turned off or
    changed in settings.
-2. **Given** meeting detection is disabled, **When** a supported meeting starts,
-   **Then** GRAF does not prompt and manual recording remains available.
-3. **Given** detect-only mode is enabled, **When** meeting candidates appear,
+2. **Given** detect-only mode is enabled, **When** meeting candidates appear,
    **Then** GRAF records metadata-only candidate decisions without prompting or
    recording.
-4. **Given** detect-and-ask mode is enabled, **When** prompt-eligible candidates
+3. **Given** detect-and-ask mode is enabled, **When** prompt-eligible candidates
    appear, **Then** GRAF prompts according to target and cooldown policy.
-5. **Given** a user chooses "do not ask again" for a specific event, target, or
+4. **Given** a user chooses "do not ask again" for a specific event, target, or
    service, **When** matching candidates recur, **Then** GRAF respects the
    suppression scope without disabling manual recording.
 6. **Given** a user has enabled "always record meetings from this app/service",
@@ -983,7 +981,7 @@ revoke the rule.
 - Google Meet/Teams/Zoom UI changes break DOM/title/URL assumptions.
 - Browser extension is missing, disabled, outdated, or denied host permission.
 - AppleScript/Accessibility access is denied or returns stale browser tabs.
-- macOS unified-log mic attribution changes or becomes unavailable.
+- macOS unified-log audio ownership changes or becomes unavailable.
 - Network evidence is unavailable due to permissions, VPN, proxy, firewall, or
   encrypted/private relay behavior.
 - Meeting service domains/ports change.
@@ -1012,8 +1010,8 @@ revoke the rule.
 
 - **FR-001**: The system MUST provide a macOS local meeting detector that can
   observe approved app and browser meeting candidates without starting capture.
-- **FR-002**: The detector MUST support at least three runtime modes:
-  `disabled`, `detect_only`, and `detect_and_ask`.
+- **FR-002**: The detector MUST support two runtime modes: `detect_only` and
+  `detect_and_ask`.
 - **FR-003**: `detect_and_ask` MUST be the first product rollout mode for this
   feature. Broad automatic recording MUST remain unavailable, but a
   target-scoped auto-record preference MAY be created when the user explicitly
@@ -1023,14 +1021,14 @@ revoke the rule.
 - **FR-005**: A candidate MUST NOT become prompt-eligible from a single weak
   signal such as process running, browser mic use, system audio activity,
   calendar time, or a generic browser tab URL. For native/installed apps,
-  debounced macOS microphone attribution from an approved allowlisted bundle is
+  debounced macOS audio ownership from an approved allowlisted bundle is
   not considered a weak generic signal in the first release.
 - **FR-006**: A prompt-eligible candidate MUST include at least one approved
   meeting context signal and at least one live activity or user join-intent
   signal, plus all hard safety gates. For native/installed apps, a stable
-  `mic:<bundle_id>` attribution from an approved allowlisted app satisfies both
+  `AudioHAL` ownership event from an approved allowlisted app satisfies both
   target identity and live app activity for the first Gilb-style MVP.
-  Non-allowlisted microphone/audio attributions MUST be ignored by the detector
+  Non-allowlisted audio ownership events MUST be ignored by the detector
   decision input.
 - **FR-007**: Hard safety gates MUST include workspace recording policy, user
   acknowledgement, required permissions, visible local indicator availability,
@@ -1044,9 +1042,9 @@ revoke the rule.
   confidence rules, false-positive blockers, QA status, and user-facing support
   label.
 - **FR-010**: Native-app detection MUST distinguish app/process launch from
-  app activity by using Gilb-style macOS `sensor-indicators` microphone
-  attribution for allowlisted bundle IDs; generic process existence alone MUST
-  remain insufficient.
+  app activity by using Gilb-style macOS `AudioHAL` app ownership for
+  allowlisted bundle IDs; generic process existence alone MUST remain
+  insufficient.
 - **FR-011**: Browser detection MUST distinguish meeting pages from landing,
   new, join, settings, help, account, permission, device-test, and post-meeting
   pages.
@@ -1074,7 +1072,7 @@ revoke the rule.
   arbitrary background audio.
 - **FR-019**: Microphone/camera attribution MAY be used as live activity
   evidence. For allowlisted native/installed apps in the first release, stable
-  macOS microphone attribution is the primary app-activity detector; browser
+  macOS audio ownership is the primary app-activity detector; browser
   mic/camera attribution alone MUST remain weak because browsers host
   non-meeting activity.
 - **FR-020**: Network evidence MAY be used for native-app or browser-service
@@ -1116,8 +1114,8 @@ revoke the rule.
   existing diagnostic redaction discipline before any evidence is committed or
   exported.
 - **FR-033**: The detector MUST provide a user-visible health/settings surface
-  for disabled, detect-only, monitoring, prompt-capable, degraded, permission
-  needed, unsupported target, and adapter unavailable states.
+  for detect-only, auto-record off, monitoring, prompt-capable, degraded,
+  permission needed, unsupported target, and adapter unavailable states.
 - **FR-034**: Prompt UX MUST be keyboard operable, screen-reader labeled,
   reduced-motion safe, compact-width safe, and localized for Russian product
   surfaces without overlapping text or controls.
@@ -1151,8 +1149,8 @@ revoke the rule.
   minimum metadata needed for detection and evidence, with permission and
   redaction behavior documented before implementation.
 - **FR-043**: Native-app confidence rules MAY use macOS power assertions,
-  window owner/title classes, mic attribution, and media network categories,
-  but the first release SHOULD use Gilb-style mic attribution as the primary
+  window owner/title classes, audio ownership, and media network categories,
+  but the first release SHOULD use Gilb-style audio ownership as the primary
   native-app rule. Power/window/network signals are later improvements and MUST
   be validated per target before affecting decisions.
 - **FR-044**: Meeting detection prompts MUST be enabled by default for the
@@ -1174,15 +1172,16 @@ revoke the rule.
   and the resulting rule MUST be target-scoped and reversible in settings.
 - **FR-048**: The native-app detector MUST emit health-degraded evidence and
   fall back to manual recording if `/usr/bin/log stream` cannot start, the
-  Control Center `sensor-indicators` predicate stops producing parseable
-  attribution events, or macOS changes the private unified-log behavior.
+  `AudioHAL` predicate stops producing parseable ownership events, or macOS
+  changes the private unified-log behavior.
 - **FR-049**: The target registry MUST be deliverable as a versioned remote JSON
-  document with a packaged seed and local cache fallback, so adding or changing
-  target support state does not require rebuilding the macOS client.
+  document with a last-good local cache, so adding or changing target support
+  state does not require rebuilding the macOS client.
 - **FR-050**: The client MUST validate registry schema version, target modes,
   target identifiers, adapter types, platform fields, and safety constraints
   before applying a remote registry. Invalid or unsafe registries MUST fail
-  closed to the previous good registry or packaged seed.
+  closed to the previous good registry cache or to no automatic detection when
+  no valid cache exists.
 - **FR-051**: The remote registry MUST NOT be able to disable compiled safety
   gates such as prompt requirements, target-scoped auto-record opt-in, visible
   local recording state, one-action Stop, metadata-only diagnostics, or
@@ -1190,7 +1189,7 @@ revoke the rule.
 - **FR-052**: The detector MUST maintain lightweight local telemetry rollups for
   known target health, blocked/missed candidates, prompt outcomes, adapter
   health, resource overhead, and unknown native-app discovery candidates.
-- **FR-053**: Unknown native apps observed through stable microphone attribution
+- **FR-053**: Unknown native apps observed through stable audio ownership
   MUST remain non-prompting and non-recording until a reviewed registry update
   and target-specific QA promote them to a supported mode.
 - **FR-054**: Unknown app identifiers such as raw bundle IDs, display names,
@@ -1201,8 +1200,8 @@ revoke the rule.
   metadata-only aggregates rather than raw event logs and MUST respect rate
   limits, local retention caps, backoff, and the resource gates.
 - **FR-056**: Registry fetch and telemetry upload MUST be optional for detection
-  safety. Network failure MUST NOT block manual recording or the packaged-seed
-  detector path.
+  safety. Network failure MUST NOT block manual recording; automatic detection
+  may use a last-good registry cache and otherwise must fail closed.
 - **FR-057**: The registry and telemetry design MUST follow
   `specs/092-automatic-meeting-detection/registry-telemetry.md`.
 - **FR-058**: The first server implementation MUST provide an authenticated
@@ -1221,14 +1220,14 @@ revoke the rule.
 ### Key Entities *(include if feature involves data)*
 
 - **Meeting Detection Policy**: User/workspace settings for default-enabled
-  detect-and-ask, disabled, detect-only, target tiers, suppression defaults,
+  detect-and-ask, detect-only, target tiers, suppression defaults,
   prompt controls, and target-scoped auto-record eligibility.
 - **Approved Meeting Target**: A native app, browser service, browser family,
   or provider target with support tier, safe display label, required adapter
   permissions, confidence rules, QA status, and fallback behavior.
 - **Meeting Target Registry Document**: Versioned remote or packaged JSON
   document listing known targets, platform identities, support modes, evidence
-  state, required signals, labels, client compatibility, and safety metadata.
+  state, required signals, labels, and safety metadata.
 - **Registry Cache**: Last valid applied remote registry stored locally so the
   detector can continue with known-good behavior when the server or network is
   unavailable.
@@ -1265,7 +1264,7 @@ revoke the rule.
   health, unknown discovery candidates, and resource metrics after redaction and
   classification.
 - **Unknown Native App Discovery Candidate**: A non-prompting local observation
-  of stable `mic:<bundle_id>` attribution from a non-registry native app that may
+  of stable `AudioHAL` ownership from a non-registry native app that may
   guide future research, registry updates, or QA.
 - **VKS-Candidate Filter**: Client-side scoring and denylist policy that decides
   whether an unknown microphone-using app is likely enough to be a meeting/VKS
@@ -1283,7 +1282,7 @@ revoke the rule.
   validated runs, with zero hidden recording starts.
 - **SC-002**: In the required false-positive matrix, GRAF starts zero recordings
   and shows zero record prompts for media playback, notifications, app launch
-  without stable allowlisted mic attribution, browser landing pages, voice
+  without stable allowlisted audio ownership, browser landing pages, voice
   search, inactive tabs, calendar-only events, and unsupported targets. Native
   prejoin/device-test cases that open the microphone long enough to match the
   Gilb-style detector are tracked as known prompt-quality evidence for Phase 2
@@ -1300,7 +1299,7 @@ revoke the rule.
   manual-only with explicit evidence. Unsupported browsers are not silently
   claimed.
 - **SC-006**: Native-app validation covers at least Zoom and Microsoft Teams
-  through Gilb-style macOS microphone attribution, and planning must either
+  through Gilb-style macOS audio ownership, and planning must either
   validate or explicitly defer Webex, Slack/Discord, and each enumerated
   Russian meeting target with a reason code.
 - **SC-007**: Diagnostic/evidence forbidden-content scans find zero raw audio,
@@ -1321,7 +1320,7 @@ revoke the rule.
   as supported without evidence.
 - **SC-012**: At least one Russian browser service and one Russian native or
   installed target are evaluated for Tier A; the native/installed target is
-  evaluated first by allowlisted bundle ID plus stable macOS mic attribution.
+  evaluated first by allowlisted bundle ID plus stable macOS audio ownership.
   If either cannot be Tier A, the closeout records why and keeps the target in
   detect-only, manual-only, or deferred state.
 - **SC-013**: Target-scoped auto-record starts only for the exact app/service
@@ -1332,13 +1331,13 @@ revoke the rule.
   to non-blocking onboarding/settings guidance.
 - **SC-015**: Registry validation tests prove malformed, incompatible, unsafe,
   expired, or downgraded remote registries are rejected and the client keeps the
-  previous good registry or packaged seed.
+  previous good registry cache or fails closed when no valid cache exists.
 - **SC-016**: Telemetry forbidden-content scans find zero raw unified-log lines,
   raw audio, transcript text, private meeting content, full private URLs,
   passcodes, participant emails, raw remote IP addresses, credentials, tokens,
   signed URLs, passwords, secret paths, or full local app paths.
-- **SC-017**: Unknown-app discovery tests prove stable unknown native mic
-  attribution that fails the VKS-candidate filter creates only local aggregate
+- **SC-017**: Unknown-app discovery tests prove stable unknown native audio
+  ownership that fails the VKS-candidate filter creates only local aggregate
   evidence, uploads no raw app identity, and never creates a prompt, recording,
   or target-scoped auto-record rule.
 - **SC-018**: Resource validation shows registry refresh, event parsing,
@@ -1363,7 +1362,7 @@ revoke the rule.
   broad automatic recording is not. The only first-release automatic recording
   path is a user-enabled target-scoped preference created from a prompt.
 - For native/installed apps, the first release intentionally follows Gilb's
-  macOS unified-log microphone attribution model before adding network,
+  macOS unified-log audio ownership model before adding network,
   window-title, power-assertion, or Accessibility joined-state signals.
 - Calendar connection, if present, is useful for context and confidence but is
   not required for manual recording or all prompt-eligible detections.
@@ -1415,13 +1414,12 @@ Resolved in the 2026-07-08 clarification session:
    consent-blocking product prompts. The user warns participants verbally.
 5. Detection prompts are enabled by default and can be changed in settings.
 6. Native/installed app detection should initially match Gilb: macOS
-   Control Center `sensor-indicators` mic attribution, approved app allowlist,
-   debounce, health-degraded fallback, and prompt/auto-rule only after hard
-   gates. More precise native signals are future improvements, not MVP blockers.
-7. The target list should be maintained as a broad remote/cache/seed registry,
-   while client telemetry should use lightweight metadata-only rollups to
-   identify working, failing, and missing targets without broadening recording
-   behavior.
+   `AudioHAL` app ownership, approved app allowlist, debounce, health-degraded
+   fallback, and prompt/auto-rule only after hard gates.
+7. The target list should be maintained as a broad server-published registry
+   with a last-good client cache, while client telemetry should use lightweight
+   metadata-only rollups to identify working, failing, and missing targets
+   without broadening recording behavior.
 8. Meeting-detection telemetry should be uploaded automatically to the server for
    admin review only after client-side VKS-candidate filtering; the product must
    not upload all microphone apps or the user's app inventory.
@@ -1430,7 +1428,7 @@ Resolved for `$speckit-plan` on 2026-07-08:
 
 1. First Tier A native validation targets are Zoom and Yandex Telemost native.
    Yandex Telemost is the first Russian native/installed Tier A attempt because
-   local runtime start/end mic attribution is already verified. Microsoft Teams
+   local runtime start/end audio ownership is already verified. Microsoft Teams
    stays required for global validation but is not the first Russian target.
 2. First Russian browser Tier A attempt is Yandex Telemost web in Chromium-family
    metadata surfaces, with Yandex Browser included in the browser matrix if the
@@ -1442,11 +1440,11 @@ Resolved for `$speckit-plan` on 2026-07-08:
    `serviceFamily + browserFamily` for the first release. Workspace domain may
    become a later narrowing key for enterprise/custom domains, but it is not the
    default first-release scope.
-4. The first native detector parser contract is the Gilb-style Control Center
-   `sensor-indicators` stream. Start debounce is 5 seconds of stable
-   `mic:<bundle_id>` attribution, end grace is 15 seconds after attribution
-   removal, and sub-5-second observations are telemetry short tests rather than
-   prompt triggers. CI uses synthetic ndjson fixtures for attribution start,
+4. The first native detector parser contract is the Gilb-style `AudioHAL`
+   ownership stream. Start debounce is 5 seconds of stable bundle ownership,
+   end grace is 15 seconds after ownership removal or an inactive ownership
+   event, and sub-5-second observations are telemetry short tests rather than
+   prompt triggers. CI uses synthetic ndjson fixtures for ownership start,
    update, unknown app, non-target app, parser failure, and end events; live
    macOS log streaming remains manual QA evidence.
 5. The first implementation slice is server/admin/registry telemetry foundation:

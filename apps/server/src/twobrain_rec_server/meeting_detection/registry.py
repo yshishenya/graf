@@ -6,7 +6,6 @@ import re
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -63,7 +62,7 @@ ALLOWED_EVIDENCE = {
     "future_windows",
 }
 ALLOWED_REQUIRED_SIGNALS = {
-    "macos_sensor_indicators_mic",
+    "macos_audio_hal_assertion",
     "browser_metadata",
     "calendar_or_join_intent",
     "windows_future_adapter",
@@ -81,13 +80,6 @@ ALLOWED_NON_TARGET_RULE_KINDS = {
 ALLOWED_NON_TARGET_PLATFORMS = {"macos", "windows", "browser"}
 PROMPT_EVIDENCE = {"runtime_verified"}
 CACHE_CONTROL = "private, max-age=86400"
-
-
-def load_packaged_seed_registry(seed_path: Path | None = None) -> dict[str, Any]:
-    path = seed_path or _packaged_seed_registry_path()
-    if not path.exists():
-        raise MeetingTargetRegistryError(f"packaged seed registry is missing: {path}")
-    return validate_registry_document(json.loads(path.read_text(encoding="utf-8")))
 
 
 def validate_registry_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -154,9 +146,6 @@ async def get_latest_published_registry(
 ) -> PublishedRegistryDocument:
     row = await _latest_published_registry_row(db, workspace_id=workspace_id)
     if row is None:
-        await seed_packaged_registry_if_missing(db)
-        row = await _latest_published_registry_row(db, workspace_id=workspace_id)
-    if row is None:
         raise MeetingTargetRegistryError("published registry is unavailable")
     document = await _export_document_with_non_target_rules(
         db,
@@ -170,32 +159,6 @@ async def get_latest_published_registry(
         etag=etag,
         registry_version_id=row.id,
     )
-
-
-async def seed_packaged_registry_if_missing(db: AsyncSession) -> MeetingTargetRegistryVersion:
-    existing = await db.scalar(
-        select(MeetingTargetRegistryVersion).where(
-            MeetingTargetRegistryVersion.workspace_id.is_(None),
-            MeetingTargetRegistryVersion.status == "published",
-        )
-    )
-    if existing is not None:
-        return existing
-    document = load_packaged_seed_registry()
-    row = MeetingTargetRegistryVersion(
-        workspace_id=None,
-        registry_version=document["registryVersion"],
-        schema_version=document["schemaVersion"],
-        status="published",
-        source="packaged_seed",
-        published_at=datetime.now(UTC),
-        document_json=document,
-        etag=registry_etag(document),
-    )
-    db.add(row)
-    await db.flush()
-    await _replace_registry_entries(db, row=row, document=document)
-    return row
 
 
 async def build_registry_draft_document(
@@ -339,7 +302,7 @@ def _validate_target(target: Any, *, seen_ids: set[str]) -> None:
         if (
             "browser_metadata" not in signal_set
             or "calendar_or_join_intent" not in signal_set
-            or "macos_sensor_indicators_mic" in signal_set
+            or "macos_audio_hal_assertion" in signal_set
             or not target.get("browserServicePatterns")
         ):
             raise MeetingTargetRegistryError(
@@ -523,11 +486,3 @@ async def _supersede_workspace_registry_versions(
     ).all()
     for row in rows:
         row.status = "superseded"
-
-
-def _packaged_seed_registry_path() -> Path:
-    for parent in Path(__file__).resolve().parents:
-        path = parent / "apps" / "macos" / "RecApp" / "Resources" / "meeting-target-registry.seed.json"
-        if path.exists():
-            return path
-    return Path(__file__).resolve().parents[5] / "apps" / "macos" / "RecApp" / "Resources" / "meeting-target-registry.seed.json"

@@ -131,7 +131,7 @@ public enum MeetingTargetRegistryValidator {
             let requiredSignals = Set(target.requiredSignals)
             guard requiredSignals.contains(.browserMetadata),
                   requiredSignals.contains(.calendarOrJoinIntent),
-                  !requiredSignals.contains(.macOSSensorIndicatorsMic),
+                  !requiredSignals.contains(.macOSAudioHALAssertion),
                   !target.browserServicePatterns.isEmpty
             else {
                 throw MeetingTargetRegistryError.unsafeBrowserTarget(target.id)
@@ -163,7 +163,6 @@ public final class MeetingTargetRegistryStore: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
 
     private let cacheURL: URL
-    private let seedData: Data
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private let clock: Clock
@@ -171,13 +170,11 @@ public final class MeetingTargetRegistryStore: @unchecked Sendable {
 
     public init(
         cacheURL: URL,
-        seedData: Data,
         decoder: JSONDecoder = MeetingDetectionCoding.decoder(),
         encoder: JSONEncoder = MeetingDetectionCoding.encoder(),
         clock: @escaping Clock = Date.init
     ) {
         self.cacheURL = cacheURL
-        self.seedData = seedData
         self.decoder = decoder
         self.encoder = encoder
         self.clock = clock
@@ -204,12 +201,7 @@ public final class MeetingTargetRegistryStore: @unchecked Sendable {
                     etag: cache.etag ?? cache.registry.etag
                 )
             }
-            let seed = try decodeValidatedRegistry(from: seedData, now: clock(), allowExpired: true)
-            return MeetingTargetRegistryResolution(
-                document: seed,
-                source: .packagedSeed,
-                etag: seed.etag
-            )
+            throw MeetingTargetRegistryError.noUsableRegistry
         }
     }
 

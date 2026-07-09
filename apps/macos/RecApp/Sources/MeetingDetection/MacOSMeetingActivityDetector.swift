@@ -1,7 +1,7 @@
 import Foundation
 import TwoBrainRecShared
 
-public struct MacOSMicAttributionLogStreamConfiguration: Equatable, Sendable {
+public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
     public let executableURL: URL
     public let arguments: [String]
 
@@ -12,7 +12,7 @@ public struct MacOSMicAttributionLogStreamConfiguration: Equatable, Sendable {
             "--style",
             "compact",
             "--predicate",
-            "eventMessage CONTAINS[c] 'sensor-indicators' OR eventMessage CONTAINS[c] 'sensor indicators'"
+            "(process == 'runningboardd' OR process == 'RunningBoard') AND (eventMessage CONTAINS[c] 'AudioHAL' OR composedMessage CONTAINS[c] 'AudioHAL')"
         ]
     ) {
         self.executableURL = executableURL
@@ -41,7 +41,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
     private let debounceSeconds: TimeInterval
     private let endGraceSeconds: TimeInterval
     private let clock: Clock
-    private var trackedEvents: [String: TrackedMicAttribution] = [:]
+    private var trackedEvents: [String: TrackedAudioOwnership] = [:]
     private var emittedBundles: Set<String> = []
 
     public init(
@@ -59,7 +59,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
     }
 
     public func handle(
-        event: MacOSMicAttributionEvent,
+        event: MacOSAudioOwnershipEvent,
         registry: MeetingTargetRegistryDocument,
         settings: MeetingDetectionSettings,
         prerequisites: MeetingDetectionCapturePrerequisites = MeetingDetectionCapturePrerequisites()
@@ -72,7 +72,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
                 tracked.stableObservationCount += 1
                 trackedEvents[event.bundleID] = tracked
             } else {
-                trackedEvents[event.bundleID] = TrackedMicAttribution(event: event)
+                trackedEvents[event.bundleID] = TrackedAudioOwnership(event: event)
             }
             return []
         case .inactive:
@@ -147,7 +147,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
     }
 
     private func outputForStableEvent(
-        _ tracked: TrackedMicAttribution,
+        _ tracked: TrackedAudioOwnership,
         activeUntil: Date,
         registry: MeetingTargetRegistryDocument,
         settings: MeetingDetectionSettings,
@@ -213,15 +213,15 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
     }
 }
 
-private struct TrackedMicAttribution: Sendable {
+private struct TrackedAudioOwnership: Sendable {
     let firstObservedAt: Date
-    var latestEvent: MacOSMicAttributionEvent
+    var latestEvent: MacOSAudioOwnershipEvent
     var inactiveAt: Date?
     var stableObservationCount: Int
 
     var bundleID: String { latestEvent.bundleID }
 
-    init(event: MacOSMicAttributionEvent) {
+    init(event: MacOSAudioOwnershipEvent) {
         firstObservedAt = event.observedAt
         latestEvent = event
         inactiveAt = nil

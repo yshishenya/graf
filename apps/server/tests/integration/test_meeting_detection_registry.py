@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.contract.test_meeting_detection_api_contract import meeting_detection_payload
@@ -19,7 +19,6 @@ from twobrain_rec_server.db.models import (
     Workspace,
 )
 from twobrain_rec_server.meeting_detection.registry import (
-    load_packaged_seed_registry,
     registry_entries,
     registry_etag,
 )
@@ -57,37 +56,71 @@ def _create_diagnostic_draft(client, candidate_id: str) -> dict:
     return response.json()["registry_draft"]
 
 
-def test_registry_fetch_seeds_published_registry_and_supports_etag_cache(client) -> None:
+def test_registry_fetch_reads_published_registry_and_supports_etag_cache(client) -> None:
     response = client.get(REGISTRY_PATH, headers=auth_headers())
     body = response.json()
     etag = response.headers["etag"]
 
-    async def load_seed_rows() -> tuple[str | None, int]:
+    async def load_registry_rows() -> tuple[str | None, int]:
         async with client.app_state["sessionmaker"]() as db:
             row = await db.scalar(
                 select(MeetingTargetRegistryVersion).where(
-                    MeetingTargetRegistryVersion.source == "packaged_seed"
+                    MeetingTargetRegistryVersion.source == "migration"
                 )
             )
             entries = (await db.scalars(select(MeetingTargetRegistryEntry))).all()
             return row.status if row else None, len(entries)
 
-    seed_status, entry_count = asyncio.run(load_seed_rows())
+    registry_status, entry_count = asyncio.run(load_registry_rows())
     target_ids = {target["id"] for target in body["targets"]}
+    required_signals = {
+        signal
+        for target in body["targets"]
+        for signal in target["requiredSignals"]
+    }
 
     assert response.status_code == 200
-    assert body["registryVersion"] == "2026.07.08.1"
+    assert body["registryVersion"] == "2026.07.09.4"
     assert body["etag"] == etag.strip('"')
     assert body["nonTargetRules"] == []
     assert {"zoom", "yandex_telemost"}.issubset(target_ids)
+    assert "macos_audio_hal_assertion" in required_signals
     assert response.headers["cache-control"] == "private, max-age=86400"
-    assert response.headers["x-graf-registry-version"] == "2026.07.08.1"
-    assert seed_status == "published"
+    assert response.headers["x-graf-registry-version"] == "2026.07.09.4"
+    assert "vary" not in response.headers
+    assert registry_status == "published"
     assert entry_count == len(body["targets"])
 
     cached = client.get(REGISTRY_PATH, headers=auth_headers() | {"If-None-Match": etag})
     assert cached.status_code == 304
     assert cached.text == ""
+
+
+def test_registry_fetch_returns_canonical_signals_without_capability_header(client) -> None:
+    response = client.get(REGISTRY_PATH, headers=auth_headers())
+    signals = {
+        signal
+        for target in response.json()["targets"]
+        for signal in target["requiredSignals"]
+    }
+
+    assert response.status_code == 200
+    assert "macos_audio_hal_assertion" in signals
+
+
+def test_registry_fetch_does_not_auto_seed_missing_registry(client) -> None:
+    async def delete_registries() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await db.execute(delete(MeetingTargetRegistryEntry))
+            await db.execute(delete(MeetingTargetRegistryVersion))
+            await db.commit()
+
+    asyncio.run(delete_registries())
+
+    response = client.get(REGISTRY_PATH, headers=auth_headers())
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "meeting_detection_registry_unavailable"
 
 
 def test_admin_can_publish_diagnostic_draft_and_desktop_fetches_it(client) -> None:
@@ -160,13 +193,31 @@ def test_non_target_rules_are_exported_in_registry_without_secret_content(client
             "reasonCode": "admin_marked_non_target",
         }
     ]
-    assert "passcode" not in str(after.json()).lower()
-    assert "audio" not in str(after.json()).lower()
+    exported = str(after.json()).lower()
+    for forbidden in (
+        "passcode",
+        "transcript",
+        "audio_url",
+        "audiourl",
+        "audio_bytes",
+        "audiobytes",
+        "raw_audio",
+        "rawaudio",
+    ):
+        assert forbidden not in exported
 
 
 def test_registry_and_candidate_queries_ignore_foreign_workspace_rows(client) -> None:
     async def seed_foreign_rows() -> None:
-        document = deepcopy(load_packaged_seed_registry())
+        async with client.app_state["sessionmaker"]() as db:
+            global_row = await db.scalar(
+                select(MeetingTargetRegistryVersion).where(
+                    MeetingTargetRegistryVersion.workspace_id.is_(None),
+                    MeetingTargetRegistryVersion.status == "published",
+                )
+            )
+        assert global_row is not None
+        document = deepcopy(global_row.document_json)
         document["registryVersion"] = "2026.07.08.99"
         document["generatedAt"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         document["targets"].append(
@@ -179,7 +230,7 @@ def test_registry_and_candidate_queries_ignore_foreign_workspace_rows(client) ->
                 "nativeBundleIds": ["ru.foreign.vks"],
                 "mode": "diagnostic_only",
                 "evidence": "runtime_start_verified",
-                "requiredSignals": ["macos_sensor_indicators_mic"],
+                "requiredSignals": ["macos_audio_hal_assertion"],
             }
         )
         async with client.app_state["sessionmaker"]() as db:
@@ -232,5 +283,5 @@ def test_registry_and_candidate_queries_ignore_foreign_workspace_rows(client) ->
     assert review.status_code == 200
     assert "foreign_workspace_vks" not in target_ids
     assert "ru.foreign.vks" not in candidate_bundles
-    assert registry.json()["registryVersion"] == "2026.07.08.1"
+    assert registry.json()["registryVersion"] == "2026.07.09.4"
     assert WORKSPACE_ID != FOREIGN_WORKSPACE_ID

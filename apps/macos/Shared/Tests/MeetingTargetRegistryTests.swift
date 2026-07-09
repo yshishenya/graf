@@ -1,31 +1,27 @@
 import Foundation
-import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
 
 final class MeetingTargetRegistryTests: XCTestCase {
-    func testPackagedSeedRegistryLoadsWhenNoRemoteOrCacheExists() throws {
+    func testNoRemoteOrCacheFailsClosedWithoutPackagedSeed() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = MeetingTargetRegistryStore(
-            cacheURL: root.appendingPathComponent("registry-cache.json"),
-            seedData: Self.seedRegistryData()
+            cacheURL: root.appendingPathComponent("registry-cache.json")
         )
 
-        let resolution = try store.resolve()
-
-        XCTAssertEqual(resolution.source, .packagedSeed)
-        XCTAssertEqual(resolution.document.registryVersion, "2026.07.08.1")
-        XCTAssertEqual(resolution.document.target(forBundleID: "ru.yandex.desktop.telemost")?.id, "yandex_telemost")
+        XCTAssertThrowsError(try store.resolve()) { error in
+            XCTAssertEqual(error as? MeetingTargetRegistryError, .noUsableRegistry)
+        }
     }
 
     func testValidRemoteRegistryIsCachedAndPreferred() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let cacheURL = root.appendingPathComponent("registry-cache.json")
-        let store = MeetingTargetRegistryStore(cacheURL: cacheURL, seedData: Self.seedRegistryData())
+        let store = MeetingTargetRegistryStore(cacheURL: cacheURL)
 
         let resolution = try store.resolve(
             remoteData: Self.seedRegistryData(registryVersion: "2026.07.09.1"),
@@ -43,7 +39,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
     func testInvalidRemoteFallsBackToPreviousValidCache() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MeetingTargetRegistryStore(cacheURL: root.appendingPathComponent("cache.json"), seedData: Self.seedRegistryData())
+        let store = MeetingTargetRegistryStore(cacheURL: root.appendingPathComponent("cache.json"))
         _ = try store.resolve(remoteData: Self.seedRegistryData(registryVersion: "2026.07.09.1"), remoteETag: "etag-cache")
 
         let resolution = try store.resolve(remoteData: Self.unsafePromptRegistryData(), remoteETag: "etag-bad")
@@ -94,16 +90,38 @@ final class MeetingTargetRegistryTests: XCTestCase {
         }
     }
 
-    func testPackagedSeedIncludesBrowserFoundationTargets() throws {
-        let document = try MeetingDetectionCoding.decoder().decode(
-            MeetingTargetRegistryDocument.self,
-            from: MeetingDetectionSeedRegistryData.load()
+    func testOldSensorSignalIsRejected() {
+        XCTAssertThrowsError(
+            try MeetingDetectionCoding.decoder().decode(
+                MeetingTargetRegistryDocument.self,
+                from: Self.seedRegistryData(requiredSignal: "macos_sensor_indicators_mic")
+            )
         )
-        try MeetingTargetRegistryValidator.validate(document)
+    }
 
-        let targetIDs = Set(document.targets.map(\.id))
-        XCTAssertTrue(targetIDs.contains("yandex_telemost_web"))
-        XCTAssertTrue(targetIDs.contains("google_meet_web"))
+    func testDesktopAppRefreshesRemoteRegistryPeriodicallyAndAfterWake() throws {
+        let source = try Self.desktopAppSource()
+
+        XCTAssertTrue(source.contains("meetingDetectionRegistryRefreshIntervalNanoseconds"))
+        XCTAssertTrue(source.contains("refreshMeetingDetectionRegistry(reason: \"periodic_registry_refresh\")"))
+        XCTAssertTrue(source.contains("refreshMeetingDetectionRegistry(reason: \"system_wake\")"))
+        XCTAssertTrue(source.contains("client.fetchMeetingDetectionTargetRegistry(ifNoneMatch: etag)"))
+        XCTAssertTrue(source.contains(".twoBrainRecMeetingTargetRegistryDidChange"))
+    }
+
+    func testDesktopAppStartupDoesNotRequireLocalRegistryBeforeRemoteFetch() throws {
+        let source = try Self.desktopAppSource()
+        let body = try Self.functionBody(
+            named: "startMeetingDetectionIfNeeded",
+            before: "private func stopMeetingDetection()",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("try? resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)"))
+        XCTAssertTrue(body.contains("meetingDetectionHealth = \"Реестр загружается с сервера\""))
+        XCTAssertTrue(body.contains("await refreshMeetingDetectionRegistry(reason: \"startup\")"))
+        XCTAssertFalse(body.contains("try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)"))
+        XCTAssertFalse(body.contains("Проверьте локальный реестр приложений"))
     }
 
     private func temporaryRoot() -> URL {
@@ -113,14 +131,16 @@ final class MeetingTargetRegistryTests: XCTestCase {
         return root
     }
 
-    static func seedRegistryData(registryVersion: String = "2026.07.08.1") -> Data {
+    static func seedRegistryData(
+        registryVersion: String = "2026.07.08.1",
+        requiredSignal: String = "macos_audio_hal_assertion"
+    ) -> Data {
         Data(
             """
             {
               "schemaVersion": 1,
               "registryVersion": "\(registryVersion)",
               "generatedAt": "2026-07-08T00:00:00Z",
-              "minimumClientVersion": "0.1.0",
               "targets": [
                 {
                   "id": "zoom",
@@ -131,7 +151,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
                   "nativeBundleIds": ["us.zoom.xos"],
                   "mode": "prompt_enabled",
                   "evidence": "runtime_verified",
-                  "requiredSignals": ["macos_sensor_indicators_mic"]
+                  "requiredSignals": ["\(requiredSignal)"]
                 },
                 {
                   "id": "yandex_telemost",
@@ -142,7 +162,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
                   "nativeBundleIds": ["ru.yandex.desktop.telemost"],
                   "mode": "prompt_enabled",
                   "evidence": "runtime_verified",
-                  "requiredSignals": ["macos_sensor_indicators_mic"]
+                  "requiredSignals": ["\(requiredSignal)"]
                 }
               ]
             }
@@ -167,12 +187,49 @@ final class MeetingTargetRegistryTests: XCTestCase {
                   "nativeBundleIds": [],
                   "mode": "prompt_enabled",
                   "evidence": "seed",
-                  "requiredSignals": ["macos_sensor_indicators_mic"]
+                  "requiredSignals": ["macos_audio_hal_assertion"]
                 }
               ]
             }
             """.utf8
         )
+    }
+
+    private static func repositoryRoot() throws -> URL {
+        var candidate = URL(fileURLWithPath: #filePath)
+        while candidate.path != "/" {
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            if FileManager.default.fileExists(atPath: appSourceURL.path) {
+                return candidate
+            }
+            candidate.deleteLastPathComponent()
+        }
+        throw NSError(
+            domain: "MeetingTargetRegistryTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
+        )
+    }
+
+    private static func desktopAppSource() throws -> String {
+        try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+    }
+
+    private static func functionBody(named name: String, before endMarker: String, in source: String) throws -> String {
+        guard let start = source.range(of: "private func \(name)()"),
+              let end = source[start.lowerBound...].range(of: endMarker)
+        else {
+            throw NSError(
+                domain: "MeetingTargetRegistryTests",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Function \(name) not found"]
+            )
+        }
+        return String(source[start.lowerBound..<end.lowerBound])
     }
 }
 

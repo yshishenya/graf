@@ -131,7 +131,6 @@ final class MeetingDetectionCandidateFilterTests: XCTestCase {
         return MeetingTargetRegistryDocument(
             registryVersion: seed.registryVersion,
             generatedAt: seed.generatedAt,
-            minimumClientVersion: seed.minimumClientVersion,
             targets: seed.targets,
             nonTargetRules: nonTargetRules
         )

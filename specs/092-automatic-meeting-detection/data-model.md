@@ -12,10 +12,10 @@ Published or draft registry document version.
 | --- | --- | --- |
 | `id` | UUID | Primary key. |
 | `workspace_id` | UUID nullable | Null means global registry; workspace-specific override is future/admin-controlled. |
-| `registry_version` | string | CalVer-like version, e.g. `2026.07.08.1`. |
+| `registry_version` | string | CalVer-like version, e.g. `2026.07.09.4`. |
 | `schema_version` | int | Starts at `1`. |
 | `status` | string | `draft`, `published`, `disabled`, `superseded`. |
-| `source` | string | `packaged_seed`, `admin`, `migration`, `import`. |
+| `source` | string | `admin`, `migration`, `import`. |
 | `published_at` | timestamptz nullable | Set only for published versions. |
 | `published_by_user_id` | UUID nullable | Admin actor. |
 | `document_json` | JSON | Full validated registry document. |
@@ -53,7 +53,7 @@ Validation:
 
 - `prompt_enabled` native macOS entries require at least one `native_bundle_id`
   and runtime evidence.
-- Browser entries cannot use browser mic attribution as the only required signal.
+- Browser entries cannot use browser audio ownership as the only required signal.
 
 ### MeetingDetectionTelemetryBatch
 
@@ -214,20 +214,21 @@ Fields mirror `meeting-target-registry.schema.json`, plus local cache metadata:
 - `source`: `remote_cache`
 - `validationResult`
 
-Invalid cache is quarantined and replaced by previous good cache or packaged
-seed.
+Invalid cache is ignored; without a valid remote response or last-good cache,
+automatic detection fails closed while manual recording remains available.
 
-### Packaged Seed Registry
+### Migration-Published Registry Baseline
 
 Path:
 
 ```text
-apps/macos/RecApp/Resources/meeting-target-registry.seed.json
+apps/server/src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json
 ```
 
-Generated from the reviewed registry seed and shipped with the app. It must
-contain only `prompt_enabled` targets with verified runtime evidence and
-`diagnostic_only`/manual targets for broader coverage.
+Generated from the reviewed registry baseline and published through Alembic into
+server tables. It must contain only `prompt_enabled` targets with verified
+runtime evidence and `diagnostic_only`/manual targets for broader coverage. The
+desktop app does not ship this file and must fetch the registry from the server.
 
 ### MeetingDetectionTelemetryRollupDocument
 
@@ -245,7 +246,7 @@ VKS-candidate filter allows `server_candidate_upload`.
 
 Local user/workspace settings cache:
 
-- `detectionMode`: `disabled`, `detect_only`, `detect_and_ask`
+- `detectionMode`: `detect_only`, `detect_and_ask`
 - `telemetryUploadMode`: `automatic_candidate_upload`, `local_only`
 - `targetScopedAutoRecord`: map from scoped identity to enabled/disabled
 - `suppressionRules`: local skip/stop cooldowns

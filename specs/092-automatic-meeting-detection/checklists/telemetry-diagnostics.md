@@ -14,7 +14,7 @@
 
 ## Candidate Filtering
 
-- [x] VKS-candidate scoring includes stable mic attribution, duration,
+- [x] VKS-candidate scoring includes stable audio ownership, duration,
   recurrence, manual-record-nearby, calendar/join hint, VKS name tokens, and
   vendor hints.
 - [x] Explicit non-target matches block upload.

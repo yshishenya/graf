@@ -166,30 +166,53 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(CaptureControlView.shouldEnableRecordButton(for: detecting, recordDisabled: true))
     }
 
-    func testMeetingDetectionControlsExposeStatusAndRevokeAccessibility() {
+    func testMeetingDetectionControlsExposeStatusAndSettingsAccessibility() throws {
         let label = SystemAudioStatusLabels.meetingDetectionAccessibilityLabel(
             status: "detect_and_ask",
             health: "ok"
         )
+        let root = try repositoryRootForCaptureTests()
+        let settingsSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertEqual(SystemAudioAccessibilityIdentifier.meetingDetectionStatus, "systemAudio.meetingDetection.status")
         XCTAssertEqual(
-            SystemAudioAccessibilityIdentifier.meetingDetectionModeMenu,
-            "systemAudio.meetingDetection.modeMenu"
-        )
-        XCTAssertEqual(
-            SystemAudioAccessibilityIdentifier.meetingDetectionRevokeAutoRecord,
-            "systemAudio.meetingDetection.revokeAutoRecord"
+            SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle,
+            "systemAudio.meetingDetection.recordingToggle"
         )
         XCTAssertTrue(label.contains(SystemAudioStatusLabels.meetingDetectionSettingsTitle))
         XCTAssertTrue(label.contains("detect_and_ask"))
-        XCTAssertEqual(
-            SystemAudioStatusLabels.meetingDetectionRevokeAutoRecordTitle,
-            "Отключить автозапись для приложения"
+        XCTAssertTrue(settingsSource.contains("MeetingDetectionSettingsView"))
+        XCTAssertTrue(settingsSource.contains("promptToggleTitle = \"Запрашивать запись\""))
+        XCTAssertTrue(settingsSource.contains("Toggle(\"\", isOn: recordingPromptBinding)"))
+        XCTAssertTrue(settingsSource.contains("ForEach(promptCapableTargets"))
+        XCTAssertTrue(settingsSource.contains("selectAllAutoRecordTargets"))
+        XCTAssertTrue(settingsSource.contains("clearAutoRecordTargets"))
+        XCTAssertTrue(settingsSource.contains("SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle"))
+        XCTAssertTrue(settingsSource.contains(".twoBrainRecMeetingTargetRegistryDidChange"))
+    }
+
+    func testMeetingDetectionPromptUsesFloatingCountdownInsteadOfMainSheet() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
         )
-        XCTAssertEqual(CaptureControlView.meetingDetectionModeTitle(.detectAndAsk), "Включено")
-        XCTAssertEqual(CaptureControlView.meetingDetectionModeTitle(.detectOnly), "Только наблюдать")
-        XCTAssertEqual(CaptureControlView.meetingDetectionModeTitle(.disabled), "Отключено")
+
+        XCTAssertTrue(source.contains("presentMeetingDetectionPrompt(prompt)"))
+        XCTAssertTrue(source.contains("NSPanel("))
+        XCTAssertTrue(source.contains("orderFrontRegardless()"))
+        XCTAssertTrue(source.contains("TimelineView(.periodic"))
+        XCTAssertTrue(source.contains("Запись стартует автоматически"))
+        XCTAssertTrue(source.contains("Режим: аудиозапись встречи"))
+        XCTAssertTrue(source.contains("Источники: системный звук и микрофон"))
+        XCTAssertTrue(source.contains("Политика: запись разрешена"))
+        XCTAssertTrue(source.contains("Сигнал: приложение использует аудио встречи"))
+        XCTAssertTrue(source.contains("Всегда писать это приложение"))
+        XCTAssertTrue(source.contains("Пропустить"))
+        XCTAssertFalse(source.contains(".sheet(item: $meetingDetectionPrompt)"))
     }
 
     func testCalendarPromptUIWiresManualPrimaryAndDismissActions() throws {

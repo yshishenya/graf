@@ -15,6 +15,7 @@ COMPONENT_DIR="$BUILD_DIR/components"
 SCRIPTS_DIR="$BUILD_DIR/scripts"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/GRAF.app"
 APP_ICON="$MACOS_DIR/RecApp/Resources/AppIcon.icns"
+APP_CORE_RESOURCE_BUNDLE_NAME="TwoBrainRecMacOS_TwoBrainRecAppCore.bundle"
 WORDMARK_DARK="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark.png"
 WORDMARK_DARK_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark@2x.png"
 WORDMARK_LIGHT="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight.png"
@@ -90,6 +91,7 @@ swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
 
 BIN_DIR=$(swift build --package-path "$MACOS_DIR" -c release --show-bin-path)
 APP_EXECUTABLE="$BIN_DIR/TwoBrainRecApp"
+APP_CORE_RESOURCE_BUNDLE="$BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
 DRIVER_BUNDLE="$MACOS_DIR/AudioDriver/.build/proof/GrafProof.driver"
 
 if [ ! -x "$APP_EXECUTABLE" ]; then
@@ -98,6 +100,10 @@ if [ ! -x "$APP_EXECUTABLE" ]; then
 fi
 if [ ! -f "$APP_ICON" ]; then
   echo "Missing app icon at $APP_ICON" >&2
+  exit 1
+fi
+if [ ! -d "$APP_CORE_RESOURCE_BUNDLE" ]; then
+  echo "Missing app resource bundle at $APP_CORE_RESOURCE_BUNDLE" >&2
   exit 1
 fi
 for resource in "$WORDMARK_DARK" "$WORDMARK_DARK_2X" "$WORDMARK_LIGHT" "$WORDMARK_LIGHT_2X"; do
@@ -116,6 +122,7 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/GRAF"
+cp -R "$APP_CORE_RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
 cp "$APP_ICON" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$WORDMARK_DARK" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark.png"
 cp "$WORDMARK_DARK_2X" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark@2x.png"

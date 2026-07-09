@@ -11,9 +11,9 @@ capture or broad app inventory collection. The first implementation path is
 server/admin first: accept metadata-only meeting-detection telemetry from desktop
 clients, filter and aggregate likely VKS candidates, show them in the existing
 admin surface, and publish reviewed target registry versions. The macOS client
-then consumes the remote/cache/seed registry, records bounded local rollups,
-uploads only VKS-filtered candidates, and finally uses Gilb-style macOS Control
-Center `sensor-indicators` mic attribution for native app detection.
+then consumes the server-published registry with a last-good local cache,
+records bounded local rollups, uploads only VKS-filtered candidates, and finally
+uses Gilb-style macOS `AudioHAL` app ownership for native app detection.
 
 Browser meeting detection is planned as macOS browser metadata plus calendar or
 join intent; browser extensions remain future optional adapters. First prompt
@@ -119,7 +119,8 @@ bounded, and unknown candidates non-prompting.
   contracts to keep the existing no-build frontend boundary.
 - Run macOS XCTest for registry cache fallback, VKS-candidate scoring, forbidden
   payload construction, telemetry rollup retention, uploader backoff, synthetic
-  `sensor-indicators` parser fixtures, debounce state machine, and prompt policy.
+  `AudioHAL` parser fixtures, debounce state machine, and
+  prompt policy.
 - Run quickstart scenarios from [quickstart.md](./quickstart.md).
 - Run `infra/scripts/ci-local.sh` before closeout because this slice touches
   high-risk server/API/admin/macOS behavior and data contracts.
@@ -214,11 +215,11 @@ apps/macos/RecApp/Sources/Calendar/
 apps/macos/RecApp/Sources/Diagnostics/
 └── DiagnosticBundleService.swift
 
-apps/macos/RecApp/Resources/
-└── meeting-target-registry.seed.json
+apps/server/src/twobrain_rec_server/db/migrations/data/
+└── 0019_meeting_target_registry.json
 
 apps/macos/Shared/Sources/MeetingDetection/
-├── MacOSMicAttributionParser.swift
+├── MacOSAudioOwnershipParser.swift
 ├── MeetingDetectionCandidateFilter.swift
 ├── MeetingDetectionModels.swift
 ├── MeetingDetectionPolicy.swift
@@ -230,7 +231,7 @@ apps/macos/Shared/Tests/
 ├── CaptureControlTests.swift
 ├── DesktopCabinetRoutePolicyTests.swift
 ├── DesktopCalendarReminderTests.swift
-├── MacOSMicAttributionParserTests.swift
+├── MacOSAudioOwnershipParserTests.swift
 ├── MeetingDetectionCandidateFilterTests.swift
 ├── MeetingDetectionPolicyTests.swift
 ├── MeetingDetectionTelemetryTests.swift

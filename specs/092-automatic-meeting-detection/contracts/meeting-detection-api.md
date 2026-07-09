@@ -77,7 +77,7 @@ Status codes:
 | 200 | Returns latest published registry for the tenant/global scope. |
 | 304 | Client cache is current. |
 | 401 | Desktop auth/session missing. |
-| 503 | Registry unavailable; client must use cache or packaged seed. |
+| 503 | Registry unavailable; client may use last-good cache and otherwise must fail closed. |
 
 Headers:
 

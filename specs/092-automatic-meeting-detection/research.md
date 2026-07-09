@@ -22,19 +22,22 @@ idempotency, rate limiting, and audit behavior be tested before client rollout.
 - Hardcoded client allowlist first: fastest prompt path, but forces client
   rebuilds for registry changes and does not learn missing Russian-market apps.
 
-### Remote/Cache/Seed Registry
+### Server Registry With Client Cache
 
-**Decision**: Use a versioned JSON target registry served by the server, cached
-locally by the client, with a packaged seed fallback.
+**Decision**: Use a versioned JSON target registry published in the server
+database and served to desktop clients, with a last-good local client cache.
 
 **Rationale**: The target list changes as Russian and global VKS apps are
 validated. JSON is small, auditable, versioned, easy to validate, and fits both
-server and macOS clients. A packaged seed preserves offline behavior.
+server and macOS clients. Publishing through migrations/admin review keeps the
+list updateable without rebuilding the macOS client.
 
 **Alternatives Considered**:
 
 - Client-only Swift registry: safer by compilation but too slow to update and
   unsuitable for admin-driven review/publish.
+- Packaged client seed: preserves offline behavior, but keeps stale app lists in
+  long-lived installed clients and requires app rebuilds for registry fixes.
 - Client SQLite/CoreData registry: unnecessary for small read-mostly data and
   harder to diff, sign, inspect, and roll back.
 - Server database only with no JSON contract: convenient for admin UI but weaker
@@ -47,7 +50,7 @@ health and unknown apps only after the client VKS-candidate filter passes.
 
 **Rationale**: The owner needs to see likely missing VKS apps in admin without
 asking every user to export diagnostics, but uploading every mic-using app would
-be an app inventory leak. The filter requires stable mic attribution plus VKS
+be an app inventory leak. The filter requires stable audio ownership plus VKS
 signals, blocks known non-target categories, and rate-limits identity upload.
 
 **Alternatives Considered**:
@@ -68,13 +71,15 @@ evidence. Recording behavior must stay fail-closed.
 
 ### Native macOS Detector Rule
 
-**Decision**: First native detector uses Gilb-style Control Center
-`sensor-indicators` `mic:<bundle_id>` attribution with a 5 second start debounce
-and 15 second end grace.
+**Decision**: First native detector uses Gilb-style passive macOS audio
+ownership: RunningBoard/CoreAudio `AudioHAL` assertions keyed by app bundle ID,
+with start debounce of 5 seconds and end grace of 15 seconds.
 
-**Rationale**: Local runtime checks showed Zoom and Yandex Telemost emit stable
-bundle-specific mic attribution and removal/end behavior. This is a narrow,
-event-driven detector with low overhead and clear false-positive constraints.
+**Rationale**: Local runtime checks showed Zoom and Yandex Telemost expose
+bundle-specific audio ownership while active. `AudioHAL` ownership matched the
+behavior observed from Gilb/Krisp during Telemost.
+This remains a narrow, event-driven detector with low overhead and clear
+false-positive constraints.
 
 **Alternatives Considered**:
 
@@ -87,7 +92,7 @@ event-driven detector with low overhead and clear false-positive constraints.
 ### Browser Detection Path
 
 **Decision**: Browser meetings use browser metadata plus calendar or join intent,
-not browser microphone attribution alone. The first browser Tier A attempt is
+not browser audio ownership alone. The first browser Tier A attempt is
 Yandex Telemost web in Chromium-family metadata surfaces, with Yandex Browser
 included if the metadata path validates.
 
