@@ -150,6 +150,10 @@ Represents one Yandex offline conversion row before upload.
 
 - No product event outside the two approved names is valid.
 - At least one Yandex-supported identity key must exist before live upload.
+- `UserId` requires prior rendered-page binding through Yandex `setUserID` and
+  `userParams` for the same GRAF pseudonymous user ID.
+- `ClientId` and `Yclid` require real runtime resolver values and cannot be
+  replaced by the GRAF pseudonymous user ID.
 - Duplicate upload must be suppressed or marked before retry.
 - Upload evidence must not include raw identity values, Yandex client IDs, cookies, or OAuth tokens.
 

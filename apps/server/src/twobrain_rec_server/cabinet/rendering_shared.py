@@ -17,6 +17,7 @@ def _page_shell(
 ) -> str:
     navigation = cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded)
     content_template = context.pop("content_template", None)
+    product_analytics_provider = context.pop("product_analytics_provider", None)
     if content is None and content_template:
         content = render_template(
             content_template,
@@ -40,6 +41,7 @@ def _page_shell(
         title=title,
         surface_mode="desktop_embedded" if embedded else "standalone_browser",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content=trusted_component_html(shell, source="cabinet.shell"),
     )
 

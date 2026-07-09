@@ -22,7 +22,7 @@
 
 ### User Story 1 - Operate Primary Product Analytics Workspace (Priority: P1)
 
-An operator and product owner need a production-ready self-hosted PostHog workspace that can receive the approved 094 product activation events without using PostHog Cloud or unsafe product data.
+An operator and product owner need a production-ready self-hosted PostHog workspace that can receive the approved 094 product activation events and broad first-party product analytics without using PostHog Cloud, credential material, or unsafe committed evidence.
 
 **Why this priority**: PostHog is the primary full-funnel analytics home. Without a self-hosted, backed-up, secret-safe workspace, the activation funnel cannot leave scaffold mode.
 
@@ -126,6 +126,7 @@ An operator needs clear smoke, dashboard evidence, rollback steps, and blocker s
 - **FR-008**: The feature MUST reuse the existing production Yandex counter from 093 as the expandable all-pages Yandex surface for acquisition, Yandex Direct attribution, approved safe page views/events, Webvisor/map/form capabilities after proof, and approved offline conversions. A separate product counter is not the default for 096 and may be introduced only if planning proves the existing counter cannot safely support the required attribution and page-class controls.
 - **FR-009**: Yandex offline conversion live upload MUST be enabled in 096 for exactly `desktop_account_connected` and `first_value_session_completed`; any additional product milestone requires a later explicit approval.
 - **FR-009a**: Yandex offline conversion live upload MUST require OAuth token secret-file wiring, duplicate protection, attribution-window caveats, provider smoke, dashboard visibility, legal/security/QA approval, rollback proof, and metadata-only evidence before it is considered ready.
+- **FR-009b**: Yandex offline conversion `UserId` upload MUST require proof that the same GRAF pseudonymous user ID was sent to Yandex during an eligible counted browser session through `setUserID` and `userParams`. `ClientId` and `Yclid` uploads MUST require real runtime resolver values and MUST NOT be synthesized from the GRAF pseudonymous user ID.
 - **FR-010**: Yandex OAuth tokens and upload credentials MUST be supplied only through runtime secret files or equivalent out-of-git secret mounts.
 - **FR-011**: The feature MUST prepare a Yandex all-pages inventory for public landing, download, legal, login/signup, auth callback, cabinet, onboarding, settings, recording list, meeting/result/detail, upload, playback, deletion, admin, embedded desktop webview, and error page classes.
 - **FR-011a**: The Yandex all-pages inventory MUST be extensible. Every future browser-rendered page class must be added to the inventory before Yandex collection is allowed, with explicit state, allowed events/fields, forbidden-field review, URL/title/referrer sanitization status, replay/map/form status, legal/QA status, dashboard purpose, and rollback behavior. Missing inventory means Yandex collection is blocked for that page class by default.

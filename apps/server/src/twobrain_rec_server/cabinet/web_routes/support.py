@@ -24,6 +24,8 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.db.tenant_context import (
     apply_tenant_scope,
 )
+from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
+from twobrain_rec_server.product_analytics.identity import build_safe_identity
 
 WebTenantDependency = Depends(get_web_owner_tenant_scope)
 PrincipalDependency = Depends(get_principal)
@@ -55,6 +57,41 @@ def _is_hx_request(request: Request) -> bool:
 def _request_path_with_query(request: Request) -> str:
     query = request.url.query
     return f"{request.url.path}?{query}" if query else request.url.path
+
+
+def product_analytics_provider_for_page(
+    request: Request,
+    page_class: str,
+    *,
+    principal: AuthenticatedPrincipal | None = None,
+    tenant_scope: TenantScope | None = None,
+) -> dict[str, object]:
+    settings = request.app.state.settings
+    context = build_browser_provider_context(settings, page_class)
+    posthog = context.get("posthog")
+    if isinstance(posthog, dict):
+        posthog["identity_state"] = "anonymous"
+        posthog["distinct_id"] = "graf_pseudo_browser_anonymous"
+        if principal is not None:
+            identity = build_safe_identity(
+                user_source_id=str(principal.user_id),
+                workspace_source_id=str(
+                    tenant_scope.workspace_id
+                    if tenant_scope is not None
+                    else principal.session_workspace_id or ""
+                )
+                or None,
+                device_class="desktop_webview" if request.url.path.startswith("/desktop/") else "browser",
+            )
+            posthog["identity_state"] = "authenticated_pseudonymous"
+            posthog["distinct_id"] = identity.posthog_distinct_id
+            posthog["workspace_pseudonym"] = identity.workspace_pseudonym
+            posthog["device_class"] = identity.device_class
+            yandex = context.get("yandex")
+            if isinstance(yandex, dict):
+                yandex["user_id"] = identity.stable_pseudonymous_user_id
+                yandex["user_id_source"] = "graf_pseudonymous_user"
+    return context
 
 
 async def get_web_request_db_session(

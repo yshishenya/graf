@@ -28,6 +28,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _csrf_token_for_principal,
     _ensure_lifecycle_manager,
     _is_hx_request,
+    product_analytics_provider_for_page,
 )
 from twobrain_rec_server.deletion.service import deletion_report_response, request_meeting_deletion
 
@@ -66,6 +67,12 @@ async def meeting_deletion_report_page(
             meeting_title,
             report,
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=product_analytics_provider_for_page(
+                request,
+                "deletion",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 

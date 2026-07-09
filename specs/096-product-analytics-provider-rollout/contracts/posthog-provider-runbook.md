@@ -32,6 +32,8 @@ The implementation runbook must document:
 - DNS record for the analytics domain, without committing provider keys;
 - TLS issuance and renewal;
 - Docker Compose stack file(s) or deployment wrapper;
+- official generated PostHog self-hosted Compose runtime source, because the
+  committed GRAF handoff contract is not the complete upstream runtime stack;
 - `infra/scripts/cd-remote.sh --dry-run` handoff for the separate PostHog stack, with no live secrets printed;
 - service dependency list and health checks;
 - volume inventory and backup/restore procedure;

@@ -47,6 +47,22 @@ metadata-only evidence остаются подробной историей ре
   all-pages expansion, Yandex offline conversion upload, production deploy, and
   paid campaign optimization remain blocked pending separate legal/product/
   security/QA/provider approval.
+- Feature `096-product-analytics-provider-rollout` adds the provider layer on
+  this feature branch, not product rollout readiness. It prepares self-hosted
+  first-party PostHog as the primary product analytics workspace with broad
+  browser autocapture, rendered-page provider wiring, secret-file based runtime
+  config, provider smoke, rollback, and metadata-only dashboard evidence.
+  Self-hosted PostHog may receive owner-controlled product-visible context, but
+  credentials, tokens, signed URLs, cookies, local paths, raw audio,
+  transcript/meeting-content dumps, raw payload dumps, and committed provider
+  exports remain forbidden. Yandex remains the external public/ad/offline
+  surface: `/` and `/download` keep the 093 public baseline, other page classes
+  are inventory-gated, Webvisor/maps/forms remain blocked, offline conversions
+  are limited to `desktop_account_connected` and
+  `first_value_session_completed`, and `UserId` upload requires prior
+  `setUserID`/`userParams` binding. Production deploy execute, live provider
+  dashboard review, product rollout readiness, and paid campaign launch remain
+  blocked.
 - Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
   recording state and one-action stop from feature `007`.
 - Local recording persistence from feature `008` is accepted for local artifact

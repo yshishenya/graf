@@ -38,6 +38,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _csrf_token_for_principal,
     _is_hx_request,
     _request_path_with_query,
+    product_analytics_provider_for_page,
 )
 
 router = APIRouter(tags=["cabinet-web"])
@@ -77,6 +78,12 @@ async def meeting_list_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),
+            product_analytics_provider=product_analytics_provider_for_page(
+                request,
+                "recording_list",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 
@@ -108,6 +115,12 @@ async def meeting_detail_page(
         render_meeting_detail_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=product_analytics_provider_for_page(
+                request,
+                "meeting_result_detail",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 
@@ -115,11 +128,17 @@ async def meeting_detail_page(
 @router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
 async def settings_page(
     request: Request,
-    _tenant_scope: TenantScope = WebTenantDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
 ) -> HTMLResponse:
     return cabinet_html_response(
         render_settings_page(
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=product_analytics_provider_for_page(
+                request,
+                "settings",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )

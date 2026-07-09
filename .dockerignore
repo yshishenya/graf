@@ -7,6 +7,11 @@
 .env
 .env.*
 !.env.example
+secrets/
+infra/secrets/
+*.key
+*.pem
+*.crt
 __pycache__/
 *.pyc
 .venv/
@@ -17,3 +22,5 @@ coverage/
 .build/
 DerivedData/
 node_modules/
+specs/**/reference/private-appshots/
+docs/evidence/**/private-appshots/

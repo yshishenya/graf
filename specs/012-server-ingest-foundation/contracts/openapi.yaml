@@ -2301,6 +2301,86 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/posthog-web-capture:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Posthog Web Capture
+      operationId: product_analytics_posthog_web_capture_api_v1_product_analytics_posthog_web_capture_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostHogAutocaptureEventRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Posthog Web Capture Api V1 Product
+                  Analytics Posthog Web Capture Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/posthog-desktop-capture:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Posthog Desktop Capture
+      operationId: product_analytics_posthog_desktop_capture_api_v1_product_analytics_posthog_desktop_capture_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostHogDesktopCaptureRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Posthog Desktop Capture Api V1 Product
+                  Analytics Posthog Desktop Capture Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/calendar/providers:
     get:
       tags:
@@ -10096,6 +10176,124 @@ components:
           title: Included Sources
       type: object
       title: PlaybackReviewState
+    PostHogAutocaptureEventRequest:
+      properties:
+        distinct_id:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Distinct Id
+        event_type:
+          type: string
+          enum:
+          - ready
+          - pageview
+          - click
+          title: Event Type
+          default: pageview
+        page_class:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Page Class
+        path_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Path Class
+        tag_name:
+          anyOf:
+          - type: string
+            maxLength: 24
+          - type: 'null'
+          title: Tag Name
+        role:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Role
+        analytics_action:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Action
+        analytics_target:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Target
+        identity_state:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Identity State
+        workspace_pseudonym:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Workspace Pseudonym
+        device_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Device Class
+        sensitivity:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Sensitivity
+        source:
+          type: string
+          maxLength: 80
+          title: Source
+          default: browser_autocapture
+      type: object
+      required:
+      - page_class
+      title: PostHogAutocaptureEventRequest
+    PostHogDesktopCaptureRequest:
+      properties:
+        event:
+          type: string
+          minLength: 1
+          title: Event
+        distinct_id:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Distinct Id
+        timestamp:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Timestamp
+        telemetry_gate_state:
+          type: string
+          title: Telemetry Gate State
+          default: accepted
+        properties:
+          additionalProperties: true
+          type: object
+          title: Properties
+        api_key_state:
+          type: string
+          title: Api Key State
+          default: server_injected_redacted
+      type: object
+      required:
+      - event
+      - distinct_id
+      title: PostHogDesktopCaptureRequest
     Problem:
       properties:
         type:

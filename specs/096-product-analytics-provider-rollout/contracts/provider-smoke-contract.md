@@ -21,7 +21,7 @@ Existing 094 scripts may be reused or wrapped:
 
 | Scenario | Expected Evidence |
 | --- | --- |
-| Stack health | service status, separate domain reachability, redacted runtime mode |
+| Stack health | GRAF handoff contract status, official generated runtime requirement, separate domain readiness, redacted runtime mode |
 | Secret wiring | secret file present, value redacted, no committed values |
 | RBAC/access model | role/access model status, audit expectation status, no personal identifiers |
 | Retention/deletion lifecycle | retention days, backup/export/offline caveat status, no content-bearing exports |
@@ -52,7 +52,9 @@ Smoke output must be line-oriented or JSON metadata that is safe to commit:
 
 ```text
 provider_smoke_result=pass
-posthog_stack=reachable
+posthog_stack=config_valid
+posthog_stack_contract=handoff_valid
+posthog_runtime_source=official_posthog_hobby_generated_compose_required
 posthog_access_model=metadata_only_pass
 provider_lifecycle=metadata_only_pass
 posthog_deploy_dry_run=pass

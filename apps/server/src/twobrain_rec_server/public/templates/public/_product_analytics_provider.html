@@ -1,0 +1,6 @@
+{% if product_analytics_provider is defined and product_analytics_provider and product_analytics_provider.enabled %}
+  <script id="graf-product-analytics-provider-config" type="application/json" data-page-class="{{ product_analytics_provider.page_class }}">
+    {{ product_analytics_provider | tojson }}
+  </script>
+  <script defer src="/static/public/analytics.js"></script>
+{% endif %}

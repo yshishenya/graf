@@ -40,6 +40,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     LoginDbDependency,
     PrincipalDependency,
     WebCSRFDependency,
+    product_analytics_provider_for_page,
 )
 from twobrain_rec_server.db.models import AuthSession
 from twobrain_rec_server.db.tenant_context import (
@@ -84,6 +85,7 @@ async def browser_login_page(
             providers=providers,
             next_path=safe_next,
             error=load_error,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     )
 
@@ -111,6 +113,7 @@ async def browser_signup_page(
             next_path=safe_next,
             error=load_error,
             mode=mode,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     )
 
@@ -132,6 +135,7 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -149,6 +153,7 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_invalid",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -173,6 +178,7 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_start_unavailable",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -212,6 +218,7 @@ async def browser_email_login_start(
                     providers=[],
                     next_path=safe_next,
                     error="email_delivery_unavailable",
+                    product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
                 ),
                 status_code=503,
             )
@@ -228,6 +235,7 @@ async def browser_email_login_start(
             state_nonce=state.state_nonce,
             next_path=safe_next,
             dev_code=dev_code,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     )
 
@@ -249,6 +257,7 @@ async def browser_email_signup_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -266,6 +275,7 @@ async def browser_email_signup_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_invalid",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -277,6 +287,7 @@ async def browser_email_signup_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_start_unavailable",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -318,6 +329,7 @@ async def browser_email_signup_start(
                     providers=[],
                     next_path=safe_next,
                     error="email_delivery_unavailable",
+                    product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
                 ),
                 status_code=503,
             )
@@ -336,6 +348,7 @@ async def browser_email_signup_start(
             next_path=safe_next,
             dev_code=dev_code,
             flow="signup",
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     )
 
@@ -366,6 +379,7 @@ async def browser_email_login_verify(
                 state_nonce=state,
                 next_path=safe_next,
                 error="email_code_invalid",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -483,6 +497,7 @@ async def browser_email_signup_verify(
                 next_path=safe_next,
                 error="email_code_invalid",
                 flow="signup",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -522,6 +537,7 @@ async def browser_login_provider_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=400,
         )
@@ -539,6 +555,7 @@ async def browser_login_provider_start(
                 providers=providers,
                 next_path=safe_next,
                 error="provider_future",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=501,
         )
@@ -549,6 +566,7 @@ async def browser_login_provider_start(
                 providers=[],
                 next_path=safe_next,
                 error="auth_dependency_unavailable",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=503,
         )
@@ -584,6 +602,7 @@ async def browser_login_provider_start(
                     providers=providers,
                     next_path=safe_next,
                     error="provider_disabled",
+                    product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
                 ),
                 status_code=403,
             )
@@ -594,6 +613,7 @@ async def browser_login_provider_start(
                 providers=providers,
                 next_path=safe_next,
                 error="provider_missing",
+                product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
             ),
             status_code=403,
         )

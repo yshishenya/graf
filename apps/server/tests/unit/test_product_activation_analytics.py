@@ -58,6 +58,7 @@ def test_product_analytics_is_disabled_by_default() -> None:
 
 
 def test_product_analytics_validation_modes_are_restricted() -> None:
+    assert Settings(product_analytics_validation_mode="live_safe").product_analytics_validation_mode == "live_safe"
     with pytest.raises(ValidationError, match="product_analytics_validation_mode"):
         Settings(product_analytics_validation_mode="live")
     with pytest.raises(ValidationError, match="product_analytics_provider_mode"):
@@ -215,7 +216,14 @@ def test_no_live_product_analytics_secrets_are_committed() -> None:
     paths = [
         REPO_ROOT / "apps/server/src/twobrain_rec_server/product_analytics",
         REPO_ROOT / "specs/094-product-activation-analytics",
+        REPO_ROOT / "specs/096-product-analytics-provider-rollout",
         REPO_ROOT / "docs/analytics/product-activation-analytics.md",
+        REPO_ROOT / "docs/analytics/product-analytics-posthog-runbook.md",
+        REPO_ROOT / "docs/analytics/product-analytics-yandex-runbook.md",
+        REPO_ROOT / "docs/analytics/product-analytics-provider-rollback.md",
+        REPO_ROOT / "infra/posthog",
+        REPO_ROOT / "infra/scripts/cd-remote.sh",
+        REPO_ROOT / "infra/env/rec.production.env.example",
     ]
     texts = []
     for path in paths:

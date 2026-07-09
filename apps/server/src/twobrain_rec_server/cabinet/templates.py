@@ -10,6 +10,8 @@ from jinja2 import Environment
 from markupsafe import Markup
 from starlette.responses import HTMLResponse
 
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
 from twobrain_rec_server.templates import (
     html_response,
     package_path,
@@ -98,6 +100,8 @@ def cabinet_template_response(
     hx_request: bool = False,
     **context: Any,
 ) -> HTMLResponse:
+    settings = getattr(request.app.state, "settings", Settings())
+    context.setdefault("product_analytics_provider", build_browser_provider_context(settings, "cabinet_home"))
     html = render_template(template_name, request=request, **context)
     return cabinet_html_response(html, status_code=status_code, hx_request=hx_request)
 

@@ -7,7 +7,25 @@
 
   var CONSENT_STORAGE_KEY = "graf_public_analytics_consent";
   var YANDEX_TAG_URL = "https://mc.yandex.ru/metrika/tag.js";
+  var productConfigElement = document.getElementById("graf-product-analytics-provider-config");
   var configElement = document.getElementById("graf-public-analytics-config");
+  if (!configElement && !productConfigElement) {
+    return;
+  }
+
+  var productConfig = null;
+  if (productConfigElement) {
+    try {
+      productConfig = JSON.parse(productConfigElement.textContent || "{}");
+    } catch (_) {
+      productConfig = null;
+    }
+  }
+  initializePostHogAutocapture(productConfig);
+  if (!configElement) {
+    initializeProductYandexProvider(productConfig);
+  }
+
   if (!configElement) {
     return;
   }
@@ -45,6 +63,17 @@
       return categories.indexOf(category) !== -1;
     }
     return Boolean(categories && categories[category] === true);
+  }
+
+  function stableToken(value, maxLength) {
+    if (typeof value !== "string") {
+      return null;
+    }
+    var trimmed = value.trim().slice(0, maxLength || 80);
+    if (!trimmed || !/^[a-zA-Z0-9_.:-]+$/.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
   }
 
   function normalizedCategories(categories) {
@@ -161,6 +190,10 @@
 
   function ensureYandexProvider(categories) {
     var grantedCategories = normalizedCategories(categories);
+    if (!isYandexPageAllowed(config)) {
+      api.providerBlocked = true;
+      return false;
+    }
     if (api.providerBlocked || !hasCategory(grantedCategories, "analytics") || !config.yandex_metrica_id) {
       return false;
     }
@@ -203,7 +236,173 @@
       accurateTrackBounce: true,
       webvisor: hasCategory(grantedCategories, "behavior_replay") && config.replay_allowed,
     });
+    bindProductYandexUserID(config.yandex_metrica_id, productConfig);
     api.providerLoaded = true;
+    return true;
+  }
+
+  function isYandexPageAllowed(pageConfig) {
+    return !pageConfig.yandex_state || pageConfig.yandex_state === "approved_page_view_event";
+  }
+
+  function initializeProductYandexProvider(providerConfig) {
+    if (
+      !providerConfig ||
+      !providerConfig.yandex ||
+      !providerConfig.yandex.enabled ||
+      !providerConfig.yandex.counter_id
+    ) {
+      return false;
+    }
+    var counterId = stableToken(providerConfig.yandex.counter_id, 32);
+    if (!counterId) {
+      return false;
+    }
+    if (!isYandexPageAllowed(providerConfig.yandex)) {
+      return false;
+    }
+    window.GRAFProductAnalytics = window.GRAFProductAnalytics || {
+      events: [],
+      provider: "posthog",
+      replayEnabled: false,
+      sentEvents: [],
+    };
+    window.GRAFProductAnalytics.yandexEnabled = true;
+    window.ym =
+      window.ym ||
+      function () {
+        (window.ym.a = window.ym.a || []).push(arguments);
+      };
+    window.ym.l = Number(new Date());
+    if (!document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
+      var script = document.createElement("script");
+      script.async = true;
+      script.src = YANDEX_TAG_URL;
+      script.dataset.grafProvider = "yandex-metrica";
+      document.head.appendChild(script);
+    }
+    window.ym(counterId, "init", {
+      clickmap: false,
+      trackLinks: true,
+      accurateTrackBounce: true,
+      webvisor: false,
+    });
+    bindProductYandexUserID(counterId, providerConfig);
+    window.GRAFProductAnalytics.events.push({
+      event: "yandex_product_pageview_ready",
+      page_class: providerConfig.page_class,
+      replay_enabled: false,
+      yandex_state: providerConfig.yandex && providerConfig.yandex.state,
+    });
+    return true;
+  }
+
+  function bindProductYandexUserID(counterId, providerConfig) {
+    var yandexUserId = stableToken(
+      providerConfig && providerConfig.yandex && providerConfig.yandex.user_id,
+      96,
+    );
+    if (!counterId || !yandexUserId || !window.ym) {
+      return false;
+    }
+    window.ym(counterId, "setUserID", yandexUserId);
+    window.ym(counterId, "userParams", {
+      UserID: yandexUserId,
+    });
+    return true;
+  }
+
+  function initializePostHogAutocapture(providerConfig) {
+    if (
+      !providerConfig ||
+      !providerConfig.posthog ||
+      !providerConfig.posthog.enabled ||
+      !providerConfig.posthog.autocapture_enabled
+    ) {
+      return false;
+    }
+    var captureEndpoint = providerConfig.posthog.capture_endpoint;
+    if (!captureEndpoint) {
+      return false;
+    }
+    window.GRAFProductAnalytics = window.GRAFProductAnalytics || {
+      events: [],
+      provider: "posthog",
+      replayEnabled: false,
+      sentEvents: [],
+    };
+    window.GRAFProductAnalytics.autocaptureEnabled = true;
+    window.GRAFProductAnalytics.pageClass = providerConfig.page_class;
+    window.GRAFProductAnalytics.credentialSuppression = providerConfig.posthog.credential_suppression || [];
+
+    function sendAutocapture(eventType, fields) {
+      var payload = {
+        distinct_id: stableToken(providerConfig.posthog.distinct_id, 120),
+        event_type: eventType,
+        device_class: stableToken(providerConfig.posthog.device_class, 80),
+        identity_state: stableToken(providerConfig.posthog.identity_state, 80),
+        page_class: stableToken(providerConfig.page_class, 80) || "unknown",
+        sensitivity: stableToken(providerConfig.sensitivity, 40) || "unknown",
+        source: "browser_autocapture",
+        workspace_pseudonym: stableToken(providerConfig.posthog.workspace_pseudonym, 120),
+      };
+      Object.keys(fields || {}).forEach(function (key) {
+        var value = stableToken(fields[key], 80);
+        if (value) {
+          payload[key] = value;
+        }
+      });
+      var serialized = JSON.stringify(payload);
+      var sent = false;
+      if (navigator.sendBeacon) {
+        sent = navigator.sendBeacon(captureEndpoint, new Blob([serialized], { type: "application/json" }));
+      }
+      if (!sent && window.fetch) {
+        window.fetch(captureEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: serialized,
+          credentials: "same-origin",
+          keepalive: true,
+        }).catch(function () {});
+        sent = true;
+      }
+      window.GRAFProductAnalytics.sentEvents.push({
+        event_type: eventType,
+        page_class: payload.page_class,
+        sent: sent,
+      });
+      return sent;
+    }
+
+    sendAutocapture("ready", {
+      path_class: providerConfig.page_class,
+    });
+    sendAutocapture("pageview", {
+      path_class: providerConfig.page_class,
+    });
+    document.addEventListener(
+      "click",
+      function (event) {
+        var element = event.target && event.target.closest ? event.target.closest("[data-analytics-cta], button, a") : null;
+        if (!element) {
+          return;
+        }
+        sendAutocapture("click", {
+          tag_name: element.tagName ? element.tagName.toLowerCase() : null,
+          role: element.getAttribute("role"),
+          analytics_action: element.dataset && element.dataset.analyticsCta,
+          analytics_target: element.dataset && element.dataset.analyticsTarget,
+        });
+      },
+      true,
+    );
+    window.GRAFProductAnalytics.events.push({
+      event: "posthog_autocapture_ready",
+      page_class: providerConfig.page_class,
+      replay_enabled: false,
+      yandex_state: providerConfig.yandex && providerConfig.yandex.state,
+    });
     return true;
   }
 

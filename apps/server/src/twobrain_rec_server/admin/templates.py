@@ -9,6 +9,9 @@ from starlette.responses import HTMLResponse
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, issue_csrf_token
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
+from twobrain_rec_server.product_analytics.identity import build_safe_identity
 from twobrain_rec_server.templates import (
     html_response,
     package_path,
@@ -52,10 +55,40 @@ def admin_template_response(
     status_code: int = 200,
     **context: Any,
 ) -> HTMLResponse:
+    settings = getattr(request.app.state, "settings", Settings())
+    context.setdefault(
+        "product_analytics_provider",
+        _admin_product_analytics_provider(settings, principal=context.get("principal")),
+    )
     return html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,
     )
+
+
+def _admin_product_analytics_provider(
+    settings: Settings,
+    *,
+    principal: object,
+) -> dict[str, object]:
+    provider = build_browser_provider_context(settings, "admin")
+    posthog = provider.get("posthog")
+    if not isinstance(posthog, dict) or not isinstance(principal, AuthenticatedPrincipal):
+        return provider
+    identity = build_safe_identity(
+        user_source_id=str(principal.user_id),
+        workspace_source_id=str(principal.session_workspace_id) if principal.session_workspace_id else None,
+        device_class="browser",
+    )
+    posthog["identity_state"] = "authenticated_pseudonymous"
+    posthog["distinct_id"] = identity.posthog_distinct_id
+    posthog["workspace_pseudonym"] = identity.workspace_pseudonym
+    posthog["device_class"] = identity.device_class
+    yandex = provider.get("yandex")
+    if isinstance(yandex, dict):
+        yandex["user_id"] = identity.stable_pseudonymous_user_id
+        yandex["user_id_source"] = "graf_pseudonymous_user"
+    return provider
 
 
 def _csrf_token_for_principal(request: object, principal: object) -> str:

@@ -6,15 +6,15 @@ This quickstart is the review and validation guide for the provider rollout.
 It is safe to commit because it contains no live provider identifiers, tokens,
 payloads, screenshots, account data, or secret paths.
 
-## Current Planning Pass
+## Current Implementation Status
 
-This pass creates the implementation plan and contracts only.
+096 has completed planning, implementation, convergence, and pre-commit review
+remediation on the feature branch.
 
-No production provider has been deployed by this pass.
-No PostHog project key has been created or committed by this pass.
-No Yandex OAuth token, counter ID, ClientID, Yclid, cookie, or offline conversion
-row has been committed by this pass.
-No paid campaign launch is approved by this pass.
+No production provider execute has been run by this pass. No PostHog project
+key has been created or committed. No Yandex OAuth token, live counter ID,
+ClientID, Yclid, cookie, or offline conversion row has been committed. No paid
+campaign launch is approved by this pass.
 
 ## Review Order
 
@@ -45,10 +45,41 @@ Expected result for this planning pass:
 - only intended 096 planning artifacts and managed agent-context updates are
   changed.
 
-## Future Implementation Validation
+## Implementation Validation
 
-The generated `tasks.md` turns these checks into executable tasks. Later
-implementation must keep the task/evidence mapping intact.
+`tasks.md` is complete for 096. Future release or production work must keep the
+task/evidence mapping intact and append only metadata-safe live evidence.
+
+## 096 Final Validation Command Order
+
+Run from the repository root unless a command changes directory explicitly:
+
+```sh
+cd apps/server
+PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/contract/test_product_analytics_provider_smoke_output.py \
+  tests/contract/test_product_analytics_provider_rollback.py \
+  tests/contract/test_product_analytics_dashboard_evidence.py \
+  tests/integration/test_product_analytics_provider_readiness_blockers.py
+
+cd ../..
+swift test --package-path apps/macos --filter ProductActivationAnalyticsContractTests
+infra/scripts/run-product-analytics-provider-smoke.sh
+infra/scripts/validate-product-analytics-provider-pages.sh
+infra/scripts/rollback-product-analytics-providers.sh
+infra/scripts/ci-local.sh
+infra/scripts/cd-remote.sh --dry-run
+```
+
+Do not run this command as part of 096 without separate explicit approval:
+
+```sh
+infra/scripts/cd-remote.sh --execute
+```
+
+Passing 096 provider smoke means the provider layer has reviewable technical
+evidence. It does not mean product rollout readiness, direct user rollout
+approval, or paid campaign launch approval.
 
 ### 1. PostHog Stack
 
@@ -59,6 +90,8 @@ Validate that self-hosted PostHog is:
 - isolated by Docker service boundary, TLS routing, runtime secret files,
   volumes, backup target, resource limits, restart policy, and health checks;
 - represented in deploy dry-run orchestration without printing live secrets;
+- backed by the official generated PostHog self-hosted Compose runtime, not by
+  the simplified GRAF handoff contract alone;
 - portable to a future separate analytics server by changing DNS/runtime
   endpoint, not event names or dashboard contracts.
 
@@ -127,6 +160,11 @@ Validate:
 - OAuth token comes only from a runtime secret file;
 - upload uses a supported identity source without exposing raw values in
   evidence;
+- `UserId` upload is allowed only when the same pseudonymous GRAF user ID was
+  sent to Yandex through `setUserID` and `userParams` on an eligible
+  Yandex-counted page;
+- `ClientId` and `Yclid` upload require real runtime resolver values and must
+  not be synthesized from the GRAF pseudonymous user ID;
 - duplicate protection exists;
 - provider status can be checked without committing raw CSV rows;
 - dashboards show the conversion surface without screenshots containing
@@ -146,7 +184,7 @@ Validate:
 
 ### 7. Provider Smoke
 
-Future implementation must provide smoke scripts that prove:
+The provider smoke scripts must prove:
 
 - PostHog stack health;
 - PostHog secret-file wiring;
@@ -191,6 +229,15 @@ Before any production provider execution:
 infra/scripts/ci-local.sh
 infra/scripts/cd-remote.sh --dry-run
 ```
+
+Set the PostHog runtime image outside git before production execute:
+
+```sh
+POSTHOG_RUNTIME_ENV_FILE=/opt/graf/posthog/posthog.production.env
+POSTHOG_IMAGE=posthog/posthog:<reviewed-pinned-release-tag>
+```
+
+Do not deploy `posthog/posthog:latest`.
 
 Production execution requires explicit approval before:
 

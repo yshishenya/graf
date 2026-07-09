@@ -89,6 +89,7 @@ def render_login_page(
     providers: list,
     next_path: str = "/meetings",
     error: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     content = render_template(
@@ -99,7 +100,7 @@ def render_login_page(
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         error_message=_login_error_message(error),
     )
-    return _standalone_page("Вход", content)
+    return _standalone_page("Вход", content, product_analytics_provider=product_analytics_provider)
 
 
 def render_signup_page(
@@ -109,6 +110,7 @@ def render_signup_page(
     next_path: str = "/meetings",
     error: str | None = None,
     mode: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     email_mode = str(mode or "").lower() == "email"
@@ -123,7 +125,7 @@ def render_signup_page(
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         signup_email_href=f"/sign-up?{urlencode({'next': safe_next, 'mode': 'email'})}",
     )
-    return _standalone_page("Регистрация", content)
+    return _standalone_page("Регистрация", content, product_analytics_provider=product_analytics_provider)
 
 
 def render_email_code_page(
@@ -134,6 +136,7 @@ def render_email_code_page(
     dev_code: str | None = None,
     error: str | None = None,
     flow: str = "login",
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     verify_path = "/sign-up/email/verify" if flow == "signup" else "/login/email/verify"
@@ -158,15 +161,22 @@ def render_email_code_page(
         dev_code=dev_code,
         error_message=_login_error_message(error),
     )
-    return _standalone_page("Код входа", content)
+    return _standalone_page("Код входа", content, product_analytics_provider=product_analytics_provider)
 
 
-def _standalone_page(title: str, content: str, *, csrf_token: str | None = None) -> str:
+def _standalone_page(
+    title: str,
+    content: str,
+    *,
+    csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
+) -> str:
     return render_template(
         "cabinet/base.html",
         title=title,
         surface_mode="auth",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content=trusted_component_html(content, source="auth.shell"),
     )
 

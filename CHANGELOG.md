@@ -9,7 +9,10 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: добавлен production-ready
+  provider layer для product activation analytics: self-hosted PostHog stack
+  как primary workspace, runtime provider config, secret-file inventory,
+  provider smoke, page validation, rollback script и readiness/blocker reports.
 
 ### Изменено
 - _Пока нет записей._
@@ -18,13 +21,24 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: PostHog autocapture включен
+  широко как first-party owner-controlled analytics, но credential material,
+  raw provider payloads, screenshots, visitor/account data, meeting content,
+  transcript/audio, signed URLs, local paths и live provider secrets остаются
+  запрещены в коде, evidence и committed artifacts.
 
 ### Документы
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: добавлены PostHog/Yandex
+  runbooks, rollback plan, metadata-only dashboard evidence, implementation
+  evidence, product analytics addendum и quickstart с финальным validation
+  order.
 
 ### Операции
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: `rec-api` получил
+  disabled-by-default provider env wiring для PostHog/Yandex, отдельный
+  PostHog Compose handoff появился в deploy dry-run, а live `--execute`,
+  live Yandex offline upload, product rollout readiness и paid campaign launch
+  остаются заблокированы отдельными approvals.
 
 ## [2026.07.09.4] - 2026-07-09
 

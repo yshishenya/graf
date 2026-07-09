@@ -41,6 +41,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
     _is_hx_request,
+    product_analytics_provider_for_page,
 )
 from twobrain_rec_server.calendar.credentials import calendar_connection_secret
 from twobrain_rec_server.calendar.service import (
@@ -105,6 +106,12 @@ async def calendar_settings_page(
         render_calendar_settings_page(
             surface,
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=product_analytics_provider_for_page(
+                request,
+                "settings",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 

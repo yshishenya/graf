@@ -171,3 +171,86 @@ def test_enabled_api_accepts_synthetic_event_without_live_provider_delivery() ->
     assert body["accepted"] is True
     assert body["event"]["event_name"] == "desktop_first_opened"
     assert body["provider_results"][0]["status"] == "disabled"
+
+
+def test_desktop_posthog_proxy_endpoint_accepts_posthog_style_body_in_provider_smoke(tmp_path: Path) -> None:
+    key_file = tmp_path / "posthog_project_key"
+    key_file.write_text("synthetic-posthog-key", encoding="utf-8")
+    app = create_app(
+        Settings(
+            product_analytics_enabled=True,
+            product_analytics_validation_mode="provider_smoke",
+            product_analytics_provider_mode="posthog_primary",
+            product_analytics_posthog_enabled=True,
+            product_analytics_posthog_host="https://analytics.example.test",
+            product_analytics_posthog_project_key_file=key_file,
+            product_analytics_posthog_desktop_direct_enabled=True,
+            product_analytics_direct_desktop_egress_enabled=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/product-analytics/posthog-desktop-capture",
+            json={
+                "event": "desktop_account_connected",
+                "distinct_id": "graf_pseudo_user_094",
+                "telemetry_gate_state": "accepted",
+                "api_key_state": "server_injected_redacted",
+                "properties": {
+                    "auth_method_category": "oauth_provider",
+                    "account_connection_state": "connected",
+                    "bridge_present": True,
+                    "delivery_mode": "first_party_desktop_proxy",
+                    "source_feature": "096-product-analytics-provider-rollout",
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "dry_run"
+    assert "synthetic-posthog-key" not in str(body)
+    assert "properties" not in str(body)
+
+
+def test_desktop_posthog_proxy_requires_pseudonymous_distinct_id(tmp_path: Path) -> None:
+    key_file = tmp_path / "posthog_project_key"
+    key_file.write_text("synthetic-posthog-key", encoding="utf-8")
+    app = create_app(
+        Settings(
+            product_analytics_enabled=True,
+            product_analytics_validation_mode="provider_smoke",
+            product_analytics_provider_mode="posthog_primary",
+            product_analytics_posthog_enabled=True,
+            product_analytics_posthog_host="https://analytics.example.test",
+            product_analytics_posthog_project_key_file=key_file,
+            product_analytics_posthog_desktop_direct_enabled=True,
+            product_analytics_direct_desktop_egress_enabled=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        missing = client.post(
+            "/api/v1/product-analytics/posthog-desktop-capture",
+            json={
+                "event": "desktop_first_opened",
+                "telemetry_gate_state": "accepted",
+                "api_key_state": "server_injected_redacted",
+                "properties": {"platform": "macos", "bridge_present": True},
+            },
+        )
+        raw = client.post(
+            "/api/v1/product-analytics/posthog-desktop-capture",
+            json={
+                "event": "desktop_first_opened",
+                "distinct_id": "user@example.test",
+                "telemetry_gate_state": "accepted",
+                "api_key_state": "server_injected_redacted",
+                "properties": {"platform": "macos", "bridge_present": True},
+            },
+        )
+
+    assert missing.status_code == 422
+    assert raw.status_code == 400
+    assert raw.json()["code"] == "posthog_desktop_event_rejected"

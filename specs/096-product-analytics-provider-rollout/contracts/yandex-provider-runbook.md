@@ -75,6 +75,11 @@ Each upload row must use a Yandex-supported identity key source:
 
 The committed evidence must never include raw values for those identifiers.
 
+`UserId` is valid only when the same GRAF pseudonymous user ID was sent to
+Yandex on an eligible counted browser page through `setUserID` and
+`userParams`. `ClientId` and `Yclid` require real runtime resolver values and
+must not be synthesized from the GRAF pseudonymous user ID.
+
 ## OAuth And Access Contract
 
 - OAuth token is supplied only through a runtime secret file.

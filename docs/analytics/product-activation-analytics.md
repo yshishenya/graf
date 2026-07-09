@@ -1,6 +1,6 @@
 # Product Activation Analytics 094
 
-Status: implementation scaffold, no production provider launch.
+Status: 094 scaffold plus 096 provider layer implemented; no production provider execute.
 
 ## Scope
 
@@ -134,4 +134,67 @@ Full local gate remains:
 
 ```sh
 infra/scripts/ci-local.sh
+```
+
+## 096 Provider Rollout Addendum
+
+Status: provider implementation surface, not production product rollout
+readiness and not paid campaign launch readiness.
+
+096 extends the 094 scaffold with a production-ready provider layer:
+
+- self-hosted first-party PostHog is the primary product analytics workspace;
+- Yandex remains the parallel public/ad/offline-conversion surface;
+- runtime secrets stay outside git and are read through secret files only;
+- provider evidence stays metadata-only.
+
+PostHog broad autocapture:
+
+- first-party PostHog autocapture is enabled for every current
+  browser-rendered page class and for future browser-rendered pages by default;
+- public/auth pages use anonymous `graf_pseudo_browser_anonymous`; authenticated
+  cabinet, settings, meeting, deletion, and embedded desktop pages use
+  pseudonymous `graf_pseudo_*` identity metadata;
+- self-hosted PostHog may receive owner-controlled product-visible context that
+  GRAF can already display to authorized operators;
+- credential/content suppression is still mandatory: pages and shared
+  primitives use private attributes such as `data-ph-mask`, not committed raw
+  payload examples;
+- credentials, tokens, signed URLs, cookies, local paths, raw audio,
+  transcript/meeting-content dumps, and raw payload dumps remain forbidden;
+- PostHog replay is a separate capability and remains disabled;
+- replay can be considered later only after page-class masking, legal, QA, and
+  evidence proof;
+- disabling PostHog provider flags must leave normal product workflows running
+  and create only a measurement gap.
+
+Yandex separation:
+
+- existing 093 public `/` and `/download` scope is preserved;
+- non-public, admin, callback, meeting/detail, upload, deletion, embedded, and
+  future page classes remain blocked or replay-unavailable for Yandex until
+  inventory evidence changes;
+- Webvisor, click map, scroll map, and form analytics remain disabled;
+- offline conversions are limited to `desktop_account_connected` and
+  `first_value_session_completed`;
+- Yandex offline upload with `UserId` requires that the same pseudonymous ID was
+  sent during an eligible Yandex-counted browser session through `setUserID` and
+  `userParams`; `ClientId`/`Yclid` require real runtime resolver values and
+  cannot be replaced by a GRAF pseudonym;
+- paid campaign launch remains blocked until a separate campaign readiness
+  approval exists.
+
+Desktop direct provider route:
+
+- direct desktop provider egress is allowed only for first-party PostHog after
+  explicit config and approval flags;
+- direct desktop Yandex provider egress remains blocked;
+- desktop request construction must not include provider secrets or raw private
+  identifiers.
+
+096 validation helpers:
+
+```sh
+infra/scripts/run-product-analytics-provider-smoke.sh
+infra/scripts/validate-product-analytics-provider-pages.sh
 ```

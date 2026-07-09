@@ -10,7 +10,13 @@
     <link rel="stylesheet" href="/static/cabinet/cabinet.css">
     <link rel="stylesheet" href="{{ admin_static_url }}/admin.css">
   </head>
-  <body data-surface-mode="standalone_browser">
+  <body data-surface-mode="standalone_browser" data-graf-analytics-private="true" data-ph-mask="true" data-ym-hide-content="true" data-ym-disable-keys="true" data-yandex-state="blocked">
+    {% if product_analytics_provider is defined and product_analytics_provider and product_analytics_provider.enabled %}
+    <script id="graf-product-analytics-provider-config" type="application/json" data-page-class="{{ product_analytics_provider.page_class }}">
+      {{ product_analytics_provider | tojson }}
+    </script>
+    <script defer src="/static/public/analytics.js"></script>
+    {% endif %}
     <div class="app-shell admin-app-shell" data-shell-scroll="contained" data-mobile-scroll="page" data-admin-shell>
       <a class="skip-link" href="#admin-main">К содержимому</a>
       <aside class="sidebar admin-sidebar">

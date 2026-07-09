@@ -99,7 +99,15 @@ Yandex offline conversion live upload is in scope for exactly:
 - `desktop_account_connected`
 - `first_value_session_completed`
 
-**Rationale**: The Yandex docs require an OAuth token and counter/tag ID for the offline conversion upload endpoint. They also support identity linkage through owner `UserId`, Yandex `ClientId`, or `Yclid`. This matches 094 attribution bridging and the 096 goal of feeding real product activation signals into the existing Yandex counter.
+**Rationale**: The Yandex docs require an OAuth token and counter/tag ID for the
+offline conversion upload endpoint. They also support identity linkage through
+owner `UserId`, Yandex `ClientId`, or `Yclid`. `UserId` is reliable only when
+the same owner ID was sent to Yandex during an eligible counted session with
+`setUserID`/`userParams`; `ClientId` and `Yclid` require real runtime resolver
+values and cannot be synthesized from the GRAF pseudonymous user ID. This
+matches 094 attribution bridging and the 096 goal of feeding real product
+activation signals into the existing Yandex counter without committing raw
+identifier values.
 
 **Alternatives considered**:
 

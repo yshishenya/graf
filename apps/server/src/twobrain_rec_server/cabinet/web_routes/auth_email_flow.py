@@ -16,6 +16,7 @@ from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
 )
+from twobrain_rec_server.cabinet.web_routes.support import product_analytics_provider_for_page
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
@@ -118,6 +119,7 @@ async def _consume_email_login_code(
             next_path=next_path,
             error="email_code_invalid",
             flow=flow,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     if workspace_id is not None and state.workspace_id != workspace_id:
         return _email_code_error_response(
@@ -126,6 +128,7 @@ async def _consume_email_login_code(
             next_path=next_path,
             error="email_code_invalid",
             flow=flow,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     workspace_id = state.workspace_id
     if state.result != "pending":
@@ -135,6 +138,7 @@ async def _consume_email_login_code(
             next_path=next_path,
             error="email_code_invalid",
             flow=flow,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     expires_at = state.expires_at
     if expires_at.tzinfo is None:
@@ -157,6 +161,7 @@ async def _consume_email_login_code(
             next_path=next_path,
             error="email_code_expired",
             flow=flow,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     if state.expected_state != hash_token(_normalize_email_code(code)):
         state.result = "failed"
@@ -176,6 +181,7 @@ async def _consume_email_login_code(
             next_path=next_path,
             error="email_code_invalid",
             flow=flow,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
     if workspace is not None and user is None and allow_registration:
@@ -203,6 +209,7 @@ async def _consume_email_login_code(
             next_path=next_path,
             error="email_code_invalid",
             flow=flow,
+            product_analytics_provider=product_analytics_provider_for_page(request, "login_signup"),
         )
     device = await _resolve_email_browser_device(db, workspace=workspace, user=user, now=now)
     issued = await issue_auth_session(
@@ -453,6 +460,7 @@ def _email_code_error_response(
     next_path: str,
     error: str,
     flow: str = "login",
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> HTMLResponse:
     return HTMLResponse(
         render_email_code_page(
@@ -461,6 +469,7 @@ def _email_code_error_response(
             next_path=next_path,
             error=error,
             flow=flow,
+            product_analytics_provider=product_analytics_provider,
         ),
         status_code=400,
     )

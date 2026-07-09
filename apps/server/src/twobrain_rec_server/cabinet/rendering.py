@@ -58,11 +58,13 @@ def render_meeting_list_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     poll_url: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     return _page_shell(
         "Мои встречи",
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/pages/meeting_list_content.html",
         filter_action=_base_path(embedded),
         list_region=trusted_component_html(
@@ -88,12 +90,18 @@ def render_meeting_list_page(
     )
 
 
-def render_settings_page(*, embedded: bool = False, csrf_token: str | None = None) -> str:
+def render_settings_page(
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
+) -> str:
     return _page_shell(
         "Настройки",
         embedded=embedded,
         active_nav="settings",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/pages/settings_content.html",
         calendar_settings_href=_settings_path(embedded),
     )
@@ -113,11 +121,13 @@ def render_calendar_settings_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     return _page_shell(
         surface.title,
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/fragments/calendar_settings.html",
         active_nav="settings",
         skip_target="calendar-settings-region",
@@ -285,6 +295,7 @@ def render_meeting_detail_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     content = _render_meeting_detail_content(review, embedded=embedded)
     return _page_shell(
@@ -292,6 +303,7 @@ def render_meeting_detail_page(
         content,
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_source="meeting_detail.content",
     )
 
