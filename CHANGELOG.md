@@ -9,7 +9,12 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `094-product-activation-analytics`: добавлен безопасный
+  implementation scaffold продуктовой аналитики: disabled-by-default config,
+  stable event catalog, forbidden-field validator, telemetry gate model,
+  pseudonymous identity helpers, provider-disabled PostHog/Yandex wrappers,
+  server-mediated API, macOS payload/client shell, env propagation, focused
+  tests, smoke scripts и rollout/dashboard documentation без прод-запуска.
 
 ### Изменено
 - _Пока нет записей._
@@ -18,13 +23,19 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `094-product-activation-analytics`: product analytics запрещает raw
+  identity, meeting content, transcript/audio/calendar text, local paths,
+  signed URLs, tokens, secrets, device names и private free text; direct desktop
+  provider egress закрыт без явных legal/security/QA/provider approval.
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Feature `094-product-activation-analytics`: production env example и compose
+  получили disabled-by-default product analytics placeholders только для
+  `rec-api`; live PostHog/Yandex provider setup, production deploy и paid
+  campaign launch остаются отдельными approvals.
 
 ## [2026.07.09.2] - 2026-07-09
 
@@ -61,12 +72,6 @@
   для следующей высокорисковой продуктовой аналитики после 093 с контекстом
   Yandex/PostHog, attribution bridge, masking/replay gates и production smoke
   lessons learned из public analytics closeout.
-- Feature `094-product-activation-analytics`: добавлен безопасный
-  implementation scaffold продуктовой аналитики: disabled-by-default config,
-  stable event catalog, forbidden-field validator, telemetry gate model,
-  pseudonymous identity helpers, provider-disabled PostHog/Yandex wrappers,
-  server-mediated API, macOS payload/client shell, env propagation, focused
-  tests, smoke scripts и rollout/dashboard documentation без прод-запуска.
 - Feature `092-automatic-meeting-detection`: заложен серверный и desktop
   фундамент для registry-driven определения встреч: metadata-only telemetry,
   admin review кандидатов и packaged seed registry для macOS без production
@@ -107,10 +112,6 @@
   согласия на analytics; Webvisor/replay ограничен публичными страницами и
   отдельной категорией `behavior_replay`; public analytics отсутствует на
   login, cabinet, admin, API, legal и product/content-bearing surfaces.
-- Feature `094-product-activation-analytics`: product analytics запрещает raw
-  identity, meeting content, transcript/audio/calendar text, local paths,
-  signed URLs, tokens, secrets, device names и private free text; direct desktop
-  provider egress закрыт без явных legal/security/QA/provider approval.
 - Feature `092-automatic-meeting-detection`: telemetry/admin/diagnostics остаются
   metadata-only; low-score unknown apps redacted locally, Krisp/audio utilities
   and generic browser mic attribution suppressed, remote registry cannot enable
@@ -134,10 +135,6 @@
   dashboard access, production deploy и provider smoke завершены для `/` и
   `/download`; paid campaign launch остается blocked до legal/campaign-
   readiness approval.
-- Feature `094-product-activation-analytics`: production env example и compose
-  получили disabled-by-default product analytics placeholders только для
-  `rec-api`; live PostHog/Yandex provider setup, production deploy и paid
-  campaign launch остаются отдельными approvals.
 - Feature `092-automatic-meeting-detection`: focused validation passed server
   `48 passed`, macOS `124 tests`, forbidden-content source scan, and full
   `infra/scripts/ci-local.sh` with `1136 passed, 4 skipped, 1 warning`.
