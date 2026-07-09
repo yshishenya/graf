@@ -216,6 +216,7 @@ public enum RecordingStartBlocker: String, Codable, Sendable {
 
 public enum RecordingStopReason: String, Codable, Sendable {
     case userRequested = "user_requested"
+    case meetingEnded = "meeting_ended"
     case routeInvalidated = "route_invalidated"
     case indicatorLost = "indicator_lost"
     case storageUnsafe = "storage_unsafe"

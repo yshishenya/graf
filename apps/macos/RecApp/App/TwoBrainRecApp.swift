@@ -134,13 +134,19 @@ private enum TwoBrainRecAppMain {
 
 private struct ContentView: View {
     private let meetingDetectionRegistryRefreshIntervalNanoseconds: UInt64 = 3_600_000_000_000
+    private static let meetingDetectionPromptWindowSize = NSSize(width: 360, height: 286)
+    private static let meetingDetectionPromptVisibleMargin: CGFloat = 22
 
     @StateObject private var passthroughCoordinator = ExperimentalPassthroughCoordinator(
         logger: AppLog.writeRaw
     )
     @State private var captureController = CaptureSessionController()
     @State private var localRecordingWriter = LocalRecordingWriter()
-    @State private var systemAudioCaptureService = SystemAudioCaptureService()
+    @State private var systemAudioCaptureService = SystemAudioCaptureService(
+        runtimeStartFailureLogger: { detail in
+            AppLog.writeRaw(event: "system_audio.runtime_start_failed", detail: detail)
+        }
+    )
     @State private var microphoneCaptureService = MicrophoneCaptureService()
     @State private var systemAudioPermissionAuthorizer = CoreGraphicsSystemAudioPermissionAuthorizer()
     @State private var systemAudioPermissionGate = SystemAudioPermissionGate()
@@ -221,6 +227,9 @@ private struct ContentView: View {
             onResumeRecording: {
                 Task { await resumeManualRecording() }
             },
+            onOpenSettings: {
+                (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+            },
             onSupportIncidentReport: { itemIds in
                 try await submitSupportIncidentReport(itemIds: itemIds)
             }
@@ -279,6 +288,9 @@ private struct ContentView: View {
                 },
                 onCalendarPromptDismiss: { prompt in
                     dismissCalendarPrompt(prompt)
+                },
+                onMeetingDetectionSettings: {
+                    (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
                 }
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
@@ -825,8 +837,30 @@ private struct ContentView: View {
                 if meetingDetectionPrompt?.bundleID == bundleID {
                     dismissMeetingDetectionPrompt()
                 }
+                stopMeetingDetectionRecordingIfNeeded(bundleID: bundleID)
                 meetingDetectionStatus = meetingDetectionStatusText()
             }
+        }
+    }
+
+    @MainActor
+    private func stopMeetingDetectionRecordingIfNeeded(bundleID: String) {
+        guard let session = captureSession,
+              session.triggerEvidence["meetingDetectionBundleId"] == bundleID,
+              CaptureStatusItem.showsStopButton(for: session)
+        else {
+            return
+        }
+        AppLog.writeRaw(
+            event: "meeting_detection.recording_stop_requested",
+            detail: "sessionId=\(session.id) bundleID=\(bundleID) reason=meeting_ended"
+        )
+        Task {
+            await stopManualRecording(
+                reason: .meetingEnded,
+                evidenceInitiator: .systemFailClosed,
+                enqueueReason: "meeting_detection_target_ended"
+            )
         }
     }
 
@@ -871,6 +905,13 @@ private struct ContentView: View {
     }
 
     @MainActor
+    private var meetingDetectionVisibleIndicatorAvailable: Bool {
+        guard let captureSession else { return true }
+        return captureSession.visibleIndicatorState != .hidden ||
+            CaptureControlView.shouldShowRecordButton(for: captureSession)
+    }
+
+    @MainActor
     private var meetingDetectionWorkspacePolicyAllowsRecording: Bool {
         captureSession?.sourceAppEligibility != .policyBlocked
     }
@@ -886,7 +927,7 @@ private struct ContentView: View {
                 policyAllowsRecording: meetingDetectionWorkspacePolicyAllowsRecording,
                 microphonePermissionGranted: microphonePermissionGranted,
                 storageRisk: snapshot.healthState.bufferRisk,
-                indicatorAvailable: meetingDetectionOneActionStopAvailable,
+                indicatorAvailable: meetingDetectionVisibleIndicatorAvailable,
                 sourceAppEligibility: meetingDetectionWorkspacePolicyAllowsRecording ? .eligible : .policyBlocked,
                 evaluatedAt: Date()
             )
@@ -919,22 +960,24 @@ private struct ContentView: View {
     @MainActor
     private func presentMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
         dismissMeetingDetectionPromptWindow()
+        let promptWindowSize = Self.meetingDetectionPromptWindowSize
 
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 286),
+            contentRect: NSRect(origin: .zero, size: promptWindowSize),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.level = .statusBar
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true
+        window.hidesOnDeactivate = false
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("graf-meeting-detection-prompt")
-        window.contentViewController = NSHostingController(
+        let hostingController = NSHostingController(
             rootView: MeetingDetectionPromptView(
                 prompt: prompt,
                 isStartDisabled: recordingStartInProgress || recordingStopInProgress || calendarPromptRecordingIsActive,
@@ -945,14 +988,39 @@ private struct ContentView: View {
                     dismissMeetingDetectionPrompt()
                 }
             )
+            .frame(width: promptWindowSize.width, height: promptWindowSize.height)
         )
+        hostingController.view.frame = NSRect(origin: .zero, size: promptWindowSize)
+        window.contentViewController = hostingController
+        window.minSize = promptWindowSize
+        window.maxSize = promptWindowSize
+        window.setContentSize(promptWindowSize)
         positionMeetingDetectionPromptWindow(window)
         meetingDetectionPromptWindow = window
+        AppLog.writeRaw(
+            event: "meeting_detection.prompt_presented",
+            detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID)"
+        )
         window.orderFrontRegardless()
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.setContentSize(promptWindowSize)
+        positionMeetingDetectionPromptWindow(window)
+        Task { @MainActor [weak window] in
+            guard let window, window.isVisible else { return }
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.setContentSize(Self.meetingDetectionPromptWindowSize)
+            positionMeetingDetectionPromptWindow(window)
+        }
     }
 
     @MainActor
     private func dismissMeetingDetectionPrompt() {
+        if let meetingDetectionPrompt {
+            AppLog.writeRaw(
+                event: "meeting_detection.prompt_dismissed",
+                detail: "targetId=\(meetingDetectionPrompt.targetID) bundleID=\(meetingDetectionPrompt.bundleID)"
+            )
+        }
         meetingDetectionPrompt = nil
         dismissMeetingDetectionPromptWindow()
     }
@@ -965,18 +1033,49 @@ private struct ContentView: View {
 
     @MainActor
     private func positionMeetingDetectionPromptWindow(_ window: NSWindow) {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+        guard let screen = meetingDetectionPromptScreen() else {
             window.center()
             return
         }
-        let visibleFrame = screen.visibleFrame
-        let margin: CGFloat = 22
-        window.setFrameOrigin(
-            NSPoint(
-                x: visibleFrame.maxX - window.frame.width - margin,
-                y: visibleFrame.maxY - window.frame.height - margin
-            )
+        let frame = meetingDetectionPromptFrame(
+            windowSize: Self.meetingDetectionPromptWindowSize,
+            visibleFrame: screen.visibleFrame
         )
+        window.setFrame(frame, display: true)
+    }
+
+    @MainActor
+    private func meetingDetectionPromptScreen() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
+            return screen
+        }
+        return NSApp.keyWindow?.screen
+            ?? NSApp.mainWindow?.screen
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+    }
+
+    private func meetingDetectionPromptFrame(windowSize: NSSize, visibleFrame: NSRect) -> NSRect {
+        let margin = Self.meetingDetectionPromptVisibleMargin
+        let horizontalMargin = min(margin, max(0, visibleFrame.width / 2 - 1))
+        let verticalMargin = min(margin, max(0, visibleFrame.height / 2 - 1))
+        let safeFrame = visibleFrame.insetBy(dx: horizontalMargin, dy: verticalMargin)
+        let width = min(windowSize.width, max(1, safeFrame.width))
+        let height = min(windowSize.height, max(1, safeFrame.height))
+        let maxX = safeFrame.maxX - width
+        let maxY = safeFrame.maxY - height
+        return NSRect(
+            x: clamp(safeFrame.midX - width / 2, lower: safeFrame.minX, upper: maxX),
+            y: clamp(safeFrame.maxY - height, lower: safeFrame.minY, upper: maxY),
+            width: width,
+            height: height
+        )
+    }
+
+    private func clamp(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
+        guard upper >= lower else { return lower }
+        return min(max(value, lower), upper)
     }
 
     @MainActor
@@ -984,6 +1083,10 @@ private struct ContentView: View {
         _ prompt: MeetingDetectionPrompt,
         autoRecordOptIn: Bool
     ) {
+        AppLog.writeRaw(
+            event: "meeting_detection.prompt_accepted",
+            detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID) autoRecordOptIn=\(autoRecordOptIn)"
+        )
         if autoRecordOptIn {
             meetingDetectionSettings.targetScopedAutoRecordEnabled = true
             meetingDetectionSettings.autoRecordTargetIds.insert(prompt.targetID)
@@ -1379,7 +1482,11 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func stopManualRecording() async {
+    private func stopManualRecording(
+        reason: RecordingStopReason = .userRequested,
+        evidenceInitiator: RecordingEvidenceInitiator = .user,
+        enqueueReason: String = "manual_stop_finalized"
+    ) async {
         guard !recordingStartInProgress, !recordingStopInProgress else { return }
         recordingStopInProgress = true
         localRecordingActive = false
@@ -1387,7 +1494,7 @@ private struct ContentView: View {
         defer { recordingStopInProgress = false }
 
         do {
-            _ = try captureController.requestStop(reason: .userRequested)
+            _ = try captureController.requestStop(reason: reason)
             let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
             releaseAppleProcessingCandidate(reason: .stop)
             let systemAudioSession = try await systemAudioCaptureService.stop()
@@ -1405,7 +1512,7 @@ private struct ContentView: View {
                 RecordingEvidenceService().event(
                     for: stopped,
                     type: .stopped,
-                    initiator: .user,
+                    initiator: evidenceInitiator,
                     routeState: snapshot.healthState.livePassthroughStatus ?? .inactive
                 )
             )
@@ -1425,7 +1532,7 @@ private struct ContentView: View {
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
-                reason: "manual_stop_finalized",
+                reason: enqueueReason,
                 calendarContextEventId: activeCalendarContextEventId
             )
             activeCalendarContextEventId = nil

@@ -157,13 +157,46 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .suppress(reason: RecordingStartBlocker.storageUnsafe.rawValue))
     }
 
-    func testAudioHALLogStreamPredicateIsScopedToRunningBoard() {
+    func testLogStreamPredicateCoversAudioHALAndSensorIndicators() {
         let configuration = MacOSAudioOwnershipLogStreamConfiguration()
         let predicate = configuration.arguments.last ?? ""
 
         XCTAssertTrue(predicate.contains("AudioHAL"))
         XCTAssertTrue(predicate.contains("runningboardd"))
+        XCTAssertTrue(predicate.contains("sensor-indicators"))
+        XCTAssertTrue(predicate.contains("Active activity attributions changed"))
         XCTAssertFalse(predicate.hasPrefix("eventMessage CONTAINS"))
+    }
+
+    func testLogStreamConvertsSensorIndicatorMicDiffsToOwnershipEvents() {
+        let parser = MacOSAudioOwnershipParser()
+        let observedAt = Date(timeIntervalSince1970: 200)
+        var activeBundles: Set<String> = []
+
+        let startEvents = MacOSAudioOwnershipLogStream.events(
+            from: #"ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["mic:ai.krisp.krispMac", "mic:ru.yandex.desktop.telemost"]"#,
+            parser: parser,
+            activeSensorMicBundleIDs: &activeBundles,
+            observedAt: observedAt
+        )
+        let endEvents = MacOSAudioOwnershipLogStream.events(
+            from: #"ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["mic:ai.krisp.krispMac"]"#,
+            parser: parser,
+            activeSensorMicBundleIDs: &activeBundles,
+            observedAt: observedAt
+        )
+
+        XCTAssertEqual(
+            startEvents,
+            [
+                MacOSAudioOwnershipEvent(bundleID: "ai.krisp.krispMac", state: .active, observedAt: observedAt),
+                MacOSAudioOwnershipEvent(bundleID: "ru.yandex.desktop.telemost", state: .active, observedAt: observedAt)
+            ]
+        )
+        XCTAssertEqual(
+            endEvents,
+            [MacOSAudioOwnershipEvent(bundleID: "ru.yandex.desktop.telemost", state: .inactive, observedAt: observedAt)]
+        )
     }
 
     func testDetectorDebouncesKnownTargetBeforePrompt() throws {
