@@ -115,7 +115,11 @@ When the user says "enable everything possible", interpret it as:
   public pages;
 - enable Yandex goals/events, safe page categories, safe session/user
   parameters, click maps, scroll maps, form analytics, and Webvisor/session
-  replay everywhere after the required masking/sanitization gates pass;
+  replay only where the required masking/sanitization gates pass;
+- for page classes that are safe for page views/events but not yet safe for
+  replay, keep sanitized page views/events and disable PostHog Session Replay,
+  Yandex Webvisor, click maps, scroll maps, and form analytics until masking
+  proof exists;
 - automate any approved Yandex offline conversion feedback instead of relying
   on manual exports;
 - do not treat "everything possible" as permission to send forbidden data,
@@ -130,9 +134,9 @@ measurement-routing design with these default positions:
 | Public page views and safe public events | PostHog + Yandex | PostHog needs acquisition context for the full funnel; Yandex needs web/ad measurement. |
 | Public session replay | PostHog + Yandex | PostHog supports funnel-to-replay inside the primary workspace; Yandex Webvisor supports web/ad behavior review. |
 | Auth/cabinet/product web page views | PostHog + Yandex | PostHog needs product journey context; Yandex is enabled on all web pages after sanitization. |
-| Auth/cabinet/product session replay | PostHog + Yandex | PostHog keeps product funnel review convenient; Yandex target is full Webvisor everywhere after masking-by-default and legal/QA gates. |
+| Auth/cabinet/product session replay | PostHog + Yandex where page class passes replay proof | PostHog keeps product funnel review convenient; Yandex Webvisor remains useful, but replay/maps/forms stay disabled on unsafe page classes until masking-by-default and legal/QA gates pass. |
 | Desktop-native product milestones | PostHog | PostHog is the product source of truth. |
-| Approved activation milestones for ad optimization | Yandex offline conversions | Only approved milestone subset, sent automatically with safe identifiers. |
+| Approved activation milestones for ad optimization | Yandex offline conversions | Default subset is only `desktop_account_connected` and `first_value_session_completed`, sent automatically with safe identifiers. |
 | Retention/cohort/drop-off/product dashboards | PostHog | PostHog is the daily product analytics workspace. |
 | Yandex Direct optimization and ad reports | Yandex | Yandex remains the advertising optimization surface. |
 
@@ -184,8 +188,10 @@ Attribution reliability must be explicit:
      without opening Yandex or doing manual ID matching.
    - PostHog Session Replay must use masking-by-default, URL/title/referrer
      sanitization, private DOM hiding, input suppression, forbidden-field
-     controls, QA evidence, and legal review. This decision does not authorize
-     desktop-native screen/audio replay.
+     controls, QA evidence, and legal review. If a page class lacks replay
+     proof, PostHog replay stays disabled there while sanitized page views/
+     events may still proceed. This decision does not authorize desktop-native
+     screen/audio replay.
 
 2. Yandex Metrica is the parallel all-web-pages measurement and advertising
    optimization workspace.
@@ -196,7 +202,7 @@ Attribution reliability must be explicit:
      page views, traffic sources, UTM/openstat where relevant, safe goals,
      safe custom events, safe page categories, safe funnel steps,
      click/scroll/form-map capabilities where legally and technically safe, and
-     Webvisor/session replay everywhere after the mandatory replay/masking gate
+     Webvisor/session replay only after the mandatory replay/masking gate
      passes for each page class.
    - It remains the natural place for Yandex Direct, advertising reports,
      public and authenticated web behavior, and optional offline-conversion
@@ -207,21 +213,21 @@ Attribution reliability must be explicit:
      define route/page-title/referrer sanitization before the Yandex tag is
      allowed on authenticated, cabinet, meeting, upload, playback, deletion,
      admin, or embedded desktop web surfaces.
-   - The target Webvisor/session replay policy is full replay everywhere on all
-     approved browser-rendered web pages. If a page class cannot be made safe
-     through masking-by-default, URL/title/referrer sanitization, form/input
-     suppression, private DOM hiding, and QA/legal evidence, the SDD must treat
-     that as a launch blocker or require route/DOM/product redesign rather than
-     silently excluding the page from replay.
+   - The target Webvisor/session replay policy is broad coverage on all page
+     classes that can prove safety. If a page class can safely emit page views
+     and events but cannot yet prove replay safety, keep safe page views/events
+     and mark replay/Webvisor/click maps/scroll maps/form analytics unavailable
+     for that page class. Do not run best-effort real-user replay. If even URL,
+     title, referrer, event fields, or provider-visible parameters cannot be
+     sanitized, block provider collection for that page class until fixed.
 
 3. Approved product milestones may be sent back to Yandex as offline
    conversions only when useful for advertising optimization.
-   - Candidate offline conversions:
-     `desktop_first_opened`, `desktop_account_connected`,
-     `first_recording_completed`, `first_result_viewed`,
-     `first_value_session_completed`.
-   - The SDD must decide the exact subset. Do not send every product event to
-     Yandex by default.
+   - Default offline conversion subset:
+     `desktop_account_connected` and `first_value_session_completed`.
+   - Do not send `desktop_first_opened`, `desktop_autorecord_enabled`,
+     `first_recording_completed`, `first_result_viewed`, or every product event
+     to Yandex by default unless a later explicit approval expands the subset.
    - Each exported milestone must have an allowed identifier strategy, allowed
      fields, retention/deletion statement, and advertising purpose.
 
@@ -232,15 +238,18 @@ Attribution reliability must be explicit:
    - Do enable Yandex Metrica across all approved web pages after the page
      inventory, legal gate, and sanitization controls pass.
    - Do enable Yandex Webvisor/session replay across all approved web pages
-     after masking-by-default, sanitization, QA evidence, and legal review pass.
+     only after masking-by-default, sanitization, QA evidence, and legal review
+     pass for each page class.
    - Do not enable unlimited event fan-out, unmasked product/cabinet/meeting
      replay, ad retargeting pixels, raw email/name/workspace/account IDs,
      meeting titles, participants, audio, transcripts, calendar text, local
      paths, tokens, signed URLs, passcodes, secrets, or other forbidden fields.
    - Do not rely on Yandex automatic collection when route names, page titles,
      referrers, search strings, form fields, DOM text, or replay content may
-     contain private product data. Redesign the route/title/DOM output, mask it,
-     or block that Yandex capability for the page class.
+     contain private product data. Sanitize route/title/referrer/event fields,
+     mask DOM output, or block only the unsafe provider capability for the page
+     class. If page views/events are safe but replay is not, keep safe page
+     views/events and block replay/maps/forms.
    - Do not make a future PostHog-Yandex roadmap connector a launch dependency.
    - Do not require routine CSV exports, manual joins, spreadsheet reporting, or
      custom ETL as the daily analytics process.
@@ -253,8 +262,8 @@ The future SDD must create these artifacts before tasks or implementation:
    - One row per event/page milestone.
    - Columns: event name, owner, surface, PostHog yes/no, Yandex yes/no,
      Yandex mode (tag event, goal, user/session parameter, offline conversion,
-     replay-only, no data), reason, allowed fields, forbidden fields, identity,
-     retention/deletion truth, dashboard owner, QA evidence.
+     replay-only, replay-disabled, no data), reason, allowed fields, forbidden
+     fields, identity, retention/deletion truth, dashboard owner, QA evidence.
 
 2. Yandex all-pages inventory.
    - One row per page class: public landing, download, legal, login/signup,
@@ -264,7 +273,8 @@ The future SDD must create these artifacts before tasks or implementation:
    - Columns: Yandex tag allowed, page view allowed, goals/events allowed,
      click map allowed, scroll map allowed, form analytics allowed,
      Webvisor/session replay allowed, masking rules, URL/title/referrer rules,
-     DOM/private text rules, launch status, blocker if unsafe.
+     DOM/private text rules, replay unavailable caveat, launch status, blocker
+     if unsafe.
 
 3. Replay masking contract.
    - Applies to both PostHog Session Replay and Yandex Webvisor/session replay.
@@ -274,8 +284,13 @@ The future SDD must create these artifacts before tasks or implementation:
      calendar, and free-text regions must be hidden or suppressed before
      replay is allowed.
    - Only explicitly safe neutral UI regions may remain visible.
-   - If a page cannot meet the contract, launch is blocked or the page must be
-     redesigned.
+   - If a page cannot meet replay masking proof, replay/Webvisor/click maps/
+     scroll maps/form analytics are disabled for that page class and the
+     dashboard/inventory must show replay unavailable. This does not block safe
+     page views/events if URL/title/referrer/event fields are sanitized.
+   - If a page cannot safely sanitize URL/title/referrer/event fields or
+     provider-visible parameters, provider collection for that page class is
+     blocked until fixed.
 
 4. Identity and attribution contract.
    - Use the server-owned attribution bridge as the default model.
@@ -305,8 +320,9 @@ The future SDD must create these artifacts before tasks or implementation:
 6. Dashboard map.
    - PostHog dashboards: source/campaign to first value, installer download vs
      first app open, account connected, auto-record enabled, first recording,
-     first result viewed, first value, drop-off, retention, cohorts, internal
-     traffic exclusion, and funnel-to-session-replay drilldowns.
+     first result viewed, first value, drop-off, retention, cohorts,
+     internal/support/smoke/test activity disclosure, and funnel-to-session-
+     replay drilldowns.
    - Yandex dashboards: all-web page behavior, Yandex Direct reports, Webvisor,
      click/scroll/form reports where allowed, public goals, authenticated safe
      goals, approved offline conversion feedback.
@@ -319,9 +335,10 @@ The future SDD must create these artifacts before tasks or implementation:
      service container and rendered approved pages.
    - Missing Yandex all-pages inventory.
    - Unsafe URL/title/referrer for any tagged page.
-   - Unsafe unmasked DOM/replay region.
+   - Unsafe unmasked DOM/replay region for replay/map/form collection.
    - Forbidden field in any event, parameter, URL, title, or replay payload.
-   - Missing internal/test-user filtering.
+   - Missing dashboard caveat that internal/support/smoke/test activity is
+     counted by default.
    - Missing dashboard owner.
    - Missing local and production smoke evidence.
    - Smoke evidence checks only host-side `.env` or local config, without live
@@ -412,7 +429,8 @@ Decisions required before implementation:
    - First result viewed.
    - First value session completed.
    - Drop-off by safe dimensions only.
-   - Internal/test-user filtering.
+   - Clear disclosure that internal, support, smoke, and test activity is
+     counted by default unless a later approved filtering feature changes that.
    - Optional Yandex Metrica/Direct feedback reports for advertising decisions
      only; they must not become the source of truth for product activation.
 
@@ -422,12 +440,13 @@ Decisions required before implementation:
      notice review;
    - provider decision approval;
    - identity and hard product telemetry gate approval;
-   - test/internal user filtering;
+   - dashboard/report caveat that internal/support/smoke/test activity is
+     counted by default;
    - provider failure handling;
    - local and production smoke plan that verifies host env/secret source,
      composed service config, live container env, rendered HTML/JS on approved
-     pages, expected absence on blocked pages, provider script reachability,
-     and provider dashboard/goal visibility;
+     pages, expected absence or replay-disabled state on blocked/unsafe pages,
+     provider script reachability, and provider dashboard/goal visibility;
    - no live IDs or secrets in git;
    - campaign interpretation caveats.
 

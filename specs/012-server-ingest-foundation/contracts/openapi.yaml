@@ -2151,6 +2151,156 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/product-analytics/catalog:
+    get:
+      tags:
+      - product-analytics
+      summary: Product Analytics Catalog
+      operationId: product_analytics_catalog_api_v1_product_analytics_catalog_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Catalog Api V1 Product Analytics
+                  Catalog Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/telemetry-gate/disclosure:
+    get:
+      tags:
+      - product-analytics
+      summary: Product Analytics Telemetry Gate Disclosure
+      operationId: product_analytics_telemetry_gate_disclosure_api_v1_product_analytics_telemetry_gate_disclosure_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Telemetry Gate Disclosure Api V1
+                  Product Analytics Telemetry Gate Disclosure Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/telemetry-gate/access:
+    get:
+      tags:
+      - product-analytics
+      summary: Product Analytics Telemetry Gate Access
+      operationId: product_analytics_telemetry_gate_access_api_v1_product_analytics_telemetry_gate_access_get
+      parameters:
+      - name: state
+        in: query
+        required: false
+        schema:
+          type: string
+          default: not_seen
+          title: State
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Product Analytics Telemetry Gate Access Api V1 Product
+                  Analytics Telemetry Gate Access Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/events:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Events
+      operationId: product_analytics_events_api_v1_product_analytics_events_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductAnalyticsEventRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Events Api V1 Product Analytics
+                  Events Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/calendar/providers:
     get:
       tags:
@@ -10204,6 +10354,35 @@ components:
       - workspace_id
       - state
       title: ProcessingStatusResponse
+    ProductAnalyticsEventRequest:
+      properties:
+        event_name:
+          type: string
+          minLength: 1
+          title: Event Name
+        stable_pseudonymous_user_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stable Pseudonymous User Id
+        occurred_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Occurred At
+        telemetry_gate_state:
+          type: string
+          title: Telemetry Gate State
+          default: accepted
+        properties:
+          additionalProperties: true
+          type: object
+          title: Properties
+      type: object
+      required:
+      - event_name
+      title: ProductAnalyticsEventRequest
     PutMeetingCalendarContextRequest:
       properties:
         event_id:

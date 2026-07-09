@@ -36,6 +36,17 @@ metadata-only evidence остаются подробной историей ре
   passed on 2026-07-08. Paid campaign launch remains blocked until legal and
   campaign-readiness approval. Product activation analytics is not included in
   093 and is tracked as feature `094-product-activation-analytics`.
+- Feature `094-product-activation-analytics` now has a safe implementation
+  scaffold for product activation analytics without production provider launch.
+  It defines the activation funnel from public download intent through first
+  value, disabled-by-default runtime config, forbidden-field rejection,
+  pseudonymous identity helpers, a mandatory product telemetry gate model,
+  PostHog/Yandex provider-disabled wrappers, server-mediated validation API,
+  macOS payload/client shell, env propagation checks, smoke helpers, dashboard
+  evidence template, and rollout documentation. Live PostHog setup, Yandex
+  all-pages expansion, Yandex offline conversion upload, production deploy, and
+  paid campaign optimization remain blocked pending separate legal/product/
+  security/QA/provider approval.
 - Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
   recording state and one-action stop from feature `007`.
 - Local recording persistence from feature `008` is accepted for local artifact
