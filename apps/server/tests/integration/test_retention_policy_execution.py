@@ -13,6 +13,7 @@ from twobrain_rec_server.db.models import (
     MeetingDeletionRequest,
     MeetingLifecycleAuditEvent,
     RetentionPolicySnapshot,
+    WorkspaceMembership,
 )
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
@@ -21,13 +22,49 @@ from twobrain_rec_server.domain.statuses import (
 )
 
 
-def test_retention_scan_creates_requests_only_for_eligible_meetings(client) -> None:
+def test_retention_scan_rejects_member_role(client) -> None:
+    asyncio.run(_set_owner_role(client, "member"))
+    seeded = asyncio.run(_seed_retention_matrix(client))
+
+    response = client.post(
+        "/api/v1/internal/retention/run",
+        headers=auth_headers(),
+        json={"limit": 20, "dry_run": False},
+    )
+
+    assert response.status_code == 403
+    persisted = asyncio.run(_load_retention_results(client, seeded))
+    assert persisted["requests_by_meeting"] == {}
+
+
+def test_retention_scan_defaults_to_dry_run(client) -> None:
     seeded = asyncio.run(_seed_retention_matrix(client))
 
     response = client.post(
         "/api/v1/internal/retention/run",
         headers=auth_headers(),
         json={"limit": 20},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["evaluated"] == 7
+    assert body["created_requests"] == 0
+    assert body["skipped"] >= 5
+    assert body["blocked"] >= 2
+    assert body["policy_snapshot_id"] is not None
+
+    persisted = asyncio.run(_load_retention_results(client, seeded))
+    assert persisted["requests_by_meeting"] == {}
+
+
+def test_retention_scan_owner_write_run_creates_requests_only_for_eligible_meetings(client) -> None:
+    seeded = asyncio.run(_seed_retention_matrix(client))
+
+    response = client.post(
+        "/api/v1/internal/retention/run",
+        headers=auth_headers(),
+        json={"limit": 20, "dry_run": False},
     )
 
     assert response.status_code == 202
@@ -104,6 +141,14 @@ def test_retention_scan_fails_closed_when_policy_is_unsafe(client) -> None:
     assert persisted["operator_event"].meeting_id is None
     assert persisted["operator_event"].outcome == "blocked"
     assert persisted["operator_event"].safe_reason == "retention_policy_missing_or_unsafe"
+
+
+async def _set_owner_role(client, role: str) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        membership = await db.get(WorkspaceMembership, (WORKSPACE_ID, USER_ID))
+        assert membership is not None
+        membership.role = role
+        await db.commit()
 
 
 async def _seed_retention_matrix(client) -> dict[str, UUID]:

@@ -102,7 +102,7 @@ def test_sync_state_reports_stale_device_identity_conflict(client) -> None:
     assert response.json()["conflict"]["next_action"] == "reauthenticate_device"
 
 
-def test_sync_state_reports_access_revoked_conflict_for_different_owner(client) -> None:
+def test_sync_state_does_not_reveal_different_owner_local_recording_id(client) -> None:
     local_id = "sync-conflict-access-001"
     create_finalized_meeting(client, local_id)
     other_user_id = "30000000-0000-0000-0000-000000000088"
@@ -144,10 +144,8 @@ def test_sync_state_reports_access_revoked_conflict_for_different_owner(client) 
         auth_headers() | {"X-User-Id": other_user_id, "X-Device-Id": other_device_id},
     )
 
-    assert response.status_code == 200
-    assert response.json()["meeting"]["access_state"] == "access_revoked"
-    assert response.json()["conflict"]["state"] == "access_revoked"
-    assert response.json()["conflict"]["next_action"] == "sign_in_again"
+    assert response.status_code == 404
+    assert response.json()["code"] == "recording_not_found"
 
 
 def test_sync_state_reports_processing_failure_as_review_state(client) -> None:

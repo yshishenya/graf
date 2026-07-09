@@ -20,7 +20,7 @@ def test_safe_audit_metadata_for_playback_keeps_source_mode_without_private_audi
         {
             "artifact_class": "audio",
             "request_class": "playback",
-            "source_mode": "combined_review_stream",
+            "source_mode": "stored_review_m4a",
             "byte_length": 456,
             "storage_object_key": "private/object/key",
             "sha256": "private-hash",
@@ -32,7 +32,7 @@ def test_safe_audit_metadata_for_playback_keeps_source_mode_without_private_audi
     assert metadata == {
         "artifact_class": "audio",
         "request_class": "playback",
-        "source_mode": "combined_review_stream",
+        "source_mode": "stored_review_m4a",
         "byte_length": 456,
     }
 

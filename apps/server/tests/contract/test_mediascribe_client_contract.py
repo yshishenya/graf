@@ -2,6 +2,7 @@ from io import BytesIO
 
 import httpx
 import pytest
+
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError

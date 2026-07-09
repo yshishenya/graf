@@ -439,7 +439,11 @@ async def link_meeting_calendar_context(
     context_reason: str,
 ) -> RecordingCalendarContextLink:
     meeting = await db.get(Meeting, meeting_id)
-    if meeting is None or meeting.workspace_id != tenant_scope.workspace_id:
+    if (
+        meeting is None
+        or meeting.workspace_id != tenant_scope.workspace_id
+        or meeting.created_by_user_id != tenant_scope.user_id
+    ):
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     event = await db.get(CalendarEventSnapshot, event_id)
     if event is None or event.workspace_id != tenant_scope.workspace_id:
@@ -516,7 +520,11 @@ async def unlink_meeting_calendar_context(
     meeting_id: UUID,
 ) -> RecordingCalendarContextLink | None:
     meeting = await db.get(Meeting, meeting_id)
-    if meeting is None or meeting.workspace_id != tenant_scope.workspace_id:
+    if (
+        meeting is None
+        or meeting.workspace_id != tenant_scope.workspace_id
+        or meeting.created_by_user_id != tenant_scope.user_id
+    ):
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     link = await db.scalar(
         select(RecordingCalendarContextLink).where(

@@ -8,6 +8,7 @@ from tests.fakes.fake_github import FakeGitHubIssueClient
 from tests.unit.test_support_incident_redaction import safe_report_payload
 from twobrain_rec_server.db.models import SupportIncident, SupportIncidentRateLimitBucket
 from twobrain_rec_server.support.github_issues import GitHubIssueClient
+from twobrain_rec_server.support.incidents import SUPPORT_INCIDENT_RATE_LIMIT_SCOPE
 
 
 def test_support_incident_success_persists_redacted_private_issue_link(client) -> None:
@@ -305,5 +306,38 @@ def test_support_incident_rate_limit_bucket_is_durable_and_blocks_github(client)
     bucket = asyncio.run(load_bucket())
     assert bucket.attempt_count == 2
     assert bucket.blocked_until is not None
+    assert len(fake_github.created_issues) == 1
+    assert not fake_github.updated_issues
+
+
+def test_support_incident_rate_limit_is_not_bypassed_by_new_dedupe_key(client) -> None:
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    client.app.state.settings.support_incident_rate_limit_max_attempts = 1
+    changed_payload = safe_report_payload() | {
+        "problem_code": "custody.auth_required.local_retained",
+        "failure_category": "auth_session",
+        "sync_conflict_state": "auth_required",
+    }
+
+    first = client.post(
+        "/api/v1/desktop/support-incidents", headers=auth_headers(), json=safe_report_payload()
+    )
+    second = client.post(
+        "/api/v1/desktop/support-incidents", headers=auth_headers(), json=changed_payload
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 429
+    assert second.json()["code"] == "support_incident.rate_limited"
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def load_bucket() -> SupportIncidentRateLimitBucket:
+        async with sessionmaker() as session:
+            return await session.scalar(select(SupportIncidentRateLimitBucket))
+
+    bucket = asyncio.run(load_bucket())
+    assert bucket.dedupe_key == SUPPORT_INCIDENT_RATE_LIMIT_SCOPE
+    assert bucket.attempt_count == 2
     assert len(fake_github.created_issues) == 1
     assert not fake_github.updated_issues

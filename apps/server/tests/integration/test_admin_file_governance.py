@@ -12,6 +12,7 @@ from tests.fixtures.admin import (
 )
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from tests.fixtures.cabinet_access import (
+    add_retained_playback_m4a,
     audit_events,
     replace_retained_audio_with_test_wav,
     set_artifact_policy,
@@ -27,6 +28,7 @@ from twobrain_rec_server.domain.statuses import (
 def test_admin_file_list_detail_and_review_access_are_workspace_scoped(client) -> None:
     asyncio.run(_seed_roles(client))
     seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A admin-review")
     headers = auth_headers_for(user_id=DEFAULT_ADMIN_USER_ID, device_id=DEFAULT_ADMIN_DEVICE_ID)
 
     file_list = client.get("/api/v1/admin/files", headers=headers)
@@ -58,6 +60,7 @@ def test_admin_download_and_export_use_admin_access_for_non_owned_meeting(client
         package_export="allowed",
     )
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A admin")
 
     detail = client.get(f"/api/v1/admin/files/{seeds.ready_id}", headers=headers)
     download = client.get(f"/api/v1/admin/files/{seeds.ready_id}/downloads/audio", headers=headers)

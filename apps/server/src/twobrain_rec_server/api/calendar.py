@@ -27,7 +27,7 @@ from twobrain_rec_server.api.schemas import (
     UpcomingCalendarEventsResponse,
 )
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.auth.dependencies import get_principal, get_tenant_scope
+from twobrain_rec_server.auth.dependencies import get_principal, get_tenant_scope, require_web_csrf
 from twobrain_rec_server.calendar.credentials import (
     calendar_connection_secret,
     generate_credential_key,
@@ -59,6 +59,7 @@ from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 router = APIRouter(prefix="/api/v1", tags=["calendar"])
 PrincipalDependency = Depends(get_principal)
 TenantDependency = Depends(get_tenant_scope)
+WebCSRFDependency = Depends(require_web_csrf)
 
 
 async def get_request_db_session(
@@ -263,7 +264,7 @@ async def list_calendar_sources(
     "/calendar/sources",
     status_code=201,
     response_model=CalendarSourceResponse,
-    dependencies=[PrincipalDependency],
+    dependencies=[PrincipalDependency, WebCSRFDependency],
 )
 async def connect_calendar_source(
     payload: ConnectCalendarSourceRequest,
@@ -303,7 +304,7 @@ async def get_calendar_source(
 @router.patch(
     "/calendar/sources/{source_id}/selected-calendars",
     response_model=CalendarSourceResponse,
-    dependencies=[PrincipalDependency],
+    dependencies=[PrincipalDependency, WebCSRFDependency],
 )
 async def select_calendar_source_calendars(
     source_id: UUID,
@@ -323,7 +324,7 @@ async def select_calendar_source_calendars(
     "/calendar/sources/{source_id}/sync",
     status_code=202,
     response_model=CalendarSyncResponse,
-    dependencies=[PrincipalDependency],
+    dependencies=[PrincipalDependency, WebCSRFDependency],
 )
 async def sync_calendar_source(
     source_id: UUID,
@@ -340,7 +341,7 @@ async def sync_calendar_source(
 @router.post(
     "/calendar/sources/{source_id}/disconnect",
     response_model=CalendarDisconnectResponse,
-    dependencies=[PrincipalDependency],
+    dependencies=[PrincipalDependency, WebCSRFDependency],
 )
 async def disconnect_calendar_source_endpoint(
     source_id: UUID,
@@ -416,7 +417,7 @@ async def list_desktop_calendar_upcoming(
 @router.put(
     "/meetings/{meeting_id}/calendar-context",
     response_model=MeetingCalendarContextResponse,
-    dependencies=[PrincipalDependency],
+    dependencies=[PrincipalDependency, WebCSRFDependency],
 )
 async def put_meeting_calendar_context(
     meeting_id: UUID,
@@ -444,7 +445,7 @@ async def put_meeting_calendar_context(
 @router.delete(
     "/meetings/{meeting_id}/calendar-context",
     response_model=MeetingCalendarContextResponse,
-    dependencies=[PrincipalDependency],
+    dependencies=[PrincipalDependency, WebCSRFDependency],
 )
 async def delete_meeting_calendar_context(
     meeting_id: UUID,

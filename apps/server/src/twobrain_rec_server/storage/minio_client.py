@@ -5,6 +5,7 @@ from typing import BinaryIO
 from anyio import to_thread
 from minio import Minio
 from minio.error import S3Error
+
 from twobrain_rec_server.config import Settings, get_settings
 
 MISSING_OBJECT_CODES = {"NoSuchKey", "NoSuchObject"}
@@ -98,6 +99,43 @@ class MinioStorage:
         return await to_thread.run_sync(
             lambda: self.download_to_path(object_key, destination_path, chunk_size=chunk_size)
         )
+
+    def iter_object(
+        self,
+        object_key: str,
+        *,
+        offset: int = 0,
+        length: int | None = None,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ) -> Iterator[bytes]:
+        try:
+            response = self.client.get_object(
+                self.settings.minio_bucket,
+                object_key,
+                offset=offset,
+                length=length or 0,
+            )
+        except S3Error as exc:
+            if exc.code in MISSING_OBJECT_CODES:
+                raise KeyError(object_key) from exc
+            raise
+
+        def chunks() -> Iterator[bytes]:
+            remaining = length
+            try:
+                while remaining is None or remaining > 0:
+                    read_size = chunk_size if remaining is None else min(chunk_size, remaining)
+                    chunk = response.read(read_size)
+                    if not chunk:
+                        break
+                    if remaining is not None:
+                        remaining -= len(chunk)
+                    yield chunk
+            finally:
+                response.close()
+                response.release_conn()
+
+        return chunks()
 
     def delete_object(self, object_key: str) -> None:
         try:

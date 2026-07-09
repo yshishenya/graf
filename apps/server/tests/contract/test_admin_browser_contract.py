@@ -14,7 +14,7 @@ from tests.fixtures.admin import (
     seed_default_workspace_admin_roles,
 )
 from tests.fixtures.cabinet import seed_cabinet_meetings
-from tests.fixtures.cabinet_access import set_artifact_policy
+from tests.fixtures.cabinet_access import add_retained_playback_m4a, set_artifact_policy
 
 
 def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(client) -> None:
@@ -146,6 +146,7 @@ def test_admin_files_pages_expose_filters_and_safe_file_actions(client) -> None:
         transcript_download="allowed",
         package_export="allowed",
     )
+    add_retained_playback_m4a(client, seeds.ready_id)
 
     files = client.get("/admin/files", headers=auth_headers())
     detail = client.get(f"/admin/files/{seeds.ready_id}", headers=auth_headers())

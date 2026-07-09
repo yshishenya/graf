@@ -12,7 +12,10 @@ from tests.fixtures.cabinet import (
     create_outcome_ready_meeting,
     seed_cabinet_meetings,
 )
-from tests.fixtures.cabinet_access import replace_retained_audio_with_test_wav
+from tests.fixtures.cabinet_access import (
+    add_retained_playback_m4a,
+    replace_retained_audio_with_test_wav,
+)
 from tests.fixtures.cabinet_components import COMPONENT_FORBIDDEN_MARKERS, COMPONENT_SAFE_FIXTURE
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
 from twobrain_rec_server.cabinet.templates import get_cabinet_templates
@@ -270,6 +273,7 @@ def test_playback_processing_denial_does_not_egress_audio_or_storage_identifiers
 def test_playback_range_response_does_not_egress_storage_identifiers_or_signed_urls(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    add_retained_playback_m4a(client, seeds.ready_id, b"0123456789abcdefXYZ")
 
     response = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback",

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import WORKSPACE_ID
+from tests.fixtures.cabinet_access import add_retained_playback_m4a
 from tests.fixtures.processing import create_finalized_meeting
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -110,7 +111,9 @@ def create_outcome_ready_meeting(
     client: TestClient,
     local_recording_id: str = "cabinet-outcome-ready",
 ) -> UUID:
-    return _create_ready_meeting(client, local_recording_id, "Итоги встречи")
+    meeting_id = _create_ready_meeting(client, local_recording_id, "Итоги встречи")
+    add_retained_playback_m4a(client, meeting_id)
+    return meeting_id
 
 
 def _create_partial_meeting(client: TestClient, local_recording_id: str, title: str) -> UUID:

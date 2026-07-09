@@ -1,13 +1,18 @@
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from uuid import UUID
+from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import select
 
 import twobrain_rec_server.ingest.store as store_module
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
+from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import Meeting, UploadSession
+from twobrain_rec_server.ingest.parts import get_session_for_tenant
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
 
 BOUNDED_DELETE_COPY = "Delete this meeting everywhere GRAF controls."
@@ -92,6 +97,58 @@ def test_create_upload_session_persists_meeting_uploading_status(client) -> None
     import asyncio
 
     assert asyncio.run(persisted_status()) == "uploading"
+
+
+def test_get_session_for_tenant_rejects_other_user_even_if_device_matches(client) -> None:
+    meeting = _create_meeting(client, "lifecycle-session-user-scope")
+    session = _create_upload_session(client, meeting["meeting_id"])
+
+    async def load_with_wrong_user() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await get_session_for_tenant(
+                UUID(session["session_id"]),
+                TenantScope(
+                    organization_id=ORG_ID,
+                    workspace_id=WORKSPACE_ID,
+                    user_id=uuid4(),
+                    device_id=DEVICE_ID,
+                ),
+                db,
+            )
+
+    import asyncio
+
+    with pytest.raises(ProblemDetail) as exc_info:
+        asyncio.run(load_with_wrong_user())
+
+    assert exc_info.value.status == 404
+    assert exc_info.value.code == "upload_session_not_found"
+
+
+def test_get_session_for_tenant_rejects_wrong_device_for_owner(client) -> None:
+    meeting = _create_meeting(client, "lifecycle-session-device-scope")
+    session = _create_upload_session(client, meeting["meeting_id"])
+
+    async def load_with_wrong_device() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await get_session_for_tenant(
+                UUID(session["session_id"]),
+                TenantScope(
+                    organization_id=ORG_ID,
+                    workspace_id=WORKSPACE_ID,
+                    user_id=USER_ID,
+                    device_id=uuid4(),
+                ),
+                db,
+            )
+
+    import asyncio
+
+    with pytest.raises(ProblemDetail) as exc_info:
+        asyncio.run(load_with_wrong_device())
+
+    assert exc_info.value.status == 403
+    assert exc_info.value.code == "device_scope_denied"
 
 
 def test_create_upload_session_rejects_deleting_meeting(client) -> None:

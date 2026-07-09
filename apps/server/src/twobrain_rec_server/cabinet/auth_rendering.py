@@ -198,6 +198,7 @@ def _login_error_message(error: str | None) -> str | None:
         "email_invalid": "Введите корректный email.",
         "email_start_unavailable": "Не удалось отправить код для этого кабинета. Проверьте workspace id и email.",
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
+        "workspace_enrollment_required": "Регистрация в этом кабинете закрыта. Попросите администратора выслать приглашение.",
         "email_code_invalid": "Код не подошел. Проверьте письмо и попробуйте еще раз.",
         "email_code_expired": "Код истек. Запросите новый код.",
     }

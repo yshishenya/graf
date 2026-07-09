@@ -7,6 +7,43 @@ from sqlalchemy import select
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 from twobrain_rec_server.db.models import IngestAuditEvent, Meeting, TrackArtifact, UploadSession
+from twobrain_rec_server.domain.statuses import MeetingStatus, UploadSessionStatus
+from twobrain_rec_server.ingest import store as store_module
+
+
+class FinalizeStreamingOnlyStorage:
+    def __init__(self, delegate: object) -> None:
+        self.delegate = delegate
+
+    def ensure_bucket(self) -> None:
+        self.delegate.ensure_bucket()
+
+    def put_stream(self, object_key: str, stream, length: int) -> None:
+        self.delegate.put_stream(object_key, stream, length)
+
+    def get_bytes(self, _object_key: str) -> bytes:
+        raise AssertionError("finalize must not load full upload parts into memory")
+
+    async def get_bytes_async(self, _object_key: str) -> bytes:
+        raise AssertionError("finalize must not load full upload parts into memory")
+
+    def iter_object(
+        self,
+        object_key: str,
+        *,
+        offset: int = 0,
+        length: int | None = None,
+        chunk_size: int = 4 * 1024 * 1024,
+    ):
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("finalize must not read storage objects on the event loop")
+        return self.delegate.iter_object(object_key, offset=offset, length=length, chunk_size=chunk_size)
 
 
 def _create_session_with_parts(
@@ -138,7 +175,12 @@ def test_finalize_accepts_contiguous_multipart_track(client: TestClient) -> None
         track_descriptor("system", len(system)) | {"sha256": sha256(system).hexdigest(), "byte_length": len(system)},
     ]
 
-    response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
+    original_storage = client.app.state.storage
+    client.app.state.storage = FinalizeStreamingOnlyStorage(client.app_state["storage"])
+    try:
+        response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
+    finally:
+        client.app.state.storage = original_storage
 
     assert response.status_code == 200
 
@@ -169,6 +211,95 @@ def test_finalize_rejects_mismatched_track_sha(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json()["code"] == "track_checksum_mismatch"
+
+
+def test_finalize_cleans_materialized_track_after_checksum_mismatch(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-multipart-checksum-conflict", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+    ).json()
+    session_id = session["session_id"]
+    manifest = b"m123"
+    microphone = b"u123"
+    system_head = b"s123"
+    system_tail = b"s456"
+    for role, part_number, offset, data in [
+        ("manifest", 0, 0, manifest),
+        ("microphone", 0, 0, microphone),
+        ("system", 0, 0, system_head),
+        ("system", 1, 4, system_tail),
+    ]:
+        response = client.put(
+            f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
+            headers=auth_headers() | {"X-Byte-Offset": str(offset), "X-Content-SHA256": sha256(data).hexdigest()},
+            content=data,
+        )
+        assert response.status_code == 200
+
+    system = system_head + system_tail
+    tracks = [
+        track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
+        track_descriptor("microphone", len(microphone))
+        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
+        track_descriptor("system", len(system))
+        | {"sha256": sha256(b"wrong-system").hexdigest(), "byte_length": len(system)},
+    ]
+
+    response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "track_checksum_mismatch"
+    assert all("/media-revisions/" not in key for key in client.app_state["storage"].objects)
+
+
+def test_finalize_cleans_prior_materialized_track_after_later_track_gap(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-cleans-prior-materialized", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 8, "microphone": 4, "system": 8}},
+    ).json()
+    session_id = session["session_id"]
+    manifest_head = b"m123"
+    manifest_tail = b"m456"
+    microphone = b"u123"
+    system_tail = b"s456"
+    for role, part_number, offset, data in [
+        ("manifest", 0, 0, manifest_head),
+        ("manifest", 1, 4, manifest_tail),
+        ("microphone", 0, 0, microphone),
+        ("system", 1, 4, system_tail),
+    ]:
+        response = client.put(
+            f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
+            headers=auth_headers() | {"X-Byte-Offset": str(offset), "X-Content-SHA256": sha256(data).hexdigest()},
+            content=data,
+        )
+        assert response.status_code == 200
+
+    manifest = manifest_head + manifest_tail
+    tracks = [
+        track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
+        track_descriptor("system", 8) | {"sha256": sha256(b"system-with-gap").hexdigest(), "byte_length": 8},
+        track_descriptor("microphone", len(microphone))
+        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
+    ]
+
+    response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "missing_required_parts"
+    assert all("/media-revisions/" not in key for key in client.app_state["storage"].objects)
 
 
 def test_finalize_rejects_mismatched_track_byte_length(client: TestClient) -> None:
@@ -218,6 +349,7 @@ def test_finalize_rejects_immutable_media_revision_fingerprint_change(client: Te
     first_session_id, first_tracks = _create_session_with_parts(client, meeting_id=meeting["meeting_id"])
     first_finalize = _finalize(client, first_session_id, first_tracks, str(first_tracks[0]["sha256"]))
     assert first_finalize.status_code == 200
+    before_artifacts = _track_artifacts_for_meeting(client, meeting["meeting_id"])
 
     second_session_id, second_tracks = _create_session_with_parts(
         client,
@@ -228,3 +360,129 @@ def test_finalize_rejects_immutable_media_revision_fingerprint_change(client: Te
 
     assert response.status_code == 409
     assert response.json()["code"] == "media_revision_fingerprint_conflict"
+    assert _track_artifacts_for_meeting(client, meeting["meeting_id"]) == before_artifacts
+
+
+def test_finalize_cleans_materialized_track_after_immutable_conflict(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-materialized-conflict", "duration_seconds": 60},
+    ).json()
+    first_session_id, first_tracks = _create_session_with_parts(client, meeting_id=meeting["meeting_id"])
+    first_finalize = _finalize(client, first_session_id, first_tracks, str(first_tracks[0]["sha256"]))
+    assert first_finalize.status_code == 200
+    before_artifacts = _track_artifacts_for_meeting(client, meeting["meeting_id"])
+
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+    ).json()
+    session_id = session["session_id"]
+    manifest = b"m456"
+    microphone = b"u456"
+    system_head = b"s456"
+    system_tail = b"s789"
+    uploads = [
+        ("manifest", 0, 0, manifest),
+        ("microphone", 0, 0, microphone),
+        ("system", 0, 0, system_head),
+        ("system", 1, 4, system_tail),
+    ]
+    for role, part_number, offset, data in uploads:
+        response = client.put(
+            f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
+            headers=auth_headers() | {"X-Byte-Offset": str(offset), "X-Content-SHA256": sha256(data).hexdigest()},
+            content=data,
+        )
+        assert response.status_code == 200
+    system = system_head + system_tail
+    tracks = [
+        track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
+        track_descriptor("microphone", len(microphone))
+        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
+        track_descriptor("system", len(system)) | {"sha256": sha256(system).hexdigest(), "byte_length": len(system)},
+    ]
+
+    response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "media_revision_fingerprint_conflict"
+    assert _track_artifacts_for_meeting(client, meeting["meeting_id"]) == before_artifacts
+    assert all("/media-revisions/" not in key for key in client.app_state["storage"].objects)
+
+
+def test_finalize_cleans_materialized_track_after_persistence_failure(client: TestClient, monkeypatch) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-persistence-failure", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+    ).json()
+    session_id = session["session_id"]
+    manifest = b"m123"
+    microphone = b"u123"
+    system_head = b"s123"
+    system_tail = b"s456"
+    for role, part_number, offset, data in [
+        ("manifest", 0, 0, manifest),
+        ("microphone", 0, 0, microphone),
+        ("system", 0, 0, system_head),
+        ("system", 1, 4, system_tail),
+    ]:
+        response = client.put(
+            f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
+            headers=auth_headers() | {"X-Byte-Offset": str(offset), "X-Content-SHA256": sha256(data).hexdigest()},
+            content=data,
+        )
+        assert response.status_code == 200
+    before_meeting_status = store_module.store.meetings[UUID(meeting["meeting_id"])].status
+    before_session_status = store_module.store.sessions[UUID(session_id)].status
+    system = system_head + system_tail
+    tracks = [
+        track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
+        track_descriptor("microphone", len(microphone))
+        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
+        track_descriptor("system", len(system)) | {"sha256": sha256(system).hexdigest(), "byte_length": len(system)},
+    ]
+
+    async def fail_persist_finalized_tracks(*_args, **_kwargs) -> None:
+        raise RuntimeError("simulated finalized track persistence failure")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.ingest.finalize.persist_finalized_tracks",
+        fail_persist_finalized_tracks,
+    )
+
+    response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "persistence_unavailable"
+    assert all("/media-revisions/" not in key for key in client.app_state["storage"].objects)
+    cached_meeting = store_module.store.meetings[UUID(meeting["meeting_id"])]
+    cached_session = store_module.store.sessions[UUID(session_id)]
+    assert cached_meeting.status == before_meeting_status == MeetingStatus.UPLOADING
+    assert cached_session.status == before_session_status == UploadSessionStatus.UPLOADING
+    assert cached_session.finalized_at is None
+
+
+def _track_artifacts_for_meeting(client: TestClient, meeting_id: str) -> list[tuple[str, int, str]]:
+    async def load() -> list[tuple[str, int, str]]:
+        async with client.app_state["sessionmaker"]() as db:
+            rows = (
+                await db.scalars(
+                    select(TrackArtifact)
+                    .where(TrackArtifact.meeting_id == UUID(meeting_id))
+                    .order_by(TrackArtifact.track_role)
+                )
+            ).all()
+            return [(row.track_role, row.byte_length, row.sha256) for row in rows]
+
+    import asyncio
+
+    return asyncio.run(load())

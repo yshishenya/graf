@@ -515,7 +515,7 @@ class RetentionRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     limit: int = Field(default=100, ge=1, le=500)
-    dry_run: bool = False
+    dry_run: bool = True
 
 
 class RetentionRunResponse(BaseModel):
@@ -555,7 +555,7 @@ PlaybackUnavailableReason = Literal[
     "review_audio_unavailable",
     "storage_unavailable",
 ]
-PlaybackSourceMode = Literal["none", "combined_review_stream", "single_retained_track", "stored_review_m4a"]
+PlaybackSourceMode = Literal["none", "stored_review_m4a"]
 GovernanceState = Literal["available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"]
 SlotStateValue = Literal["available", "disabled", "planned", "policy_blocked", "out_of_scope"]
 NextAction = Literal["wait", "retry_future", "contact_operator", "open_desktop_queue", "none"]

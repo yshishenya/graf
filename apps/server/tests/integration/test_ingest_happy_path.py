@@ -6,9 +6,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
-from twobrain_rec_server.db.models import Meeting
+from twobrain_rec_server.db.models import (
+    Meeting,
+    RegisteredDevice,
+    UserIdentity,
+    WorkspaceMembership,
+)
 from twobrain_rec_server.domain.statuses import MeetingStatus, ProcessingStatus
 
 
@@ -110,6 +115,57 @@ def test_create_meeting_duplicate_rejects_mutated_recording_metadata(client: Tes
         conflict = client.post("/api/v1/meetings", headers=auth_headers(), json=payload | mutation)
         assert conflict.status_code == 409
         assert conflict.json()["code"] == "idempotency_conflict"
+
+
+def test_create_meeting_local_recording_id_is_scoped_to_current_user(client: TestClient) -> None:
+    local_id = "user-scoped-local-recording-id"
+    first = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": local_id, "duration_seconds": 60, "title": "Owner recording"},
+    )
+    assert first.status_code == 200
+
+    other_user_id = UUID("30000000-0000-0000-0000-000000000088")
+    other_device_id = UUID("40000000-0000-0000-0000-000000000087")
+
+    async def seed_other_user() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)),
+                    WorkspaceMembership(
+                        workspace_id=WORKSPACE_ID,
+                        user_id=other_user_id,
+                        role="member",
+                        status="active",
+                    ),
+                    RegisteredDevice(
+                        id=other_device_id,
+                        workspace_id=WORKSPACE_ID,
+                        user_id=other_user_id,
+                        device_public_id="other-user-local-recording-id",
+                        status="active",
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_other_user)
+    other_headers = auth_headers() | {
+        "X-User-Id": str(other_user_id),
+        "X-Device-Id": str(other_device_id),
+    }
+
+    second = client.post(
+        "/api/v1/meetings",
+        headers=other_headers,
+        json={"local_recording_id": local_id, "duration_seconds": 120, "title": "Other recording"},
+    )
+
+    assert second.status_code == 200
+    assert second.json()["meeting_id"] != first.json()["meeting_id"]
+    assert second.json()["title"] == "Other recording"
 
 
 def test_create_meeting_unsafe_legacy_title_retry_returns_existing_meeting(client: TestClient) -> None:

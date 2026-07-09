@@ -15,13 +15,35 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Manual upload/finalize path больше не собирает multipart track в памяти:
+  accepted parts читаются/пишутся потоково, persistence failure не оставляет
+  ложного finalized state, а materialized objects чистятся при конфликте.
+- Review playback/download теперь использует только stored
+  `meeting-review.m4a`; legacy mic/system artifacts больше не показывают audio
+  download как доступный без canonical playback artifact.
+- Transcript/review speaker labels канонизируются как `SPEAKER_00`,
+  `SPEAKER_01`, выбираются по временному пересечению с diarization и не
+  подменяются source-role или calendar roster labels.
 
 ### Безопасность
-- _Пока нет записей._
+- Email signup и provider callback paths теперь уважают workspace enrollment
+  policy; прямой provider-link endpoint безопасно отклоняет raw
+  client-supplied provider subject до отдельного verified callback flow.
+- Auth, calendar, processing, support, admin/cabinet mutating routes закрыты от
+  ambient browser-cookie CSRF там, где действие меняет состояние; explicit
+  bearer/session-header and device-header clients остаются совместимыми, а
+  пустой session header не отключает CSRF для cookie-сессии.
+- Поиск записи по `local_recording_id` теперь ограничен пользователем внутри workspace,
+  поэтому один пользователь больше не раскрывает состояние записи другого.
+- Processing pickup и retention run теперь требуют роль owner/admin workspace
+  вместо доступа обычного member.
+- Rate limit support incident теперь устойчив к смене dedupe key: новый
+  fingerprint отчета не обходит throttle.
 
 ### Документы
-- _Пока нет записей._
+- Добавлены future feature specs `097-101` для workspace onboarding,
+  calendar auto-context matching, canonical review m4a normalization, verified
+  provider-link callback flow и streaming egress audit semantics.
 
 ### Операции
 - _Пока нет записей._

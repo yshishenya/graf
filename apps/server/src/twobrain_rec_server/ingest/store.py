@@ -107,7 +107,7 @@ class AuditEvent:
 class InMemoryIngestStore:
     def __init__(self) -> None:
         self.meetings: dict[UUID, MeetingRecord] = {}
-        self.meetings_by_local_id: dict[tuple[UUID, str], UUID] = {}
+        self.meetings_by_local_id: dict[tuple[UUID, UUID, str], UUID] = {}
         self.sessions: dict[UUID, UploadSessionRecord] = {}
         self.audit_events: list[AuditEvent] = []
 
@@ -124,7 +124,7 @@ class InMemoryIngestStore:
         duration_seconds: int,
         title: str | None,
     ) -> MeetingRecord:
-        key = (workspace_id, local_recording_id)
+        key = (workspace_id, user_id, local_recording_id)
         if key in self.meetings_by_local_id:
             return self.meetings[self.meetings_by_local_id[key]]
         if duration_seconds > settings.max_recording_duration_seconds:
@@ -278,16 +278,18 @@ async def load_meeting_record(
     *,
     meeting_id: UUID | None = None,
     workspace_id: UUID | None = None,
+    created_by_user_id: UUID | None = None,
     local_recording_id: str | None = None,
 ) -> MeetingRecord | None:
     if db is None:
         return None
     if meeting_id is not None:
         model = await db.get(Meeting, meeting_id)
-    elif workspace_id is not None and local_recording_id is not None:
+    elif workspace_id is not None and created_by_user_id is not None and local_recording_id is not None:
         model = await db.scalar(
             select(Meeting).where(
                 Meeting.workspace_id == workspace_id,
+                Meeting.created_by_user_id == created_by_user_id,
                 Meeting.local_recording_id == local_recording_id,
             )
         )
@@ -336,7 +338,7 @@ async def load_meeting_record(
         created_at=model.created_at,
     )
     store.meetings[record.id] = record
-    store.meetings_by_local_id[(record.workspace_id, record.local_recording_id)] = record.id
+    store.meetings_by_local_id[(record.workspace_id, record.created_by_user_id, record.local_recording_id)] = record.id
     return record
 
 

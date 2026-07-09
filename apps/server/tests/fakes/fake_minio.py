@@ -62,5 +62,22 @@ class FakeMinioStorage:
     ) -> int:
         return self.download_to_path(object_key, destination_path, chunk_size=chunk_size)
 
+    def iter_object(
+        self,
+        object_key: str,
+        *,
+        offset: int = 0,
+        length: int | None = None,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ):
+        data = self.objects[object_key]
+        end = len(data) if length is None else min(offset + length, len(data))
+
+        def chunks():
+            for current in range(offset, end, chunk_size):
+                yield data[current : min(current + chunk_size, end)]
+
+        return chunks()
+
     def delete_object(self, object_key: str) -> None:
         self.objects.pop(object_key, None)

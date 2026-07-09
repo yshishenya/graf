@@ -3,6 +3,10 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+
+from tests.fakes.fake_mediascribe import FakeMediaScribeClient
+from tests.fakes.fake_temporal import FakeTemporalClient
+from tests.fixtures.processing import create_finalized_meeting
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing import submit as submit_module
@@ -11,10 +15,6 @@ from twobrain_rec_server.processing.reasons import (
     PROCESSING_TEMP_STORAGE_UNAVAILABLE,
 )
 from twobrain_rec_server.processing.submit import submit_to_mediascribe
-
-from tests.fakes.fake_mediascribe import FakeMediaScribeClient
-from tests.fakes.fake_temporal import FakeTemporalClient
-from tests.fixtures.processing import create_finalized_meeting
 
 
 class StagingOnlyStorage:
@@ -116,6 +116,49 @@ def test_submit_blocks_large_track_pair_before_loading_audio_bytes(client) -> No
     assert status == ProcessingStatus.BLOCKED.value
     assert reason_code == BLOCKED_AUDIO_TOO_LARGE
     assert submission_count == 0
+
+
+def test_submit_sync_storage_staging_runs_off_event_loop(client) -> None:
+    finalized = create_finalized_meeting(client, "mediascribe-sync-storage-thread")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_sync_storage")
+
+    class LoopCheckingStorage:
+        def __init__(self, delegate: object) -> None:
+            self.delegate = delegate
+
+        def get_bytes(self, _object_key: str) -> bytes:
+            raise AssertionError("processing submit must not load full audio objects into memory")
+
+        def download_to_path(self, object_key: str, destination_path: str | Path, *, chunk_size: int) -> int:
+            with pytest.raises(RuntimeError):
+                asyncio.get_running_loop()
+            return self.delegate.download_to_path(object_key, destination_path, chunk_size=chunk_size)
+
+    async def submit_with_sync_storage() -> tuple[bool, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=UUID(finalized["meeting"]["workspace_id"]),
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            result = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=LoopCheckingStorage(client.app_state["storage"]),
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            return result.submitted, len(fake_client.submissions)
+
+    submitted, submission_count = asyncio.run(submit_with_sync_storage())
+
+    assert submitted is True
+    assert submission_count == 1
 
 
 def test_submit_marks_temp_storage_unavailable_retryable_before_staging(client, monkeypatch) -> None:

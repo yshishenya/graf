@@ -28,8 +28,9 @@ class MediaRevision(Base):
         ),
         UniqueConstraint(
             "workspace_id",
+            "meeting_id",
             "local_media_revision_id",
-            name="uq_media_revisions_workspace_local_revision",
+            name="uq_media_revisions_workspace_meeting_local_revision",
         ),
     )
 

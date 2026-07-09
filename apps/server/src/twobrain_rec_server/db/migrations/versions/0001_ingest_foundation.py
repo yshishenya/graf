@@ -80,7 +80,11 @@ def upgrade() -> None:
         sa.Column("processing_status", sa.String(length=64), nullable=False, server_default="not_submitted"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.UniqueConstraint("workspace_id", "local_recording_id"),
+        sa.UniqueConstraint(
+            "workspace_id",
+            "local_recording_id",
+            name="uq_meetings_workspace_id_local_recording_id",
+        ),
     )
     op.create_table(
         "processing_placeholders",

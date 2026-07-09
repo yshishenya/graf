@@ -67,10 +67,14 @@ def _extract_session_token(
     auth_session: str | None,
     auth_session_cookie: str | None = None,
 ) -> str | None:
-    if auth_session:
-        return auth_session.strip()
-    if auth_session_cookie:
-        return auth_session_cookie.strip()
+    if auth_session is not None:
+        token = auth_session.strip()
+        if token:
+            return token
+    if auth_session_cookie is not None:
+        token = auth_session_cookie.strip()
+        if token:
+            return token
     if not authorization:
         return None
     lowered = authorization.lower()
@@ -375,6 +379,8 @@ async def get_web_csrf_secret(request: Request) -> str:
 async def require_web_csrf(
     request: Request,
     principal: AuthenticatedPrincipal = PrincipalDependency,
+    x_auth_session: str | None = Header(default=None, alias="X-Auth-Session", include_in_schema=False),
+    auth_session_cookie: str | None = Cookie(default=None, alias=AUTH_SESSION_COOKIE_NAME, include_in_schema=False),
     x_csrf_token: str | None = Header(default=None, alias=CSRF_HEADER_NAME, include_in_schema=False),
     desktop_calendar_auth_cookie: str | None = Cookie(
         default=None,
@@ -383,8 +389,11 @@ async def require_web_csrf(
     ),
     csrf_secret: str = Depends(get_web_csrf_secret),
 ) -> None:
-    csrf_subject_id = principal.session_id
-    if not principal.auth_via_session:
+    csrf_subject_id = None
+    if principal.auth_via_session:
+        if auth_session_cookie and not (x_auth_session or "").strip():
+            csrf_subject_id = principal.session_id
+    else:
         desktop_context = _desktop_calendar_context_from_cookie(request, desktop_calendar_auth_cookie)
         csrf_subject_id = desktop_context.device_id if desktop_context is not None else None
     if csrf_subject_id is None:

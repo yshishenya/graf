@@ -3,6 +3,7 @@ from io import BytesIO
 
 import pytest
 from minio.error import S3Error
+
 from twobrain_rec_server.storage.minio_client import MinioStorage
 
 
@@ -41,9 +42,16 @@ class _FakeGetObjectResponse:
 
 class _FakeGetObjectClient:
     def __init__(self, data: bytes) -> None:
+        self.data = data
         self.response = _FakeGetObjectResponse(data)
+        self.calls: list[dict[str, object]] = []
 
-    def get_object(self, *_args: object) -> _FakeGetObjectResponse:
+    def get_object(self, *_args: object, **kwargs: object) -> _FakeGetObjectResponse:
+        self.calls.append(kwargs)
+        offset = int(kwargs.get("offset") or 0)
+        length = int(kwargs.get("length") or 0)
+        body = self.data[offset:] if length == 0 else self.data[offset : offset + length]
+        self.response = _FakeGetObjectResponse(body)
         return self.response
 
 
@@ -109,5 +117,29 @@ def test_download_to_path_streams_chunks_and_releases_storage_response(tmp_path)
 
     assert downloaded == 6
     assert target.read_bytes() == b"abcdef"
+    assert client.response.closed is True
+    assert client.response.released is True
+
+
+def test_iter_object_streams_full_object_and_releases_storage_response() -> None:
+    client = _FakeGetObjectClient(b"abcdef")
+    storage = _storage_with_client(client)
+
+    chunks = list(MinioStorage.iter_object(storage, "objects/audio.m4a", chunk_size=2))
+
+    assert chunks == [b"ab", b"cd", b"ef"]
+    assert client.calls == [{"offset": 0, "length": 0}]
+    assert client.response.closed is True
+    assert client.response.released is True
+
+
+def test_iter_object_streams_requested_range_and_releases_storage_response() -> None:
+    client = _FakeGetObjectClient(b"abcdef")
+    storage = _storage_with_client(client)
+
+    chunks = list(MinioStorage.iter_object(storage, "objects/audio.m4a", offset=2, length=3, chunk_size=2))
+
+    assert chunks == [b"cd", b"e"]
+    assert client.calls == [{"offset": 2, "length": 3}]
     assert client.response.closed is True
     assert client.response.released is True

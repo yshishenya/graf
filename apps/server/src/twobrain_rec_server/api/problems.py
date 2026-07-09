@@ -65,6 +65,7 @@ def _custody_defaults(problem: ProblemDetail) -> dict[str, str]:
         "tenant_context_missing",
         "tenant_scope_denied",
         "meeting_scope_denied",
+        "session_scope_denied",
         "device_scope_denied",
     }:
         return _custody_default(

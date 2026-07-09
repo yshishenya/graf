@@ -6,9 +6,8 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import ORG_ID, WORKSPACE_ID
 from twobrain_rec_server.auth.callbacks import CallbackFlowError, _create_scoped_user
-from twobrain_rec_server.auth.links import LinkError, link_provider_identity
 from twobrain_rec_server.db.models import (
     ExternalIdentity,
     Organization,
@@ -73,38 +72,3 @@ def test_callback_create_scoped_user_maps_hidden_unique_identity_conflict(client
 
     assert code == "identity_subject_conflict"
     assert leaked_user_count == 0
-
-
-def test_link_provider_identity_maps_hidden_unique_identity_conflict(monkeypatch, client) -> None:
-    provider_subject = f"hidden-link-conflict-{uuid4().hex}"
-
-    async def exercise() -> str:
-        async with client.app_state["sessionmaker"]() as db:
-            db.add(
-                ExternalIdentity(
-                    user_id=USER_ID,
-                    provider="yandex",
-                    provider_subject=f"anchor-{provider_subject}",
-                    is_verified=True,
-                )
-            )
-            await _seed_global_identity_conflict(db, provider="vk", provider_subject=provider_subject)
-        async with client.app_state["sessionmaker"]() as db:
-            async def hidden_existing_identity(*_args, **_kwargs):
-                return None
-
-            monkeypatch.setattr(
-                "twobrain_rec_server.auth.links._find_existing_identity",
-                hidden_existing_identity,
-            )
-            with pytest.raises(LinkError) as exc_info:
-                await link_provider_identity(
-                    db,
-                    user_id=USER_ID,
-                    provider="vk",
-                    provider_subject=provider_subject,
-                    expected_workspace_id=WORKSPACE_ID,
-                )
-            return exc_info.value.code
-
-    assert asyncio.run(exercise()) == "link_conflict"

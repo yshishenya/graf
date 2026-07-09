@@ -109,7 +109,7 @@ Fields:
 
 - `id`.
 - `workspaceId`, `createdByUserId`, `deviceId`.
-- `localRecordingId`: unique inside workspace.
+- `localRecordingId`: unique for the recording owner inside a workspace.
 - `title`, `startedAt`, `endedAt`, `durationSeconds`.
 - `status`.
 - `processingStatus`: aggregate/latest status for the visible meeting.
@@ -117,7 +117,7 @@ Fields:
 
 Validation:
 
-- Unique `(workspace_id, local_recording_id)` remains the meeting dedupe key.
+- Unique `(workspace_id, created_by_user_id, local_recording_id)` remains the meeting dedupe key.
 - Creating a meeting with the same `local_recording_id` and different immutable
   metadata is an idempotency conflict.
 
@@ -150,7 +150,7 @@ Relationships:
 Validation:
 
 - Unique `(workspace_id, meeting_id, revision_number)`.
-- Unique `(workspace_id, local_media_revision_id)`.
+- Unique `(workspace_id, meeting_id, local_media_revision_id)`.
 - Accepted revision fingerprints are immutable.
 - Future revisions do not mutate earlier accepted track artifacts.
 

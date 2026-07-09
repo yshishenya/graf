@@ -1431,9 +1431,8 @@ def transcript_state(
     playback_duration_seconds: int | None = None,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
-    diarization_by_segment_key = {
-        (row.sequence, source_role_label(row.source_role)): row for row in diarization_segments
-    }
+    diarization_rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
+    speaker_labels_by_key = canonical_speaker_labels(diarization_rows)
     if status not in {"ready", "partial"} or not transcripts:
         return TranscriptReviewState(
             available=False,
@@ -1460,9 +1459,8 @@ def transcript_state(
                 timestamp_label=format_timestamp(segment.start_seconds),
                 speaker_label=speaker_label_for_segment(
                     segment,
-                    diarization_by_segment_key.get(
-                        (segment.sequence, source_role_label(segment.source_role))
-                    ),
+                    matching_diarization_segment(segment, diarization_rows),
+                    speaker_labels_by_key=speaker_labels_by_key,
                 ),
                 source_role=source_role_label(segment.source_role),
                 text=segment.text,
@@ -1497,16 +1495,53 @@ def _seek_seconds(
 
 
 def speaker_label_for_segment(
-    segment: TranscriptSegment, diarization: DiarizationSegment | None
+    segment: TranscriptSegment,
+    diarization: DiarizationSegment | None,
+    *,
+    speaker_labels_by_key: dict[str, str] | None = None,
 ) -> str:
-    if diarization is not None and diarization.speaker_label:
-        return diarization.speaker_label
-    source_role = source_role_label(segment.source_role)
-    return {
-        "local_microphone": "Local microphone",
-        "incoming_system": "Incoming system",
-        "unknown": "Unknown speaker",
-    }[source_role]
+    if diarization is None:
+        return "SPEAKER_00"
+    labels = speaker_labels_by_key or canonical_speaker_labels([diarization])
+    return labels[_speaker_identity_key(diarization)]
+
+
+def matching_diarization_segment(
+    segment: TranscriptSegment,
+    diarization_rows: Iterable[DiarizationSegment],
+) -> DiarizationSegment | None:
+    segment_source = source_role_label(segment.source_role)
+    best: DiarizationSegment | None = None
+    best_overlap = Decimal("0")
+    best_source_match = False
+    for row in diarization_rows:
+        if row.start_seconds >= segment.end_seconds:
+            break
+        overlap = min(segment.end_seconds, row.end_seconds) - max(segment.start_seconds, row.start_seconds)
+        if overlap <= 0:
+            continue
+        source_match = source_role_label(row.source_role) == segment_source
+        if overlap > best_overlap or (overlap == best_overlap and source_match and not best_source_match):
+            best = row
+            best_overlap = overlap
+            best_source_match = source_match
+    return best
+
+
+def canonical_speaker_labels(diarization_segments: Iterable[DiarizationSegment]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for row in sorted(diarization_segments, key=lambda item: (item.start_seconds, item.sequence)):
+        key = _speaker_identity_key(row)
+        if key not in labels:
+            labels[key] = f"SPEAKER_{len(labels):02d}"
+    return labels
+
+
+def _speaker_identity_key(row: DiarizationSegment) -> str:
+    raw_label = (row.speaker_label or "").strip()
+    if raw_label:
+        return raw_label
+    return f"{source_role_label(row.source_role)}:{row.sequence}"
 
 
 def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> SpeakerReviewState:
@@ -1520,18 +1555,20 @@ def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> Speaker
         )
 
     grouped: dict[str, list[DiarizationSegment]] = defaultdict(list)
+    speaker_labels_by_key = canonical_speaker_labels(rows)
     for row in rows:
-        grouped[row.speaker_label].append(row)
+        grouped[_speaker_identity_key(row)].append(row)
     total = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in rows) or 1.0
     speakers: list[SpeakerLane] = []
-    for speaker_label, speaker_rows in grouped.items():
+    for speaker_key, speaker_rows in grouped.items():
+        speaker_label = speaker_labels_by_key[speaker_key]
         duration = sum(
             max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows
         )
         source_roles = _unique(source_role_label(row.source_role) for row in speaker_rows)
         speakers.append(
             SpeakerLane(
-                speaker_key=speaker_label.lower().replace(" ", "-"),
+                speaker_key=speaker_label.lower(),
                 label=speaker_label,
                 talk_time_percent=round(duration / total * 100),
                 source_roles=source_roles,
@@ -1858,18 +1895,13 @@ def playback_state(
             unavailable_reason="review_audio_unavailable",
             policy_label="Аудио для проверки недоступно",
         )
-    playback_source_mode = (
-        review_playback.reason
-        if review_playback.reason in {"combined_review_stream", "stored_review_m4a", "single_retained_track"}
-        else "combined_review_stream"
-    )
     return PlaybackReviewState(
         available=True,
         duration_seconds=duration_seconds,
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{meeting.id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode=playback_source_mode,
+        source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
 

@@ -12,6 +12,7 @@ from twobrain_rec_server.db.models import (
     MeetingDeletionArtifactState,
     MeetingDeletionReport,
     MeetingDeletionRequest,
+    MeetingEgressAuditEvent,
     MeetingLifecycleAuditEvent,
     TemporaryUploadObject,
     TrackArtifact,
@@ -127,6 +128,47 @@ def test_deletion_report_includes_safe_post_egress_limits_from_download_and_expo
     assert SAFE_TRANSCRIPT_TEXT.lower() not in serialized
     assert "storage_object_key" not in serialized
     assert "share_token_hash" not in serialized
+
+
+def test_deletion_report_treats_legacy_playback_completed_as_post_egress(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    async def seed_playback_egress() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert meeting is not None
+            db.add(
+                MeetingEgressAuditEvent(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    actor_user_id=None,
+                    device_id=None,
+                    event_type="playback_completed",
+                    artifact_class="audio",
+                    policy_reason="server_mediated_review_playback",
+                    outcome="completed",
+                    metadata_json={"artifact_class": "audio", "source_mode": "stored_review_m4a"},
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_playback_egress())
+
+    delete_response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_COPY},
+    )
+    assert delete_response.status_code == 202
+
+    report = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-report",
+        headers=auth_headers(),
+    )
+
+    assert report.status_code == 200
+    assert "post_egress_events:playback_completed" in report.text
+    assert "stored_review_m4a" not in report.text
 
 
 def test_deletion_report_activity_remains_metadata_only_after_local_purge_ack(client) -> None:

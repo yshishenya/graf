@@ -327,6 +327,8 @@ def _render_meeting_detail_content(review: MeetingReviewResponse, *, embedded: b
 
 
 def _speaker_display_label(label: str) -> str:
+    if label.startswith("SPEAKER_") and label.removeprefix("SPEAKER_").isdigit():
+        return label
     if label.startswith("Speaker "):
         suffix = label.removeprefix("Speaker ").strip()
         return f"Спикер {suffix}" if suffix else "Спикер"

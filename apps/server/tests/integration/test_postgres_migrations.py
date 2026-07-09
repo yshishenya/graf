@@ -1,5 +1,7 @@
+import importlib.util
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 from alembic import command
@@ -23,6 +25,48 @@ ORG_ID = UUID("10000000-0000-0000-0000-000000000001")
 WORKSPACE_ID = UUID("20000000-0000-0000-0000-000000000001")
 USER_ID = UUID("30000000-0000-0000-0000-000000000001")
 DEVICE_ID = UUID("40000000-0000-0000-0000-000000000001")
+USER_SCOPED_RECORDING_MIGRATION = (
+    ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0016_user_scoped_recording_ids.py"
+)
+
+
+class _ScalarResult:
+    def __init__(self, value: int | None) -> None:
+        self.value = value
+
+    def scalar(self) -> int | None:
+        return self.value
+
+
+class _FakePostgresBind:
+    dialect = SimpleNamespace(name="postgresql")
+
+    def __init__(self, existing_constraints: set[str]) -> None:
+        self.existing_constraints = existing_constraints
+
+    def execute(self, _statement, params) -> _ScalarResult:
+        return _ScalarResult(1 if params["constraint_name"] in self.existing_constraints else None)
+
+
+class _FakeMigrationOp:
+    def __init__(self, existing_constraints: set[str]) -> None:
+        self.bind = _FakePostgresBind(existing_constraints)
+        self.dropped_constraints: list[tuple[str, str, str | None]] = []
+
+    def get_bind(self) -> _FakePostgresBind:
+        return self.bind
+
+    def drop_constraint(self, name: str, table_name: str, type_: str | None = None) -> None:
+        self.dropped_constraints.append((name, table_name, type_))
+
+
+def _load_migration_module(path: Path, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 async def _seed_identity(sessionmaker) -> None:
@@ -80,6 +124,32 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
 
         assert match is not None, migration_path.name
         assert len(match.group(1)) <= 32, migration_path.name
+
+
+def test_user_scoped_recording_migration_drops_both_postgres_legacy_constraint_names() -> None:
+    migration = _load_migration_module(USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration")
+
+    for legacy_name in (
+        "meetings_workspace_id_local_recording_id_key",
+        "uq_meetings_workspace_id_local_recording_id",
+    ):
+        fake_op = _FakeMigrationOp({legacy_name})
+        migration.op = fake_op
+
+        migration._drop_legacy_constraint()
+
+        assert fake_op.dropped_constraints == [(legacy_name, "meetings", "unique")]
+
+    for legacy_name in (
+        "media_revisions_workspace_id_local_media_revision_id_key",
+        "uq_media_revisions_workspace_local_revision",
+    ):
+        fake_op = _FakeMigrationOp({legacy_name})
+        migration.op = fake_op
+
+        migration._drop_legacy_media_revision_constraint()
+
+        assert fake_op.dropped_constraints == [(legacy_name, "media_revisions", "unique")]
 
 
 def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:

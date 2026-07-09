@@ -31,6 +31,31 @@ FORBIDDEN_MARKERS = (
 )
 
 
+class PlaybackStreamingOnlyStorage:
+    def __init__(self, delegate: object) -> None:
+        self.delegate = delegate
+
+    def get_bytes(self, _object_key: str) -> bytes:
+        raise AssertionError("playback route must not load full audio objects into memory")
+
+    async def get_bytes_async(self, _object_key: str) -> bytes:
+        raise AssertionError("playback route must not load full audio objects into memory")
+
+    def iter_object(self, object_key: str, *, offset: int = 0, length: int | None = None):
+        return self.delegate.iter_object(object_key, offset=offset, length=length)
+
+
+class PlaybackLoopCheckingStorage(PlaybackStreamingOnlyStorage):
+    def iter_object(self, object_key: str, *, offset: int = 0, length: int | None = None):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("playback route must not initialize sync storage streams on the event loop")
+        return self.delegate.iter_object(object_key, offset=offset, length=length)
+
+
 def _samples(body: bytes) -> list[int]:
     with wave.open(io.BytesIO(body), "rb") as wav:
         frames = wav.readframes(wav.getnframes())
@@ -40,13 +65,14 @@ def _samples(body: bytes) -> list[int]:
 def test_owner_playback_route_returns_combined_review_audio_without_storage_url(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A review")
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
 
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["content-type"].startswith("audio/mp4")
     assert response.headers["content-disposition"].startswith("inline;")
-    assert _samples(response.content) == [1000, 1000, 2000, 2000]
+    assert response.content == m4a_body
     for marker in FORBIDDEN_MARKERS:
         assert marker not in response.content
     assert [event.event_type for event in audit_events(client, seeds.ready_id)] == [
@@ -72,7 +98,7 @@ def test_owner_playback_route_prefers_stored_m4a_review_artifact(client) -> None
         assert marker not in response.content
 
 
-def test_owner_playback_route_falls_back_to_wav_when_stored_m4a_object_is_missing(client) -> None:
+def test_owner_playback_route_reports_storage_unavailable_when_stored_m4a_object_is_missing(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A stale")
@@ -80,15 +106,15 @@ def test_owner_playback_route_falls_back_to_wav_when_stored_m4a_object_is_missin
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
 
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("audio/wav")
-    assert response.headers["content-disposition"] == 'inline; filename="meeting-review.wav"'
-    assert _samples(response.content) == [1000, 1000, 2000, 2000]
+    assert response.status_code == 503
+    assert response.json()["code"] == "storage_unavailable"
     events = audit_events(client, seeds.ready_id)
-    assert events[-1].metadata_json["source_mode"] == "combined_review_stream"
+    assert [(event.event_type, event.outcome, event.policy_reason) for event in events] == [
+        ("playback_denied", "denied", "storage_unavailable")
+    ]
 
 
-def test_owner_playback_route_falls_back_to_wav_when_playback_metadata_is_not_m4a(client) -> None:
+def test_owner_playback_route_requires_m4a_playback_metadata(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A wrong-metadata")
@@ -109,15 +135,17 @@ def test_owner_playback_route_falls_back_to_wav_when_playback_metadata_is_not_m4
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
 
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("audio/wav")
-    assert _samples(response.content) == [1000, 1000, 2000, 2000]
-    assert audit_events(client, seeds.ready_id)[-1].metadata_json["source_mode"] == "combined_review_stream"
+    assert response.status_code == 409
+    assert response.json()["code"] == "playback_unavailable"
+    assert [(event.event_type, event.outcome, event.policy_reason) for event in audit_events(client, seeds.ready_id)] == [
+        ("playback_denied", "denied", "missing_playback_artifact")
+    ]
 
 
 def test_owner_playback_route_reports_storage_unavailable_when_reader_is_missing(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A storage")
     original_storage = client.app.state.storage
     client.app.state.storage = object()
     try:
@@ -135,11 +163,12 @@ def test_owner_playback_route_reports_storage_unavailable_when_reader_is_missing
 
 def test_owner_playback_route_audits_storage_reader_failure(client) -> None:
     class FailingStorage:
-        async def get_bytes_async(self, _object_key: str) -> bytes:
+        def iter_object(self, _object_key: str, *, offset: int = 0, length: int | None = None):
             raise RuntimeError("storage backend unavailable")
 
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A storage")
     original_storage = client.app.state.storage
     client.app.state.storage = FailingStorage()
     try:
@@ -176,6 +205,7 @@ def test_shared_viewer_playback_route_uses_stored_m4a_review_artifact(client) ->
 def test_owner_playback_route_supports_byte_range_without_audio_download_policy(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"0123456789abcdefXYZ")
 
     full_response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
     range_response = client.get(
@@ -186,11 +216,47 @@ def test_owner_playback_route_supports_byte_range_without_audio_download_policy(
     assert full_response.status_code == 200
     assert range_response.status_code == 206
     assert range_response.headers["accept-ranges"] == "bytes"
-    assert range_response.headers["content-range"] == f"bytes 0-15/{len(full_response.content)}"
+    assert range_response.headers["content-range"] == f"bytes 0-15/{len(m4a_body)}"
     assert range_response.headers["content-length"] == "16"
-    assert range_response.content == full_response.content[:16]
+    assert range_response.content == m4a_body[:16]
     for marker in FORBIDDEN_MARKERS:
         assert marker not in range_response.content
+
+
+def test_owner_playback_range_streams_stored_m4a_without_full_object_read(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"0123456789abcdefXYZ")
+    original_storage = client.app.state.storage
+    client.app.state.storage = PlaybackStreamingOnlyStorage(client.app_state["storage"])
+    try:
+        response = client.get(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback",
+            headers={**auth_headers(), "Range": "bytes=4-9"},
+        )
+    finally:
+        client.app.state.storage = original_storage
+
+    assert response.status_code == 206
+    assert response.headers["content-range"] == f"bytes 4-9/{len(m4a_body)}"
+    assert response.headers["content-length"] == "6"
+    assert response.content == m4a_body[4:10]
+
+
+def test_owner_playback_sync_storage_stream_initializes_off_event_loop(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"0123456789abcdefXYZ")
+    original_storage = client.app.state.storage
+    client.app.state.storage = PlaybackLoopCheckingStorage(client.app_state["storage"])
+    try:
+        response = client.get(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback",
+            headers={**auth_headers(), "Range": "bytes=1-3"},
+        )
+    finally:
+        client.app.state.storage = original_storage
+
+    assert response.status_code == 206
+    assert response.content == m4a_body[1:4]
 
 
 def test_playback_route_blocks_foreign_workspace_without_disclosing_meeting(client) -> None:
@@ -207,11 +273,13 @@ def test_playback_route_allows_review_when_audio_download_policy_is_disabled(cli
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(client, seeds.ready_id, audio_download="disabled")
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A policy")
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers())
 
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["content-type"].startswith("audio/mp4")
+    assert response.content == m4a_body
     for marker in FORBIDDEN_MARKERS:
         assert marker not in response.content
     events = audit_events(client, seeds.ready_id)
@@ -247,7 +315,7 @@ def test_playback_route_blocks_processing_and_failed_reviews_even_when_audio_pol
         assert [(event.event_type, event.outcome) for event in events] == [("playback_denied", "denied")]
 
 
-def test_playback_route_requires_both_retained_sources_for_review_audio(client) -> None:
+def test_playback_route_requires_stored_review_m4a_artifact(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     set_retained_audio_source_status(client, seeds.ready_id, TrackRole.SYSTEM, "purged")
@@ -258,13 +326,14 @@ def test_playback_route_requires_both_retained_sources_for_review_audio(client) 
     assert response.json()["code"] == "playback_unavailable"
     events = audit_events(client, seeds.ready_id)
     assert [(event.event_type, event.outcome, event.policy_reason) for event in events] == [
-        ("playback_denied", "denied", "missing_audio_source")
+        ("playback_denied", "denied", "missing_playback_artifact")
     ]
 
 
 def test_playback_route_rejects_malformed_and_unsatisfiable_ranges_safely(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    add_retained_playback_m4a(client, seeds.ready_id, b"0123456789abcdefXYZ")
 
     malformed = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback",

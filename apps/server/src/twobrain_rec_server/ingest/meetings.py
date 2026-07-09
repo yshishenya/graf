@@ -39,6 +39,7 @@ async def create_or_get_meeting(
     persisted = await load_meeting_record(
         db,
         workspace_id=tenant_scope.workspace_id,
+        created_by_user_id=tenant_scope.user_id,
         local_recording_id=local_recording_id,
     )
     if persisted is not None:

@@ -66,6 +66,7 @@ DEFAULT_BACKUP_EXPIRY_DAYS = 30
 POST_EGRESS_REPORT_EVENT_TYPES = {
     "download_completed",
     "export_completed",
+    "playback_completed",
     "share_granted",
     "share_link_opened",
 }

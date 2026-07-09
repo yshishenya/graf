@@ -8,6 +8,20 @@ from tests.fixtures.cabinet_access import (
 )
 
 
+class DownloadStreamingOnlyStorage:
+    def __init__(self, delegate: object) -> None:
+        self.delegate = delegate
+
+    def get_bytes(self, _object_key: str) -> bytes:
+        raise AssertionError("audio download must not load full audio objects into memory")
+
+    async def get_bytes_async(self, _object_key: str) -> bytes:
+        raise AssertionError("audio download must not load full audio objects into memory")
+
+    def iter_object(self, object_key: str, *, offset: int = 0, length: int | None = None):
+        return self.delegate.iter_object(object_key, offset=offset, length=length)
+
+
 def test_allowed_transcript_download_is_server_mediated_and_audited(client) -> None:
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(
@@ -52,13 +66,19 @@ def test_allowed_audio_download_returns_stored_m4a_review_artifact(client) -> No
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A download")
 
-    response = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio",
-        headers=auth_headers(),
-    )
+    original_storage = client.app.state.storage
+    client.app.state.storage = DownloadStreamingOnlyStorage(client.app_state["storage"])
+    try:
+        response = client.get(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio",
+            headers=auth_headers(),
+        )
+    finally:
+        client.app.state.storage = original_storage
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/mp4")
+    assert response.headers["content-length"] == str(len(m4a_body))
     assert 'filename="meeting-review.m4a"' in response.headers["content-disposition"]
     assert response.content == m4a_body
     assert [event.event_type for event in audit_events(client, seeds.ready_id)] == [
@@ -67,7 +87,25 @@ def test_allowed_audio_download_returns_stored_m4a_review_artifact(client) -> No
     ]
 
 
-def test_allowed_audio_download_falls_back_to_wav_when_stored_m4a_object_is_missing(client) -> None:
+def test_allowed_audio_download_requires_stored_m4a_review_artifact(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
+    replace_retained_audio_with_test_wav(client, seeds.ready_id)
+
+    response = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "artifact_unavailable"
+    events = audit_events(client, seeds.ready_id)
+    assert [(event.event_type, event.outcome, event.policy_reason) for event in events] == [
+        ("download_denied", "denied", "missing_playback_artifact")
+    ]
+
+
+def test_allowed_audio_download_reports_storage_unavailable_when_stored_m4a_object_is_missing(client) -> None:
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
@@ -79,16 +117,19 @@ def test_allowed_audio_download_falls_back_to_wav_when_stored_m4a_object_is_miss
         headers=auth_headers(),
     )
 
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("audio/wav")
-    assert 'filename="meeting-review.wav"' in response.headers["content-disposition"]
-    assert audit_events(client, seeds.ready_id)[-1].metadata_json["source_mode"] == "combined_review_stream"
+    assert response.status_code == 503
+    assert response.json()["code"] == "storage_unavailable"
+    assert [(event.event_type, event.outcome, event.policy_reason) for event in audit_events(client, seeds.ready_id)] == [
+        ("download_requested", "allowed", "policy_allowed"),
+        ("download_denied", "denied", "storage_unavailable"),
+    ]
 
 
 def test_allowed_audio_download_reports_storage_unavailable_when_reader_is_missing(client) -> None:
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A storage")
     original_storage = client.app.state.storage
     client.app.state.storage = object()
     try:
@@ -109,12 +150,13 @@ def test_allowed_audio_download_reports_storage_unavailable_when_reader_is_missi
 
 def test_allowed_audio_download_audits_storage_reader_failure(client) -> None:
     class FailingStorage:
-        async def get_bytes_async(self, _object_key: str) -> bytes:
+        def iter_object(self, _object_key: str, *, offset: int = 0, length: int | None = None):
             raise RuntimeError("storage backend unavailable")
 
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A storage")
     original_storage = client.app.state.storage
     client.app.state.storage = FailingStorage()
     try:

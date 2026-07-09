@@ -74,7 +74,7 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
     assert payload["processing"]["state"] == "ready"
     assert payload["transcript"]["available"] is True
     assert payload["transcript"]["segments"][0]["timestamp_label"] == "00:00"
-    assert payload["transcript"]["segments"][0]["speaker_label"] == "Speaker 1"
+    assert payload["transcript"]["segments"][0]["speaker_label"] == "SPEAKER_00"
     assert payload["speakers"]["assignment_state"] == "reserved"
     assert payload["notes"] == {
         "available": False,

@@ -587,6 +587,7 @@ async def get_desktop_recording_sync_state(
     meeting = await load_meeting_record(
         db,
         workspace_id=tenant_scope.workspace_id,
+        created_by_user_id=tenant_scope.user_id,
         local_recording_id=local_recording_id,
     )
     if meeting is None:

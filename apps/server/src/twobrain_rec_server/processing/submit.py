@@ -5,6 +5,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from anyio import to_thread
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.config import Settings
@@ -176,7 +177,9 @@ async def _stage_artifact(storage: object, object_key: str, target_path: Path, *
         if download_to_path_async is not None:
             downloaded = await download_to_path_async(object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES)
         elif download_to_path is not None:
-            downloaded = download_to_path(object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES)
+            downloaded = await to_thread.run_sync(
+                lambda: download_to_path(object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES)
+            )
         else:
             raise ArtifactStagingError("storage_streaming_unavailable")
     except KeyError as exc:

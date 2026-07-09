@@ -6,11 +6,13 @@ from tests.fixtures.cabinet import (
     create_summary_reported_meeting,
     seed_cabinet_meetings,
 )
+from tests.fixtures.cabinet_access import add_retained_playback_m4a
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 
 
 def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance(client) -> None:
     seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A detail")
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
 
@@ -30,7 +32,7 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
     audio_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio")
     assert audio_artifact["state"] == "policy_blocked"
     assert audio_artifact["action"] == "disabled"
-    assert {speaker["label"] for speaker in payload["speakers"]["speakers"]} == {"Speaker 1", "Speaker 2"}
+    assert {speaker["label"] for speaker in payload["speakers"]["speakers"]} == {"SPEAKER_00", "SPEAKER_01"}
     assert PRIVATE_EXTERNAL_JOB_ID not in response.text
 
 
@@ -116,6 +118,7 @@ def test_cabinet_detail_denies_foreign_meeting_without_existence_proof(client) -
 
 def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A web")
 
     ready = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
     processing = client.get(f"/meetings/{seeds.processing_id}", headers=auth_headers())
@@ -193,6 +196,7 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
 
 def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) -> None:
     seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A embedded")
 
     response = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
 
@@ -205,7 +209,7 @@ def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) 
     assert 'data-playback-skip="-15"' in response.text
     assert 'data-playback-skip="15"' in response.text
     assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in response.text
-    assert 'data-source-mode="combined_review_stream"' in response.text
+    assert 'data-source-mode="stored_review_m4a"' in response.text
     assert 'class="timestamp timestamp-seek"' in response.text
     assert 'data-seek-seconds="0.0"' in response.text
     assert 'data-seek-seconds="12.5"' in response.text

@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.admin.queries import load_admin_workspace_context
 from twobrain_rec_server.api.ingest import get_request_db_session
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
@@ -12,11 +13,12 @@ from twobrain_rec_server.api.schemas import (
     ProcessingPickupResponse,
     ProcessingStatusResponse,
 )
-from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
     get_principal,
     get_tenant_scope,
+    require_web_csrf,
 )
 from twobrain_rec_server.processing.pickup import pick_up_processing
 from twobrain_rec_server.processing.status import get_content_safe_processing_status
@@ -27,22 +29,25 @@ TenantDependency = Depends(get_tenant_scope)
 PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
 DbDependency = Depends(get_request_db_session)
+WebCSRFDependency = Depends(require_web_csrf)
 
 
 @router.post(
     "/internal/processing/pickup",
     response_model=ProcessingPickupResponse,
     status_code=202,
-    dependencies=[PrincipalDependency, DeviceDependency],
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def trigger_processing_pickup(
     payload: ProcessingPickupRequest,
     request: Request,
     tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
 ) -> ProcessingPickupResponse:
     if db is None:
         raise ProblemDetail(status=503, code="processing_store_unavailable", title="Processing store unavailable")
+    await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
     result = await pick_up_processing(
         db=db,
         settings=request.app.state.settings,

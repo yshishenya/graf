@@ -271,6 +271,26 @@ async def browser_email_signup_start(
             ),
             status_code=400,
         )
+    snapshot = await read_auth_providers(db, resolved_workspace_id, adapters=build_provider_registry())
+    if not snapshot.allow_provider_self_enrollment:
+        await _record_email_login_audit(
+            db,
+            request=request,
+            workspace_id=resolved_workspace_id,
+            outcome="failure",
+            error_code="workspace_enrollment_required",
+            metadata={"flow": "registration"},
+        )
+        await db.commit()
+        return HTMLResponse(
+            render_signup_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="workspace_enrollment_required",
+            ),
+            status_code=403,
+        )
     code = _issue_email_login_code()
     ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = await _create_email_login_state(
