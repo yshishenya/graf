@@ -7,6 +7,103 @@ import XCTest
 
 @MainActor
 final class DesktopCalendarReminderTests: XCTestCase {
+    func testMeetingDetectionJoinIntentHintUsesServiceFamilyWithoutRawURL() throws {
+        let event = makeEvent(
+            startsAt: date(120),
+            endsAt: date(300),
+            title: "Private browser call",
+            titleState: .privateRedacted,
+            meetingLinkPresent: true,
+            joinPromptDueAt: date(60),
+            openMeetingURL: try XCTUnwrap(URL(string: "https://telemost.yandex.ru/j/browser-room"))
+        )
+
+        let hint = try XCTUnwrap(
+            DesktopCalendarReminderService.meetingDetectionJoinIntentHint(
+                from: [event],
+                now: date(60),
+                isRecordingActive: false
+            )
+        )
+
+        XCTAssertEqual(hint.serviceFamily, "yandex_telemost")
+        XCTAssertEqual(hint.source, .calendarJoinPrompt)
+        XCTAssertEqual(hint.matchingEventCount, 1)
+        XCTAssertFalse(hint.isAmbiguous)
+    }
+
+    func testMeetingDetectionJoinIntentHintFailsClosedForOverlap() throws {
+        let firstURL = try XCTUnwrap(URL(string: "https://telemost.yandex.ru/j/first"))
+        let secondURL = try XCTUnwrap(URL(string: "https://meet.google.com/abc-defg-hij"))
+        let events = [
+            makeEvent(
+                eventId: "first",
+                startsAt: date(120),
+                endsAt: date(300),
+                meetingLinkPresent: true,
+                joinPromptDueAt: date(60),
+                openMeetingURL: firstURL
+            ),
+            makeEvent(
+                eventId: "second",
+                startsAt: date(120),
+                endsAt: date(300),
+                meetingLinkPresent: true,
+                joinPromptDueAt: date(60),
+                openMeetingURL: secondURL
+            )
+        ]
+
+        XCTAssertNil(
+            DesktopCalendarReminderService.meetingDetectionJoinIntentHint(
+                from: events,
+                now: date(60),
+                isRecordingActive: false
+            )
+        )
+    }
+
+    func testMeetingDetectionJoinIntentHintRequiresSafeKnownMeetingURL() throws {
+        let unknownURL = try XCTUnwrap(URL(string: "https://example.test/standup"))
+        let event = makeEvent(
+            startsAt: date(120),
+            endsAt: date(300),
+            meetingLinkPresent: true,
+            joinPromptDueAt: date(60),
+            openMeetingURL: unknownURL
+        )
+
+        XCTAssertNil(
+            DesktopCalendarReminderService.meetingDetectionJoinIntentHint(
+                from: [event],
+                now: date(60),
+                isRecordingActive: false
+            )
+        )
+    }
+
+    func testMeetingDetectionRecordOverlapHintUsesCurrentSingleMeetingLinkOnly() throws {
+        let event = makeEvent(
+            startsAt: date(100),
+            endsAt: date(300),
+            meetingLinkPresent: true,
+            recordPromptDueAt: date(100),
+            openMeetingURL: try XCTUnwrap(URL(string: "https://meet.google.com/abc-defg-hij"))
+        )
+
+        let hint = try XCTUnwrap(
+            DesktopCalendarReminderService.meetingDetectionJoinIntentHint(
+                from: [event],
+                now: date(160),
+                isRecordingActive: false
+            )
+        )
+
+        XCTAssertEqual(hint.serviceFamily, "google_meet")
+        XCTAssertEqual(hint.source, .calendarRecordPrompt)
+        XCTAssertEqual(hint.matchingEventCount, 1)
+    }
+
     func testJoinPromptIsDueOneMinuteBeforeStart() throws {
         let event = makeEvent(
             startsAt: date(120),

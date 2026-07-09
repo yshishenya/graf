@@ -39,4 +39,15 @@ public struct CaptureScopeApprovalService: Sendable {
             eligibleReason: eligibleReason
         )
     }
+
+    public func approveDetectorAssistedMeetingTarget(
+        sourceDisplayName: String
+    ) throws -> CaptureScopeApproval {
+        try approve(
+            scopeKind: .application,
+            sourceDisplayName: sourceDisplayName,
+            approvalMode: .userConfirmedSuggestedScope,
+            eligibleReason: .approvedMeetingApp
+        )
+    }
 }

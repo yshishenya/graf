@@ -19,6 +19,7 @@ from twobrain_rec_server.admin.invitations import (
     create_workspace_invitation,
     revoke_workspace_invitation,
 )
+from twobrain_rec_server.admin.meeting_detection import build_meeting_detection_admin_model
 from twobrain_rec_server.admin.metrics import get_admin_metrics
 from twobrain_rec_server.admin.queries import (
     get_admin_overview_payload,
@@ -36,6 +37,7 @@ from twobrain_rec_server.admin.view_models import (
     build_balance_view,
     build_file_detail_view,
     build_files_view,
+    build_meeting_detection_view,
     build_metrics_view,
     build_overview_view,
     build_user_detail_view,
@@ -57,6 +59,11 @@ from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.deletion.service import request_meeting_deletion
 from twobrain_rec_server.domain.statuses import DeletionReasonCode, DeletionRequestSource
+from twobrain_rec_server.meeting_detection.admin_review import (
+    load_meeting_detection_review,
+    mark_candidate_non_target,
+    request_candidate_validation,
+)
 
 router = APIRouter(tags=["admin-web"])
 
@@ -359,6 +366,94 @@ async def admin_metrics_page(
         page_title=view.page_title,
         principal=principal,
     )
+
+
+@router.get("/admin/meeting-detection", response_class=HTMLResponse, include_in_schema=False)
+async def admin_meeting_detection_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    loaded = await _load_web_admin_context(
+        request, tenant_scope=tenant_scope, principal=principal, db=db
+    )
+    if isinstance(loaded, HTMLResponse):
+        return loaded
+    context, session = loaded
+    review = await load_meeting_detection_review(session, context=context)
+    view = build_meeting_detection_view(
+        workspace_name=context.workspace_name,
+        actor_role=context.actor_role,
+        meeting_detection=build_meeting_detection_admin_model(review),
+    )
+    return admin_template_response(
+        request,
+        "admin/meeting_detection.html",
+        view=view,
+        page_title=view.page_title,
+        principal=principal,
+    )
+
+
+@router.post(
+    "/admin/meeting-detection/candidates/{candidate_id}/mark-non-target",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def admin_meeting_detection_mark_non_target_form(
+    request: Request,
+    candidate_id: UUID,
+    reason_code: str | None = Form(None),
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> Response:
+    loaded = await _load_web_admin_context(
+        request, tenant_scope=tenant_scope, principal=principal, db=db
+    )
+    if isinstance(loaded, HTMLResponse):
+        return loaded
+    context, session = loaded
+    await mark_candidate_non_target(
+        session,
+        context=context,
+        candidate_id=candidate_id,
+        reason_code=_blank_to_none(reason_code),
+    )
+    await session.commit()
+    return RedirectResponse("/admin/meeting-detection", status_code=303)
+
+
+@router.post(
+    "/admin/meeting-detection/candidates/{candidate_id}/request-validation",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def admin_meeting_detection_request_validation_form(
+    request: Request,
+    candidate_id: UUID,
+    validation_kind: str = Form("runtime"),
+    reason_code: str | None = Form(None),
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> Response:
+    loaded = await _load_web_admin_context(
+        request, tenant_scope=tenant_scope, principal=principal, db=db
+    )
+    if isinstance(loaded, HTMLResponse):
+        return loaded
+    context, session = loaded
+    await request_candidate_validation(
+        session,
+        context=context,
+        candidate_id=candidate_id,
+        validation_kind=validation_kind,
+        reason_code=_blank_to_none(reason_code),
+    )
+    await session.commit()
+    return RedirectResponse("/admin/meeting-detection", status_code=303)
 
 
 @router.get("/admin/audit", response_class=HTMLResponse, include_in_schema=False)

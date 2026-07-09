@@ -171,6 +171,28 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
+    public func buildMeetingDetectionDetectorBundle(
+        evidence: MeetingDetectionDetectorEvidence
+    ) throws -> DiagnosticBundle {
+        try buildBundle(
+            schemaVersion: "1",
+            manifest: [
+                "meetingDetectionDetector": .object([
+                    "status": .string(evidence.status),
+                    "registryVersion": .string(evidence.registryVersion),
+                    "bundleId": .string(evidence.bundleID ?? "none"),
+                    "targetId": .string(evidence.targetID ?? "none"),
+                    "supportMode": .string(evidence.supportMode?.rawValue ?? "unknown"),
+                    "decision": .string(evidence.decision),
+                    "reason": .string(evidence.reason ?? "none"),
+                    "observedAt": .string(Self.formatDate(evidence.observedAt))
+                ]),
+                "routeStatus": .string("meeting_detection_detector_recorded")
+            ],
+            failureFamily: "meeting_detection_detector"
+        )
+    }
+
     public func buildRouteInvalidationBundle(
         events: [RouteInvalidationEvent]
     ) throws -> DiagnosticBundle {

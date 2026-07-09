@@ -38,5 +38,22 @@ final class CaptureScopeApprovalTests: XCTestCase {
             )
         )
     }
+
+    func testDetectorAssistedApprovalUsesSuggestedApplicationScope() throws {
+        let service = CaptureScopeApprovalService(
+            clock: { Date(timeIntervalSince1970: 43) },
+            idFactory: { "scope-detector" }
+        )
+
+        let approval = try service.approveDetectorAssistedMeetingTarget(
+            sourceDisplayName: "Yandex Telemost"
+        )
+
+        XCTAssertEqual(approval.scopeApprovalId, "scope-detector")
+        XCTAssertEqual(approval.scopeKind, .application)
+        XCTAssertEqual(approval.approvalMode, .userConfirmedSuggestedScope)
+        XCTAssertEqual(approval.eligibleReason, .approvedMeetingApp)
+        XCTAssertTrue(approval.isAcceptedForMeetingRecording)
+    }
 }
 #endif

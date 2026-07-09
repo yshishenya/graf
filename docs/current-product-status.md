@@ -77,6 +77,26 @@ metadata-only evidence остаются подробной историей ре
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
+- Feature `092-automatic-meeting-detection` is implemented locally as the first
+  registry-driven detect-and-ask foundation for the Russian-market VKS scope.
+  It adds server-side metadata-only meeting-detection telemetry, admin candidate
+  review and registry publishing, RLS-covered registry/candidate tables, a
+  packaged macOS target registry, local registry cache/fallback, low-noise
+  candidate rollups, macOS `sensor-indicators` mic attribution parsing,
+  detector debounce/end state, target-scoped prompt/auto-record policy gates,
+  metadata-only diagnostics, meeting-detection settings/revoke affordances, and
+  browser metadata plus calendar/join-intent foundation without requiring a
+  browser extension. Prompt-capable first targets remain limited to locally
+  verified native Zoom and Yandex Telemost paths; browser targets, unverified
+  native apps, and unsupported metadata states stay detect-only/manual-only
+  until separate live validation promotes them. This slice is local
+  implementation readiness only: it is not committed, merged, released,
+  deployed, or production-rollout evidence. Critical review remediation on
+  2026-07-08 wired the packaged registry into the macOS runtime, connected the
+  native `sensor-indicators` log stream to prompt/auto-record decisioning,
+  hardened browser-target validation, added candidate/non-target uniqueness,
+  rejected admin merges into unknown target ids, and refreshed focused/full
+  local validation evidence.
 - Feature `012-server-ingest-foundation` is implemented as the first backend
   foundation slice in this repository: FastAPI ingest service scaffold,
   local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO

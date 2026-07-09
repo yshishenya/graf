@@ -166,6 +166,32 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(CaptureControlView.shouldEnableRecordButton(for: detecting, recordDisabled: true))
     }
 
+    func testMeetingDetectionControlsExposeStatusAndRevokeAccessibility() {
+        let label = SystemAudioStatusLabels.meetingDetectionAccessibilityLabel(
+            status: "detect_and_ask",
+            health: "ok"
+        )
+
+        XCTAssertEqual(SystemAudioAccessibilityIdentifier.meetingDetectionStatus, "systemAudio.meetingDetection.status")
+        XCTAssertEqual(
+            SystemAudioAccessibilityIdentifier.meetingDetectionModeMenu,
+            "systemAudio.meetingDetection.modeMenu"
+        )
+        XCTAssertEqual(
+            SystemAudioAccessibilityIdentifier.meetingDetectionRevokeAutoRecord,
+            "systemAudio.meetingDetection.revokeAutoRecord"
+        )
+        XCTAssertTrue(label.contains(SystemAudioStatusLabels.meetingDetectionSettingsTitle))
+        XCTAssertTrue(label.contains("detect_and_ask"))
+        XCTAssertEqual(
+            SystemAudioStatusLabels.meetingDetectionRevokeAutoRecordTitle,
+            "Отключить автозапись для приложения"
+        )
+        XCTAssertEqual(CaptureControlView.meetingDetectionModeTitle(.detectAndAsk), "Включено")
+        XCTAssertEqual(CaptureControlView.meetingDetectionModeTitle(.detectOnly), "Только наблюдать")
+        XCTAssertEqual(CaptureControlView.meetingDetectionModeTitle(.disabled), "Отключено")
+    }
+
     func testCalendarPromptUIWiresManualPrimaryAndDismissActions() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()

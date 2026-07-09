@@ -12,6 +12,7 @@ from twobrain_rec_server.api.cabinet import router as cabinet_api_router
 from twobrain_rec_server.api.calendar import router as calendar_router
 from twobrain_rec_server.api.health import router as health_router
 from twobrain_rec_server.api.ingest import router as ingest_router
+from twobrain_rec_server.api.meeting_detection import router as meeting_detection_router
 from twobrain_rec_server.api.problems import (
     ProblemDetail,
     problem_exception_handler,
@@ -71,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(ingest_router)
+    app.include_router(meeting_detection_router)
     app.include_router(processing_router)
     app.include_router(product_analytics_router)
     app.include_router(calendar_router)

@@ -44,6 +44,10 @@ CALENDAR_SETTINGS_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0014_calendar_settings_preferences.py"
 )
+MEETING_DETECTION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0017_meeting_detection_registry.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -95,6 +99,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         CALENDAR_SETTINGS_MIGRATION,
         "calendar_settings_preferences_migration",
     )
+    meeting_detection_migration = _load_migration_module(
+        MEETING_DETECTION_MIGRATION,
+        "meeting_detection_registry_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -109,6 +117,23 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(support_incident_migration.SUPPORT_TABLES)
         | set(admin_migration.ADMIN_TABLES)
         | set(calendar_settings_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(meeting_detection_migration.MEETING_DETECTION_TABLES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables
+
+
+def test_meeting_detection_registry_and_candidate_policy_predicates_are_tenant_scoped() -> None:
+    migration = _load_migration_module(
+        MEETING_DETECTION_MIGRATION,
+        "meeting_detection_registry_policy_predicates",
+    )
+
+    registry_predicate = migration._policy_predicate("meeting_target_registry_versions")
+    entry_predicate = migration._policy_predicate("meeting_target_registry_entries")
+    candidate_predicate = migration._policy_predicate("meeting_detection_candidates")
+
+    assert "workspace_id is null or workspace_id = rec_current_workspace_id()" in registry_predicate
+    assert "parent.workspace_id is null or parent.workspace_id = rec_current_workspace_id()" in entry_predicate
+    assert "workspace_id = rec_current_workspace_id()" in candidate_predicate
+    assert "workspace_id is null" not in candidate_predicate

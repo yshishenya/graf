@@ -7,7 +7,7 @@ def test_admin_navigation_is_russian_first_and_excludes_support_analyst_billing(
     nav = admin_navigation(active="overview")
     labels = [item.label for item in nav.items]
 
-    assert labels == ["Обзор", "Пользователи", "Файлы", "Баланс", "Метрики", "Аудит"]
+    assert labels == ["Обзор", "Пользователи", "Файлы", "ВКС", "Баланс", "Метрики", "Аудит"]
     assert "Поддержка" not in labels
     assert "Analyst" not in labels
     assert "Биллинг" not in labels
