@@ -24,6 +24,36 @@
 - _Пока нет записей._
 
 ### Операции
+- Feature `095-macos-permission-retention`: публичный download package
+  `graf-local.pkg` обновлен сборкой `2026.07.09.5` для локального
+  self-signed release path без Apple Developer ID/notarization.
+
+## [2026.07.09.5] - 2026-07-09
+
+
+### Добавлено
+- Feature `095-macos-permission-retention`: добавлен локальный self-signed
+  signing path для owner-machine проверки сохранения macOS microphone и
+  Screen/System Audio permissions после переустановки GRAF.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Feature `095-macos-permission-retention`: permission onboarding и другие
+  desktop prompts больше не должны блокировать macOS quit/relaunch; termination
+  path закрывает modal state перед bounded cleanup reply.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `095-macos-permission-retention`: добавлены Spec Kit artifacts,
+  local signing runbook, metadata-only validation quickstart и явная граница,
+  что local self-signed package не является Developer ID/notarized public
+  release.
+
+### Операции
 - _Пока нет записей._
 
 ## [2026.07.09.5] - 2026-07-09

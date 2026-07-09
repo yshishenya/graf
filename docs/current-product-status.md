@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-08
+Date: 2026-07-09
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -11,6 +11,18 @@ metadata-only evidence остаются подробной историей ре
 - macOS is the selected MVP platform.
 - The current macOS product identity is `GRAF.app` with bundle id
   `pro.2brain.graf`.
+- Feature `095-macos-permission-retention` is implemented for local
+  owner-machine validation: GRAF can be built with an explicit locally trusted
+  self-signed app identity, same-identity reinstalls preserve already granted
+  microphone and Screen/System Audio permissions on the validated Mac, and
+  permission onboarding/AppKit sheets are dismissed during bounded termination
+  cleanup so macOS quit/relaunch is not blocked. This is not public
+  distribution readiness: Apple Developer account, Developer ID Application
+  and Installer signing, notarization, stapling, and public Gatekeeper
+  validation remain separate release-gate work. Release `v2026.07.09.5`
+  refreshes the public download package with the local self-signed build so
+  the owner machine can update from the hosted package while the Developer ID
+  path remains out of scope.
 - The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
   with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
   paths are kept only for cleanup and local data compatibility.

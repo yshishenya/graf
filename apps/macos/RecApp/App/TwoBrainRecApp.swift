@@ -420,6 +420,10 @@ private struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
+            permissionOnboardingPresented = false
+            permissionOnboardingRequestInProgress = false
+            meetingDetectionPrompt = nil
+            meetingDetectionPromptAutoRecordOptIn = false
             guard !terminationCleanupInProgress else { return }
             terminationCleanupInProgress = true
             Task {
@@ -1833,6 +1837,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             event: "app_termination_cleanup_requested",
             detail: "reply=terminateLater"
         )
+        dismissModalWindowsForTermination()
         NotificationCenter.default.post(name: .twoBrainRecApplicationShouldTerminate, object: nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
             self?.replyToTerminateIfPending(reason: "timeout")
@@ -1857,6 +1862,17 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             detail: "reason=\(reason)"
         )
         NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
+    private func dismissModalWindowsForTermination() {
+        for window in NSApp.windows {
+            if let attachedSheet = window.attachedSheet {
+                window.endSheet(attachedSheet)
+            }
+            if window.isSheet, let sheetParent = window.sheetParent {
+                sheetParent.endSheet(window)
+            }
+        }
     }
 
     private func presentMainWindow(reason: String) {

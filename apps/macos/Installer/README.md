@@ -70,6 +70,45 @@ with:
 DevToolsSecurity -status
 ```
 
+## Local Self-Signed Permission-Retention Builds
+
+For owner-machine validation without an Apple Developer account, use a stable
+locally trusted code-signing identity such as `GRAF Local Code Signing`. This
+path is intended to prove that macOS sees the same `pro.2brain.graf` app
+identity across local reinstalls, so granted microphone and Screen/System Audio
+permissions do not need to be granted again on every build.
+
+Preflight the local identity:
+
+```sh
+security find-identity -v -p codesigning
+```
+
+Build explicitly as local-only:
+
+```sh
+GRAF_APP_SIGN_IDENTITY="GRAF Local Code Signing" \
+GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1 \
+  sh apps/macos/Installer/Scripts/build-local-installer.sh
+```
+
+Then inspect the app identity:
+
+```sh
+codesign --verify --deep --strict "apps/macos/RecApp/.build/GRAF.app"
+codesign -dv --verbose=4 "apps/macos/RecApp/.build/GRAF.app" 2>&1
+codesign -dr - "apps/macos/RecApp/.build/GRAF.app" 2>&1
+```
+
+Keep the same certificate/private key pair. Recreating a certificate with the
+same display name is signing drift and may make macOS ask for permissions
+again. Do not commit exported certificates, private keys, passwords, or
+generated signed packages.
+
+This local self-signed path is not public release readiness. It does not create
+an Apple Developer TeamIdentifier, Developer ID signature, notarization ticket,
+or stapled Gatekeeper-ready installer.
+
 Signed pre-release builds must use an Apple application signing identity
 (`Apple Development`, `Developer ID Application`, `Apple Distribution`, or
 legacy `Mac Developer`). Check available identities with:
@@ -103,6 +142,13 @@ path is `Scripts/build-local-installer.sh`.
 - Developer ID signing and notarization are required before production release.
 - Local certificates, private keys, app-specific passwords, API keys, notarization credentials, and generated signed artifacts must stay outside git.
 - Build scripts may reference environment variables or local keychain identities by name, but must not embed secret values.
+- Local self-signed app signing is allowed only when
+  `GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1` is set. It is accepted for
+  single-machine permission-retention validation, not for public distribution.
+- Public distribution still requires Apple Developer Program access, a
+  Developer ID Application certificate for the app, a Developer ID Installer
+  certificate when package signing is needed, successful notarization, and
+  stapling/verification before release.
 - For local development, `build-local-installer.sh` may ad-hoc sign the `.app`
   only when Developer Tools Security is enabled. Apple application signing is
   required for pre-release builds. The product package itself remains unsigned
