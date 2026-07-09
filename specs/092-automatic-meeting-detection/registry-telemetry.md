@@ -31,21 +31,21 @@ GRAF should split the system into five independent data surfaces:
 
 | Surface | Owner | Purpose | Update path |
 | --- | --- | --- | --- |
-| Packaged seed registry | Client release | Offline baseline for known safe targets. | App release. |
-| Remote target registry | Server/admin | Current support state for known targets. | Server-side file, database, or admin UI. |
+| Server target registry | Server/admin | Current support state for known targets. | Migration, database, or admin UI. |
+| Last-good client cache | Client | Resilient copy of the latest validated server registry. | Automatic desktop fetch with `ETag`. |
 | Local user policy | User/workspace | Detection mode, prompt suppression, target-scoped auto-record preferences. | Local settings and workspace policy. |
 | Local telemetry rollups | Client | Metadata-only counters and VKS-candidate observations. | Local aggregation, automatic candidate upload, manual diagnostic export. |
 | Server candidate review queue | Server/admin | Aggregated likely-VKS unknown apps and known-target health. | Admin review, QA, and registry publishing. |
 
 The client MUST resolve the registry in this order:
 
-1. Valid remote registry cache if present and compatible.
-2. Latest successfully downloaded remote registry.
-3. Packaged seed registry.
+1. Latest successfully downloaded remote registry when available.
+2. Last-good validated remote registry cache.
+3. No registry: automatic detection fails closed while manual recording remains available.
 
 If the remote registry is malformed, unsupported, expired, unsafe, or fails
-validation, the client MUST keep using the previous good registry or packaged
-seed. Remote registry failures MUST NOT block manual recording.
+validation, the client MUST keep using the previous good registry cache when one
+exists. Remote registry failures MUST NOT block manual recording.
 
 The remote registry MAY add targets, change target support mode, update labels,
 or mark targets as disabled. It MUST NOT disable compiled safety gates such as
@@ -77,8 +77,7 @@ Example:
       "nativeBundleIds": ["us.zoom.xos"],
       "mode": "prompt_enabled",
       "evidence": "runtime_verified",
-      "requiredSignals": ["macos_audio_hal_assertion"],
-      "minClientVersion": "2026.07.08.1"
+      "requiredSignals": ["macos_audio_hal_assertion"]
     },
     {
       "id": "vk_teams_native_macos",

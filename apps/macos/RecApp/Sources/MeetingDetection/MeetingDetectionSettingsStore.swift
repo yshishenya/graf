@@ -1,6 +1,15 @@
 import Foundation
 import TwoBrainRecShared
 
+public extension Notification.Name {
+    static let twoBrainRecMeetingDetectionSettingsDidChange = Notification.Name(
+        "pro.2brain.graf.meetingDetectionSettingsDidChange"
+    )
+    static let twoBrainRecMeetingTargetRegistryDidChange = Notification.Name(
+        "pro.2brain.graf.meetingTargetRegistryDidChange"
+    )
+}
+
 public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
     public var detectionMode: MeetingDetectionMode
     public var uploadMode: MeetingDetectionUploadMode
@@ -48,12 +57,7 @@ public final class MeetingDetectionSettingsStore: @unchecked Sendable {
     }
 
     public static func defaultSettingsURL() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
-            FileManager.default.temporaryDirectory
-        return base
-            .appendingPathComponent("GRAF", isDirectory: true)
-            .appendingPathComponent(MeetingDetectionAppModule.applicationSupportDirectoryName, isDirectory: true)
-            .appendingPathComponent("settings.json")
+        MeetingDetectionAppModule.settingsURL()
     }
 
     public func load() throws -> MeetingDetectionSettings {

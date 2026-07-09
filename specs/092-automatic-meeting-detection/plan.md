@@ -11,9 +11,9 @@ capture or broad app inventory collection. The first implementation path is
 server/admin first: accept metadata-only meeting-detection telemetry from desktop
 clients, filter and aggregate likely VKS candidates, show them in the existing
 admin surface, and publish reviewed target registry versions. The macOS client
-then consumes the remote/cache/seed registry, records bounded local rollups,
-uploads only VKS-filtered candidates, and finally uses Gilb-style macOS
-`AudioHAL` app ownership for native app detection.
+then consumes the server-published registry with a last-good local cache,
+records bounded local rollups, uploads only VKS-filtered candidates, and finally
+uses Gilb-style macOS `AudioHAL` app ownership for native app detection.
 
 Browser meeting detection is planned as macOS browser metadata plus calendar or
 join intent; browser extensions remain future optional adapters. First prompt
@@ -215,8 +215,8 @@ apps/macos/RecApp/Sources/Calendar/
 apps/macos/RecApp/Sources/Diagnostics/
 └── DiagnosticBundleService.swift
 
-apps/macos/RecApp/Resources/
-└── meeting-target-registry.seed.json
+apps/server/src/twobrain_rec_server/db/migrations/data/
+└── 0019_meeting_target_registry.json
 
 apps/macos/Shared/Sources/MeetingDetection/
 ├── MacOSAudioOwnershipParser.swift

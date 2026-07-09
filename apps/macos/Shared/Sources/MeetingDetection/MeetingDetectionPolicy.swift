@@ -12,24 +12,47 @@ public struct MeetingDetectionCapturePrerequisites: Equatable, Sendable {
     public let visibleRecordingStateAvailable: Bool
     public let oneActionStopAvailable: Bool
     public let captureRouteReady: Bool
+    public let recordingPrerequisite: RecordingPrerequisiteSnapshot?
 
     public init(
         recordingAlreadyActive: Bool = false,
         visibleRecordingStateAvailable: Bool = true,
         oneActionStopAvailable: Bool = true,
-        captureRouteReady: Bool = true
+        captureRouteReady: Bool = true,
+        recordingPrerequisite: RecordingPrerequisiteSnapshot? = nil
     ) {
         self.recordingAlreadyActive = recordingAlreadyActive
         self.visibleRecordingStateAvailable = visibleRecordingStateAvailable
         self.oneActionStopAvailable = oneActionStopAvailable
         self.captureRouteReady = captureRouteReady
+        self.recordingPrerequisite = recordingPrerequisite
     }
 
     public var allowsRecordingStart: Bool {
         !recordingAlreadyActive &&
             visibleRecordingStateAvailable &&
             oneActionStopAvailable &&
-            captureRouteReady
+            captureRouteReady &&
+            (recordingPrerequisite?.allowsRecording ?? true)
+    }
+
+    public var blockedReasonCode: String {
+        if recordingAlreadyActive {
+            return RecordingStartBlocker.alreadyRecording.rawValue
+        }
+        if !visibleRecordingStateAvailable {
+            return RecordingStartBlocker.indicatorUnavailable.rawValue
+        }
+        if !oneActionStopAvailable {
+            return "one_action_stop_unavailable"
+        }
+        if !captureRouteReady {
+            return RecordingStartBlocker.routeNotReady.rawValue
+        }
+        if let recordingPrerequisite, recordingPrerequisite.blockedReason != .none {
+            return recordingPrerequisite.blockedReason.rawValue
+        }
+        return "capture_prerequisite_blocked"
     }
 }
 
@@ -41,9 +64,6 @@ public struct MeetingDetectionPolicy: Sendable {
         settings: MeetingDetectionSettingsSnapshot,
         prerequisites: MeetingDetectionCapturePrerequisites
     ) -> MeetingDetectionPolicyAction {
-        guard settings.detectionMode != .disabled else {
-            return .suppress(reason: "detection_disabled")
-        }
         switch decision.kind {
         case .suppressed:
             return .suppress(reason: decision.suppressionReasons.first?.rawValue ?? "suppressed")
@@ -53,11 +73,11 @@ public struct MeetingDetectionPolicy: Sendable {
             guard mode == .promptEnabled else {
                 return .detectOnly(targetID: targetID)
             }
-            if settings.detectionMode == .detectOnly {
+            guard settings.detectionMode == .detectAndAsk else {
                 return .detectOnly(targetID: targetID)
             }
             guard prerequisites.allowsRecordingStart else {
-                return .suppress(reason: "capture_prerequisite_blocked")
+                return .suppress(reason: prerequisites.blockedReasonCode)
             }
             if settings.targetScopedAutoRecordEnabled,
                settings.autoRecordTargetIds.contains(targetID) {
@@ -72,9 +92,6 @@ public struct MeetingDetectionPolicy: Sendable {
         settings: MeetingDetectionSettingsSnapshot,
         prerequisites: MeetingDetectionCapturePrerequisites
     ) -> MeetingDetectionPolicyAction {
-        guard settings.detectionMode != .disabled else {
-            return .suppress(reason: "detection_disabled")
-        }
         switch browserEvaluation.kind {
         case .manualOnly(let targetID, _):
             return .detectOnly(targetID: targetID)

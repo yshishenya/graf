@@ -46,6 +46,16 @@ def test_valid_telemetry_persists_batch_health_and_candidate(client) -> None:
     assert bundle_id == "ru.example.vks"
 
 
+def test_old_sensor_signal_telemetry_is_rejected(client) -> None:
+    payload = meeting_detection_payload()
+    payload["targetRollups"][0]["signalFamilies"] = ["macos_sensor_indicators_mic"]
+
+    response = _post(client, "meeting-detection:old-signal-001", payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "request_validation_error"
+
+
 def test_same_idempotency_key_and_payload_returns_duplicate_without_second_batch(client) -> None:
     payload = meeting_detection_payload()
     first = _post(client, "meeting-detection:dupe-001", payload)

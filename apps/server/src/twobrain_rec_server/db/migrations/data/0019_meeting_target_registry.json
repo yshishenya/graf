@@ -1,8 +1,7 @@
 {
   "schemaVersion": 1,
-  "registryVersion": "2026.07.08.1",
-  "generatedAt": "2026-07-08T00:00:00Z",
-  "minimumClientVersion": "0.1.0",
+  "registryVersion": "2026.07.09.4",
+  "generatedAt": "2026-07-09T00:00:00Z",
   "targets": [
     {
       "id": "zoom",
@@ -50,7 +49,7 @@
       "requiredSignals": [
         "macos_audio_hal_assertion"
       ],
-      "comments": "Known classic Teams bundle ID; current runtime attribution still needs validation."
+      "comments": "Known classic Teams bundle ID. Local 2026-07-09 app search found no installed Teams app; keep diagnostic-only until installed runtime AudioHAL validation passes."
     },
     {
       "id": "microsoft_teams_new",
@@ -66,7 +65,7 @@
       "requiredSignals": [
         "macos_audio_hal_assertion"
       ],
-      "comments": "Known new Teams bundle ID; current runtime attribution still needs validation."
+      "comments": "Known new Teams bundle ID. Local 2026-07-09 app search found no installed Teams app; keep diagnostic-only until installed runtime AudioHAL validation passes."
     },
     {
       "id": "slack_calls",

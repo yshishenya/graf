@@ -106,10 +106,6 @@ if [ ! -d "$APP_CORE_RESOURCE_BUNDLE" ]; then
   echo "Missing app resource bundle at $APP_CORE_RESOURCE_BUNDLE" >&2
   exit 1
 fi
-if [ ! -f "$APP_CORE_RESOURCE_BUNDLE/Resources/meeting-target-registry.seed.json" ]; then
-  echo "Missing meeting detection seed registry in $APP_CORE_RESOURCE_BUNDLE" >&2
-  exit 1
-fi
 for resource in "$WORDMARK_DARK" "$WORDMARK_DARK_2X" "$WORDMARK_LIGHT" "$WORDMARK_LIGHT_2X"; do
   if [ ! -f "$resource" ]; then
     echo "Missing app wordmark resource at $resource" >&2

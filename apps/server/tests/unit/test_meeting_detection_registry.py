@@ -5,21 +5,23 @@ import pytest
 
 from twobrain_rec_server.meeting_detection.registry import (
     MeetingTargetRegistryError,
-    load_packaged_seed_registry,
     registry_entries,
     registry_etag,
     validate_registry_document,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-SEED_REGISTRY = REPO_ROOT / "apps/macos/RecApp/Resources/meeting-target-registry.seed.json"
+REGISTRY_DATA = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json"
+)
 
 
 def _seed_document() -> dict[str, object]:
-    return json.loads(SEED_REGISTRY.read_text(encoding="utf-8"))
+    return json.loads(REGISTRY_DATA.read_text(encoding="utf-8"))
 
 
-def test_packaged_seed_registry_is_valid_and_honest_about_prompt_targets() -> None:
+def test_migration_registry_is_valid_and_honest_about_prompt_targets() -> None:
     document = validate_registry_document(_seed_document())
     prompt_targets = {
         target["id"]
@@ -112,23 +114,6 @@ def test_registry_rejects_duplicate_target_ids() -> None:
 
     with pytest.raises(MeetingTargetRegistryError):
         validate_registry_document(document)
-
-
-def test_packaged_seed_loader_returns_valid_registry() -> None:
-    document = load_packaged_seed_registry()
-
-    assert document["registryVersion"] == "2026.07.08.1"
-    assert any(target["id"] == "zoom" for target in document["targets"])
-
-
-def test_server_image_includes_packaged_seed_registry() -> None:
-    dockerfile = REPO_ROOT / "infra/server/Dockerfile"
-    expected_copy = (
-        "COPY apps/macos/RecApp/Resources/meeting-target-registry.seed.json "
-        "/usr/local/apps/macos/RecApp/Resources/meeting-target-registry.seed.json"
-    )
-
-    assert expected_copy in dockerfile.read_text(encoding="utf-8")
 
 
 def test_registry_accepts_safe_non_target_rules() -> None:

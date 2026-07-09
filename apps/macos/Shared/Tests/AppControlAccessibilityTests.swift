@@ -208,8 +208,7 @@ final class AppControlAccessibilityTests: XCTestCase {
 
         XCTAssertTrue(source.contains("permissionOnboardingPresented = false"))
         XCTAssertTrue(source.contains("permissionOnboardingRequestInProgress = false"))
-        XCTAssertTrue(source.contains("meetingDetectionPrompt = nil"))
-        XCTAssertTrue(source.contains("meetingDetectionPromptAutoRecordOptIn = false"))
+        XCTAssertTrue(source.contains("dismissMeetingDetectionPrompt()"))
         XCTAssertTrue(source.contains("dismissModalWindowsForTermination()"))
         XCTAssertTrue(source.contains("window.endSheet(attachedSheet)"))
         XCTAssertTrue(source.contains("sheetParent.endSheet(window)"))
@@ -278,6 +277,9 @@ final class AppControlAccessibilityTests: XCTestCase {
             XCTAssertTrue(source.contains(command), "Missing edit command \(command)")
         }
         XCTAssertTrue(source.contains("installMainMenu(on: app, zoomTarget: appDelegate)"))
+        XCTAssertTrue(source.contains("withTitle: \"Settings...\""))
+        XCTAssertTrue(source.contains("#selector(AppLifecycleDelegate.openSettings(_:))"))
+        XCTAssertTrue(source.contains("MeetingDetectionSettingsView()"))
         XCTAssertTrue(source.contains("WorkspaceZoomMenu.items"))
         XCTAssertTrue(source.contains("increaseWorkspaceZoom"))
         XCTAssertTrue(source.contains("decreaseWorkspaceZoom"))

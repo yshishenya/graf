@@ -36,6 +36,23 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .autoRecord(targetID: "yandex_telemost"))
     }
 
+    func testTargetScopedAutoRecordStillPromptsWhenTargetIsUnchecked() {
+        let action = MeetingDetectionPolicy().action(
+            for: MeetingDetectionCandidateDecision(
+                kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
+                candidateScore: 0
+            ),
+            settings: MeetingDetectionSettingsSnapshot(
+                detectionMode: .detectAndAsk,
+                targetScopedAutoRecordEnabled: true,
+                autoRecordTargetIds: ["zoom"]
+            ),
+            prerequisites: MeetingDetectionCapturePrerequisites()
+        )
+
+        XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
+    }
+
     func testDetectOnlyModeNeverPromptsOrAutoRecords() {
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(
@@ -81,20 +98,6 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .detectOnly(targetID: "google_meet_web"))
     }
 
-    func testDisabledModeSuppressesBrowserEvaluation() {
-        let action = MeetingDetectionPolicy().action(
-            for: BrowserMeetingTargetEvaluation(
-                kind: .manualOnly(targetID: "google_meet_web", reason: "unsupported_browser_metadata"),
-                serviceFamily: "google_meet",
-                signals: [.browserMetadata]
-            ),
-            settings: MeetingDetectionSettingsSnapshot(detectionMode: .disabled),
-            prerequisites: MeetingDetectionCapturePrerequisites()
-        )
-
-        XCTAssertEqual(action, .suppress(reason: "detection_disabled"))
-    }
-
     func testSafeBrowserJoinedTargetPromptsThroughExistingCaptureGates() {
         let action = MeetingDetectionPolicy().action(
             for: BrowserMeetingTargetEvaluation(
@@ -119,7 +122,48 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             prerequisites: MeetingDetectionCapturePrerequisites(oneActionStopAvailable: false)
         )
 
-        XCTAssertEqual(action, .suppress(reason: "capture_prerequisite_blocked"))
+        XCTAssertEqual(action, .suppress(reason: "one_action_stop_unavailable"))
+    }
+
+    func testRecordingPrerequisiteBlocksPromptWhenWorkspacePolicyDisallowsRecording() {
+        let prerequisite = RecordingPrerequisiteGate().evaluate(recordingPrerequisite(policyAllowsRecording: false))
+        let action = MeetingDetectionPolicy().action(
+            for: MeetingDetectionCandidateDecision(
+                kind: .knownTarget(targetID: "zoom", mode: .promptEnabled),
+                candidateScore: 0
+            ),
+            settings: MeetingDetectionSettingsSnapshot(detectionMode: .detectAndAsk),
+            prerequisites: MeetingDetectionCapturePrerequisites(recordingPrerequisite: prerequisite)
+        )
+
+        XCTAssertEqual(action, .suppress(reason: RecordingStartBlocker.policyDisabled.rawValue))
+    }
+
+    func testRecordingPrerequisiteBlocksAutoRecordEvenAfterTargetOptIn() {
+        let prerequisite = RecordingPrerequisiteGate().evaluate(recordingPrerequisite(storageRisk: .critical))
+        let action = MeetingDetectionPolicy().action(
+            for: MeetingDetectionCandidateDecision(
+                kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
+                candidateScore: 0
+            ),
+            settings: MeetingDetectionSettingsSnapshot(
+                detectionMode: .detectAndAsk,
+                targetScopedAutoRecordEnabled: true,
+                autoRecordTargetIds: ["yandex_telemost"]
+            ),
+            prerequisites: MeetingDetectionCapturePrerequisites(recordingPrerequisite: prerequisite)
+        )
+
+        XCTAssertEqual(action, .suppress(reason: RecordingStartBlocker.storageUnsafe.rawValue))
+    }
+
+    func testAudioHALLogStreamPredicateIsScopedToRunningBoard() {
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration()
+        let predicate = configuration.arguments.last ?? ""
+
+        XCTAssertTrue(predicate.contains("AudioHAL"))
+        XCTAssertTrue(predicate.contains("runningboardd"))
+        XCTAssertFalse(predicate.hasPrefix("eventMessage CONTAINS"))
     }
 
     func testDetectorDebouncesKnownTargetBeforePrompt() throws {
@@ -225,6 +269,22 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         }
         XCTAssertEqual(bundleID, "ru.yandex.futuremeet")
         XCTAssertGreaterThanOrEqual(score, 5)
+    }
+
+    private func recordingPrerequisite(
+        policyAllowsRecording: Bool = true,
+        storageRisk: LocalBufferRiskState = .healthy
+    ) -> RecordingPrerequisiteSnapshot {
+        RecordingPrerequisiteSnapshot(
+            routeState: .inactive,
+            routeEvidenceKind: .systemAudioCapture,
+            policyAllowsRecording: policyAllowsRecording,
+            microphonePermissionGranted: true,
+            storageRisk: storageRisk,
+            indicatorAvailable: true,
+            sourceAppEligibility: .eligible,
+            evaluatedAt: Date(timeIntervalSince1970: 1_779_887_120)
+        )
     }
 
     private static func registry() throws -> MeetingTargetRegistryDocument {

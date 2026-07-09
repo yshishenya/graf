@@ -8736,7 +8736,6 @@ components:
         detectionMode:
           type: string
           enum:
-          - disabled
           - detect_only
           - detect_and_ask
           title: Detectionmode
@@ -8779,13 +8778,6 @@ components:
             format: date-time
           - type: 'null'
           title: Expiresat
-        minimumClientVersion:
-          anyOf:
-          - type: string
-            maxLength: 80
-            pattern: ^[^\x00-\x1f\x7f]+$
-          - type: 'null'
-          title: Minimumclientversion
         targets:
           items:
             $ref: '#/components/schemas/MeetingTargetRegistryTarget'
@@ -9691,13 +9683,6 @@ components:
             $ref: '#/components/schemas/MeetingTargetBrowserServicePattern'
           type: array
           title: Browserservicepatterns
-        minClientVersion:
-          anyOf:
-          - type: string
-            maxLength: 80
-            pattern: ^[^\x00-\x1f\x7f]+$
-          - type: 'null'
-          title: Minclientversion
         comments:
           anyOf:
           - type: string

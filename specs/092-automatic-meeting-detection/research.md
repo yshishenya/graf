@@ -22,19 +22,22 @@ idempotency, rate limiting, and audit behavior be tested before client rollout.
 - Hardcoded client allowlist first: fastest prompt path, but forces client
   rebuilds for registry changes and does not learn missing Russian-market apps.
 
-### Remote/Cache/Seed Registry
+### Server Registry With Client Cache
 
-**Decision**: Use a versioned JSON target registry served by the server, cached
-locally by the client, with a packaged seed fallback.
+**Decision**: Use a versioned JSON target registry published in the server
+database and served to desktop clients, with a last-good local client cache.
 
 **Rationale**: The target list changes as Russian and global VKS apps are
 validated. JSON is small, auditable, versioned, easy to validate, and fits both
-server and macOS clients. A packaged seed preserves offline behavior.
+server and macOS clients. Publishing through migrations/admin review keeps the
+list updateable without rebuilding the macOS client.
 
 **Alternatives Considered**:
 
 - Client-only Swift registry: safer by compilation but too slow to update and
   unsuitable for admin-driven review/publish.
+- Packaged client seed: preserves offline behavior, but keeps stale app lists in
+  long-lived installed clients and requires app rebuilds for registry fixes.
 - Client SQLite/CoreData registry: unnecessary for small read-mostly data and
   harder to diff, sign, inspect, and roll back.
 - Server database only with no JSON contract: convenient for admin UI but weaker

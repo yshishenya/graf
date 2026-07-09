@@ -4,9 +4,9 @@
 
 **Date**: 2026-07-08
 
-This is the current macOS seed allowlist artifact for the planned native macOS
+This is the current macOS allowlist artifact for the planned native macOS
 meeting detector. The production target list should be delivered through the
-remote/cache/packaged-seed registry design in
+server-published registry plus last-good client cache design in
 `specs/092-automatic-meeting-detection/registry-telemetry.md`, not as a
 client-only hardcoded list. No production code allowlist exists yet.
 
@@ -41,8 +41,8 @@ evidence.
 | --- | --- | --- | --- | --- |
 | Zoom | `us.zoom.xos` | `prompt_enabled` | `runtime_verified` | `AudioHAL` ownership start and target removal/end were captured locally on 2026-07-08. |
 | Yandex Telemost | `ru.yandex.desktop.telemost` | `prompt_enabled` | `runtime_verified` | `AudioHAL` ownership start and target removal/end were captured locally on 2026-07-08/09. |
-| Microsoft Teams classic | `com.microsoft.teams` | `diagnostic_only` | `confirmed` | Known classic Teams bundle ID. Needs current local package/runtime check before prompt mode. |
-| Microsoft Teams new/work/school | `com.microsoft.teams2` | `diagnostic_only` | `confirmed` | Known new Teams bundle ID. Needs current local package/runtime check before prompt mode. |
+| Microsoft Teams classic | `com.microsoft.teams` | `diagnostic_only` | `confirmed` | Known classic Teams bundle ID. Local app search on 2026-07-09 found no installed Teams app, so runtime `AudioHAL` validation is explicitly closed as deferred; prompt mode still requires current installed app/account validation. |
+| Microsoft Teams new/work/school | `com.microsoft.teams2` | `diagnostic_only` | `confirmed` | Known new Teams bundle ID. Local app search on 2026-07-09 found no installed Teams app, so runtime `AudioHAL` validation is explicitly closed as deferred; prompt mode still requires current installed app/account validation. |
 | Slack calls/huddles | `com.tinyspeck.slackmacgap` | `diagnostic_only` | `confirmed` | Slack desktop identity is confirmed, but call/huddle audio ownership still needs validation. |
 | Webex Meetings/App | `com.cisco.webexmeetingsapp`, `com.webex.meetingmanager` | `diagnostic_only` | `seed` | Multiple Webex app flavors exist; verify which bundle emits audio ownership in current Webex. |
 | FaceTime | `com.apple.FaceTime` | `diagnostic_only` | `seed` | Built-in app. Keep diagnostic-only until product decides whether personal calls are in scope. |

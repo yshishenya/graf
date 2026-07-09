@@ -262,7 +262,7 @@ async def _store_target_health_rollups(
                 os_version_major=str(payload["osVersionMajor"]),
                 rollup_date=rollup_date,
                 support_mode=str(rollup["supportMode"]),
-                signal_families_json=list(rollup.get("signalFamilies", [])),
+                signal_families_json=[str(signal) for signal in rollup.get("signalFamilies", [])],
                 outcomes_json=dict(rollup.get("outcomes", {})),
                 duration_buckets_json=dict(rollup.get("durationBuckets", {})),
                 reason_codes_json=list(rollup.get("reasonCodes", [])),

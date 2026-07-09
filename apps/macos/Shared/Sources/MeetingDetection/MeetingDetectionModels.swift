@@ -1,7 +1,6 @@
 import Foundation
 
 public enum MeetingDetectionMode: String, Codable, Sendable {
-    case disabled
     case detectOnly = "detect_only"
     case detectAndAsk = "detect_and_ask"
 }
@@ -322,7 +321,6 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
     public let nativeBundleIds: [String]
     public let windowsProcessNames: [String]
     public let browserServicePatterns: [MeetingTargetBrowserServicePattern]
-    public let minClientVersion: String?
     public let comments: String?
 
     public init(
@@ -337,7 +335,6 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
         nativeBundleIds: [String] = [],
         windowsProcessNames: [String] = [],
         browserServicePatterns: [MeetingTargetBrowserServicePattern] = [],
-        minClientVersion: String? = nil,
         comments: String? = nil
     ) {
         self.id = id
@@ -351,7 +348,6 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
         self.nativeBundleIds = nativeBundleIds
         self.windowsProcessNames = windowsProcessNames
         self.browserServicePatterns = browserServicePatterns
-        self.minClientVersion = minClientVersion
         self.comments = comments
     }
 
@@ -367,7 +363,6 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
         case nativeBundleIds
         case windowsProcessNames
         case browserServicePatterns
-        case minClientVersion
         case comments
     }
 
@@ -387,7 +382,6 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
             [MeetingTargetBrowserServicePattern].self,
             forKey: .browserServicePatterns
         ) ?? []
-        minClientVersion = try container.decodeIfPresent(String.self, forKey: .minClientVersion)
         comments = try container.decodeIfPresent(String.self, forKey: .comments)
     }
 }
@@ -397,7 +391,6 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
     public let registryVersion: String
     public let generatedAt: Date
     public let expiresAt: Date?
-    public let minimumClientVersion: String?
     public let targets: [MeetingTargetRegistryTarget]
     public let nonTargetRules: [MeetingDetectionNonTargetRule]
     public let etag: String?
@@ -407,7 +400,6 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
         registryVersion: String,
         generatedAt: Date,
         expiresAt: Date? = nil,
-        minimumClientVersion: String? = nil,
         targets: [MeetingTargetRegistryTarget],
         nonTargetRules: [MeetingDetectionNonTargetRule] = [],
         etag: String? = nil
@@ -416,7 +408,6 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
         self.registryVersion = registryVersion
         self.generatedAt = generatedAt
         self.expiresAt = expiresAt
-        self.minimumClientVersion = minimumClientVersion
         self.targets = targets
         self.nonTargetRules = nonTargetRules
         self.etag = etag
@@ -427,7 +418,6 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
         case registryVersion
         case generatedAt
         case expiresAt
-        case minimumClientVersion
         case targets
         case nonTargetRules
         case etag
@@ -439,7 +429,6 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
         registryVersion = try container.decode(String.self, forKey: .registryVersion)
         generatedAt = try container.decode(Date.self, forKey: .generatedAt)
         expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
-        minimumClientVersion = try container.decodeIfPresent(String.self, forKey: .minimumClientVersion)
         targets = try container.decode([MeetingTargetRegistryTarget].self, forKey: .targets)
         nonTargetRules = try container.decodeIfPresent(
             [MeetingDetectionNonTargetRule].self,
@@ -458,7 +447,6 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
 public enum MeetingDetectionRegistrySource: String, Codable, Sendable {
     case remote
     case remoteCache = "remote_cache"
-    case packagedSeed = "packaged_seed"
 }
 
 public struct MeetingDetectionAppObservation: Equatable, Sendable {

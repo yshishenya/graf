@@ -13,7 +13,6 @@ final class InstallerPackagingTests: XCTestCase {
 
         XCTAssertTrue(script.contains("APP_CORE_RESOURCE_BUNDLE_NAME=\"TwoBrainRecMacOS_TwoBrainRecAppCore.bundle\""))
         XCTAssertTrue(script.contains("APP_CORE_RESOURCE_BUNDLE=\"$BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME\""))
-        XCTAssertTrue(script.contains("meeting-target-registry.seed.json"))
         XCTAssertTrue(script.contains("cp -R \"$APP_CORE_RESOURCE_BUNDLE\" \"$APP_BUNDLE/Contents/Resources/\""))
     }
 

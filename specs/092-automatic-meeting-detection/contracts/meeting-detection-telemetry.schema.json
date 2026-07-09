@@ -116,7 +116,6 @@
         "detectionMode": {
           "type": "string",
           "enum": [
-            "disabled",
             "detect_only",
             "detect_and_ask"
           ]

@@ -213,17 +213,31 @@ Focused validation completed:
 
 Review remediation completed after the critical review:
 
-- macOS packaged seed registry now loads through SwiftPM resources with checkout
-  fallback for local tests.
+- The target registry baseline now publishes through server migration data and
+  desktop clients use remote fetch plus last-good cache, without a bundled
+  client seed.
 - The runtime path now wires macOS unified-log `AudioHAL` app ownership into the
-  detector, prompt, target-scoped auto-record, and local settings/revoke
-  controls.
+  detector, floating prompt, target-scoped auto-record, and local settings app
+  checklist.
+- Convergence remediation on 2026-07-09 wires detector prompt and auto-record
+  eligibility through the existing `RecordingPrerequisiteGate` snapshot instead
+  of reduced hard-coded allow values. Policy-disabled, storage-unsafe,
+  indicator-unavailable, missing stop, and route-blocked states suppress prompt
+  or auto-record before capture can start.
+- The floating prompt now names the safe target label, audio-recording mode,
+  system-audio/microphone sources, workspace policy state, detector reason, and
+  user choices without raw URLs, meeting codes, attendees, agenda text, or other
+  private meeting metadata.
 - Parser fixtures cover real `AudioHAL` ownership assertions and inactive/removal
   events; detector end grace is 15 seconds and unknown short-duration
   observations can be re-evaluated instead of being lost.
 - Browser targets are forced to require both browser metadata and
   calendar/join intent, while native browser audio ownership is suppressed for
-  Yandex Browser, Opera, and generic browser bundles.
+  Yandex Browser, Opera, and generic browser bundles. Non-Chromium Firefox
+  evidence is explicitly manual-only when no safe browser metadata adapter is
+  available.
+- The `AudioHAL` unified-log predicate is scoped to RunningBoard process
+  metadata before matching `AudioHAL`, reducing detector monitoring overhead.
 - Server registry/admin fixes reject unsafe browser targets, reject candidate
   merges into unknown target ids, add uniqueness constraints for candidates and
   non-target rules, avoid stale workspace draft publishes, and honor server
@@ -246,24 +260,37 @@ Scenario outcomes:
 - Native app detector foundation is covered by synthetic `AudioHAL` fixtures for
   Zoom, Yandex Telemost, browser ownership suppression,
   Krisp/audio-utility suppression, malformed lines, debounce, and end grace.
+- Microsoft Teams classic/new remain `diagnostic_only`. Local app search on
+  2026-07-09 found no installed Microsoft Teams app under `/Applications` or the
+  user Applications folder, so SC-006 is explicitly closed as a diagnostic-only
+  support-state decision for this feature closeout. Prompt promotion still
+  requires installed package/account access plus live `AudioHAL` start/end
+  validation on `com.microsoft.teams` or `com.microsoft.teams2`.
 - Browser foundation is covered by metadata-only fixtures: Telemost/Meet joined
   pages with calendar/join intent can classify to safe service-family evidence;
-  landing/new/join/settings/device-test/media/voice-search and missing metadata
-  fail closed to detect-only/manual-only.
+  landing/new/join/settings/device-test/media/voice-search, missing metadata,
+  and Firefox/non-Chromium adapter-unavailable states fail closed to
+  detect-only/manual-only.
 - Calendar/join-intent hints normalize service family from safe meeting hosts
   and do not persist raw URLs, titles, attendees, passcodes, or credentials.
 - Admin review, non-target actions, diagnostic-only drafts, registry publishing,
   ETag registry fetch, idempotent telemetry, and unsafe payload rejection are
   covered by focused server tests.
+- Resource validation after scoping the `AudioHAL` predicate: 10 minutes,
+  60 samples, CPU p95 `0.0%`, CPU max `0.6%`, RSS p95 `5.17 MB`, RSS max
+  `5.67 MB`, MeetingDetection local store `12,864 bytes`; sample file was
+  `/tmp/graf-meeting-detection-resource-samples-scoped.jsonl`. Registry fetch
+  and telemetry upload cadence remain bounded by the existing ETag/backoff
+  tests and uploader policy. No active-recording network upload path was added.
 
 Known limitations and deferred targets:
 
 - No production deploy, release, or live production telemetry rollout was
   performed in this lane.
-- Manual local browser/admin smoke from the quickstart was not run; current
-  evidence is automated synthetic integration/unit coverage.
-- Resource validation targets such as 10-minute CPU/RSS measurement were not
-  measured in this turn.
+- Manual local browser/admin smoke from the quickstart was not run because this
+  Codex session does not have a seeded interactive admin browser session. The
+  admin flow is covered by automated contract/integration/template tests, and a
+  release/deploy lane should run the browser smoke with a seeded admin session.
 - Browser extension support remains a future adapter option; this slice only
   lays the browser metadata plus calendar/join-intent foundation.
 - Prompt-capable first native targets are limited to locally verified Zoom and
@@ -273,8 +300,9 @@ Known limitations and deferred targets:
 
 Task and tracker reconciliation:
 
-- `tasks.md` is the local implementation source of truth and has T001-T075
+- `tasks.md` is the local implementation source of truth and has T001-T081
   reconciled as complete after validation.
-- GitHub issues `#2727` through `#2801` were created for T001-T075. They were
-  not closed in this turn because no commit, PR, merge, release, or deploy was
-  requested or performed.
+- GitHub issues `#2727` through `#2801` were created for T001-T075, and
+  `#3023` through `#3028` were created for convergence tasks T076-T081. They
+  were not closed in this turn because no commit, PR, merge, release, or deploy
+  was requested or performed.

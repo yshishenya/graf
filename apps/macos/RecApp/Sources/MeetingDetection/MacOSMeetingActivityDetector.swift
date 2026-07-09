@@ -12,7 +12,7 @@ public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
             "--style",
             "compact",
             "--predicate",
-            "eventMessage CONTAINS[c] 'AudioHAL' OR composedMessage CONTAINS[c] 'AudioHAL'"
+            "(process == 'runningboardd' OR process == 'RunningBoard') AND (eventMessage CONTAINS[c] 'AudioHAL' OR composedMessage CONTAINS[c] 'AudioHAL')"
         ]
     ) {
         self.executableURL = executableURL

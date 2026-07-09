@@ -21,6 +21,7 @@ from twobrain_rec_server.meeting_detection.registry import (
     CACHE_CONTROL,
     MeetingTargetRegistryError,
     get_latest_published_registry,
+    registry_etag,
 )
 from twobrain_rec_server.meeting_detection.telemetry import (
     MeetingDetectionTelemetryError,
@@ -150,14 +151,16 @@ async def get_meeting_detection_target_registry(
             metadata_safety="metadata_only",
         ) from exc
     await commit_if_available(db)
+    document = registry.document
+    etag = registry_etag(document)
     headers = _registry_response_headers(
-        etag=registry.etag,
-        registry_version=registry.registry_version,
+        etag=etag,
+        registry_version=str(document["registryVersion"]),
     )
-    if _etag_matches(if_none_match, registry.etag):
+    if _etag_matches(if_none_match, etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
     response.headers.update(headers)
-    return MeetingDetectionRegistryResponse(**registry.document, etag=registry.etag)
+    return MeetingDetectionRegistryResponse(**document, etag=etag)
 
 
 def _registry_response_headers(*, etag: str, registry_version: str) -> dict[str, str]:

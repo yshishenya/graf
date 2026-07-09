@@ -194,7 +194,7 @@ class DesktopCalendarPromptResponse(BaseModel):
     events: list[DesktopCalendarPromptEvent] = Field(default_factory=list)
 
 
-MeetingDetectionMode = Literal["disabled", "detect_only", "detect_and_ask"]
+MeetingDetectionMode = Literal["detect_only", "detect_and_ask"]
 MeetingDetectionUploadMode = Literal[
     "local_only",
     "manual_export",
@@ -301,7 +301,6 @@ class MeetingTargetRegistryTarget(BaseModel):
         default_factory=list,
         alias="browserServicePatterns",
     )
-    min_client_version: SafeClientText | None = Field(default=None, alias="minClientVersion", max_length=80)
     comments: Annotated[SafeClientText, Field(max_length=500)] | None = None
 
 
@@ -328,7 +327,6 @@ class MeetingTargetRegistryDocument(BaseModel):
     registry_version: Annotated[str, Field(alias="registryVersion", pattern=r"^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")]
     generated_at: datetime = Field(alias="generatedAt")
     expires_at: datetime | None = Field(default=None, alias="expiresAt")
-    minimum_client_version: SafeClientText | None = Field(default=None, alias="minimumClientVersion", max_length=80)
     targets: list[MeetingTargetRegistryTarget] = Field(min_length=1)
     non_target_rules: list[MeetingTargetNonTargetRule] = Field(
         default_factory=list,

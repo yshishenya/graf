@@ -27,9 +27,6 @@
       "type": "string",
       "format": "date-time"
     },
-    "minimumClientVersion": {
-      "type": "string"
-    },
     "targets": {
       "type": "array",
       "minItems": 1,
@@ -153,9 +150,6 @@
             ]
           },
           "uniqueItems": true
-        },
-        "minClientVersion": {
-          "type": "string"
         },
         "comments": {
           "type": "string",

@@ -19,7 +19,7 @@ testable implementation stories.
 - [X] T001 [P] Add meeting detection schema exports to `apps/server/src/twobrain_rec_server/api/schemas.py`.
 - [X] T002 [P] Add server package scaffold in `apps/server/src/twobrain_rec_server/meeting_detection/__init__.py`.
 - [X] T003 [P] Add macOS meeting detection source folders by creating placeholder module files under `apps/macos/Shared/Sources/MeetingDetection/` and `apps/macos/RecApp/Sources/MeetingDetection/`.
-- [X] T004 [P] Add packaged seed registry fixture at `apps/macos/RecApp/Resources/meeting-target-registry.seed.json`.
+- [X] T004 [P] Add reviewed registry baseline data at `apps/server/src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json`.
 - [X] T005 Add 092 validation notes to `CHANGELOG.md` under unreleased behavior/planning changes.
 
 ---
@@ -142,7 +142,7 @@ backoff.
 ### Implementation
 
 - [X] T044 [US4] Implement shared Codable models in `apps/macos/Shared/Sources/MeetingDetection/MeetingDetectionModels.swift`.
-- [X] T045 [US4] Implement registry validation/cache/seed fallback in `apps/macos/Shared/Sources/MeetingDetection/MeetingTargetRegistry.swift`.
+- [X] T045 [US4] Implement registry validation and last-good cache in `apps/macos/Shared/Sources/MeetingDetection/MeetingTargetRegistry.swift`.
 - [X] T046 [US4] Implement VKS-candidate scoring and non-target suppression in `apps/macos/Shared/Sources/MeetingDetection/MeetingDetectionCandidateFilter.swift`.
 - [X] T047 [US4] Implement local rollup persistence/retention in `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionTelemetryRollupStore.swift`.
 - [X] T048 [US4] Implement telemetry uploader/backoff/policy in `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionTelemetryUploader.swift`.
@@ -282,3 +282,12 @@ already-created GitHub issues.
 5. Decide whether Phase 8 browser foundation is included in the first PR or kept
    as the next implementation slice under the same spec.
 6. Run Phase 9 gates before PR/closeout.
+
+## Phase 10: Convergence
+
+- [X] T076 CRITICAL: Wire detector prompt and auto-record eligibility to real recording prerequisite and workspace policy state instead of hard-coded allow values per Constitution II and FR-007 (contradicts)
+- [X] T077 Add safe prompt state and copy for target label, capture mode, capture sources, workspace policy state, and user choices without raw meeting metadata per FR-022 (partial)
+- [X] T078 Add explicit non-Chromium browser support-state decision evidence as prompt-capable, detect-only, or manual-only per SC-005 (partial)
+- [X] T079 Complete or explicitly close Microsoft Teams native AudioHAL validation evidence before final feature closeout per SC-006 (partial)
+- [X] T080 Run and record detector resource gate measurements for CPU, RSS, disk writes, registry fetch cadence, and telemetry upload cadence per SC-009 (partial)
+- [X] T081 Run and record the manual local admin browser smoke from the quickstart or document why it is outside this feature closeout per plan: quickstart validation (partial)

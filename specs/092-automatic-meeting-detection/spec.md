@@ -777,7 +777,7 @@ matches my workflow and legal expectations.
 about recording. It is enabled by default for the first release, but it must be
 explainable, suppressible, and easy to turn off or narrow.
 
-**Independent Test**: Configure detection off, detect-only, detect-and-ask,
+**Independent Test**: Configure detect-only, detect-and-ask,
 target allowlists, target-scoped auto-record preferences, browser adapter
 health, prompt suppression, and workspace policy constraints. Verify runtime
 behavior matches settings.
@@ -786,16 +786,14 @@ behavior matches settings.
 
 1. **Given** a user completes onboarding or upgrades into the first release,
    **When** workspace policy permits recording, **Then** meeting detection
-   prompts are enabled by default in detect-and-ask mode and can be disabled or
+   prompts are enabled by default in detect-and-ask mode and can be turned off or
    changed in settings.
-2. **Given** meeting detection is disabled, **When** a supported meeting starts,
-   **Then** GRAF does not prompt and manual recording remains available.
-3. **Given** detect-only mode is enabled, **When** meeting candidates appear,
+2. **Given** detect-only mode is enabled, **When** meeting candidates appear,
    **Then** GRAF records metadata-only candidate decisions without prompting or
    recording.
-4. **Given** detect-and-ask mode is enabled, **When** prompt-eligible candidates
+3. **Given** detect-and-ask mode is enabled, **When** prompt-eligible candidates
    appear, **Then** GRAF prompts according to target and cooldown policy.
-5. **Given** a user chooses "do not ask again" for a specific event, target, or
+4. **Given** a user chooses "do not ask again" for a specific event, target, or
    service, **When** matching candidates recur, **Then** GRAF respects the
    suppression scope without disabling manual recording.
 6. **Given** a user has enabled "always record meetings from this app/service",
@@ -1012,8 +1010,8 @@ revoke the rule.
 
 - **FR-001**: The system MUST provide a macOS local meeting detector that can
   observe approved app and browser meeting candidates without starting capture.
-- **FR-002**: The detector MUST support at least three runtime modes:
-  `disabled`, `detect_only`, and `detect_and_ask`.
+- **FR-002**: The detector MUST support two runtime modes: `detect_only` and
+  `detect_and_ask`.
 - **FR-003**: `detect_and_ask` MUST be the first product rollout mode for this
   feature. Broad automatic recording MUST remain unavailable, but a
   target-scoped auto-record preference MAY be created when the user explicitly
@@ -1116,8 +1114,8 @@ revoke the rule.
   existing diagnostic redaction discipline before any evidence is committed or
   exported.
 - **FR-033**: The detector MUST provide a user-visible health/settings surface
-  for disabled, detect-only, monitoring, prompt-capable, degraded, permission
-  needed, unsupported target, and adapter unavailable states.
+  for detect-only, auto-record off, monitoring, prompt-capable, degraded,
+  permission needed, unsupported target, and adapter unavailable states.
 - **FR-034**: Prompt UX MUST be keyboard operable, screen-reader labeled,
   reduced-motion safe, compact-width safe, and localized for Russian product
   surfaces without overlapping text or controls.
@@ -1177,12 +1175,13 @@ revoke the rule.
   `AudioHAL` predicate stops producing parseable ownership events, or macOS
   changes the private unified-log behavior.
 - **FR-049**: The target registry MUST be deliverable as a versioned remote JSON
-  document with a packaged seed and local cache fallback, so adding or changing
-  target support state does not require rebuilding the macOS client.
+  document with a last-good local cache, so adding or changing target support
+  state does not require rebuilding the macOS client.
 - **FR-050**: The client MUST validate registry schema version, target modes,
   target identifiers, adapter types, platform fields, and safety constraints
   before applying a remote registry. Invalid or unsafe registries MUST fail
-  closed to the previous good registry or packaged seed.
+  closed to the previous good registry cache or to no automatic detection when
+  no valid cache exists.
 - **FR-051**: The remote registry MUST NOT be able to disable compiled safety
   gates such as prompt requirements, target-scoped auto-record opt-in, visible
   local recording state, one-action Stop, metadata-only diagnostics, or
@@ -1201,8 +1200,8 @@ revoke the rule.
   metadata-only aggregates rather than raw event logs and MUST respect rate
   limits, local retention caps, backoff, and the resource gates.
 - **FR-056**: Registry fetch and telemetry upload MUST be optional for detection
-  safety. Network failure MUST NOT block manual recording or the packaged-seed
-  detector path.
+  safety. Network failure MUST NOT block manual recording; automatic detection
+  may use a last-good registry cache and otherwise must fail closed.
 - **FR-057**: The registry and telemetry design MUST follow
   `specs/092-automatic-meeting-detection/registry-telemetry.md`.
 - **FR-058**: The first server implementation MUST provide an authenticated
@@ -1221,14 +1220,14 @@ revoke the rule.
 ### Key Entities *(include if feature involves data)*
 
 - **Meeting Detection Policy**: User/workspace settings for default-enabled
-  detect-and-ask, disabled, detect-only, target tiers, suppression defaults,
+  detect-and-ask, detect-only, target tiers, suppression defaults,
   prompt controls, and target-scoped auto-record eligibility.
 - **Approved Meeting Target**: A native app, browser service, browser family,
   or provider target with support tier, safe display label, required adapter
   permissions, confidence rules, QA status, and fallback behavior.
 - **Meeting Target Registry Document**: Versioned remote or packaged JSON
   document listing known targets, platform identities, support modes, evidence
-  state, required signals, labels, client compatibility, and safety metadata.
+  state, required signals, labels, and safety metadata.
 - **Registry Cache**: Last valid applied remote registry stored locally so the
   detector can continue with known-good behavior when the server or network is
   unavailable.
@@ -1332,7 +1331,7 @@ revoke the rule.
   to non-blocking onboarding/settings guidance.
 - **SC-015**: Registry validation tests prove malformed, incompatible, unsafe,
   expired, or downgraded remote registries are rejected and the client keeps the
-  previous good registry or packaged seed.
+  previous good registry cache or fails closed when no valid cache exists.
 - **SC-016**: Telemetry forbidden-content scans find zero raw unified-log lines,
   raw audio, transcript text, private meeting content, full private URLs,
   passcodes, participant emails, raw remote IP addresses, credentials, tokens,
@@ -1417,10 +1416,10 @@ Resolved in the 2026-07-08 clarification session:
 6. Native/installed app detection should initially match Gilb: macOS
    `AudioHAL` app ownership, approved app allowlist, debounce, health-degraded
    fallback, and prompt/auto-rule only after hard gates.
-7. The target list should be maintained as a broad remote/cache/seed registry,
-   while client telemetry should use lightweight metadata-only rollups to
-   identify working, failing, and missing targets without broadening recording
-   behavior.
+7. The target list should be maintained as a broad server-published registry
+   with a last-good client cache, while client telemetry should use lightweight
+   metadata-only rollups to identify working, failing, and missing targets
+   without broadening recording behavior.
 8. Meeting-detection telemetry should be uploaded automatically to the server for
    admin review only after client-side VKS-candidate filtering; the product must
    not upload all microphone apps or the user's app inventory.
