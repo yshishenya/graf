@@ -15,7 +15,10 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: forbidden-field validator
+  больше не принимает безопасные `graf_pseudo_user_<hash>` значения за телефон,
+  поэтому authenticated product pages могут рендерить PostHog identity без
+  ослабления запрета на raw email/phone/path/secrets.
 
 ### Безопасность
 - _Пока нет записей._

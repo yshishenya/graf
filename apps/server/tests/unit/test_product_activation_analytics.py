@@ -106,6 +106,17 @@ def test_forbidden_field_validator_rejects_private_identity_and_content() -> Non
         assert_no_forbidden_fields(payload)
 
 
+def test_forbidden_field_validator_allows_graf_pseudonymous_ids_with_phone_like_hashes() -> None:
+    payload = {
+        "stable_pseudonymous_user_id": "graf_pseudo_user_0df5e588f8ab9069052309bedb08556d",
+        "posthog_distinct_id": "graf_pseudo_user_0df5e588f8ab9069052309bedb08556d",
+        "workspace_pseudonym": "graf_pseudo_workspace_6ab157262fc817139fa0cdd20dd3d88d",
+    }
+
+    assert find_forbidden_fields(payload) == ()
+    assert_no_forbidden_fields(payload)
+
+
 def test_safe_identity_is_pseudonymous_and_has_no_raw_ids() -> None:
     identity = build_safe_identity(
         user_source_id=str(UUID("00000000-0000-0000-0000-000000000094")),

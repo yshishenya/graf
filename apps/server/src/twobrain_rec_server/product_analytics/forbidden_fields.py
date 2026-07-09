@@ -163,6 +163,7 @@ _SECRET_WORD_RE = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_PATH_RE = re.compile(r"(^|[\s=:])(/Users/|/home/|[A-Za-z]:\\)")
+_SAFE_PSEUDONYMOUS_VALUE_RE = re.compile(r"^graf_pseudo_(?:user|workspace|account|bridge)_[0-9a-f]{8,64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +254,8 @@ def _is_forbidden_value(value: str) -> bool:
     stripped = value.strip()
     if not stripped:
         return False
+    if _SAFE_PSEUDONYMOUS_VALUE_RE.fullmatch(stripped):
+        return False
     if _EMAIL_RE.search(stripped) or _PHONE_RE.search(stripped):
         return True
     if _SECRET_WORD_RE.search(stripped):
@@ -274,6 +277,8 @@ def _is_security_credential_key(key: str) -> bool:
 def _is_security_credential_value(value: str) -> bool:
     stripped = value.strip()
     if not stripped:
+        return False
+    if _SAFE_PSEUDONYMOUS_VALUE_RE.fullmatch(stripped):
         return False
     if _SECRET_WORD_RE.search(stripped):
         return True
