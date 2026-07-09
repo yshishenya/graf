@@ -105,11 +105,24 @@ class MediaScribeClient:
 
     async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
         data = await self._request_json("GET", f"/jobs/{external_job_id}")
+        job = data.get("job")
+        if not isinstance(job, dict):
+            job = {}
         try:
-            status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+            status = MediaScribeJobStatus(str(data.get("status") or job.get("status") or MediaScribeJobStatus.UPLOADED.value))
         except ValueError as exc:
             raise _malformed_response_error() from exc
-        return MediaScribePollResponse(external_job_id=external_job_id, status=status)
+        error_code = data.get("error_code") or job.get("error_code")
+        error_origin = data.get("error_origin") or job.get("error_origin")
+        reason_code = data.get("reason_code") or job.get("reason_code") or error_code
+        reported_job_id = data.get("id") or data.get("job_id") or job.get("id") or external_job_id
+        return MediaScribePollResponse(
+            external_job_id=str(reported_job_id),
+            status=status,
+            reason_code=str(reason_code) if reason_code else None,
+            error_code=str(error_code) if error_code else None,
+            error_origin=str(error_origin) if error_origin else None,
+        )
 
     async def fetch_result(self, external_job_id: str) -> MediaScribeResult:
         data = await self._request_json("GET", f"/jobs/{external_job_id}/result")
@@ -214,10 +227,21 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
     job = data.get("job")
     if not isinstance(job, dict):
         job = {}
+    transcript_payload = _list_payload(data.get("transcript"))
+    transcript_status = data.get("transcript_status") or ("available" if transcript_payload else "unavailable")
+    transcript_reason = data.get("transcript_reason")
+    normalized_transcript = (
+        [_normalize_transcript_segment(index, item) for index, item in enumerate(transcript_payload)]
+        if transcript_status == "available"
+        else []
+    )
     return {
         "external_job_id": data.get("external_job_id") or data.get("id") or job.get("id") or external_job_id,
         "language": data.get("language") or job.get("language"),
-        "transcript": [_normalize_transcript_segment(index, item) for index, item in enumerate(_list_payload(data.get("transcript")))],
+        "transcript_status": transcript_status,
+        "transcript_reason": transcript_reason,
+        "failure_reason": transcript_reason if transcript_status == "unavailable" else None,
+        "transcript": normalized_transcript,
         "diarization": [_normalize_diarization_segment(index, item) for index, item in enumerate(_list_payload(data.get("diarization")))],
         "summary_status": data.get("summary_status") or ("available" if data.get("summary") else "not_requested"),
         "result_version": data.get("result_version") or 1,

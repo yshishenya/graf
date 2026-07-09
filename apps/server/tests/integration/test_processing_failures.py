@@ -7,10 +7,16 @@ from temporalio import activity
 
 from tests.fakes.auth_contexts import tenant_scope
 from tests.fixtures.processing import create_finalized_meeting
-from twobrain_rec_server.db.models import ProcessingWorkflow
+from twobrain_rec_server.db.models import (
+    MediaScribeJob,
+    ProcessingAuditEvent,
+    ProcessingResult,
+    ProcessingWorkflow,
+)
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.mediascribe.import_results import MediaScribeResultValidationError
+from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
@@ -37,6 +43,21 @@ class MalformedResultMediaScribeClient:
 
     async def fetch_result(self, _external_job_id: str):
         raise MediaScribeResultValidationError("invalid_transcript_timing")
+
+
+class FailedPollMediaScribeClient:
+    def __init__(self, *, error_code: str, error_origin: str | None) -> None:
+        self.error_code = error_code
+        self.error_origin = error_origin
+
+    async def poll_job(self, external_job_id: str):
+        return MediaScribePollResponse(
+            external_job_id=external_job_id,
+            status=MediaScribeJobStatus.FAILED,
+            reason_code=self.error_code,
+            error_code=self.error_code,
+            error_origin=self.error_origin,
+        )
 
 
 def test_processing_failure_matrix_marks_auth_terminal_and_timeout_retryable(client) -> None:
@@ -131,6 +152,113 @@ def test_result_import_validation_error_is_persisted_as_retryable_safe_reason(cl
     )
 
 
+def test_failed_job_invalid_audio_payload_is_input_audio_business_outcome(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-invalid-audio-payload")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> dict[str, object]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
+            result = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=job,
+                mediascribe_client=FailedPollMediaScribeClient(
+                    error_code="invalid_audio_payload",
+                    error_origin="input_audio",
+                ),
+            )
+            persisted_workflow = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id))
+            persisted_job = await db.scalar(select(MediaScribeJob).where(MediaScribeJob.id == job.id))
+            persisted_result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            audit = await db.scalar(select(ProcessingAuditEvent).where(ProcessingAuditEvent.meeting_id == meeting_id))
+            return {
+                "import_status": result.status.value,
+                "workflow_status": persisted_workflow.status,
+                "workflow_reason": persisted_workflow.last_reason_code,
+                "job_status": persisted_job.status,
+                "job_error_code": persisted_job.last_error_code,
+                "result_transcript_status": persisted_result.transcript_status,
+                "result_failure_reason": persisted_result.failure_reason,
+                "result_failure_source": persisted_result.failure_source,
+                "audit_event_type": audit.event_type,
+                "audit_metadata": audit.metadata_json,
+            }
+
+    persisted = asyncio.run(run())
+
+    assert persisted == {
+        "import_status": "processed",
+        "workflow_status": "processed",
+        "workflow_reason": "invalid_audio_payload",
+        "job_status": "failed",
+        "job_error_code": "invalid_audio_payload",
+        "result_transcript_status": "unavailable",
+        "result_failure_reason": "invalid_audio_payload",
+        "result_failure_source": "input_audio",
+        "audit_event_type": "input_audio_problem",
+        "audit_metadata": {
+            "mediascribe_job_id": persisted["audit_metadata"]["mediascribe_job_id"],
+            "error_code": "invalid_audio_payload",
+            "error_origin": "input_audio",
+            "failure_reason": "invalid_audio_payload",
+            "failure_source": "input_audio",
+            "diagnostic_class": "input_audio_problem",
+            "transcript_status": "unavailable",
+        },
+    }
+
+
+def test_failed_job_missing_origin_remains_mediascribe_service_failure(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-mediascribe-origin")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> dict[str, object]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
+            result = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=job,
+                mediascribe_client=FailedPollMediaScribeClient(
+                    error_code="worker_failed",
+                    error_origin=None,
+                ),
+            )
+            persisted = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id))
+            processing_result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            audit = await db.scalar(select(ProcessingAuditEvent).where(ProcessingAuditEvent.meeting_id == meeting_id))
+            return {
+                "import_status": result.status.value,
+                "workflow_status": persisted.status,
+                "workflow_reason": persisted.last_reason_code,
+                "processing_result_present": processing_result is not None,
+                "audit_event_type": audit.event_type,
+                "audit_metadata": audit.metadata_json,
+            }
+
+    persisted = asyncio.run(run())
+
+    assert persisted == {
+        "import_status": "failed_terminal",
+        "workflow_status": "failed_terminal",
+        "workflow_reason": "worker_failed",
+        "processing_result_present": False,
+        "audit_event_type": "mediascribe_service_problem",
+        "audit_metadata": {
+            "mediascribe_job_id": persisted["audit_metadata"]["mediascribe_job_id"],
+            "error_code": "worker_failed",
+            "failure_reason": "worker_failed",
+            "failure_source": "mediascribe",
+            "diagnostic_class": "mediascribe_service_problem",
+        },
+    }
+
+
 def _run_submit_failure(client, local_recording_id: str, reason_code: str, *, retryable: bool) -> tuple[str, str | None]:
     finalized = create_finalized_meeting(client, local_recording_id)
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
@@ -173,3 +301,27 @@ async def _track_artifact(db, workspace_id: UUID, meeting_id: UUID, track_role: 
     )
     assert artifact is not None
     return artifact
+
+
+async def _submitted_job(db, workspace_id: UUID, meeting_id: UUID, media_revision_id: UUID):
+    workflow = await store.upsert_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+        workflow_id=f"processing/{media_revision_id}",
+        status=ProcessingStatus.SUBMITTED,
+    )
+    job = await store.upsert_mediascribe_job(
+        db,
+        workflow=workflow,
+        mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
+        incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
+    )
+    await store.persist_mediascribe_submission(
+        db,
+        job=job,
+        external_job_id=f"job_{meeting_id}",
+        status=MediaScribeJobStatus.UPLOADED,
+    )
+    return workflow, job

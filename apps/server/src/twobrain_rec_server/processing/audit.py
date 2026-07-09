@@ -9,11 +9,17 @@ ALLOWED_AUDIT_KEYS = {
     "attempt_count",
     "blocked_count",
     "dependency",
+    "diagnostic_class",
     "diarization_segment_count",
     "duration_seconds",
+    "error_code",
+    "error_origin",
     "event",
     "external_job_id_present",
+    "failure_reason",
+    "failure_source",
     "meeting_id",
+    "mediascribe_job_id",
     "poll_attempt",
     "reason_code",
     "result_version",
@@ -24,8 +30,14 @@ ALLOWED_AUDIT_KEYS = {
     "status",
     "summary_status",
     "transcript_status",
+    "transcript_reason",
     "workflow_id",
     "workspace_id",
+}
+
+SAFE_TRANSCRIPT_METADATA_VALUES = {
+    "transcript_status": {"available", "unavailable"},
+    "transcript_reason": {"no_recognizable_speech", None},
 }
 
 DENIED_ACCESS_AUDIT_KEYS = {
@@ -46,7 +58,11 @@ def safe_audit_metadata(values: Mapping[str, object]) -> dict[str, object]:
             sanitized[key] = str(value)
         else:
             sanitized[key] = value
-    return redact_mapping(sanitized)
+    redacted = redact_mapping(sanitized)
+    for key, allowed_values in SAFE_TRANSCRIPT_METADATA_VALUES.items():
+        if key in sanitized and sanitized[key] in allowed_values:
+            redacted[key] = sanitized[key]
+    return redacted
 
 
 def safe_denied_access_metadata(**values: object) -> dict[str, object]:

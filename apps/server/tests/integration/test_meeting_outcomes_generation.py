@@ -79,21 +79,38 @@ def test_blocked_outcome_can_retry_after_transcript_becomes_available(client) ->
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
-    async def block_then_retry() -> tuple[str, str, int, int]:
+    async def block_then_retry() -> tuple[str, str, str | None, str | None, dict, int, int]:
         async with client.app_state["sessionmaker"]() as db:
             result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
             assert result is not None
             result.transcript_status = ProcessingAvailabilityStatus.UNAVAILABLE.value
             result.segment_count = 0
+            result.failure_reason = "no_recognizable_speech"
+            result.failure_source = "input_audio"
             blocked = await service.ensure_outcomes_for_processing_result(db, result=result)
+            attempt = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt)
+                .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
+                .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+            )
             await db.commit()
             assert blocked.status == "blocked"
+            assert attempt is not None
+            blocked_snapshot = (
+                blocked.status,
+                blocked.failure_reason,
+                blocked.failure_source,
+                attempt.failure_source,
+                attempt.metadata_json,
+            )
 
         async with client.app_state["sessionmaker"]() as db:
             result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
             assert result is not None
             result.transcript_status = ProcessingAvailabilityStatus.AVAILABLE.value
             result.segment_count = 2
+            result.failure_reason = None
+            result.failure_source = None
             retried = await service.ensure_outcomes_for_processing_result(db, result=result)
             items = (
                 await db.scalars(
@@ -110,11 +127,24 @@ def test_blocked_outcome_can_retry_after_transcript_becomes_available(client) ->
                 )
             ).all()
             await db.commit()
-            return blocked.status, retried.status, len(items), len(attempts)
+            return (*blocked_snapshot, retried.status, len(items), len(attempts))
 
-    blocked_status, retried_status, item_count, attempt_count = asyncio.run(block_then_retry())
+    (
+        blocked_status,
+        blocked_reason,
+        blocked_source,
+        attempt_source,
+        attempt_metadata,
+        retried_status,
+        item_count,
+        attempt_count,
+    ) = asyncio.run(block_then_retry())
 
     assert blocked_status == "blocked"
+    assert blocked_reason == "no_recognizable_speech"
+    assert blocked_source == "input_audio"
+    assert attempt_source == "input_audio"
+    assert attempt_metadata["failure_source"] == "input_audio"
     assert retried_status == "available"
     assert item_count >= 3
     assert attempt_count >= 2

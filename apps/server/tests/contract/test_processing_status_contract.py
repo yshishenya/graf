@@ -8,7 +8,15 @@ from sqlalchemy import select
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
-from twobrain_rec_server.db.models import ProcessingAuditEvent
+from twobrain_rec_server.db.models import MediaScribeJob, ProcessingAuditEvent, ProcessingResult
+from twobrain_rec_server.domain.statuses import (
+    MediaScribeJobStatus,
+    ProcessingAvailabilityStatus,
+    ProcessingResultStatus,
+    ProcessingStatus,
+    SummaryStatus,
+)
+from twobrain_rec_server.processing import store
 
 ROOT = Path(__file__).parents[4]
 
@@ -46,6 +54,59 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     assert payload["mediascribe_job_id_present"] is False
     forbidden = {"transcript_text", "audio_download_url", "mediascribe_job_id", "api_key", "signed_url"}
     assert forbidden.isdisjoint(payload)
+
+
+def test_processing_status_endpoint_requires_rows_for_content_availability(client) -> None:
+    finalized = create_finalized_meeting(client, "processing-status-empty-available")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_empty_available_result() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.PROCESSED,
+            )
+            job = MediaScribeJob(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                processing_workflow_id=workflow.id,
+                external_job_id="job_empty_available",
+                status=MediaScribeJobStatus.READY.value,
+            )
+            db.add(job)
+            await db.flush()
+            db.add(
+                ProcessingResult(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    mediascribe_job_id=job.id,
+                    result_version=1,
+                    status=ProcessingResultStatus.IMPORTED.value,
+                    transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+                    diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+                    summary_status=SummaryStatus.NOT_REQUESTED.value,
+                    segment_count=0,
+                    diarization_segment_count=0,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_empty_available_result())
+
+    status = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
+    assert status.status_code == 200
+    payload = status.json()
+    assert payload["transcript_available"] is False
+    assert payload["diarization_available"] is False
+    assert payload["content_available"] is False
 
 
 def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:
