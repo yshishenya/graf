@@ -156,3 +156,39 @@ infra/scripts/ci-local.sh
 
 Production deployment and paid campaign optimization require separate explicit
 approval after `$speckit-analyze`, task execution, review, and release gates.
+
+## Current Implementation Slice Validation
+
+Run focused server checks:
+
+```sh
+cd apps/server
+uv run pytest \
+  tests/unit/test_product_activation_analytics.py \
+  tests/contract/test_product_activation_analytics_contract.py \
+  tests/integration/test_product_activation_analytics_rollout.py
+```
+
+Run focused macOS checks:
+
+```sh
+cd apps/macos
+swift test --filter ProductActivationAnalyticsContractTests
+```
+
+Run metadata-only smoke helpers from repository root:
+
+```sh
+infra/scripts/run-product-analytics-smoke.sh
+infra/scripts/validate-product-analytics-pages.sh
+```
+
+Expected:
+
+- product analytics stays disabled by default;
+- synthetic validation events are server-mediated;
+- PostHog and Yandex delivery remain disabled or dry-run;
+- only public landing/download are approved provider page classes;
+- cabinet/product classes remain blocked or replay-unavailable until evidence;
+- no live provider IDs, tokens, raw identity, meeting content, or signed URLs
+  appear in committed artifacts.

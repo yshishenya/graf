@@ -20,6 +20,10 @@
       {{ dependencies_band }}
       {{ egress_limits_band }}
     </div>
+    <div class="report-band" {{ primitives.analytics_private_attrs() if primitives is defined else '' }}>
+      <h3>Границы аналитики</h3>
+      <div class="truth-copy">{{ analytics_limits }}</div>
+    </div>
     <div class="report-band">
       <h3>Очистка на устройстве</h3>
       {{ local_purge }}

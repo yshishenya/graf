@@ -17,6 +17,12 @@
   для следующей высокорисковой продуктовой аналитики после 093 с контекстом
   Yandex/PostHog, attribution bridge, masking/replay gates и production smoke
   lessons learned из public analytics closeout.
+- Feature `094-product-activation-analytics`: добавлен безопасный
+  implementation scaffold продуктовой аналитики: disabled-by-default config,
+  stable event catalog, forbidden-field validator, telemetry gate model,
+  pseudonymous identity helpers, provider-disabled PostHog/Yandex wrappers,
+  server-mediated API, macOS payload/client shell, env propagation, focused
+  tests, smoke scripts и rollout/dashboard documentation без прод-запуска.
 
 ### Изменено
 - _Пока нет записей._
@@ -32,6 +38,10 @@
   согласия на analytics; Webvisor/replay ограничен публичными страницами и
   отдельной категорией `behavior_replay`; public analytics отсутствует на
   login, cabinet, admin, API, legal и product/content-bearing surfaces.
+- Feature `094-product-activation-analytics`: product analytics запрещает raw
+  identity, meeting content, transcript/audio/calendar text, local paths,
+  signed URLs, tokens, secrets, device names и private free text; direct desktop
+  provider egress закрыт без явных legal/security/QA/provider approval.
 
 ### Документы
 - Feature `093-public-landing-analytics`: добавлены provider setup, Phase 2
@@ -45,6 +55,10 @@
   dashboard access, production deploy и provider smoke завершены для `/` и
   `/download`; paid campaign launch остается blocked до legal/campaign-
   readiness approval.
+- Feature `094-product-activation-analytics`: production env example и compose
+  получили disabled-by-default product analytics placeholders только для
+  `rec-api`; live PostHog/Yandex provider setup, production deploy и paid
+  campaign launch остаются отдельными approvals.
 
 ## [2026.07.08.7] - 2026-07-08
 

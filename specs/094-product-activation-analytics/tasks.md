@@ -18,12 +18,12 @@ complete.
 
 **Purpose**: Prepare traceability, evidence, and empty implementation surfaces.
 
-- [ ] T001 Создать evidence-журнал 094 в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
-- [ ] T002 [P] Создать server contract test файл для analytics catalog в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
-- [ ] T003 [P] Создать server unit test файл для analytics policy в `apps/server/tests/unit/test_product_activation_analytics.py`
-- [ ] T004 [P] Создать server integration test файл для analytics rollout в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
-- [ ] T005 [P] Создать macOS test файл для desktop analytics contract в `apps/macos/Shared/Tests/ProductActivationAnalyticsContractTests.swift`
-- [ ] T006 [P] Создать dashboard/readiness документ для 094 в `docs/analytics/product-activation-analytics.md`
+- [X] T001 Создать evidence-журнал 094 в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
+- [X] T002 [P] Создать server contract test файл для analytics catalog в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
+- [X] T003 [P] Создать server unit test файл для analytics policy в `apps/server/tests/unit/test_product_activation_analytics.py`
+- [X] T004 [P] Создать server integration test файл для analytics rollout в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
+- [X] T005 [P] Создать macOS test файл для desktop analytics contract в `apps/macos/Shared/Tests/ProductActivationAnalyticsContractTests.swift`
+- [X] T006 [P] Создать dashboard/readiness документ для 094 в `docs/analytics/product-activation-analytics.md`
 
 ---
 
@@ -35,19 +35,19 @@ stories.
 **CRITICAL**: No user story implementation can begin until this phase is
 complete.
 
-- [ ] T007 Закрыть или зафиксировать blockers из product analytics checklist в `specs/094-product-activation-analytics/checklists/product-analytics.md`
-- [ ] T008 Добавить disabled-by-default product analytics settings в `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T009 Добавить disabled-by-default env placeholders для 094 в `infra/env/rec.production.env.example`
-- [ ] T010 Пробросить runtime env placeholders для 094 только в нужные сервисы в `infra/docker-compose.yml`
-- [ ] T011 Создать package skeleton для server analytics в `apps/server/src/twobrain_rec_server/product_analytics/__init__.py`
-- [ ] T012 [P] Описать forbidden-field canon в `apps/server/src/twobrain_rec_server/product_analytics/forbidden_fields.py`
-- [ ] T013 [P] Описать stable event catalog в `apps/server/src/twobrain_rec_server/product_analytics/event_catalog.py`
-- [ ] T014 [P] Описать page-class inventory model в `apps/server/src/twobrain_rec_server/product_analytics/page_inventory.py`
-- [ ] T015 [P] Описать telemetry gate state model в `apps/server/src/twobrain_rec_server/product_analytics/telemetry_gate.py`
-- [ ] T016 [P] Описать safe identity model в `apps/server/src/twobrain_rec_server/product_analytics/identity.py`
-- [ ] T017 Добавить no-live-secret validation для product analytics config в `apps/server/src/twobrain_rec_server/config.py`
-- [ ] T018 Добавить compose/env regression tests для disabled defaults в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
-- [ ] T019 Обновить quickstart implementation validation commands в `specs/094-product-activation-analytics/quickstart.md`
+- [X] T007 Закрыть или зафиксировать blockers из product analytics checklist в `specs/094-product-activation-analytics/checklists/product-analytics.md`
+- [X] T008 Добавить disabled-by-default product analytics settings в `apps/server/src/twobrain_rec_server/config.py`
+- [X] T009 Добавить disabled-by-default env placeholders для 094 в `infra/env/rec.production.env.example`
+- [X] T010 Пробросить runtime env placeholders для 094 только в нужные сервисы в `infra/docker-compose.yml`
+- [X] T011 Создать package skeleton для server analytics в `apps/server/src/twobrain_rec_server/product_analytics/__init__.py`
+- [X] T012 [P] Описать forbidden-field canon в `apps/server/src/twobrain_rec_server/product_analytics/forbidden_fields.py`
+- [X] T013 [P] Описать stable event catalog в `apps/server/src/twobrain_rec_server/product_analytics/event_catalog.py`
+- [X] T014 [P] Описать page-class inventory model в `apps/server/src/twobrain_rec_server/product_analytics/page_inventory.py`
+- [X] T015 [P] Описать telemetry gate state model в `apps/server/src/twobrain_rec_server/product_analytics/telemetry_gate.py`
+- [X] T016 [P] Описать safe identity model в `apps/server/src/twobrain_rec_server/product_analytics/identity.py`
+- [X] T017 Добавить no-live-secret validation для product analytics config в `apps/server/src/twobrain_rec_server/config.py`
+- [X] T018 Добавить compose/env regression tests для disabled defaults в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
+- [X] T019 Обновить quickstart implementation validation commands в `specs/094-product-activation-analytics/quickstart.md`
 
 **Checkpoint**: Foundation ready. User story work may begin only after analyze
 and implementation approval.
@@ -66,23 +66,23 @@ fields.
 
 ### Tests for User Story 1
 
-- [ ] T020 [P] [US1] Добавить contract tests для activation event catalog в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
-- [ ] T021 [P] [US1] Добавить unit tests для first-value и first-milestone rules в `apps/server/tests/unit/test_product_activation_analytics.py`
-- [ ] T022 [P] [US1] Добавить macOS tests для desktop event payload allowlist в `apps/macos/Shared/Tests/ProductActivationAnalyticsContractTests.swift`
-- [ ] T023 [P] [US1] Добавить integration test для synthetic source-to-first-value funnel в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
+- [X] T020 [P] [US1] Добавить contract tests для activation event catalog в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
+- [X] T021 [P] [US1] Добавить unit tests для first-value и first-milestone rules в `apps/server/tests/unit/test_product_activation_analytics.py`
+- [X] T022 [P] [US1] Добавить macOS tests для desktop event payload allowlist в `apps/macos/Shared/Tests/ProductActivationAnalyticsContractTests.swift`
+- [X] T023 [P] [US1] Добавить integration test для synthetic source-to-first-value funnel в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
 
 ### Implementation for User Story 1
 
-- [ ] T024 [P] [US1] Реализовать activation event builder в `apps/server/src/twobrain_rec_server/product_analytics/events.py`
-- [ ] T025 [P] [US1] Реализовать first milestone dedupe rules в `apps/server/src/twobrain_rec_server/product_analytics/milestones.py`
-- [ ] T026 [US1] Реализовать server-mediated ingestion service в `apps/server/src/twobrain_rec_server/product_analytics/ingest.py`
-- [ ] T027 [US1] Добавить product analytics API router в `apps/server/src/twobrain_rec_server/api/product_analytics.py`
-- [ ] T028 [US1] Подключить product analytics API router в `apps/server/src/twobrain_rec_server/main.py`
-- [ ] T029 [P] [US1] Добавить desktop analytics payload models в `apps/macos/Shared/Sources/Models/ProductActivationAnalyticsModels.swift`
-- [ ] T030 [US1] Добавить desktop analytics client shell в `apps/macos/RecApp/Sources/Upload/ProductActivationAnalyticsClient.swift`
-- [ ] T031 [US1] Добавить account-connected event handoff в `apps/server/src/twobrain_rec_server/api/auth.py`
-- [ ] T032 [US1] Добавить first-result-viewed hook без content fields в `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T033 [US1] Обновить dashboard/readiness notes для funnel в `docs/analytics/product-activation-analytics.md`
+- [X] T024 [P] [US1] Реализовать activation event builder в `apps/server/src/twobrain_rec_server/product_analytics/events.py`
+- [X] T025 [P] [US1] Реализовать first milestone dedupe rules в `apps/server/src/twobrain_rec_server/product_analytics/milestones.py`
+- [X] T026 [US1] Реализовать server-mediated ingestion service в `apps/server/src/twobrain_rec_server/product_analytics/ingest.py`
+- [X] T027 [US1] Добавить product analytics API router в `apps/server/src/twobrain_rec_server/api/product_analytics.py`
+- [X] T028 [US1] Подключить product analytics API router в `apps/server/src/twobrain_rec_server/main.py`
+- [X] T029 [P] [US1] Добавить desktop analytics payload models в `apps/macos/Shared/Sources/Models/ProductActivationAnalyticsModels.swift`
+- [X] T030 [US1] Добавить desktop analytics client shell в `apps/macos/RecApp/Sources/Upload/ProductActivationAnalyticsClient.swift`
+- [X] T031 [US1] Добавить account-connected event handoff в `apps/server/src/twobrain_rec_server/api/auth.py`
+- [X] T032 [US1] Добавить first-result-viewed hook без content fields в `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T033 [US1] Обновить dashboard/readiness notes для funnel в `docs/analytics/product-activation-analytics.md`
 
 **Checkpoint**: US1 can be validated independently as a safe activation funnel.
 
@@ -99,23 +99,23 @@ retention/deletion, withdrawal/refusal, and direct desktop egress evidence.
 
 ### Tests for User Story 2
 
-- [ ] T034 [P] [US2] Добавить tests для forbidden-field rejection в `apps/server/tests/unit/test_product_activation_analytics.py`
-- [ ] T035 [P] [US2] Добавить tests для telemetry gate state transitions в `apps/server/tests/unit/test_product_activation_analytics.py`
-- [ ] T036 [P] [US2] Добавить rendered-page tests для replay-disabled states в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
-- [ ] T037 [P] [US2] Добавить macOS tests для direct desktop egress gate в `apps/macos/Shared/Tests/ProductActivationAnalyticsContractTests.swift`
+- [X] T034 [P] [US2] Добавить tests для forbidden-field rejection в `apps/server/tests/unit/test_product_activation_analytics.py`
+- [X] T035 [P] [US2] Добавить tests для telemetry gate state transitions в `apps/server/tests/unit/test_product_activation_analytics.py`
+- [X] T036 [P] [US2] Добавить rendered-page tests для replay-disabled states в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
+- [X] T037 [P] [US2] Добавить macOS tests для direct desktop egress gate в `apps/macos/Shared/Tests/ProductActivationAnalyticsContractTests.swift`
 
 ### Implementation for User Story 2
 
-- [ ] T038 [US2] Реализовать forbidden-field validator в `apps/server/src/twobrain_rec_server/product_analytics/forbidden_fields.py`
-- [ ] T039 [US2] Реализовать telemetry gate service в `apps/server/src/twobrain_rec_server/product_analytics/telemetry_gate.py`
-- [ ] T040 [US2] Добавить telemetry gate API endpoints в `apps/server/src/twobrain_rec_server/api/product_analytics.py`
-- [ ] T041 [US2] Добавить cabinet telemetry gate rendering в `apps/server/src/twobrain_rec_server/cabinet/web.py`
-- [ ] T042 [US2] Добавить desktop telemetry gate view model в `apps/macos/RecApp/Sources/Cabinet/ProductTelemetryGateViewModel.swift`
-- [ ] T043 [US2] Добавить replay masking helpers в `apps/server/src/twobrain_rec_server/product_analytics/replay_masking.py`
-- [ ] T044 [US2] Добавить safe CSS/classes for replay masking в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/primitives.html`
-- [ ] T045 [US2] Реализовать retention/deletion truth records в `apps/server/src/twobrain_rec_server/product_analytics/retention.py`
-- [ ] T046 [US2] Обновить deletion/reporting copy for analytics limits в `apps/server/src/twobrain_rec_server/cabinet/deletion_rendering.py`
-- [ ] T047 [US2] Обновить privacy/legal planning notes в `docs/analytics/product-activation-analytics.md`
+- [X] T038 [US2] Реализовать forbidden-field validator в `apps/server/src/twobrain_rec_server/product_analytics/forbidden_fields.py`
+- [X] T039 [US2] Реализовать telemetry gate service в `apps/server/src/twobrain_rec_server/product_analytics/telemetry_gate.py`
+- [X] T040 [US2] Добавить telemetry gate API endpoints в `apps/server/src/twobrain_rec_server/api/product_analytics.py`
+- [X] T041 [US2] Добавить cabinet telemetry gate rendering в `apps/server/src/twobrain_rec_server/cabinet/web.py`
+- [X] T042 [US2] Добавить desktop telemetry gate view model в `apps/macos/RecApp/Sources/Cabinet/ProductTelemetryGateViewModel.swift`
+- [X] T043 [US2] Добавить replay masking helpers в `apps/server/src/twobrain_rec_server/product_analytics/replay_masking.py`
+- [X] T044 [US2] Добавить safe CSS/classes for replay masking в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/primitives.html`
+- [X] T045 [US2] Реализовать retention/deletion truth records в `apps/server/src/twobrain_rec_server/product_analytics/retention.py`
+- [X] T046 [US2] Обновить deletion/reporting copy for analytics limits в `apps/server/src/twobrain_rec_server/cabinet/deletion_rendering.py`
+- [X] T047 [US2] Обновить privacy/legal planning notes в `docs/analytics/product-activation-analytics.md`
 
 **Checkpoint**: US2 can be validated independently as privacy/consent gate
 coverage without provider rollout.
@@ -133,22 +133,22 @@ fallback behavior.
 
 ### Tests for User Story 3
 
-- [ ] T048 [P] [US3] Добавить tests для PostHog disabled-by-default config в `apps/server/tests/unit/test_product_activation_analytics.py`
-- [ ] T049 [P] [US3] Добавить tests для Yandex offline conversion subset в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
-- [ ] T050 [P] [US3] Добавить tests для Yandex all-pages inventory policy в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
-- [ ] T051 [P] [US3] Добавить tests для provider failure delivery gaps в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
+- [X] T048 [P] [US3] Добавить tests для PostHog disabled-by-default config в `apps/server/tests/unit/test_product_activation_analytics.py`
+- [X] T049 [P] [US3] Добавить tests для Yandex offline conversion subset в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
+- [X] T050 [P] [US3] Добавить tests для Yandex all-pages inventory policy в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
+- [X] T051 [P] [US3] Добавить tests для provider failure delivery gaps в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
 
 ### Implementation for User Story 3
 
-- [ ] T052 [US3] Реализовать provider readiness record в `apps/server/src/twobrain_rec_server/product_analytics/provider_readiness.py`
-- [ ] T053 [US3] Реализовать PostHog client wrapper disabled by default в `apps/server/src/twobrain_rec_server/product_analytics/posthog_client.py`
-- [ ] T054 [US3] Реализовать Yandex offline conversion exporter shell в `apps/server/src/twobrain_rec_server/product_analytics/yandex_offline.py`
-- [ ] T055 [US3] Реализовать parallel measurement router в `apps/server/src/twobrain_rec_server/product_analytics/router.py`
-- [ ] T056 [US3] Реализовать attribution bridge service в `apps/server/src/twobrain_rec_server/product_analytics/attribution.py`
-- [ ] T057 [US3] Добавить analytics delivery gap service в `apps/server/src/twobrain_rec_server/product_analytics/delivery_gap.py`
-- [ ] T058 [US3] Обновить public analytics bridge handoff в `apps/server/src/twobrain_rec_server/public/analytics.py`
-- [ ] T059 [US3] Обновить public analytics browser bridge payload в `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
-- [ ] T060 [US3] Обновить provider setup docs в `docs/analytics/product-activation-analytics.md`
+- [X] T052 [US3] Реализовать provider readiness record в `apps/server/src/twobrain_rec_server/product_analytics/provider_readiness.py`
+- [X] T053 [US3] Реализовать PostHog client wrapper disabled by default в `apps/server/src/twobrain_rec_server/product_analytics/posthog_client.py`
+- [X] T054 [US3] Реализовать Yandex offline conversion exporter shell в `apps/server/src/twobrain_rec_server/product_analytics/yandex_offline.py`
+- [X] T055 [US3] Реализовать parallel measurement router в `apps/server/src/twobrain_rec_server/product_analytics/router.py`
+- [X] T056 [US3] Реализовать attribution bridge service в `apps/server/src/twobrain_rec_server/product_analytics/attribution.py`
+- [X] T057 [US3] Добавить analytics delivery gap service в `apps/server/src/twobrain_rec_server/product_analytics/delivery_gap.py`
+- [X] T058 [US3] Обновить public analytics bridge handoff в `apps/server/src/twobrain_rec_server/public/analytics.py`
+- [X] T059 [US3] Обновить public analytics browser bridge payload в `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T060 [US3] Обновить provider setup docs в `docs/analytics/product-activation-analytics.md`
 
 **Checkpoint**: US3 can be validated independently as provider-ready but not
 campaign-launched.
@@ -166,18 +166,18 @@ caveats.
 
 ### Tests for User Story 4
 
-- [ ] T061 [P] [US4] Добавить tests для runtime env propagation в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
-- [ ] T062 [P] [US4] Добавить tests для rendered approved/blocked page classes в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
-- [ ] T063 [P] [US4] Добавить no-secret evidence scan coverage в `apps/server/tests/unit/test_product_activation_analytics.py`
+- [X] T061 [P] [US4] Добавить tests для runtime env propagation в `apps/server/tests/integration/test_product_activation_analytics_rollout.py`
+- [X] T062 [P] [US4] Добавить tests для rendered approved/blocked page classes в `apps/server/tests/contract/test_product_activation_analytics_contract.py`
+- [X] T063 [P] [US4] Добавить no-secret evidence scan coverage в `apps/server/tests/unit/test_product_activation_analytics.py`
 
 ### Implementation for User Story 4
 
-- [ ] T064 [US4] Реализовать rollout readiness report builder в `apps/server/src/twobrain_rec_server/product_analytics/readiness.py`
-- [ ] T065 [US4] Добавить product analytics smoke script в `infra/scripts/run-product-analytics-smoke.sh`
-- [ ] T066 [US4] Добавить rendered-page scope validation script в `infra/scripts/validate-product-analytics-pages.sh`
-- [ ] T067 [US4] Добавить dashboard owner/caveat evidence template в `specs/094-product-activation-analytics/validation/dashboard-evidence-template.md`
-- [ ] T068 [US4] Обновить production env documentation for 094 в `infra/env/rec.production.env.example`
-- [ ] T069 [US4] Обновить rollout section в `docs/analytics/product-activation-analytics.md`
+- [X] T064 [US4] Реализовать rollout readiness report builder в `apps/server/src/twobrain_rec_server/product_analytics/readiness.py`
+- [X] T065 [US4] Добавить product analytics smoke script в `infra/scripts/run-product-analytics-smoke.sh`
+- [X] T066 [US4] Добавить rendered-page scope validation script в `infra/scripts/validate-product-analytics-pages.sh`
+- [X] T067 [US4] Добавить dashboard owner/caveat evidence template в `specs/094-product-activation-analytics/validation/dashboard-evidence-template.md`
+- [X] T068 [US4] Обновить production env documentation for 094 в `infra/env/rec.production.env.example`
+- [X] T069 [US4] Обновить rollout section в `docs/analytics/product-activation-analytics.md`
 
 **Checkpoint**: US4 can be validated independently as rollout-ready evidence
 without paid campaign launch.
@@ -188,13 +188,13 @@ without paid campaign launch.
 
 **Purpose**: Cross-story cleanup, evidence, and release-readiness boundaries.
 
-- [ ] T070 [P] Обновить `CHANGELOG.md` с 094 implementation scope and no-launch caveats
-- [ ] T071 [P] Обновить `docs/current-product-status.md` с 094 implementation status
-- [ ] T072 Запустить focused server tests for 094 и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
-- [ ] T073 Запустить focused macOS tests for 094 и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
-- [ ] T074 Запустить `infra/scripts/ci-local.sh` и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
-- [ ] T075 Запустить no-secret/evidence scan и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
-- [ ] T076 Зафиксировать selected risk/validation lane closeout в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
+- [X] T070 [P] Обновить `CHANGELOG.md` с 094 implementation scope and no-launch caveats
+- [X] T071 [P] Обновить `docs/current-product-status.md` с 094 implementation status
+- [X] T072 Запустить focused server tests for 094 и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
+- [X] T073 Запустить focused macOS tests for 094 и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
+- [X] T074 Запустить `infra/scripts/ci-local.sh` и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
+- [X] T075 Запустить no-secret/evidence scan и записать результат в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
+- [X] T076 Зафиксировать selected risk/validation lane closeout в `specs/094-product-activation-analytics/validation/implementation-evidence.md`
 
 ---
 

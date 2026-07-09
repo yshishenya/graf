@@ -84,6 +84,25 @@ class Settings(BaseSettings):
     public_analytics_validation_mode: str = "disabled"
     public_analytics_replay_enabled: bool = False
     public_analytics_consent_copy_version: str = "2026-07-08.1"
+    product_analytics_enabled: bool = False
+    product_analytics_validation_mode: str = "disabled"
+    product_analytics_provider_mode: str = "disabled"
+    product_analytics_posthog_enabled: bool = False
+    product_analytics_posthog_host: AnyUrl | None = None
+    product_analytics_posthog_project_key_file: Path | None = None
+    product_analytics_yandex_all_pages_enabled: bool = False
+    product_analytics_yandex_offline_enabled: bool = False
+    product_analytics_yandex_counter_id: str | None = None
+    product_analytics_yandex_oauth_token_file: Path | None = None
+    product_analytics_replay_enabled: bool = False
+    product_analytics_retention_min_days: PositiveInt = Field(default=90)
+    product_analytics_consent_copy_version: str = "2026-07-09.1"
+    product_analytics_direct_desktop_egress_enabled: bool = False
+    product_analytics_direct_desktop_egress_approved: bool = False
+    product_analytics_legal_approved: bool = False
+    product_analytics_dashboard_ready: bool = False
+    product_analytics_provider_smoke_approved: bool = False
+    product_analytics_campaign_readiness_approved: bool = False
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None
@@ -152,6 +171,10 @@ class Settings(BaseSettings):
         "web_csrf_secret_file",
         "support_incident_github_token_file",
         "public_analytics_yandex_metrica_id",
+        "product_analytics_posthog_host",
+        "product_analytics_posthog_project_key_file",
+        "product_analytics_yandex_counter_id",
+        "product_analytics_yandex_oauth_token_file",
         mode="before",
     )
     @classmethod
@@ -168,6 +191,31 @@ class Settings(BaseSettings):
             raise ValueError("public_analytics_validation_mode must be disabled, render_only, or provider_smoke")
         return normalized
 
+    @field_validator("product_analytics_validation_mode")
+    @classmethod
+    def validate_product_analytics_validation_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"disabled", "render_only", "provider_smoke"}:
+            raise ValueError("product_analytics_validation_mode must be disabled, render_only, or provider_smoke")
+        return normalized
+
+    @field_validator("product_analytics_provider_mode")
+    @classmethod
+    def validate_product_analytics_provider_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"disabled", "posthog_primary", "parallel_measurement"}:
+            raise ValueError(
+                "product_analytics_provider_mode must be disabled, posthog_primary, or parallel_measurement"
+            )
+        return normalized
+
+    @field_validator("product_analytics_retention_min_days")
+    @classmethod
+    def validate_product_analytics_retention_min_days(cls, value: int) -> int:
+        if value < 90:
+            raise ValueError("product_analytics_retention_min_days must be at least 90")
+        return value
+
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
@@ -180,6 +228,34 @@ class Settings(BaseSettings):
             placeholder_markers = ("test", "replace", "changeme", "google", "gtm", "ga4", "measurement")
             if not counter_id.isdigit() or any(marker in lowered_counter_id for marker in placeholder_markers):
                 raise ValueError("production public_analytics_yandex_metrica_id must be a real numeric Yandex counter ID")
+        if self.product_analytics_retention_min_days < 90:
+            raise ValueError("production product analytics retention must be at least 90 days")
+        if self.product_analytics_enabled and self.product_analytics_validation_mode == "disabled":
+            raise ValueError("production product analytics requires a non-disabled validation mode")
+        if self.product_analytics_enabled and self.product_analytics_provider_mode == "disabled":
+            raise ValueError("production product analytics requires an explicit provider mode")
+        if self.product_analytics_posthog_enabled:
+            if self.product_analytics_posthog_host is None:
+                raise ValueError("production PostHog product analytics requires product_analytics_posthog_host")
+            if self.product_analytics_posthog_project_key_file is None:
+                raise ValueError(
+                    "production PostHog product analytics requires product_analytics_posthog_project_key_file"
+                )
+        if self.product_analytics_yandex_all_pages_enabled or self.product_analytics_yandex_offline_enabled:
+            if self.product_analytics_yandex_counter_id is None:
+                raise ValueError("production Yandex product analytics requires product_analytics_yandex_counter_id")
+            yandex_counter_id = self.product_analytics_yandex_counter_id.strip()
+            lowered_yandex_counter_id = yandex_counter_id.lower()
+            if not yandex_counter_id.isdigit() or any(
+                marker in lowered_yandex_counter_id for marker in ("test", "replace", "changeme", "google", "gtm")
+            ):
+                raise ValueError("production product_analytics_yandex_counter_id must be a real numeric Yandex counter ID")
+        if self.product_analytics_direct_desktop_egress_enabled and not (
+            self.product_analytics_direct_desktop_egress_approved
+            and self.product_analytics_legal_approved
+            and self.product_analytics_provider_smoke_approved
+        ):
+            raise ValueError("direct desktop product analytics egress requires legal/security/QA/provider approval")
         required_secret_files = {
             "postgres_password_file": self.postgres_password_file,
             "minio_access_key_file": self.minio_access_key_file,
@@ -189,6 +265,8 @@ class Settings(BaseSettings):
             "credential_encryption_key_file": self.credential_encryption_key_file,
             "web_csrf_secret_file": self.web_csrf_secret_file,
             "support_incident_github_token_file": self.support_incident_github_token_file,
+            "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,
+            "product_analytics_yandex_oauth_token_file": self.product_analytics_yandex_oauth_token_file,
         }
         for field_name, path in required_secret_files.items():
             if path is None:

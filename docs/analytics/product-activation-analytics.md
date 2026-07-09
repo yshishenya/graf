@@ -1,0 +1,137 @@
+# Product Activation Analytics 094
+
+Status: implementation scaffold, no production provider launch.
+
+## Scope
+
+094 adds a safe product activation analytics contract and validation surface for:
+
+```text
+public_installer_download_clicked
+-> desktop_first_opened
+-> desktop_account_connected
+-> desktop_autorecord_enabled
+-> first_recording_completed
+-> first_result_viewed
+-> first_value_session_completed
+```
+
+PostHog self-hosted remains the preferred primary product analytics workspace.
+Yandex remains a parallel all-web-pages/ad/Webvisor/offline-conversion surface
+only after masking, sanitization, legal, QA, provider smoke, and rollout gates.
+
+This slice does not enable live PostHog delivery, Yandex all-pages expansion,
+Yandex offline uploads, production deploy, or paid campaign optimization.
+
+## Default Runtime State
+
+- `TWOBRAIN_PRODUCT_ANALYTICS_ENABLED=false`
+- `TWOBRAIN_PRODUCT_ANALYTICS_VALIDATION_MODE=disabled`
+- `TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE=disabled`
+- PostHog, Yandex all-pages, Yandex offline conversions, replay, and direct
+  desktop provider egress are disabled by default.
+- Minimum approved analytics retention is 90 days.
+- Direct desktop provider egress requires explicit legal, security, QA, provider
+  smoke, and disclosure approval.
+
+## Safe Event Contract
+
+Allowed product events are stable and allowlisted in server code:
+
+- `desktop_first_opened`
+- `desktop_account_connected`
+- `desktop_autorecord_enabled`
+- `first_recording_completed`
+- `first_result_viewed`
+- `first_value_session_completed`
+
+Forbidden everywhere:
+
+- raw email, phone, full names, organization/account/workspace names;
+- raw user/account/workspace/meeting/device IDs;
+- meeting title, participants, transcript, summary text, audio, calendar text;
+- local paths, object keys, signed URLs, tokens, cookies, passwords, passcodes;
+- private free text and user-provided filenames.
+
+## Telemetry Gate
+
+Normal desktop/cabinet/product use requires one personal acceptance of the
+bounded telemetry package. If the user withdraws or refuses updated mandatory
+terms, normal product use stops and only account/legal/export/deletion flows
+remain available. Provider outage does not block accepted product use; it is
+reported as a measurement gap.
+
+## Provider Boundaries
+
+PostHog:
+
+- primary full-funnel workspace after approval;
+- current wrapper is disabled by default;
+- provider smoke mode is dry-run only.
+
+Yandex:
+
+- public `/` and `/download` remain the only approved live scope from 093;
+- all-pages inventory exists, but non-public classes are blocked or
+  replay-unavailable until evidence passes;
+- default offline conversion subset is only:
+  `desktop_account_connected`, `first_value_session_completed`.
+
+## Page And Replay State
+
+Approved now:
+
+- `public_landing`
+- `public_download`
+
+Blocked or pending for 094 rollout:
+
+- auth callback and admin are blocked;
+- cabinet, meeting detail, upload, deletion, embedded desktop webview, login,
+  legal, and error classes require sanitization and legal/QA proof;
+- replay/Webvisor/click maps/scroll maps/form analytics stay disabled on
+  replay-unavailable classes.
+
+## Dashboard Caveats
+
+Every 094 dashboard must disclose:
+
+- internal/support/smoke/test activity is counted by default;
+- provider delivery loss is a measurement gap, not a user-facing failure;
+- first desktop open can be unlinked or weakly linked until account connection;
+- `desktop_account_connected` is the first reliable default campaign-linked
+  product milestone;
+- exported reports and provider-held aggregate reports may remain outside
+  direct GRAF erasure control.
+
+## Validation Commands
+
+Focused server checks:
+
+```sh
+cd apps/server
+uv run pytest \
+  tests/unit/test_product_activation_analytics.py \
+  tests/contract/test_product_activation_analytics_contract.py \
+  tests/integration/test_product_activation_analytics_rollout.py
+```
+
+Focused macOS check:
+
+```sh
+cd apps/macos
+swift test --filter ProductActivationAnalyticsContractTests
+```
+
+Smoke helpers:
+
+```sh
+infra/scripts/run-product-analytics-smoke.sh
+infra/scripts/validate-product-analytics-pages.sh
+```
+
+Full local gate remains:
+
+```sh
+infra/scripts/ci-local.sh
+```

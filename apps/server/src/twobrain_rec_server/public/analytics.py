@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.attribution import build_public_bridge_context
 
 COOKIECONSENT_VERSION = "3.1.0"
 PUBLIC_ANALYTICS_PROVIDER = "yandex_metrica"
@@ -194,6 +195,12 @@ def build_public_analytics_context(
     }
     enabled = bool(settings.public_analytics_enabled and environment_allowed and counter_id and surface)
 
+    campaign_attribution = normalize_public_campaign_attribution(
+        query_params,
+        referrer=referrer,
+        landing_path=path if surface else None,
+    )
+
     return {
         "enabled": enabled,
         "provider": PUBLIC_ANALYTICS_PROVIDER,
@@ -206,11 +213,8 @@ def build_public_analytics_context(
         "cookieconsent_version": COOKIECONSENT_VERSION,
         "page_path": path if surface else None,
         "surface": surface,
-        "campaign_attribution": normalize_public_campaign_attribution(
-            query_params,
-            referrer=referrer,
-            landing_path=path if surface else None,
-        ),
+        "campaign_attribution": campaign_attribution,
+        "product_activation_bridge": build_public_bridge_context(campaign_attribution),
         "consent_states": list(public_analytics_consent_states()),
         "consent_transitions": {
             key: list(values) for key, values in public_analytics_consent_transitions().items()

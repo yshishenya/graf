@@ -151,6 +151,9 @@
         page_path: config.page_path,
         surface: config.surface,
         campaign_attribution: config.campaign_attribution || {},
+        product_activation_bridge_supported: Boolean(
+          config.product_activation_bridge && config.product_activation_bridge.bridge_supported,
+        ),
       },
       safeEventFields(fields),
     );
