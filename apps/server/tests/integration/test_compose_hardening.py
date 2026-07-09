@@ -1,3 +1,4 @@
+import shlex
 import tomllib
 from pathlib import Path
 
@@ -75,6 +76,28 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     assert "ruff" not in constraints
     assert "fastapi==" in constraints
     assert "sqlalchemy==" in constraints
+
+
+def test_runtime_image_copy_sources_exist_in_repository() -> None:
+    missing_sources: list[str] = []
+
+    for raw_line in DOCKERFILE_PATH.read_text().splitlines():
+        line = raw_line.strip()
+        if not line.startswith("COPY "):
+            continue
+
+        parts = shlex.split(line)
+        operands = parts[1:]
+        while operands and operands[0].startswith("--"):
+            operands = operands[1:]
+
+        for source in operands[:-1]:
+            if not source.startswith(".") and source.startswith("/"):
+                continue
+            if not (REPO_ROOT / source).exists():
+                missing_sources.append(source)
+
+    assert missing_sources == []
 
 
 def test_dev_lint_toolchain_pins_supported_ruff_version() -> None:
