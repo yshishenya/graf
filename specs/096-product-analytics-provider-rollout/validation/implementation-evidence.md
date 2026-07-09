@@ -161,6 +161,7 @@ signed URLs, or private local paths.
 | PostHog storage aggregate | pass | ClickHouse aggregate query over the last hour found both `graf_web_autocapture_pageview` and `desktop_first_opened` event names. No properties, person rows, visitor IDs, account rows, or payload exports were committed. |
 | Yandex browser behavior | pass | Headless browser/CDP check found no Yandex requests and no Yandex goals before analytics consent; after granted analytics/attribution consent, the public landing page loaded Yandex tag traffic and sent one approved public landing goal request. |
 | Admin UI improvement deploy | pass | Admin audit/metrics usability changes are included in deployed SHA `f12b8761538a31152a1cf3db9780643cb55d1301`; production smoke remained green. Authenticated production admin screen review still requires an operator session and must not use raw private evidence. |
+| GitHub tracker closeout | pass | `feature:096` GitHub tracker now has 96 closed issues and 0 open issues. Initial task-to-issues sync covered T001-T090; convergence tasks T091-T096 were missing from GitHub, so metadata-only issues #3034-#3039 were created and closed with production/evidence closeout comments. Earlier task-backed issues #2889-#2978 were also closed with Russian closure comments. |
 | Remaining blockers | expected | Yandex offline OAuth/upload smoke, real dashboard business review, product rollout readiness, paid campaign launch, and full PostHog backup/restore ops readiness remain separate gates. |
 
 ## Official Documentation Reviewed
