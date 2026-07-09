@@ -229,6 +229,41 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertNil(headers["Authorization"])
     }
 
+    func testAuthSessionCookieHeaderUsesOnlyOwnerSessionCookie() throws {
+        let sessionCookie = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: "rec.2brain.pro",
+            .path: "/",
+            .name: DesktopUploadClient.ownerSessionCookieName,
+            .value: "owner-session-token",
+            .secure: "TRUE"
+        ]))
+        let unrelatedCookie = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: "rec.2brain.pro",
+            .path: "/",
+            .name: "other-cookie",
+            .value: "other-value"
+        ]))
+
+        XCTAssertEqual(
+            DesktopUploadClient.authSessionCookieHeader(from: [unrelatedCookie, sessionCookie]),
+            "\(DesktopUploadClient.ownerSessionCookieName)=owner-session-token"
+        )
+    }
+
+    func testDesktopRequestsIncludeBridgedOwnerSessionCookie() throws {
+        let client = DesktopUploadClient(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
+            headers: ["X-Client-Version": "test-client"],
+            cookieHeaderProvider: { url in
+                url.host == "rec.2brain.pro" ? "\(DesktopUploadClient.ownerSessionCookieName)=owner-session-token" : nil
+            }
+        )
+        let request = try client.supportIncidentRequest(for: try XCTUnwrap(makeSupportIncidentReport()))
+
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "\(DesktopUploadClient.ownerSessionCookieName)=owner-session-token")
+        XCTAssertNil(client.sanitizedHeaderPreview["Cookie"])
+    }
+
     func testConfiguredHeadersAcceptLegacyTwoBrainKeys() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
             "TWO_BRAIN_REC_CLIENT_VERSION": "legacy-014",

@@ -681,19 +681,62 @@ private struct ContentView: View {
                 try resolveMeetingDetectionRegistry(remoteData: data, remoteETag: fetched.etag)
             }
             meetingDetectionStatus = meetingDetectionStatusText()
-        } catch {
+        } catch let refreshError {
+            var fallbackErrorCode: String?
             do {
                 try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)
                 meetingDetectionHealth = "Удаленный реестр временно недоступен; используется сохраненный реестр"
-            } catch {
+            } catch let fallbackError {
+                fallbackErrorCode = safeMeetingDetectionRegistryRefreshErrorCode(fallbackError)
                 meetingDetectionRegistry = nil
                 meetingDetectionHealth = "Реестр встреч недоступен; автоопределение временно выключено"
             }
             meetingDetectionStatus = meetingDetectionStatusText()
+            let fallbackDetail = fallbackErrorCode.map { " fallback=\($0)" } ?? ""
             AppLog.writeRaw(
                 event: "meeting_detection.registry_refresh_failed",
-                detail: "reason=\(reason) error=registry_unavailable"
+                detail: "reason=\(reason) error=\(safeMeetingDetectionRegistryRefreshErrorCode(refreshError))\(fallbackDetail)"
             )
+        }
+    }
+
+    private func safeMeetingDetectionRegistryRefreshErrorCode(_ error: Error) -> String {
+        if case DesktopUploadClientError.httpStatus(let status, let code) = error {
+            return "http_status_\(status):\(code)"
+        }
+        if let registryError = error as? MeetingTargetRegistryError {
+            return "registry_\(registryError.description)"
+        }
+        if let decodingError = error as? DecodingError {
+            return safeRegistryDecodingErrorCode(decodingError)
+        }
+        return "registry_unavailable"
+    }
+
+    private func safeRegistryDecodingErrorCode(_ error: DecodingError) -> String {
+        func path(_ context: DecodingError.Context) -> String {
+            let value = context.codingPath.map(\.stringValue).joined(separator: ".")
+            return value.isEmpty ? "root" : value
+        }
+        func detail(_ context: DecodingError.Context) -> String {
+            context.debugDescription
+                .replacingOccurrences(of: " ", with: "_")
+                .replacingOccurrences(of: "\n", with: "_")
+                .prefix(160)
+                .description
+        }
+        switch error {
+        case .dataCorrupted(let context):
+            return "registry_decode_data_corrupted:\(path(context)):\(detail(context))"
+        case .keyNotFound(let key, let context):
+            let parent = path(context)
+            return "registry_decode_key_not_found:\(parent).\(key.stringValue):\(detail(context))"
+        case .typeMismatch(_, let context):
+            return "registry_decode_type_mismatch:\(path(context)):\(detail(context))"
+        case .valueNotFound(_, let context):
+            return "registry_decode_value_not_found:\(path(context)):\(detail(context))"
+        @unknown default:
+            return "registry_decode_failed"
         }
     }
 

@@ -26,6 +26,37 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.07.09.16] - 2026-07-09
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- macOS desktop больше не берет meeting target registry из Foundation HTTP
+  cache; registry fetch всегда идет к серверу с нашим `If-None-Match` и
+  last-good cache, чтобы старый `macos_sensor_indicators_mic` не ломал
+  автоопределение после server-published registry update.
+- macOS desktop явно прикладывает bridged owner-session cookie к native desktop
+  API requests на тот же origin, чтобы WebView-login и native registry/upload
+  client использовали одну production auth session.
+- Лог `meeting_detection.registry_refresh_failed` теперь показывает безопасный
+  remote error и fallback-cache error отдельно, чтобы не маскировать причину
+  refresh failure старым локальным cache decode.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Обновлен public static installer package для `/download`; SHA-256 package:
+  `1cd58b09355fff51baf01169c29e97ffdf36eb2bc155cc0e79225b6d30da2318`.
+
 ## [2026.07.09.8] - 2026-07-09
 
 
