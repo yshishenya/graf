@@ -148,6 +148,13 @@ readiness and not paid campaign launch readiness.
 - runtime secrets stay outside git and are read through secret files only;
 - provider evidence stays metadata-only.
 
+Disabled-by-default production deploys do not require live provider secret files
+to exist. The app Compose mounts optional provider secret slots from the
+committed empty `infra/secret-placeholders/disabled_optional_provider_secret`
+fallback until operators set the host-side `*_SECRET_FILE` variables to
+out-of-git files under `infra/secrets/`. The in-container paths stay
+`/run/secrets/...` when providers are enabled.
+
 PostHog broad autocapture:
 
 - first-party PostHog autocapture is enabled for every current

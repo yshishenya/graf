@@ -135,6 +135,15 @@ This command validates the GRAF handoff contract only. Live PostHog startup
 still requires the official generated PostHog Compose runtime and explicit
 release approval.
 
+For the GRAF app stack, the base Compose file mounts optional PostHog/Yandex
+provider secret slots from `infra/secret-placeholders/disabled_optional_provider_secret`
+while product analytics is disabled. That placeholder is intentionally empty:
+it lets Docker start without live provider files, and the app treats it as
+missing if someone points a runtime `*_FILE` setting at it. When enabling
+PostHog delivery, set the host-side `TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_SECRET_FILE`
+to an out-of-git `infra/secrets/...` file and keep
+`TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_FILE=/run/secrets/graf_posthog_project_key`.
+
 ## Data Scope
 
 Allowed inside self-hosted PostHog:

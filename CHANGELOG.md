@@ -15,7 +15,10 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: disabled-by-default
+  production deploy больше не требует заранее созданных live PostHog/Yandex
+  secret files; optional provider secret slots используют пустой committed
+  placeholder до runtime-включения через out-of-git `infra/secrets/...`.
 
 ### Безопасность
 - _Пока нет записей._

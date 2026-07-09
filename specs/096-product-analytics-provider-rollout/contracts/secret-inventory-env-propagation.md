@@ -17,6 +17,15 @@ Do not place live values in this file.
 | `YANDEX_OAUTH_TOKEN` | runtime secret file | offline conversion uploader | growth analytics operator | Rotate by issuing a new token outside git, swapping the runtime secret file, and rerunning upload auth smoke. | empty/placeholder | upload auth check without printing token |
 | `PRODUCT_ANALYTICS_FLAGS` | runtime environment | `rec-api`, rendered pages, desktop config | release operator | Change through reviewed runtime config deploy or rollback, with smoke proving expected enabled/disabled states. | disabled defaults | compose config and runtime env check |
 
+`rec-api` mounts the PostHog project key and Yandex OAuth Docker secret slots so
+runtime enablement can use `/run/secrets/...` paths only. Disabled deployments
+must not require live provider files to exist. The base Compose file therefore
+defaults both optional provider secret sources to the committed empty
+`infra/secret-placeholders/disabled_optional_provider_secret` placeholder. When
+PostHog or Yandex upload is enabled, the release operator must set the matching
+host-side `*_SECRET_FILE` variable to an out-of-git file under `infra/secrets/`
+and keep the in-container `*_FILE` path at `/run/secrets/...`.
+
 ## Existing 094 Env Keys
 
 These keys already exist as disabled defaults and must be carried forward or extended:

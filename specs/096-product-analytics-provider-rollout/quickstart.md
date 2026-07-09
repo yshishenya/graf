@@ -95,6 +95,12 @@ Validate that self-hosted PostHog is:
 - portable to a future separate analytics server by changing DNS/runtime
   endpoint, not event names or dashboard contracts.
 
+Base `rec-api` Compose uses an empty committed placeholder for optional
+PostHog/Yandex provider secret sources so disabled deployments can execute
+before live project keys and OAuth tokens exist. Live enablement must replace
+that source with out-of-git `infra/secrets/...` files through the documented
+`*_SECRET_FILE` variables; never paste provider values into env files.
+
 ### 2. PostHog Data Delivery
 
 Validate that PostHog accepts only approved product analytics routes:

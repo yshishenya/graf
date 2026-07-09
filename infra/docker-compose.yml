@@ -435,6 +435,6 @@ secrets:
   twobrain_support_incident_github_token:
     file: ${TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE:-./secrets/twobrain_support_incident_github_token}
   graf_posthog_project_key:
-    file: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_SECRET_FILE:-./secrets/graf_posthog_project_key}
+    file: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
   graf_yandex_offline_oauth_token:
-    file: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OAUTH_TOKEN_SECRET_FILE:-./secrets/graf_yandex_offline_oauth_token}
+    file: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OAUTH_TOKEN_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
