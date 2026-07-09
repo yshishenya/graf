@@ -12,7 +12,6 @@ COPY apps/server/pyproject.toml apps/server/README.md apps/server/constraints.tx
 COPY apps/server/alembic.ini /app/alembic.ini
 COPY apps/server/src /app/src
 COPY apps/server/scripts /app/scripts
-COPY apps/macos/RecApp/Resources/meeting-target-registry.seed.json /usr/local/apps/macos/RecApp/Resources/meeting-target-registry.seed.json
 
 RUN pip install --upgrade pip \
     && pip install --constraint constraints.txt "."
