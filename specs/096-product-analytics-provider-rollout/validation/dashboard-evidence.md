@@ -97,6 +97,23 @@ paths.
 | Admin audit dashboard usability | pass | Audit rows now show when, actor, action, object, outcome, source, and drill-down link labels across admin/auth/egress/lifecycle sources. | Audit evidence remains metadata-only; private content is still excluded. |
 | Admin metrics dashboard usability | pass | Metrics cards now show Russian family labels, questions, source meaning, detail links, and audit-source breakdowns. | This improves admin observability; it is not product rollout readiness. |
 
+## Final Live Dashboard Transport Proof: 2026-07-09
+
+This final closeout section records live transport/dashboard-readiness evidence
+after production deploy to SHA `f12b8761538a31152a1cf3db9780643cb55d1301`.
+It contains no provider IDs, screenshots, visitor/account rows, raw payloads,
+cookies, names, emails, meeting content, transcripts, audio, signed URLs, or
+private local paths.
+
+| Check | Status | Metadata-Only Evidence | Caveat |
+| --- | --- | --- | --- |
+| App and analytics health | pass | GRAF health returned `ready`; PostHog analytics health returned `ok`. | Health is not product rollout readiness. |
+| Analytics script deployment | pass | Live `/`, `/download`, and `/login` each rendered exactly one versioned analytics controller script. | Authenticated product/admin pages still need periodic operator QA. |
+| PostHog live-safe transport | pass | Web and desktop first-party capture endpoints returned `live_safe_sent` after deploy. | Smoke activity can appear in analytics and should be filtered in business dashboards. |
+| PostHog storage aggregate | pass | Recent aggregate storage contained the expected web autocapture and desktop activation event names. | No event properties, person rows, screenshots, or exports are committed. |
+| Yandex consent-gated public transport | pass | Browser/CDP proof showed no Yandex traffic before consent and approved public landing goal traffic after analytics/attribution consent. | Yandex dashboards can remain zero for no-consent traffic, provider delay, filters, or blockers. |
+| Admin observability surface | pass | Deployed admin audit/metrics now expose actor/action/object/outcome/source/detail context and metric breakdowns. | Authenticated production review requires an operator session and metadata-only notes. |
+
 ## Required PostHog Dashboard Evidence
 
 Metadata-only 096 implementation evidence for PostHog is recorded below. No

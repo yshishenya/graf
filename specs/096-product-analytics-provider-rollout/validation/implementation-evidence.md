@@ -138,6 +138,31 @@ signed URLs, or private local paths.
 | Diff live-secret scan | pass | High-signal diff scan found no live-looking provider keys, OAuth tokens, private keys, signed URLs, client secrets, or token assignments. |
 | Cleanup | complete | Removed generated Python caches, replaced stale analytics scaffold wording, removed stale PostHog image-pinning blocker wording, and changed admin analytics script loading to the versioned shared public asset helper. |
 
+## Final Production Deploy Closeout: 2026-07-09
+
+This section records the final production deploy and live verification after
+the post-runtime review fixes. It is metadata-only and contains no live counter
+IDs, PostHog project keys, OAuth tokens, cookies, visitor/account rows, raw
+payloads, screenshots, names, emails, meeting content, transcripts, audio,
+signed URLs, or private local paths.
+
+| Area | Status | Metadata-Only Evidence |
+| --- | --- | --- |
+| Final app deploy | pass | `infra/scripts/cd-remote.sh --execute` passed on branch `096-product-analytics-provider-rollout`; deployed SHA `f12b8761538a31152a1cf3db9780643cb55d1301`; readiness verdict remained `infra_smoke_ready`. |
+| Final deploy gate | pass | Local deploy gate inside `cd-remote.sh --execute` passed with server tests `1238 passed, 4 skipped`, server lint passed, Python compile passed, production Compose config passed, deployment evidence scan passed, and `ci_local_result=pass`. |
+| Remote backup/restore rehearsal | pass | Remote backup and restore rehearsal passed before the final app recreate. Artifact paths are intentionally omitted from committed evidence. |
+| Production smoke | pass | Remote production smoke passed with migration verification at `0019_publish_meeting_registry (head)`, RLS disposable probe pass, upload smoke pass, auth cleanup pass, artifact cleanup pass, and no residue follow-up. |
+| Live GRAF health | pass | `https://rec.2brain.pro/api/v1/health/ready` returned `ready` after deploy. |
+| Live PostHog health | pass | Analytics domain `_health` returned `ok` after deploy. |
+| Live analytics controller loading | pass | Live `/`, `/download`, and `/login` each rendered exactly one `/static/public/analytics.js` script, and each script URL was versioned. Public pages also rendered the public analytics config and product provider config; `/login` rendered only product provider config as expected. |
+| Runtime provider catalog | pass | Runtime catalog reports product analytics enabled, `live_safe`, `parallel_measurement`, PostHog enabled with project key configured/redacted, autocapture enabled, web-direct enabled, desktop-direct enabled, replay disabled, Yandex counter configured/redacted, Yandex offline disabled, product rollout blocked, and campaign launch blocked. |
+| PostHog web delivery | pass | First-party web capture endpoint returned `live_safe_sent` for a metadata-only post-deploy smoke event. |
+| PostHog desktop delivery | pass | First-party desktop capture endpoint returned `live_safe_sent` for an allowlisted metadata-only `desktop_first_opened` post-deploy smoke event. A first attempt with a non-allowlisted `source` property was correctly rejected before retrying with the allowed body. |
+| PostHog storage aggregate | pass | ClickHouse aggregate query over the last hour found both `graf_web_autocapture_pageview` and `desktop_first_opened` event names. No properties, person rows, visitor IDs, account rows, or payload exports were committed. |
+| Yandex browser behavior | pass | Headless browser/CDP check found no Yandex requests and no Yandex goals before analytics consent; after granted analytics/attribution consent, the public landing page loaded Yandex tag traffic and sent one approved public landing goal request. |
+| Admin UI improvement deploy | pass | Admin audit/metrics usability changes are included in deployed SHA `f12b8761538a31152a1cf3db9780643cb55d1301`; production smoke remained green. Authenticated production admin screen review still requires an operator session and must not use raw private evidence. |
+| Remaining blockers | expected | Yandex offline OAuth/upload smoke, real dashboard business review, product rollout readiness, paid campaign launch, and full PostHog backup/restore ops readiness remain separate gates. |
+
 ## Official Documentation Reviewed
 
 Planning research reviewed official provider documentation for:

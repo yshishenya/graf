@@ -70,7 +70,13 @@ metadata-only evidence остаются подробной историей ре
   upload smoke pass. PostHog generated-runtime image pinning is complete and
   post-pinning live-safe smoke passed; full backup/restore rehearsal, real
   dashboard readiness review, product rollout readiness, and paid campaign
-  launch remain blocked/follow-up gates.
+  launch remain blocked/follow-up gates. Post-runtime review fixes were
+  deployed on 2026-07-09 at SHA
+  `f12b8761538a31152a1cf3db9780643cb55d1301`; live verification showed GRAF
+  `ready`, PostHog `_health=ok`, single/versioned analytics controller loading
+  on `/`, `/download`, and `/login`, PostHog live-safe web/desktop delivery,
+  PostHog aggregate storage presence, and consent-gated Yandex public goal
+  delivery.
 - Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
   recording state and one-action stop from feature `007`.
 - Local recording persistence from feature `008` is accepted for local artifact

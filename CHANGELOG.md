@@ -40,6 +40,11 @@
   generated-runtime image digest pinning and post-pinning live-safe smoke
   evidence; full backup/restore rehearsal remains the main PostHog ops
   readiness follow-up.
+- Feature `096-product-analytics-provider-rollout`: deployed post-runtime
+  review fixes to production at SHA `f12b8761538a31152a1cf3db9780643cb55d1301`
+  and recorded live health, single/versioned analytics controller rendering,
+  PostHog live-safe web/desktop delivery, PostHog aggregate storage presence,
+  and consent-gated Yandex browser proof.
 
 ## [2026.07.09.20] - 2026-07-09
 
