@@ -20,6 +20,7 @@ from twobrain_rec_server.templates import (
 )
 
 CABINET_STATIC_URL = "/static/cabinet"
+PUBLIC_STATIC_URL = "/static/public"
 
 TRUSTED_HTML_SOURCES = frozenset(
     {
@@ -67,6 +68,13 @@ def cabinet_static_asset_url(filename: str) -> str:
     return f"{CABINET_STATIC_URL}/{filename}?v={version}"
 
 
+@lru_cache(maxsize=32)
+def public_static_asset_url(filename: str) -> str:
+    path = Path(package_path("twobrain_rec_server.public", "static", "public"), filename)
+    version = sha256(path.read_bytes()).hexdigest()[:12]
+    return f"{PUBLIC_STATIC_URL}/{filename}?v={version}"
+
+
 def get_cabinet_templates() -> Environment:
     return template_environment(cabinet_template_dir())
 
@@ -77,6 +85,7 @@ def render_template(template_name: str, **context: Any) -> str:
         template_name,
         cabinet_static_asset_url=cabinet_static_asset_url,
         cabinet_static_url=CABINET_STATIC_URL,
+        public_static_asset_url=public_static_asset_url,
         **context,
     )
 

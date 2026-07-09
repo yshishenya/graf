@@ -21,7 +21,7 @@
   <script id="graf-product-analytics-provider-config" type="application/json" data-page-class="{{ product_analytics_provider.page_class }}">
     {{ product_analytics_provider | tojson }}
   </script>
-  <script defer src="/static/public/analytics.js"></script>
+  <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
   {% endif %}
   {{ content }}
 </body>

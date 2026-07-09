@@ -50,6 +50,8 @@ def test_public_cabinet_and_admin_templates_include_provider_config_and_private_
     for template in (public_partial, cabinet_base, admin_base):
         assert "graf-product-analytics-provider-config" in template
         assert "analytics.js" in template
+    assert "public_static_asset_url('analytics.js')" in cabinet_base
+    assert "public_static_asset_url('analytics.js')" in admin_base
     for template in (cabinet_base, admin_base):
         assert 'data-graf-analytics-private="true"' in template
         assert 'data-ph-mask="true"' in template
