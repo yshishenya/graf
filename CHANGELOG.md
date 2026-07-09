@@ -24,11 +24,9 @@
 - _Пока нет записей._
 
 ### Операции
-- Feature `095-macos-permission-retention`: публичный download package
-  `graf-local.pkg` обновлен сборкой `2026.07.09.5` для локального
-  self-signed release path без Apple Developer ID/notarization.
+- _Пока нет записей._
 
-## [2026.07.09.5] - 2026-07-09
+## [2026.07.09.6] - 2026-07-09
 
 
 ### Добавлено
@@ -54,7 +52,9 @@
   release.
 
 ### Операции
-- _Пока нет записей._
+- Feature `095-macos-permission-retention`: публичный download package
+  `graf-local.pkg` обновлен сборкой `2026.07.09.6` для локального
+  self-signed release path без Apple Developer ID/notarization.
 
 ## [2026.07.09.5] - 2026-07-09
 

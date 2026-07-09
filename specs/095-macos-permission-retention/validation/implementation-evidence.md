@@ -2,7 +2,7 @@
 
 Feature: `095-macos-permission-retention`
 
-Status: Implemented and prepared for release `v2026.07.09.5` with local
+Status: Implemented and prepared for release `v2026.07.09.6` with local
 self-signed distribution boundaries.
 
 ## Lane
@@ -57,10 +57,10 @@ marked `[X]`.
 | Second reinstall cycle | pass | Reinstalling the same local package succeeded; relaunch again logged `microphone=granted systemAudio=granted ready=true`, identity stayed on the same local certificate-root DR, and quit returned `quit_ok`. |
 | Static placeholder scan | pass | Only literal scan/checklist policy lines matched; no unresolved template fields remain in feature artifacts. |
 | Focused forbidden-content scan | pass with policy matches | Matches were policy strings in quickstart and existing redaction code (`token=` allowlist); no private keys, passwords, tokens, raw audio, transcripts, signed URLs, or private meeting content were added as evidence payloads. |
-| Release-version package build | pass | `GRAF_VERSION=2026.07.09.5 apps/macos/Scripts/validate-macos-permission-retention.sh build` created `apps/macos/.build/installer/graf-local-permission-retention.pkg`; package metadata reports `CFBundleShortVersionString=2026.07.09.5`, `CFBundleVersion=2026.07.09.5`, and bundle id `pro.2brain.graf`. |
-| Public download package refresh | pass | `apps/server/src/twobrain_rec_server/public/static/public/downloads/graf-local.pkg` was refreshed from the validated local package; SHA-256 matched `apps/macos/.build/installer/graf-local-permission-retention.pkg` at `9656d7202c48756ce3b49e4b01e1c0a394903ef885e59494c97a254b6e14c14d`. |
-| Release dry-run | pass | `infra/scripts/cd-remote.sh --dry-run --branch codex/095-macos-permission-retention-release`: `deploy_result=dry_run`, branch `codex/095-macos-permission-retention-release`, and planned gates `clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,compose_config_secret_scan,deploy_build_up,runtime_secret_env_scan,production_smoke,public_health`. |
-| Full local CI | pass | `infra/scripts/ci-local.sh`: server tests `1160 passed, 4 skipped, 1 warning`; server lint passed; compile passed; deployment evidence scan passed; `ci_local_result=pass`. |
+| Release-version package build | pass | `GRAF_VERSION=2026.07.09.6 apps/macos/Scripts/validate-macos-permission-retention.sh build` created `apps/macos/.build/installer/graf-local-permission-retention.pkg`; package metadata reports `CFBundleShortVersionString=2026.07.09.6`, `CFBundleVersion=2026.07.09.6`, and bundle id `pro.2brain.graf`. |
+| Public download package refresh | pass | `apps/server/src/twobrain_rec_server/public/static/public/downloads/graf-local.pkg` was refreshed from the validated local package; SHA-256 matched `apps/macos/.build/installer/graf-local-permission-retention.pkg` at `41d31b78bf5f6bda25818b060c3c1a534702629ed8cab2a1235ac24adcf3efa3`. |
+| Release dry-run | pass | `infra/scripts/cd-remote.sh --dry-run --branch codex/095-release-v202607096`: `deploy_result=dry_run`, branch `codex/095-release-v202607096`, and planned gates `clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,compose_config_secret_scan,deploy_build_up,runtime_secret_env_scan,production_smoke,public_health`. |
+| Full local CI | pass | `infra/scripts/ci-local.sh`: server tests `1177 passed, 4 skipped, 1 warning`; server lint passed; compile passed; deployment evidence scan passed; `ci_local_result=pass`. |
 
 ## Evidence Collected During Implementation
 
