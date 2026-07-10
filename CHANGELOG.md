@@ -15,10 +15,7 @@
 - _Пока нет записей._
 
 ### Исправлено
-- macOS desktop теперь надежнее запускает системный звук после prompt в
-  автоопределенной встрече: ScreenCaptureKit стартует с audio+screen output,
-  запись видео при этом не ведется, а startup timeout больше не обрывает
-  рабочий Telemost-сценарий.
+- _Пока нет записей._
 
 ### Безопасность
 - _Пока нет записей._
@@ -28,6 +25,40 @@
 
 ### Операции
 - _Пока нет записей._
+
+## [2026.07.11.1] - 2026-07-11
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- macOS desktop теперь надежнее запускает системный звук после prompt в
+  автоопределенной встрече: ScreenCaptureKit стартует с audio+screen output,
+  запись видео при этом не ведется, а startup timeout больше не обрывает
+  рабочий Telemost-сценарий.
+- Feature `090-manual-media-upload-ui`: security closeout и исправление
+  production migration `0020_user_scoped_recording_ids` теперь находятся в
+  `master`, поэтому исходный код, release tag и production runtime снова имеют
+  проверяемую общую историю.
+
+### Безопасность
+- Повторный security review feature `090` не выявил новых подтвержденных
+  exploitable findings в auth, CSRF, tenant isolation, upload/finalize,
+  storage и egress diff после слияния с актуальным `master`.
+
+### Документы
+- Closeout evidence feature `090` обновлен фактическими PR, release и
+  validation результатами; specs `097-101` остаются draft и не считаются
+  реализованными этим релизом.
+
+### Операции
+- Релиз подготовлен от merge SHA PR #3040 после focused server validation,
+  macOS validation и полного local CI. Публичный notarized macOS installer
+  остается недоступен без Developer ID Application/Installer identities.
 
 ## [2026.07.10.2] - 2026-07-10
 
