@@ -434,6 +434,7 @@ paths:
       - auth
       summary: Link Provider
       operationId: link_provider_api_v1_auth_link_post
+      deprecated: true
       parameters:
       - name: X-User-Id
         in: header
@@ -466,12 +467,12 @@ paths:
             schema:
               $ref: '#/components/schemas/AuthLinkRequest'
       responses:
-        '200':
-          description: Successful Response
+        '409':
+          description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthLinkResponse'
+                $ref: '#/components/schemas/Problem'
         '400':
           description: Bad request
           content:
@@ -492,12 +493,6 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '404':
           description: Not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        '409':
-          description: Conflict
           content:
             application/json:
               schema:
@@ -6617,33 +6612,6 @@ components:
       - candidate_provider_subject
       - expected_workspace_id
       title: AuthLinkRequest
-    AuthLinkResponse:
-      properties:
-        status:
-          type: string
-          title: Status
-        user_id:
-          type: string
-          format: uuid
-          title: User Id
-        provider:
-          type: string
-          title: Provider
-        linked_identity_id:
-          type: string
-          format: uuid
-          title: Linked Identity Id
-        message:
-          type: string
-          title: Message
-      type: object
-      required:
-      - status
-      - user_id
-      - provider
-      - linked_identity_id
-      - message
-      title: AuthLinkResponse
     AuthPolicyUpdateRequest:
       properties:
         allow_yandex:
@@ -8517,6 +8485,7 @@ components:
           - denied
           - completed
           - failed
+          - prepared
           title: Outcome
         reason:
           anyOf:
@@ -10065,8 +10034,6 @@ components:
           type: string
           enum:
           - none
-          - combined_review_stream
-          - single_retained_track
           - stored_review_m4a
           title: Source Mode
           default: none
@@ -10422,7 +10389,7 @@ components:
         dry_run:
           type: boolean
           title: Dry Run
-          default: false
+          default: true
       additionalProperties: false
       type: object
       title: RetentionRunRequest

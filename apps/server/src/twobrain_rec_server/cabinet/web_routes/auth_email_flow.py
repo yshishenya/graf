@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.auth.policy import read_auth_providers
+from twobrain_rec_server.auth.providers import build_provider_registry
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
@@ -179,6 +181,26 @@ async def _consume_email_login_code(
         )
     workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
     if workspace is not None and user is None and allow_registration:
+        if not await _email_registration_allowed(db, workspace_id=workspace.id):
+            state.result = "failed"
+            state.used_at = now
+            state.error_code = "workspace_enrollment_required"
+            await _record_email_login_audit(
+                db,
+                request=request,
+                workspace_id=workspace.id,
+                outcome="failure",
+                error_code="workspace_enrollment_required",
+                metadata={"flow": "registration"},
+            )
+            await db.commit()
+            return _email_code_error_response(
+                email=email,
+                state_nonce=state_nonce,
+                next_path=next_path,
+                error="workspace_enrollment_required",
+                flow=flow,
+            )
         user = await _ensure_email_registration_user(
             db,
             workspace=workspace,
@@ -292,6 +314,11 @@ async def _resolve_email_login_user(
 async def _resolve_email_workspace(db: AsyncSession, *, workspace_id: UUID) -> Workspace | None:
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
     return await db.get(Workspace, workspace_id)
+
+
+async def _email_registration_allowed(db: AsyncSession, *, workspace_id: UUID) -> bool:
+    snapshot = await read_auth_providers(db, workspace_id, adapters=build_provider_registry())
+    return snapshot.allow_provider_self_enrollment
 
 
 async def _ensure_email_registration_user(

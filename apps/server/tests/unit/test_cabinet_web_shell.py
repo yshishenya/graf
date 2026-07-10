@@ -853,7 +853,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode="combined_review_stream",
+        source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
     review.transcript = TranscriptReviewState(
@@ -867,7 +867,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
                 start_seconds=0.0,
                 end_seconds=10.0,
                 timestamp_label="00:00",
-                speaker_label="Speaker 1",
+                speaker_label="SPEAKER_00",
                 source_role="local_microphone",
                 text="Безопасный синтетический текст.",
                 seekable=True,
@@ -879,7 +879,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
                 start_seconds=12.5,
                 end_seconds=20.0,
                 timestamp_label="00:12",
-                speaker_label="Speaker 2",
+                speaker_label="SPEAKER_01",
                 source_role="incoming_system",
                 text="Еще один безопасный синтетический текст.",
                 seekable=True,
@@ -895,7 +895,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert '<audio class="playback-audio" data-playback-player preload="metadata"' in page
     assert '<audio data-playback-player controls preload="metadata"' not in page
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
-    assert 'data-source-mode="combined_review_stream"' in page
+    assert 'data-source-mode="stored_review_m4a"' in page
     assert 'data-playback-toggle' in page
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page
@@ -959,7 +959,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode="combined_review_stream",
+        source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
     review.speakers = SpeakerReviewState(
@@ -968,15 +968,15 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
         degraded_reason=None,
         speakers=[
             SpeakerLane(
-                speaker_key="speaker-1",
-                label="Speaker 1",
+                speaker_key="speaker_00",
+                label="SPEAKER_00",
                 talk_time_percent=35,
                 source_roles=["local_microphone"],
                 segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=12.0)],
             ),
             SpeakerLane(
-                speaker_key="speaker-2",
-                label="Speaker 2",
+                speaker_key="speaker_01",
+                label="SPEAKER_01",
                 talk_time_percent=65,
                 source_roles=["incoming_system"],
                 segments=[SpeakerLaneSegment(start_seconds=30.0, end_seconds=90.0)],
@@ -987,11 +987,11 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     page = render_meeting_detail_page(review)
 
     assert "data-speaker-timeline" in page
-    assert 'data-speaker-lane="speaker-1"' in page
-    assert 'data-speaker-lane="speaker-2"' in page
+    assert 'data-speaker-lane="speaker_00"' in page
+    assert 'data-speaker-lane="speaker_01"' in page
     assert page.count("data-lane-segment") == 2
-    assert 'title="Спикер 1 00:00-00:12"' in page
-    assert 'aria-label="Спикер 2 00:30-01:30"' in page
+    assert 'title="SPEAKER_00 00:00-00:12"' in page
+    assert 'aria-label="SPEAKER_01 00:30-01:30"' in page
     css = _cabinet_css()
     assert ".timeline-lane:nth-child(6n+1) .timeline-segment" in css
     assert ".timeline-lane:nth-child(6n+6) .timeline-segment" in css
@@ -1051,7 +1051,7 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode="combined_review_stream",
+        source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
     summary = NotesActionCategoryState(
@@ -1122,7 +1122,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode="combined_review_stream",
+        source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
     review.transcript = TranscriptReviewState(
@@ -1136,7 +1136,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
                 start_seconds=0.0,
                 end_seconds=8.0,
                 timestamp_label="00:00",
-                speaker_label="Speaker 1",
+                speaker_label="SPEAKER_00",
                 source_role="local_microphone",
                 text="Безопасная синтетическая строка для проверки review.",
                 seekable=True,
@@ -1150,8 +1150,8 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
         degraded_reason=None,
         speakers=[
             SpeakerLane(
-                speaker_key="speaker-1",
-                label="Speaker 1",
+                speaker_key="speaker_00",
+                label="SPEAKER_00",
                 talk_time_percent=60,
                 source_roles=["local_microphone"],
                 segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=8.0)],
@@ -1187,7 +1187,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert 'data-playback-progress' in page
     assert 'data-seek-seconds="0.0"' in page
     assert 'data-speaker-timeline' in page
-    assert 'data-speaker-lane="speaker-1"' in page
+    assert 'data-speaker-lane="speaker_00"' in page
     assert page.count("data-lane-segment") == 1
     assert 'data-outcome-source-basis="stored_output"' in page
     assert page.count("data-outcome-category=") == 8
@@ -1207,7 +1207,7 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode="combined_review_stream",
+        source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
     review.speakers = SpeakerReviewState(
@@ -1216,8 +1216,8 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
         degraded_reason=None,
         speakers=[
             SpeakerLane(
-                speaker_key="speaker-1",
-                label="Speaker 1",
+                speaker_key="speaker_00",
+                label="SPEAKER_00",
                 talk_time_percent=60,
                 source_roles=["local_microphone"],
                 segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=8.0)],
@@ -1250,7 +1250,7 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
     assert 'data-detail-panel="outcomes" hidden' in page
     assert 'data-detail-panel="recording"' in page
     assert 'data-playback-shell' in page
-    assert 'data-source-mode="combined_review_stream"' in page
+    assert 'data-source-mode="stored_review_m4a"' in page
     assert 'data-speaker-timeline' in page
     assert 'data-outcome-source-basis="stored_output"' in page
     assert "60%" in page
@@ -1285,7 +1285,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
         unavailable_reason="none",
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
-        source_mode="combined_review_stream",
+        source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
     review.transcript = TranscriptReviewState(
@@ -1299,7 +1299,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
                 start_seconds=12.5,
                 end_seconds=20.0,
                 timestamp_label="00:12",
-                speaker_label="Speaker 2",
+                speaker_label="SPEAKER_00",
                 source_role="incoming_system",
                 text="Безопасный синтетический текст.",
                 seekable=True,
@@ -1316,7 +1316,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     assert '<audio class="playback-audio" data-playback-player preload="metadata"' in page
     assert '<audio data-playback-player controls preload="metadata"' not in page
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
-    assert 'data-source-mode="combined_review_stream"' in page
+    assert 'data-source-mode="stored_review_m4a"' in page
     assert 'data-playback-toggle' in page
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page

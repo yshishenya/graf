@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, BinaryIO
 
 import httpx
 from pydantic import ValidationError
@@ -52,15 +52,15 @@ class MediaScribeClient:
     async def submit_dual_track(
         self,
         *,
-        mic_bytes: bytes,
-        incoming_bytes: bytes,
+        mic_file: BinaryIO,
+        incoming_file: BinaryIO,
         diarize: bool,
         summarize: bool,
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
         files = {
-            "mic_file": ("microphone.wav", mic_bytes, "application/octet-stream"),
-            "incoming_file": ("incoming.wav", incoming_bytes, "application/octet-stream"),
+            "mic_file": ("microphone.wav", mic_file, "application/octet-stream"),
+            "incoming_file": ("incoming.wav", incoming_file, "application/octet-stream"),
         }
         data = await self._request_json(
             "POST",
@@ -80,14 +80,14 @@ class MediaScribeClient:
     async def submit_single_track(
         self,
         *,
-        media_bytes: bytes,
+        media_file: BinaryIO,
         diarize: bool,
         summarize: bool,
         media_content_type: str | None = None,
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
-        media_type = _safe_media_content_type(media_content_type, media_bytes)
-        files = {"file": (_safe_media_filename(media_type), media_bytes, media_type)}
+        media_type = _safe_media_content_type(media_content_type, _read_media_probe(media_file))
+        files = {"file": (_safe_media_filename(media_type), media_file, media_type)}
         data = await self._request_json(
             "POST",
             "/v1/audio/transcriptions",
@@ -185,6 +185,17 @@ _MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE = {
     "video/quicktime": "mov",
     "video/webm": "webm",
 }
+
+
+def _read_media_probe(media_file: BinaryIO, max_bytes: int = 64) -> bytes:
+    try:
+        position = media_file.tell()
+    except OSError:
+        position = None
+    probe = media_file.read(max_bytes)
+    if position is not None:
+        media_file.seek(position)
+    return probe
 
 
 def _safe_media_content_type(content_type: str | None, media_bytes: bytes) -> str:

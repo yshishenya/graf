@@ -1,12 +1,28 @@
 import asyncio
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fakes.fake_temporal import FakeTemporalClient
+from tests.fixtures.admin import (
+    DEFAULT_MEMBER_DEVICE_ID,
+    DEFAULT_MEMBER_USER_ID,
+    seed_default_workspace_admin_roles,
+)
+from tests.fixtures.admin import (
+    auth_headers_for as admin_auth_headers_for,
+)
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
-from twobrain_rec_server.db.models import ProcessingAuditEvent, ProcessingWorkflow
+from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.db.models import (
+    AuthSessionDeviceBinding,
+    ProcessingAuditEvent,
+    ProcessingWorkflow,
+)
 
 
 def test_processing_pickup_starts_workflow_and_reuses_duplicate(client) -> None:
@@ -99,3 +115,111 @@ def test_processing_pickup_reuses_workflow_started_by_finalize_autostart(client)
     assert metadata["reason_code"] == "duplicate_workflow_reused"
     serialized = str(metadata).lower()
     assert all(token not in serialized for token in {"transcript", "audio_download_url", "api_key", "signed_url"})
+
+
+def test_processing_pickup_rejects_workspace_member(client) -> None:
+    _seed_default_workspace_roles(client)
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(client, "pickup-member-denied")
+    meeting_id = finalized["meeting"]["meeting_id"]
+
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=admin_auth_headers_for(user_id=DEFAULT_MEMBER_USER_ID, device_id=DEFAULT_MEMBER_DEVICE_ID),
+        json={"meeting_id": meeting_id},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "admin_forbidden"
+    assert asyncio.run(_workflow_count(client, UUID(meeting_id))) == 0
+
+
+def test_processing_pickup_rejects_browser_cookie_without_csrf(client) -> None:
+    finalized = create_finalized_meeting(client, "pickup-cookie-csrf")
+    meeting_id = finalized["meeting"]["meeting_id"]
+
+    session_cookie = client.portal.call(_issue_owner_session_token, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
+
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        json={"meeting_id": meeting_id},
+    )
+
+    client.cookies.clear()
+    assert response.status_code == 403
+    assert response.json()["code"] == "csrf_token_missing"
+    assert asyncio.run(_workflow_count(client, UUID(meeting_id))) == 0
+
+
+def test_processing_pickup_rejects_cookie_with_blank_session_header_without_csrf(client) -> None:
+    finalized = create_finalized_meeting(client, "pickup-cookie-blank-session-header-csrf")
+    meeting_id = finalized["meeting"]["meeting_id"]
+
+    session_cookie = client.portal.call(_issue_owner_session_token, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
+
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers={"X-Auth-Session": "   "},
+        json={"meeting_id": meeting_id},
+    )
+
+    client.cookies.clear()
+    assert response.status_code == 403
+    assert response.json()["code"] == "csrf_token_missing"
+    assert asyncio.run(_workflow_count(client, UUID(meeting_id))) == 0
+
+
+def test_processing_pickup_accepts_bearer_session_without_csrf(client) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(client, "pickup-bearer-session")
+    meeting_id = finalized["meeting"]["meeting_id"]
+
+    session_token = client.portal.call(_issue_owner_session_token, client)
+
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={"meeting_id": meeting_id},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["started_count"] == 1
+    assert asyncio.run(_workflow_count(client, UUID(meeting_id))) == 1
+
+
+async def _workflow_count(client, meeting_id: UUID) -> int:
+    async with client.app_state["sessionmaker"]() as db:
+        rows = await db.scalars(select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id))
+        return len(rows.all())
+
+
+async def _issue_owner_session_token(client) -> str:
+    async with client.app_state["sessionmaker"]() as db:
+        issued = await issue_auth_session(
+            db,
+            user_id=USER_ID,
+            workspace_id=WORKSPACE_ID,
+            device_id=DEVICE_ID,
+            provider="email",
+            now=datetime.now(UTC),
+        )
+        db.add(
+            AuthSessionDeviceBinding(
+                auth_session_id=issued.id,
+                registered_device_id=DEVICE_ID,
+                device_state="trusted",
+                last_heartbeat_at=datetime.now(UTC),
+            )
+        )
+        await db.commit()
+        return issued.token
+
+
+def _seed_default_workspace_roles(client) -> None:
+    async def seed() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await seed_default_workspace_admin_roles(db)
+
+    asyncio.run(seed())

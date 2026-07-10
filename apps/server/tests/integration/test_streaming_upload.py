@@ -6,8 +6,9 @@ from twobrain_rec_server.api.upload_stream import read_bounded_upload_body
 
 
 class StreamingRequest:
-    def __init__(self, chunks: list[bytes]) -> None:
+    def __init__(self, chunks: list[bytes], headers: dict[str, str] | None = None) -> None:
         self._chunks = chunks
+        self.headers = headers or {}
         self.app = type("App", (), {"state": State()})()
 
     async def stream(self):
@@ -40,6 +41,50 @@ def test_bounded_upload_stream_rejects_before_consuming_all_chunks() -> None:
 
     asyncio.run(run())
     assert consumed == 2
+
+
+def test_bounded_upload_stream_rejects_declared_oversize_before_streaming() -> None:
+    consumed = 0
+
+    class CountingRequest(StreamingRequest):
+        async def stream(self):
+            nonlocal consumed
+            consumed += 1
+            yield b"aaaa"
+
+    async def run() -> None:
+        with pytest.raises(ProblemDetail) as exc:
+            await read_bounded_upload_body(
+                CountingRequest([b"aaaa"], headers={"content-length": "12"}),  # type: ignore[arg-type]
+                expected_sha256="0" * 64,
+                max_bytes=6,
+                spool_memory_bytes=4,
+            )
+        assert exc.value.status == 413
+        assert exc.value.code == "upload_part_bytes_exceeded"
+
+    import asyncio
+
+    asyncio.run(run())
+    assert consumed == 0
+
+
+def test_bounded_upload_stream_rejects_invalid_declared_size_before_streaming() -> None:
+    async def run(header_value: str) -> None:
+        with pytest.raises(ProblemDetail) as exc:
+            await read_bounded_upload_body(
+                StreamingRequest([b"aaaa"], headers={"content-length": header_value}),  # type: ignore[arg-type]
+                expected_sha256="0" * 64,
+                max_bytes=6,
+                spool_memory_bytes=4,
+            )
+        assert exc.value.status == 400
+        assert exc.value.code == "invalid_content_length"
+
+    import asyncio
+
+    asyncio.run(run("not-a-number"))
+    asyncio.run(run("-1"))
 
 
 def test_successful_bounded_upload_returns_spooled_stream_not_bytes() -> None:

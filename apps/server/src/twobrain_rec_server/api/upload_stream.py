@@ -22,6 +22,17 @@ async def read_bounded_upload_body(
     max_bytes: int,
     spool_memory_bytes: int,
 ) -> BoundedUploadBody:
+    content_length = getattr(request, "headers", {}).get("content-length")
+    if content_length is not None:
+        try:
+            declared_bytes = int(content_length)
+        except ValueError:
+            raise ProblemDetail(status=400, code="invalid_content_length", title="Invalid Content-Length") from None
+        if declared_bytes < 0:
+            raise ProblemDetail(status=400, code="invalid_content_length", title="Invalid Content-Length")
+        if declared_bytes > max_bytes:
+            raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
+
     digest = sha256()
     spool = SpooledTemporaryFile(max_size=spool_memory_bytes, mode="w+b")  # noqa: SIM115 - ownership passes to accept_part for streamed storage writes.
     total = 0

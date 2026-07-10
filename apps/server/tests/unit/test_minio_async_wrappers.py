@@ -19,6 +19,42 @@ class _FailingGetObjectClient:
         raise S3Error(None, self.code, "storage failed", "object", "request", "host")
 
 
+class _FakeGetObjectResponse:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._offset = 0
+        self.closed = False
+        self.released = False
+
+    def read(self, length: int | None = None) -> bytes:
+        if length is None:
+            length = len(self._data) - self._offset
+        chunk = self._data[self._offset : self._offset + length]
+        self._offset += len(chunk)
+        return chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+    def release_conn(self) -> None:
+        self.released = True
+
+
+class _FakeGetObjectClient:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.response = _FakeGetObjectResponse(data)
+        self.calls: list[dict[str, object]] = []
+
+    def get_object(self, *_args: object, **kwargs: object) -> _FakeGetObjectResponse:
+        self.calls.append(kwargs)
+        offset = int(kwargs.get("offset") or 0)
+        length = int(kwargs.get("length") or 0)
+        body = self.data[offset:] if length == 0 else self.data[offset : offset + length]
+        self.response = _FakeGetObjectResponse(body)
+        return self.response
+
+
 def _storage_with_client(client: object) -> MinioStorage:
     storage = MinioStorage.__new__(MinioStorage)
     storage.settings = _Settings()
@@ -70,3 +106,40 @@ def test_get_bytes_preserves_non_missing_storage_errors() -> None:
 
     with pytest.raises(S3Error, match="AccessDenied"):
         MinioStorage.get_bytes(storage, "objects/private.wav")
+
+
+def test_download_to_path_streams_chunks_and_releases_storage_response(tmp_path) -> None:
+    client = _FakeGetObjectClient(b"abcdef")
+    storage = _storage_with_client(client)
+    target = tmp_path / "object.wav"
+
+    downloaded = MinioStorage.download_to_path(storage, "objects/audio.wav", target, chunk_size=2)
+
+    assert downloaded == 6
+    assert target.read_bytes() == b"abcdef"
+    assert client.response.closed is True
+    assert client.response.released is True
+
+
+def test_iter_object_streams_full_object_and_releases_storage_response() -> None:
+    client = _FakeGetObjectClient(b"abcdef")
+    storage = _storage_with_client(client)
+
+    chunks = list(MinioStorage.iter_object(storage, "objects/audio.m4a", chunk_size=2))
+
+    assert chunks == [b"ab", b"cd", b"ef"]
+    assert client.calls == [{"offset": 0, "length": 0}]
+    assert client.response.closed is True
+    assert client.response.released is True
+
+
+def test_iter_object_streams_requested_range_and_releases_storage_response() -> None:
+    client = _FakeGetObjectClient(b"abcdef")
+    storage = _storage_with_client(client)
+
+    chunks = list(MinioStorage.iter_object(storage, "objects/audio.m4a", offset=2, length=3, chunk_size=2))
+
+    assert chunks == [b"cd", b"e"]
+    assert client.calls == [{"offset": 2, "length": 3}]
+    assert client.response.closed is True
+    assert client.response.released is True

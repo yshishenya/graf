@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
+from anyio import to_thread
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,11 +23,6 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.access import AccessDecision
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
-from twobrain_rec_server.cabinet.playback_audio import (
-    ReviewAudio,
-    ReviewAudioBuildError,
-    build_combined_review_wav,
-)
 from twobrain_rec_server.cabinet.view_models import format_timestamp
 from twobrain_rec_server.db.models import (
     ExportPackage,
@@ -57,6 +53,9 @@ ALLOWED_AUDIT_KEYS = {
     "export_id",
     "share_grant_id",
     "source_mode",
+    "range_end",
+    "range_start",
+    "stream_state",
 }
 
 
@@ -64,13 +63,14 @@ ALLOWED_AUDIT_KEYS = {
 class DownloadArtifact:
     filename: str
     media_type: str
-    body: bytes
+    body: bytes | Iterator[bytes]
+    byte_length: int
 
 
 @dataclass(frozen=True, slots=True)
 class PlaybackArtifact:
     media_type: str
-    body: bytes
+    body: Iterator[bytes]
     status_code: int = 200
     headers: dict[str, str] = field(default_factory=dict)
 
@@ -79,6 +79,12 @@ class PlaybackArtifact:
 class PlaybackByteRange:
     start: int
     end: int
+
+
+class ReviewAudioBuildError(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def safe_audit_metadata(metadata: Mapping[str, object] | None) -> dict[str, object]:
@@ -255,19 +261,11 @@ async def review_playback_state(
             reason="stored_review_m4a",
             action="disabled",
         )
-    if TrackRole.MICROPHONE.value not in artifacts or TrackRole.SYSTEM.value not in artifacts:
-        return ArtifactEgressState(
-            artifact_class="audio",
-            state="missing",
-            label="Review audio unavailable",
-            reason="missing_audio_source",
-            action="disabled",
-        )
     return ArtifactEgressState(
         artifact_class="audio",
-        state="available",
-        label="Review playback",
-        reason="combined_review_stream",
+        state="missing",
+        label="Review audio unavailable",
+        reason="missing_playback_artifact",
         action="disabled",
     )
 
@@ -333,7 +331,13 @@ async def download_artifact(
     )
     if artifact_class == "audio":
         try:
-            review_audio = await _load_review_audio(db, storage=storage, meeting=meeting)
+            playback = await _stored_review_m4a_artifact(db, meeting=meeting)
+            body = await _stream_storage_object(
+                storage,
+                playback.storage_object_key,
+                offset=0,
+                length=playback.byte_length,
+            )
         except ReviewAudioBuildError as exc:
             status = 503 if exc.reason == "storage_unavailable" else 409
             code = "storage_unavailable" if status == 503 else "audio_unavailable"
@@ -352,17 +356,31 @@ async def download_artifact(
             )
             await db.commit()
             raise ProblemDetail(status=status, code=code, title=title) from exc
-        body = review_audio.body
-        filename = _review_audio_filename(review_audio)
-        media_type = review_audio.media_type
+        filename = "meeting-review.m4a"
+        media_type = "audio/mp4"
+        byte_length = playback.byte_length
+        source_mode = "stored_review_m4a"
     elif artifact_class == "transcript":
         body = (await _transcript_text(db, meeting=meeting, result=result)).encode("utf-8")
         filename = "meeting-transcript.txt"
         media_type = "text/plain; charset=utf-8"
+        byte_length = len(body)
+        source_mode = None
     else:
         body = b"Summary artifact is not materialized in this MVP seed.\n"
         filename = "meeting-summary.txt"
         media_type = "text/plain; charset=utf-8"
+        byte_length = len(body)
+        source_mode = None
+
+    download_metadata: dict[str, object] = {
+        "artifact_class": artifact_class,
+        "outcome": "prepared" if artifact_class == "audio" else "completed",
+        "byte_length": byte_length,
+        "source_mode": source_mode,
+    }
+    if artifact_class == "audio":
+        download_metadata["stream_state"] = "prepared"
 
     await record_egress_audit_event(
         db,
@@ -370,18 +388,13 @@ async def download_artifact(
         meeting_id=meeting.id,
         actor_user_id=actor_user_id,
         device_id=device_id,
-        event_type="download_completed",
-        outcome="completed",
+        event_type="download_stream_prepared" if artifact_class == "audio" else "download_completed",
+        outcome="prepared" if artifact_class == "audio" else "completed",
         artifact_class=artifact_class,
         policy_reason="policy_allowed",
-        metadata={
-            "artifact_class": artifact_class,
-            "outcome": "completed",
-            "byte_length": len(body),
-            "source_mode": review_audio.source_mode if artifact_class == "audio" else None,
-        },
+        metadata=download_metadata,
     )
-    return DownloadArtifact(filename=filename, media_type=media_type, body=body)
+    return DownloadArtifact(filename=filename, media_type=media_type, body=body, byte_length=byte_length)
 
 
 async def playback_artifact(
@@ -418,8 +431,8 @@ async def playback_artifact(
         raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
 
     try:
-        review_audio = await _load_review_audio(db, storage=storage, meeting=meeting)
-    except (KeyError, ReviewAudioBuildError) as exc:
+        playback = await _stored_review_m4a_artifact(db, meeting=meeting)
+    except ReviewAudioBuildError as exc:
         reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
         status = 503 if reason == "storage_unavailable" else 409
         code = "storage_unavailable" if status == 503 else "review_audio_unavailable"
@@ -435,10 +448,10 @@ async def playback_artifact(
         raise ProblemDetail(status=status, code=code, title=title) from exc
 
     try:
-        response_body, status_code, headers = _playback_response_for_range(
-            review_audio.body,
+        status_code, headers, offset, length = _playback_response_for_range(
+            playback.byte_length,
             range_header,
-            filename=_review_audio_filename(review_audio),
+            filename="meeting-review.m4a",
         )
     except ProblemDetail:
         await _record_playback_denied(
@@ -450,6 +463,28 @@ async def playback_artifact(
         )
         await db.commit()
         raise
+
+    try:
+        response_body = await _stream_storage_object(
+            storage,
+            playback.storage_object_key,
+            offset=offset,
+            length=length,
+        )
+    except (KeyError, ReviewAudioBuildError) as exc:
+        reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
+        status = 503 if reason == "storage_unavailable" else 409
+        code = "storage_unavailable" if status == 503 else "review_audio_unavailable"
+        title = "Storage unavailable" if status == 503 else "Review audio unavailable"
+        await _record_playback_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            reason=reason,
+        )
+        await db.commit()
+        raise ProblemDetail(status=status, code=code, title=title) from exc
 
     await record_egress_audit_event(
         db,
@@ -465,116 +500,92 @@ async def playback_artifact(
             "artifact_class": "audio",
             "viewer_access_state": access.state,
             "request_class": "playback",
-            "source_mode": review_audio.source_mode,
+            "source_mode": "stored_review_m4a",
         },
     )
+    playback_metadata: dict[str, object] = {
+        "artifact_class": "audio",
+        "outcome": "prepared",
+        "byte_length": length,
+        "source_mode": "stored_review_m4a",
+        "stream_state": "prepared",
+    }
+    if length > 0:
+        playback_metadata["range_start"] = offset
+        playback_metadata["range_end"] = offset + length - 1
+
     await record_egress_audit_event(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
         actor_user_id=actor_user_id,
         device_id=device_id,
-        event_type="playback_completed",
-        outcome="completed",
+        event_type="playback_stream_prepared",
+        outcome="prepared",
         artifact_class="audio",
         policy_reason="server_mediated_review_playback",
-        metadata={
-            "artifact_class": "audio",
-            "outcome": "completed",
-            "byte_length": len(response_body),
-            "source_mode": review_audio.source_mode,
-        },
+        metadata=playback_metadata,
     )
     return PlaybackArtifact(
-        media_type=review_audio.media_type,
+        media_type="audio/mp4",
         body=response_body,
         status_code=status_code,
         headers=headers,
     )
 
 
-async def _load_review_audio(
+async def _stored_review_m4a_artifact(
     db: AsyncSession,
     *,
-    storage: object,
     meeting: Meeting,
-) -> ReviewAudio:
-    get_bytes_async = getattr(storage, "get_bytes_async", None)
-    get_bytes = getattr(storage, "get_bytes", None)
-    if get_bytes_async is None and get_bytes is None:
-        raise ReviewAudioBuildError("storage_unavailable")
-
-    async def read_object(object_key: str) -> bytes:
-        try:
-            if get_bytes_async is not None:
-                return await get_bytes_async(object_key)
-            return get_bytes(object_key)
-        except KeyError:
-            raise
-        except Exception as exc:
-            raise ReviewAudioBuildError("storage_unavailable") from exc
-
+) -> TrackArtifact:
     artifacts = {
         artifact.track_role: artifact
         for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     }
     playback = artifacts.get(TrackRole.PLAYBACK.value)
-    if playback is not None and _is_stored_review_m4a(playback):
-        try:
-            body = await read_object(playback.storage_object_key)
-            return ReviewAudio(
-                body=body,
-                media_type="audio/mp4",
-                duration_seconds=playback.duration_seconds,
-                source_mode="stored_review_m4a",
-                included_sources=["local_microphone", "incoming_system"],
-            )
-        except KeyError:
-            pass
+    if playback is None or not _is_stored_review_m4a(playback):
+        raise ReviewAudioBuildError("missing_playback_artifact")
+    return playback
 
-    mic = artifacts.get(TrackRole.MICROPHONE.value)
-    incoming = artifacts.get(TrackRole.SYSTEM.value)
-    if mic is None or incoming is None:
-        raise ReviewAudioBuildError("missing_audio_source")
 
+async def _stream_storage_object(
+    storage: object,
+    object_key: str,
+    *,
+    offset: int,
+    length: int,
+) -> Iterator[bytes]:
+    iter_object = getattr(storage, "iter_object", None)
+    if iter_object is None:
+        raise ReviewAudioBuildError("storage_unavailable")
     try:
-        mic_body = await read_object(mic.storage_object_key)
-        incoming_body = await read_object(incoming.storage_object_key)
+        return await to_thread.run_sync(lambda: iter_object(object_key, offset=offset, length=length))
     except KeyError as exc:
-        raise ReviewAudioBuildError("missing_audio_source") from exc
-    return build_combined_review_wav(
-        [
-            ("local_microphone", mic_body),
-            ("incoming_system", incoming_body),
-        ]
-    )
-
-
-def _review_audio_filename(review_audio: ReviewAudio) -> str:
-    if review_audio.media_type == "audio/mp4":
-        return "meeting-review.m4a"
-    return "meeting-review.wav"
+        raise ReviewAudioBuildError("storage_unavailable") from exc
+    except Exception as exc:
+        raise ReviewAudioBuildError("storage_unavailable") from exc
 
 
 def _playback_response_for_range(
-    body: bytes,
+    total_length: int,
     range_header: str | None,
     *,
     filename: str,
-) -> tuple[bytes, int, dict[str, str]]:
+) -> tuple[int, dict[str, str], int, int]:
     headers = {
         "Accept-Ranges": "bytes",
         "Content-Disposition": f'inline; filename="{filename}"',
     }
     if not range_header:
-        headers["Content-Length"] = str(len(body))
-        return body, 200, headers
+        headers["Content-Length"] = str(total_length)
+        return 200, headers, 0, total_length
 
-    byte_range = _parse_playback_byte_range(range_header, total_length=len(body))
-    partial = body[byte_range.start : byte_range.end + 1]
-    headers["Content-Range"] = f"bytes {byte_range.start}-{byte_range.end}/{len(body)}"
-    headers["Content-Length"] = str(len(partial))
-    return partial, 206, headers
+    byte_range = _parse_playback_byte_range(range_header, total_length=total_length)
+    length = byte_range.end - byte_range.start + 1
+    headers["Content-Range"] = f"bytes {byte_range.start}-{byte_range.end}/{total_length}"
+    headers["Content-Length"] = str(length)
+    return 206, headers, byte_range.start, length
 
 
 def _parse_playback_byte_range(range_header: str, *, total_length: int) -> PlaybackByteRange:
@@ -824,7 +835,12 @@ async def export_package_bytes(
         policy_reason="ready_package_downloaded",
         metadata={"artifact_class": "package", "export_id": str(package.id), "byte_length": len(body)},
     )
-    return DownloadArtifact(filename="meeting-export.json", media_type="application/json", body=body)
+    return DownloadArtifact(
+        filename="meeting-export.json",
+        media_type="application/json",
+        body=body,
+        byte_length=len(body),
+    )
 
 
 async def activity_response(
@@ -881,12 +897,20 @@ def _audio_state(policy_value: str, access: AccessDecision, artifacts: list[Trac
     blocked = _policy_blocked_state("audio", policy_value, access)
     if blocked is not None:
         return blocked
-    if not artifacts:
+    playback = next(
+        (
+            artifact
+            for artifact in artifacts
+            if artifact.track_role == TrackRole.PLAYBACK.value and _is_stored_review_m4a(artifact)
+        ),
+        None,
+    )
+    if playback is None:
         return ArtifactEgressState(
             artifact_class="audio",
             state="missing",
             label="Audio unavailable",
-            reason="No stored audio artifact is available.",
+            reason="missing_playback_artifact",
             action="disabled",
         )
     return ArtifactEgressState(

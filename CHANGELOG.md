@@ -29,6 +29,77 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.07.10.2] - 2026-07-10
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Production migration `0020_user_scoped_recording_ids` теперь распознает
+  legacy unique constraints по фактическим колонкам, а не только по ожидаемым
+  именам, поэтому обновление проходит на базах с исторически отличающимся
+  именованием constraints.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.10.1] - 2026-07-10
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Manual upload/finalize path больше не собирает multipart track в памяти:
+  accepted parts читаются/пишутся потоково, persistence failure не оставляет
+  ложного finalized state, а materialized objects чистятся при конфликте.
+- Review playback/download теперь использует только stored
+  `meeting-review.m4a`; legacy mic/system artifacts больше не показывают audio
+  download как доступный без canonical playback artifact.
+- Streaming audio playback/download audit больше не называет подготовленный
+  HTTP stream `completed`: новые события `playback_stream_prepared` и
+  `download_stream_prepared` сохраняют post-egress deletion truth без
+  overclaim полного client receipt.
+- Transcript/review speaker labels канонизируются как `SPEAKER_00`,
+  `SPEAKER_01`, выбираются по временному пересечению с diarization и не
+  подменяются source-role или calendar roster labels.
+
+### Безопасность
+- Email signup и provider callback paths теперь уважают workspace enrollment
+  policy; прямой provider-link endpoint безопасно отклоняет raw
+  client-supplied provider subject до отдельного verified callback flow.
+- Auth, calendar, processing, support, admin/cabinet mutating routes закрыты от
+  ambient browser-cookie CSRF там, где действие меняет состояние; explicit
+  bearer/session-header and device-header clients остаются совместимыми, а
+  пустой session header не отключает CSRF для cookie-сессии.
+- Поиск записи по `local_recording_id` теперь ограничен пользователем внутри workspace,
+  поэтому один пользователь больше не раскрывает состояние записи другого.
+- Processing pickup и retention run теперь требуют роль owner/admin workspace
+  вместо доступа обычного member.
+- Rate limit support incident теперь устойчив к смене dedupe key: новый
+  fingerprint отчета не обходит throttle.
+
+### Документы
+- Добавлены future feature specs `097-101` для workspace onboarding,
+  calendar auto-context matching, canonical review m4a normalization, verified
+  provider-link callback flow и streaming egress audit semantics.
+
+### Операции
+- _Пока нет записей._
+
 ## [2026.07.09.16] - 2026-07-09
 
 

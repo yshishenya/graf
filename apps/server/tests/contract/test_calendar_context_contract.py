@@ -4,11 +4,13 @@ from pathlib import Path
 from uuid import UUID
 
 import yaml
+from fastapi.routing import APIRoute
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.calendar import calendar_event_fixture
+from twobrain_rec_server.api.calendar import router as calendar_api_router
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.calendar.credentials import generate_credential_key
 from twobrain_rec_server.calendar.normalize import normalize_calendar_event
@@ -34,6 +36,24 @@ def test_calendar_openapi_contract_does_not_return_write_only_credentials() -> N
 
     assert "credential_input" in schema["components"]["schemas"]["ConnectCalendarSourceRequest"]["properties"]
     assert "credential_input" not in str(schema["components"]["schemas"]["CalendarSourceResponse"])
+
+
+def test_unsafe_calendar_api_routes_require_web_csrf_dependency() -> None:
+    missing = []
+    for route in calendar_api_router.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        if not (route.methods or set()) & {"POST", "PUT", "PATCH", "DELETE"}:
+            continue
+        dependency_names = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in route.dependant.dependencies
+            if dependency.call is not None
+        }
+        if "require_web_csrf" not in dependency_names:
+            missing.append(f"{sorted(route.methods or set())} {route.path}")
+
+    assert missing == []
 
 
 def test_calendar_provider_endpoint_lists_supported_presets(client) -> None:

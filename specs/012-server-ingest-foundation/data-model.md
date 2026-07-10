@@ -109,7 +109,7 @@ Relationships:
 
 Validation:
 
-- `(workspace_id, local_recording_id)` is unique for non-deleted records.
+- `(workspace_id, created_by_user_id, local_recording_id)` is unique for all meeting records, including deleted records.
 - `duration_seconds` must be positive and less than or equal to configured maximum.
 - Meeting status must never claim transcription, summary, or dashboard readiness in 012.
 

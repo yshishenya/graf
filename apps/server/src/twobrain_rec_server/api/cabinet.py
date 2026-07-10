@@ -4,10 +4,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.admin.queries import load_admin_workspace_context
 from twobrain_rec_server.api.ingest import (
     commit_if_available,
     get_request_db_session,
@@ -518,8 +519,8 @@ async def play_cabinet_meeting_audio_route(
         range_header=request.headers.get("range"),
     )
     await db.commit()
-    return Response(
-        content=playback.body,
+    return StreamingResponse(
+        playback.body,
         media_type=playback.media_type,
         status_code=playback.status_code,
         headers=playback.headers,
@@ -560,10 +561,20 @@ async def download_meeting_artifact_route(
         device_id=device.device_id,
     )
     await db.commit()
+    headers = {
+        "Content-Disposition": f'attachment; filename="{download.filename}"',
+        "Content-Length": str(download.byte_length),
+    }
+    if not isinstance(download.body, bytes):
+        return StreamingResponse(
+            download.body,
+            media_type=download.media_type,
+            headers=headers,
+        )
     return Response(
         content=download.body,
         media_type=download.media_type,
-        headers={"Content-Disposition": f'attachment; filename="{download.filename}"'},
+        headers=headers,
     )
 
 
@@ -652,11 +663,13 @@ async def run_retention_scan_route(
     request: Request,
     payload: RetentionRunRequest | None = None,
     tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
     storage: object = StorageDependency,
     db: AsyncSession | None = DbDependency,
 ) -> RetentionRunResponse:
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
     retention_payload = payload or RetentionRunRequest()
     response = await run_retention_scan(
         db,

@@ -1,7 +1,9 @@
+from contextlib import suppress
 from hashlib import sha256
 from io import BytesIO
 from uuid import UUID
 
+from anyio import to_thread
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -36,6 +38,8 @@ async def get_session_for_tenant(
     if session is None:
         session = store_module.store.sessions.get(session_id)
     if session is None or session.workspace_id != tenant_scope.workspace_id:
+        raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
+    if session.created_by_user_id != tenant_scope.user_id:
         raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
     if session.device_id != tenant_scope.device_id:
         raise ProblemDetail(status=403, code="device_scope_denied", title="Device scope denied")
@@ -167,7 +171,7 @@ async def accept_part(
             if ensure_bucket_async is not None:
                 await ensure_bucket_async()
             elif hasattr(storage, "ensure_bucket"):
-                storage.ensure_bucket()
+                await to_thread.run_sync(storage.ensure_bucket)
             put_stream_async = getattr(storage, "put_stream_async", None)
             upload_stream = stream
             if upload_stream is None:
@@ -176,7 +180,7 @@ async def accept_part(
             if put_stream_async is not None:
                 await put_stream_async(object_key, upload_stream, byte_length)
             else:
-                storage.put_stream(object_key, upload_stream, byte_length)
+                await to_thread.run_sync(storage.put_stream, object_key, upload_stream, byte_length)
         except Exception as exc:
             close_upload_stream()
             raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable") from exc
@@ -189,9 +193,9 @@ async def accept_part(
         object_key=object_key,
         data=b"",
     )
+    previous_status = session.status
     session.parts[part_key] = part
     session.status = UploadSessionStatus.UPLOADING
-    await persist_temporary_upload_object(db, session, part, object_role="accepted_part", commit=False)
     event = record_audit_event(
         event_type="part_accepted",
         workspace_id=tenant_scope.workspace_id,
@@ -202,19 +206,23 @@ async def accept_part(
         metadata={"track_role": track_role.value, "part_number": part_number, "byte_length": byte_length},
     )
     try:
+        await persist_temporary_upload_object(db, session, part, object_role="accepted_part", commit=False)
         await persist_upload_session(db, session, settings, commit=False)
         await persist_upload_part(db, session, part, commit=False)
+        await persist_audit_event(db, event, commit=False)
     except Exception as exc:
-        await mark_temporary_upload_object_cleanup_status(
-            db,
-            session,
-            object_key,
-            "orphaned",
-            failure_reason="db_persistence_failed_after_object_write",
-            last_error=type(exc).__name__,
-        )
-        close_upload_stream()
+        session.parts.pop(part_key, None)
+        session.status = previous_status
+        with suppress(Exception):
+            await mark_temporary_upload_object_cleanup_status(
+                db,
+                session,
+                object_key,
+                "orphaned",
+                failure_reason="db_persistence_failed_after_object_write",
+                last_error=type(exc).__name__,
+            )
         raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
-    await persist_audit_event(db, event, commit=False)
-    close_upload_stream()
+    finally:
+        close_upload_stream()
     return part

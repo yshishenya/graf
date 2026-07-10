@@ -1,9 +1,12 @@
+import tempfile
+from collections.abc import Iterator
+from contextlib import suppress
 from datetime import UTC, datetime
 from hashlib import sha256
-from io import BytesIO
-from typing import NoReturn
+from typing import BinaryIO, NoReturn
 from uuid import UUID
 
+from anyio import to_thread
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -35,6 +38,8 @@ from twobrain_rec_server.ingest.store import (
     persist_upload_session,
 )
 from twobrain_rec_server.storage.object_keys import build_final_artifact_prefix
+
+FINALIZE_STREAM_CHUNK_BYTES = 4 * 1024 * 1024
 
 
 async def _persist_degraded_finalize_failure(
@@ -97,28 +102,90 @@ def _finalized_track_object_key(*, meeting: MeetingRecord, session: UploadSessio
     return f"{prefix}/media-revisions/{media_revision_id}/tracks/{role.value}"
 
 
-async def _get_storage_bytes(storage: object, object_key: str) -> bytes:
-    get_bytes_async = getattr(storage, "get_bytes_async", None)
-    if get_bytes_async is not None:
-        return await get_bytes_async(object_key)
-    get_bytes = getattr(storage, "get_bytes", None)
-    if get_bytes is None:
-        raise RuntimeError("storage reader unavailable")
-    return get_bytes(object_key)
-
-
-async def _put_storage_bytes(storage: object, object_key: str, data: bytes) -> None:
+async def _put_storage_stream(storage: object, object_key: str, stream: BinaryIO, byte_length: int) -> None:
     ensure_bucket_async = getattr(storage, "ensure_bucket_async", None)
     if ensure_bucket_async is not None:
         await ensure_bucket_async()
     elif hasattr(storage, "ensure_bucket"):
-        storage.ensure_bucket()
+        await to_thread.run_sync(storage.ensure_bucket)
     put_stream_async = getattr(storage, "put_stream_async", None)
-    stream = BytesIO(data)
     if put_stream_async is not None:
-        await put_stream_async(object_key, stream, len(data))
-    else:
-        storage.put_stream(object_key, stream, len(data))
+        await put_stream_async(object_key, stream, byte_length)
+        return
+    put_stream = getattr(storage, "put_stream", None)
+    if put_stream is None:
+        raise RuntimeError("storage writer unavailable")
+    await to_thread.run_sync(put_stream, object_key, stream, byte_length)
+
+
+async def _delete_storage_object(storage: object | None, object_key: str) -> None:
+    if storage is None:
+        return
+    delete_object_async = getattr(storage, "delete_object_async", None)
+    if delete_object_async is not None:
+        await delete_object_async(object_key)
+        return
+    delete_object = getattr(storage, "delete_object", None)
+    if delete_object is not None:
+        await to_thread.run_sync(delete_object, object_key)
+
+
+async def _cleanup_materialized_track_objects(storage: object | None, object_keys: list[str]) -> None:
+    for object_key in object_keys:
+        with suppress(Exception):
+            await _delete_storage_object(storage, object_key)
+
+
+def _iter_storage_chunks(storage: object, object_key: str) -> Iterator[bytes]:
+    iter_object = getattr(storage, "iter_object", None)
+    if iter_object is None:
+        raise RuntimeError("storage streaming reader unavailable")
+    try:
+        return iter_object(object_key, chunk_size=FINALIZE_STREAM_CHUNK_BYTES)
+    except TypeError:
+        return iter_object(object_key)
+    except KeyError as exc:
+        raise RuntimeError("storage object missing") from exc
+
+
+def _copy_part_to_stream(
+    *,
+    storage: object,
+    part: UploadPartRecord,
+    destination: BinaryIO,
+    digest: object,
+) -> int:
+    copied = 0
+    try:
+        for chunk in _iter_storage_chunks(storage, part.object_key):
+            if not chunk:
+                continue
+            copied += len(chunk)
+            digest.update(chunk)
+            destination.write(chunk)
+    except KeyError as exc:
+        raise RuntimeError("storage object missing") from exc
+    except OSError as exc:
+        raise RuntimeError("storage unavailable") from exc
+    except Exception as exc:
+        if isinstance(exc, AssertionError):
+            raise
+        raise RuntimeError("storage unavailable") from exc
+    if copied != part.byte_length:
+        raise RuntimeError("storage object size mismatch")
+    return copied
+
+
+async def _copy_part_to_stream_async(
+    *,
+    storage: object,
+    part: UploadPartRecord,
+    destination: BinaryIO,
+    digest: object,
+) -> int:
+    return await to_thread.run_sync(
+        lambda: _copy_part_to_stream(storage=storage, part=part, destination=destination, digest=digest)
+    )
 
 
 async def _materialize_track_object(
@@ -140,15 +207,29 @@ async def _materialize_track_object(
         return part.object_key, part.byte_length, part.sha256
     if storage is None:
         raise RuntimeError("storage unavailable")
-    body = bytearray()
     digest = sha256()
-    for part in ordered_parts:
-        part_body = await _get_storage_bytes(storage, part.object_key)
-        body.extend(part_body)
-        digest.update(part_body)
     object_key = _finalized_track_object_key(meeting=meeting, session=session, role=role)
-    await _put_storage_bytes(storage, object_key, bytes(body))
-    return object_key, len(body), digest.hexdigest()
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as body:
+            byte_length = 0
+            for part in ordered_parts:
+                byte_length += await _copy_part_to_stream_async(
+                    storage=storage,
+                    part=part,
+                    destination=body,
+                    digest=digest,
+                )
+            body.seek(0)
+            await _put_storage_stream(storage, object_key, body, byte_length)
+    except OSError as exc:
+        with suppress(Exception):
+            await _delete_storage_object(storage, object_key)
+        raise RuntimeError("temporary storage unavailable") from exc
+    except Exception:
+        with suppress(Exception):
+            await _delete_storage_object(storage, object_key)
+        raise
+    return object_key, byte_length, digest.hexdigest()
 
 
 async def finalize_upload(
@@ -225,9 +306,11 @@ async def finalize_upload(
         )
 
     finalized_track_object_keys: dict[TrackRole, str] = {}
+    materialized_track_object_keys: list[str] = []
     for role, track in tracks_by_role.items():
         role_parts = [part for (part_role, _part_number), part in session.parts.items() if part_role == role]
         if not role_parts:
+            await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
             await _raise_degraded_finalize_problem(
                 db=db,
                 tenant_scope=tenant_scope,
@@ -239,6 +322,7 @@ async def finalize_upload(
             )
         expected_size = session.expected_track_sizes.get(role)
         if expected_size is not None and expected_size != track.byte_length:
+            await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
             await _raise_degraded_finalize_problem(
                 db=db,
                 tenant_scope=tenant_scope,
@@ -257,6 +341,7 @@ async def finalize_upload(
                 storage=storage,
             )
         except ValueError as exc:
+            await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
             await _raise_degraded_finalize_problem(
                 db=db,
                 tenant_scope=tenant_scope,
@@ -268,6 +353,7 @@ async def finalize_upload(
                 cause=exc,
             )
         except RuntimeError as exc:
+            await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
             await _raise_degraded_finalize_problem(
                 db=db,
                 tenant_scope=tenant_scope,
@@ -278,7 +364,10 @@ async def finalize_upload(
                 title="Storage unavailable",
                 cause=exc,
             )
+        if len(role_parts) > 1:
+            materialized_track_object_keys.append(object_key)
         if byte_length != track.byte_length:
+            await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
             await _raise_degraded_finalize_problem(
                 db=db,
                 tenant_scope=tenant_scope,
@@ -289,6 +378,7 @@ async def finalize_upload(
                 title="Track byte length mismatch",
             )
         if checksum != track.sha256:
+            await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
             await _raise_degraded_finalize_problem(
                 db=db,
                 tenant_scope=tenant_scope,
@@ -300,32 +390,6 @@ async def finalize_upload(
             )
         finalized_track_object_keys[role] = object_key
 
-    meeting.status = MeetingStatus.INGESTED_PENDING_PROCESSING
-    meeting.processing_status = ProcessingStatus.NOT_SUBMITTED
-    meeting.media_revision_status = MediaRevisionStatus.ACCEPTED
-    session.status = UploadSessionStatus.FINALIZED
-    session.processing_status = ProcessingStatus.NOT_SUBMITTED
-    session.finalized_at = datetime.now(UTC)
-    event = record_audit_event(
-        event_type="finalized",
-        workspace_id=tenant_scope.workspace_id,
-        meeting_id=meeting.id,
-        upload_session_id=session.id,
-        actor_user_id=tenant_scope.user_id,
-        device_id=tenant_scope.device_id,
-        metadata={"object_count": len(session.parts)},
-    )
-    await persist_meeting(db, meeting, commit=False)
-    await persist_upload_session(db, session, commit=False)
-    await persist_finalized_tracks(
-        db,
-        meeting,
-        session,
-        tracks,
-        manifest_sha256,
-        finalized_track_object_keys,
-        commit=False,
-    )
     try:
         await mark_media_revision_accepted(
             db,
@@ -335,6 +399,7 @@ async def finalize_upload(
             commit=False,
         )
     except MediaRevisionFingerprintConflict as exc:
+        await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
         await _raise_degraded_finalize_problem(
             db=db,
             tenant_scope=tenant_scope,
@@ -345,5 +410,47 @@ async def finalize_upload(
             title="Accepted media revision fingerprint cannot be changed",
             cause=exc,
         )
-    await persist_audit_event(db, event, commit=False)
+    event = record_audit_event(
+        event_type="finalized",
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting.id,
+        upload_session_id=session.id,
+        actor_user_id=tenant_scope.user_id,
+        device_id=tenant_scope.device_id,
+        metadata={"object_count": len(session.parts)},
+    )
+    previous_meeting_status = meeting.status
+    previous_meeting_processing_status = meeting.processing_status
+    previous_media_revision_status = meeting.media_revision_status
+    previous_session_status = session.status
+    previous_session_processing_status = session.processing_status
+    previous_finalized_at = session.finalized_at
+    try:
+        meeting.status = MeetingStatus.INGESTED_PENDING_PROCESSING
+        meeting.processing_status = ProcessingStatus.NOT_SUBMITTED
+        meeting.media_revision_status = MediaRevisionStatus.ACCEPTED
+        session.status = UploadSessionStatus.FINALIZED
+        session.processing_status = ProcessingStatus.NOT_SUBMITTED
+        session.finalized_at = datetime.now(UTC)
+        await persist_meeting(db, meeting, commit=False)
+        await persist_upload_session(db, session, commit=False)
+        await persist_finalized_tracks(
+            db,
+            meeting,
+            session,
+            tracks,
+            manifest_sha256,
+            finalized_track_object_keys,
+            commit=False,
+        )
+        await persist_audit_event(db, event, commit=False)
+    except Exception as exc:
+        await _cleanup_materialized_track_objects(storage, materialized_track_object_keys)
+        meeting.status = previous_meeting_status
+        meeting.processing_status = previous_meeting_processing_status
+        meeting.media_revision_status = previous_media_revision_status
+        session.status = previous_session_status
+        session.processing_status = previous_session_processing_status
+        session.finalized_at = previous_finalized_at
+        raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
     return meeting, session

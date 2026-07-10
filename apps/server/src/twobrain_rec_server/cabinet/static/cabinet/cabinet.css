@@ -282,7 +282,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.chip.ready, .chip.owner, .chip.team, .chip.shared, .chip.available, .chip.completed { color: var(--green); border-color: rgba(47,201,166,.48); background: rgba(47,201,166,.08); }
+.chip.ready, .chip.owner, .chip.team, .chip.shared, .chip.available, .chip.completed, .chip.prepared { color: var(--green); border-color: rgba(47,201,166,.48); background: rgba(47,201,166,.08); }
 .chip.processing, .chip.submitted, .chip.uploading, .chip.partial, .chip.requested { color: var(--accent); border-color: rgba(125,107,255,.48); background: rgba(125,107,255,.08); }
 .chip.local_only, .chip.deferred, .chip.unavailable, .chip.disabled, .chip.missing, .chip.deleted_future { color: var(--subtle); }
 .chip.failed, .chip.blocked, .chip.denied, .chip.policy_blocked, .chip.owner_only, .chip.audit_unavailable { color: var(--red); border-color: rgba(255,107,107,.48); background: rgba(255,107,107,.08); }

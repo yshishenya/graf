@@ -18,8 +18,11 @@ from twobrain_rec_server.auth.callbacks import (
     resolve_callback_to_user,
 )
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
-from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME, PrincipalDependency
-from twobrain_rec_server.auth.links import LinkError, LinkResult, link_provider_identity
+from twobrain_rec_server.auth.dependencies import (
+    AUTH_SESSION_COOKIE_NAME,
+    PrincipalDependency,
+    require_web_csrf,
+)
 from twobrain_rec_server.auth.policy import (
     AuthPolicySnapshot,
     read_auth_providers,
@@ -129,14 +132,6 @@ class AuthLinkRequest(BaseModel):
     expected_workspace_id: UUID
 
 
-class AuthLinkResponse(BaseModel):
-    status: str
-    user_id: UUID
-    provider: str
-    linked_identity_id: UUID
-    message: str
-
-
 class LinkedProvider(BaseModel):
     provider: str
     provider_subject: str
@@ -179,6 +174,7 @@ PROBLEM_RESPONSES = {
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"], responses=PROBLEM_RESPONSES, include_in_schema=True)
+WebCSRFDependency = Depends(require_web_csrf)
 
 
 def build_account_connected_product_analytics_payload(
@@ -438,7 +434,7 @@ async def get_workspace_auth_policy(
     return _policy_to_response(snapshot, include_disabled=True)
 
 
-@router.patch("/policy", response_model=AuthProvidersResponse)
+@router.patch("/policy", response_model=AuthProvidersResponse, dependencies=[WebCSRFDependency])
 async def patch_workspace_auth_policy(
     request: Request,
     workspace_id: UUID,
@@ -660,7 +656,7 @@ async def callback(
     return payload
 
 
-@router.post("/link", response_model=AuthLinkResponse)
+@router.post("/link", status_code=409, deprecated=True, dependencies=[WebCSRFDependency])
 async def link_provider(
     request: Request,
     payload: AuthLinkRequest,
@@ -684,76 +680,26 @@ async def link_provider(
         workspace_id=payload.expected_workspace_id,
         principal=principal,
     )
-    try:
-        result: LinkResult = await link_provider_identity(
-            db,
-            user_id=principal.user_id,
-            provider=payload.candidate_provider,
-            provider_subject=payload.candidate_provider_subject,
-            expected_workspace_id=payload.expected_workspace_id,
-            display_name=payload.candidate_display_name,
-            email=payload.candidate_email,
-            phone=payload.candidate_phone,
-        )
-    except LinkError as exc:
-        status_code = 409 if exc.code == "link_conflict" else 400
-        await _record_auth_audit(
-            db,
-            request=request,
-            workspace_id=payload.expected_workspace_id,
-            event_type="provider_link_conflict"
-            if exc.code == "link_conflict"
-            else "provider_link_rejected",
-            outcome="failure",
-            actor_user_id=principal.user_id,
-            provider=payload.candidate_provider,
-            metadata={"error_code": exc.code},
-        )
-        await db.commit()
-        raise ProblemDetail(
-            status=status_code,
-            code=exc.code,
-            title="Provider identity link failed",
-            detail=str(exc),
-        ) from exc
-    except ValueError as exc:
-        await _record_auth_audit(
-            db,
-            request=request,
-            workspace_id=payload.expected_workspace_id,
-            event_type="provider_link_rejected",
-            outcome="failure",
-            actor_user_id=principal.user_id,
-            provider=payload.candidate_provider,
-            metadata={"error_code": "link_failed"},
-        )
-        await db.commit()
-        raise ProblemDetail(
-            status=400,
-            code="link_failed",
-            title="Provider identity link failed",
-        ) from exc
     await _record_auth_audit(
         db,
         request=request,
         workspace_id=payload.expected_workspace_id,
-        event_type="provider_link_confirmed" if result.status == "confirmed" else "provider_link_requested",
+        event_type="provider_link_rejected",
+        outcome="failure",
         actor_user_id=principal.user_id,
-        user_id=result.user_id,
-        provider=result.provider,
-        metadata={"link_status": result.status},
+        provider=payload.candidate_provider,
+        metadata={"error_code": "provider_link_requires_verified_callback"},
     )
     await db.commit()
-    return AuthLinkResponse(
-        status=result.status,
-        user_id=result.user_id,
-        provider=result.provider,
-        linked_identity_id=result.linked_identity_id,
-        message=result.message,
+    raise ProblemDetail(
+        status=409,
+        code="provider_link_requires_verified_callback",
+        title="Provider link requires verified callback",
+        detail="Direct provider subject linking is disabled; use the verified provider callback flow.",
     )
 
 
-@router.post("/devices/register", response_model=AuthDeviceStateResponse)
+@router.post("/devices/register", response_model=AuthDeviceStateResponse, dependencies=[WebCSRFDependency])
 async def register_device(
     request: Request,
     payload: AuthDeviceRegisterRequest,
@@ -871,7 +817,7 @@ async def register_device(
     )
 
 
-@router.post("/devices/{device_id}/revoke", response_model=AuthDeviceRevokeResponse)
+@router.post("/devices/{device_id}/revoke", response_model=AuthDeviceRevokeResponse, dependencies=[WebCSRFDependency])
 async def revoke_device(
     request: Request,
     device_id: UUID,

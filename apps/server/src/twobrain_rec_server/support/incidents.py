@@ -29,6 +29,8 @@ from twobrain_rec_server.support.redaction import (
     stable_report_fingerprint,
 )
 
+SUPPORT_INCIDENT_RATE_LIMIT_SCOPE = "support_incident_intake"
+
 
 @dataclass(frozen=True, slots=True)
 class SupportIncidentSubmissionResult:
@@ -102,7 +104,7 @@ async def submit_support_incident(
             return _result_from_incident(idempotent_incident, dedupe_status="updated")
 
     await _touch_rate_limit(
-        settings=settings, tenant_scope=tenant_scope, db=db, report=report, now=now
+        settings=settings, tenant_scope=tenant_scope, db=db, now=now
     )
     incident, dedupe_status = await _upsert_incident(
         tenant_scope=tenant_scope,
@@ -166,16 +168,15 @@ async def _touch_rate_limit(
     settings: Settings,
     tenant_scope: TenantScope,
     db: AsyncSession,
-    report: Mapping[str, Any],
     now: datetime,
 ) -> None:
-    dedupe_key = str(report["dedupe_key"])
+    rate_limit_scope = SUPPORT_INCIDENT_RATE_LIMIT_SCOPE
     bucket = await db.scalar(
         select(SupportIncidentRateLimitBucket).where(
             SupportIncidentRateLimitBucket.workspace_id == tenant_scope.workspace_id,
             SupportIncidentRateLimitBucket.reporter_user_id == tenant_scope.user_id,
             SupportIncidentRateLimitBucket.device_id == tenant_scope.device_id,
-            SupportIncidentRateLimitBucket.dedupe_key == dedupe_key,
+            SupportIncidentRateLimitBucket.dedupe_key == rate_limit_scope,
         )
     )
     window = timedelta(seconds=int(settings.support_incident_rate_limit_window_seconds))
@@ -191,7 +192,7 @@ async def _touch_rate_limit(
             workspace_id=tenant_scope.workspace_id,
             reporter_user_id=tenant_scope.user_id,
             device_id=tenant_scope.device_id,
-            dedupe_key=dedupe_key,
+            dedupe_key=rate_limit_scope,
             window_started_at=now,
             attempt_count=1,
             last_attempt_at=now,

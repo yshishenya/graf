@@ -292,7 +292,7 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
 
     assert state.available is True
     assert state.segments[0].timestamp_label == "01:05"
-    assert state.segments[0].speaker_label == "Speaker 2"
+    assert state.segments[0].speaker_label == "SPEAKER_00"
     assert state.segments[0].source_role == "incoming_system"
     assert state.segments[0].seekable is False
     assert state.segments[0].seek_seconds is None
@@ -361,12 +361,65 @@ def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() ->
 
     by_source = {segment.source_role: segment.speaker_label for segment in state.segments}
     assert by_source == {
-        "incoming_system": "REMOTE_00",
-        "local_microphone": "MIC",
+        "incoming_system": "SPEAKER_01",
+        "local_microphone": "SPEAKER_00",
     }
 
 
-def test_dual_track_mapping_keeps_dependency_labels_when_speaker_style_label_is_present() -> None:
+def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("30.000"),
+            end_seconds=Decimal("35.000"),
+            text="current speaker",
+            source_role="incoming",
+        )
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("10.000"),
+            text="old speaker",
+            speaker_label="OLD_REMOTE",
+            source_role="incoming",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("29.000"),
+            end_seconds=Decimal("40.000"),
+            text="current speaker",
+            speaker_label="CURRENT_REMOTE",
+            source_role="incoming",
+        ),
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+    )
+
+    assert state.segments[0].speaker_label == "SPEAKER_01"
+
+
+def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> None:
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -430,9 +483,9 @@ def test_dual_track_mapping_keeps_dependency_labels_when_speaker_style_label_is_
 
     assert [segment.speaker_label for segment in transcript_state.segments] == [
         "SPEAKER_00",
-        "REMOTE_00",
+        "SPEAKER_01",
     ]
-    assert {speaker.label for speaker in speaker_state.speakers} == {"SPEAKER_00", "REMOTE_00"}
+    assert {speaker.label for speaker in speaker_state.speakers} == {"SPEAKER_00", "SPEAKER_01"}
 
 
 def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> None:
@@ -968,8 +1021,8 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
 
     assert state.available is True
     assert [(speaker.label, speaker.talk_time_percent) for speaker in state.speakers] == [
-        ("Speaker 1", 50),
-        ("Speaker 2", 50),
+        ("SPEAKER_00", 50),
+        ("SPEAKER_01", 50),
     ]
 
 
@@ -1069,7 +1122,7 @@ def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -
     state = view_models.speaker_state(diarization)
 
     assert roster[0]["display_name"] == "Calendar Name"
-    assert state.speakers[0].label == "Speaker 1"
+    assert state.speakers[0].label == "SPEAKER_00"
     assert "access_grant" not in roster[0]
     assert "share_grant" not in roster[0]
 

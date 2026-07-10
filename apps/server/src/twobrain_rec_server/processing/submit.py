@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import shutil
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
+from anyio import to_thread
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.config import Settings
@@ -31,7 +35,10 @@ from twobrain_rec_server.processing.reasons import (
     INVALID_AUDIO_PAYLOAD,
     MEDIASCRIBE_MALFORMED_RESPONSE,
     NO_RECOGNIZABLE_SPEECH,
+    PROCESSING_TEMP_STORAGE_UNAVAILABLE,
 )
+
+DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +51,14 @@ class SubmitProcessingResult:
 class ImportProcessingResult:
     imported: bool
     status: ProcessingStatus
+
+
+class ArtifactStagingError(RuntimeError):
+    pass
+
+
+class TempStorageUnavailableError(RuntimeError):
+    pass
 
 
 async def submit_to_mediascribe(
@@ -79,7 +94,7 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(BLOCKED_MISSING_ARTIFACTS)
 
-    if source.byte_length > settings.processing_max_in_memory_audio_bytes:
+    if source.byte_length > settings.processing_max_submit_audio_bytes:
         await store.set_workflow_status(
             db,
             workflow,
@@ -98,39 +113,79 @@ async def submit_to_mediascribe(
         request_mode=source.request_mode,
     )
     await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTING)
-    get_bytes_async = getattr(storage, "get_bytes_async", None)
     try:
-        if source.request_mode == "single_track":
-            media_artifact = source.source_artifact
-            if media_artifact is None:
-                raise RuntimeError(BLOCKED_MISSING_ARTIFACTS)
-            if get_bytes_async is not None:
-                media_bytes = await get_bytes_async(media_artifact.storage_object_key)
+        with tempfile.TemporaryDirectory(prefix="twobrain-rec-mediascribe-") as temp_dir:
+            temp_path = Path(temp_dir)
+            _ensure_temp_capacity(temp_path, source.byte_length)
+            if source.request_mode == "single_track":
+                media_artifact = source.source_artifact
+                if media_artifact is None:
+                    raise ArtifactStagingError("source_artifact_missing")
+                media_path = temp_path / "source-media.bin"
+                await _stage_artifact(
+                    storage,
+                    media_artifact.storage_object_key,
+                    media_path,
+                    expected_bytes=media_artifact.byte_length,
+                )
+                with media_path.open("rb") as media_file:
+                    response = await mediascribe_client.submit_single_track(
+                        media_file=media_file,
+                        media_content_type=media_artifact.codec,
+                        diarize=settings.mediascribe_diarize,
+                        summarize=settings.mediascribe_summarize,
+                    )
             else:
-                media_bytes = storage.get_bytes(media_artifact.storage_object_key)
-            response = await mediascribe_client.submit_single_track(
-                media_bytes=media_bytes,
-                media_content_type=media_artifact.codec,
-                diarize=settings.mediascribe_diarize,
-                summarize=settings.mediascribe_summarize,
-            )
-        else:
-            mic = source.mic_artifact
-            incoming = source.incoming_artifact
-            if mic is None or incoming is None:
-                raise RuntimeError(BLOCKED_MISSING_ARTIFACTS)
-            if get_bytes_async is not None:
-                mic_bytes = await get_bytes_async(mic.storage_object_key)
-                incoming_bytes = await get_bytes_async(incoming.storage_object_key)
-            else:
-                mic_bytes = storage.get_bytes(mic.storage_object_key)
-                incoming_bytes = storage.get_bytes(incoming.storage_object_key)
-            response = await mediascribe_client.submit_dual_track(
-                mic_bytes=mic_bytes,
-                incoming_bytes=incoming_bytes,
-                diarize=settings.mediascribe_diarize,
-                summarize=settings.mediascribe_summarize,
-            )
+                mic = source.mic_artifact
+                incoming = source.incoming_artifact
+                if mic is None or incoming is None:
+                    raise ArtifactStagingError("track_artifact_missing")
+                mic_path = temp_path / "microphone.wav"
+                incoming_path = temp_path / "incoming.wav"
+                await _stage_artifact(
+                    storage,
+                    mic.storage_object_key,
+                    mic_path,
+                    expected_bytes=mic.byte_length,
+                )
+                await _stage_artifact(
+                    storage,
+                    incoming.storage_object_key,
+                    incoming_path,
+                    expected_bytes=incoming.byte_length,
+                )
+                with mic_path.open("rb") as mic_file, incoming_path.open("rb") as incoming_file:
+                    response = await mediascribe_client.submit_dual_track(
+                        mic_file=mic_file,
+                        incoming_file=incoming_file,
+                        diarize=settings.mediascribe_diarize,
+                        summarize=settings.mediascribe_summarize,
+                    )
+    except ArtifactStagingError as exc:
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.BLOCKED,
+            reason_code=BLOCKED_MISSING_ARTIFACTS,
+            terminal=True,
+        )
+        raise RuntimeError(BLOCKED_MISSING_ARTIFACTS) from exc
+    except TempStorageUnavailableError as exc:
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.FAILED_RETRYABLE,
+            reason_code=PROCESSING_TEMP_STORAGE_UNAVAILABLE,
+        )
+        raise RuntimeError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
+    except OSError as exc:
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.FAILED_RETRYABLE,
+            reason_code=PROCESSING_TEMP_STORAGE_UNAVAILABLE,
+        )
+        raise RuntimeError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
     except MediaScribeClientError as exc:
         status = ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
         await store.update_mediascribe_job_status(
@@ -151,6 +206,39 @@ async def submit_to_mediascribe(
     )
     await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTED)
     return SubmitProcessingResult(job=job, submitted=True)
+
+
+def _ensure_temp_capacity(temp_dir: Path, expected_bytes: int) -> None:
+    try:
+        free_bytes = shutil.disk_usage(temp_dir).free
+    except OSError as exc:
+        raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
+    if free_bytes < expected_bytes:
+        raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE)
+
+
+async def _stage_artifact(storage: object, object_key: str, target_path: Path, *, expected_bytes: int) -> None:
+    download_to_path_async = getattr(storage, "download_to_path_async", None)
+    download_to_path = getattr(storage, "download_to_path", None)
+    try:
+        if download_to_path_async is not None:
+            downloaded = await download_to_path_async(object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES)
+        elif download_to_path is not None:
+            downloaded = await to_thread.run_sync(
+                lambda: download_to_path(object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES)
+            )
+        else:
+            raise ArtifactStagingError("storage_streaming_unavailable")
+    except KeyError as exc:
+        raise ArtifactStagingError("storage_object_missing") from exc
+    except OSError as exc:
+        raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
+    try:
+        actual_bytes = target_path.stat().st_size
+    except OSError as exc:
+        raise ArtifactStagingError("storage_object_not_staged") from exc
+    if downloaded != expected_bytes or actual_bytes != expected_bytes:
+        raise ArtifactStagingError("storage_object_size_mismatch")
 
 
 async def poll_and_import_mediascribe_result(

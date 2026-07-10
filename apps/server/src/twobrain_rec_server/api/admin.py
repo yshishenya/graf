@@ -4,7 +4,7 @@ from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -597,10 +597,20 @@ async def download_admin_meeting_artifact(
         device_id=device.device_id,
     )
     await db.commit()
+    headers = {
+        "Content-Disposition": f'attachment; filename="{download.filename}"',
+        "Content-Length": str(download.byte_length),
+    }
+    if not isinstance(download.body, bytes):
+        return StreamingResponse(
+            download.body,
+            media_type="application/octet-stream",
+            headers=headers,
+        )
     return Response(
         content=download.body,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{download.filename}"'},
+        headers=headers,
     )
 
 

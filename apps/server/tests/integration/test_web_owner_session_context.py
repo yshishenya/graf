@@ -64,6 +64,16 @@ async def _set_workspace_vk_policy(client, enabled: bool) -> None:
         await db.commit()
 
 
+async def _set_workspace_self_enrollment_policy(client, enabled: bool) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        if policy is None:
+            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            db.add(policy)
+        policy.allow_provider_self_enrollment = enabled
+        await db.commit()
+
+
 async def _seed_owner_review_session(
     client,
     *,
@@ -504,6 +514,7 @@ def test_browser_email_login_wrong_code_consumes_state(client) -> None:
 
 
 def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> None:
+    client.portal.call(_set_workspace_self_enrollment_policy, client, True)
     signup_email = "new-owner@example.test"
 
     start = client.post(
@@ -553,6 +564,55 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
             return identity
 
     client.portal.call(read_created_identity)
+
+
+def test_browser_email_signup_requires_workspace_enrollment_policy(client) -> None:
+    signup_email = "closed-signup@example.test"
+
+    start = client.post(
+        "/sign-up/email/start",
+        data={"email": signup_email, "next": "/meetings"},
+    )
+
+    assert start.status_code == 403
+    assert "Регистрация в этом кабинете закрыта" in start.text
+    assert 'action="/sign-up/email/verify"' not in start.text
+
+    async def no_created_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == signup_email))
+            assert identity is None
+
+    client.portal.call(no_created_identity)
+
+
+def test_browser_email_signup_verify_rechecks_workspace_enrollment_policy(client) -> None:
+    client.portal.call(_set_workspace_self_enrollment_policy, client, True)
+    signup_email = "stale-policy-signup@example.test"
+    start = client.post(
+        "/sign-up/email/start",
+        data={"email": signup_email, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+
+    client.portal.call(_set_workspace_self_enrollment_policy, client, False)
+    callback = client.post(
+        "/sign-up/email/verify",
+        data={
+            "email": signup_email,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 400
+    assert "Регистрация в этом кабинете закрыта" in callback.text
+    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
 
 
 def test_browser_email_login_production_delivery_hides_code(monkeypatch, client) -> None:

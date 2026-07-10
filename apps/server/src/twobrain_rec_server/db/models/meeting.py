@@ -10,7 +10,14 @@ from twobrain_rec_server.db.base import Base
 
 class Meeting(Base):
     __tablename__ = "meetings"
-    __table_args__ = (UniqueConstraint("workspace_id", "local_recording_id"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "created_by_user_id",
+            "local_recording_id",
+            name="uq_meetings_workspace_user_local_recording",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)

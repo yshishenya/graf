@@ -10,7 +10,7 @@ from twobrain_rec_server.api.schemas import (
     SupportIncidentResponse,
 )
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.auth.dependencies import get_tenant_scope
+from twobrain_rec_server.auth.dependencies import get_tenant_scope, require_web_csrf
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.support.github_issues import GitHubIssueClient
 from twobrain_rec_server.support.incidents import (
@@ -31,6 +31,7 @@ PROBLEM_RESPONSES = {
 router = APIRouter(prefix="/api/v1", tags=["support-incidents"], responses=PROBLEM_RESPONSES)
 
 TenantDependency = Depends(get_tenant_scope)
+WebCSRFDependency = Depends(require_web_csrf)
 
 
 async def get_request_db_session(
@@ -92,6 +93,7 @@ GitHubClientDependency = Depends(get_github_issue_client)
     "/desktop/support-incidents",
     status_code=201,
     response_model=SupportIncidentResponse,
+    dependencies=[WebCSRFDependency],
 )
 async def create_support_incident(
     payload: SupportIncidentReportRequest,

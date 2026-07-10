@@ -5,11 +5,13 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fakes.auth_providers import fake_provider_map
+from twobrain_rec_server.api.auth import router as auth_api_router
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import issue_auth_session
@@ -100,6 +102,27 @@ class FakeProviderHttpClient:
                 "display_name": "Verified User",
             }
         raise AssertionError(f"unexpected provider URL: {url}")
+
+
+def test_authenticated_auth_mutation_routes_require_web_csrf_dependency() -> None:
+    expected_paths = {
+        "/api/v1/auth/policy",
+        "/api/v1/auth/link",
+        "/api/v1/auth/devices/register",
+        "/api/v1/auth/devices/{device_id}/revoke",
+    }
+    route_dependencies = {}
+    for route in auth_api_router.routes:
+        if not isinstance(route, APIRoute) or not (route.methods or set()) & {"POST", "PUT", "PATCH", "DELETE"}:
+            continue
+        route_dependencies[route.path] = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in route.dependant.dependencies
+            if dependency.call is not None
+        }
+
+    missing = sorted(path for path in expected_paths if "require_web_csrf" not in route_dependencies.get(path, set()))
+    assert missing == []
 
 
 def _write_secret_file(client: TestClient, tmp_path, provider: str, value: str) -> None:
@@ -750,7 +773,7 @@ def test_auth_callback_fails_for_inactive_identity_owner(monkeypatch, client: Te
     assert response.json()["code"] == "identity_user_inactive"
 
 
-def test_auth_link_accepts_candidate_phone(monkeypatch, client: TestClient) -> None:
+def test_auth_link_rejects_raw_candidate_subject(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
 
     start = client.post(
@@ -773,23 +796,35 @@ def test_auth_link_accepts_candidate_phone(monkeypatch, client: TestClient) -> N
             "expected_workspace_id": str(WORKSPACE_ID),
         },
     )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "confirmed"
-    assert payload["provider"] == "vk"
+    assert response.status_code == 409
+    assert response.json()["code"] == "provider_link_requires_verified_callback"
     linked_user_id = callback_payload["user_id"]
 
     events = _load_auth_audit_events(client)
-    link_events = [event for event in events if event.event_type == "provider_link_confirmed"]
+    link_events = [event for event in events if event.event_type == "provider_link_rejected"]
     assert len(link_events) == 1
     link_event = link_events[0]
-    assert link_event.outcome == "success"
-    assert str(link_event.user_id) == linked_user_id
+    assert link_event.outcome == "failure"
+    assert link_event.user_id is None
     assert str(link_event.actor_user_id) == linked_user_id
-    assert link_event.metadata_json["link_status"] == "confirmed"
+    assert link_event.metadata_json == {"error_code": "provider_link_requires_verified_callback"}
+
+    async def no_raw_subject_link() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == "vk",
+                    ExternalIdentity.provider_subject == "VK-CANDIDATE",
+                )
+            )
+            assert identity is None
+
+    import asyncio
+
+    asyncio.run(no_raw_subject_link())
 
 
-def test_auth_link_conflict_persists_metadata_only_audit(monkeypatch, client: TestClient) -> None:
+def test_auth_link_rejects_direct_subject_without_leaking_conflict(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
     other_user_id = uuid4()
 
@@ -832,12 +867,12 @@ def test_auth_link_conflict_persists_metadata_only_audit(monkeypatch, client: Te
     )
 
     assert response.status_code == 409
-    assert response.json()["code"] == "link_conflict"
+    assert response.json()["code"] == "provider_link_requires_verified_callback"
     events = _load_auth_audit_events(client)
-    conflict_events = [event for event in events if event.event_type == "provider_link_conflict"]
+    conflict_events = [event for event in events if event.event_type == "provider_link_rejected"]
     assert len(conflict_events) == 1
     assert conflict_events[0].outcome == "failure"
-    assert conflict_events[0].metadata_json == {"error_code": "link_conflict"}
+    assert conflict_events[0].metadata_json == {"error_code": "provider_link_requires_verified_callback"}
 
 
 def test_auth_device_register_revoke_blocks_session_bound_ingest(monkeypatch, client: TestClient) -> None:

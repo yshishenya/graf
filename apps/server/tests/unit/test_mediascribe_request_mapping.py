@@ -1,3 +1,5 @@
+from io import BytesIO
+
 import httpx
 import pytest
 
@@ -20,8 +22,8 @@ async def test_dual_track_request_uses_mic_and_incoming_without_mixed_or_silence
         transport=httpx.MockTransport(handler),
     )
     response = await client.submit_dual_track(
-        mic_bytes=b"mic-audio",
-        incoming_bytes=b"incoming-audio",
+        mic_file=BytesIO(b"mic-audio"),
+        incoming_file=BytesIO(b"incoming-audio"),
         diarize=True,
         summarize=False,
     )
@@ -47,7 +49,7 @@ async def test_single_track_request_uses_one_file_without_dual_track_fields() ->
         transport=httpx.MockTransport(handler),
     )
     response = await client.submit_single_track(
-        media_bytes=b"media-audio",
+        media_file=BytesIO(b"media-audio"),
         media_content_type="audio/mp4",
         diarize=True,
         summarize=True,
@@ -70,7 +72,7 @@ async def test_single_track_request_infers_safe_filename_when_upload_codec_is_ge
         transport=httpx.MockTransport(handler),
     )
     response = await client.submit_single_track(
-        media_bytes=b"\x00\x00\x00\x18ftypisommedia",
+        media_file=BytesIO(b"\x00\x00\x00\x18ftypisommedia"),
         media_content_type="application/octet-stream",
         diarize=True,
         summarize=True,

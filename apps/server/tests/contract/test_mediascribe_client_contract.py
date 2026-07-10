@@ -1,3 +1,5 @@
+from io import BytesIO
+
 import httpx
 import pytest
 
@@ -39,8 +41,8 @@ async def test_mediascribe_client_submits_only_dual_track_fields_and_server_key(
         transport=httpx.MockTransport(handler),
     )
     response = await client.submit_dual_track(
-        mic_bytes=b"mic",
-        incoming_bytes=b"incoming",
+        mic_file=BytesIO(b"mic"),
+        incoming_file=BytesIO(b"incoming"),
         diarize=True,
         summarize=False,
     )
@@ -79,8 +81,8 @@ async def test_mediascribe_client_maps_malformed_success_payloads_to_safe_retrya
 
     with pytest.raises(MediaScribeClientError) as exc:
         await client.submit_dual_track(
-            mic_bytes=b"mic",
-            incoming_bytes=b"incoming",
+            mic_file=BytesIO(b"mic"),
+            incoming_file=BytesIO(b"incoming"),
             diarize=True,
             summarize=False,
         )
