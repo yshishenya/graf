@@ -381,13 +381,34 @@ macOS application, and publish a release from the merged `master` SHA.
   `TwoBrainRecApp` product.
 - [X] T066 Run `infra/scripts/ci-local.sh` and the metadata-only forbidden-content
   scans against the exact merge candidate.
-- [ ] T067 Build, sign, install, launch, and verify the local owner-machine
-  `GRAF.app` package while preserving the Developer ID/notarization limitation.
-- [ ] T068 Merge PR #3040 and verify that its merge SHA is contained in current
+- [X] T067 Build, sign, and verify the local owner-machine `GRAF.app` package;
+  record that installation in `/Applications` requires interactive macOS admin
+  authorization and preserve the Developer ID/notarization limitation.
+- [X] T068 Merge PR #3040 and verify that its merge SHA is contained in current
   `master`.
-- [ ] T069 Prepare and publish the next CalVer release from the exact merged
+- [X] T069 Prepare and publish the next CalVer release from the exact merged
   `master` SHA with Russian release notes and migration/rollback limitations.
-- [ ] T070 Run production deploy dry-run, execute, health checks, smoke, and
+- [X] T070 Run production deploy dry-run, execute, health checks, smoke, and
   runtime-SHA ancestry verification.
-- [ ] T071 Reconcile all feature-090 GitHub issues with post-deploy evidence and
+- [X] T071 Reconcile all feature-090 GitHub issues with post-deploy evidence and
   remove only feature-specific temporary closeout state.
+
+### Phase 11 closeout evidence
+
+- PR #3040 merged to `master`; release PR #3042 merged.
+- Release `v2026.07.11.1` targets merged SHA
+  `eec53931b99aca8629ec208c2c75a86d8c05c649`.
+- Focused server/auth/migration/storage/egress validation: `142 passed`.
+- Focused macOS validation: `150 tests, 0 failures`; release build passed.
+- Full local CI and deploy-gate CI: `1220 passed, 4 skipped`; lint, compile,
+  compose validation, and deployment evidence scan passed.
+- Production backup and restore rehearsal passed; migration head is
+  `0020_user_scoped_recording_ids`; disposable production RLS probe passed.
+- Production smoke `smoke-20260710-211520` passed with
+  `readiness_verdict=infra_smoke_ready`; smoke cleanup passed.
+- Local `GRAF.app` and `graf-local.pkg` version `2026.07.11.1` built and passed
+  strict `codesign` verification with the local self-signed identity. Package
+  SHA-256:
+  `0933abf173f1367a382835a1d723c1f5c1b432a1895f7aa1108092473e91a38e`.
+  Public Developer ID signing/notarization remains unavailable, and installing
+  the local package requires interactive administrator authorization.
