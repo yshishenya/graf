@@ -20,6 +20,7 @@ NEW_CONSTRAINT = "uq_meetings_workspace_user_local_recording"
 LEGACY_MEDIA_REVISION_CONSTRAINT = "uq_media_revisions_workspace_local_revision"
 NEW_MEDIA_REVISION_CONSTRAINT = "uq_media_revisions_workspace_meeting_local_revision"
 POSTGRES_LEGACY_MEETING_CONSTRAINTS = (
+    "uq_meetings_workspace_id",
     "meetings_workspace_id_local_recording_id_key",
     LEGACY_CONSTRAINT,
 )
@@ -30,6 +31,10 @@ POSTGRES_LEGACY_MEDIA_REVISION_CONSTRAINTS = (
 NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s_%(column_1_name)s",
 }
+MEETING_LEGACY_COLUMNS = ("workspace_id", "local_recording_id")
+MEETING_NEW_COLUMNS = ("workspace_id", "created_by_user_id", "local_recording_id")
+MEDIA_REVISION_LEGACY_COLUMNS = ("workspace_id", "local_media_revision_id")
+MEDIA_REVISION_NEW_COLUMNS = ("workspace_id", "meeting_id", "local_media_revision_id")
 
 
 def _dialect_name() -> str:
@@ -57,23 +62,64 @@ def _postgres_constraint_exists(table_name: str, constraint_name: str) -> bool:
     )
 
 
+def _postgres_unique_constraint_name_for_columns(table_name: str, columns: tuple[str, ...]) -> str | None:
+    return op.get_bind().execute(
+        sa.text(
+            """
+            select c.conname
+            from pg_constraint c
+            join pg_class t on t.oid = c.conrelid
+            where t.relname = :table_name
+              and c.contype = 'u'
+              and pg_table_is_visible(t.oid)
+              and (
+                  select string_agg(a.attname, ',' order by keys.ordinality)
+                  from unnest(c.conkey) with ordinality as keys(attnum, ordinality)
+                  join pg_attribute a on a.attrelid = c.conrelid and a.attnum = keys.attnum
+              ) = :columns_key
+            """
+        ),
+        {"table_name": table_name, "columns_key": ",".join(columns)},
+    ).scalar()
+
+
+def _drop_postgres_unique_constraint(
+    table_name: str,
+    candidate_names: tuple[str, ...],
+    columns: tuple[str, ...],
+) -> bool:
+    for constraint_name in candidate_names:
+        if _postgres_constraint_exists(table_name, constraint_name):
+            op.drop_constraint(constraint_name, table_name, type_="unique")
+            return True
+
+    column_constraint_name = _postgres_unique_constraint_name_for_columns(table_name, columns)
+    if column_constraint_name is not None:
+        op.drop_constraint(column_constraint_name, table_name, type_="unique")
+        return True
+    return False
+
+
+def _ensure_postgres_unique_constraint(table_name: str, constraint_name: str, columns: tuple[str, ...]) -> None:
+    if _postgres_unique_constraint_name_for_columns(table_name, columns) is not None:
+        return
+    op.create_unique_constraint(constraint_name, table_name, list(columns))
+
+
 def _drop_legacy_constraint() -> None:
     if _dialect_name() == "postgresql":
-        for constraint_name in POSTGRES_LEGACY_MEETING_CONSTRAINTS:
-            if _postgres_constraint_exists("meetings", constraint_name):
-                op.drop_constraint(constraint_name, "meetings", type_="unique")
-                return
-        raise RuntimeError("legacy meetings local_recording_id unique constraint not found")
+        _drop_postgres_unique_constraint("meetings", POSTGRES_LEGACY_MEETING_CONSTRAINTS, MEETING_LEGACY_COLUMNS)
+        return
     with op.batch_alter_table("meetings", naming_convention=NAMING_CONVENTION) as batch_op:
         batch_op.drop_constraint(LEGACY_CONSTRAINT, type_="unique")
 
 
 def _restore_legacy_constraint() -> None:
     if _dialect_name() == "postgresql":
-        op.create_unique_constraint(
-            "meetings_workspace_id_local_recording_id_key",
+        _ensure_postgres_unique_constraint(
             "meetings",
-            ["workspace_id", "local_recording_id"],
+            LEGACY_CONSTRAINT,
+            MEETING_LEGACY_COLUMNS,
         )
         return
     with op.batch_alter_table("meetings", naming_convention=NAMING_CONVENTION) as batch_op:
@@ -82,21 +128,22 @@ def _restore_legacy_constraint() -> None:
 
 def _drop_legacy_media_revision_constraint() -> None:
     if _dialect_name() == "postgresql":
-        for constraint_name in POSTGRES_LEGACY_MEDIA_REVISION_CONSTRAINTS:
-            if _postgres_constraint_exists("media_revisions", constraint_name):
-                op.drop_constraint(constraint_name, "media_revisions", type_="unique")
-                return
-        raise RuntimeError("legacy media_revisions local_media_revision_id unique constraint not found")
+        _drop_postgres_unique_constraint(
+            "media_revisions",
+            POSTGRES_LEGACY_MEDIA_REVISION_CONSTRAINTS,
+            MEDIA_REVISION_LEGACY_COLUMNS,
+        )
+        return
     with op.batch_alter_table("media_revisions") as batch_op:
         batch_op.drop_constraint(LEGACY_MEDIA_REVISION_CONSTRAINT, type_="unique")
 
 
 def _restore_legacy_media_revision_constraint() -> None:
     if _dialect_name() == "postgresql":
-        op.create_unique_constraint(
-            LEGACY_MEDIA_REVISION_CONSTRAINT,
+        _ensure_postgres_unique_constraint(
             "media_revisions",
-            ["workspace_id", "local_media_revision_id"],
+            LEGACY_MEDIA_REVISION_CONSTRAINT,
+            MEDIA_REVISION_LEGACY_COLUMNS,
         )
         return
     with op.batch_alter_table("media_revisions") as batch_op:
@@ -107,15 +154,15 @@ def upgrade() -> None:
     _drop_legacy_constraint()
     _drop_legacy_media_revision_constraint()
     if _dialect_name() == "postgresql":
-        op.create_unique_constraint(
-            NEW_CONSTRAINT,
+        _ensure_postgres_unique_constraint(
             "meetings",
-            ["workspace_id", "created_by_user_id", "local_recording_id"],
+            NEW_CONSTRAINT,
+            MEETING_NEW_COLUMNS,
         )
-        op.create_unique_constraint(
-            NEW_MEDIA_REVISION_CONSTRAINT,
+        _ensure_postgres_unique_constraint(
             "media_revisions",
-            ["workspace_id", "meeting_id", "local_media_revision_id"],
+            NEW_MEDIA_REVISION_CONSTRAINT,
+            MEDIA_REVISION_NEW_COLUMNS,
         )
         return
     with op.batch_alter_table("meetings") as batch_op:
@@ -132,8 +179,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     if _dialect_name() == "postgresql":
-        op.drop_constraint(NEW_CONSTRAINT, "meetings", type_="unique")
-        op.drop_constraint(NEW_MEDIA_REVISION_CONSTRAINT, "media_revisions", type_="unique")
+        _drop_postgres_unique_constraint("meetings", (NEW_CONSTRAINT,), MEETING_NEW_COLUMNS)
+        _drop_postgres_unique_constraint("media_revisions", (NEW_MEDIA_REVISION_CONSTRAINT,), MEDIA_REVISION_NEW_COLUMNS)
     else:
         with op.batch_alter_table("meetings") as batch_op:
             batch_op.drop_constraint(NEW_CONSTRAINT, type_="unique")

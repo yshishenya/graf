@@ -31,33 +31,49 @@ USER_SCOPED_RECORDING_MIGRATION = (
 
 
 class _ScalarResult:
-    def __init__(self, value: int | None) -> None:
+    def __init__(self, value: object | None) -> None:
         self.value = value
 
-    def scalar(self) -> int | None:
+    def scalar(self) -> object | None:
         return self.value
 
 
 class _FakePostgresBind:
     dialect = SimpleNamespace(name="postgresql")
 
-    def __init__(self, existing_constraints: set[str]) -> None:
+    def __init__(
+        self,
+        existing_constraints: set[str],
+        constraints_by_columns: dict[tuple[str, str], str] | None = None,
+    ) -> None:
         self.existing_constraints = existing_constraints
+        self.constraints_by_columns = constraints_by_columns or {}
 
     def execute(self, _statement, params) -> _ScalarResult:
-        return _ScalarResult(1 if params["constraint_name"] in self.existing_constraints else None)
+        if "constraint_name" in params:
+            return _ScalarResult(1 if params["constraint_name"] in self.existing_constraints else None)
+        constraint_name = self.constraints_by_columns.get((params["table_name"], params["columns_key"]))
+        return _ScalarResult(constraint_name)
 
 
 class _FakeMigrationOp:
-    def __init__(self, existing_constraints: set[str]) -> None:
-        self.bind = _FakePostgresBind(existing_constraints)
+    def __init__(
+        self,
+        existing_constraints: set[str],
+        constraints_by_columns: dict[tuple[str, str], str] | None = None,
+    ) -> None:
+        self.bind = _FakePostgresBind(existing_constraints, constraints_by_columns)
         self.dropped_constraints: list[tuple[str, str, str | None]] = []
+        self.created_constraints: list[tuple[str, str, list[str]]] = []
 
     def get_bind(self) -> _FakePostgresBind:
         return self.bind
 
     def drop_constraint(self, name: str, table_name: str, type_: str | None = None) -> None:
         self.dropped_constraints.append((name, table_name, type_))
+
+    def create_unique_constraint(self, name: str, table_name: str, columns: list[str]) -> None:
+        self.created_constraints.append((name, table_name, columns))
 
 
 def _load_migration_module(path: Path, module_name: str):
@@ -130,6 +146,7 @@ def test_user_scoped_recording_migration_drops_both_postgres_legacy_constraint_n
     migration = _load_migration_module(USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration")
 
     for legacy_name in (
+        "uq_meetings_workspace_id",
         "meetings_workspace_id_local_recording_id_key",
         "uq_meetings_workspace_id_local_recording_id",
     ):
@@ -150,6 +167,46 @@ def test_user_scoped_recording_migration_drops_both_postgres_legacy_constraint_n
         migration._drop_legacy_media_revision_constraint()
 
         assert fake_op.dropped_constraints == [(legacy_name, "media_revisions", "unique")]
+
+
+def test_user_scoped_recording_migration_falls_back_to_postgres_constraint_columns() -> None:
+    migration = _load_migration_module(USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration_columns")
+    fake_op = _FakeMigrationOp(
+        set(),
+        {
+            ("meetings", "workspace_id,local_recording_id"): "custom_meetings_recording_unique",
+            ("media_revisions", "workspace_id,local_media_revision_id"): "custom_media_revision_unique",
+        },
+    )
+    migration.op = fake_op
+
+    migration._drop_legacy_constraint()
+    migration._drop_legacy_media_revision_constraint()
+
+    assert fake_op.dropped_constraints == [
+        ("custom_meetings_recording_unique", "meetings", "unique"),
+        ("custom_media_revision_unique", "media_revisions", "unique"),
+    ]
+
+
+def test_user_scoped_recording_migration_skips_existing_postgres_target_constraints() -> None:
+    migration = _load_migration_module(USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration_existing")
+    fake_op = _FakeMigrationOp(
+        set(),
+        {
+            ("meetings", "workspace_id,created_by_user_id,local_recording_id"): migration.NEW_CONSTRAINT,
+            (
+                "media_revisions",
+                "workspace_id,meeting_id,local_media_revision_id",
+            ): migration.NEW_MEDIA_REVISION_CONSTRAINT,
+        },
+    )
+    migration.op = fake_op
+
+    migration.upgrade()
+
+    assert fake_op.dropped_constraints == []
+    assert fake_op.created_constraints == []
 
 
 def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:
