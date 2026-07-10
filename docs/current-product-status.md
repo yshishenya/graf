@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-09
+Date: 2026-07-10
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -72,11 +72,14 @@ metadata-only evidence остаются подробной историей ре
   dashboard readiness review, product rollout readiness, and paid campaign
   launch remain blocked/follow-up gates. Post-runtime review fixes were
   deployed on 2026-07-09 at SHA
-  `f12b8761538a31152a1cf3db9780643cb55d1301`; live verification showed GRAF
+  `f12b8761538a31152a1cf3db9780643cb55d1301`; follow-up analytics/audit fixes
+  were deployed on 2026-07-10 at SHA
+  `11714411c0c870732d74d9972e750d782f60950e`. Live verification showed GRAF
   `ready`, PostHog `_health=ok`, single/versioned analytics controller loading
   on `/`, `/download`, and `/login`, PostHog live-safe web/desktop delivery,
-  PostHog aggregate storage presence, and consent-gated Yandex public goal
-  delivery.
+  PostHog aggregate storage presence, consent-gated Yandex public goal
+  delivery, provider-page validation pass, and provider smoke with
+  `product_rollout=blocked` plus `campaign_launch=blocked`.
 - Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
   recording state and one-action stop from feature `007`.
 - Local recording persistence from feature `008` is accepted for local artifact

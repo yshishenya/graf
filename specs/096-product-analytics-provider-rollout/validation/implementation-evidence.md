@@ -199,6 +199,23 @@ meeting content, transcripts, audio, signed URLs, or private local paths.
 | Live-secret guard | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_product_activation_analytics.py::test_no_live_product_analytics_secrets_are_committed` passed: `1 passed`. |
 | Product rollout readiness | intentionally blocked | 096 remains a provider/infrastructure rollout, not a product rollout approval. `product_rollout_allowed=false`, `campaign_launch_allowed=false`, Yandex offline live upload still requires OAuth secret-file setup and live upload smoke, real provider dashboard review remains separate, and paid campaign launch remains blocked by 096. |
 
+## Production Deploy Closeout: 2026-07-10
+
+This section records the production deploy after the follow-up review fixes. It
+is metadata-only and excludes live counter IDs, PostHog project keys, OAuth
+tokens, cookies, visitor/account rows, raw payloads, screenshots, names, emails,
+meeting content, transcripts, audio, signed URLs, private local paths, smoke
+meeting IDs, session IDs, and auth session IDs.
+
+| Area | Status | Metadata-Only Evidence |
+| --- | --- | --- |
+| Pre-execute branch sync | corrected | The first `infra/scripts/cd-remote.sh --execute` attempt stopped before remote deploy with `origin_sha_mismatch` because the new review-fix commit was not yet pushed. The branch was pushed, then `infra/scripts/cd-remote.sh --dry-run` passed again before execute. |
+| Production execute | pass | `infra/scripts/cd-remote.sh --execute` passed on branch `096-product-analytics-provider-rollout` with deployed SHA `11714411c0c870732d74d9972e750d782f60950e`, local server tests `1239 passed, 4 skipped`, server lint passed, Python compile passed, deployment evidence scan passed, backup passed, isolated restore rehearsal passed, production config validation passed, migration verification passed, RLS disposable-database probe passed, production smoke passed, and `readiness_verdict=infra_smoke_ready`. |
+| Public health after deploy | pass | `curl -fsS https://rec.2brain.pro/api/v1/health/live` returned `ok`; `curl -fsS https://rec.2brain.pro/api/v1/health/ready` returned `ready`. |
+| Provider page validation after deploy | pass | `infra/scripts/validate-product-analytics-provider-pages.sh` passed with `posthog_autocapture=current_and_future_pages_enabled`, `posthog_replay=disabled`, `yandex_public_scope=public_landing_public_download`, `webvisor_maps_forms=disabled`, `desktop_direct_posthog=contract_tested`, and `desktop_direct_yandex=blocked`. |
+| Provider smoke after deploy | pass | `infra/scripts/run-product-analytics-provider-smoke.sh` passed with `provider_smoke_result=pass`, `yandex_render_config=present`, `posthog_live_safe_delivery=transport_verified`, `yandex_live_safe_upload=transport_verified`, `product_rollout=blocked`, `campaign_launch=blocked`, `no_secret_scan=metadata_only_pass`, and `rollback_status=ready_not_executed`. |
+| Point 3 rollout/campaign boundary | preserved | The production deploy did not convert provider/infrastructure readiness into product rollout readiness. Product rollout and paid campaign launch remain blocked by 096; Yandex offline live upload and real dashboard business review remain separate follow-up gates. |
+
 ## Official Documentation Reviewed
 
 Planning research reviewed official provider documentation for:
