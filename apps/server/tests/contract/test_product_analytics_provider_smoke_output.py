@@ -26,6 +26,7 @@ def test_provider_smoke_output_covers_dashboard_blockers_and_no_secret_status() 
         "posthog_desktop_direct=contract_tested",
         "posthog_autocapture=current_pages_enabled",
         "yandex_offline=dry_run_two_conversions",
+        "yandex_render_config=present",
         "yandex_live_safe_upload=transport_verified",
         "dashboard_readiness=metadata_only_live_safe_verified",
         "dashboard_goal_visibility=metadata_only_contract_verified",

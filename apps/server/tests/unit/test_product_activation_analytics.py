@@ -12,7 +12,10 @@ from twobrain_rec_server.product_analytics.forbidden_fields import (
     assert_no_forbidden_fields,
     find_forbidden_fields,
 )
-from twobrain_rec_server.product_analytics.identity import build_safe_identity
+from twobrain_rec_server.product_analytics.identity import (
+    build_safe_identity,
+    is_safe_pseudonymous_id,
+)
 from twobrain_rec_server.product_analytics.milestones import (
     FirstMilestoneLedger,
     first_value_decision,
@@ -131,6 +134,18 @@ def test_safe_identity_is_pseudonymous_and_has_no_raw_ids() -> None:
     assert identity.account_pseudonym and identity.account_pseudonym.startswith("graf_pseudo_account_")
 
 
+def test_safe_pseudonymous_identity_contract_is_strict() -> None:
+    assert is_safe_pseudonymous_id("graf_pseudo_browser_anonymous")
+    assert is_safe_pseudonymous_id("graf_pseudo_user_0df5e588f8ab9069052309bedb08556d")
+    assert is_safe_pseudonymous_id("graf_pseudo_workspace_6ab157262fc81713")
+    assert is_safe_pseudonymous_id("graf_pseudo_account_01234567")
+
+    assert not is_safe_pseudonymous_id("graf_pseudo_user_realname")
+    assert not is_safe_pseudonymous_id("graf_pseudo_user_abc")
+    assert not is_safe_pseudonymous_id("graf_pseudo_device_0123456789abcdef")
+    assert not is_safe_pseudonymous_id("graf_pseudo_user_01234567@example.test")
+
+
 def test_event_builder_rejects_fields_outside_allowlist() -> None:
     identity = build_safe_identity(user_source_id="user-094")
 
@@ -185,7 +200,7 @@ def test_first_value_requires_ready_useful_result_view() -> None:
 
 def test_first_milestones_dedupe_by_stable_pseudonymous_user() -> None:
     ledger = FirstMilestoneLedger()
-    user_id = "graf_pseudo_user_abc"
+    user_id = "graf_pseudo_user_abcdef12"
 
     assert ledger.record(user_id, "desktop_first_opened") is True
     assert ledger.record(user_id, "desktop_first_opened") is False
@@ -197,7 +212,7 @@ def test_telemetry_gate_state_transitions_and_access_rules() -> None:
     accepted = transition_gate_state(
         record,
         "accepted",
-        pseudonymous_user_id="graf_pseudo_user_abc",
+        pseudonymous_user_id="graf_pseudo_user_abcdef12",
         accepted_surface="desktop_onboarding",
     )
     update_required = transition_gate_state(accepted, "terms_update_required")

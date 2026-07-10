@@ -16,19 +16,38 @@
         <input name="date_to" type="date" value="{{ view.filters.date_to or '' }}">
       </label>
       <label>Пользователь
-        <input name="user_id" type="text" value="{{ view.filters.user_id or '' }}">
+        <input name="user_id" type="text" value="{{ view.filters.user_id or '' }}" placeholder="UUID пользователя" autocomplete="off">
       </label>
       <label>Действие
-        <input name="action" type="text" value="{{ view.filters.action or '' }}">
+        <select name="action">
+          <option value="">Все действия</option>
+          {% for option in view.audit.filter_options.actions %}
+            <option value="{{ option.value }}"{% if view.filters.action == option.value %} selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
       </label>
       <label>Объект
-        <input name="object_kind" type="text" value="{{ view.filters.object_kind or '' }}">
+        <select name="object_kind">
+          <option value="">Все объекты</option>
+          {% for option in view.audit.filter_options.object_kinds %}
+            <option value="{{ option.value }}"{% if view.filters.object_kind == option.value %} selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>ID объекта
+        <input name="object_id" type="text" value="{{ view.filters.object_id or '' }}" placeholder="UUID или ID объекта" autocomplete="off">
       </label>
       <label>Результат
-        <input name="outcome" type="text" value="{{ view.filters.outcome or '' }}">
+        <select name="outcome">
+          <option value="">Все результаты</option>
+          {% for option in view.audit.filter_options.outcomes %}
+            <option value="{{ option.value }}"{% if view.filters.outcome == option.value %} selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
       </label>
       <button type="submit">Применить</button>
     </form>
+    <p class="admin-empty">Показано {{ view.audit.entries|length }} событий. Фильтры работают по дате, пользователю, действию, объекту и результату.</p>
     {% if view.audit.entries %}
       <table class="admin-table">
         <thead>
@@ -58,6 +77,7 @@
               <td>
                 <strong>{{ entry.action_label }}</strong>
                 <span class="admin-muted-token">{{ entry.action }}</span>
+                <span class="admin-muted-token">{{ entry.summary }}</span>
               </td>
               <td>
                 {% if entry.object_href %}
@@ -65,6 +85,7 @@
                 {% else %}
                   {{ entry.object_label }}
                 {% endif %}
+                <span class="admin-muted-token">{{ entry.object_kind_label }}{% if entry.object_id %} · {{ entry.object_id }}{% endif %}</span>
               </td>
               <td>
                 <strong>{{ entry.outcome_label }}</strong>

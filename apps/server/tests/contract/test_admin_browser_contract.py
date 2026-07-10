@@ -129,6 +129,15 @@ def test_admin_metrics_and_audit_pages_explain_records(client) -> None:
     assert "Что сделал" in audit.text
     assert "Детали" in audit.text
     assert "кто выполнил действие" in audit.text
+    assert 'name="object_id"' in audit.text
+    assert "<option value=\"calendar_connect_start\">Подключение календаря начато</option>" in audit.text
+    assert "<option value=\"download_requested\">Запрос скачивания</option>" in audit.text
+    assert "<option value=\"meeting\">Встреча</option>" in audit.text
+    assert "<option value=\"calendar_source\">Календарный источник</option>" in audit.text
+    assert "<option value=\"failure\">Ошибка</option>" in audit.text
+    assert "<option value=\"skipped\">Пропущено</option>" in audit.text
+    assert "<option value=\"share_granted\">Доступ к встрече выдан</option>" in audit.text
+    assert "Фильтры работают по дате" in audit.text
 
 
 async def _seed_browser_audit_entry(client) -> None:

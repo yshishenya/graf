@@ -41,13 +41,7 @@ public struct ProductActivationAnalyticsClient: Sendable {
         guard config.allowsPostHogDirectRoute else {
             return nil
         }
-        let endpoint = config.posthogCaptureEndpoint ??
-            config.posthogHost?
-                .appendingPathComponent("api")
-                .appendingPathComponent("v1")
-                .appendingPathComponent("product-analytics")
-                .appendingPathComponent("posthog-desktop-capture")
-        guard let endpoint else {
+        guard let endpoint = config.posthogCaptureEndpoint else {
             return nil
         }
         guard let distinctId = payload.stablePseudonymousUserId else {

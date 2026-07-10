@@ -92,13 +92,13 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
         safe = client.post(
             "/api/v1/product-analytics/posthog-web-capture",
             json={
-                "distinct_id": "graf_pseudo_user_contract",
+                "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "page_class": "settings",
                 "role": "owner@example.test",
                 "analytics_action": "calendar_settings_opened",
                 "identity_state": "authenticated_pseudonymous",
-                "workspace_pseudonym": "graf_pseudo_workspace_contract",
+                "workspace_pseudonym": "graf_pseudo_workspace_c0ffee0000000000",
                 "device_class": "browser",
                 "sensitivity": "product",
             },
@@ -106,7 +106,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
         secret = client.post(
             "/api/v1/product-analytics/posthog-web-capture",
             json={
-                "distinct_id": "graf_pseudo_user_contract",
+                "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "page_class": "settings",
                 "role": "owner@example.test",

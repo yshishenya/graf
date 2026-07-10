@@ -27,6 +27,7 @@ def test_provider_smoke_script_outputs_metadata_only_posthog_statuses() -> None:
     assert "posthog_live_safe_delivery=transport_verified" in output
     assert "yandex_counter=runtime_only_redacted" in output
     assert "yandex_public_baseline=preserved" in output
+    assert "yandex_render_config=present" in output
     assert "yandex_blocked_pages=pass" in output
     assert "yandex_auth=redacted_status_only" in output
     assert "yandex_offline=dry_run_two_conversions" in output

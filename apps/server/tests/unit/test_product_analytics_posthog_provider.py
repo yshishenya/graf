@@ -12,7 +12,7 @@ from twobrain_rec_server.product_analytics.posthog_client import (
 def _event():
     return build_activation_event(
         "desktop_account_connected",
-        stable_pseudonymous_user_id="graf_pseudo_user_test",
+        stable_pseudonymous_user_id="graf_pseudo_user_0123456789abcdef",
         properties={
             "auth_method_category": "oauth_provider",
             "account_connection_state": "connected",
@@ -87,7 +87,7 @@ def test_posthog_provider_smoke_allows_product_identity_but_rejects_secrets(tmp_
 
     identity_result = client.capture_event(
         event_name="graf_web_autocapture_click",
-        distinct_id="graf_pseudo_user_test",
+        distinct_id="graf_pseudo_user_0123456789abcdef",
         properties={
             "role": "owner@example.test",
             "display_name": "Product Owner",
@@ -96,7 +96,7 @@ def test_posthog_provider_smoke_allows_product_identity_but_rejects_secrets(tmp_
     )
     secret_result = client.capture_event(
         event_name="graf_web_autocapture_click",
-        distinct_id="graf_pseudo_user_test",
+        distinct_id="graf_pseudo_user_0123456789abcdef",
         properties={
             "role": "owner@example.test",
             "analytics_action": "access_token",
@@ -165,11 +165,11 @@ def test_posthog_live_safe_delivery_posts_capture_payload_without_result_payload
     assert calls[0][1]["Content-Type"] == "application/json"
     assert calls[0][2]["api_key"] == "synthetic-posthog-key"
     assert calls[0][2]["event"] == "desktop_account_connected"
-    assert calls[0][2]["distinct_id"] == "graf_pseudo_user_test"
+    assert calls[0][2]["distinct_id"] == "graf_pseudo_user_0123456789abcdef"
     assert calls[0][2]["properties"]["source_feature"] == "096-product-analytics-provider-rollout"
     result_body = result.as_dict()
     assert "synthetic-posthog-key" not in str(result_body)
-    assert "graf_pseudo_user_test" not in str(result_body)
+    assert "graf_pseudo_user_0123456789abcdef" not in str(result_body)
     assert "properties" not in str(result_body)
 
 

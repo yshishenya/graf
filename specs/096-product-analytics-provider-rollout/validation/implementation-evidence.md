@@ -164,6 +164,41 @@ signed URLs, or private local paths.
 | GitHub tracker closeout | pass | `feature:096` GitHub tracker now has 96 closed issues and 0 open issues. Initial task-to-issues sync covered T001-T090; convergence tasks T091-T096 were missing from GitHub, so metadata-only issues #3034-#3039 were created and closed with production/evidence closeout comments. Earlier task-backed issues #2889-#2978 were also closed with Russian closure comments. |
 | Remaining blockers | expected | Yandex offline OAuth/upload smoke, real dashboard business review, product rollout readiness, paid campaign launch, and full PostHog backup/restore ops readiness remain separate gates. |
 
+## Final Code Review Follow-Up: 2026-07-10
+
+This section records the additional code-review pass requested after the final
+production closeout. It is metadata-only and contains no live counter IDs,
+PostHog project keys, OAuth tokens, cookies, visitor/account rows, raw payloads,
+screenshots, names, emails, meeting content, transcripts, audio, signed URLs, or
+private local paths.
+
+| Area | Status | Metadata-Only Evidence |
+| --- | --- | --- |
+| Pseudonymous identity boundary | fixed | Server and macOS validation now require either the intentional browser anonymous ID or strict `graf_pseudo_(user|workspace|account|bridge)_<hex>` identities. Loose prefixed strings are rejected so hand-written names/labels cannot pass the provider trust boundary. |
+| Desktop PostHog direct route | fixed | macOS direct PostHog delivery now requires an explicit first-party GRAF proxy endpoint. A PostHog host alone no longer causes the desktop client to synthesize a capture URL. |
+| Admin audit usability | fixed | Admin audit filters now expose Russian select options for action/object/outcome, include an object-ID filter, render action summaries plus object-kind/ID context per row, include `calendar_audit_events`, and cover the calendar, provider-link, device, share, skipped, and partial audit values found during review. |
+| Yandex zero-data preflight | tightened | Provider smoke now proves public/product Yandex render config can become enabled with runtime flags and prints `yandex_render_config=present` without exposing a counter ID. The Yandex runbook now calls out this marker in zero-data troubleshooting. |
+| Focused Python validation | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_product_activation_analytics.py tests/unit/test_product_analytics_posthog_provider.py tests/unit/test_product_analytics_yandex_offline_provider.py tests/integration/test_product_activation_analytics_rollout.py tests/contract/test_product_analytics_posthog_autocapture_contract.py tests/integration/test_product_analytics_autocapture_pages.py tests/integration/test_admin_audit_journal.py tests/contract/test_admin_browser_contract.py tests/contract/test_product_analytics_provider_smoke_contract.py tests/contract/test_product_analytics_provider_smoke_output.py tests/integration/test_product_analytics_yandex_page_scope.py tests/integration/test_product_analytics_yandex_env.py tests/integration/test_product_analytics_provider_env.py` passed: `65 passed`. |
+| Focused macOS validation | pass | `swift test --package-path apps/macos --filter ProductActivationAnalyticsContractTests` passed: `11 tests, 0 failures`. |
+| Diff hygiene | pass | `git diff --check` passed. A search for old loose smoke/test IDs found no remaining positive-use matches; remaining loose examples are negative tests only. |
+| Full local CI | pass | `infra/scripts/ci-local.sh` passed after the review fixes with server tests `1239 passed, 4 skipped`, server lint passed, Python compile passed, production Compose config passed, deployment evidence scan passed, and `ci_local_result=pass`. The RLS hardening validation remained truthfully blocked without a production database probe, as expected. |
+
+## Point-by-Point Closeout Recheck: 2026-07-10
+
+This section records the follow-up closeout requested after the final code
+review fixes, with special attention to product rollout readiness. It is
+metadata-only and contains no live counter IDs, PostHog project keys, OAuth
+tokens, cookies, visitor/account rows, raw payloads, screenshots, names, emails,
+meeting content, transcripts, audio, signed URLs, or private local paths.
+
+| Area | Status | Metadata-Only Evidence |
+| --- | --- | --- |
+| Provider smoke and Yandex zero-data preflight | pass | `infra/scripts/run-product-analytics-provider-smoke.sh` passed with `provider_smoke_result=pass`, `yandex_render_config=present`, `yandex_public_baseline=preserved`, `yandex_offline=dry_run_two_conversions`, `yandex_live_safe_upload=transport_verified`, `product_rollout=blocked`, `campaign_launch=blocked`, and `no_secret_scan=metadata_only_pass`. |
+| Rollout/campaign blocker tests | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_product_analytics_provider_config.py tests/integration/test_product_analytics_provider_readiness_blockers.py tests/contract/test_product_analytics_provider_rollback.py` passed: `13 passed`. These tests prove provider/live-safe delivery gates can be validated without approving product rollout readiness or paid campaign launch in 096. |
+| Deployment-focused smoke contracts | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_product_activation_analytics_rollout.py tests/contract/test_product_analytics_provider_smoke_output.py tests/contract/test_product_analytics_provider_smoke_contract.py` passed: `9 passed`. |
+| Live-secret guard | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_product_activation_analytics.py::test_no_live_product_analytics_secrets_are_committed` passed: `1 passed`. |
+| Product rollout readiness | intentionally blocked | 096 remains a provider/infrastructure rollout, not a product rollout approval. `product_rollout_allowed=false`, `campaign_launch_allowed=false`, Yandex offline live upload still requires OAuth secret-file setup and live upload smoke, real provider dashboard review remains separate, and paid campaign launch remains blocked by 096. |
+
 ## Official Documentation Reviewed
 
 Planning research reviewed official provider documentation for:

@@ -20,14 +20,29 @@
   views now show clearer Russian labels, actor/object/result context,
   drill-down links, and audit-source breakdowns instead of disconnected raw
   records.
+- Feature `096-product-analytics-provider-rollout`: admin audit filters now use
+  readable action/object/outcome choices and include object-ID filtering, so
+  operators can find who did what without guessing internal event names.
+- Feature `096-product-analytics-provider-rollout`: admin audit now includes
+  calendar audit events and readable labels for calendar, provider-link,
+  device, share, and skipped/partial outcomes.
 
 ### Исправлено
 - Feature `096-product-analytics-provider-rollout`: public pages now include
   the shared analytics controller once, preventing duplicate first-party
   PostHog autocapture events while preserving consent-gated Yandex loading.
+- Feature `096-product-analytics-provider-rollout`: macOS direct PostHog
+  delivery now requires an explicit first-party GRAF proxy endpoint and no
+  longer derives a capture URL from a bare PostHog host.
+- Feature `096-product-analytics-provider-rollout`: provider smoke now checks
+  rendered Yandex public/product runtime config and reports
+  `yandex_render_config=present` for zero-data troubleshooting.
 
 ### Безопасность
-- _Пока нет записей._
+- Feature `096-product-analytics-provider-rollout`: server and macOS product
+  analytics now reject loose `graf_pseudo_...` strings and accept only strict
+  pseudonymous analytics identity shapes or the intentional browser anonymous
+  ID.
 
 ### Документы
 - Feature `096-product-analytics-provider-rollout`: product status,

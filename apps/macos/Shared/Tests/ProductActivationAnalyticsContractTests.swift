@@ -57,6 +57,17 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         ))
     }
 
+    func testPseudonymousIdentityContractRequiresStrictShape() {
+        XCTAssertTrue(ProductActivationAnalyticsPayload.isSafePseudonymousIdentity("graf_pseudo_browser_anonymous"))
+        XCTAssertTrue(ProductActivationAnalyticsPayload.isSafePseudonymousIdentity("graf_pseudo_user_1234567890abcdef"))
+        XCTAssertTrue(ProductActivationAnalyticsPayload.isSafePseudonymousIdentity("graf_pseudo_workspace_abcdef12"))
+
+        XCTAssertFalse(ProductActivationAnalyticsPayload.isSafePseudonymousIdentity("graf_pseudo_user_realname"))
+        XCTAssertFalse(ProductActivationAnalyticsPayload.isSafePseudonymousIdentity("graf_pseudo_user_abc"))
+        XCTAssertFalse(ProductActivationAnalyticsPayload.isSafePseudonymousIdentity("graf_pseudo_device_1234567890abcdef"))
+        XCTAssertFalse(ProductActivationAnalyticsPayload.isSafePseudonymousIdentity("graf_pseudo_user_1234567890ABCDEF"))
+    }
+
     func testDirectDesktopProviderEgressIsClosedUntilEveryApprovalExists() {
         XCTAssertFalse(ProductActivationAnalyticsClient.directProviderEgressAllowed(
             legalApproved: true,
@@ -137,6 +148,35 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         XCTAssertEqual(json["distinct_id"] as? String, "graf_pseudo_user_1234567890abcdef")
         XCTAssertEqual(json["api_key_state"] as? String, "server_injected_redacted")
         XCTAssertNil(json["api_key"])
+    }
+
+    func testDirectDesktopRouteRequiresExplicitGrafProxyEndpoint() throws {
+        let client = try XCTUnwrap(ProductActivationAnalyticsClient(
+            rawBaseURL: "https://rec.2brain.pro",
+            headers: [:]
+        ))
+        let payload = try ProductActivationAnalyticsPayload(
+            eventName: .desktopAccountConnected,
+            stablePseudonymousUserId: "graf_pseudo_user_1234567890abcdef",
+            properties: [
+                "auth_method_category": "oauth_provider",
+                "account_connection_state": "connected",
+                "bridge_present": "true"
+            ]
+        )
+        let config = ProductAnalyticsDirectProviderConfig(
+            posthogHost: URL(string: "https://analytics.2brain.pro"),
+            posthogDirectEnabled: true,
+            yandexDirectEnabled: false,
+            telemetryAccepted: true,
+            legalApproved: true,
+            securityApproved: true,
+            qaApproved: true,
+            directEgressDisclosed: true
+        )
+
+        XCTAssertFalse(config.allowsPostHogDirectRoute)
+        XCTAssertNil(try client.directPostHogRequest(for: payload, config: config))
     }
 
     func testDirectDesktopRouteRequiresPseudonymousIdentity() throws {

@@ -14,7 +14,7 @@ from twobrain_rec_server.product_analytics.yandex_offline import (
 def _approved_event(name: str = "desktop_account_connected"):
     return build_activation_event(
         name,
-        stable_pseudonymous_user_id="graf_pseudo_user_yandex",
+        stable_pseudonymous_user_id="graf_pseudo_user_7a0de00000000000",
         occurred_at=datetime(2026, 7, 9, 10, 0, tzinfo=UTC),
         properties={
             "auth_method_category": "oauth_provider",
@@ -45,7 +45,7 @@ def test_yandex_offline_row_uses_redacted_identity_source_and_dedupe_key() -> No
     assert payload["upload_state"] == "queued"
     assert payload["dedupe_key"].startswith("graf_yandex_dedupe_")
     assert payload["upload_batch_id"].startswith("graf_yandex_batch_")
-    assert "graf_pseudo_user_yandex" not in str(payload)
+    assert "graf_pseudo_user_7a0de00000000000" not in str(payload)
 
 
 def test_yandex_offline_exporter_returns_redacted_dry_run_status(tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ def test_yandex_offline_duplicate_key_is_stable_for_same_event() -> None:
 def test_yandex_offline_does_not_treat_stable_user_id_as_yandex_userid_without_page_binding() -> None:
     event = build_activation_event(
         "desktop_account_connected",
-        stable_pseudonymous_user_id="graf_pseudo_user_yandex",
+        stable_pseudonymous_user_id="graf_pseudo_user_7a0de00000000000",
         occurred_at=datetime(2026, 7, 9, 10, 0, tzinfo=UTC),
         properties={
             "auth_method_category": "oauth_provider",
@@ -138,8 +138,8 @@ def test_yandex_live_safe_upload_uses_multipart_without_result_value_leak(tmp_pa
     assert calls[0][1]["Content-Type"].startswith("multipart/form-data")
     assert b"Target,DateTime,UserId,PurchaseId" in calls[0][2]
     assert b"desktop_account_connected" in calls[0][2]
-    assert b"graf_pseudo_user_yandex" in calls[0][2]
+    assert b"graf_pseudo_user_7a0de00000000000" in calls[0][2]
     result_body = result.as_dict()
     assert "synthetic-yandex-token" not in str(result_body)
     assert "12345678" not in str(result_body)
-    assert "graf_pseudo_user_yandex" not in str(result_body)
+    assert "graf_pseudo_user_7a0de00000000000" not in str(result_body)

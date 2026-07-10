@@ -194,7 +194,7 @@ def test_desktop_posthog_proxy_endpoint_accepts_posthog_style_body_in_provider_s
             "/api/v1/product-analytics/posthog-desktop-capture",
             json={
                 "event": "desktop_account_connected",
-                "distinct_id": "graf_pseudo_user_094",
+                "distinct_id": "graf_pseudo_user_0940000000000000",
                 "telemetry_gate_state": "accepted",
                 "api_key_state": "server_injected_redacted",
                 "properties": {

@@ -21,6 +21,10 @@ from twobrain_rec_server.product_analytics.yandex_offline import (
     YandexOfflineConversionExporter,
     build_yandex_offline_conversion,
 )
+from twobrain_rec_server.public.analytics import (
+    build_product_yandex_provider_context,
+    build_public_analytics_context,
+)
 
 with TemporaryDirectory() as tmpdir:
     key_file = Path(tmpdir) / "posthog_project_key"
@@ -42,7 +46,7 @@ with TemporaryDirectory() as tmpdir:
     )
     event = build_activation_event(
         "desktop_first_opened",
-        stable_pseudonymous_user_id="graf_pseudo_user_smoke",
+        stable_pseudonymous_user_id="graf_pseudo_user_5b0e000000000000",
         properties={"platform": "macos", "bridge_present": True},
     )
     delivery = PostHogClientWrapper.from_settings(settings).capture(event)
@@ -51,7 +55,7 @@ with TemporaryDirectory() as tmpdir:
         raise SystemExit("provider smoke failed")
     yandex_event = build_activation_event(
         "desktop_account_connected",
-        stable_pseudonymous_user_id="graf_pseudo_user_smoke",
+        stable_pseudonymous_user_id="graf_pseudo_user_5b0e000000000000",
         properties={
             "auth_method_category": "oauth_provider",
             "account_connection_state": "connected",
@@ -64,7 +68,7 @@ with TemporaryDirectory() as tmpdir:
     yandex_delivery = YandexOfflineConversionExporter.from_settings(settings).export(yandex_event)
     posthog_secret_delivery = PostHogClientWrapper.from_settings(settings).capture_event(
         event_name="graf_web_autocapture_click",
-        distinct_id="graf_pseudo_user_smoke",
+        distinct_id="graf_pseudo_user_5b0e000000000000",
         properties={"analytics_action": "access_token", "page_class": "settings"},
     )
     dedupe_a = build_yandex_offline_conversion(yandex_event).dedupe_key
@@ -76,6 +80,22 @@ with TemporaryDirectory() as tmpdir:
     if yandex_approved_page_classes() != ("public_landing", "public_download"):
         raise SystemExit("provider smoke failed")
     if "admin" not in blocked_yandex_page_classes() or "auth_callback" not in blocked_yandex_page_classes():
+        raise SystemExit("provider smoke failed")
+    product_yandex_context = build_product_yandex_provider_context(settings, "public_landing")
+    admin_yandex_context = build_product_yandex_provider_context(settings, "admin")
+    public_yandex_context = build_public_analytics_context(
+        Settings(
+            public_analytics_enabled=True,
+            public_analytics_validation_mode="provider_smoke",
+            public_analytics_yandex_metrica_id="12345678",
+        ),
+        "/",
+    )
+    if not product_yandex_context["enabled"] or product_yandex_context["counter_id_present"] is not True:
+        raise SystemExit("provider smoke failed")
+    if admin_yandex_context["enabled"] or admin_yandex_context["blocked_reason"] != "inventory_blocked":
+        raise SystemExit("provider smoke failed")
+    if not public_yandex_context["enabled"] or public_yandex_context["yandex_metrica_id_present"] is not True:
         raise SystemExit("provider smoke failed")
     live_settings = Settings(
         product_analytics_enabled=True,
@@ -148,6 +168,7 @@ print("posthog_desktop_direct=contract_tested")
 print("posthog_autocapture=current_pages_enabled")
 print("yandex_counter=runtime_only_redacted")
 print("yandex_public_baseline=preserved")
+print("yandex_render_config=present")
 print("yandex_blocked_pages=pass")
 print("yandex_auth=redacted_status_only")
 print("yandex_offline=dry_run_two_conversions")

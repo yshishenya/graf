@@ -78,7 +78,7 @@ public struct ProductAnalyticsDirectProviderConfig: Codable, Equatable, Sendable
     }
 
     public var allowsPostHogDirectRoute: Bool {
-        (posthogCaptureEndpoint != nil || posthogHost != nil) &&
+        posthogCaptureEndpoint != nil &&
             posthogDirectEnabled &&
             telemetryAccepted &&
             legalApproved &&
@@ -161,7 +161,21 @@ public struct ProductActivationAnalyticsPayload: Codable, Equatable, Sendable {
     }
 
     public static func isSafePseudonymousIdentity(_ value: String) -> Bool {
-        value.hasPrefix("graf_pseudo_") && !value.contains("@") && !value.contains("/") && !value.contains("\\")
+        if value == "graf_pseudo_browser_anonymous" {
+            return true
+        }
+        let parts = value.split(separator: "_", omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              parts[0] == "graf",
+              parts[1] == "pseudo",
+              ["user", "workspace", "account", "bridge"].contains(String(parts[2])),
+              (8...64).contains(parts[3].count)
+        else {
+            return false
+        }
+        return parts[3].unicodeScalars.allSatisfy { scalar in
+            (48...57).contains(scalar.value) || (97...102).contains(scalar.value)
+        }
     }
 
     public static func isForbiddenField(_ key: String) -> Bool {

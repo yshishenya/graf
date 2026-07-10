@@ -48,8 +48,9 @@ governance, but it is not ready for offline conversion launch yet.
 If the Yandex dashboard shows zeroes, check these items before changing scope:
 
 1. Confirm the page is one of the approved public pages (`/` or `/download`).
-2. Confirm the rendered page has the public analytics config and the Yandex
-   counter state is configured/redacted.
+2. Confirm the rendered page has the public or product analytics config and the
+   Yandex counter state is configured/redacted. The provider smoke prints
+   `yandex_render_config=present` when this runtime path is wired correctly.
 3. Confirm the browser has granted analytics or attribution consent. Without
    consent, the page must not load Yandex and dashboard zeroes are expected.
 4. Confirm a consented browser session sends the approved public goal event.
