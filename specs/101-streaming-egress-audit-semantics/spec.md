@@ -5,6 +5,17 @@
 **Status**: Draft
 **Input**: User description: "During review of the 090 upload/playback/security fixes, we found that streaming playback/download routes record `download_completed` and `playback_completed` before the HTTP stream is actually consumed. Do not patch this casually; capture a separate feature to make egress audit and deletion post-egress semantics truthful."
 
+## Implementation Note
+
+The 090 closeout follow-up now emits `download_stream_prepared` and
+`playback_stream_prepared` for streaming audio paths instead of claiming
+`*_completed` before the HTTP response body is consumed. This narrows the
+immediate audit overclaim while keeping deletion reports conservative.
+
+Feature 101 remains open for the fuller lifecycle vocabulary and UI/reporting
+work: interrupted stream states, admin-facing labels, migration copy, and any
+future reliable completion semantics.
+
 ## Product Context
 
 GRAF records audit events for meeting-content egress such as downloads, exports, shares and playback. These events feed several user- and admin-facing truths:

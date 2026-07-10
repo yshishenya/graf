@@ -5,6 +5,19 @@
 **Status**: Draft
 **Input**: User description: "Продумать B2C/B2B модель workspace: простая регистрация должна остаться простой, а присоединение к корпоративному workspace должно быть отдельным управляемым действием."
 
+## Implementation Note
+
+The 090 security closeout added a narrow fail-safe for the current browser
+email signup flow: signup start and verify both respect the existing workspace
+enrollment policy instead of silently creating access when self-enrollment is
+closed.
+
+That hotfix does not complete 097. The product still needs the full personal
+space / corporate workspace onboarding model described here, including
+idempotent personal-space creation, explicit corporate join offers, active-space
+selection, migration planning for legacy default-workspace users and admin
+workspace enrollment management.
+
 ## Clarifications
 
 ### Session 2026-07-09

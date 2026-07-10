@@ -93,6 +93,14 @@ def main() -> int:
     ensure_labels(slug, feature)
 
     print("github-issue-canon: ensured files and labels")
+    print(
+        "github-issue-canon: taskstoissues must use "
+        "docs/agent-guidance/github-issue-canon.md for issue titles, bodies, and labels"
+    )
+    print(
+        "github-issue-canon: only valid task title shape here is "
+        "'[<feature>][<priority>][<area>] T###: <русский результат>'"
+    )
     if changed:
         print("github-issue-canon: changed files:")
         for path in changed:

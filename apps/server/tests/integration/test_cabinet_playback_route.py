@@ -77,7 +77,7 @@ def test_owner_playback_route_returns_combined_review_audio_without_storage_url(
         assert marker not in response.content
     assert [event.event_type for event in audit_events(client, seeds.ready_id)] == [
         "playback_requested",
-        "playback_completed",
+        "playback_stream_prepared",
     ]
 
 
@@ -219,6 +219,22 @@ def test_owner_playback_route_supports_byte_range_without_audio_download_policy(
     assert range_response.headers["content-range"] == f"bytes 0-15/{len(m4a_body)}"
     assert range_response.headers["content-length"] == "16"
     assert range_response.content == m4a_body[:16]
+    events = audit_events(client, seeds.ready_id)
+    assert [(event.event_type, event.outcome) for event in events] == [
+        ("playback_requested", "allowed"),
+        ("playback_stream_prepared", "prepared"),
+        ("playback_requested", "allowed"),
+        ("playback_stream_prepared", "prepared"),
+    ]
+    assert events[-1].metadata_json == {
+        "artifact_class": "audio",
+        "byte_length": 16,
+        "outcome": "prepared",
+        "range_end": 15,
+        "range_start": 0,
+        "source_mode": "stored_review_m4a",
+        "stream_state": "prepared",
+    }
     for marker in FORBIDDEN_MARKERS:
         assert marker not in range_response.content
 
@@ -285,7 +301,7 @@ def test_playback_route_allows_review_when_audio_download_policy_is_disabled(cli
     events = audit_events(client, seeds.ready_id)
     assert [(event.event_type, event.outcome) for event in events] == [
         ("playback_requested", "allowed"),
-        ("playback_completed", "completed"),
+        ("playback_stream_prepared", "prepared"),
     ]
 
 

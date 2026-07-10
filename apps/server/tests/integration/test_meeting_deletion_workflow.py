@@ -171,6 +171,50 @@ def test_deletion_report_treats_legacy_playback_completed_as_post_egress(client)
     assert "stored_review_m4a" not in report.text
 
 
+def test_deletion_report_treats_stream_prepared_events_as_post_egress(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    async def seed_stream_egress() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert meeting is not None
+            for event_type in ("download_stream_prepared", "playback_stream_prepared"):
+                db.add(
+                    MeetingEgressAuditEvent(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        actor_user_id=None,
+                        device_id=None,
+                        event_type=event_type,
+                        artifact_class="audio",
+                        policy_reason="server_mediated_review_playback",
+                        outcome="prepared",
+                        metadata_json={"artifact_class": "audio", "stream_state": "prepared"},
+                    )
+                )
+            await db.commit()
+
+    asyncio.run(seed_stream_egress())
+
+    delete_response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_COPY},
+    )
+    assert delete_response.status_code == 202
+
+    report = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-report",
+        headers=auth_headers(),
+    )
+
+    assert report.status_code == 200
+    assert "post_egress_events:" in report.text
+    assert "download_stream_prepared" in report.text
+    assert "playback_stream_prepared" in report.text
+    assert "stream_state" not in report.text
+
+
 def test_deletion_report_activity_remains_metadata_only_after_local_purge_ack(client) -> None:
     seeds = seed_cabinet_meetings(client)
     delete_response = client.post(

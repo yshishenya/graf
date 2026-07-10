@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -52,11 +53,51 @@ DEFAULT_AREAS = {
     "ux": ("d4c5f9", "User experience, interaction, copy, accessibility"),
 }
 
-TITLE_RE = re.compile(r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] (?P<outcome>.+)")
+TITLE_FORMAT = "[<feature>][<priority>][<area>] T###: <русский результат>"
+TITLE_RE = re.compile(
+    r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
+    r"(?P<task>T\d{3}): (?P<outcome>.+)"
+)
+LEGACY_TITLE_RE = re.compile(
+    r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
+    r"(?P<outcome>.+)"
+)
+TASK_RE = re.compile(r"\bT\d{3}\b")
 
 
 def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def run_with_retry(
+    cmd: list[str],
+    cwd: Path | None = None,
+    attempts: int = 3,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(attempts):
+        last_result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if last_result.returncode == 0:
+            return last_result
+        if attempt + 1 < attempts:
+            time.sleep(1.5 * (attempt + 1))
+    if check and last_result is not None:
+        raise subprocess.CalledProcessError(
+            last_result.returncode,
+            cmd,
+            output=last_result.stdout,
+            stderr=last_result.stderr,
+        )
+    assert last_result is not None
+    return last_result
 
 
 def repo_root() -> Path:
@@ -122,7 +163,7 @@ project issue canon в `{canon_path}`.
 Обязательный формат title:
 
 ```text
-[<feature>][<priority>][<area>] <результат простыми словами>
+[<feature>][<priority>][<area>] T###: <русский результат>
 ```
 
 Обязательные секции issue body, в таком порядке:
@@ -160,22 +201,63 @@ PR description, issue comments, closure comments и sync notes пиши на р�
     return True
 
 
-def ensure_label(slug: str, name: str, color: str, description: str) -> None:
+def list_existing_labels(slug: str) -> dict[str, tuple[str, str]]:
+    result = run_with_retry([
+        "gh",
+        "label",
+        "list",
+        "--repo",
+        slug,
+        "--limit",
+        "1000",
+        "--json",
+        "name,color,description",
+    ])
+    labels = json.loads(result.stdout)
+    return {
+        label["name"]: (
+            str(label.get("color") or "").lower().lstrip("#"),
+            str(label.get("description") or ""),
+        )
+        for label in labels
+    }
+
+
+def ensure_label(
+    slug: str,
+    name: str,
+    color: str,
+    description: str,
+    existing: dict[str, tuple[str, str]],
+) -> None:
+    expected = (color.lower().lstrip("#"), description)
+    current = existing.get(name)
+    if current == expected:
+        return
+    if current is not None:
+        edit = ["gh", "label", "edit", name, "--repo", slug, "--color", color, "--description", description]
+        run_with_retry(edit, attempts=3)
+        existing[name] = expected
+        return
+
     create = ["gh", "label", "create", name, "--repo", slug, "--color", color, "--description", description]
-    result = subprocess.run(create, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = run_with_retry(create, check=False)
     if result.returncode == 0:
+        existing[name] = expected
         return
     edit = ["gh", "label", "edit", name, "--repo", slug, "--color", color, "--description", description]
-    run(edit)
+    run_with_retry(edit, attempts=3)
+    existing[name] = expected
 
 
 def ensure_labels(slug: str, feature: str | None = None) -> None:
+    existing = list_existing_labels(slug)
     for name, (color, desc) in DEFAULT_LABELS.items():
-        ensure_label(slug, name, color, desc)
+        ensure_label(slug, name, color, desc, existing)
     for area, (color, desc) in DEFAULT_AREAS.items():
-        ensure_label(slug, f"area:{area}", color, desc)
+        ensure_label(slug, f"area:{area}", color, desc, existing)
     if feature:
-        ensure_label(slug, f"feature:{feature}", "bfd4f2", f"Spec Kit feature {feature}")
+        ensure_label(slug, f"feature:{feature}", "bfd4f2", f"Spec Kit feature {feature}", existing)
 
 
 def current_feature(root: Path) -> str | None:
@@ -229,9 +311,10 @@ def is_speckit_issue(issue: dict) -> bool:
     return (
         any(name.startswith("feature:") for name in labels)
         or bool(TITLE_RE.match(title))
+        or bool(LEGACY_TITLE_RE.match(title))
         or "Spec tasks:" in body
         or "Spec Kit" in body
-        or re.search(r"\bT\d{3}\b", body) is not None
+        or TASK_RE.search(body) is not None
     )
 
 
@@ -242,17 +325,20 @@ def validate_issue(issue: dict) -> list[str]:
     labels = label_names(issue)
     match = TITLE_RE.match(title)
     if not match:
-        errors.append("title does not match [<feature>][<priority>][<area>] <результат простыми словами>")
+        errors.append(f"title does not match {TITLE_FORMAT}")
     else:
         feature = match.group("feature")
         priority = match.group("priority")
         area_root = match.group("area").split("/", 1)[0]
+        task = match.group("task")
         if f"feature:{feature}" not in labels:
             errors.append(f"missing label feature:{feature}")
         if f"priority:{priority}" not in labels:
             errors.append(f"missing label priority:{priority}")
         if f"area:{area_root}" not in labels and f"area:{match.group('area')}" not in labels:
             errors.append(f"missing area label for {match.group('area')}")
+        if task not in body:
+            errors.append(f"body context must include Spec tasks: {task}")
     if not any(name.startswith("type:") for name in labels):
         errors.append("missing type:* label")
     for section in REQUIRED_SECTIONS:

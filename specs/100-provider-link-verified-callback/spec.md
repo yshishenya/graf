@@ -5,6 +5,18 @@
 **Status**: Draft
 **Input**: User description: "Security finding: Provider link trusts caller subject. Нужно не чинить точечно, а сделать отдельную 100-фичу и продумать безопасный flow привязки внешнего провайдера к существующему аккаунту."
 
+## Implementation Note
+
+The 090 security closeout changed the deprecated direct `/api/v1/auth/link`
+compatibility endpoint to fail safe: authenticated callers may no longer create
+or verify an external identity from a request body containing
+`candidate_provider_subject`. The route records a metadata-only rejected audit
+event and returns `provider_link_requires_verified_callback`.
+
+That hotfix removes the immediate raw-subject trust boundary. It does not
+complete 100: the user-facing ability to add a new provider to an existing
+account still needs the verified callback/link-intent flow described below.
+
 ## Product Context
 
 GRAF supports external provider authentication such as Yandex, VK, Telegram or future identity providers. The normal login/signup callback flow already has the right trust direction: the server starts a provider flow, receives a callback, verifies provider claims and then treats the provider subject as verified.

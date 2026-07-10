@@ -79,7 +79,7 @@ def test_admin_download_and_export_use_admin_access_for_non_owned_meeting(client
     assert export.json()["status"] == "ready"
     assert {event.event_type for event in audit_events(client, seeds.ready_id)} >= {
         "download_requested",
-        "download_completed",
+        "download_stream_prepared",
         "export_requested",
         "export_completed",
     }

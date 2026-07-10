@@ -21,6 +21,10 @@
 - Review playback/download теперь использует только stored
   `meeting-review.m4a`; legacy mic/system artifacts больше не показывают audio
   download как доступный без canonical playback artifact.
+- Streaming audio playback/download audit больше не называет подготовленный
+  HTTP stream `completed`: новые события `playback_stream_prepared` и
+  `download_stream_prepared` сохраняют post-egress deletion truth без
+  overclaim полного client receipt.
 - Transcript/review speaker labels канонизируются как `SPEAKER_00`,
   `SPEAKER_01`, выбираются по временному пересечению с diarization и не
   подменяются source-role или calendar roster labels.

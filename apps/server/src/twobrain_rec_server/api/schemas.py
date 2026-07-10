@@ -576,7 +576,7 @@ TeamVisibilityState = Literal["enabled", "disabled", "policy_blocked"]
 CopyLinkState = Literal["available", "auth_required", "disabled"]
 PublicLinkState = Literal["disabled_by_default", "policy_blocked"]
 ShareGrantStatus = Literal["active", "revoked"]
-ActivityOutcome = Literal["allowed", "denied", "completed", "failed"]
+ActivityOutcome = Literal["allowed", "denied", "completed", "failed", "prepared"]
 ExportPackageStatus = Literal["requested", "ready", "failed", "expired"]
 
 

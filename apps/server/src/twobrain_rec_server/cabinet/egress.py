@@ -53,6 +53,9 @@ ALLOWED_AUDIT_KEYS = {
     "export_id",
     "share_grant_id",
     "source_mode",
+    "range_end",
+    "range_start",
+    "stream_state",
 }
 
 
@@ -370,22 +373,26 @@ async def download_artifact(
         byte_length = len(body)
         source_mode = None
 
+    download_metadata: dict[str, object] = {
+        "artifact_class": artifact_class,
+        "outcome": "prepared" if artifact_class == "audio" else "completed",
+        "byte_length": byte_length,
+        "source_mode": source_mode,
+    }
+    if artifact_class == "audio":
+        download_metadata["stream_state"] = "prepared"
+
     await record_egress_audit_event(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
         actor_user_id=actor_user_id,
         device_id=device_id,
-        event_type="download_completed",
-        outcome="completed",
+        event_type="download_stream_prepared" if artifact_class == "audio" else "download_completed",
+        outcome="prepared" if artifact_class == "audio" else "completed",
         artifact_class=artifact_class,
         policy_reason="policy_allowed",
-        metadata={
-            "artifact_class": artifact_class,
-            "outcome": "completed",
-            "byte_length": byte_length,
-            "source_mode": source_mode,
-        },
+        metadata=download_metadata,
     )
     return DownloadArtifact(filename=filename, media_type=media_type, body=body, byte_length=byte_length)
 
@@ -496,22 +503,28 @@ async def playback_artifact(
             "source_mode": "stored_review_m4a",
         },
     )
+    playback_metadata: dict[str, object] = {
+        "artifact_class": "audio",
+        "outcome": "prepared",
+        "byte_length": length,
+        "source_mode": "stored_review_m4a",
+        "stream_state": "prepared",
+    }
+    if length > 0:
+        playback_metadata["range_start"] = offset
+        playback_metadata["range_end"] = offset + length - 1
+
     await record_egress_audit_event(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
         actor_user_id=actor_user_id,
         device_id=device_id,
-        event_type="playback_completed",
-        outcome="completed",
+        event_type="playback_stream_prepared",
+        outcome="prepared",
         artifact_class="audio",
         policy_reason="server_mediated_review_playback",
-        metadata={
-            "artifact_class": "audio",
-            "outcome": "completed",
-            "byte_length": length,
-            "source_mode": "stored_review_m4a",
-        },
+        metadata=playback_metadata,
     )
     return PlaybackArtifact(
         media_type="audio/mp4",

@@ -81,10 +81,19 @@ def test_allowed_audio_download_returns_stored_m4a_review_artifact(client) -> No
     assert response.headers["content-length"] == str(len(m4a_body))
     assert 'filename="meeting-review.m4a"' in response.headers["content-disposition"]
     assert response.content == m4a_body
-    assert [event.event_type for event in audit_events(client, seeds.ready_id)] == [
+    events = audit_events(client, seeds.ready_id)
+    assert [event.event_type for event in events] == [
         "download_requested",
-        "download_completed",
+        "download_stream_prepared",
     ]
+    assert events[-1].outcome == "prepared"
+    assert events[-1].metadata_json == {
+        "artifact_class": "audio",
+        "byte_length": len(m4a_body),
+        "outcome": "prepared",
+        "source_mode": "stored_review_m4a",
+        "stream_state": "prepared",
+    }
 
 
 def test_allowed_audio_download_requires_stored_m4a_review_artifact(client) -> None:
@@ -270,3 +279,23 @@ def test_activity_endpoint_returns_only_metadata_not_artifact_content(client) ->
     assert "metadata_only" in body
     assert SAFE_TRANSCRIPT_TEXT not in body
     assert "download_completed" in body
+
+
+def test_activity_endpoint_accepts_stream_prepared_audio_events(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A activity")
+    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
+
+    downloaded = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio",
+        headers=auth_headers(),
+    )
+    activity = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/activity",
+        headers=auth_headers(),
+    )
+
+    assert downloaded.status_code == 200
+    assert activity.status_code == 200
+    assert activity.json()["items"][0]["event_type"] == "download_stream_prepared"
+    assert activity.json()["items"][0]["outcome"] == "prepared"

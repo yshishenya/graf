@@ -84,6 +84,17 @@ must record the selected risk/validation lane, why that scope is enough, and the
 validation evidence. Validation requires the current Russian issue sections;
 normalize older issues before claiming the issue canon is clean.
 
+Spec Kit task-backed issue titles have one canonical shape:
+
+```text
+[<feature>][<priority>][<area>] T###: <русский результат>
+```
+
+Generic `$speckit-taskstoissues` guidance like `T001: <description>` is treated
+as fallback-only when this extension is not installed. Repositories using this
+extension should keep the task id in the canon title and in the body context
+line `Spec tasks: T001`.
+
 ## Release And Versioning Guidance
 
 Projects refreshed by this extension should keep release metadata readable for

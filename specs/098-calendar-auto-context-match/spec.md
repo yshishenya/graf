@@ -5,6 +5,19 @@
 **Status**: Draft
 **Input**: User description: "После подключения календаря GRAF должен сам матчить запись с календарной встречей по времени записи и брать оттуда название, roster участников и полезный recurring context. Ручная привязка event_id не должна быть основным сценарием."
 
+## Implementation Note
+
+The 090 security closeout tightened the existing manual calendar-context
+link/unlink endpoints so a user can only link their own recording to a calendar
+event from their own selected calendar source in the same space, and cannot
+unlink another user's recording context.
+
+That hotfix only closes the immediate authorization gap. It does not implement
+098's intended product behavior: automatic time-based matching for normal
+first-party recordings, ambiguity handling, private/all-day exclusions,
+recurring context and the rule that manual uploads/offline recovery are not
+calendar-matched.
+
 ## Product Context
 
 GRAF уже имеет базовую календарную инфраструктуру из feature slices `060-calendar-context-ingestion` и `063-calendar-settings-ui`: пользователь может подключить календарь, выбрать календари, видеть prompt/settings и хранить нормализованные snapshots будущих событий. Но обсуждение показало, что текущая модель слишком легко превращает календарь в ручную привязку события к записи. Это не тот продуктовый сценарий, который нужен meeting assistant.

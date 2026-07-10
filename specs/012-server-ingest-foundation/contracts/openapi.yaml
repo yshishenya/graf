@@ -7411,6 +7411,7 @@ components:
           - denied
           - completed
           - failed
+          - prepared
           title: Outcome
         reason:
           anyOf:
